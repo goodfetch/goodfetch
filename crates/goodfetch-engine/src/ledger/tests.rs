@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 
+use goodfetch_counted_work::{CountedWork, Row as CountedRow};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::run::LimitSetter;
@@ -15,9 +16,12 @@ use goodfetch_test_support::{TestEnv, damage_table, wal_of};
 use jiff::Timestamp;
 use rstest::rstest;
 
-use super::{Charging, Holder, Ledger, LedgerError, Placement, Probed, Refusal, SliceSizing};
+use super::{
+    Charging, Holder, Ledger, LedgerError, Placement, Probed, Refusal, SliceId, SliceSizing,
+};
 
 mod allowance;
+mod held_limits;
 mod managed;
 mod model;
 mod reserve;
@@ -80,6 +84,18 @@ fn charging(env: &TestEnv, run_id: &str) -> Charging {
         placement(Product::Collie),
         SliceSizing::default(),
     )
+}
+
+/// Whether a new run of the install's, run by `product`'s engine, may
+/// start at `at`.
+fn may_start(env: &TestEnv, product: Product, at: Timestamp) -> Result<(), Refusal> {
+    Charging::new(
+        ledger(env),
+        holder(env, "starting"),
+        placement(product),
+        SliceSizing::default(),
+    )
+    .may_start(at)
 }
 
 /// The install Limit's charged, held and left Usage now.
@@ -151,55 +167,86 @@ fn a_charge_beyond_what_is_left_is_refused_naming_the_limit() {
     );
 }
 
-/// A run's charges out of the Slices it holds read the Limits that hold it
-/// on one connection the run keeps, so a hundred of them run fewer file
-/// operations in all than one ledger open does (the deep review's 599-12:
-/// every 16 KiB a provider Session relayed reopened the ledger); and the
-/// Limits are still read on each charge, so one set meanwhile through
-/// another engine's connection holds the very next charge.
-///
-/// Covers: story:3-67, story:3-71
+/// A run opens the ledger once, as it starts, for its Limits, all its
+/// charges, the Slices they take, the Limits it reads back and its
+/// give-back (#1886, E3-4: each Slice taken opened the file and prepared
+/// its statements afresh; #1888: its start opened it once more).
 #[test]
-fn a_runs_charges_read_its_limits_on_one_connection_and_still_meet_a_limit_set_meanwhile() {
+fn a_run_opens_the_ledger_once_for_its_charges_slices_reads_and_give_back() {
     let env = TestEnv::new();
-    let name = env.unique_name("ledger-connection");
-    let vfs = goodfetch_test_support::CrashVfs::register(&name, env.seed()).unwrap();
-    let ledger = Ledger::at(
-        env.home().join("usage-ledger.sqlite"),
-        Some(vfs.name().to_owned()),
-    );
+    let work = CountedWork::default();
+    let ledger = ledger(&env);
     ledger
-        .add_limit(&limit(install(), "requests", 1_000_000), now())
+        .add_limit(&limit(install(), "requests", 1_000), now())
         .unwrap();
     let mut run = Charging::new(
-        ledger.clone(),
+        ledger.clone().counting(work.clone()),
+        holder(&env, "crawl"),
+        placement(Product::Collie),
+        SliceSizing::default(),
+    );
+    run.may_start(now()).unwrap();
+    let at_start = work.read(CountedRow::ChargeOpens);
+
+    let slices: std::collections::BTreeSet<SliceId> = (0..40)
+        .filter_map(|_| {
+            run.charge("requests", 1, now())
+                .unwrap()
+                .used
+                .first()
+                .map(|(slice, _)| *slice)
+        })
+        .collect();
+    run.allowed_by("requests", "USD").unwrap();
+    run.applied(now()).unwrap();
+    run.give_back().unwrap();
+    let applied = run.applied(now()).unwrap();
+
+    assert_eq!(
+        (
+            slices.len(),
+            applied.len(),
+            at_start,
+            work.read(CountedRow::ChargeOpens),
+            counted(&ledger)
+        ),
+        (4, 1, 1, 1, (40, 0, 960))
+    );
+}
+
+/// A run's charge that fails at the ledger, here as it reads the Limits
+/// before it takes a Slice, lets the run's connection go, and the next
+/// opens the file afresh rather than reading on a connection a failure may
+/// have left mid-transaction.
+#[test]
+fn a_runs_failed_charge_lets_its_connection_go() {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let ledger = ledger(&env);
+    ledger
+        .add_limit(&limit(install(), "requests", 1_000), now())
+        .unwrap();
+    let mut run = Charging::new(
+        ledger.clone().counting(work.clone()),
         holder(&env, "crawl"),
         placement(Product::Collie),
         SliceSizing::default(),
     );
     run.charge("requests", 1, now()).unwrap();
-    let before = vfs.operations();
-    ledger.limits().unwrap();
-    let one_open = vfs.operations() - before;
+    damage_table(ledger.path(), "limits").unwrap();
 
-    let before = vfs.operations();
-    for _ in 0..100 {
-        run.charge("requests", 1, now()).unwrap();
-    }
-    let hundred_charges = vfs.operations() - before;
-    ledger
-        .add_limit(&limit(install(), "requests", 5), now())
-        .unwrap();
-    let after_the_new_limit = run.charge("requests", 10, now());
+    let failed = [
+        run.charge("requests", 100, now()),
+        run.charge("requests", 100, now()),
+    ];
 
-    assert_eq!(
-        (
-            hundred_charges < one_open,
-            matches!(after_the_new_limit, Err(Refusal::Reached(_)))
-        ),
-        (true, true),
-        "a hundred charges ran {hundred_charges} file operations, one open {one_open}"
+    assert!(
+        failed
+            .iter()
+            .all(|charged| matches!(charged, Err(Refusal::Ledger(LedgerError::Storage { .. })))),
+        "{failed:?}"
     );
+    assert_eq!(work.read(CountedRow::ChargeOpens), 2);
 }
 
 /// Covers: story:3-68, story:3-71
@@ -224,10 +271,10 @@ fn a_new_run_is_refused_once_a_period_limit_has_nothing_left_until_its_next_peri
     run.charge("requests", 5, now()).unwrap();
     run.give_back().unwrap();
 
-    let today = Charging::may_start(&ledger, &placement(Product::Collie), now());
-    let tomorrow = Charging::may_start(
-        &ledger,
-        &placement(Product::Collie),
+    let today = may_start(&env, Product::Collie, now());
+    let tomorrow = may_start(
+        &env,
+        Product::Collie,
         "2026-03-10T23:30:00Z".parse().unwrap(),
     );
 
@@ -258,10 +305,7 @@ fn a_limit_on_another_scope_never_holds_the_run() {
         .add_limit(&limit(other_person, "requests", 0), now())
         .unwrap();
 
-    assert_eq!(
-        Charging::may_start(&ledger, &placement(Product::Collie), now()),
-        Ok(())
-    );
+    assert_eq!(may_start(&env, Product::Collie, now()), Ok(()));
 }
 
 /// What a reclaimer finds of the dead run's state.
@@ -320,16 +364,16 @@ fn reclaiming_a_ledger_no_engine_created_leaves_it_uncreated() {
     );
 }
 
-/// A run that no Limit holds reads the ledger as it starts, as it charges
-/// and as it ends, and never writes it: a ledger no engine created stays
-/// uncreated, so the run syncs none of it (#2110).
+/// A run that no Limit holds reads the ledger as it starts and as it ends,
+/// and never writes it: a ledger no engine created stays uncreated, so the
+/// run syncs none of it (#2110).
 #[test]
 fn a_run_no_limit_holds_leaves_a_ledger_no_engine_created_uncreated() {
     let env = TestEnv::new();
     let ledger = ledger(&env);
     let mut run = charging(&env, "crawl");
 
-    let may_start = Charging::may_start(&ledger, &placement(Product::Collie), now());
+    let may_start = run.may_start(now());
     let charged = run.charge("requests", 1, now()).unwrap();
     let applied = run.applied(now()).unwrap();
     run.give_back().unwrap();
@@ -341,7 +385,7 @@ fn a_run_no_limit_holds_leaves_a_ledger_no_engine_created_uncreated() {
 }
 
 /// A run's ledger syncs are its Slice's take and its give back: each
-/// charge out of the Slice reads the Limits and writes nothing, and closing
+/// charge out of the Slice writes nothing, and closing
 /// a connection leaves the synced write-ahead log as it is rather than
 /// syncing it again into the file (#2110).
 #[test]
@@ -364,7 +408,7 @@ fn a_run_syncs_the_ledger_once_to_take_its_slice_and_once_to_give_it_back() {
         SliceSizing::default(),
     );
 
-    Charging::may_start(&ledger, &placement(Product::Collie), now()).unwrap();
+    run.may_start(now()).unwrap();
     for _ in 0..13 {
         run.charge("requests", 1, now()).unwrap();
     }
@@ -466,7 +510,7 @@ fn a_limit_flagged_must_understand_that_the_engine_cannot_evaluate_refuses_runs(
     let newer = written(scope_kind, usage_kind, time_zone, true);
     ledger.add_limit(&newer, now()).unwrap();
 
-    let refused = Charging::may_start(&ledger, &placement(Product::Collie), now());
+    let refused = may_start(&env, Product::Collie, now());
 
     assert_eq!(refused, Err(Refusal::NotUnderstood(Box::new(newer))));
 }
@@ -485,10 +529,7 @@ fn a_limit_the_engine_cannot_evaluate_is_ignored_unless_flagged_on_the_runs_scop
         .add_limit(&written(scope_kind, usage_kind, None, flagged), now())
         .unwrap();
 
-    assert_eq!(
-        Charging::may_start(&ledger, &placement(Product::Collie), now()),
-        Ok(())
-    );
+    assert_eq!(may_start(&env, Product::Collie, now()), Ok(()));
 }
 
 /// Covers: story:3-67
@@ -513,7 +554,7 @@ fn a_paid_fetch_limit_is_foxhounds(
         .unwrap();
 
     let listed = ledger.usage(product, now()).unwrap();
-    let started = Charging::may_start(&ledger, &placement(product), now());
+    let started = may_start(&env, product, now());
 
     assert_eq!(
         (listed[0].standing, started.map_err(drop)),

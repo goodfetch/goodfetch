@@ -590,13 +590,20 @@ pub(crate) fn record(
     domain_key: &str,
     unit: &Unit,
 ) -> rusqlite::Result<()> {
-    let unit = serde_json::to_string(unit).expect("invariant: a tier choice encodes as JSON");
     connection
-        .prepare_cached(
-            "INSERT OR REPLACE INTO tier_choices (label, domain_key, unit) VALUES (?1, ?2, ?3)",
-        )
-        .and_then(|mut cached| cached.execute(params![label, domain_key, unit]))?;
+        .prepare_cached(RECORD)
+        .and_then(|mut cached| cached.execute(params![label, domain_key, encoded(unit)]))?;
     Ok(())
+}
+
+/// The statement that keeps a Label's choice on a domain key: its Label,
+/// its domain key and its unit, [`encoded`].
+pub(crate) const RECORD: &str =
+    "INSERT OR REPLACE INTO tier_choices (label, domain_key, unit) VALUES (?1, ?2, ?3)";
+
+/// `unit` as the run file keeps it.
+pub(crate) fn encoded(unit: &Unit) -> String {
+    serde_json::to_string(unit).expect("invariant: a tier choice encodes as JSON")
 }
 
 /// What the Run's Labels learned, as [`record`] kept it, each choice with

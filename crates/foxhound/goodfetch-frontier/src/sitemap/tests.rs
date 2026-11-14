@@ -27,6 +27,7 @@ use super::{
     read_file, reports,
 };
 use crate::bounds::{self, Bounds, completeness_reasons};
+use crate::invariants::Invariants;
 use crate::scope::{self, Patterns, Scope, Strategy};
 
 fn locs(locs: &[&str]) -> Vec<String> {
@@ -284,10 +285,12 @@ mod sitemap_target {
 }
 
 /// A run file holding the Frontier's sitemaps, in memory, under the domain
-/// policy that allows every host; the work item of each fetch it adds is
-/// numbered from 1.
+/// policy that allows every host, of the same-hostname Scope; the work item
+/// of each fetch it adds is numbered from 1.
 struct Sitemaps {
     connection: Connection,
+    /// The Run's invariants, built once as it starts.
+    invariants: Invariants,
     policy: Policy,
     /// The URL of each fetch added, in order.
     added: Vec<String>,
@@ -308,8 +311,14 @@ impl Sitemaps {
             connection.execute(statement, []).unwrap();
         }
         bounds.record(&connection).unwrap();
+        let scope = Scope::new(
+            Strategy::SameHostname,
+            Patterns::default(),
+            Patterns::default(),
+        );
         Self {
             connection,
+            invariants: Invariants::new(scope, bounds.clone()).unwrap(),
             policy: Policy::new(&["*"], &[] as &[&str]).unwrap(),
             added: Vec::new(),
         }
@@ -322,10 +331,16 @@ impl Sitemaps {
             rules: Vec::new(),
         };
         let added = &mut self.added;
-        let answer = admit_seed(&self.connection, &self.policy, &seed, |url| {
-            added.push(url.to_string());
-            Ok(added.len().to_string())
-        })
+        let answer = admit_seed(
+            &self.connection,
+            &self.invariants,
+            &self.policy,
+            &seed,
+            |url| {
+                added.push(url.to_string());
+                Ok(added.len().to_string())
+            },
+        )
         .unwrap();
         match answer {
             Enqueued::Added { id, .. } => id,
@@ -337,16 +352,11 @@ impl Sitemaps {
     /// index that nests `nested`; answers the work item and the URL of
     /// each fetch that added.
     fn read_index(&mut self, id: &str, nested: &[&str]) -> Vec<(String, String)> {
-        let scope = Scope::new(
-            Strategy::SameHostname,
-            Patterns::default(),
-            Patterns::default(),
-        );
         let before = self.added.len();
         let added = &mut self.added;
         read(
             &self.connection,
-            &scope,
+            &self.invariants,
             &self.policy,
             id,
             &Document::Sitemaps(locs(nested)),

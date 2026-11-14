@@ -10,8 +10,9 @@
 
 mod ceilings;
 pub(crate) mod crawl;
-mod executable;
+pub(crate) mod executable;
 mod measure;
+pub(crate) mod page_cache;
 pub(crate) mod peak;
 pub(crate) mod peaks;
 pub(crate) mod platform;
@@ -58,7 +59,8 @@ pub(crate) enum Command {
 
 #[derive(Args)]
 pub(crate) struct MeasureArguments {
-    /// The scenarios to run; every scenario when none is named.
+    /// The scenarios to run; every scenario when none is named. A
+    /// huge-pages crawl runs on Linux alone and is skipped elsewhere.
     #[arg(value_enum)]
     scenarios: Vec<Scenario>,
     /// The test tool manifest that names each Product's executable.
@@ -109,7 +111,7 @@ pub(crate) struct ProbeArguments {
     /// The Product the scenario's Client needs: the executable's own.
     #[arg(long, value_parser = peaks::parse_product)]
     needs: Option<goodfetch_protocol::catalog::Product>,
-    /// The address of the Proving ground the crawl crawls, `<ip>:<port>`.
+    /// The address of the Proving ground a crawl crawls, `<ip>:<port>`.
     #[arg(long)]
     address: Option<String>,
     /// The program and its arguments.

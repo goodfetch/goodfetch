@@ -17,6 +17,9 @@
 //! events, and one the engine no longer holds, or another engine instance
 //! gave, as before a Daemon restart, starts behind, with `events.resync`.
 //!
+//! Each event's payload is encoded once, as it is published, and every
+//! subscription that takes it shares it (ADR 0140's E1).
+//!
 //! Also the credits a Client grants a streaming call, which the protocol
 //! server adds and the call takes.
 
@@ -26,13 +29,13 @@ use std::sync::Arc;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::{Event, EventClass};
 use goodfetch_protocol::connection::EngineInstance;
-use goodfetch_protocol::events::{EventEnvelope, LastRead, Position, RESYNC, Resync};
+use goodfetch_protocol::events::{LastRead, Position, RESYNC, Resync};
 use goodfetch_protocol::governor::SYSTEM_INFO;
 use goodfetch_protocol::needs_you::{NEEDS_YOU_CHANGED, NeedsYouChange, NeedsYouItem};
 use goodfetch_protocol::run::{Lifecycle, RUN_AXES_CHANGED, RunAxes, RunId};
-use serde::Serialize;
-use serde_json::Value;
-use tokio::sync::{Semaphore, mpsc, oneshot};
+use serde::{Serialize, Serializer};
+use serde_json::value::RawValue;
+use tokio::sync::{Semaphore, mpsc, oneshot, watch};
 
 use crate::tasks::TaskOwner;
 
@@ -70,6 +73,59 @@ pub struct Events {
     commands: mpsc::Sender<Command>,
     instance: EngineInstance,
     work: CountedWork,
+    /// Whether the stream holds a subscription, as its actor last said.
+    subscribed: watch::Receiver<bool>,
+}
+
+/// One event as a stream holds and sends it, an `EventEnvelope` on the
+/// wire.
+#[derive(Clone, Debug, Serialize)]
+pub struct Envelope {
+    /// Its position.
+    pub position: Position,
+    /// The catalog's name of the event.
+    pub event: &'static str,
+    /// Its payload.
+    pub data: EventData,
+    /// For a telemetry event, how many of the same kind and scope it
+    /// replaced unsent.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub dropped: u64,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes a reference"
+)]
+fn is_zero(count: &u64) -> bool {
+    *count == 0
+}
+
+/// An event's payload, encoded once: each copy shares it, and each line
+/// that carries it copies it without encoding it again.
+#[derive(Clone, Debug)]
+pub struct EventData(Arc<RawValue>);
+
+impl EventData {
+    /// `data`, encoded, the event's one encode counted on `work` (ADR
+    /// 0140's E1).
+    pub fn encode(data: &impl Serialize, work: &CountedWork) -> Self {
+        work.count(Row::MessageEncodes);
+        let data = serde_json::value::to_raw_value(data)
+            .expect("invariant: an event's payload encodes as JSON");
+        Self(Arc::from(data))
+    }
+
+    /// Its JSON text.
+    pub fn json(&self) -> &str {
+        self.0.get()
+    }
+}
+
+impl Serialize for EventData {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(serializer)
+    }
 }
 
 /// One subscription to the stream, as the call that reads it holds it;
@@ -96,7 +152,7 @@ enum Command {
     Take {
         subscription: u64,
         most: usize,
-        answer: oneshot::Sender<Vec<EventEnvelope>>,
+        answer: oneshot::Sender<Vec<Envelope>>,
     },
     Unsubscribe(u64),
 }
@@ -104,7 +160,7 @@ enum Command {
 struct Publish {
     event: &'static Event,
     scope: Option<String>,
-    data: Value,
+    data: EventData,
     fold: Option<Fold>,
     accepted: oneshot::Sender<()>,
 }
@@ -167,6 +223,7 @@ impl Events {
         work: CountedWork,
     ) -> Self {
         let (commands, mailbox) = mpsc::channel(COMMANDS);
+        let (subscribed, followed) = watch::channel(false);
         let stream = Stream {
             options,
             instance: instance.clone(),
@@ -176,6 +233,8 @@ impl Events {
             snapshot: Snapshot::default(),
             subscriptions: BTreeMap::new(),
             next_subscription: 0,
+            work: work.clone(),
+            subscribed,
         };
         let token = owner.token().clone();
         owner.spawn(async move {
@@ -188,12 +247,24 @@ impl Events {
             commands,
             instance,
             work,
+            subscribed: followed,
         }
     }
 
     /// The engine instance whose positions it gives.
     pub(crate) fn instance(&self) -> &EngineInstance {
         &self.instance
+    }
+
+    /// Whether the stream holds a subscription. With none, a telemetry
+    /// event reaches no queue and is not kept, so its producer may leave
+    /// its payload unbuilt. A subscription counts from before its
+    /// [`subscribe`](Self::subscribe) is answered, so what is published
+    /// once it is answered reaches it; one still on its way to the stream
+    /// when this is read starts with the next event, as one that opens
+    /// just after a publish does.
+    pub(crate) fn subscribed(&self) -> bool {
+        *self.subscribed.borrow()
     }
 
     /// Publishes `event`, with `data` as its payload; `scope` (such as a
@@ -207,10 +278,13 @@ impl Events {
     ///
     /// Dropping the future after the event was sent still publishes it.
     pub async fn publish(&self, event: &'static Event, scope: Option<&str>, data: &impl Serialize) {
-        self.work.count(Row::MessageEncodes);
-        let data =
-            serde_json::to_value(data).expect("invariant: an event's payload encodes as JSON");
-        self.send(event, scope.map(str::to_owned), data, None).await;
+        self.send(
+            event,
+            scope.map(str::to_owned),
+            EventData::encode(data, &self.work),
+            None,
+        )
+        .await;
     }
 
     /// Publishes a Run's axes as `run.axes_changed`, which a resync then
@@ -220,8 +294,7 @@ impl Events {
     ///
     /// As [`Events::publish`]'s.
     pub(crate) async fn publish_axes(&self, axes: RunAxes) {
-        self.work.count(Row::MessageEncodes);
-        let data = serde_json::to_value(&axes).expect("invariant: a Run's axes encode as JSON");
+        let data = EventData::encode(&axes, &self.work);
         let scope = Some(axes.run_id.as_str().to_owned());
         self.send(&RUN_AXES_CHANGED, scope, data, Some(Fold::Axes(axes)))
             .await;
@@ -234,8 +307,7 @@ impl Events {
     ///
     /// As [`Events::publish`]'s.
     pub(crate) async fn publish_needs_you(&self, change: NeedsYouChange) {
-        self.work.count(Row::MessageEncodes);
-        let data = serde_json::to_value(&change).expect("invariant: a change of Needs you encodes");
+        let data = EventData::encode(&change, &self.work);
         self.send(
             &NEEDS_YOU_CHANGED,
             None,
@@ -249,7 +321,7 @@ impl Events {
         &self,
         event: &'static Event,
         scope: Option<String>,
-        data: Value,
+        data: EventData,
         fold: Option<Fold>,
     ) {
         let (accepted, acceptance) = oneshot::channel();
@@ -324,7 +396,7 @@ impl Subscription {
     ///
     /// Dropping the future loses the events it took; drop it only with the
     /// subscription.
-    pub(crate) async fn next(&mut self, most: usize) -> Option<Vec<EventEnvelope>> {
+    pub(crate) async fn next(&mut self, most: usize) -> Option<Vec<Envelope>> {
         let (answer, answered) = oneshot::channel();
         self.events
             .commands
@@ -389,12 +461,12 @@ impl Credits {
 
 /// One subscription's queue.
 struct Queue {
-    lossless: VecDeque<Arc<EventEnvelope>>,
+    lossless: VecDeque<Envelope>,
     /// Whether it fell behind, or started behind: its next take starts with
     /// `events.resync`, and it queues no lossless event until then.
     behind: bool,
-    telemetry: BTreeMap<(&'static str, Option<String>), EventEnvelope>,
-    waiting: Option<(usize, oneshot::Sender<Vec<EventEnvelope>>)>,
+    telemetry: BTreeMap<(&'static str, Option<String>), Envelope>,
+    waiting: Option<(usize, oneshot::Sender<Vec<Envelope>>)>,
     alive: oneshot::Receiver<()>,
     /// Whether it takes `engine.system_info`.
     system_info: bool,
@@ -413,7 +485,7 @@ impl Queue {
     }
 
     /// Takes at most `most` events, in the order of their positions.
-    fn take(&mut self, most: usize) -> Vec<EventEnvelope> {
+    fn take(&mut self, most: usize) -> Vec<Envelope> {
         let mut telemetry: Vec<(Position, (&'static str, Option<String>))> = self
             .telemetry
             .iter()
@@ -427,7 +499,7 @@ impl Queue {
             let coalesced = telemetry.front().map(|(position, _)| *position);
             let next = match (lossless, coalesced) {
                 (Some(lossless), Some(coalesced)) if coalesced < lossless => None,
-                (Some(_), _) => self.lossless.pop_front().map(Arc::unwrap_or_clone),
+                (Some(_), _) => self.lossless.pop_front(),
                 (None, _) => None,
             };
             if let Some(envelope) = next {
@@ -455,10 +527,14 @@ struct Stream {
     /// The last position no longer kept: a subscription may resume after
     /// any position from it to `last`.
     floor: u64,
-    retained: VecDeque<Arc<EventEnvelope>>,
+    retained: VecDeque<Envelope>,
     snapshot: Snapshot,
     subscriptions: BTreeMap<u64, Queue>,
     next_subscription: u64,
+    /// Where each `events.resync` it encodes counts.
+    work: CountedWork,
+    /// Tells [`Events::subscribed`] whether `subscriptions` holds one.
+    subscribed: watch::Sender<bool>,
 }
 
 impl Stream {
@@ -473,6 +549,9 @@ impl Stream {
                     answer,
                 } => {
                     let id = self.subscribe(after, system_info, alive);
+                    // Before the answer: its caller, once answered, finds
+                    // the stream subscribed.
+                    self.tell_subscribed();
                     if answer.send(id).is_err() {
                         self.subscriptions.remove(&id);
                     }
@@ -484,7 +563,7 @@ impl Stream {
                 } => {
                     if let Some(queue) = self.subscriptions.get_mut(&subscription) {
                         queue.waiting = Some((most, answer));
-                        serve(queue, &mut self.last, &self.snapshot);
+                        serve(queue, &mut self.last, &self.snapshot, &self.work);
                     }
                 }
                 Command::Unsubscribe(subscription) => {
@@ -492,7 +571,16 @@ impl Stream {
                 }
             }
             self.subscriptions.retain(|_, queue| !queue.is_gone());
+            self.tell_subscribed();
         }
+    }
+
+    /// Tells [`Events::subscribed`] whether it holds a subscription now,
+    /// when that changed.
+    fn tell_subscribed(&self) {
+        let subscribed = !self.subscriptions.is_empty();
+        self.subscribed
+            .send_if_modified(|told| std::mem::replace(told, subscribed) != subscribed);
     }
 
     fn accept(&mut self, publish: Publish) {
@@ -509,9 +597,9 @@ impl Stream {
             let _ = accepted.send(());
             return;
         }
-        let envelope = EventEnvelope {
+        let envelope = Envelope {
             position: next_position(&mut self.last),
-            event: event.name.to_owned(),
+            event: event.name,
             data,
             dropped: 0,
         };
@@ -520,8 +608,7 @@ impl Stream {
                 if let Some(fold) = fold {
                     self.snapshot.fold(fold);
                 }
-                let envelope = Arc::new(envelope);
-                self.retained.push_back(Arc::clone(&envelope));
+                self.retained.push_back(envelope.clone());
                 while self.retained.len() > self.options.retained {
                     if let Some(gone) = self.retained.pop_front() {
                         self.floor = gone.position.0;
@@ -540,8 +627,8 @@ impl Stream {
                         queue.behind = true;
                         continue;
                     }
-                    queue.lossless.push_back(Arc::clone(&envelope));
-                    serve(queue, &mut self.last, &self.snapshot);
+                    queue.lossless.push_back(envelope.clone());
+                    serve(queue, &mut self.last, &self.snapshot, &self.work);
                 }
             }
             EventClass::Telemetry => {
@@ -557,12 +644,12 @@ impl Stream {
                         .map_or(0, |unsent| unsent.dropped + 1);
                     queue.telemetry.insert(
                         key,
-                        EventEnvelope {
+                        Envelope {
                             dropped,
                             ..envelope.clone()
                         },
                     );
-                    serve(queue, &mut self.last, &self.snapshot);
+                    serve(queue, &mut self.last, &self.snapshot, &self.work);
                 }
             }
         }
@@ -614,19 +701,19 @@ fn next_position(last: &mut u64) -> Position {
 /// Answers the queue's waiting take, if any, once it has an event; a queue
 /// behind first takes `events.resync`, at the next position, with the axes
 /// of every live Run and every item of "Needs you" in `snapshot`.
-fn serve(queue: &mut Queue, last: &mut u64, snapshot: &Snapshot) {
+fn serve(queue: &mut Queue, last: &mut u64, snapshot: &Snapshot, work: &CountedWork) {
     if queue.is_empty() {
         return;
     }
     if let Some((most, answer)) = queue.waiting.take() {
         if queue.behind {
             let resync = snapshot.resync();
-            queue.lossless.push_back(Arc::new(EventEnvelope {
+            queue.lossless.push_back(Envelope {
                 position: next_position(last),
-                event: RESYNC.name.to_owned(),
-                data: serde_json::to_value(resync).expect("invariant: a resync encodes as JSON"),
+                event: RESYNC.name,
+                data: EventData::encode(&resync, work),
                 dropped: 0,
-            }));
+            });
             queue.behind = false;
         }
         let taken = queue.take(most);

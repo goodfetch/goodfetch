@@ -1,12 +1,15 @@
-//! `xtask gate`, the incremental local gate (ADR 0135): `just pre-merge all`
-//! on a head that descends from a head whose gate already ran reruns only
-//! the steps, and the members' tests, that the change since then reaches,
-//! by `xtask affected` and by the evidence of what each member read
-//! (`evidence`), and every check that judges the whole change; it reuses
-//! the other green results. A red result, a result older than a day and a
-//! result from another host fingerprint are never reused, a change to the
-//! gate's own inputs reruns everything, and a working tree with uncommitted
-//! changes neither reuses nor records anything.
+//! `xtask gate`, the incremental local gate (ADR 0135): `just pre-merge all` on
+//! a head that descends from a head whose gate already ran reruns only the
+//! steps, and the members' tests, that the change since then reaches, by `xtask
+//! affected` and by the evidence of what each member read (`evidence`), and
+//! every check that judges the whole change; it reuses the other green
+//! results. Four of those checks give a result that follows from the tree and
+//! the host (lint, the feature combinations, the fuzz-target check and the
+//! proofs): a run on the same tree reuses theirs too, lint's once the plan has
+//! read again what lint reads besides the two (`lint`). A red result, a result
+//! older than a day and a result from another host fingerprint (`host`) are
+//! never reused, a change to the gate's own inputs reruns everything, and a
+//! working tree with uncommitted changes neither reuses nor records anything.
 //! - **steps**: prints what a form of `just pre-merge` runs, in its order,
 //!   and the `just` command of each step (`steps`), which `ci/pre-merge.sh`
 //!   follows.
@@ -42,6 +45,8 @@ mod attribution;
 mod compare;
 mod earlier;
 mod evidence;
+mod host;
+mod lint;
 mod plan;
 mod runs;
 mod steps;
@@ -50,19 +55,20 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::Path;
-use std::process::{Command as Process, ExitCode};
+use std::process::ExitCode;
 use std::time::SystemTime;
 
 use anyhow::{Context as _, Result, bail};
-use sha2::{Digest as _, Sha256};
 
 use crate::affected::{self, Job, Range, RepoPath, WorkspaceMembers};
 use crate::environment::Environment;
-use crate::{git, metadata, output};
+use crate::{git, github, metadata, output};
 use attribution::{Evidence, Judged, StressEvidence};
 use earlier::StressBase;
 use evidence::RustInputs;
-use plan::{Action, GateRun, Head, Outcome, Planned, Step, Touched, UNOWNED, short, unit};
+use plan::{
+    Action, GateRun, Head, LintReads, Outcome, Planned, Step, Touched, UNOWNED, short, unit,
+};
 
 /// The branch whose merge base with the head is the change's base.
 const BASE_BRANCH: &str = "origin/main";
@@ -101,36 +107,7 @@ pub(crate) enum Command {
     /// Prints which steps this run reruns, over which members, and which it
     /// reuses from an earlier run on an ancestor head, and writes the plan
     /// into `records`.
-    Plan {
-        /// The folder of the gate's records.
-        #[arg(long)]
-        records: std::path::PathBuf,
-        /// Reuses nothing: every step runs in full, and is recorded.
-        #[arg(long)]
-        full: bool,
-        /// Writes nothing: prints the plan only.
-        #[arg(long)]
-        dry_run: bool,
-        /// Plans against an assumed full green run on this commit, an
-        /// ancestor, instead of the records (with `--dry-run`): what a run
-        /// would rerun after a green gate there.
-        #[arg(long, requires = "dry_run")]
-        assume_green: Option<String>,
-        /// Now, in seconds since the Unix epoch (`date +%s`): a result older
-        /// than a day is not reused.
-        #[arg(long)]
-        now: u64,
-        /// The Cargo target folder whose dep-info shows what each crate
-        /// read; Cargo's own by default.
-        #[arg(long)]
-        target_dir: Option<std::path::PathBuf>,
-        /// The variables of the run's environment that change what runs or
-        /// how (`CI`, `GOODFETCH_*`, `NEXTEST_*`, `CARGO_*`…), as
-        /// `NAME=value` lines: part of the host fingerprint, so a result
-        /// counts only for a run in the same environment.
-        #[arg(long, default_value = "")]
-        environment: String,
-    },
+    Plan(PlanArguments),
     /// Appends a step's result to the record of the run on HEAD, for the
     /// units the plan ran; nothing without a plan for HEAD.
     Record {
@@ -193,37 +170,52 @@ pub(crate) enum Command {
     },
 }
 
+/// What `xtask gate plan` takes.
+#[derive(clap::Args)]
+pub(crate) struct PlanArguments {
+    /// The folder of the gate's records.
+    #[arg(long)]
+    records: std::path::PathBuf,
+    /// Reuses nothing: every step runs in full, and is recorded.
+    #[arg(long)]
+    full: bool,
+    /// Writes nothing: prints the plan only.
+    #[arg(long)]
+    dry_run: bool,
+    /// Plans against an assumed full green run on this commit, an
+    /// ancestor, instead of the records (with `--dry-run`): what a run
+    /// would rerun after a green gate there.
+    #[arg(long, requires = "dry_run")]
+    assume_green: Option<String>,
+    /// Now, in seconds since the Unix epoch (`date +%s`): a result older
+    /// than a day is not reused.
+    #[arg(long)]
+    now: u64,
+    /// The Cargo target folder whose dep-info shows what each crate
+    /// read; Cargo's own by default.
+    #[arg(long)]
+    target_dir: Option<std::path::PathBuf>,
+    /// The variables of the run's environment that change what runs or
+    /// how (`CI`, `GOODFETCH_*`, `NEXTEST_*`, `CARGO_*`…), as
+    /// `NAME=value` lines: part of the host fingerprint, so a result
+    /// counts only for a run in the same environment.
+    #[arg(long, default_value = "")]
+    environment: String,
+    /// Lint's zizmor audits online: the run's environment holds a GitHub
+    /// token it reads (`GH_TOKEN`, `GITHUB_TOKEN` or
+    /// `ZIZMOR_GITHUB_TOKEN`), so a green lint is not reused.
+    #[arg(long)]
+    zizmor_online: bool,
+    /// Where lint's quarantine check reads its quarantined tests' issues.
+    #[command(flatten)]
+    github: github::Arguments,
+}
+
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
     let root = environment.root.as_path();
     match command {
         Command::Steps { form } => output::line(steps::render(form).trim_end()),
-        Command::Plan {
-            records,
-            full,
-            dry_run,
-            assume_green,
-            now,
-            target_dir,
-            environment: variables,
-        } => {
-            let records = environment.path(&records);
-            let target = match target_dir {
-                Some(folder) => environment.path(&folder),
-                None => metadata::target_directory(&environment.cargo, root)?,
-            };
-            plan_run(
-                environment,
-                &records,
-                &Options {
-                    full,
-                    dry_run,
-                    assume_green,
-                    now,
-                    target,
-                    variables,
-                },
-            )?;
-        }
+        Command::Plan(arguments) => plan_run(environment, &arguments)?,
         Command::Record {
             records,
             head,
@@ -297,17 +289,10 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
     Ok(ExitCode::SUCCESS)
 }
 
-struct Options {
-    full: bool,
-    dry_run: bool,
-    assume_green: Option<String>,
-    now: u64,
-    target: std::path::PathBuf,
-    variables: String,
-}
-
-fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Result<()> {
+fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
     let root = environment.root.as_path();
+    let records = environment.path(&options.records);
+    let records = records.as_path();
     let head = git::commit(root, "HEAD")?;
     let plan_file = runs::plan_file(records, &head);
     let dirty = !git::line(root, &["status", "--porcelain"])?.is_empty();
@@ -319,44 +304,42 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
         root,
         &git::line(root, &["merge-base", BASE_BRANCH, "HEAD"])?,
     )?;
-    let host = host_fingerprint(
+    let host = host::host_fingerprint(
         root,
         &environment.cargo,
-        &step_variables(&options.variables),
+        &host::step_variables(&options.environment),
     );
     let members_read = WorkspaceMembers::read(&environment.cargo, root)?;
     let unowned = evidence::unowned_tests(root, &members_read)?;
     let (members, shuffled) = head_members(&members_read, &unowned);
+    let lint = lint::Reads {
+        root,
+        now: options.now,
+        zizmor_online: options.zizmor_online,
+        github: &options.github,
+        token: environment.token(),
+    };
+    let lint_holds = || lint.hold();
     let gated = Head {
         base: &base,
         members: &members,
         shuffled: &shuffled,
+        tree: &git::line(root, &["rev-parse", "--verify", "HEAD^{tree}"])?,
         host: &host,
         now: options.now,
+        lint: LintReads::new(&lint_holds),
     };
-    let (previous, no_previous) = if options.full {
-        (
-            None,
-            "a full run was asked for (GOODFETCH_GATE_FULL)".to_owned(),
-        )
-    } else if let Some(assumed) = &options.assume_green {
-        let assumed = git::commit(root, assumed)?;
-        (Some(assumed_green(root, &assumed, &gated)?), String::new())
-    } else {
-        match earlier::nearest(root, records, &head)? {
-            Some(record) => (Some(record), String::new()),
-            None => (
-                None,
-                "no earlier gate run on this head or an ancestor".to_owned(),
-            ),
-        }
+    let (previous, no_previous) = previous_run(root, records, &head, &gated, options)?;
+    let target = match &options.target_dir {
+        Some(folder) => environment.path(folder),
+        None => metadata::target_directory(&environment.cargo, root)?,
     };
     let reader = Reader {
         root,
         cargo: &environment.cargo,
         members: &members_read,
         head: &head,
-        target: &options.target,
+        target: &target,
     };
     let (touched, beyond) = match &previous {
         Some(previous) => reader.touched_by_origin(previous)?,
@@ -401,6 +384,35 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
             .collect(),
     };
     write(records, &carried, &machine)
+}
+
+/// The earlier run this one plans from, or why it plans from none: an
+/// assumed green run for a dry run that names one, else the nearest recorded
+/// run on the head or an ancestor, and none for a full run.
+fn previous_run(
+    root: &Path,
+    records: &Path,
+    head: &str,
+    gated: &Head<'_>,
+    options: &PlanArguments,
+) -> Result<(Option<GateRun>, String)> {
+    if options.full {
+        return Ok((
+            None,
+            "a full run was asked for (GOODFETCH_GATE_FULL)".to_owned(),
+        ));
+    }
+    if let Some(assumed) = &options.assume_green {
+        let assumed = git::commit(root, assumed)?;
+        return Ok((Some(assumed_green(root, &assumed, gated)?), String::new()));
+    }
+    Ok(match earlier::nearest(root, records, head)? {
+        Some(record) => (Some(record), String::new()),
+        None => (
+            None,
+            "no earlier gate run on this head or an ancestor".to_owned(),
+        ),
+    })
 }
 
 /// The plan of a run on a working tree with uncommitted changes: nothing
@@ -616,63 +628,6 @@ impl Reader<'_> {
         touched.evidence = found;
         Ok((touched, missed))
     }
-}
-
-/// The variables only `ci/merge-pr.sh` reads, before any step starts: they
-/// decide whether a gate begins, never what a step runs or how.
-const LAUNCHER_VARIABLES: [&str; 1] = ["GOODFETCH_GATE_MIN_FREE_GB"];
-
-/// The `NAME=value` lines of `variables` a step can read: the run's
-/// without the launcher's own, so a gate started under another disk floor
-/// still reuses the results of one started without it.
-fn step_variables(variables: &str) -> String {
-    variables
-        .lines()
-        .filter(|line| {
-            let name = line.split_once('=').map_or(*line, |(name, _)| name);
-            !LAUNCHER_VARIABLES.contains(&name)
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// The fingerprint of this host and the tools the gate's steps run: the
-/// kernel, the system's packages, the runtimes, the test runners, the
-/// container engines and the toolchain, and the run's environment
-/// `variables` a step can read ([`step_variables`]). A command that is missing counts as such. Java is asked
-/// without its performance data file: when `/tmp` is full, the JVM warns on
-/// stderr that it cannot write it, naming its own process ID, and each
-/// probe would then fingerprint another host (FQ50).
-fn host_fingerprint(root: &Path, cargo: &OsStr, variables: &str) -> String {
-    const PROBES: [&[&str]; 11] = [
-        &["uname", "-srvm"],
-        &["dpkg-query", "-W", "-f=${Package}=${Version}\n"],
-        &["node", "--version"],
-        &["pnpm", "--version"],
-        &["uv", "--version"],
-        &["python3", "--version"],
-        &["valgrind", "--version"],
-        &["podman", "--version"],
-        &["docker", "--version"],
-        &["java", "-XX:-UsePerfData", "-version"],
-        &["rustc", "-Vv"],
-    ];
-    let mut digest = Sha256::new();
-    let mut probe = |command: &mut Process| match command.current_dir(root).output() {
-        Ok(output) => {
-            digest.update(output.status.code().unwrap_or(-1).to_le_bytes());
-            digest.update(&output.stdout);
-            digest.update(&output.stderr);
-        }
-        Err(_) => digest.update(b"missing"),
-    };
-    for arguments in PROBES {
-        let (program, rest) = arguments.split_first().unwrap_or((&"true", &[]));
-        probe(Process::new(program).args(rest));
-    }
-    probe(crate::child_cargo::command(cargo).args(["nextest", "--version"]));
-    digest.update(variables.as_bytes());
-    format!("{:x}", digest.finalize())
 }
 
 /// A full green run on `assumed` on this host, now, for a dry run.

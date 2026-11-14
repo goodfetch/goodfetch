@@ -21,8 +21,8 @@ use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::robots_txt::Answer;
 use goodfetch_engine::settings::{Layers, Values, resolve};
 use goodfetch_fetch_tier::{
-    FetchBounds, Fetched, Hop, HttpProfile, NotAllowed, Request, Reqwest, SitePreferences,
-    Transport, Wreq, fetch,
+    FetchBounds, FetchFailure, Fetched, Hop, HttpProfile, NotAllowed, Request, Reqwest,
+    SitePreferences, Transport, Wreq, fetch,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
@@ -69,7 +69,9 @@ fn fetched(
     limits: Limits,
 ) -> Result<Fetched, CallError> {
     let hop = Hop::get(Url::parse(&proving_ground.start_url(id).unwrap()).unwrap());
-    running_clock_runtime().block_on(fetch(transport, &hop, &bounds(limits), &Clock::system()))
+    running_clock_runtime()
+        .block_on(fetch(transport, &hop, &bounds(limits), &Clock::system()))
+        .map_err(FetchFailure::into_error)
 }
 
 /// The setting and limit a `response_limit_exceeded` names, or what the
@@ -136,7 +138,7 @@ fn judged(
                     status: fetched.status,
                     body: fetched.body.to_vec(),
                 },
-                Err(error) => Answer::Unreachable(error.message().to_owned()),
+                Err(error) => Answer::Unreachable(error.error().message().to_owned()),
             }
         },
     ));

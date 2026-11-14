@@ -19,7 +19,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::{Ending, Hold, PermitRule, Verdict};
-use goodfetch_engine::settings::{Layers, Values, resolve};
+use goodfetch_engine::settings::{Layers, Resolved, Values, resolve};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::settings::SettingsLayer;
 use proptest::prelude::*;
@@ -27,7 +27,7 @@ use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use super::{Backoff, DomainRule, TABLES, crawl_delay_asked, document_start_taken};
+use super::{Backoff, DomainRule, Pace, TABLES, crawl_delay_asked, document_start_taken};
 use crate::robots_txt;
 
 mod pacing;
@@ -57,7 +57,8 @@ fn copy_fetched(file: &Connection, location: &str, fetched_at: SystemTime) {
     robots_txt::store(file, location, &copy).unwrap();
 }
 
-fn rule(run: Value) -> DomainRule {
+/// The settings of a run whose own layer is `run`.
+fn resolved(run: Value) -> Resolved {
     let Value::Object(run) = run else {
         panic!("settings are a table");
     };
@@ -65,10 +66,16 @@ fn rule(run: Value) -> DomainRule {
         run: Values::read(SettingsLayer::Run, &run, Product::Foxhound).unwrap(),
         ..Layers::default()
     };
-    DomainRule::of(
-        &resolve(&layers, Product::Foxhound, Product::Foxhound).unwrap(),
-        Arc::new(entropy(7).into()),
-    )
+    resolve(&layers, Product::Foxhound, Product::Foxhound).unwrap()
+}
+
+fn rule(run: Value) -> DomainRule {
+    DomainRule::of(&resolved(run), Arc::new(entropy(7).into()))
+}
+
+/// The pace a run whose own layer is `run` sends at.
+fn pace(run: Value) -> Pace {
+    Pace::of(&resolved(run))
 }
 
 fn concurrency(cap: u64) -> DomainRule {

@@ -84,9 +84,9 @@ use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    Capture, Chosen, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL, PageFacts,
-    PooledSession, ReplayPlan, Request, Requester, RunHandOver, SitePreferences, Stop, TierChoice,
-    infer_plan, tier_serves,
+    Capture, Chosen, FetchFailure, FetchTiers, HandOver, HopChecks, HttpTier, Judged,
+    PAGE_CHECK_CALL, PageFacts, PooledSession, ReplayPlan, Request, Requester, RunHandOver,
+    SitePreferences, Stop, TierChoice, infer_plan, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -108,9 +108,10 @@ use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_session_pool::Effect;
 use goodfetch_session_pool::escalation::{self, Action, Met};
-use serde_json::{Map, Value};
 use tokio::sync::{Mutex, oneshot};
 
+use super::failure::{AttemptFailure, Why};
+use super::watch::{self, Watch};
 use crate::code_free::CodeFree;
 use crate::lease::{CommitError, SoFar, WorkItemLease};
 use crate::progress::SharedInFlight;
@@ -143,12 +144,7 @@ pub(super) enum Answer {
     /// The handler answered.
     Handled(CrawlRequestHandled),
     /// The handler failed, or answered no result.
-    Failed {
-        code: String,
-        retryable: bool,
-        message: String,
-        details: Map<String, Value>,
-    },
+    Failed(Box<AttemptFailure>),
     /// The request ended `skipped` before its handler ran: the site's
     /// preferences refused it (its robots.txt, or an AI-use signal its
     /// response carries; ADRs 0086 and 0093), or a hop of its document's
@@ -169,6 +165,13 @@ pub(super) enum Answer {
     LeaseEnded,
     /// The program's Connection ended.
     ClientGone,
+}
+
+impl Answer {
+    /// The answer of an attempt that failed with `failure`.
+    pub(super) fn failed(failure: AttemptFailure) -> Self {
+        Self::Failed(Box::new(failure))
+    }
 }
 
 /// The tier an attempt's request takes and what it is fetched with: the
@@ -252,12 +255,13 @@ const BROWSER: TierChoice = TierChoice {
 /// the navigation gate and the site's preferences read them, the
 /// Politeness it shares, robots.txt and the AI-use signal files fetched on
 /// `http`, the Run's HTTP tier, whose address check judges each redirect
-/// hop, and `egress`, its domain policy.
+/// hop, `egress`, its domain policy, and `hops`, how each redirect hop
+/// asks the delivery loop of the visited set (ADR 0142).
 pub(super) async fn run_hand_over(
     run: &Run,
     settings: &Resolved,
     http: Option<&HttpTier>,
-    egress: &Arc<Policy>,
+    (egress, hops): (&Arc<Policy>, Arc<dyn HopChecks>),
 ) -> Arc<RunHandOver> {
     let site_preferences = SitePreferences::of(settings);
     // The Run reads robots.txt from the copy its user's runs share in the
@@ -285,21 +289,23 @@ pub(super) async fn run_hand_over(
         pace: goodfetch_frontier::Pace::of(settings),
         site_preferences,
         egress: Arc::clone(egress),
+        hops,
         addresses: http.map(HttpTier::address_check),
     })
 }
 
 /// The lease check of the handler pages of the attempt of `leased`,
-/// holding `lease` ([`HandlerLease`]); `in_flight` names its waits.
+/// holding `lease` and watched by `watch` ([`HandlerLease`]), in the Run
+/// `of_run` hands over; `in_flight` names its waits.
 pub(super) fn handler_lease(
-    run: &Run,
-    leased: &Leased,
-    lease: &WorkItemLease,
+    of_run: &Arc<RunHandOver>,
+    (leased, lease, watch): (&Leased, &WorkItemLease, &Watch),
     in_flight: &SharedInFlight,
 ) -> Arc<dyn LeaseCheck> {
     Arc::new(HandlerLease {
         lease: lease.clone(),
-        run: run.clone(),
+        watch: watch.clone(),
+        of_run: Arc::clone(of_run),
         request_id: leased.crawl_request.id.clone(),
         in_flight: Arc::clone(in_flight),
     })
@@ -308,13 +314,30 @@ pub(super) fn handler_lease(
 /// The lease check of an attempt's handler pages: the attempt's lease,
 /// renewed while a page waits for a navigation gate's permit, the wait
 /// named in the Run's live status, so a handler waiting for a permit is not
-/// timed out meanwhile (ADR 0093).
-#[derive(Clone, Debug)]
+/// timed out meanwhile (ADR 0093). A panic in the renewal ends the
+/// attempt ([`Watch`]). It shares its Run with every attempt's hand-over
+/// rather than holding a clone of its own, which the loop would build and
+/// the page's task drop once a page (#2243).
+#[derive(Clone)]
 struct HandlerLease {
     lease: WorkItemLease,
-    run: Run,
+    watch: Watch,
+    of_run: Arc<RunHandOver>,
     request_id: String,
     in_flight: SharedInFlight,
+}
+
+impl std::fmt::Debug for HandlerLease {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("HandlerLease")
+            .field("lease", &self.lease)
+            .field("watch", &self.watch)
+            .field("run", &self.of_run.run)
+            .field("request_id", &self.request_id)
+            .field("in_flight", &self.in_flight)
+            .finish()
+    }
 }
 
 /// How often a permit's wait renews its lease, as a share of its length.
@@ -332,14 +355,11 @@ impl LeaseCheck for HandlerLease {
     fn permit_wait(&self, _url: &str) -> PermitWait {
         let (stop, mut stopped) = oneshot::channel::<()>();
         let waiting = self.clone();
-        self.run.spawn(async move {
+        self.of_run.run.spawn(self.watch.over(async move {
             let id = &waiting.request_id;
-            waiting
-                .in_flight
-                .lock()
-                .await
-                .permit_wait_began(&waiting.run, id);
-            let (length, clock) = (waiting.lease.length(), waiting.run.clock());
+            let run = &waiting.of_run.run;
+            waiting.in_flight.lock().await.permit_wait_began(run, id);
+            let (length, clock) = (waiting.lease.length(), run.clock());
             loop {
                 waiting.lease.renew(length);
                 tokio::select! {
@@ -349,12 +369,8 @@ impl LeaseCheck for HandlerLease {
             }
             // The handler's timeout runs again from the wait's end.
             waiting.lease.renew(length);
-            waiting
-                .in_flight
-                .lock()
-                .await
-                .permit_wait_ended(&waiting.run, id);
-        });
+            waiting.in_flight.lock().await.permit_wait_ended(run, id);
+        }));
         PermitWait::holding(stop)
     }
 }
@@ -399,13 +415,15 @@ pub(super) struct Attempt {
 /// first answer discarded. On `browser` the engine opens Collie's page
 /// for the handler, navigated to the request's URL through the gate. When
 /// the lease ends first, the request is cancelled and its answer left to
-/// [`late`].
+/// [`late`]. A panic in the attempt, or in a task it started while it
+/// runs, ends it failed with `engine_panicked` ([`Watch`]); what it holds
+/// is given back as for any other end.
 pub(super) async fn attempt(
     run: Run,
     server: usize,
     context: CallContext,
     (leased, (session, in_browser), counted): (Leased, (ServingSession, PooledSession), Counted),
-    lease: WorkItemLease,
+    (lease, watch): (WorkItemLease, Watch),
     (tiering, (hand_over, code_free)): (Tiering, (Arc<HandOver>, Option<Arc<CodeFree>>)),
     in_flight: SharedInFlight,
 ) -> Attempt {
@@ -426,69 +444,87 @@ pub(super) async fn attempt(
         hand_over: &hand_over,
         code_free: code_free.as_deref(),
         in_flight: &in_flight,
+        watch: &watch,
     };
-    let mut merged = Taught::default();
-    let mut sampled = None;
-    let mut raced = None;
-    let answer = match (&tiering.plan, &tiering.http) {
-        (AttemptPlan::Sitemap, Some(http)) => on.sitemap(http).await,
-        (AttemptPlan::Sitemap, None) => Answer::Failed {
-            code: NAVIGATION_FAILED.name.to_owned(),
-            retryable: true,
-            message: "The crawl's HTTP tier could not be built, so the sitemap was not fetched."
-                .to_owned(),
-            details: Map::new(),
-        },
-        (AttemptPlan::On(choice), _) if choice.tier == FetchTier::Browser => {
-            on.browser(&tiering.tiers, choice, Chosen::AsChosen).await
-        }
-        (AttemptPlan::On(choice), Some(http)) => {
-            let (answer, learned) = on.http(&tiering, http, choice, None).await;
-            merged = learned;
-            answer
-        }
-        (AttemptPlan::Replayed(plan), Some(http)) => {
-            let (answer, learned) = on.http(&tiering, http, &REPLAYED, Some(plan)).await;
-            merged = learned;
-            answer
-        }
-        (AttemptPlan::Sample(sample), Some(http)) => {
-            let (answer, learned, weighed) = Box::pin(on.sample(&tiering, http)).await;
-            merged = learned;
-            sampled = weighed.map(|weighed| (sample.clone(), weighed));
-            answer
-        }
-        (AttemptPlan::Race(race), Some(http)) => {
-            let (answer, learned, latency) = on.race(&tiering, http, race).await;
-            merged = learned;
-            raced = latency.map(|latency| (race.clone(), latency));
-            answer
-        }
-        (
-            AttemptPlan::On(_)
-            | AttemptPlan::Replayed(_)
-            | AttemptPlan::Sample(_)
-            | AttemptPlan::Race(_),
+    // Boxed: the attempt's future is large, and the watch holds it only
+    // while it runs.
+    let ran = watch
+        .ended(Box::pin(async {
+            let mut merged = Taught::default();
+            let mut sampled = None;
+            let mut raced = None;
+            let answer = match (&tiering.plan, &tiering.http) {
+                (AttemptPlan::Sitemap, Some(http)) => on.sitemap(http).await,
+                (AttemptPlan::Sitemap, None) => Answer::failed(AttemptFailure::named(
+                    NAVIGATION_FAILED.name,
+                    true,
+                    "The crawl's HTTP tier could not be built, so the sitemap was not fetched."
+                        .to_owned(),
+                )),
+                (AttemptPlan::On(choice), _) if choice.tier == FetchTier::Browser => {
+                    on.browser(&tiering.tiers, choice, Chosen::AsChosen).await
+                }
+                (AttemptPlan::On(choice), Some(http)) => {
+                    let (answer, learned) = on.http(&tiering, http, choice, None).await;
+                    merged = learned;
+                    answer
+                }
+                (AttemptPlan::Replayed(plan), Some(http)) => {
+                    let (answer, learned) = on.http(&tiering, http, &REPLAYED, Some(plan)).await;
+                    merged = learned;
+                    answer
+                }
+                (AttemptPlan::Sample(sample), Some(http)) => {
+                    let (answer, learned, weighed) = Box::pin(on.sample(&tiering, http)).await;
+                    merged = learned;
+                    sampled = weighed.map(|weighed| (sample.clone(), weighed));
+                    answer
+                }
+                (AttemptPlan::Race(race), Some(http)) => {
+                    let (answer, learned, latency) = on.race(&tiering, http, race).await;
+                    merged = learned;
+                    raced = latency.map(|latency| (race.clone(), latency));
+                    answer
+                }
+                (
+                    AttemptPlan::On(_)
+                    | AttemptPlan::Replayed(_)
+                    | AttemptPlan::Sample(_)
+                    | AttemptPlan::Race(_),
+                    None,
+                ) => Answer::failed(AttemptFailure::named(
+                    NAVIGATION_FAILED.name,
+                    true,
+                    "The crawl's HTTP tier could not be built, so the request was not fetched."
+                        .to_owned(),
+                )),
+            };
+            (answer, merged, sampled, raced)
+        }))
+        .await;
+    let (answer, taught, sampled, raced, ran) = match ran {
+        Ok((answer, merged, sampled, raced)) => (answer, merged, sampled, raced, true),
+        // What the attempt met before it panicked says nothing of its site:
+        // its domain neither backs off nor learns from it.
+        Err(panicked) => (
+            Answer::failed(AttemptFailure::panicked(&panicked)),
+            Taught::default(),
             None,
-        ) => Answer::Failed {
-            code: NAVIGATION_FAILED.name.to_owned(),
-            retryable: true,
-            message: "The crawl's HTTP tier could not be built, so the request was not fetched."
-                .to_owned(),
-            details: Map::new(),
-        },
+            None,
+            false,
+        ),
     };
     Attempt {
-        document: document.into_inner(),
-        handed_at: sent_at.into_inner(),
-        moved: moved.into_inner().is_some(),
+        document: document.into_inner().filter(|_| ran),
+        handed_at: sent_at.into_inner().filter(|_| ran),
+        moved: ran && moved.into_inner().is_some(),
         server,
         leased,
         _counted: counted,
         session,
         lease,
         answer,
-        taught: merged,
+        taught,
         sampled,
         raced,
     }
@@ -512,13 +548,14 @@ enum Found {
     Readable,
 }
 
-/// A page a tier served for an attempt, held until it is handed out
-/// ([`Served::keep`]): dropped before, as the future that holds it is when
-/// a race's navigation wins, it closes on its tiers, so no served page
-/// outlives its attempt, nor holds its Run's handles past the Run's end.
+/// A page a tier served for an attempt, held until its attempt closes it
+/// ([`Served::close`]): dropped before, as the future that holds it is when
+/// a race's navigation wins or its attempt is abandoned, it closes on its
+/// tiers, so no served page outlives its attempt, nor holds its Run's
+/// handles past the Run's end.
 struct Served<'t> {
     tiers: &'t FetchTiers,
-    /// The page, until it is handed out.
+    /// The page, until it is closed.
     page_id: Option<PageId>,
 }
 
@@ -527,14 +564,17 @@ impl Served<'_> {
     fn page_id(&self) -> &PageId {
         self.page_id
             .as_ref()
-            .expect("invariant: a served page is held until it is handed out")
+            .expect("invariant: a served page is held until it is closed")
     }
 
-    /// Hands the page out: its holder closes it from now on.
-    fn keep(mut self) -> PageId {
-        self.page_id
+    /// Closes the page once its handler answered, as [`FetchTiers::close`]
+    /// does, and answers what it held as it closed.
+    fn close(mut self) -> Option<PageFacts> {
+        let page_id = self
+            .page_id
             .take()
-            .expect("invariant: a served page is handed out once")
+            .expect("invariant: a served page is closed once");
+        self.tiers.close(&page_id)
     }
 }
 
@@ -586,6 +626,9 @@ struct On<'a> {
     /// program's handler; none when the program handles them.
     code_free: Option<&'a CodeFree>,
     in_flight: &'a SharedInFlight,
+    /// The attempt's watch, over each task it starts on its Run while it
+    /// runs.
+    watch: &'a Watch,
     /// The site's answer to the request's own document, as the last run
     /// that fetched it met it, which its domain's Politeness reads (the
     /// `backoff_classes` rule).
@@ -635,7 +678,8 @@ impl On<'_> {
     /// block that moves the request to the browser ([`On::on_block`]).
     fn moves(&self, answer: &Answer, choice: &TierChoice) -> bool {
         match answer {
-            Answer::Failed { code, details, .. } => block_cause(code, details)
+            Answer::Failed(failure) => failure
+                .block_cause()
                 .is_some_and(|cause| self.on_block(cause, choice) == Action::MoveToBrowser),
             _ => false,
         }
@@ -772,7 +816,11 @@ impl On<'_> {
             .await;
         let browser_staged = self.lease.pushed();
         let weighed = match &browser.answer {
-            Answer::Failed { code, details, .. } if walled(code, details) => Some(Weighed::Walled),
+            Answer::Failed(failure)
+                if failure.block_cause() == Some(BlockCause::ConsentRequired) =>
+            {
+                Some(Weighed::Walled)
+            }
             Answer::Handled(CrawlRequestHandled {
                 records,
                 skipped: None,
@@ -940,7 +988,7 @@ impl On<'_> {
         )
         .await;
         drop(handed_over);
-        let escalated = self.escalated(tiers.close(&served.keep()));
+        let escalated = self.escalated(served.close());
         Ok((
             HttpRun {
                 answer,
@@ -1124,7 +1172,7 @@ impl On<'_> {
                 };
                 served
                     .map_err(|stop| match stop {
-                        Stop::Failed(error) => failed(&error),
+                        Stop::Failed(failure) => fetch_failed(&failure),
                         Stop::RobotsTxtUnreachable {
                             message,
                             on_own_domain: true,
@@ -1367,25 +1415,12 @@ fn matches_browser(
     )
 }
 
-/// Whether a run that failed with `code` and `details` met a consent
-/// wall: `blocked` with `consent_required` (ADR 0048).
-fn walled(code: &str, details: &Map<String, Value>) -> bool {
-    code == BLOCKED
-        && details.get("cause").and_then(Value::as_str)
-            == Some(BlockCause::ConsentRequired.as_str())
-}
-
 /// A run on the `http` tier that escalated at `call` before its handler
 /// ran, its answer failing with `code` and `message`, which the browser's
 /// run replaces.
 fn escalated_unhandled(code: &str, message: &str, call: &'static str) -> HttpRun {
     HttpRun {
-        answer: Answer::Failed {
-            code: code.to_owned(),
-            retryable: false,
-            message: message.to_owned(),
-            details: Map::new(),
-        },
+        answer: Answer::failed(AttemptFailure::named(code, false, message.to_owned())),
         escalated: Some(call),
         document: true,
         encoding: None,
@@ -1435,26 +1470,28 @@ async fn address_check(run: &Run, http: &HttpTier, leased: &Leased) -> Result<()
 /// page marked `noindex` that failed its Page check is a decoy instead
 /// (ADR 0035).
 fn failed(error: &CallError) -> Answer {
-    let details = error.details().cloned().unwrap_or_default();
-    if error.code() == PAGE_CHECK_FAILED
-        && details.get("noindex").and_then(Value::as_bool) == Some(true)
-    {
-        let url = details
-            .get("url")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let status = details
-            .get("status")
-            .and_then(Value::as_u64)
-            .and_then(|status| u16::try_from(status).ok())
-            .unwrap_or_default();
-        return decoy::noindexed(url, status);
-    }
-    Answer::Failed {
-        code: error.code().to_owned(),
-        retryable: error.retryable(),
-        message: error.message().to_owned(),
-        details,
+    ended(AttemptFailure::entered(
+        error.code().to_owned(),
+        error.retryable(),
+        error.message().to_owned(),
+        error.details().cloned().unwrap_or_default(),
+    ))
+}
+
+/// An attempt whose fetch ended with `failure` before its handler was
+/// asked; a decoy as [`failed`] says.
+fn fetch_failed(failure: &FetchFailure) -> Answer {
+    ended(AttemptFailure::of_fetch(failure))
+}
+
+/// The answer of an attempt that failed with `failure`: a page marked
+/// `noindex` that failed its Page check is a decoy instead (ADR 0035).
+fn ended(failure: AttemptFailure) -> Answer {
+    match failure.why() {
+        Why::PageCheckFailed {
+            noindex: Some((url, status)),
+        } => decoy::noindexed(url, *status),
+        _ => Answer::failed(failure),
     }
 }
 
@@ -1538,20 +1575,19 @@ async fn handled(
                 Err(ClientRequestError::Failed { code, retryable, message, details }) => {
                     match escaped_refusal(&code, &details) {
                         Some(reason) => Answer::Refused(reason),
-                        None => Answer::Failed { code, retryable, message, details },
+                        None => Answer::failed(AttemptFailure::entered(
+                            code, retryable, message, details,
+                        )),
                     }
                 }
-                Err(ClientRequestError::Malformed(message)) => Answer::Failed {
-                    code: HANDLER_FAILED.name.to_owned(),
-                    retryable: false,
-                    message,
-                    details: Map::new(),
-                },
+                Err(ClientRequestError::Malformed(message)) => {
+                    Answer::failed(AttemptFailure::named(HANDLER_FAILED.name, false, message))
+                }
                 Err(_) => Answer::ClientGone,
             },
             _ = lease.ended() => {
                 sent.cancel().await;
-                run.spawn(late(run.clone(), lease.clone(), sent));
+                run.spawn(watch::after(run.metrics(), late(run.clone(), lease.clone(), sent)));
                 Answer::LeaseEnded
             }
         },
@@ -1602,10 +1638,10 @@ async fn late(run: Run, lease: WorkItemLease, mut sent: Sent<CrawlRequestHandled
 pub(super) fn effect(answer: &Answer) -> Effect {
     match answer {
         Answer::Handled(CrawlRequestHandled { skipped: None, .. }) => Effect::Success,
-        Answer::Failed { code, details, .. } => match block_cause(code, details) {
-            Some(cause) => Effect::Blocked(cause),
-            None if code == PAGE_CHECK_FAILED => Effect::PageCheckFailed,
-            None => Effect::Neutral,
+        Answer::Failed(failure) => match failure.why() {
+            Why::Blocked(cause) => Effect::Blocked(*cause),
+            Why::PageCheckFailed { .. } => Effect::PageCheckFailed,
+            _ => Effect::Neutral,
         },
         Answer::Handled(CrawlRequestHandled {
             skipped: Some(_), ..
@@ -1617,15 +1653,4 @@ pub(super) fn effect(answer: &Answer) -> Effect {
         | Answer::LeaseEnded
         | Answer::ClientGone => Effect::Neutral,
     }
-}
-
-/// The Block cause of a handler's failure with the Error code `blocked`,
-/// which its details name.
-pub(super) fn block_cause(code: &str, details: &Map<String, Value>) -> Option<BlockCause> {
-    if code != BLOCKED {
-        return None;
-    }
-    details
-        .get("cause")
-        .and_then(|cause| serde_json::from_value(cause.clone()).ok())
 }

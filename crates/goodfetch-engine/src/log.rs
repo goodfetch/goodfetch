@@ -17,8 +17,6 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
-use goodfetch_counted_work::{CountedWork, Row};
-use goodfetch_protocol::jsonrpc::{Notification, Version};
 use goodfetch_protocol::log::{LOG, LogEvent, LogLevel};
 use serde_json::{Map, Value};
 use tokio::sync::{broadcast, mpsc, watch};
@@ -173,8 +171,7 @@ impl ConnectionLog {
     /// Dropping the future loses only the log events it had not sent.
     pub(crate) fn forward(
         &self,
-        outgoing: mpsc::Sender<Vec<u8>>,
-        work: CountedWork,
+        outgoing: mpsc::Sender<crate::wire::Line>,
     ) -> impl Future<Output = ()> + Send + 'static {
         let receivers = self.0.as_ref().map(|listening| {
             (
@@ -185,7 +182,7 @@ impl ConnectionLog {
         });
         async move {
             if let Some((connection, events, level)) = receivers {
-                forward(connection, events, level, outgoing, work).await;
+                forward(connection, events, level, outgoing).await;
             }
         }
     }
@@ -204,8 +201,7 @@ async fn forward(
     connection: u64,
     mut events: broadcast::Receiver<Item>,
     mut level: watch::Receiver<LogLevel>,
-    outgoing: mpsc::Sender<Vec<u8>>,
-    work: CountedWork,
+    outgoing: mpsc::Sender<crate::wire::Line>,
 ) {
     let mut dropped: u64 = 0;
     let mut wanted = *level.borrow_and_update();
@@ -222,12 +218,15 @@ async fn forward(
                     if wanted == LogLevel::Off || event.level > wanted {
                         continue;
                     }
-                    let event = LogEvent {
-                        dropped: std::mem::take(&mut dropped),
-                        ..LogEvent::clone(&event)
+                    // Copied only to tell the events lost before it.
+                    let line = match std::mem::take(&mut dropped) {
+                        0 => line(&event),
+                        dropped => line(&LogEvent {
+                            dropped,
+                            ..LogEvent::clone(&event)
+                        }),
                     };
-                    work.count(Row::MessageEncodes);
-                    if outgoing.send(line(&event)).await.is_err() {
+                    if outgoing.send(line.into()).await.is_err() {
                         return;
                     }
                 }
@@ -246,16 +245,9 @@ async fn forward(
     }
 }
 
-/// The `$/log` line of `event`.
+/// The `$/log` line of `event`, encoded once.
 fn line(event: &LogEvent) -> Vec<u8> {
-    let mut line = serde_json::to_vec(&Notification {
-        jsonrpc: Version,
-        method: LOG.to_owned(),
-        params: Some(serde_json::to_value(event).expect("invariant: a log event encodes")),
-    })
-    .expect("invariant: a notification of JSON values encodes");
-    line.push(b'\n');
-    line
+    crate::wire::notification_line(LOG, event)
 }
 
 /// The layer that makes each event a [`LogEvent`] for the Connections.

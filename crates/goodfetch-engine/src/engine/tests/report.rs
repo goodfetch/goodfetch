@@ -22,9 +22,8 @@ use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::run::{
-    AxisReason, EndingError, NothingDone, PlanReport, PlanStatus, PluginRun, RUN_STOP,
-    RecordingReport, RunId, RunKind, RunReport, RunWarning, StopReason, Tags, UncertainEffect,
-    Verdict,
+    EndingError, NothingDone, PlanReport, PlanStatus, PluginRun, RUN_STOP, RecordingReport, RunId,
+    RunKind, RunReport, RunWarning, StopReason, Tags, UNCERTAIN_EFFECTS, UncertainEffect,
 };
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
@@ -217,7 +216,10 @@ async fn cancelled_stop(params: Value, context: CallContext) -> Result<Value, Ca
         .into_iter()
         .find(|handler| handler.operation().name == RUN_STOP.name)
         .expect("invariant: the engine handles `run.stop`");
-    let answered = stop.call(params, context).now_or_never();
+    let params = params.to_string();
+    let answered = stop
+        .call(crate::Params::new(&params), context)
+        .now_or_never();
     Ok(json!({ "answered": answered.is_some() }))
 }
 
@@ -274,13 +276,6 @@ impl ReportPart for Seeded {
             first_command: Some("Input.dispatchMouseEvent".to_owned()),
             since: report.started_at.clone(),
         }]);
-        report.verdict = Verdict::NeedsReview;
-        report.verdict_reasons.push(AxisReason {
-            code: "uncertain_effects".to_owned(),
-            message: "An Effect is uncertain.".to_owned(),
-            count: None,
-            call_id: None,
-        });
         report
             .kind_parts
             .insert("requests".to_owned(), json!({ "succeeded": 1 }));
@@ -718,6 +713,21 @@ fn a_seeded_runs_report_holds_every_part() {
             "warnings",
             "weakened",
         ]
+    );
+    assert_eq!(
+        (
+            &report["verdict"],
+            &report["verdict_reasons"][0]["code"],
+            &report["verdict_reasons"][0]["count"],
+            report["verdict_reasons"].as_array().map(Vec::len),
+        ),
+        (
+            &json!("needs_review"),
+            &json!(UNCERTAIN_EFFECTS),
+            &json!(1),
+            Some(1)
+        ),
+        "{report}"
     );
 }
 

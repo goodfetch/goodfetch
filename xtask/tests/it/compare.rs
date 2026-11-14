@@ -6,8 +6,14 @@
 //! was served the same bytes; otherwise it fails naming the trial that did
 //! other work, and writes no figure. A cell a tool cannot run says so, a
 //! Foxhound value that does not exist yet is pending, and the Callgrind
-//! cell gives `foxhound.spider_instruction_ratio` under the same check (ADR
-//! 0140). Trials are fixtures here.
+//! cell gives `foxhound.spider_instruction_ratio` and the extraction
+//! scenario's two ratios under the same check (ADR 0140). On the extraction
+//! scenario's article site, each trial's pages are also held to the right
+//! answers (#2136): a Foxhound trial that differs is refused, and a
+//! competitor's keeps its figures, labelled. The Collie scenario (issue
+//! 2282) gives Collie's CDP commands per action over Playwright's, held to
+//! its register row's Today, under a same-work check of its own. Trials
+//! are fixtures here.
 
 use serde_json::{Value, json};
 
@@ -19,49 +25,88 @@ const MARKDOWN: &str = "target/compare/report.md";
 const MIB: u64 = 1024 * 1024;
 
 /// The measured cells: each tool's main rows by scenario, then Spider's
-/// sensitivity rows.
-const CELLS: [(&str, &str, &str); 22] = [
+/// sensitivity rows and Foxhound's `auto` row.
+const CELLS: [(&str, &str, &str); 33] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
     ("raw", "scrapy", "scrapy"),
+    ("raw", "crawlee-rs", "crawlee-rs"),
+    ("raw", "pagesift", "pagesift"),
     ("durable", "foxhound full", "foxhound"),
     ("durable", "foxhound periodic", "foxhound"),
+    ("durable", "crawlee-rs", "crawlee-rs"),
+    ("durable", "pagesift", "pagesift"),
     ("polite", "foxhound", "foxhound"),
     ("polite", "crawlee", "crawlee"),
     ("polite", "scrapy", "scrapy"),
+    ("polite", "crawlee-rs", "crawlee-rs"),
+    ("polite", "pagesift", "pagesift"),
     ("extraction", "foxhound", "foxhound"),
+    ("extraction", "foxhound filter lists off", "foxhound"),
     ("extraction", "spider", "spider"),
     ("extraction", "crawlee", "crawlee"),
     ("extraction", "scrapy", "scrapy"),
+    ("extraction", "crawlee-rs", "crawlee-rs"),
+    ("extraction", "pagesift", "pagesift"),
     ("browser", "foxhound", "foxhound"),
     ("browser", "spider", "spider"),
     ("browser", "crawlee", "crawlee"),
     ("browser", "scrapy", "scrapy"),
+    ("browser", "pagesift", "pagesift"),
     ("raw", "spider capacity 4096", "spider"),
     ("raw", "spider default features", "spider"),
     ("raw", "spider bloom", "spider"),
     ("raw", "spider jemalloc", "spider"),
     ("extraction", "spider mimalloc", "spider"),
+    ("polite", "foxhound auto", "foxhound"),
 ];
 
-/// The work of a trial that fetched each page of the 1,000-page site once,
+/// The pages of `scenario`'s site: the polite scenario's multi-domain site
+/// holds 10 pages on each of its 1,000 domains (#2283), every other the
+/// declared 1,000.
+fn site_pages(scenario: &str) -> u64 {
+    if scenario == "polite" { 10_000 } else { 1000 }
+}
+
+/// The work of a trial that fetched each page of a site of `pages` once,
 /// 600 bytes each, and `again` pages a second time.
-fn work(again: u64) -> Value {
+fn work_on(pages: u64, again: u64) -> Value {
     json!({
-        "pages": 1000,
+        "pages": pages,
         "missing": [],
         "extra": [],
-        "requests": 1000 + again,
-        "bytes": 600 * (1000 + again),
-        "first_bytes": 600_000,
+        "requests": pages + again,
+        "bytes": 600 * (pages + again),
+        "first_bytes": 600 * pages,
     })
 }
+
+/// What the output check found of a crawl `differing` of whose pages
+/// differ from the whole right answer, each by `first`, and
+/// `beside_the_ad` of them by more than the ad's marker.
+fn extracted(differing: u64, beside_the_ad: u64, first: &str) -> Value {
+    let found = |pages: u64| {
+        if pages == 0 {
+            json!({ "pages": 0 })
+        } else {
+            json!({ "pages": pages, "first": first })
+        }
+    };
+    json!({ "whole": found(differing), "ad_allowed": found(beside_the_ad) })
+}
+
+/// The first difference of a page that holds the ad.
+const AD: &str =
+    "/sites/1000/1: the text holds the ad's \"Sponsored offer from Harbourline Freight\"";
 
 /// A trial of `cell` in `seconds`, at `peak_bytes`, that did `work`, its
 /// figures otherwise the same for every trial: 2 s of user and 1 s of
 /// system time, 8 MiB written, 1 MiB left on disk, its tree sampled at
-/// half its peak on average, its peak PSS 1 MiB under its peak RSS.
+/// half its peak on average, its peak PSS 1 MiB and its private memory
+/// 2 MiB under its peak RSS. An extraction trial read every page right;
+/// Foxhound's with its Filter lists off kept the ad on every page, as
+/// nothing removes it there.
 fn trial(
     scenario: &str,
     cell: &str,
@@ -71,12 +116,13 @@ fn trial(
     peak_bytes: u64,
     work: &Value,
 ) -> Value {
-    json!({
+    let mut trial = json!({
         "scenario": scenario,
         "cell": cell,
         "tool": tool,
         "number": number,
-        "site_pages": 1000,
+        "site_pages": site_pages(scenario),
+        "concurrency": 16,
         "seconds": seconds,
         "processes": if scenario == "durable" { 2 } else { 1 },
         "user_seconds": 2.0,
@@ -87,6 +133,7 @@ fn trial(
             "peak_bytes": peak_bytes,
             "average_bytes": peak_bytes / 2,
             "peak_pss_bytes": peak_bytes - MIB,
+            "peak_private_bytes": peak_bytes - 2 * MIB,
             "peak_cores": 1.5,
             "peak_threads": 20,
             "peak_open_files": 30,
@@ -110,7 +157,39 @@ fn trial(
         "curve": [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
         "latency": { "p50": 0.01, "p95": 0.02, "p99": 0.03 },
         "latency_end": if tool == "foxhound" { "record" } else { "fetch" },
-    })
+    });
+    if scenario == "extraction" {
+        trial["extracted"] = if cell == "foxhound filter lists off" {
+            extracted(1000, 0, AD)
+        } else {
+            extracted(0, 0, "")
+        };
+    }
+    trial
+}
+
+/// Trial `number` of `cell`, in `seconds` at `peak_bytes`, over its
+/// scenario's site: a durable trial fetched `number` pages again after its
+/// kill, and Foxhound's `auto` row 3,000 pages twice, its samples.
+fn cell_trial(
+    scenario: &str,
+    cell: &str,
+    tool: &str,
+    number: u32,
+    seconds: f64,
+    peak_bytes: u64,
+) -> Value {
+    let again = match (scenario, cell) {
+        ("durable", _) => u64::from(number),
+        (_, "foxhound auto") => 3000,
+        _ => 0,
+    };
+    let work = work_on(site_pages(scenario), again);
+    let mut trial = trial(scenario, cell, tool, number, seconds, peak_bytes, &work);
+    if cell == "foxhound auto" {
+        trial["sample_pages"] = json!(3000);
+    }
+    trial
 }
 
 /// A cell's three trials: in 1, 2 and 4 seconds at 20, 30 and 10 MiB.
@@ -119,20 +198,7 @@ fn cell_trials(scenario: &str, cell: &str, tool: &str) -> Vec<Value> {
         .into_iter()
         .zip(1..)
         .map(|((seconds, mib), number)| {
-            let again = if scenario == "durable" {
-                u64::from(number)
-            } else {
-                0
-            };
-            trial(
-                scenario,
-                cell,
-                tool,
-                number,
-                seconds,
-                mib * MIB,
-                &work(again),
-            )
+            cell_trial(scenario, cell, tool, number, seconds, mib * MIB)
         })
         .collect()
 }
@@ -160,7 +226,11 @@ fn trials() -> Value {
             "scrapy": "2.19.0",
             "playwright": "1.64.1",
             "scrapy_playwright": "0.0.48",
+            "crawlee_rs": "2a3ed90b8391c86005ce6ed8dd3e3248d0d34579",
+            "pagesift": "1.3.0",
             "browser": "156.0.8078.4",
+            "scenarios": ["raw", "durable", "polite", "extraction", "browser"],
+            "command": "just compare release",
         },
         "machine": {
             "class": "local-controlled",
@@ -173,27 +243,42 @@ fn trials() -> Value {
         "commit": "0123456789abcdef0123456789abcdef01234567",
         "order_seed": 7,
         "trials": trials,
+        "rules": [],
         "syscalls": not_run("strace is not installed on this host"),
         "growth": not_run("the growth cell runs with `--growth`"),
+        "sizes": not_run("the run asked for no scenario 1 main cell of Foxhound or Spider"),
         "instructions": not_run("valgrind is not installed on this host"),
+        "collie": not_run("the run asked for no Collie cell"),
     })
 }
 
-/// A counted run of `cell` counting `count`, with `syncs`, over the site.
+/// A counted run of `cell` counting `count`, with `syncs`, over the site;
+/// an extraction run read its pages as its cell's trials did.
 fn run(scenario: &str, cell: &str, tool: &str, number: u32, count: u64, syncs: u64) -> Value {
-    json!({
+    let mut run = json!({
         "scenario": scenario,
         "cell": cell,
         "tool": tool,
         "number": number,
         "count": count,
         "syncs": syncs,
-        "work": work(0),
-    })
+        "work": work_on(site_pages(scenario), 0),
+    });
+    if scenario == "extraction" {
+        run["extracted"] = if cell == "foxhound" {
+            extracted(0, 0, "")
+        } else {
+            extracted(1000, 0, AD)
+        };
+    }
+    run
 }
 
-/// A Callgrind cell of three runs of each tool over the 1,000-page site:
-/// Foxhound's a median of 32,000 instructions a page, Spider's 1,000.
+/// A Callgrind cell of three runs of each tool over the 1,000-page site.
+/// In scenario 1, Foxhound's a median of 32,000 instructions a page and
+/// Spider's 1,000; in the extraction scenario, Foxhound's 60,000 at its
+/// defaults and 45,000 with its Filter lists off, and Spider's 50,000, its
+/// pages holding the ad, which it does not remove.
 fn callgrind() -> Value {
     json!({
         "status": "measured",
@@ -205,6 +290,15 @@ fn callgrind() -> Value {
             run("raw", "spider", "spider", 1, 1_000_000, 0),
             run("raw", "spider", "spider", 2, 900_000, 0),
             run("raw", "spider", "spider", 3, 1_100_000, 0),
+            run("extraction", "foxhound", "foxhound", 1, 59_000_000, 0),
+            run("extraction", "foxhound", "foxhound", 2, 60_000_000, 0),
+            run("extraction", "foxhound", "foxhound", 3, 70_000_000, 0),
+            run("extraction", "foxhound filter lists off", "foxhound", 1, 45_000_000, 0),
+            run("extraction", "foxhound filter lists off", "foxhound", 2, 44_000_000, 0),
+            run("extraction", "foxhound filter lists off", "foxhound", 3, 46_000_000, 0),
+            run("extraction", "spider", "spider", 1, 50_000_000, 0),
+            run("extraction", "spider", "spider", 2, 49_000_000, 0),
+            run("extraction", "spider", "spider", 3, 51_000_000, 0),
         ],
     })
 }
@@ -283,7 +377,129 @@ fn trials_of_the_same_work_report_each_cells_medians_with_their_spread() {
             "spider": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
             "crawlee": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
             "scrapy": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
+            "crawlee-rs": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
+            "pagesift": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
         })
+    );
+}
+
+/// The trials file with a sizes cell: three trials of Foxhound and Spider
+/// at each size and concurrency, Spider's at 1 in flight aside, Foxhound's
+/// peak 22 MiB, Spider's 18 MiB at 100 pages and 30 MiB above.
+fn sized_trials() -> Value {
+    let mut trials = trials();
+    let mut sized = Vec::new();
+    for pages in [100_u64, 1000, 10_000] {
+        for concurrency in [1, 16, 64] {
+            for (tool, mib) in [
+                ("foxhound", 22),
+                ("spider", if pages == 100 { 18 } else { 30 }),
+            ] {
+                if (tool, concurrency) == ("spider", 1) {
+                    continue;
+                }
+                for number in 1..=3 {
+                    let mut trial = trial(
+                        "raw",
+                        tool,
+                        tool,
+                        number,
+                        1.0,
+                        mib * MIB,
+                        &json!({
+                            "pages": pages,
+                            "missing": [],
+                            "extra": [],
+                            "requests": pages,
+                            "bytes": 600 * pages,
+                            "first_bytes": 600 * pages,
+                        }),
+                    );
+                    trial["site_pages"] = json!(pages);
+                    trial["concurrency"] = json!(concurrency);
+                    trial["requests_sent"] = json!(pages);
+                    trial["sampled"]["peak_executable_bytes"] = json!(9 * MIB);
+                    sized.push(trial);
+                }
+            }
+        }
+    }
+    trials["sizes"] = json!({
+        "status": "measured",
+        "trials": 3,
+        "trials_run": sized,
+        "stopped": [],
+    });
+    trials
+}
+
+/// The sizes cell (spec #2165): Foxhound's and Spider's scenario 1 main
+/// rows at each size and concurrency, each tool's median peak, private
+/// memory and executable's pages, and at 16 in flight alone whether
+/// Foxhound's peak is at most Spider's. Spider runs no trial at 1 in
+/// flight, and its row there says why.
+#[test]
+fn the_sizes_cell_reports_each_tools_peak_with_the_bar_at_16_in_flight() {
+    let workspace = Workspace::from_fixture("empty");
+
+    let outcome = report(&workspace, &sized_trials());
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let report = written(&workspace);
+    let points = report["sizes"]["points"].as_array().unwrap();
+    let bars: Vec<(u64, u64, Value)> = points
+        .iter()
+        .map(|point| {
+            (
+                point["site_pages"].as_u64().unwrap(),
+                point["concurrency"].as_u64().unwrap(),
+                point["bar_met"].clone(),
+            )
+        })
+        .collect();
+    let mut expected = Vec::new();
+    for concurrency in [16, 1, 64] {
+        for pages in [100, 1000, 10_000] {
+            let bar = match (concurrency, pages) {
+                (16, 100) => json!(false),
+                (16, _) => json!(true),
+                _ => Value::Null,
+            };
+            expected.push((pages, concurrency, bar));
+        }
+    }
+    assert_eq!(bars, expected);
+    assert_eq!(
+        points[0]["tools"]["foxhound"],
+        json!({
+            "status": "measured",
+            "trials": 3,
+            "peak_bytes": 22 * MIB,
+            "private_bytes": 20 * MIB,
+            "executable_bytes": 9 * MIB,
+        })
+    );
+    let spider_at_1 = &points[3]["tools"]["spider"];
+    assert_eq!(
+        (
+            &points[3]["concurrency"],
+            &spider_at_1["status"],
+            spider_at_1["reason"]
+                .as_str()
+                .is_some_and(|reason| !reason.is_empty()),
+        ),
+        (&json!(1), &json!("not_measured"), true)
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    assert!(
+        markdown.contains("| 100 | 16 | foxhound | 3 | 22.0 MiB | 20.0 MiB | 9.0 MiB | missed |")
+            && markdown.contains("| 100 | 1 | spider | not measured: "),
+        "{markdown}"
     );
 }
 
@@ -361,9 +577,12 @@ fn spiders_sensitivity_rows_are_labelled_and_no_target_reads_them() {
         "- **spider mimalloc** (sensitivity row): ",
         "- **spider smart** (sensitivity row): ",
         "  - not supported: Spider's `crawl_smart()` fetched 1 of the site's 100 pages",
-        "| Metric | foxhound | spider | crawlee | scrapy | spider capacity 4096 (sensitivity) | \
-         spider default features (sensitivity) | spider bloom (sensitivity) | \
-         spider jemalloc (sensitivity) |",
+        "| Metric | foxhound, 1000 of the site's 1000 pages | spider, 1000 of the site's 1000 pages \
+         | crawlee, 1000 of the site's 1000 pages | scrapy, 1000 of the site's 1000 pages | \
+         crawlee-rs, 1000 of the site's 1000 pages | pagesift, 1000 of the site's 1000 pages | \
+         spider capacity 4096 (sensitivity), 1000 of the site's 1000 pages | spider default \
+         features (sensitivity), 1000 of the site's 1000 pages | spider bloom (sensitivity), 1000 \
+         of the site's 1000 pages | spider jemalloc (sensitivity), 1000 of the site's 1000 pages |",
     ] {
         assert!(
             markdown.contains(expected),
@@ -417,6 +636,7 @@ fn each_measured_cell_reports_every_metric_of_the_owners_list() {
         "duplicates",
         "errors",
         "skipped",
+        "sample_share",
     ] {
         assert!(names.contains(&name), "{name} missing from {names:?}");
     }
@@ -574,10 +794,11 @@ fn the_report_writes_each_scenarios_mapping() {
     }
 }
 
-/// Crawlee and Scrapy join scenario 1, each cell with every metric and the
-/// settings its tool ran with; their scenario 2 cells say why neither
-/// resumes all the site's pages after a kill, and the report names the
-/// pinned version of each tool.
+/// Crawlee, Scrapy and crawlee-rs join scenario 1, each cell with every
+/// metric and the settings its tool ran with; Crawlee's and Scrapy's
+/// scenario 2 cells say why neither resumes all the site's pages after a
+/// kill, where crawlee-rs's is measured, and the report names the pinned
+/// version or commit of each tool.
 #[test]
 fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
     let workspace = Workspace::from_fixture("empty");
@@ -592,7 +813,12 @@ fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
             .map(|metrics| metrics.keys().cloned().collect::<Vec<_>>())
     };
     let foxhound = names(cell(&report, 0, "foxhound"));
-    for (scenario, name) in [(0, "crawlee"), (0, "scrapy")] {
+    for (scenario, name) in [
+        (0, "crawlee"),
+        (0, "scrapy"),
+        (0, "crawlee-rs"),
+        (1, "crawlee-rs"),
+    ] {
         let cell = cell(&report, scenario, name);
         assert_eq!(
             (&cell["status"], names(cell)),
@@ -610,8 +836,9 @@ fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
         "Crawlee 3.18.2 (`@crawlee/cheerio`, and `@crawlee/playwright` on Playwright 1.64.1) on \
-         Node.js and Scrapy 2.19.0 (and scrapy-playwright 0.0.48 on Playwright 1.64.1) on CPython, \
-         every tool of the headless browser scenario running Chrome for Testing 156.0.8078.4",
+         Node.js, Scrapy 2.19.0 (and scrapy-playwright 0.0.48 on Playwright 1.64.1) on CPython, \
+         crawlee-rs at commit `2a3ed90b8391c86005ce6ed8dd3e3248d0d34579` and pagesift 1.3.0, every \
+         tool of the headless browser scenario running Chrome for Testing 156.0.8078.4",
         "- **crawlee**: `CheerioCrawler` (`@crawlee/cheerio`) with `persistStorage: false` and \
          `maxConcurrency: 16`",
         "- **scrapy**: a default `scrapy.Spider`",
@@ -619,6 +846,45 @@ fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
          `DOWNLOAD_DELAY: 0`",
         "not supported: Crawlee's `persistStorage` writes each request of its queue to a file",
         "not supported: Scrapy's `JOBDIR` writes its queue's index only on a clean close",
+    ] {
+        assert!(
+            markdown.contains(expected),
+            "{expected} missing:\n{markdown}"
+        );
+    }
+}
+
+/// pagesift joins the matrix's five scenarios (#2215): each of its cells
+/// is measured with every metric, and the report names its pinned version
+/// and its settings.
+#[test]
+fn pagesifts_cells_report_every_metric_with_their_mapping_and_its_pin() {
+    let workspace = Workspace::from_fixture("empty");
+
+    let outcome = report(&workspace, &trials());
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let report = written(&workspace);
+    let names = |cell: &Value| {
+        cell["metrics"]
+            .as_object()
+            .map(|metrics| metrics.keys().cloned().collect::<Vec<_>>())
+    };
+    let foxhound = names(cell(&report, 0, "foxhound"));
+    for scenario in 0..5 {
+        let cell = cell(&report, scenario, "pagesift");
+        assert_eq!(
+            (&cell["status"], names(cell)),
+            (&json!("measured"), foxhound.clone()),
+            "scenario {scenario}'s pagesift"
+        );
+    }
+    let markdown = workspace.read_text(MARKDOWN);
+    for expected in [
+        "crawlee-rs at commit `2a3ed90b8391c86005ce6ed8dd3e3248d0d34579` and pagesift 1.3.0, every",
+        "- **pagesift**: its library's `Scraper::crawl`, the entry point its own crawl benchmark uses",
+        "- **pagesift**: scenario 1's crawl as a job of its HTTP API (`POST /v1/crawl`)",
+        "- **pagesift**: scenario 1's crawl on its browser engine (`engine: browser`)",
     ] {
         assert!(
             markdown.contains(expected),
@@ -653,8 +919,20 @@ fn the_polite_extraction_and_browser_scenarios_report_every_metric_of_each_cell(
         [&json!("polite"), &json!("extraction"), &json!("browser")]
     );
     for (index, cells) in [
-        (2, &["foxhound", "crawlee", "scrapy"][..]),
-        (3, &["foxhound", "spider", "crawlee", "scrapy"][..]),
+        (
+            2,
+            &[
+                "foxhound",
+                "crawlee",
+                "scrapy",
+                "crawlee-rs",
+                "foxhound auto",
+            ][..],
+        ),
+        (
+            3,
+            &["foxhound", "spider", "crawlee", "scrapy", "crawlee-rs"][..],
+        ),
         (4, &["foxhound", "spider", "crawlee", "scrapy"][..]),
     ] {
         for name in cells {
@@ -667,12 +945,15 @@ fn the_polite_extraction_and_browser_scenarios_report_every_metric_of_each_cell(
         }
     }
     assert_eq!(
-        &cell(&report, 2, "spider")["status"],
-        &json!("not_supported")
+        (
+            &cell(&report, 2, "spider")["status"],
+            &cell(&report, 4, "crawlee-rs")["status"]
+        ),
+        (&json!("not_supported"), &json!("not_supported"))
     );
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
-        "## 3. Polite: robots.txt obeyed, 1 in flight per domain, 1 s delay, on the multi-domain site (50 domains)",
+        "## 3. Polite: robots.txt obeyed, 1 in flight per domain, 1 s delay, on the multi-domain site (10,000 pages on 1,000 domains)",
         "## 4. Extraction to a dataset",
         "## 5. Headless browser",
         "- **crawlee**: `CheerioCrawler` with `sameDomainDelaySecs: 1`, `respectRobotsTxtFile: true`",
@@ -684,6 +965,45 @@ fn the_polite_extraction_and_browser_scenarios_report_every_metric_of_each_cell(
             "{expected} missing:\n{markdown}"
         );
     }
+}
+
+/// The polite scenario's `auto` row (#2283) reports the share of its pages
+/// that were samples, and is held to its pages' first answers, its samples
+/// fetched twice; every other cell says why it has no share.
+#[test]
+fn the_polite_auto_row_reports_the_share_of_its_pages_that_were_samples() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    trials["syscalls"] = strace();
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let report = written(&workspace);
+    assert_eq!(
+        (
+            &cell(&report, 2, "foxhound auto")["row"],
+            &cell(&report, 2, "foxhound auto")["metrics"]["sample_share"],
+            &cell(&report, 2, "foxhound")["metrics"]["sample_share"]["status"],
+        ),
+        (
+            &json!("sensitivity"),
+            &json!({ "status": "measured", "median": 0.3, "low": 0.3, "high": 0.3, "unit": "share" }),
+            &json!("not_measured"),
+        )
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    let expected = "| Tiers: share of the pages that were samples | not measured: it fetches no \
+                    sample: only Foxhound's `auto` row does | 30.0 % (30.0 %–30.0 %) |";
+    assert!(
+        markdown.contains(expected),
+        "{expected} missing:\n{markdown}"
+    );
 }
 
 /// Each trial records the 1-minute load it started at, which the trials
@@ -707,10 +1027,11 @@ fn the_report_shows_the_load_each_trial_started_at() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
-        "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Peak RSS |",
+        "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Pages fetched | \
+         Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
-        "1 of the 66 timed trials started above a 1-minute load of 4.",
+        "1 of the 99 timed trials started above a 1-minute load of 4.",
     ] {
         assert!(
             markdown.contains(expected),
@@ -930,7 +1251,13 @@ fn a_trial_served_other_bytes_for_the_same_pages_fails_the_same_work_check() {
 fn a_resumed_trial_is_held_to_its_pages_first_answers() {
     let workspace = Workspace::from_fixture("empty");
     let mut trials = trials();
-    trials["trials"][13]["work"]["first_bytes"] = json!(600_001);
+    let resumed = trials["trials"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|trial| trial["cell"] == "foxhound full" && trial["number"] == 2)
+        .unwrap();
+    resumed["work"]["first_bytes"] = json!(600_001);
 
     let outcome = report(&workspace, &trials);
 
@@ -972,10 +1299,7 @@ fn a_report_of_fewer_than_10_trials_says_it_falls_short() {
     ten["trials"] = CELLS
         .iter()
         .flat_map(|(scenario, cell, tool)| {
-            (1..=10).map(move |number| {
-                let again = u64::from(*scenario == "durable");
-                trial(scenario, cell, tool, number, 2.0, 20 * MIB, &work(again))
-            })
+            (1..=10).map(move |number| cell_trial(scenario, cell, tool, number, 2.0, 20 * MIB))
         })
         .collect();
 
@@ -1022,11 +1346,11 @@ fn the_callgrind_cell_reports_foxhounds_instructions_per_page_over_spiders() {
         outcome.stderr
     );
     assert_eq!(
-        written(&workspace)["instructions"],
+        written(&workspace)["instructions"]["ratios"][0],
         json!({
-            "status": "measured",
             "row": "foxhound.spider_instruction_ratio",
             "scenario": "scenario 1 of ADR 0138's matrix",
+            "foxhound": "foxhound",
             "foxhound_per_page": 32_000.0,
             "spider_per_page": 1_000.0,
             "ratio": 32.0,
@@ -1037,6 +1361,294 @@ fn the_callgrind_cell_reports_foxhounds_instructions_per_page_over_spiders() {
         markdown.contains("`foxhound.spider_instruction_ratio`: 32.000"),
         "{markdown}"
     );
+}
+
+/// The Callgrind cell counts the extraction scenario too (#2136; the
+/// owner's decision of 2026-11-10, #2252 Q7), both of Foxhound's rows over
+/// Spider's: at its defaults, where Spider does not do the Clean-up rules'
+/// work, so its output differs and the row says so; and with its Filter
+/// lists off, where both tools read the same Main content and Spider's
+/// output passes that row's check, the ad allowed.
+#[test]
+fn the_callgrind_cell_reports_the_extraction_scenarios_two_ratios() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    trials["instructions"] = callgrind();
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(
+        written(&workspace)["instructions"]["ratios"]
+            .as_array()
+            .unwrap()[1..],
+        [
+            json!({
+                "row": "foxhound.spider_extraction_instruction_ratio",
+                "scenario": "the extraction scenario of ADR 0138's matrix, Foxhound at its defaults",
+                "foxhound": "foxhound",
+                "foxhound_per_page": 60_000.0,
+                "spider_per_page": 50_000.0,
+                "ratio": 1.2,
+                "spider_output_differs": "output differs: 1000 of 1000",
+            }),
+            json!({
+                "row": "foxhound.spider_extraction_instruction_ratio_filter_lists_off",
+                "scenario": "the extraction scenario of ADR 0138's matrix, Foxhound's Filter lists off",
+                "foxhound": "foxhound filter lists off",
+                "foxhound_per_page": 45_000.0,
+                "spider_per_page": 50_000.0,
+                "ratio": 0.9,
+            }),
+        ]
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    for expected in [
+        "`foxhound.spider_extraction_instruction_ratio`: 1.200, Foxhound's 60000 instructions per page over Spider's 50000",
+        "Spider's output differs under this row's check (output differs: 1000 of 1000)",
+        "`foxhound.spider_extraction_instruction_ratio_filter_lists_off`: 0.900, Foxhound's 45000 instructions per page over Spider's 50000",
+    ] {
+        assert!(
+            markdown.contains(expected),
+            "{expected} missing:\n{markdown}"
+        );
+    }
+}
+
+/// A run that asked for the extraction scenario alone gives its two ratios
+/// and no scenario 1 ratio, which it did not count.
+#[test]
+fn a_run_of_the_extraction_scenario_alone_gives_its_ratios_only() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    trials["declared"]["scenarios"] = json!(["extraction"]);
+    trials["trials"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|trial| trial["scenario"] == "extraction");
+    let mut cell = callgrind();
+    cell["runs"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|run| run["scenario"] == "extraction");
+    trials["instructions"] = cell;
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let report = written(&workspace);
+    let rows: Vec<&Value> = report["instructions"]["ratios"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|ratio| &ratio["row"])
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            &json!("foxhound.spider_extraction_instruction_ratio"),
+            &json!("foxhound.spider_extraction_instruction_ratio_filter_lists_off"),
+        ]
+    );
+}
+
+/// A Foxhound trial whose pages differ from the right answer is refused
+/// (#2136): the report fails naming it, and writes no figure.
+#[test]
+fn a_foxhound_trial_whose_output_differs_is_refused() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    let boilerplate = "/sites/1000/7: the text holds \"Tidewater Supply masthead\"";
+    for trial in trials["trials"].as_array_mut().unwrap() {
+        if trial["scenario"] == "extraction" && trial["cell"] == "foxhound" && trial["number"] == 2
+        {
+            trial["extracted"] = extracted(3, 3, boilerplate);
+        }
+    }
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (
+            vec![finding("output_differs", "extraction foxhound trial 2")],
+            1
+        ),
+        "{}",
+        outcome.stderr
+    );
+    assert!(
+        outcome.stdout.contains(
+            "3 of the site's 1000 pages differ from the right answer; the first: /sites/1000/7: the text holds"
+        ),
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(workspace.read(REPORT), None);
+}
+
+/// Foxhound's row with its Filter lists off is held to the right answer
+/// with the ad allowed: the ad on every page refuses nothing (the
+/// fixture's own trials), and a page that differs otherwise does. At its
+/// defaults, the ad's marker on a page refuses the trial.
+#[test]
+fn foxhounds_rows_are_each_held_to_their_own_check() {
+    let refused = |cell: &str, found: Value| {
+        let workspace = Workspace::from_fixture("empty");
+        let mut trials = trials();
+        for trial in trials["trials"].as_array_mut().unwrap() {
+            if trial["scenario"] == "extraction" && trial["cell"] == cell && trial["number"] == 1 {
+                trial["extracted"] = found.clone();
+            }
+        }
+        let outcome = report(&workspace, &trials);
+        (outcome.findings(), outcome.code)
+    };
+    let title = "/sites/1000/3: title \"Oak &amp; Co.\", not \"Oak & Co.\"";
+
+    assert_eq!(
+        (
+            refused("foxhound filter lists off", extracted(1000, 2, title)),
+            refused("foxhound", extracted(1000, 0, AD)),
+        ),
+        (
+            (
+                vec![finding(
+                    "output_differs",
+                    "extraction foxhound filter lists off trial 1"
+                )],
+                1
+            ),
+            (
+                vec![finding("output_differs", "extraction foxhound trial 1")],
+                1
+            ),
+        )
+    );
+}
+
+/// A trial on the article site that holds no result of the output check
+/// is no figure: the report fails naming it.
+#[test]
+fn an_extraction_trial_the_output_check_did_not_read_is_refused() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    for trial in trials["trials"].as_array_mut().unwrap() {
+        if trial["scenario"] == "extraction" && trial["cell"] == "scrapy" && trial["number"] == 3 {
+            trial.as_object_mut().unwrap().remove("extracted");
+        }
+    }
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (
+            vec![finding("output_unchecked", "extraction scrapy trial 3")],
+            1
+        ),
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(workspace.read(REPORT), None);
+}
+
+/// A competitor's trial whose pages differ keeps its figures, labelled
+/// `output differs: N of <pages>` with the first difference, its worst
+/// trial's. Its standing against a Foxhound row is labelled when its
+/// output differs under that row's check: Spider, which removes no ad,
+/// against Foxhound at its defaults, and not against Foxhound with its
+/// Filter lists off, held with the ad allowed.
+#[test]
+fn a_competitors_trial_whose_output_differs_keeps_its_figures_labelled() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    for trial in trials["trials"].as_array_mut().unwrap() {
+        if trial["scenario"] == "extraction" && trial["cell"] == "spider" {
+            trial["extracted"] = extracted(1000, 0, AD);
+        }
+        if trial["scenario"] == "extraction" && trial["cell"] == "crawlee" && trial["number"] == 2 {
+            trial["extracted"] = extracted(4, 4, "/sites/1000/9: the text lacks paragraph 2");
+        }
+    }
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let report = written(&workspace);
+    let labels: Vec<(&str, &str, &Value)> = report["scenarios"][3]["standings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|standings| {
+            (
+                standings["product"].as_str().unwrap(),
+                standings["competitor"].as_str().unwrap(),
+                &standings["output_differs"],
+            )
+        })
+        .collect();
+    let (differs, crawlee) = (
+        json!("output differs: 1000 of 1000"),
+        json!("output differs: 4 of 1000"),
+    );
+    assert_eq!(
+        (
+            &cell(&report, 3, "spider")["status"],
+            &cell(&report, 3, "spider")["output"],
+            &cell(&report, 3, "scrapy")["output"],
+            &cell(&report, 0, "spider")["output"],
+            labels,
+        ),
+        (
+            &json!("measured"),
+            &extracted(1000, 0, AD),
+            &extracted(0, 0, ""),
+            &Value::Null,
+            vec![
+                ("foxhound", "spider", &differs),
+                ("foxhound", "crawlee", &crawlee),
+                ("foxhound", "scrapy", &Value::Null),
+                ("foxhound", "crawlee-rs", &Value::Null),
+                ("foxhound", "pagesift", &Value::Null),
+                ("foxhound filter lists off", "spider", &Value::Null),
+                ("foxhound filter lists off", "crawlee", &crawlee),
+                ("foxhound filter lists off", "scrapy", &Value::Null),
+                ("foxhound filter lists off", "crawlee-rs", &Value::Null),
+                ("foxhound filter lists off", "pagesift", &Value::Null),
+            ],
+        )
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    for expected in [
+        "  - output differs: 1000 of 1000; the first: /sites/1000/1: the text holds the ad's \"Sponsored offer from Harbourline Freight\".",
+        "  - output differs: 4 of 1000; the first: /sites/1000/9: the text lacks paragraph 2.",
+        "  - output: every page's title and Main content read right.",
+        "  - output: every page's title and Main content read right, the ad allowed.",
+        "| spider, 1000 of the site's 1000 pages, output differs: 1000 of 1000 |",
+        "foxhound (1000 of 1000 pages) against spider (1000 of 1000 pages, output differs: 1000 of 1000) |",
+        "foxhound filter lists off (1000 of 1000 pages) against spider (1000 of 1000 pages) |",
+    ] {
+        assert!(
+            markdown.contains(expected),
+            "{expected} missing:\n{markdown}"
+        );
+    }
 }
 
 #[test]
@@ -1113,7 +1725,10 @@ fn a_tool_short_of_its_declared_callgrind_runs_fails() {
 
     assert_eq!(
         (outcome.findings(), outcome.code),
-        (vec![finding("trial_count", "raw spider callgrind")], 1),
+        (
+            vec![finding("trial_count", "extraction spider callgrind")],
+            1
+        ),
         "{}",
         outcome.stderr
     );
@@ -1140,4 +1755,148 @@ fn a_tool_that_counted_no_instructions_fails() {
         "{}",
         outcome.stderr
     );
+}
+
+/// The Collie scenario's cells, each with its pages and actions.
+const COLLIE_CELLS: [(&str, &str, &[u32], u64); 5] = [
+    (
+        "click",
+        "actionability",
+        &[1, 2, 3, 4, 5, 6, 7, 8, 9, 18, 19, 26, 27],
+        62,
+    ),
+    ("form", "actionability", &[20, 21, 22, 23, 24, 28], 22),
+    ("navigation", "portal", &[6, 7, 8, 9, 10, 11, 12, 13], 8),
+    ("sessions", "", &[], 10),
+    (
+        "at_once",
+        "actionability",
+        &[1, 2, 3, 4, 5, 6, 15, 18, 26, 27, 20, 21, 22, 23, 24, 28],
+        81,
+    ),
+];
+
+/// The steps the Collie scenario plans on `family`'s page `number`: a
+/// form's fields and its submit, fifty clicks on page 26's counter, and
+/// one click, press or read on any other.
+fn collie_steps(family: &str, number: u32) -> u64 {
+    match (family, number) {
+        ("actionability", 20..=24) => 4,
+        ("actionability", 28) => 2,
+        ("actionability", 26) => 50,
+        _ => 1,
+    }
+}
+
+/// A Collie scenario of two trials of each tool in each cell, every page
+/// done and verified, Collie sending `collie` commands per action and
+/// Playwright one.
+fn collie(collie: u64) -> Value {
+    let mut trials_run = Vec::new();
+    for (exercise, family, numbers, actions) in COLLIE_CELLS {
+        for (tool, per_action) in [("collie", collie), ("playwright", 1)] {
+            for number in 1..=2 {
+                let pages: Vec<Value> = numbers
+                    .iter()
+                    .map(|page| {
+                        let task = format!("{family}/{page}");
+                        json!({
+                            "task": task,
+                            "ended": "success",
+                            "status": 200,
+                            "steps": collie_steps(family, *page),
+                            "read": (family == "portal").then(|| format!("digest of {task}")),
+                            "error": null,
+                            "outcome": (family == "actionability").then_some("verified"),
+                        })
+                    })
+                    .collect();
+                trials_run.push(json!({
+                    "exercise": exercise,
+                    "tool": tool,
+                    "number": number,
+                    "actions": actions,
+                    "sessions": if exercise == "sessions" { 10 } else { 0 },
+                    "commands": actions * per_action,
+                    "cpu_seconds": 0.5,
+                    "wall_seconds": 1.0,
+                    "peak_bytes": 100 * MIB,
+                    "pages": pages,
+                }));
+            }
+        }
+    }
+    json!({ "status": "measured", "trials": 2, "trials_run": trials_run })
+}
+
+/// TESTING.md's register, its Collie row's Today `today`.
+fn register(today: &str) -> String {
+    format!(
+        "# Testing\n\n## Quality register\n\n### Enforced\n\n| Dimension | Rule | Checked by |\n|---|---|---|\n| a | b | c |\n\n### Measured, not yet enforced\n\n| Row | Metric, per unit | Contract | Today | Benchmark | Ratchet | Checked by | Run by |\n|---|---|---|---|---|---|---|---|\n| `collie.playwright_command_ratio` | Collie's CDP commands per action over Playwright's | ≤ 1 | {today} | the Collie scenario | must not grow | `just compare` | owner's report |\n\n### Exceptions\n\n| ID | Rule | Expires |\n|---|---|---|\n| x | y | z |\n"
+    )
+}
+
+#[test]
+fn the_collie_scenario_reports_its_command_ratio_against_the_rows_today() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write("TESTING.md", register("1.000").as_bytes());
+    let mut trials = trials();
+    trials["collie"] = collie(2);
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let section = &written(&workspace)["collie"];
+    assert_eq!(section["status"], "measured");
+    assert_eq!(section["ratios"][0]["exercise"], "click");
+    assert_eq!(section["ratios"][0]["ratio"], 2.0);
+    assert_eq!(section["ratios"][0]["over_today"], true);
+    assert_eq!(
+        section["pages_right"]["collie"],
+        json!({"right": 20, "ran": 20, "not_right": []})
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    assert!(
+        markdown.contains("over the row's Today, 1.000, in: click (2.000), form (2.000)"),
+        "{markdown}"
+    );
+}
+
+#[test]
+fn a_collie_trial_of_other_work_fails_the_same_work_check_and_reports_no_figure() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    let mut cell = collie(1);
+    // Playwright's second trial read another text on a portal page.
+    let run = cell["trials_run"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|run| {
+            run["exercise"] == "navigation" && run["tool"] == "playwright" && run["number"] == 2
+        })
+        .unwrap();
+    run["pages"][0]["read"] = json!("another digest");
+    trials["collie"] = cell;
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (
+            vec![finding(
+                "different_work",
+                "collie navigation playwright trial 2"
+            )],
+            1
+        ),
+        "{}",
+        outcome.stdout
+    );
+    assert!(workspace.read(REPORT).is_none());
 }

@@ -317,12 +317,12 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                 .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             let get = HttpMethod::get();
-            let scope = goodfetch_frontier::Scope::read(connection)?;
+            let invariants = goodfetch_frontier::Invariants::read(connection)?;
             let policy = goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str])
                 .expect("every host is a policy");
             let pending = goodfetch_frontier::admit(
                 connection,
-                &scope,
+                &invariants,
                 &policy,
                 goodfetch_frontier::Candidate::Seed {
                     url: "https://list.test/items?n=3&ref=d",
@@ -368,7 +368,7 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
             learn_guide(connection)?;
             let merged = goodfetch_frontier::admit(
                 connection,
-                &scope,
+                &invariants,
                 &policy,
                 goodfetch_frontier::Candidate::Seed {
                     url: "https://list.test/items?n=1&ref=z",
@@ -385,7 +385,7 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                 matches!(merged, goodfetch_protocol::foxhound::frontier::Enqueued::NotAdded { .. }),
                 "the learned rule merges the seed"
             );
-            link_cursors(connection, &scope, &policy)?;
+            link_cursors(connection, &invariants, &policy)?;
             read_sitemap(connection)
         })
         .await
@@ -444,7 +444,7 @@ fn learn_guide(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
 /// `include` asks, which the third page's link teaches.
 fn link_cursors(
     connection: &rusqlite::Connection,
-    scope: &goodfetch_frontier::Scope,
+    invariants: &goodfetch_frontier::Invariants,
     policy: &goodfetch_engine::egress::Policy,
 ) -> rusqlite::Result<()> {
     for (offset, after) in [(0, "r20"), (20, "r40"), (40, "r60")] {
@@ -453,7 +453,7 @@ fn link_cursors(
                 .expect("a listing's page parses");
         let cursor = goodfetch_frontier::admit(
             connection,
-            scope,
+            invariants,
             policy,
             goodfetch_frontier::Candidate::Href {
                 href: &format!("?after={after}/sale"),
@@ -498,8 +498,9 @@ fn read_sitemap(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
             label: "home".to_owned(),
         }],
     };
+    let invariants = goodfetch_frontier::Invariants::read(connection)?;
     let admit = |seed: &SitemapSeed, status: &str| {
-        let answer = sitemap::admit_seed(connection, &policy, seed, |url| {
+        let answer = sitemap::admit_seed(connection, &invariants, &policy, seed, |url| {
             work_item(connection, url, status)
         })?;
         let Enqueued::Added { id, .. } = answer else {
@@ -510,7 +511,7 @@ fn read_sitemap(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
     let id = admit(&seed, "succeeded")?;
     sitemap::read(
         connection,
-        &goodfetch_frontier::Scope::read(connection)?,
+        &invariants,
         &policy,
         &id,
         &sitemap::Document::Entries(vec!["/about".to_owned(), "/books/1".to_owned()]),

@@ -1,5 +1,6 @@
 use super::{
-    CRAWLEE_VERSION, PLAYWRIGHT_VERSION, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SPIDER_VERSION,
+    CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, PAGESIFT_VERSION, PLAYWRIGHT_VERSION,
+    SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SPIDER_VERSION, Work,
 };
 
 /// The Spider version Spider's side pins in its manifest, `=<version>`.
@@ -20,6 +21,36 @@ fn the_declared_spider_is_the_one_its_side_pins() {
     let manifest = include_str!("../../../compare-spider/Cargo.toml");
 
     assert_eq!(pinned(manifest).as_deref(), Some(SPIDER_VERSION));
+}
+
+/// The trials declare the crawlee-rs commit its side builds: the `rev` of
+/// `xtask/compare-crawlee-rs/Cargo.toml`'s `crawlee` dependency.
+#[test]
+fn the_declared_crawlee_rs_is_the_commit_its_side_pins() {
+    let manifest: toml::Table = include_str!("../../../compare-crawlee-rs/Cargo.toml")
+        .parse()
+        .unwrap();
+
+    assert_eq!(
+        manifest["dependencies"]["crawlee"]["rev"].as_str(),
+        Some(CRAWLEE_RS_COMMIT)
+    );
+}
+
+/// The trials declare the pagesift its side builds: the exact version
+/// `xtask/compare-pagesift/Cargo.toml` holds each of pagesift's crates to.
+#[test]
+fn the_declared_pagesift_is_the_version_its_side_pins() {
+    let manifest: toml::Table = include_str!("../../../compare-pagesift/Cargo.toml")
+        .parse()
+        .unwrap();
+    let pinned = |name: &str| manifest["dependencies"][name].as_str().map(str::to_owned);
+
+    let exact = Some(format!("={PAGESIFT_VERSION}"));
+    assert_eq!(
+        ["pagesift", "pagesift-sys", "pagesift-cdp", "pagesift-net"].map(pinned),
+        [exact.clone(), exact.clone(), exact.clone(), exact]
+    );
 }
 
 /// The trials declare the Crawlee its side installs: `@crawlee/cheerio`'s
@@ -87,5 +118,40 @@ fn the_declared_playwright_is_the_one_each_side_pins() {
             vec![PLAYWRIGHT_VERSION.to_owned()],
             vec![SCRAPY_PLAYWRIGHT_VERSION.to_owned()],
         )
+    );
+}
+
+/// What a strace run's later runs are skipped on: whether it fetched the
+/// site's own pages, each once or more, and no other.
+#[test]
+fn a_crawl_fetched_the_site_when_it_reached_each_of_its_pages_and_no_other() {
+    let whole = Work {
+        pages: 4,
+        requests: 4,
+        ..Work::default()
+    };
+
+    assert!(whole.is_the_site_of(4));
+    assert!(
+        Work {
+            requests: 5,
+            ..whole.clone()
+        }
+        .is_the_site_of(4)
+    );
+    assert!(
+        !Work {
+            pages: 3,
+            missing: vec!["/sites/4/4".to_owned()],
+            ..whole.clone()
+        }
+        .is_the_site_of(4)
+    );
+    assert!(
+        !Work {
+            extra: vec!["/sites/4/9".to_owned()],
+            ..whole
+        }
+        .is_the_site_of(4)
     );
 }

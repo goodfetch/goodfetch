@@ -7995,6 +7995,19 @@
           "type": "object"
         },
         {
+          "description": "Its Attached engine stopped on a panic in a part every Run shares,\nand stopped it first, resumable by its Run ID (ADR 0148); a Daemon\ndrains instead.",
+          "properties": {
+            "kind": {
+              "const": "engine_panicked",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
           "description": "The resource governor ran out of a resource for it, and it stopped\nat its next safe point, resumable (ADRs 0040 and 0122).",
           "properties": {
             "folder": {
@@ -10673,6 +10686,8 @@
           "name": "work",
           "values": [
             "acknowledgements",
+            "actor_round_trips",
+            "analysis_handoffs",
             "answers",
             "block_classifications",
             "builds",
@@ -10692,12 +10707,16 @@
             "document_worlds",
             "effect_syncs",
             "encodes",
+            "end_round_trips",
             "entries",
             "evidence_reads",
             "fetch_messages_no_rule",
             "file_opens",
             "fill_commands",
             "formatting_off",
+            "host_cache_bytes",
+            "host_cache_entries",
+            "in_flight_serializations",
             "invariant_reads",
             "locale_form_builds",
             "log_sends_off",
@@ -10719,6 +10738,9 @@
             "readability_runs",
             "robots_parses",
             "robots_reads",
+            "round_trips",
+            "rule_list_builds",
+            "rule_tests",
             "script_compilations",
             "script_sends",
             "seals",
@@ -10887,6 +10909,26 @@
       "product": "collie",
       "stability": "stable",
       "unit": "{run}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The checkpoints of a run file's write-ahead log that could not copy the whole log into the file, or start the log again, because a reader held an old snapshot of it (ADR 0138).",
+      "instrument": "counter",
+      "labels": [],
+      "name": "goodfetch.run_state.blocked_checkpoints",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{checkpoint}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The bytes the write-ahead logs of the Daemon's open run files hold, summed over them, each as of its writer's last commit. A run file's log stays under twice its checkpoint threshold (32 MiB) unless a reader holds an old snapshot of it (ADR 0138).",
+      "instrument": "up_down_counter",
+      "labels": [],
+      "name": "goodfetch.run_state.wal.size",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "By"
     },
     {
       "arrived_in": "0.1",
@@ -13024,7 +13066,7 @@
       "authority": "machine",
       "clearable": false,
       "default": 110000,
-      "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+      "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. An Attached engine that stops on a panic in a part every run shares waits as long for its runs to stop, leaving each one not stopped resumable from its run file, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
       "name": "daemon.drain_grace",
       "product": "collie",
       "products": [
@@ -13604,7 +13646,7 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
-      "description": "The most memory, in bytes, the engine and its children may use, as its Memory allowance when it is tighter than the process's own cgroup limit, its Windows Job object's limit or half of physical memory; unset by default. Read again at every sample.",
+      "description": "The most memory, in bytes, the engine and its children may use, as its Memory allowance when it is tighter than the process's own cgroup limit, its Windows Job object's limit or half of physical memory; unset by default. Each sample reads it from the engine's settings: the engine's own write (`config.user_write`, `config.policy_write`) is seen at the next sample, a hand edit at the engine's next read of the file, by the next Run's start at the latest.",
       "name": "governor.memory_allowance",
       "product": "collie",
       "products": [
@@ -15393,7 +15435,7 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
-      "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `critical` storage level: every Run with an essential write on it stops resumably at its next safe point, with `resource: \"storage\"`, and a new Run whose run file would go there is refused with `resources_exhausted`. Unset, each filesystem takes the smaller of 1 GiB and 2 % of its size, and free inodes go by 2 %; `0` turns the level off, which the Run's report lists in `weakened`. Read again at every sample of the Resource governor; set in user configuration or an Operator policy only.",
+      "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `critical` storage level: every Run with an essential write on it stops resumably at its next safe point, with `resource: \"storage\"`, and a new Run whose run file would go there is refused with `resources_exhausted`. Unset, each filesystem takes the smaller of 1 GiB and 2 % of its size, and free inodes go by 2 %; `0` turns the level off, which the Run's report lists in `weakened`. Each sample of the Resource governor reads it from the engine's settings: the engine's own write (`config.user_write`, `config.policy_write`) is seen at the next sample, a hand edit at the engine's next read of the file, by the next Run's start at the latest; set in user configuration or an Operator policy only.",
       "name": "storage.critical_free",
       "product": "collie",
       "products": [
@@ -15411,7 +15453,7 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
-      "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `low` storage level: its Runs go on, record no Run trace video, store no new Response cache entry, skip their periodic Checkpoints onto it, and carry the warning `storage_low`. Unset, each filesystem takes the smaller of 5 GiB and 10 % of its size, and free inodes go by 10 %; `0` turns the level off, which the Run's report lists in `weakened`. Read again at every sample of the Resource governor; set in user configuration or an Operator policy only.",
+      "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `low` storage level: its Runs go on, record no Run trace video, store no new Response cache entry, skip their periodic Checkpoints onto it, and carry the warning `storage_low`. Unset, each filesystem takes the smaller of 5 GiB and 10 % of its size, and free inodes go by 10 %; `0` turns the level off, which the Run's report lists in `weakened`. Each sample of the Resource governor reads it from the engine's settings: the engine's own write (`config.user_write`, `config.policy_write`) is seen at the next sample, a hand edit at the engine's next read of the file, by the next Run's start at the latest; set in user configuration or an Operator policy only.",
       "name": "storage.low_free",
       "product": "collie",
       "products": [
@@ -15920,6 +15962,13 @@
       "name": "endpoint_authentication_failed",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The engine stopped the Run as it stopped on a bug in a part every Run shares; a start with its Run ID resumes it.",
+      "name": "engine_panicked",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",

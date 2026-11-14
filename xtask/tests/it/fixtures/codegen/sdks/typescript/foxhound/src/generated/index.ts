@@ -6,6 +6,7 @@
 // `Foxhound`, `Crawl`, `Label`, `Dataset` and `CrawlContext`.
 
 export type { SampleCrawlParams, SampleCrawlResult, SampleCrawled } from "./types.ts";
+export * from "./connection.ts";
 export * from "./operations.ts";
 export * from "./events.ts";
 export * from "./errors.ts";

@@ -2,10 +2,11 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use rstest::rstest;
 use tokio::sync::{mpsc, oneshot};
 
-use super::{BlockingPolicy, TaskOwner};
+use super::{BlockingPolicy, OwnerKind, TaskOwner};
 
 #[test]
 fn stopping_an_owner_cancels_its_tasks_and_waits_for_them() {
@@ -185,7 +186,7 @@ fn no_more_analyses_than_the_cpu_pools_permits_run_at_once() {
             releases.push(Some(release));
             let (on, told) = (Arc::clone(&owner), told.clone());
             owner.spawn(async move {
-                on.analysis(move || {
+                on.analysis(&CountedWork::default(), move || {
                     let _ = told.send(Analysed::Started(analysis));
                     let _ = go_on.blocking_recv();
                     let _ = told.send(Analysed::Ended(analysis));
@@ -245,9 +246,309 @@ fn an_analysis_runs_inline_under_the_inline_policy() {
         let owner = TaskOwner::root(BlockingPolicy::Inline);
         let caller = std::thread::current().id();
         owner
-            .analysis(move || std::thread::current().id() == caller)
+            .analysis(&CountedWork::default(), move || {
+                std::thread::current().id() == caller
+            })
             .await
     });
 
     assert!(answer);
+}
+
+/// Each analysis is one hand-off to the analysis pool, counted on the
+/// Counted work it is given (`F1.analysis_handoffs`) under either policy:
+/// under the Inline one its work runs in place, and the hand-off is still
+/// the page's.
+#[rstest]
+#[case::inline(BlockingPolicy::Inline)]
+#[case::threads(BlockingPolicy::Threads)]
+fn each_analysis_counts_one_handoff(#[case] policy: BlockingPolicy) {
+    let work = CountedWork::default();
+
+    goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(policy);
+        owner.analysis(&work, || ()).await;
+        owner.analysis(&work, || ()).await;
+        owner.stop().await;
+    });
+
+    assert_eq!(work.read(Row::PageAnalysisHandoffs), 2);
+}
+
+/// How long an Inline test waits, on the paused clock, for what an owner
+/// owes: never once means the test fails rather than hangs. A test on
+/// threads waits without it, since the paused clock moves on while a
+/// thread of its own still runs.
+const OWED: Duration = Duration::from_mins(1);
+
+/// Awaits `owed` within [`OWED`] under [`BlockingPolicy::Inline`], and
+/// without a limit under [`BlockingPolicy::Threads`]: whether it came.
+async fn within<F: Future<Output = ()>>(policy: BlockingPolicy, owed: F) -> bool {
+    match policy {
+        BlockingPolicy::Inline => tokio::time::timeout(OWED, owed).await.is_ok(),
+        BlockingPolicy::Threads => {
+            owed.await;
+            true
+        }
+    }
+}
+
+/// A child owner's task that panics is told to its parent, which can also
+/// read it at once, and then stops the child: the stop ends, a sibling task
+/// that waits for its cancellation included (ADR 0148).
+#[rstest]
+#[case::on_threads(BlockingPolicy::Threads)]
+#[case::inline(BlockingPolicy::Inline)]
+fn a_child_task_that_panics_is_told_to_its_parent_which_stops_the_child(
+    #[case] policy: BlockingPolicy,
+) {
+    let (told, stopped) = goodfetch_test_support::runtime().block_on(async {
+        let parent = TaskOwner::root(policy);
+        let child = parent.child();
+        let token = child.token().clone();
+        child.spawn(async move { token.cancelled().await });
+        child.spawn(async { panic!("the task's own panic") });
+
+        let told = within(policy, child.panicked()).await && child.has_panicked();
+        let stopped = within(policy, child.stop()).await;
+        parent.stop().await;
+        (told, stopped)
+    });
+
+    assert_eq!((told, stopped), (true, true));
+}
+
+/// The panic of a task whose owner's parent has no reaction yet, a Run's,
+/// is logged at `error` with the owner's kind, its only trace (ADR 0148).
+#[test]
+fn a_task_that_panics_is_logged_at_error_with_its_owners_kind() {
+    let (told, logged) = goodfetch_test_support::logged(|| {
+        goodfetch_test_support::runtime().block_on(async {
+            let parent = TaskOwner::root(BlockingPolicy::Inline);
+            let run = parent.child_for(OwnerKind::Run);
+            run.spawn(async { panic!("the task's own panic") });
+            let told = within(BlockingPolicy::Inline, run.panicked()).await;
+            run.stop().await;
+            parent.stop().await;
+            told
+        })
+    });
+
+    let logged = String::from_utf8_lossy(&logged);
+    let told_lines: Vec<&str> = logged
+        .lines()
+        .filter(|line| line.contains("goodfetch_engine::tasks"))
+        .collect();
+    assert_eq!(
+        (
+            told,
+            told_lines.len(),
+            told_lines
+                .iter()
+                .all(|line| line.contains("ERROR") && line.contains(r#"owner="run""#)),
+        ),
+        (true, 1, true),
+        "{logged}"
+    );
+}
+
+/// A stop whose tasks still run well after it cancelled them logs so once
+/// at `warn`, with the owner's kind and how many still run, and keeps
+/// waiting for them: an answer that never comes, such as a Run's
+/// `run.finish` (issue 2525), then says which wait it is.
+#[test]
+fn a_stop_whose_tasks_outlive_its_cancellation_logs_how_many_and_keeps_waiting() {
+    let ((ended_early, ended), logged) = goodfetch_test_support::logged(|| {
+        goodfetch_test_support::runtime().block_on(async {
+            let parent = TaskOwner::root(BlockingPolicy::Inline);
+            let run = parent.child_for(OwnerKind::Run);
+            let (release, released) = oneshot::channel::<()>();
+            run.spawn(async move {
+                let _ = released.await;
+            });
+            let token = run.token().clone();
+            run.spawn(async move { token.cancelled().await });
+
+            let stopping = run.stop();
+            tokio::pin!(stopping);
+            let ended_early = tokio::time::timeout(super::STOP_TOLD_AFTER * 2, &mut stopping)
+                .await
+                .is_ok();
+            drop(release);
+            let ended = within(BlockingPolicy::Inline, stopping).await;
+            parent.stop().await;
+            (ended_early, ended)
+        })
+    });
+
+    let logged = String::from_utf8_lossy(&logged);
+    let told_lines: Vec<&str> = logged
+        .lines()
+        .filter(|line| line.contains("goodfetch_engine::tasks"))
+        .collect();
+    assert_eq!(
+        (
+            ended_early,
+            ended,
+            told_lines.len(),
+            told_lines.iter().all(|line| line.contains("WARN")
+                && line.contains(r#"owner="run""#)
+                && line.contains("running=1")),
+        ),
+        (false, true, 1, true),
+        "{logged}"
+    );
+}
+
+/// A child owner's actor whose handler panics is told to its parent, which
+/// then stops the child, on the actor's own thread as when it runs as a
+/// task.
+#[rstest]
+#[case::on_a_dedicated_thread(BlockingPolicy::Threads)]
+#[case::as_a_task(BlockingPolicy::Inline)]
+fn a_child_actor_that_panics_is_told_to_its_parent_which_stops_the_child(
+    #[case] policy: BlockingPolicy,
+) {
+    let (told, stopped) = goodfetch_test_support::runtime().block_on(async {
+        let parent = TaskOwner::root(policy);
+        let child = parent.child();
+        let (sender, mailbox) = mpsc::channel(8);
+        child
+            .actor("test-actor", mailbox, |_: Vec<i32>| {
+                panic!("the actor's own panic")
+            })
+            .unwrap();
+        sender.send(1).await.unwrap();
+
+        let told = within(policy, child.panicked()).await;
+        let stopped = within(policy, child.stop()).await;
+        parent.stop().await;
+        (told, stopped)
+    });
+
+    assert_eq!((told, stopped), (true, true));
+}
+
+/// A panic under the engine's own owner reaches it through every owner of
+/// the engine's kind between them, as one of a part every Run shares does
+/// (ADR 0148); one under a Run's or a Connection's owner is told to its
+/// own owner only, whose holder reacts.
+#[rstest]
+#[case::engine(OwnerKind::Engine, (true, true, true))]
+#[case::run(OwnerKind::Run, (true, false, false))]
+#[case::connection(OwnerKind::Connection, (true, false, false))]
+fn a_panic_reaches_the_engines_own_owner_only_through_owners_of_the_engines_kind(
+    #[case] kind: OwnerKind,
+    #[case] expected: (bool, bool, bool),
+) {
+    let told = goodfetch_test_support::runtime().block_on(async {
+        let engine = TaskOwner::root(BlockingPolicy::Inline);
+        let part = engine.child_for(kind);
+        let under = part.child();
+        under.spawn(async { panic!("the task's own panic") });
+        let reached_under = within(BlockingPolicy::Inline, under.panicked()).await;
+        under.stop().await;
+        part.stop().await;
+        let told = (reached_under, part.has_panicked(), engine.has_panicked());
+        engine.stop().await;
+        told
+    });
+
+    assert_eq!(told, expected);
+}
+
+/// The engine's own owner names the part whose task panicked first, from
+/// under any owner of the engine's kind below that part, as the engine's
+/// log of the panic does (ADR 0148).
+#[test]
+fn the_engines_own_owner_names_the_part_that_panicked() {
+    let named = goodfetch_test_support::runtime().block_on(async {
+        let engine = TaskOwner::root(BlockingPolicy::Inline);
+        let part = engine.part("a shared part");
+        let under = part.child();
+        under.spawn(async { panic!("the task's own panic") });
+        within(BlockingPolicy::Inline, engine.panicked()).await;
+        under.stop().await;
+        part.stop().await;
+        let named = engine.panicked_part();
+        engine.stop().await;
+        named
+    });
+
+    assert_eq!(named, Some("a shared part"));
+}
+
+/// Blocking work that panics once its caller was dropped, which only a
+/// blocking thread allows, is told to its owner's parent, which then stops
+/// the owner.
+#[test]
+fn blocking_work_that_panics_after_its_caller_dropped_is_told_to_its_parent() {
+    let stopped = goodfetch_test_support::runtime().block_on(async {
+        let parent = TaskOwner::root(BlockingPolicy::Threads);
+        let child = parent.child();
+        let (started, starting) = oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let caller = child.blocking(move || {
+            let _ = started.send(());
+            let _ = released.recv();
+            panic!("the work's own panic")
+        });
+        tokio::select! {
+            () = caller => unreachable!("the work waits for its release"),
+            _ = starting => {}
+        }
+        release.send(()).unwrap();
+
+        child.panicked().await;
+        child.stop().await;
+        parent.stop().await;
+        true
+    });
+
+    assert!(stopped);
+}
+
+/// Blocking work on a part of the engine that panics once its caller has
+/// gone is told to that part alone, never to the engine's own owner: it
+/// was its caller's work, such as a call's read on the engine's stores,
+/// not a part every Run shares (ADR 0148).
+#[test]
+fn blocking_work_whose_caller_dropped_is_no_part_every_run_shares() {
+    let told = goodfetch_test_support::runtime().block_on(async {
+        let engine = TaskOwner::root(BlockingPolicy::Threads);
+        let part = engine.part("a shared part");
+        let (started, starting) = oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let caller = part.blocking(move || {
+            let _ = started.send(());
+            let _ = released.recv();
+            panic!("the work's own panic")
+        });
+        tokio::select! {
+            () = caller => unreachable!("the work waits for its release"),
+            _ = starting => {}
+        }
+        release.send(()).unwrap();
+
+        let reached_part = within(BlockingPolicy::Threads, part.panicked()).await;
+        part.stop().await;
+        let told = (reached_part, engine.has_panicked());
+        engine.stop().await;
+        told
+    });
+
+    assert_eq!(told, (true, false));
+}
+
+/// An owner none of whose tasks panicked is never told so.
+#[test]
+fn an_owner_whose_tasks_ended_is_not_told_of_a_panic() {
+    let told = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        owner.spawn(async {});
+        owner.stop().await;
+        tokio::time::timeout(OWED, owner.panicked()).await.is_ok() || owner.has_panicked()
+    });
+
+    assert!(!told);
 }

@@ -1,6 +1,6 @@
 ---
 title: Operations
-description: Find the Daemon's logs, bound them on each deployment target, and turn off the age notice.
+description: Find the Daemon's logs, bound them on each deployment target, see when a new Limit holds a Run already going, and turn off the age notice.
 products: [collie]
 ---
 
@@ -46,6 +46,10 @@ What `daemon run` writes to stdout, and what a Lambda function's or a Cloud Run 
 | Cloud Run | Cloud Logging | Cloud Logging keeps a log bucket's entries for its retention period, 30 days for the `_Default` bucket. Change the bucket's retention to keep less or more. |
 | Lambda | Amazon CloudWatch Logs | A function's log group keeps its entries forever unless you set its retention. Set a retention period on the log group. |
 
+## When a Limit holds a Run already going
+
+A Limit set or raised while a Run is going (`usage set`, `usage raise`) holds the Run's next charge when the process that changed it is the one working the Run: the Daemon you asked, or a program's own engine. A Run another process works, such as an engine a program started itself while you ask the Daemon, reads the Limits again before it takes its next Slice, and one second after its last read at the latest. Until then it charges only what its Slices already hold, and a Run no Limit held goes on for at most that second.
+
 ## The age notice
 
 An executable more than three months past its own release date prints one line a day on stderr. The line says that newer versions carry security fixes and a current Chrome, and gives the upgrade command. It compares dates only and makes no network call. It never appears in `--json` output or on a protocol stream, and the Daemon process `daemon start` launches in the background, which has no terminal, does not print it. `daemon run` prints it when it starts, at most once a day, so it shows in the platform's logs above. The day it was last shown is kept per user in the Goodfetch home.
@@ -62,3 +66,5 @@ age_notice = false
 In a file that already exists, keep its `version` line and add the `[settings.version]` table.
 
 A Run reads both files once, when it starts, and keeps the values it resolved until it ends. A change to either file, whether you edit it by hand or the engine writes it (`config.policy_write`, `config.user_write`), a tightened Operator policy cap included, reaches the next Run, not the Runs already going.
+
+The engine keeps one copy of the machine's settings, the Operator policy and user configuration, for what serves every Run at once: the Resource governor's samples, the Audit log's retention, the managed Limits and the deadline of a forwarded call. It reads them when it starts, again whenever it writes either file itself, and again whenever it reads them for something else, such as a Run's start or `config explain`. So the engine's own write is seen at once, by the next sample and the next Audit log entry, while a hand edit is seen at the engine's next read of the files, when the next Run starts at the latest.

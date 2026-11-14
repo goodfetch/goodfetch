@@ -104,8 +104,10 @@ fn a_read_through_a_number_answers_its_page_and_whether_it_committed_from_one_st
     );
 }
 
-/// Each Record `commit` writes counts its copy, its serialization and its
-/// lookup of the schema hash, once each.
+/// Each Record `commit` writes counts its serialization, once, and neither
+/// a copy of its data nor a lookup of a value constant for the Run: it
+/// takes the hash of the schema it was checked against, the one its
+/// Dataset's row holds.
 #[test]
 fn a_commit_counts_each_records_work_and_a_commit_of_none_counts_nothing() {
     use goodfetch_counted_work::{CountedWork, Row};
@@ -120,10 +122,11 @@ fn a_commit_counts_each_records_work_and_a_commit_of_none_counts_nothing() {
     let connection = run_file(&env.home().join("run"));
     let datasets = crate::Datasets::declare(&[DatasetDeclaration {
         name: "pages".to_owned(),
-        schema: None,
+        schema: Some(json!({ "type": "object", "required": ["title"] })),
         key: Vec::new(),
     }])
     .unwrap();
+    datasets.record(&connection).unwrap();
     let work = CountedWork::default();
     let records: Vec<PushedRecord> = (0..2)
         .map(|_| PushedRecord {
@@ -170,5 +173,23 @@ fn a_commit_counts_each_records_work_and_a_commit_of_none_counts_nothing() {
     assert_eq!(read(), [0, 0, 0]);
 
     super::commit(&connection, committing, &checked).unwrap();
-    assert_eq!(read(), [2, 2, 2]);
+    let committed: Vec<(String, Option<String>, Option<String>)> = connection
+        .prepare(
+            "SELECT data, schema_hash, (SELECT schema_hash FROM datasets WHERE name = 'pages')
+             FROM records WHERE work_item = '9' ORDER BY number",
+        )
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    // The SHA-256 of `{"required":["title"],"type":"object"}`.
+    let hash = Some("7db5dcaef9c7f2b340069704aea676e028b6c80dee2a0902cf163794b547f1d1".to_owned());
+    assert_eq!(
+        (read(), committed),
+        (
+            [0, 2, 0],
+            vec![(r#"{"title":"Dune"}"#.to_owned(), hash.clone(), hash); 2]
+        )
+    );
 }

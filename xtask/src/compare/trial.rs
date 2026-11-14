@@ -4,9 +4,11 @@
 //! OS's accounting of its waited-for children is the tool's alone, samples
 //! the tool's process tree meanwhile, and once the tool exited reads the
 //! Proving ground's observations, the data folder it left and, for
-//! Foxhound, its Records' commit times. It prints the trial's figures as one
-//! JSON line. A counted trial runs the tool under strace or Callgrind
-//! instead, and prints its counts with the same work.
+//! Foxhound, its Records' commit times. On the article site, it also holds
+//! the pages the tool wrote to the right answers the Proving ground serves
+//! (#2136; see `extracted`). It prints the trial's figures as one JSON
+//! line. A counted trial runs the tool under strace or Callgrind instead,
+//! and prints its counts with the same work and the same check.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: a trial runs the tool as a blocking child process and reads its files (STYLE.md)"
@@ -24,8 +26,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::rss::crawl::Site;
-use crate::test_facts::{CHROME_FOR_TESTING_BUILD, PLAYWRIGHT_REVISION};
 
+use super::extracted::Extracted;
 use super::foxhound::Engine;
 use super::matrix::{Cell, Config, Scenario, Site as SiteKind};
 use super::observed::{self, MARKER, Observed};
@@ -42,6 +44,9 @@ pub(crate) enum Mode {
     Syscalls(PathBuf),
     /// Under Callgrind, which writes its output to this file.
     Callgrind(PathBuf),
+    /// Once on each task of a hostile pages' pass, its tool stopped at a
+    /// bound, for the rules it broke (#2439; see [`rules`]).
+    Rules,
 }
 
 /// What a counted trial prints.
@@ -50,6 +55,9 @@ pub(crate) struct Counted {
     pub(crate) count: u64,
     pub(crate) syncs: u64,
     pub(crate) work: Work,
+    /// What the output check found, on the article site.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) extracted: Option<Extracted>,
 }
 
 /// strace's program name, and the system calls that sync a file or the
@@ -164,14 +172,15 @@ fn side_of(script: &Path) -> &Path {
     script.parent().unwrap_or_else(|| Path::new("."))
 }
 
-/// How `config`'s tool runs `executable`: Foxhound's and Spider's are
-/// executables, Spider's side given its row's page channel capacity,
+/// How `config`'s tool runs `executable`: Foxhound's, Spider's,
+/// crawlee-rs's and pagesift's are executables, Spider's side given its
+/// row's page channel capacity,
 /// Crawlee's is its side's script run by Node.js from `PATH`, and Scrapy's
 /// its side's script run by the interpreter of the Python environment
 /// beside it.
 pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
     match config {
-        Config::Foxhound { .. } => Invocation {
+        Config::Foxhound { .. } | Config::CrawleeRs | Config::Pagesift => Invocation {
             program: executable.to_owned(),
             arguments: Vec::new(),
         },
@@ -203,7 +212,7 @@ fn install_bytes(config: Config, executable: &Path, browser: Option<&Path>) -> u
     };
     let browser_bytes = browser.map_or(0, footprint);
     let packages = match config {
-        Config::Foxhound { .. } | Config::Spider { .. } => {
+        Config::Foxhound { .. } | Config::Spider { .. } | Config::CrawleeRs | Config::Pagesift => {
             return file_bytes(executable) + browser_bytes;
         }
         Config::Crawlee => NODE_MODULES,
@@ -214,100 +223,12 @@ fn install_bytes(config: Config, executable: &Path, browser: Option<&Path>) -> u
         + browser_bytes
 }
 
-// Every tool of the headless browser scenario runs one browser, the Chrome
-// for Testing build Collie pins (`CHROME_FOR_TESTING_BUILD`), from the
-// folder Playwright installs it in (`PLAYWRIGHT_REVISION`); test support's
-// `browsers.rs` lays out the same build for the tests.
-/// Chrome for Testing's folder and executable in it, on this platform.
-#[cfg(target_os = "macos")]
-const CHROME_FOLDER: &str = if cfg!(target_arch = "aarch64") {
-    "chrome-mac-arm64"
-} else {
-    "chrome-mac-x64"
-};
-#[cfg(target_os = "macos")]
-const CHROME: &str = "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
-#[cfg(not(target_os = "macos"))]
-const CHROME_FOLDER: &str = "chrome-linux64";
-#[cfg(not(target_os = "macos"))]
-const CHROME: &str = "chrome";
-
-/// The folder of the Chrome for Testing build Playwright installed
-/// (`PLAYWRIGHT_BROWSERS_PATH`, else its default folder), which the
-/// headless browser scenario runs; none when it is not installed.
-pub(crate) fn chrome_folder() -> Option<PathBuf> {
-    let browsers = if let Some(path) = std::env::var_os("PLAYWRIGHT_BROWSERS_PATH") {
-        PathBuf::from(path)
-    } else {
-        let home = PathBuf::from(std::env::var_os("HOME")?);
-        if cfg!(target_os = "macos") {
-            home.join("Library/Caches/ms-playwright")
-        } else {
-            home.join(".cache/ms-playwright")
-        }
-    };
-    let folder = browsers
-        .join(format!("chromium-{PLAYWRIGHT_REVISION}"))
-        .join(CHROME_FOLDER);
-    folder.join(CHROME).is_file().then_some(folder)
-}
-
-/// Lays out, in a folder of its own, a Browser cache holding `chrome`'s
-/// files as Foxhound's pinned build, as a prepared `GOODFETCH_BROWSERS_PATH`
-/// holds it: hard links where the folders share a file system, copies
-/// otherwise.
-fn browser_cache(chrome: &Path) -> Result<tempfile::TempDir> {
-    let root = tempfile::tempdir().context("creating the Browser cache's folder")?;
-    let entry = root
-        .path()
-        .join("browser")
-        .join("chrome-for-testing")
-        .join(CHROME_FOR_TESTING_BUILD);
-    link_tree(chrome, &entry.join("files").join(CHROME_FOLDER))
-        .context("laying out the Browser cache")?;
-    std::fs::write(entry.join("lock"), "").context("writing the Browser cache's lock")?;
-    let installed = serde_json::json!({
-        "format_version": "0.1",
-        "artifact": {
-            "kind": "browser",
-            "name": "chrome-for-testing",
-            "build": CHROME_FOR_TESTING_BUILD,
-        },
-        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-        "installed_at": "2026-01-01T00:00:00Z",
-        "used_at": "2026-01-01T00:00:00Z",
-    });
-    std::fs::write(entry.join("entry.json"), installed.to_string())
-        .context("writing the Browser cache's entry")?;
-    Ok(root)
-}
-
-/// `from`'s files under `to`, each a hard link, or a copy across file
-/// systems; symbolic links kept as such.
-fn link_tree(from: &Path, to: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(to)?;
-    for entry in std::fs::read_dir(from)? {
-        let entry = entry?;
-        let (source, target) = (entry.path(), to.join(entry.file_name()));
-        let kind = entry.file_type()?;
-        if kind.is_dir() {
-            link_tree(&source, &target)?;
-        } else if kind.is_symlink() {
-            #[cfg(unix)]
-            std::os::unix::fs::symlink(std::fs::read_link(&source)?, &target)?;
-        } else if std::fs::hard_link(&source, &target).is_err() {
-            std::fs::copy(&source, &target)?;
-        }
-    }
-    Ok(())
-}
-
 /// The command that runs `invocation`, under `mode`'s counting tool; the
 /// `process`-th process of a resumed trial writes strace's counts to a file
 /// of its own.
 fn command(invocation: &Invocation, mode: &Mode, process: u32) -> Command {
     let mut command = match mode {
-        Mode::Timed => Command::new(&invocation.program),
+        Mode::Timed | Mode::Rules => Command::new(&invocation.program),
         Mode::Syscalls(output) => {
             let mut strace = Command::new(STRACE);
             let mut file = output.clone().into_os_string();
@@ -348,7 +269,7 @@ fn tool_pid(child: &Child, mode: &Mode) -> u32 {
             }
             child.id()
         }
-        Mode::Timed | Mode::Callgrind(_) => child.id(),
+        Mode::Timed | Mode::Callgrind(_) | Mode::Rules => child.id(),
     }
 }
 
@@ -370,6 +291,21 @@ pub(crate) fn kill(pid: u32) -> Result<()> {
 #[cfg(not(unix))]
 pub(crate) fn kill(_pid: u32) -> Result<()> {
     bail!("a resumed scenario kills its tool with SIGKILL, which only Unix has")
+}
+
+/// Kills every process of the tree under `root`, each by its own ID,
+/// gathered before any dies and leaves its children to another parent.
+pub(crate) fn kill_tree(root: u32) {
+    for pid in sampler::tree(root) {
+        // One may have exited meanwhile.
+        let _ = kill(pid);
+    }
+}
+
+/// A trial's figures, or why the comparison stopped it.
+pub(crate) enum Outcome<T> {
+    Done(T),
+    Stopped(String),
 }
 
 /// What the OS accounted to the trial's waited-for children.
@@ -469,6 +405,9 @@ pub(crate) struct Plan<'a> {
     /// Chrome for Testing's folder, which the headless browser scenario's
     /// tools run.
     pub(crate) browser: Option<&'a Path>,
+    /// Whether a timed trial's sampler reads the tool's executable's own
+    /// pages: the sizes cell's trials do (spec #2165).
+    pub(crate) executable_pages: bool,
 }
 
 impl Plan<'_> {
@@ -479,12 +418,13 @@ impl Plan<'_> {
 
     /// The browser the cell's tool runs, in the headless browser scenario.
     fn browser(&self) -> Result<Option<&Path>> {
-        if self.cell.scenario != Scenario::Browser {
+        if self.cell.scenario != Scenario::Browser && !self.config.samples() {
             return Ok(None);
         }
-        self.browser
-            .map(Some)
-            .context("the headless browser scenario takes Chrome for Testing's folder, --browser")
+        self.browser.map(Some).context(
+            "the headless browser scenario and Foxhound's `auto` row take Chrome for Testing's \
+             folder, --browser",
+        )
     }
 
     /// Starts the tool's `process`-th process on `home`, Foxhound's
@@ -496,7 +436,29 @@ impl Plan<'_> {
         mode: &Mode,
         cache: Option<&Path>,
     ) -> Result<Driven> {
-        let mut command = command(&invocation(self.config, self.executable), mode, process);
+        let host = (!self.kind().by_name())
+            .then(|| format!("{}:{}", self.kind().host_of(1), self.site.port()));
+        self.spawn_at(
+            home,
+            (process, mode),
+            cache,
+            &self.site_url(),
+            host.as_deref(),
+        )
+    }
+
+    /// [`Self::spawn`], a tool other than Foxhound crawling from `url`, with
+    /// `host` sent as each request's `Host` when given.
+    fn spawn_at(
+        &self,
+        home: &Path,
+        (process, mode): (u32, &Mode),
+        cache: Option<&Path>,
+        url: &str,
+        host: Option<&str>,
+    ) -> Result<Driven> {
+        let config = output::traced(self.cell, self.config, mode, self.site.pages);
+        let mut command = command(&invocation(config, self.executable), mode, process);
         command.stderr(Stdio::inherit());
         // No tool reads Goodfetch's variables a shell may hold, such as a
         // test's: Foxhound refuses one it does not deploy with.
@@ -518,17 +480,16 @@ impl Plan<'_> {
             // The other tools crawl from their arguments, in their data
             // folder, and print their count last on stdout.
             command
-                .args(["--url", &self.site_url()])
+                .args(["--url", url])
                 .args(["--concurrency", &self.site.concurrency.to_string()])
-                .args(["--scenario", self.cell.scenario.name()])
+                // #2316's scenarios run scenario 1's settings, at their own
+                // site and requests in flight.
+                .args(["--scenario", self.cell.scenario.settings().name()])
                 .current_dir(home)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped());
-            if !self.kind().by_name() {
-                command.args([
-                    "--host",
-                    &format!("{}:{}", self.kind().host_of(1), self.site.port()),
-                ]);
+            if let Some(host) = host {
+                command.args(["--host", host]);
             }
             if let Some(browser) = self.browser()? {
                 let chrome = browser.join(CHROME);
@@ -560,7 +521,11 @@ impl Plan<'_> {
                     }
                 }
             }
-            Config::Spider { .. } | Config::Crawlee | Config::Scrapy => None,
+            Config::Spider { .. }
+            | Config::Crawlee
+            | Config::Scrapy
+            | Config::CrawleeRs
+            | Config::Pagesift => None,
         };
         Ok(Driven { child, engine })
     }
@@ -592,8 +557,13 @@ impl Plan<'_> {
             Config::Foxhound {
                 durability,
                 commit_interval,
+                ..
             } => (durability, commit_interval),
-            Config::Spider { .. } | Config::Crawlee | Config::Scrapy => ("", None),
+            Config::Spider { .. }
+            | Config::Crawlee
+            | Config::Scrapy
+            | Config::CrawleeRs
+            | Config::Pagesift => ("", None),
         }
     }
 
@@ -628,24 +598,27 @@ impl Plan<'_> {
             if let Some(engine) = driven.engine.as_mut() {
                 engine.start(
                     &self.site,
-                    self.cell.scenario,
+                    self.cell,
                     &self.start_url(),
                     self.durability(),
+                    self.config.samples(),
                 )?;
                 if !resumes {
                     engine.finish()?;
                     return Ok(1);
                 }
-            } else {
-                if resumes {
-                    bail!("{} cannot resume a crawl", self.cell.name);
-                }
+            } else if !resumes {
                 self.read_count(&mut driven.child)?;
                 return Ok(1);
             }
             // Killed once half the site's pages were asked for, then
-            // resumed by a new process on the same home.
+            // resumed by a new process on the same home: Foxhound's engine
+            // by `run.resume`, another tool by the same command, which
+            // takes up the state it left there.
             while request_count(self.site.address)? < self.site.pages / 2 {
+                if let Some(status) = driven.child.try_wait()? {
+                    bail!("the tool exited with {status} before half the site was asked for");
+                }
                 std::thread::sleep(POLL);
             }
             kill(tool_pid(&driven.child, &self.mode))?;
@@ -673,13 +646,17 @@ impl Plan<'_> {
         if let Some(sampler) = sampler {
             sampler.follow(tool_pid(&second.child, &self.mode));
         }
-        let engine = second
-            .engine
-            .as_mut()
-            .context("a resumed tool is Foxhound's engine")?;
-        let finished = engine
-            .resume(&self.site, self.cell.scenario, self.durability())
-            .and_then(|()| engine.finish());
+        let finished = match second.engine.as_mut() {
+            Some(engine) => engine
+                .resume(
+                    &self.site,
+                    self.cell,
+                    self.durability(),
+                    self.config.samples(),
+                )
+                .and_then(|()| engine.finish()),
+            None => self.read_count(&mut second.child),
+        };
         if let Err(error) = finished {
             let _ = second.child.kill();
             let _ = second.child.wait();
@@ -693,35 +670,6 @@ impl Plan<'_> {
             bail!("the resumed tool exited with {status}");
         }
         Ok(2)
-    }
-
-    /// Foxhound's Records' commit times, in seconds from `started`, by
-    /// path, read by an engine of their own on `home` once the measured
-    /// processes are gone.
-    fn records(&self, home: &Path, started: jiff::Timestamp) -> Result<HashMap<String, f64>> {
-        let mut driven = self.spawn(home, 1, &Mode::Timed, None)?;
-        let engine = driven.engine.as_mut().context("Foxhound's engine")?;
-        let read = engine.records(&self.site);
-        if let Some(engine) = driven.engine.take() {
-            engine.close();
-        }
-        let _ = driven.child.wait();
-        let mut times = HashMap::new();
-        for (url, committed) in read? {
-            let committed: jiff::Timestamp = committed
-                .parse()
-                .with_context(|| format!("a Record's commit time: {committed}"))?;
-            let seconds = committed.duration_since(started).as_secs_f64();
-            let path = url
-                .split_once("://")
-                .and_then(|(_, rest)| rest.find('/').map(|slash| rest[slash..].to_owned()))
-                .unwrap_or(url);
-            times
-                .entry(path)
-                .and_modify(|first: &mut f64| *first = first.min(seconds))
-                .or_insert(seconds);
-        }
-        Ok(times)
     }
 
     /// What the Proving ground observed of the trial on the site's hosts.
@@ -755,7 +703,7 @@ impl Plan<'_> {
         mark(&self.site, &self.kind().host_of(1))?;
         let started_wall = wall();
         let started = now();
-        let sampler = Sampler::start(started);
+        let sampler = Sampler::start(started, self.executable_pages);
         let crawled = self.crawl(
             home.path(),
             Some(&sampler),
@@ -766,15 +714,35 @@ impl Plan<'_> {
         let processes = crawled?;
         let usage = usage()?;
         let footprint_bytes = footprint(home.path());
+        let keeps_records = super::foxhound::keeps_records(self.cell.scenario);
         let records = match self.config {
-            Config::Foxhound { .. } if super::foxhound::keeps_records(self.cell.scenario) => {
-                Some(self.records(home.path(), started_wall)?)
+            Config::Foxhound { .. } if keeps_records || self.config.samples() => {
+                Some(self.records(home.path())?)
             }
-            Config::Foxhound { .. } | Config::Spider { .. } | Config::Crawlee | Config::Scrapy => {
-                None
-            }
+            Config::Foxhound { .. }
+            | Config::Spider { .. }
+            | Config::Crawlee
+            | Config::Scrapy
+            | Config::CrawleeRs
+            | Config::Pagesift => None,
         };
-        let observed = self.observe(seconds, records.as_ref())?;
+        let read = records
+            .as_deref()
+            .map(|records| output::read(records, started_wall))
+            .transpose()?;
+        // An `auto` row's Records are read for its samples only: its pages'
+        // times run to their fetch, as its scenario's main row's do.
+        let observed = self.observe(
+            seconds,
+            read.as_ref()
+                .filter(|_| keeps_records)
+                .map(|read| &read.times),
+        )?;
+        let sample_pages = read
+            .as_ref()
+            .filter(|_| self.config.samples())
+            .map(|read| read.sample_pages);
+        let extracted = self.extracted(home.path(), records)?;
         let milestones: Vec<(u64, f64)> = MILESTONES
             .iter()
             .filter_map(|&pages| {
@@ -784,16 +752,20 @@ impl Plan<'_> {
             .collect();
         let tree = taken.map(|samples| sampler::figures(&samples, &milestones));
         let peak_bytes = usage.peak_bytes;
-        Ok(measured(
-            seconds,
-            processes,
-            usage,
-            peak_bytes,
-            tree,
-            footprint_bytes,
-            install_bytes(self.config, self.executable, self.browser()?),
-            observed,
-        ))
+        Ok(Measured {
+            sample_pages,
+            extracted,
+            ..measured(
+                seconds,
+                processes,
+                usage,
+                peak_bytes,
+                tree,
+                footprint_bytes,
+                install_bytes(self.config, self.executable, self.browser()?),
+                observed,
+            )
+        })
     }
 
     /// Runs a counted trial: its count and the work it did.
@@ -807,6 +779,16 @@ impl Plan<'_> {
             cache.as_ref().map(tempfile::TempDir::path),
         )?;
         let work = self.observe(1.0, None)?.work;
+        let records = match self.config {
+            Config::Foxhound { .. } if self.checks_output() => Some(self.records(home.path())?),
+            Config::Foxhound { .. }
+            | Config::Spider { .. }
+            | Config::Crawlee
+            | Config::Scrapy
+            | Config::CrawleeRs
+            | Config::Pagesift => None,
+        };
+        let extracted = self.extracted(home.path(), records)?;
         let (count, syncs) = match &self.mode {
             Mode::Syscalls(output) => {
                 let (mut count, mut syncs) = (0, 0);
@@ -830,8 +812,14 @@ impl Plan<'_> {
                 (instructions_of(&text)?, 0)
             }
             Mode::Timed => bail!("a timed trial counts nothing"),
+            Mode::Rules => bail!("a hostile pages' run counts nothing"),
         };
-        Ok(Counted { count, syncs, work })
+        Ok(Counted {
+            count,
+            syncs,
+            work,
+            extracted,
+        })
     }
 }
 
@@ -874,6 +862,8 @@ fn measured(
         curve: observed.curve,
         latency: observed.latency,
         latency_end: observed.latency_end,
+        sample_pages: None,
+        extracted: None,
     }
 }
 
@@ -897,6 +887,13 @@ pub(crate) fn callgrind_missing() -> Option<String> {
 /// Why this host cannot run the system-call cell, when it cannot.
 pub(crate) fn strace_missing() -> Option<String> {
     missing(STRACE)
+}
+
+/// The file a counted trial's counting tool writes to, `--output`, named
+/// from the root: the tool is started in another folder than this one.
+pub(crate) fn counting_output(output: Option<&Path>) -> Result<PathBuf> {
+    let output = output.context("a counted trial takes --output")?;
+    std::path::absolute(output).with_context(|| format!("naming {}", output.display()))
 }
 
 /// The instructions a Callgrind output file totals: its `totals:` line, of
@@ -939,12 +936,20 @@ pub(crate) fn cell_of(scenario: Scenario, name: &str) -> Result<(&'static Cell, 
         .with_context(|| format!("no cell `{name}` in scenario {}", scenario.name()))?;
     match cell.status {
         super::matrix::Status::Measured(config) => Ok((cell, config)),
-        super::matrix::Status::NotSupported(_) => bail!(
+        super::matrix::Status::NotSupported(_) | super::matrix::Status::Pending(_) => bail!(
             "the cell `{name}` of scenario {} runs no trial",
             scenario.name()
         ),
     }
 }
+
+mod chrome;
+mod output;
+mod rules;
+
+use chrome::browser_cache;
+pub(crate) use chrome::{CHROME, chrome_folder};
+pub(crate) use rules::Ruled;
 
 #[cfg(test)]
 mod tests;

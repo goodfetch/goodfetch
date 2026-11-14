@@ -91,6 +91,11 @@ lint-documents:
 # under target/steps/lint/ (ci/keep-going.sh). A check that needs an earlier
 # one's output comes after it and is skipped, named so, when it failed:
 # Clippy after the lockfile check, the `xtask` checks after xtask's build.
+# The gate reuses a green lint on the same tree and host (ADR 0135's note
+# of 2026-11-13). A check added here or to `lint-documents` that reads more
+# than the tree and the host's tools (the day, the network, GitHub) needs
+# `xtask gate plan` to read the same again (xtask/src/gate/lint.rs), or to
+# stop reusing lint.
 lint:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -102,7 +107,10 @@ lint:
     step kennel-lock 'cd kennel && cargo metadata --locked --offline --format-version 1 > /dev/null'
     step fuzz-lock 'ci/fuzz-check.sh locked'
     step pnpm-lock 'pnpm install --lockfile-only --frozen-lockfile'
-    step uv-lock 'uv lock --check'
+    # Offline: a lock that matches the manifests reads no index, and one that
+    # does not is resolved again, which must not ask the index what it holds
+    # today (ADR 0135: lint's verdict follows from the tree).
+    step uv-lock 'uv lock --check --offline'
     step xtask 'cargo build --quiet --bin xtask'
     step --after cargo-lock clippy 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
     step tsc 'pnpm exec tsc -p tsconfig.json'
@@ -121,6 +129,10 @@ lint:
     # gate builds: its lock's licenses, its `chrome` feature's included,
     # read without a build (ADR 0134).
     step cargo-deny-spider 'ci/tool.sh cargo-deny cargo deny --all-features --manifest-path xtask/compare-spider/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
+    # crawlee-rs's side, no workspace member either, read the same way.
+    step cargo-deny-crawlee-rs 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-crawlee-rs/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
+    # pagesift's side, the same.
+    step cargo-deny-pagesift 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-pagesift/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     # Crawlee's and Scrapy's sides, no workspace member either: their locks'
     # licenses against the same allowlist, read from what their frozen
     # installs leave beside them, with each side's own exceptions (ADR 0138).
@@ -377,6 +389,8 @@ mutants base="":
 fetch:
     cargo fetch --locked
     cargo fetch --locked --manifest-path xtask/compare-spider/Cargo.toml
+    cargo fetch --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml
+    cargo fetch --locked --manifest-path xtask/compare-pagesift/Cargo.toml
     pnpm install --frozen-lockfile --dir xtask/compare-crawlee
     uv sync --frozen --directory xtask/compare-scrapy
     cd kennel && cargo fetch --locked
@@ -941,7 +955,8 @@ quick-steps:
 # proofs (`all`: the whole workspace). The checks that need Linux run beside
 # the other steps, each in its own container, with their lines marked:
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
-# projects in the pinned Playwright image, ADR 0073). The suite waits for
+# projects in the pinned Playwright image, ADR 0073); TLC and Miri run
+# beside them too, on the host, in folders of their own. The suite waits for
 # them and fails when one fails (ci/pre-merge.sh). A red step ends no form:
 # every other step still runs, and the end names each red step. `quick` runs only the
 # checks every change needs, for a change no test reads (ADR 0135). `all`
@@ -1030,8 +1045,11 @@ release-ci cells="all" commit="":
 # executables with the `ci` profile the Release suite's cells build, for the
 # Rust target they ship for here (the static musl one on Linux, ADR 0024),
 # runs the scenario (every scenario when none is named: idle-attached-engine,
-# idle-daemon and crawl, the last on Foxhound against a Proving ground it
-# serves) on each executable it runs on, then holds each peak to its ceiling in
+# idle-daemon, and Foxhound's crawl of 100, 1,000 and 10,000 pages against a
+# Proving ground it serves, each size with `governor.huge_pages` off and, on
+# Linux alone, on: crawl-100, crawl-1000, crawl-10000 and each with
+# -huge-pages) on each executable it runs on, each run once the executable
+# is dropped from the page cache, then holds each peak to its ceiling in
 # ci/rss-ceilings.toml and shows it against its Performance target. With no
 # ceilings file it reports and gates nothing. The JUnit file and the figures
 # the results store keeps go to target/junit/.
@@ -1064,54 +1082,101 @@ rss-propose *scenarios:
 # scenario and marking pending each Foxhound value that does not exist yet.
 # Five scenarios: 1, raw; 2, durable (killed once half the site is served,
 # then resumed); 3, polite, on the Proving ground's 50-domain site; 4,
-# extraction of each page's title and main text to the tool's dataset; 5,
-# headless browser, on its script-rendered site. Foxhound against Spider
+# extraction of each page's title and Main content to the tool's dataset,
+# on the Proving ground's article site, each page held to its right answer
+# (#2136: a Foxhound trial that differs is refused, a competitor's is
+# labelled), with a second Foxhound row whose Filter lists are off; 5,
+# headless browser, on its script-rendered site. Four more run scenario
+# 1's settings and carry no bar (#2316): `realistic`, on the realistic-page
+# site, pages of tens of kilobytes with 30 to 100 links; `long`, over a
+# 100,000-page site, its timed trials only; and `raw-64` and `raw-256`, at
+# 64 and 256 requests at once. Foxhound against Spider
 # 2.53.9 (xtask/compare-spider, no workspace member: its HTTP mode, and its
-# `chrome` feature's executable for scenario 5; its main rows read its
+# `chrome` feature's executable for scenario 5, and its `extraction`
+# feature's, which reads each page with `llm_readability`, for scenario 4;
+# its main rows read its
 # pages at the smallest channel capacity that loses none, and its
 # sensitivity rows, each labelled, run the capacity of 4,096 it had before,
 # its default features, its `bloom` feature and the allocator its README
 # recommends, each a build of its own), both built with the
 # release profile (`profile` changes it for a quicker try), Crawlee 3.18.2
 # on Node.js (xtask/compare-crawlee: `CheerioCrawler`, and
-# `PlaywrightCrawler` for scenario 5) and Scrapy 2.19.0 on CPython
-# (xtask/compare-scrapy, with scrapy-playwright for scenario 5), each side
-# installed from its own lock, outside the Products'. Scenario 5's tools
+# `PlaywrightCrawler` for scenario 5), Scrapy 2.19.0 on CPython
+# (xtask/compare-scrapy, with scrapy-playwright for scenario 5),
+# crawlee-rs at a pinned commit (xtask/compare-crawlee-rs: its
+# `HtmlCrawler`, built like Spider's side; it has no browser crawler, so
+# scenario 5 says so) and pagesift 1.3.0 (xtask/compare-pagesift: its
+# `Scraper`'s crawl, built like Spider's side, its browser engine for
+# scenario 5), each side installed from its own lock, outside the
+# Products'. Scenario 5's tools
 # all run the Chrome for Testing build Foxhound pins, as Playwright
 # installed it (`pnpm exec playwright install chromium`). A cell a tool
 # cannot run says why: 10 trials of each measured cell in random order,
 # each tool in a fresh process against a fresh Proving ground at 16
-# requests at once over the scenario's 1,000-page site.
+# requests at once over the scenario's 1,000-page site, unless the scenario
+# names another site or concurrency; then the sizes cell, scenario 1's main
+# rows of Foxhound and Spider over the sites of 100, 1,000 and 10,000 pages
+# at 16, 1 and 64 requests at once, for their peak memory (spec #2165).
+# Foxhound is built for the Rust target it ships for here (the static musl
+# one on Linux, ADR 0024), Spider for the host's; every executable is
+# dropped from the page cache before each trial.
 # Every metric is measured from outside the tools (the OS's accounting of
 # the waited-for children, /proc samples of the process tree, the Proving
 # ground's observations, the data folder left), then each cell's system
-# calls and syncs are counted under strace, and scenario 1's instructions
-# per page under Callgrind (`foxhound.spider_instruction_ratio`, ADR
-# 0140); `--growth` adds the 100,000-page crawls whose resident memory is
+# calls and syncs are counted under strace, and scenario 1's and scenario
+# 4's instructions per page under Callgrind
+# (`foxhound.spider_instruction_ratio` and scenario 4's two ratios, ADR
+# 0140), each run's output kept in target/compare/callgrind/, which the
+# reports repository files with the run (TESTING.md); `--growth` adds the 100,000-page crawls whose resident memory is
 # read at 1,000, 10,000 and 100,000 pages (hours). Once every trial passed
 # the same-work check, it writes each cell's median and spread of every
-# metric to target/compare/report.md and report.json, `local-controlled`
-# and never published (ADR 0076); otherwise it fails naming the trial. A
-# host without strace or Valgrind reports that cell as not run. It gates
-# nothing and is no Live check; run it when the 1-minute load is under 4.
-# Spider's crate and the sides' packages are downloaded once, free. Spider's
-# six builds go to target/compare-spider/, or to the folder
-# GOODFETCH_COMPARE_SPIDER_BUILDS names: one outside every checkout keeps
-# them from one measurement to the next, whichever worktree measures and
-# whatever sweeps its target/ (Cargo still rebuilds what a changed
-# xtask/compare-spider needs).
+# metric, with Foxhound's standings against each competitor, to
+# target/compare/report.md and report.json, `local-controlled`, measured on
+# the machine `--machine "<name>"` names, with the command that reruns it;
+# otherwise it fails naming the trial. A host without strace or Valgrind
+# reports that cell as not run. The Collie scenario (issue 2282) runs Collie
+# against Playwright, Guard on, both attached to one Chrome for Testing
+# xtask launched through a relay that counts each tool's CDP commands, on
+# the Proving ground's actionability.test and portal.test pages in five
+# cells, and gives per action the commands, CPU and wall time, each tool's
+# peak memory, the pages each got right and
+# `collie.playwright_command_ratio` against its register row's Today;
+# `--scenario collie` runs it alone. It gates nothing and is no Live check;
+# run it when the 1-minute load is under 4.
+# Spider's, crawlee-rs's and pagesift's crates and the sides' packages are
+# downloaded once, free. Spider's seven builds, crawlee-rs's and pagesift's go to
+# target/compare-spider/, or to the folder GOODFETCH_COMPARE_SPIDER_BUILDS
+# names: one outside every checkout keeps them from one measurement to the
+# next, whichever worktree measures and whatever sweeps its target/ (Cargo
+# still rebuilds what a changed side needs).
+# xtask is built once and runs from its copy in the target folder's
+# compare/xtask: a build in the checkout while the matrix runs, for hours,
+# relinks or sweeps its debug executable, never the one measuring.
 # Runs the comparison matrix on this machine.
+[positional-arguments]
 compare profile="release" *args:
-    cargo run --quiet --bin xtask -- test-tools build --cargo-profile {{ profile }} --out "$PWD/target/compare/test-tools.json"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
+    cargo build --quiet --locked --bin xtask
+    target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
+    mkdir -p "$target/compare"
+    cp "$target/debug/xtask" "$target/compare/xtask"
+    xtask=$target/compare/xtask
+    "$xtask" test-tools build --cargo-profile {{ profile }} --shipped-target --out "$PWD/target/compare/test-tools.json"
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/spider
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features chrome --target-dir {{ compare_spider_builds }}/spider-chrome
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features defaults --target-dir {{ compare_spider_builds }}/spider-defaults
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features bloom --target-dir {{ compare_spider_builds }}/spider-bloom
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features jemalloc --target-dir {{ compare_spider_builds }}/spider-jemalloc
-    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features mimalloc --target-dir {{ compare_spider_builds }}/spider-mimalloc
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features extraction --target-dir {{ compare_spider_builds }}/spider-extraction
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features extraction,mimalloc --target-dir {{ compare_spider_builds }}/spider-extraction-mimalloc
+    cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/crawlee-rs
+    cargo build --quiet --locked --manifest-path xtask/compare-pagesift/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/pagesift
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy
-    cargo run --quiet --bin xtask -- compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile {{ profile }} {{ args }}
+    pnpm install --frozen-lockfile --reporter=silent --filter goodfetch-compare-collie...
+    "$xtask" compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile {{ profile }} "${@:2}"
 
 # The Kennel (ADR 0141), from the repository. On macOS: its release
 # executable in `Kennel.app`, signed ad hoc under the stable bundle
@@ -1165,10 +1230,11 @@ musl-toolchain:
 # each owner test: each Product's release build for the Rust target it ships
 # for here (the static musl one on Linux, ADR 0024), its startup to `hello`
 # with hyperfine (10 warm-up runs, then 100; median), and its idle Attached
-# engine's, idle Daemon's and (Foxhound's) 1,000-page crawl's peaks (median
-# of 5 runs each; on Linux, beside each, how much is the executable's own
-# file-backed pages), with the pages per second of the latest
-# `just compare` report's scenario 1. Writes target/targets/report.md: each
+# engine's, idle Daemon's and (Foxhound's) 100-, 1,000- and 10,000-page
+# crawls' peaks (median of 5 runs each; on Linux, beside each, how much is
+# the executable's own file-backed pages), each crawl's against Spider's
+# peak at its size in the latest `just compare` report (the bar of spec
+# #2165), with the pages per second of that report's scenario 1. Writes target/targets/report.md: each
 # target, its figure, met or missed with its gap and the optimization
 # pass's write-up from ci/performance-target-gaps.toml. Labelled
 # `local-controlled`, never published (ADR 0076); it fails on no miss.
@@ -1178,7 +1244,7 @@ targets:
     cargo run --quiet --bin xtask -- test-tools build --cargo-profile release --shipped-target --out "$PWD/target/targets/test-tools.json"
     rm -f target/targets/peaks.jsonl target/targets/startup-*.json
     cargo run --quiet --bin xtask -- targets startup --tools target/targets/test-tools.json --out target/targets
-    cargo run --quiet --bin xtask -- rss measure idle-attached-engine idle-daemon crawl --runs 5 --tools target/targets/test-tools.json --out target/targets/peaks.jsonl
+    cargo run --quiet --bin xtask -- rss measure idle-attached-engine idle-daemon crawl-100 crawl-1000 crawl-10000 --runs 5 --tools target/targets/test-tools.json --out target/targets/peaks.jsonl
     cargo run --quiet --bin xtask -- targets report --measured target/targets
 
 # The Counted work of each row of the Quality register on its benchmark,
@@ -1344,6 +1410,16 @@ commit-leaks base="" head="HEAD":
 fuzz-check:
     ci/tool.sh cargo-fuzz ci/fuzz-check.sh check
 
+# The nightly fuzzing the gate host's cron starts (TESTING.md, Fuzzing;
+# ci/fuzz-nightly.crontab): every fuzz target with `cargo fuzz run` on `main`'s
+# head, for one hour in all on 4 cores, at the lowest priority, in a worktree
+# of its own (ci/fuzz-nightly.sh). It skips while a gate, the backstop or a
+# test-health run runs, and a gate started during one stops it. Logs, corpora
+# and results go to ~/fuzz-nightly/ (GOODFETCH_FUZZ_LOG). Run from the main
+# checkout.
+fuzz-nightly ref="origin/main":
+    ci/fuzz-nightly.sh {{ ref }}
+
 # The Release suite's AddressSanitizer run of the tests of every crate that
 # opts into `unsafe` (ADR 0067), on the pinned nightly; CI runs it on Linux
 # glibc. `build` builds them (before the deny in CI), `test` builds and runs
@@ -1376,6 +1452,7 @@ notices *arguments:
 
 # The security advisories of the Cargo, pnpm and uv lockfiles (the
 # workspace's, and the sides of `just compare`: Spider's xtask/compare-spider,
+# crawlee-rs's xtask/compare-crawlee-rs, pagesift's xtask/compare-pagesift,
 # Crawlee's xtask/compare-crawlee and Scrapy's xtask/compare-scrapy), against
 # the advisory snapshot ci/advisories.toml pins (ADR 0064), offline:
 # cargo-deny's and cargo-audit's over RustSec's pinned commit, OSV-Scanner's
@@ -1385,6 +1462,8 @@ notices *arguments:
 audit:
     ci/tool.sh cargo-audit ci/audit.sh rust
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-spider/Cargo.toml
+    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-crawlee-rs/Cargo.toml
+    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-pagesift/Cargo.toml
     ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-crawlee/pnpm-lock.yaml
     ci/tool.sh osv-scanner ci/audit.sh python xtask/compare-scrapy/uv.lock
     ci/tool.sh cargo-audit ci/audit.sh rust kennel/Cargo.toml
@@ -1517,6 +1596,40 @@ commit-messages base="" head="HEAD":
 compiler-cache:
     ci/compiler-cache.sh
 
+# What the full gate most often went red on, run on this worktree's HEAD
+# before `just merge` of a pull request that will take it (the 2026-11-13
+# retro: six of nine full gates failed on defects the branch could show
+# without the gate's lock): the floor guard and the Pre-merge suite against
+# the merge base with `origin/main`, the stress run against the head of the
+# last full gate that passed, as the full gate's own (`base` gives another),
+# and `just counts`. Every step runs even after one failed, and the end
+# names each red step (ci/keep-going.sh). Run it in the pull request's own
+# worktree.
+# Runs the full gate's likeliest failures ahead of it: `just preflight [base]`.
+preflight base="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source ci/keep-going.sh
+    base="{{ base }}"
+    if [[ -z $base ]]; then
+      git fetch --quiet origin
+      full=$(git rev-list -1 --first-parent --merges --fixed-strings \
+        --grep="Merged on the local gate: \`just pre-merge all\`" origin/main)
+      if [[ -z $full ]]; then
+        echo "error: no merge on origin/main passed the full gate; give the stress run's base: just preflight <base>" >&2
+        exit 2
+      fi
+      base=$(git rev-parse "$full^2")
+    fi
+    echo "The stress run's base: $base."
+    quoted_base=$(printf '%q' "$base")
+    steps_begin preflight
+    step floor-guard '{{ just_executable() }} floor-guard origin/main'
+    step pre-merge '{{ just_executable() }} test-affected pre-merge'
+    step stress "{{ just_executable() }} stress $quoted_base"
+    step counts '{{ just_executable() }} counts'
+    steps_end
+
 # The floor guard (ADR 0140; TESTING.md, Quality register): what the change
 # since the merge base with `base` does to the bar. A flagged change passes only
 # when a `Quality-change: <file or row>: <reason>` trailer of the change names it.
@@ -1539,10 +1652,11 @@ hooks:
 # pre-merge docs` when it is documents alone (`xtask affected`'s
 # `gate=docs`), `just pre-merge quick` when no test reads the change
 # (`gate=quick`), and for a change a test reads `just pre-merge all`, which
-# starts with `just quick all`'s lint and Quick suite, on a spec's pull
-# request (head branch `spec/<n>`) and on the tenth such change since the
-# last full gate, and `just pre-merge quick` on any other (ADR 0135's
-# amendments of 2026-11-10); `just merge <number> --full` runs
+# starts with `just quick all`'s lint and Quick suite, on the pull request
+# that finishes a spec (head branch `spec/<n>`, the spec's sub-issues none
+# left open once it merges, ADR 0135's note of 2026-11-13) and on the tenth
+# such change since the last full gate, and `just pre-merge quick` on any
+# other (ADR 0135's amendments of 2026-11-10); `just merge <number> --full` runs
 # the full gate on any pull request. It refuses once 10 merges have landed on `main` since
 # the backstop's last green run (ci/merge-cap.sh) unless the owner passes
 # `--past-cap`: `just merge <number> --past-cap`. It refuses to start a gate
@@ -1669,7 +1783,9 @@ _gate-steps form:
 # gates; GOODFETCH_GATE_FULL=1 reuses nothing.
 # Vitest's and Playwright's listings since a recorded head, the evidence of
 # what the TypeScript tests read, load each test file, which reads only the
-# keys of the test tool manifest: an empty one serves.
+# keys of the test tool manifest: an empty one serves. Before it reuses a
+# green lint on the same tree, the plan reads each quarantined test's issue
+# again, as lint's quarantine check does, with the same token.
 _gate-plan:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1677,11 +1793,16 @@ _gate-plan:
     echo '{}' >target/gate-runs/listing-tools.json
     # The variables that change what the steps run or how join the host
     # fingerprint, so a result counts only for a run in the same environment;
-    # `xtask gate plan` leaves out the launcher's own (GOODFETCH_GATE_MIN_FREE_GB).
+    # `xtask gate plan` leaves out the launcher's own (GOODFETCH_GATE_MIN_FREE_GB)
+    # and the thread and job caps the gate removes before its steps.
     variables=$(env | grep -E '^(CI|GOODFETCH_[A-Z0-9_]+|NEXTEST_[A-Z0-9_]+|CARGO_[A-Z0-9_]+|RUST[A-Z0-9_]*|UV_[A-Z0-9_]+|NODE_[A-Z0-9_]+)=' | LC_ALL=C sort || true)
-    GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_TEST_TOOLS="$PWD/target/gate-runs/listing-tools.json" \
+    # With a GitHub token in the run's environment, lint's zizmor also runs
+    # its online audits, which read GitHub: such a lint is never reused.
+    zizmor_token="${GH_TOKEN:-}${GITHUB_TOKEN:-}${ZIZMOR_GITHUB_TOKEN:-}"
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_TEST_TOOLS="$PWD/target/gate-runs/listing-tools.json" \
       cargo run --quiet --bin xtask -- gate plan --records target/gate-runs --now "$(date +%s)" \
-      --environment "$variables" ${GOODFETCH_GATE_FULL:+--full}
+      --environment "$variables" ${GOODFETCH_GATE_FULL:+--full} ${zizmor_token:+--zizmor-online}
 
 # Records a gate step's result (`pass` or `fail`) for the head the plan was
 # made for, which must still be checked out on a clean tree (ADR 0135); a
@@ -1700,20 +1821,44 @@ _gate-record head step status *evidence:
 # passes (ci/gate-backstop.sh). It needs GOODFETCH_LAZYFS on Linux, and its way
 # past a miss nothing can clear is TESTING.md's, never an edit of its results.
 # It waits for a running gate of `just merge` before its full run, as a gate
-# started meanwhile waits for it, and sweeps its worktree's `target/` after
-# its day's line, still holding its lock. It has a switch, the one word of
+# started meanwhile waits for it. After its day's line, still holding its
+# lock, it runs `just existing-code-sweep --apply` (ADR 0144) and sweeps its
+# worktree's `target/`. It has a switch, the one word of
 # ci/gate-backstop.state (`on` or `off`): switched off, a run does nothing.
 # Its log and results go to ~/gate-backstop/ (GOODFETCH_GATE_BACKSTOP_LOG). Run
 # from the main checkout.
 gate-backstop ref="origin/main":
     ci/gate-backstop.sh {{ ref }}
 
+# Checks issue <issue>'s `Existing code` list against `origin/main`, fetched
+# first (ADR 0144): each citation's path, symbol and lines, or a spec that
+# lacks its list. A cited line that only moved passes and prints where it
+# went; one that changed names the merge that changed it. Reads the tracker
+# with GITHUB_TOKEN or the GitHub CLI's token, and changes nothing there.
+existing-code issue:
+    git fetch --quiet origin
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet --bin xtask -- existing-code check {{ issue }}
+
+# The same check over every open `ready-for-agent` issue (ADR 0144), but
+# those of a spec whose run has started (`spec/<n>`). A dry run by default,
+# which only prints what it would do; `--apply` takes `ready-for-agent` from
+# each issue that fails, applies `needs-triage` and comments once with what
+# moved. The backstop runs it with `--apply` (ci/gate-backstop.sh).
+existing-code-sweep *arguments:
+    git fetch --quiet origin
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet --bin xtask -- existing-code sweep {{ arguments }}
+
 # The test-health runs the gate host's cron starts while Actions is off
 # (TESTING.md, After merge; ci/test-health.crontab), on `main`'s head in the
 # backstop's gate worktree: `constrained`, the constrained test-health run,
-# and `mutants`, the advisory mutation run over the last day's Rust changes
-# (ci/test-health/scheduled.sh). Either skips while `just merge`'s gate runs,
-# and a gate started during one waits for it. Logs and results go to ~/test-health/ (GOODFETCH_TEST_HEALTH_LOG). Run from
+# `mutants`, the advisory mutation run over the last day's Rust changes, and
+# `post-merge`, `just counts` and the Pre-merge suite over what `main` gained
+# since the commit it last checked (ci/test-health/scheduled.sh). Each skips
+# while `just merge`'s gate runs, and a gate started during one waits for it,
+# but for a post-merge run, which it stops.
+# Logs and results go to ~/test-health/ (GOODFETCH_TEST_HEALTH_LOG). Run from
 # the main checkout.
 test-health run ref="origin/main":
     ci/test-health/scheduled.sh {{ run }} {{ ref }}

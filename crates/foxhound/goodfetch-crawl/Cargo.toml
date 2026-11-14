@@ -11,8 +11,9 @@ publish.workspace = true
 [dependencies]
 fixed_decimal.workspace = true
 # `join_all`: the delivery settles the attempts that ended together, so
-# their run-state writes queue as one group.
-futures-util = { workspace = true, features = ["alloc"] }
+# their run-state writes queue as one group. `catch_unwind` (`std`): an
+# attempt's watch ends the attempt that panicked (ADR 0148).
+futures-util = { workspace = true, features = ["alloc", "std"] }
 goodfetch-counted-work.workspace = true
 goodfetch-dataset.workspace = true
 goodfetch-engine.workspace = true

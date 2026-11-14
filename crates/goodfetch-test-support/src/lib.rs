@@ -183,8 +183,9 @@ pub use proving_ground::{
     serve_arguments,
 };
 pub use proving_ground_format::{
-    FixtureAddresses, OWN_TARGETS, Observations, ObservedRequest, OracleSubmission,
-    ProxyCredentials, ROUTES, ReceivedRequests, RequestTiming, Routes, ServeLine, ToolStatus,
+    ArticleAnswer, ArticleAnswers, FixtureAddresses, OWN_TARGETS, Observations, ObservedRequest,
+    OracleSubmission, ProxyCredentials, ROUTES, ReceivedRequests, RequestTiming, Routes, ServeLine,
+    ToolStatus,
 };
 pub use proxy_in_front::proxy_in_front;
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
@@ -219,7 +220,7 @@ pub use tmpfs::{
     tmpfs_mounted_home,
 };
 pub use tools::{Product, Tool, Tools, ToolsError, tools};
-pub use trace::{CapturedLog, logged, subscriber, subscriber_writing_to};
+pub use trace::{CapturedLog, exercise_layer, logged, subscriber, subscriber_writing_to};
 pub use transition_tables::refused_matches;
 pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
 #[cfg(all(

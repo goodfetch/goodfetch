@@ -103,8 +103,16 @@ fn fixture() -> Fixture {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let home = Home::new(env.home().to_path_buf());
     Fixture {
-        audit: Arc::new(AuditLog::of(&home, None)),
-        store: KnownCertificates::of(&home, None),
+        audit: Arc::new(AuditLog::of(
+            &home,
+            None,
+            Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+        )),
+        store: KnownCertificates::of(
+            &home,
+            None,
+            Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+        ),
         owner: Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
         proving_ground,
         env,
@@ -187,7 +195,6 @@ impl Fixture {
             person: PERSON.to_owned(),
             run_id: Some(RunId::parse(run_id).unwrap()),
             audit: Arc::clone(&self.audit),
-            owner: Arc::clone(&self.owner),
             clock: Clock::system(),
         }
     }
@@ -252,8 +259,15 @@ impl Fixture {
 
     /// The pins of the user's store.
     fn pins(&self) -> Vec<PinRow> {
+        goodfetch_test_support::runtime().block_on(self.listed_pins())
+    }
+
+    /// [`Self::pins`], for a test already on a runtime, where blocking on
+    /// another one panics.
+    async fn listed_pins(&self) -> Vec<PinRow> {
         self.store
             .list(PERSON)
+            .await
             .unwrap()
             .into_iter()
             .map(|pin| {
@@ -902,15 +916,14 @@ fn a_pinned_host_presenting_another_key_gets_no_client_certificate(
 ) {
     let fixture = fixture();
     let another_key = KeyHash::from_stored(&[7; 32]).unwrap();
-    fixture
-        .store
-        .pin(
+    goodfetch_test_support::runtime()
+        .block_on(fixture.store.pin(
             PERSON,
             MUTUAL,
             &another_key,
             None,
             jiff::Timestamp::UNIX_EPOCH,
-        )
+        ))
         .unwrap();
     let trusted = [VERIFIED, "certificates.test"];
     let excepted = json!({ "certificates.test": null });
@@ -922,7 +935,11 @@ fn a_pinned_host_presenting_another_key_gets_no_client_certificate(
         fixture.proving_ground.observations().unwrap()["client_certificates"].clone(),
         requested(&fixture.proving_ground),
     );
-    assert!(fixture.store.forget(PERSON, MUTUAL).unwrap());
+    assert!(
+        goodfetch_test_support::runtime()
+            .block_on(fixture.store.forget(PERSON, MUTUAL))
+            .unwrap()
+    );
     let next_run = fixture.mutual(stack, &trusted, &excepted, true);
     let reached = running_clock_runtime().block_on(sent(&*next_run, &hop));
 
@@ -1148,7 +1165,7 @@ fn an_accepted_key_lets_the_host_through_in_the_next_run(
             .unwrap();
         let _ = sent(&*run, &hop(&regenerated, EXPIRED)).await;
         let new_key = presented_key(&regenerated, EXPIRED).await;
-        let waiting = fixture.pins().pop().and_then(|pin| pin.3);
+        let waiting = fixture.listed_pins().await.pop().and_then(|pin| pin.3);
         fixture
             .store
             .accept(
@@ -1157,6 +1174,7 @@ fn an_accepted_key_lets_the_host_through_in_the_next_run(
                 &new_key,
                 jiff::Timestamp::try_from(Clock::system().wall()).unwrap(),
             )
+            .await
             .unwrap();
         let accepted = sent(&*next_run, &hop(&regenerated, EXPIRED)).await;
         let old = sent(&*next_run, &hop(&fixture.proving_ground, EXPIRED)).await;
@@ -1275,7 +1293,7 @@ fn a_forgotten_host_is_pinned_on_first_use_again(
         sent(&*first, &hop(&fixture.proving_ground, EXPIRED))
             .await
             .unwrap();
-        let forgotten = fixture.store.forget(PERSON, EXPIRED).unwrap();
+        let forgotten = fixture.store.forget(PERSON, EXPIRED).await.unwrap();
         let pinned_again = exception(&*next, &hop(&regenerated, EXPIRED), Reuse::Allowed).await;
         (
             forgotten,

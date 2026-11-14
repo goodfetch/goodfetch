@@ -4,6 +4,8 @@
 //! Exception, a path or a count of a Cost contract with no row, a row above
 //! its contract, and a difference from `xtask perf`'s ceilings. What it cannot
 //! read is a finding, so a reworded table never passes as an empty one.
+//! From [`NOTICE_DAYS`] before an Exception's expiry to that day, it notes
+//! the Exception, which fails nothing.
 
 #![expect(
     clippy::disallowed_methods,
@@ -51,6 +53,16 @@ const ADR: &str = "ADR 0140";
 
 const UNREADABLE: &str = "register-unreadable";
 
+/// How many days before its expiry an Exception is noted (the owner,
+/// 2026-11-10, ADR 0140's note of that day).
+const NOTICE_DAYS: i32 = 21;
+
+/// What the check found: findings fail it, notes do not.
+struct Checked {
+    findings: Vec<Finding>,
+    notes: Vec<Finding>,
+}
+
 pub(crate) fn run(
     command: &Command,
     environment: &Environment,
@@ -65,10 +77,12 @@ pub(crate) fn run(
             .to_zoned(jiff::tz::TimeZone::UTC)
             .date()
     });
-    Ok(check::report(&findings(&environment.root, today, xtask)?))
+    let checked = checked(&environment.root, today, xtask)?;
+    check::note(&checked.notes);
+    Ok(check::report(&checked.findings))
 }
 
-fn findings(root: &Path, today: Date, xtask: &clap::Command) -> Result<Vec<Finding>> {
+fn checked(root: &Path, today: Date, xtask: &clap::Command) -> Result<Checked> {
     let mut findings = Vec::new();
     let register = Register::read(&read(&root.join(document::FILE))?);
     let inventory = contract::read(&read(&adr_file(root)?)?);
@@ -87,16 +101,37 @@ fn findings(root: &Path, today: Date, xtask: &clap::Command) -> Result<Vec<Findi
         ));
     }
     let Some(register) = register else {
-        return Ok(findings);
+        return Ok(Checked {
+            findings,
+            notes: Vec::new(),
+        });
     };
     let justfile = read(&root.join("justfile"))?;
     findings.extend(enforced_commands(&register, root, &justfile, xtask));
-    findings.extend(exceptions(&register, today));
+    let Checked {
+        findings: expired,
+        notes,
+    } = exceptions(&register, today);
+    findings.extend(expired);
     findings.extend(ceilings(&register));
     if let Some(paths) = inventory {
         findings.extend(contracts(&register, &paths));
     }
-    Ok(findings)
+    Ok(Checked { findings, notes })
+}
+
+/// What the check reads from the clock, read for `today`, for `xtask gate
+/// plan` before it reuses a green lint on the same tree (ADR 0135): `Ok`
+/// while no Exception is past its expiry, the check's one verdict that moves
+/// with the day, or why not. A register that cannot be read does not hold.
+pub(crate) fn exceptions_hold(root: &Path, today: Date) -> Result<(), String> {
+    let text = read(&root.join(document::FILE)).map_err(|error| format!("{error:#}"))?;
+    let register = Register::read(&text)
+        .ok_or_else(|| format!("{}'s Quality register cannot be read", document::FILE))?;
+    match exceptions(&register, today).findings.first() {
+        None => Ok(()),
+        Some(finding) => Err(format!("{}: {}", finding.subject, finding.message)),
+    }
 }
 
 fn read(path: &Path) -> Result<String> {
@@ -142,27 +177,43 @@ fn enforced_commands(
         .collect()
 }
 
-fn exceptions(register: &Register, today: Date) -> Vec<Finding> {
-    register
-        .exceptions
-        .iter()
-        .filter_map(|row| {
-            let expires = row.cell("Expires");
-            match expires.parse::<Date>() {
-                Err(_) => Some(Finding::new(
-                    UNREADABLE,
-                    row.name(),
-                    format!("its expiry \"{expires}\" is no date"),
-                )),
-                Ok(date) if date < today => Some(Finding::new(
-                    "exception-expired",
-                    row.name(),
-                    format!("it expired on {date}: remove the gap, or ask the owner to extend it"),
-                )),
-                Ok(_) => None,
+/// The Exceptions' findings, an unreadable or a passed expiry, and the notes
+/// of those that expire within [`NOTICE_DAYS`].
+fn exceptions(register: &Register, today: Date) -> Checked {
+    let (mut findings, mut notes) = (Vec::new(), Vec::new());
+    for row in &register.exceptions {
+        let expires = row.cell("Expires");
+        match expires.parse::<Date>() {
+            Err(_) => findings.push(Finding::new(
+                UNREADABLE,
+                row.name(),
+                format!("its expiry \"{expires}\" is no date"),
+            )),
+            Ok(date) if date < today => findings.push(Finding::new(
+                "exception-expired",
+                row.name(),
+                format!("it expired on {date}: remove the gap, or ask the owner to extend it"),
+            )),
+            Ok(date) => {
+                let days = today
+                    .until(date)
+                    .expect("invariant: two dates' difference in days never fails (jiff's `Date::until`)")
+                    .get_days();
+                if days <= NOTICE_DAYS {
+                    notes.push(Finding::new(
+                        "exception-expires-soon",
+                        row.name(),
+                        format!(
+                            "expires on {date}, in {days} {}; removed by {}",
+                            if days == 1 { "day" } else { "days" },
+                            row.cell("Removed by")
+                        ),
+                    ));
+                }
             }
-        })
-        .collect()
+        }
+    }
+    Checked { findings, notes }
 }
 
 /// One row of a path, with what the contract check compares.

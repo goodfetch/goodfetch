@@ -107,6 +107,8 @@ class ProvingGroundRoutes:
     """`GET`: the client certificate its mutual-TLS hosts accept."""
     client_key: str
     """`GET`: that certificate's private key."""
+    article_answers: str
+    """`GET <path>/<size>`: the right answer of each page of the article site."""
 
 
 def proving_ground_routes() -> ProvingGroundRoutes:

@@ -49,7 +49,7 @@ rusqlite.workspace = true
 # A Session's proxy password, held until the Session's proxy goes.
 secrecy.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 # The name of a Session's sticky session at a Proxy provider: a digest of
 # its Session ID, so the provider never sees the Run's own ID.
 sha2.workspace = true

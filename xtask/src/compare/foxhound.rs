@@ -1,8 +1,8 @@
 //! Foxhound's side of a trial: its Attached engine driven over JSON-RPC
 //! through one code-free crawl of the scenario's site at a cell's
 //! settings, started, or resumed after a kill, and, once the measured
-//! process is gone, its Records' commit times read by another engine on the
-//! same home, which no figure counts.
+//! process is gone, its Records' commit times and samples read by another
+//! engine on the same home, which no figure counts.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: the engine's output is read on a thread of its own with blocking calls (STYLE.md)"
@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 
 use crate::rss::crawl::Site;
 
-use super::matrix::Scenario;
+use super::matrix::{Cell, Scenario};
 
 /// The Run every trial crawls in.
 const RUN: &str = "crawl";
@@ -108,14 +108,16 @@ impl Engine {
         self.call_with(id, method, params, |_| {})
     }
 
-    /// Starts the code-free crawl of `scenario`'s site from `start` at
-    /// `durability`, with its `run_state.commit_interval` at `periodic`.
+    /// Starts the code-free crawl of `cell`'s scenario's site from `start`
+    /// at `durability`, with its `run_state.commit_interval` at `periodic`,
+    /// and `fetch.tier` left at `auto` where `auto`.
     pub(crate) fn start(
         &mut self,
         site: &Site<'_>,
-        scenario: Scenario,
+        cell: &Cell,
         start: &str,
         durability: (&str, Option<u64>),
+        auto: bool,
     ) -> Result<()> {
         self.call(
             "start",
@@ -124,8 +126,8 @@ impl Engine {
                 "run_id": RUN,
                 "seeds": [{ "url": start, "label": "page" }],
                 "datasets": [],
-                "extraction": extraction(scenario),
-                "settings": settings(site, scenario, durability),
+                "extraction": extraction(cell.scenario),
+                "settings": settings(site, cell, durability, auto),
             }),
         )?;
         Ok(())
@@ -135,14 +137,22 @@ impl Engine {
     pub(crate) fn resume(
         &mut self,
         site: &Site<'_>,
-        scenario: Scenario,
+        cell: &Cell,
         durability: (&str, Option<u64>),
+        auto: bool,
     ) -> Result<()> {
         self.call(
             "resume",
             "run.resume",
-            &json!({ "run_id": RUN, "settings": settings(site, scenario, durability) }),
+            &json!({ "run_id": RUN, "settings": settings(site, cell, durability, auto) }),
         )?;
+        Ok(())
+    }
+
+    /// Waits for the Run to end, however it ended: a hostile pages' crawl
+    /// (#2439) is read from what the Proving ground saw, not from its end.
+    pub(crate) fn ended(&mut self) -> Result<()> {
+        self.call("finish", "run.finish", &json!({ "run_id": RUN }))?;
         Ok(())
     }
 
@@ -155,9 +165,8 @@ impl Engine {
         Ok(())
     }
 
-    /// Each Record of the crawl's Dataset: its URL and when it was
-    /// committed, RFC 3339.
-    pub(crate) fn records(&mut self, site: &Site<'_>) -> Result<Vec<(String, String)>> {
+    /// Each Record of the crawl's Dataset.
+    pub(crate) fn records(&mut self, site: &Site<'_>) -> Result<Vec<Record>> {
         let id = "records";
         let mut records = Vec::new();
         self.send(&json!({
@@ -180,13 +189,14 @@ impl Engine {
             }
             if message["method"] == RECORD && message["params"]["id"] == id {
                 let record = &message["params"]["record"];
-                records.push((
-                    record["url"].as_str().unwrap_or_default().to_owned(),
-                    record["committed_at"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_owned(),
-                ));
+                let text = |value: &Value| value.as_str().map(str::to_owned);
+                records.push(Record {
+                    url: text(&record["url"]).unwrap_or_default(),
+                    committed_at: text(&record["committed_at"]).unwrap_or_default(),
+                    sample: record["provenance"]["tier"]["chosen"] == "sample",
+                    title: text(&record["value"]["title"]),
+                    text: text(&record["value"]["text"]),
+                });
             }
         }
     }
@@ -200,6 +210,22 @@ impl Engine {
     }
 }
 
+/// What the comparison reads of one Record of the crawl's Dataset, as
+/// `run.records` sends it.
+pub(crate) struct Record {
+    /// Its crawl request's URL.
+    pub(crate) url: String,
+    /// When it was committed, RFC 3339.
+    pub(crate) committed_at: String,
+    /// Whether its page was a sample of `auto`'s comparison of tiers, its
+    /// document from the sample's browser run (ADR 0093).
+    pub(crate) sample: bool,
+    /// Its field `title` and its `text` format, which the extraction
+    /// scenario's Records hold.
+    pub(crate) title: Option<String>,
+    pub(crate) text: Option<String>,
+}
+
 /// What each page's Record holds: in the extraction scenario, the text of
 /// its main content and its title; otherwise no format, the crawl fetching
 /// and following links as the other tools' do.
@@ -210,9 +236,16 @@ fn extraction(scenario: Scenario) -> Value {
             "follow": "scope",
             "fields": { "title": { "locator": { "kind": "css", "selector": "title" } } },
         }),
-        Scenario::Raw | Scenario::Durable | Scenario::Polite | Scenario::Browser => {
-            json!({ "formats": {}, "follow": "scope" })
-        }
+        Scenario::Raw
+        | Scenario::Durable
+        | Scenario::Polite
+        | Scenario::Browser
+        | Scenario::Realistic
+        | Scenario::Long
+        | Scenario::Raw64
+        | Scenario::Raw256
+        | Scenario::Hostile
+        | Scenario::Hostile16 => json!({ "formats": {}, "follow": "scope" }),
     }
 }
 
@@ -220,23 +253,33 @@ fn extraction(scenario: Scenario) -> Value {
 /// scenario, whose resume is judged by them, and the extraction scenario,
 /// which writes each page's; scenario 1's maximum-throughput combination
 /// and the headless browser scenario, which asks for its settings, keep
-/// none, as the other tools keep nothing there.
+/// none, as the other tools keep nothing there, nor do #2316's scenarios,
+/// which run scenario 1's settings.
 pub(crate) fn keeps_records(scenario: Scenario) -> bool {
-    matches!(scenario, Scenario::Durable | Scenario::Extraction)
+    matches!(
+        scenario.settings(),
+        Scenario::Durable | Scenario::Extraction
+    )
 }
 
 /// A cell's Run settings, its site's hosts resolved to the Proving ground:
-/// in the polite scenario, Foxhound's defaults with ADR 0086's delay and
-/// concurrency per domain, the `http` tier and a scope of every host;
+/// in the hostile pages' pass at defaults (#2439), nothing else, every
+/// other setting the catalog's default, `run_state.durability` too; in the
+/// polite scenario, Foxhound's defaults with ADR 0086's delay and
+/// concurrency per domain, the `http` tier (left at `auto` where `auto`)
+/// and a scope of every host;
 /// otherwise its own Politeness at the crawl's concurrency, no delay,
 /// robots.txt not obeyed and the maximum-throughput combination's switches
 /// off, at `durability`, on the `browser` tier in the headless browser
-/// scenario and the `http` tier otherwise.
+/// scenario and the `http` tier otherwise; on the extraction scenario's row
+/// that says so (#2136), the ads, trackers and annoyances Filter lists off.
 fn settings(
     site: &Site<'_>,
-    scenario: Scenario,
+    cell: &Cell,
     (durability, commit_interval): (&str, Option<u64>),
+    auto: bool,
 ) -> Value {
+    let scenario = cell.scenario;
     let hosts = scenario.site().hosts();
     let resolve: serde_json::Map<String, Value> = hosts
         .iter()
@@ -245,13 +288,10 @@ fn settings(
     let mut settings = json!({
         "network": { "resolve": resolve },
         "egress": { "private_ranges": hosts },
-        "run_state": { "durability": durability },
     });
-    if let Some(interval) = commit_interval {
-        settings["run_state"]["commit_interval"] = json!(interval);
-    }
     let concurrency = site.concurrency;
     let added = match scenario {
+        Scenario::Hostile => return settings,
         // ADR 0086's 1 s and 1 in flight per domain, which the catalog
         // holds no default for until the fetch tiers take them (ADR 0086's
         // #684 note).
@@ -264,7 +304,15 @@ fn settings(
         // `docs/throughput.md`): every per-page feature the crawl does not
         // need switched off, its Records kept only where the scenario
         // reads them.
-        Scenario::Raw | Scenario::Durable | Scenario::Extraction | Scenario::Browser => json!({
+        Scenario::Raw
+        | Scenario::Durable
+        | Scenario::Extraction
+        | Scenario::Browser
+        | Scenario::Realistic
+        | Scenario::Long
+        | Scenario::Raw64
+        | Scenario::Raw256
+        | Scenario::Hostile16 => json!({
             "fetch": {
                 "tier": if scenario == Scenario::Browser { "browser" } else { "http" },
                 "block_classification": false,
@@ -285,5 +333,18 @@ fn settings(
     if let (Value::Object(settings), Value::Object(added)) = (&mut settings, added) {
         settings.extend(added);
     }
+    if cell.filter_lists_off() {
+        settings["filter_lists"] = json!({ "ads": false, "trackers": false, "annoyances": false });
+    }
+    settings["run_state"] = json!({ "durability": durability });
+    if let Some(interval) = commit_interval {
+        settings["run_state"]["commit_interval"] = json!(interval);
+    }
+    if auto && let Some(fetch) = settings["fetch"].as_object_mut() {
+        fetch.remove("tier");
+    }
     settings
 }
+
+#[cfg(test)]
+mod tests;

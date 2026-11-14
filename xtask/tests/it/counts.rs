@@ -403,7 +403,7 @@ fn each_b3_row_divides_by_the_outcome_that_did_its_work(
         &workspace,
         "benchmark.sh",
         &format!(
-            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"outgoing_messages\":10,\"audit_entries\":20}},\"counts\":{{\"E1.deep_copies\":{copies},\"E1.encodes\":{encodes},\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":{transactions},\"E2.syncs\":104}}}}'\n"
+            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"answers_and_events\":10,\"audit_entries\":20}},\"counts\":{{\"E1.deep_copies\":{copies},\"E1.encodes\":{encodes},\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":{transactions},\"E2.syncs\":104}}}}'\n"
         ),
     );
 
@@ -463,7 +463,7 @@ fn a_b3_benchmark_that_does_a_working_copy_updates_work_fails_its_row() {
     let path = executable_script(
         &workspace,
         "benchmark.sh",
-        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"outgoing_messages\":10,\"covered_charges\":4,\"slices\":4,\"charges\":8,\"audit_entries\":20,\"samples\":4,\"process_samples\":8},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":41,\"E2.syncs\":104,\"E3.statements\":4,\"E3.slice_transactions\":9,\"E3.opens\":1,\"E3.prepares\":79,\"E4.configuration_reads\":8,\"E4.meminfo_opens\":12,\"E4.static_opens\":8,\"E4.process_reads\":12,\"E7.encodes\":3}}'\n",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"answers_and_events\":10,\"covered_charges\":4,\"slices\":4,\"charges\":8,\"audit_entries\":20,\"samples\":4,\"process_samples\":8},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":41,\"E2.syncs\":104,\"E3.statements\":4,\"E3.slice_transactions\":9,\"E3.opens\":1,\"E3.prepares\":79,\"E4.configuration_reads\":8,\"E4.meminfo_opens\":12,\"E4.static_opens\":8,\"E4.process_reads\":12,\"E7.encodes\":3}}'\n",
     );
 
     let outcome = workspace.xtask(&[
@@ -697,6 +697,7 @@ const OTHER_B1_ROWS: &str = "\
 | `F1.tree_copies` | tree copies per page | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F1.share_readability_runs` | share readability runs per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F1.block_classifications` | Block classifications per page | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F1.analysis_handoffs` | analysis hand-offs per page | at most 1 | B1 2, B4 3 | B1, B4 | must not grow | `just counts` | implementer done |
 | `F4.declaration_reads` | declaration reads per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.validator_builds` | validator builds per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.validations` | validations per Record | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
@@ -727,6 +728,11 @@ const OTHER_B1_ROWS: &str = "\
 | `F3.transactions.sitemap` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F3.payload_serializations` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F3.validations` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.actor_round_trips` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.hop_round_trips` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.hop_round_trips.end` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.in_flight_serializations` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F3.counted_work_constructions` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.file_opens` | folders created and files opened per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.spawns` | tasks spawned per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.formatting_off` | entries formatted per entry of a kind off | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
@@ -740,8 +746,8 @@ const OTHER_B1_ROWS: &str = "\
 
 /// A workspace whose register holds every counted row of B1, and whose
 /// benchmark prints over 13 pages and their 13 Records `parses` parses, one
-/// readability run a page, one validation and one serialization a Record, one
-/// Payload serialized and validated over one links batch, one transaction,
+/// readability run and two analysis hand-offs a page, one validation and one
+/// serialization a Record, one Payload serialized and validated over one links batch, one transaction,
 /// sync and configuration read over one attempt and one Run, two Politeness
 /// transactions an attempt and one robots.txt parse an origin, over 13
 /// Run-trace entries none of their rows' work, none of the other rows' work,
@@ -763,6 +769,7 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F1.tree_copies", 0),
         ("F1.share_readability_runs", 0),
         ("F1.block_classifications", 13),
+        ("F1.analysis_handoffs", 26),
         ("F4.declaration_reads", 0),
         ("F4.validator_builds", 0),
         ("F4.validations", 13),
@@ -793,6 +800,11 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F3.transactions.sitemap", 0),
         ("F3.payload_serializations", 1),
         ("F3.validations", 1),
+        ("F3.actor_round_trips", 1),
+        ("F3.hop_round_trips", 1),
+        ("F3.hop_round_trips.end", 1),
+        ("F3.in_flight_serializations", 0),
+        ("F3.counted_work_constructions", 0),
         ("E5.file_opens", 0),
         ("E5.spawns", 0),
         ("E5.formatting_off", 0),
@@ -808,7 +820,7 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
     .collect();
     let script = format!(
         "#!/bin/sh\nplant=$2\nplanted() {{ if [ \"$1\" = \"$plant\" ]; then echo 13; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"added_pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"runs\":1,\"effects\":0,\"entries\":13,\"permits\":1,\"requests\":1,\"origins\":1,\"off_attempts\":0}},\"counts\":{{{}{extra}}}}}'\n",
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"added_pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"attempts_ended\":1,\"runs\":1,\"effects\":0,\"entries\":13,\"permits\":1,\"requests\":1,\"origins\":1,\"off_attempts\":0}},\"counts\":{{{}{extra}}}}}'\n",
         counts.join(",")
     );
     let path = executable_script(&workspace, "benchmark.sh", &script);
@@ -966,7 +978,7 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
 }
 
 /// Every F3 row, in what a benchmark prints and the register holds.
-const FRONTIER_ROWS: [&str; 15] = [
+const FRONTIER_ROWS: [&str; 20] = [
     "F3.invariant_reads",
     "F3.invariant_reads.hop",
     "F3.invariant_reads.sitemap",
@@ -982,6 +994,11 @@ const FRONTIER_ROWS: [&str; 15] = [
     "F3.transactions.sitemap",
     "F3.payload_serializations",
     "F3.validations",
+    "F3.actor_round_trips",
+    "F3.hop_round_trips",
+    "F3.hop_round_trips.end",
+    "F3.in_flight_serializations",
+    "F3.counted_work_constructions",
 ];
 
 /// The register's F3 rows, each with the limit 1.
@@ -1008,7 +1025,7 @@ fn frontier_benchmark(counted: &str) -> String {
         .map(|name| format!("\"{name}\":{}", if *name == counted { 5 } else { 1 }))
         .collect();
     format!(
-        "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"links_batches\":1,\"hops\":1,\"sitemaps\":1,\"payloads\":1}},\"counts\":{{{}}}}}'\n",
+        "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts_ended\":1,\"added_pages\":1}},\"counts\":{{{}}}}}'\n",
         counts.join(",")
     )
 }
@@ -1353,6 +1370,121 @@ fn each_action_kind_is_held_to_its_own_figure(
             .contains("C3.commands.fill [default]: 2 per fill_attempt, limit 2 (2 over 1)"),
         "{}",
         outcome.stdout
+    );
+}
+
+/// The rows of the extraction path (spec #2164): its hand-offs, which the
+/// register puts on two families with a figure for each, and its clean-up's
+/// instructions.
+const EXTRACTION_ROWS: &str = "\
+| `F1.analysis_handoffs` | hand-offs to the analysis pool per page | at most 1, and 0 when no reader needs a tree | B1 2, B4 3; until #2189 | B1, B4 | must not grow | `just counts` | implementer done |
+| `F1.clean_up_instructions` | instructions in the clean-up's removal per page | no cap (ratchet) | 1000 | B4 | must not grow | `just counts --family B4` | implementer done |
+";
+
+/// A benchmark of `family` whose default cell counts `handoffs` hand-offs
+/// over 13 pages and `instructions` in the clean-up over one.
+fn extraction_benchmark(
+    workspace: &Workspace,
+    family: &str,
+    handoffs: u64,
+    instructions: u64,
+) -> String {
+    let path = executable_script(
+        workspace,
+        &format!("{family}.sh"),
+        &format!(
+            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"callgrind_pages\":1}},\"counts\":{{\"F1.analysis_handoffs\":{handoffs},\"F1.clean_up_instructions\":{instructions}}}}}'\n"
+        ),
+    );
+    format!("{family}={}", path.display())
+}
+
+/// A row the register puts on two families, with a figure for each, is
+/// counted on both, each held to its own family's figure: B1's two
+/// hand-offs a page pass B1's 2, B4's three its 3, and B1 at B4's figure
+/// fails.
+#[rstest]
+#[case::each_at_its_figure(26, 0, &[])]
+#[case::b1_at_b4s_figure(39, 1, &["F1.analysis_handoffs"])]
+fn a_row_two_families_count_is_held_on_each_to_its_own_figure(
+    #[case] b1: u64,
+    #[case] code: i32,
+    #[case] over: &[&str],
+) {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        "TESTING.md",
+        format!("{}{EXTRACTION_ROWS}", register("8")).as_bytes(),
+    );
+    let on_b1 = extraction_benchmark(&workspace, "B1", b1, 0);
+    let on_b4 = extraction_benchmark(&workspace, "B4", 39, 0);
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--row",
+        "F1.analysis_handoffs",
+        "--executable",
+        &on_b1,
+        "--executable",
+        &on_b4,
+    ]);
+
+    assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        over.iter()
+            .map(|row| finding("over-limit", row))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("F1.analysis_handoffs [default]: 3 per page, limit 3 (39 over 13)"),
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(
+        outcome
+            .stdout
+            .contains("F1.analysis_handoffs [default]: 2 per page, limit 2 (26 over 13)"),
+        over.is_empty(),
+        "{}",
+        outcome.stdout
+    );
+}
+
+/// The clean-up's instructions are read under Callgrind by B4's own run,
+/// and vary a little from run to run: the row is held within the 0.5 % of a
+/// figure read under Valgrind (the register's ratchet), and fails past it.
+#[rstest]
+#[case::within_the_tolerance(1005, 0, &[])]
+#[case::past_it(1006, 1, &["F1.clean_up_instructions"])]
+fn the_clean_ups_instructions_are_held_within_the_valgrind_tolerance(
+    #[case] instructions: u64,
+    #[case] code: i32,
+    #[case] over: &[&str],
+) {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        "TESTING.md",
+        format!("{}{EXTRACTION_ROWS}", register("8")).as_bytes(),
+    );
+    let executable = extraction_benchmark(&workspace, "B4", 39, instructions);
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--row",
+        "F1.clean_up_instructions",
+        "--executable",
+        &executable,
+    ]);
+
+    assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        over.iter()
+            .map(|row| finding("over-limit", row))
+            .collect::<Vec<_>>()
     );
 }
 

@@ -348,6 +348,10 @@ pub enum Verdict {
     NeedsReview,
 }
 
+/// The code of the Verdict reason a Run that left an Effect uncertain is
+/// given, `needs_review` (ADR 0029).
+pub const UNCERTAIN_EFFECTS: &str = "uncertain_effects";
+
 impl Verdict {
     /// Every value, in declaration order.
     pub const ALL: [Self; 3] = [Self::Verified, Self::Rejected, Self::NeedsReview];
@@ -416,6 +420,10 @@ pub enum StopReason {
     LimitNotUnderstood(Box<NotUnderstoodLimit>),
     /// Its engine was lost while it ran, and another engine stopped it.
     EngineLost,
+    /// Its Attached engine stopped on a panic in a part every Run shares,
+    /// and stopped it first, resumable by its Run ID (ADR 0148); a Daemon
+    /// drains instead.
+    EnginePanicked,
     /// The resource governor ran out of a resource for it, and it stopped
     /// at its next safe point, resumable (ADRs 0040 and 0122).
     Resources {

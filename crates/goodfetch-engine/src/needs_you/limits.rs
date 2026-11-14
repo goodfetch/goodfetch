@@ -21,7 +21,6 @@ use serde_json::{Map, Value, json};
 
 use super::{Answering, Changes, NeedsYouSource, Primitives, SourceContext, SourceError};
 use crate::ledger::{Ledger, LedgerError, StoredLimit};
-use crate::run_index;
 
 /// Each Run stopped by a Limit that still holds it.
 pub fn runs_stopped() -> NeedsYouSource {
@@ -39,17 +38,16 @@ impl Primitives for RunsStopped {
         &'a self,
         context: &'a SourceContext,
     ) -> Answering<'a, Result<Vec<NeedsYouItem>, SourceError>> {
-        let path = context.run_index.clone();
-        let version = context.version.clone();
         let ledger = context.ledger.clone();
         let now = context.clock.timestamp();
         Box::pin(async move {
+            let rows = context
+                .run_index
+                .stopped_by_limit()
+                .await
+                .map_err(SourceError::new)?;
             context
-                .blocking(move || {
-                    let rows =
-                        run_index::stopped_by_limit(&path, &version).map_err(SourceError::new)?;
-                    still_stopped(&rows, &ledger, now).map_err(SourceError::new)
-                })
+                .blocking(move || still_stopped(&rows, &ledger, now).map_err(SourceError::new))
                 .await
         })
     }

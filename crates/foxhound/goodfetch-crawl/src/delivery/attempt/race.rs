@@ -19,12 +19,12 @@ use goodfetch_fetch_tier::{
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::page::{PageId, PageResponse};
 use goodfetch_protocol::usage::REQUESTS;
-use serde_json::Map;
 use tokio::sync::oneshot;
 
 use super::{
-    Answer, BLOCKED, BROWSER, Found, On, PAGE_CHECK_FAILED, RACED, Served, Taught, Tiering, failed,
-    judged, learn, reached_through_trap, read_by_browser, record_tier, refused_type,
+    Answer, AttemptFailure, BLOCKED, BROWSER, Found, On, PAGE_CHECK_FAILED, RACED, Served, Taught,
+    Tiering, failed, judged, learn, reached_through_trap, read_by_browser, record_tier,
+    refused_type,
 };
 use crate::lease::WorkItemLease;
 use crate::tier_race::Raced;
@@ -66,18 +66,20 @@ impl On<'_> {
         let decoy = reached_through_trap(leased);
         if decoy.is_none() {
             run.spawn(
-                Navigation {
-                    run: run.clone(),
-                    tiers: tiers.clone(),
-                    hand_over: Arc::clone(hand_over),
-                    pooled: self.in_browser.clone(),
-                    url: leased.crawl_request.url.clone(),
-                    context: self.context.clone(),
-                    second_copies: tiering.second_copies.clone(),
-                    domain_key: leased.waiting.key.clone(),
-                    at: started + raced.delay,
-                }
-                .run(cancelled, sending, navigated),
+                self.watch.over(
+                    Navigation {
+                        run: run.clone(),
+                        tiers: tiers.clone(),
+                        hand_over: Arc::clone(hand_over),
+                        pooled: self.in_browser.clone(),
+                        url: leased.crawl_request.url.clone(),
+                        context: self.context.clone(),
+                        second_copies: tiering.second_copies.clone(),
+                        domain_key: leased.waiting.key.clone(),
+                        at: started + raced.delay,
+                    }
+                    .run(cancelled, sending, navigated),
+                ),
             );
         }
         let document = Box::pin(async {
@@ -130,7 +132,7 @@ impl On<'_> {
 
     /// The attempt once its race ended as `ended` says: the winner's page
     /// handed to the handler, recorded as the race's, or how it ended.
-    async fn after_race(&self, tiers: &FetchTiers, ended: RaceEnded) -> (Answer, Taught) {
+    async fn after_race(&self, tiers: &FetchTiers, ended: RaceEnded<'_>) -> (Answer, Taught) {
         let (run, leased) = (self.run, self.leased);
         match ended.won {
             Won::Ended(answer) => (answer, Taught::default()),
@@ -144,8 +146,14 @@ impl On<'_> {
                     Taught::default(),
                 )
             }
-            Won::BrowserFetch(page_id, facts) => {
-                let merged = learn(run, tiers, &page_id, leased, self.code_free.is_some()).await;
+            Won::BrowserFetch(served, facts) => {
+                // `served` is held until its handler answered, as
+                // `On::on_http` holds its own: an attempt abandoned while
+                // its handler runs, as an abort abandons it, closes its
+                // page as it drops, so the page never holds the Run's
+                // handles past the Run.
+                let page_id = served.page_id();
+                let merged = learn(run, tiers, page_id, leased, self.code_free.is_some()).await;
                 record_tier(
                     run,
                     leased,
@@ -156,8 +164,8 @@ impl On<'_> {
                     facts.certificate_exception,
                 )
                 .await;
-                let answer = self.handle(&page_id, FetchTier::Http, facts.response).await;
-                let escalated = self.escalated(tiers.close(&page_id));
+                let answer = self.handle(page_id, FetchTier::Http, facts.response).await;
+                let escalated = self.escalated(served.close());
                 let answer = match escalated {
                     Some(call) if !matches!(answer, Answer::LeaseEnded | Answer::ClientGone) => {
                         // The browser's run takes a whole lease of its own, and
@@ -204,8 +212,8 @@ impl On<'_> {
 }
 
 /// How a tier race ended: which run won, and how each that lost did.
-struct RaceEnded {
-    won: Won,
+struct RaceEnded<'t> {
+    won: Won<'t>,
     /// Browser-fetch's latency, once its document arrived.
     latency: Option<Duration>,
     /// Browser-fetch's failure, once it lost.
@@ -225,7 +233,7 @@ enum Lost {
     Decoy(Answer),
 }
 
-impl RaceEnded {
+impl RaceEnded<'_> {
     fn browser_fetch(&self) -> RaceEnd {
         match (&self.won, &self.fetch_lost) {
             (Won::BrowserFetch(..), _) => RaceEnd::Won,
@@ -258,7 +266,7 @@ async fn first_to_win<'t>(
     >,
     (navigation, lost): (&mut oneshot::Receiver<Navigated>, Option<Lost>),
     lease: &WorkItemLease,
-) -> RaceEnded {
+) -> RaceEnded<'t> {
     let mut ended = RaceEnded {
         won: Won::Neither,
         latency: None,
@@ -272,19 +280,18 @@ async fn first_to_win<'t>(
             fetched = &mut document, if ended.fetch_lost.is_none() => match fetched {
                 Ok((served, facts, took, true)) => {
                     ended.latency = Some(took);
-                    break Won::BrowserFetch(served.keep(), Box::new(facts));
+                    break Won::BrowserFetch(served, Box::new(facts));
                 }
                 Ok((served, _, took, false)) => {
                     ended.latency = Some(took);
                     drop(served);
-                    ended.fetch_lost = Some(Answer::Failed {
-                        code: PAGE_CHECK_FAILED.to_owned(),
-                        retryable: false,
-                        message: "The page browser-fetch served failed its expected page or its Label's comparison, and the race's navigation passed no page either.".to_owned(),
-                        details: Map::new(),
-                    });
+                    ended.fetch_lost = Some(Answer::failed(AttemptFailure::named(
+                        PAGE_CHECK_FAILED,
+                        false,
+                        "The page browser-fetch served failed its expected page or its Label's comparison, and the race's navigation passed no page either.".to_owned(),
+                    )));
                 }
-                Err(answer @ Answer::Failed { .. }) => ended.fetch_lost = Some(answer),
+                Err(answer @ Answer::Failed(_)) => ended.fetch_lost = Some(answer),
                 Err(answer) => break Won::Ended(answer),
             },
             answered = &mut *navigation, if ended.navigation_lost.is_none() => match answered {
@@ -301,10 +308,10 @@ async fn first_to_win<'t>(
 }
 
 /// Which run of a tier race won, if one did.
-enum Won {
-    /// Browser-fetch's page, served on `http`, and what it held of its
-    /// document as it was served.
-    BrowserFetch(PageId, Box<PageFacts>),
+enum Won<'t> {
+    /// Browser-fetch's page, served on `http` and held until its handler
+    /// answered, and what it held of its document as it was served.
+    BrowserFetch(Served<'t>, Box<PageFacts>),
     /// The navigation's page, in the browser, and its document's
     /// response.
     Navigation(PageId, Option<PageResponse>),

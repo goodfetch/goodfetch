@@ -193,6 +193,192 @@ fn a_reference_holding_none_of_the_heads_figures_fails() {
     );
 }
 
+/// The pin file accepting `figure` up to `up_to`, as an ADR 0140 note the
+/// owner approved does.
+fn accepting(figure: &str, up_to: u64) -> String {
+    format!(
+        "revision = \"v0.0.0\"\n\n[[accepted]]\nfigure = \"{figure}\"\nup_to = {up_to}\ncause = \"a deliberate cost\"\ndecision = \"ADR 0140, note of 2026-11-13\"\n"
+    )
+}
+
+/// A figure the owner accepted over 1.10 times its reference is held to its
+/// accepted value instead, with the 0.5 % the register gives a figure read
+/// under Valgrind: past it, it fails as any drift does.
+#[rstest]
+#[case::instructions_at_its_tolerance("Ir", "instructions", 1_206, false)]
+#[case::instructions_past_its_tolerance("Ir", "instructions", 1_207, true)]
+#[case::allocations_at_its_tolerance("TotalBlocks", "total-allocations", 1_206, false)]
+#[case::allocations_past_its_tolerance("TotalBlocks", "total-allocations", 1_207, true)]
+fn an_accepted_figure_is_held_to_its_accepted_value(
+    #[case] key: &str,
+    #[case] figure: &str,
+    #[case] head: u64,
+    #[case] fails: bool,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let id = format!("{BENCHMARK} {figure}");
+    workspace.write(PIN_FILE, accepting(&id, 1_200).as_bytes());
+    write(&workspace, "perf/head.jsonl", &line(key, head));
+    write(&workspace, "perf/reference.jsonl", &line(key, 1_000));
+
+    let outcome = compare_with_reference(&workspace);
+
+    let expected = if fails {
+        (vec![finding("drift-reference", &id)], 1)
+    } else {
+        (vec![], 0)
+    };
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        expected,
+        "{}",
+        outcome.stdout
+    );
+    if !fails {
+        assert!(
+            outcome
+                .stdout
+                .lines()
+                .any(|line| line.contains("frontier::push")
+                    && line.contains("accepted up to 1200 (ADR 0140, note of 2026-11-13)")),
+            "{}",
+            outcome.stdout
+        );
+    }
+}
+
+/// An acceptance passes its own figure alone: the benchmark's other figures
+/// stay held to 1.10 times their reference.
+#[test]
+fn an_acceptance_passes_no_other_figure() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        PIN_FILE,
+        accepting(&format!("{BENCHMARK} total-allocations"), 1_200).as_bytes(),
+    );
+    write(&workspace, "perf/head.jsonl", &line("Ir", 1_101));
+    write(&workspace, "perf/reference.jsonl", &line("Ir", 1_000));
+
+    let outcome = compare_with_reference(&workspace);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (
+            vec![finding(
+                "drift-reference",
+                &format!("{BENCHMARK} instructions")
+            )],
+            1
+        ),
+        "{}",
+        outcome.stdout
+    );
+}
+
+/// A size-limit entry is not read under Valgrind: its acceptance has no
+/// tolerance.
+#[rstest]
+#[case::at_its_accepted_value(115_000, vec![])]
+#[case::past_it(115_001, vec![finding("drift-reference", "size-limit/collie-sdk brotli")])]
+fn a_size_limit_entry_is_held_to_its_accepted_value_without_tolerance(
+    #[case] head: u64,
+    #[case] findings: Vec<Finding>,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        PIN_FILE,
+        accepting("size-limit/collie-sdk brotli", 115_000).as_bytes(),
+    );
+    let entry = |size: u64| format!(r#"[{{"name":"collie-sdk","size":{size}}}]"#);
+    workspace.write("perf/size-head.json", entry(head).as_bytes());
+    workspace.write("perf/size-reference.json", entry(100_000).as_bytes());
+
+    let outcome = workspace.xtask(&[
+        "perf",
+        "compare",
+        "--size-head",
+        "perf/size-head.json",
+        "--reference-size",
+        "perf/size-reference.json",
+    ]);
+
+    assert_eq!(outcome.findings(), findings, "{}", outcome.stdout);
+}
+
+/// An acceptance whose figure is back within 1.10 times its reference is
+/// no longer needed, and fails until it is removed, so none outlives its
+/// cause; its figure is then held to 1.10 alone, even past a value accepted
+/// under it.
+#[rstest]
+#[case::under_its_accepted_value(1_200, 1_100)]
+#[case::past_an_accepted_value_under_the_limit(1_050, 1_080)]
+fn an_acceptance_whose_figure_is_back_within_the_limit_fails(
+    #[case] up_to: u64,
+    #[case] head: u64,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let id = format!("{BENCHMARK} instructions");
+    workspace.write(PIN_FILE, accepting(&id, up_to).as_bytes());
+    write(&workspace, "perf/head.jsonl", &line("Ir", head));
+    write(&workspace, "perf/reference.jsonl", &line("Ir", 1_000));
+
+    let outcome = compare_with_reference(&workspace);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![finding("drift-reference-acceptance-unneeded", &id)], 1),
+        "{}",
+        outcome.stdout
+    );
+}
+
+/// A figure accepted twice is refused: which value held it would depend on
+/// the entries' order.
+#[test]
+fn a_figure_accepted_twice_is_refused() {
+    let workspace = Workspace::from_fixture("empty");
+    let id = format!("{BENCHMARK} instructions");
+    let entry = accepting(&id, 1_200);
+    let second = entry
+        .split_once("[[accepted]]")
+        .map(|(_, entry)| format!("\n[[accepted]]{entry}"))
+        .unwrap();
+    workspace.write(PIN_FILE, format!("{entry}{second}").as_bytes());
+    write(&workspace, "perf/head.jsonl", &line("Ir", 1_150));
+    write(&workspace, "perf/reference.jsonl", &line("Ir", 1_000));
+
+    let outcome = compare_with_reference(&workspace);
+
+    assert_ne!(outcome.code, 0, "{}", outcome.stdout);
+    assert!(outcome.stderr.contains(&id), "{}", outcome.stderr);
+}
+
+/// A gate measures only the bench targets its change selects, so an
+/// acceptance whose figure it did not compare fails nothing.
+#[test]
+fn an_acceptance_of_a_figure_not_compared_fails_nothing() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        PIN_FILE,
+        accepting(
+            "goodfetch-frontier/instructions::frontier::pop instructions",
+            1_200,
+        )
+        .as_bytes(),
+    );
+    write(&workspace, "perf/head.jsonl", &line("Ir", 1_000));
+    write(&workspace, "perf/reference.jsonl", &line("Ir", 1_000));
+
+    let outcome = compare_with_reference(&workspace);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stdout
+    );
+}
+
 /// A workspace of one crate with one bench target and `pin` as its pin file,
 /// committed, and that commit.
 fn pinned_workspace(pin: &str) -> (Workspace, String) {

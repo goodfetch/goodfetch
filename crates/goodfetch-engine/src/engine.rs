@@ -17,9 +17,11 @@ use goodfetch_counted_work::CountedWork;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::sync::Arc;
+use std::time::Duration;
 
 use goodfetch_protocol::connection::PrivateEndpoint;
-use goodfetch_protocol::connection::{EngineInstance, ProductVersion};
+use goodfetch_protocol::connection::{EngineInstance, PanicEnded, ProductVersion};
+use goodfetch_protocol::daemon::DRAIN_GRACE;
 use goodfetch_protocol::governor::{SYSTEM_INFO, SystemInfo};
 use goodfetch_protocol::run::{RunKind, RunOwner};
 use goodfetch_protocol::secret_reference::Provider;
@@ -33,14 +35,12 @@ use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError};
 use crate::controls::Controls;
 use crate::daemon::{self, DaemonEnd, DaemonOptions};
-use crate::engine_context::{EngineContext, os_user};
+use crate::engine_context::{EngineContext, Stores, os_user};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
 use crate::governor::{Governor, System};
 use crate::home::{Home, RunStateLocation};
-use crate::known_certificates::KnownCertificates;
-use crate::ledger::Ledger;
 use crate::log::LogEvents;
 use crate::mask::Masks;
 use crate::metrics::Metrics;
@@ -50,11 +50,11 @@ use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
-use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Runs, RunsSetup};
+use crate::runs::{CleanUpVersions, Driving, PanicStop, ProgressPart, ReportPart, Runs, RunsSetup};
 use crate::sandbox_probe::{self, SandboxProbe};
 use crate::secrets::{self, Carried, Keychain, ProviderFactory, Secrets};
-use crate::settings::{HostDefaults, HostSearch, Settings, SettingsFiles};
-use crate::tasks::{BlockingPolicy, TaskOwner};
+use crate::settings::{HostDefaults, HostSearch, Settings, SettingsFiles, get_or_default};
+use crate::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use crate::transition::{
     self,
     engine::{EngineEvent, EngineState},
@@ -79,6 +79,7 @@ pub struct Engine {
     metrics: Metrics,
     system: Option<System>,
     audit_events: Option<AuditEvents>,
+    drain_grace: Duration,
 }
 
 /// What an engine runs on, which `main` builds once (the system versions)
@@ -110,6 +111,7 @@ pub struct Dependencies {
 impl Engine {
     /// The engine `composition` makes for the Product `identity` names.
     pub fn new(identity: Identity, composition: &Composition) -> Result<Self, CompositionError> {
+        let metrics = Metrics::none();
         Ok(Self {
             dispatch: Arc::new(Dispatch {
                 identity: Arc::new(identity),
@@ -117,8 +119,7 @@ impl Engine {
                 drivers: Arc::new(composition.drivers()),
                 log_events: None,
                 masks: Masks::new(),
-                work: CountedWork::default(),
-                metrics: Metrics::none(),
+                metrics: metrics.clone(),
             }),
             tables: composition.run_state_tables(),
             driving: composition.driving(),
@@ -131,18 +132,17 @@ impl Engine {
             secret_providers: composition.secret_providers(),
             controls: composition.controls(),
             events: EventsOptions::default(),
-            metrics: Metrics::none(),
+            metrics,
             system: None,
             audit_events: None,
+            drain_grace: get_or_default(None, &DRAIN_GRACE),
         })
     }
 
     /// The same, recording the runtime's metrics on `metrics` (ADR 0050).
     #[must_use]
     pub fn with_metrics(mut self, metrics: Metrics) -> Self {
-        let dispatch = Arc::make_mut(&mut self.dispatch);
-        dispatch.work = metrics.counted_work().clone();
-        dispatch.metrics = metrics.clone();
+        Arc::make_mut(&mut self.dispatch).metrics = metrics.clone();
         self.metrics = metrics;
         self
     }
@@ -186,6 +186,16 @@ impl Engine {
     #[must_use]
     pub fn with_events(mut self, options: EventsOptions) -> Self {
         self.events = options;
+        self
+    }
+
+    /// The same, an Attached engine that stops on a panic in a part every
+    /// Run shares waiting at most `grace` for its Runs: the value of
+    /// `daemon.drain_grace`, which a Daemon drains within (ADR 0148).
+    /// Without it, that setting's default.
+    #[must_use]
+    pub fn with_drain_grace(mut self, grace: Duration) -> Self {
+        self.drain_grace = grace;
         self
     }
 
@@ -255,10 +265,15 @@ impl Engine {
             &owner,
         )
         .await;
-        if matches!(ended, DaemonEnd::Drained | DaemonEnd::ListenerFailed) {
+        if matches!(
+            ended,
+            DaemonEnd::Drained | DaemonEnd::ListenerFailed | DaemonEnd::Panicked
+        ) {
             // Its process exits now, within its drain grace: a Run whose
             // tasks did not stop in time stays as it is, resumable from its
-            // run file, and nothing waits for them.
+            // run file, and nothing waits for them. One that panicked waits
+            // for no task either, as one of them may hold what the panic
+            // left half done (ADR 0148).
             drop(runs);
             owner.cancel();
         } else {
@@ -266,7 +281,30 @@ impl Engine {
             drop(runs);
             owner.stop().await;
         }
-        ended
+        self.late_panic(&owner, ended)
+    }
+
+    /// `ended`, unless a part every Run shares panicked after the Daemon's
+    /// loop stopped waiting for a panic, as it stopped: then
+    /// [`DaemonEnd::Panicked`], which exits 1 like any other such panic
+    /// (ADR 0148). A handover keeps its end, the next Daemon serving on.
+    fn late_panic(&self, owner: &TaskOwner, ended: DaemonEnd) -> DaemonEnd {
+        match ended {
+            DaemonEnd::Idle
+            | DaemonEnd::Stopped
+            | DaemonEnd::Drained
+            | DaemonEnd::ListenerFailed
+                if owner.has_panicked() =>
+            {
+                tracing::error!(
+                    part = owner.panicked_part(),
+                    "a part every Run shares panicked as the Daemon stopped"
+                );
+                self.metrics.panicked(PanicEnded::Engine);
+                DaemonEnd::Panicked
+            }
+            ended => ended,
+        }
     }
 
     /// The engine's Resource governor, a task of `owner` that reads
@@ -310,6 +348,7 @@ impl Engine {
         install: Option<InstallDatabase>,
     ) -> (Runs, Events, EngineContext) {
         dependencies.run_state.work = self.metrics.counted_work().clone();
+        dependencies.run_state.metrics = Some(self.metrics.clone());
         dependencies.politeness.work = self.metrics.counted_work().clone();
         let instance = EngineInstance::new(format!("{:016x}", dependencies.entropy.next_u64()));
         let events = Events::start(
@@ -328,25 +367,23 @@ impl Engine {
             self.metrics.counted_work().clone(),
         );
         let governor = self.governor(&settings, dependencies.clock, owner, &events);
+        let stores = Stores::of(
+            &dependencies.home,
+            &self.identity().product_version,
+            dependencies.run_state.vfs.clone(),
+            Arc::new(owner.part("engine's stores")),
+            part_stopped_with(owner, "engine's store connections"),
+        );
         let needs_you = NeedsYou::start(
             &self.needs_you_sources,
             SourceContext {
                 clock: dependencies.clock,
                 storage: governor.storage(),
-                run_index: dependencies
-                    .home
-                    .run_index(&self.identity().product_version),
-                version: self.identity().product_version.clone(),
-                ledger: Ledger::at(
-                    dependencies.home.usage_ledger(),
-                    dependencies.run_state.vfs.clone(),
-                ),
+                run_index: stores.run_index().clone(),
+                ledger: stores.ledger().clone(),
                 settings: settings.clone(),
-                known_certificates: KnownCertificates::of(
-                    &dependencies.home,
-                    dependencies.run_state.vfs.clone(),
-                ),
-                owner: Arc::new(owner.child()),
+                known_certificates: stores.known_certificates().clone(),
+                owner: Arc::new(owner.part("Needs-you list")),
             },
             events.clone(),
             owner,
@@ -360,7 +397,7 @@ impl Engine {
         let (context, secrets) = self.engine_context(
             &mut dependencies,
             settings,
-            (needs_you, sandbox_probe),
+            (needs_you, sandbox_probe, stores),
             owner,
         );
         let runs = Runs::start_registry(
@@ -405,7 +442,7 @@ impl Engine {
     }
 
     /// What the engine's Runs and calls are given, under `settings` with
-    /// `needs_you`, its blocking work a child of `owner`, and the engine's
+    /// `needs_you` and `stores`, and the engine's
     /// Secret-provider driver, which records in the same Audit log: both
     /// over `dependencies`' home and clock, the driver over its environment
     /// map, its keychain and a fork of its entropy. Nothing here opens the
@@ -414,25 +451,28 @@ impl Engine {
         &self,
         dependencies: &mut Dependencies,
         settings: Settings,
-        (needs_you, sandbox_probe): (NeedsYou, SandboxProbe),
+        (needs_you, sandbox_probe, stores): (NeedsYou, SandboxProbe, Stores),
         owner: &TaskOwner,
     ) -> (EngineContext, Secrets) {
         let audit = Arc::new(
-            AuditLog::of(&dependencies.home, dependencies.run_state.vfs.clone())
-                .counting_on(dependencies.run_state.work.clone())
-                .retained_under(settings.files().clone(), settings.product())
-                .sending_to(self.audit_events.clone()),
+            AuditLog::of(
+                &dependencies.home,
+                dependencies.run_state.vfs.clone(),
+                part_stopped_with(owner, "Audit log"),
+            )
+            .counting_on(dependencies.run_state.work.clone())
+            .retained_under(settings.clone())
+            .sending_to(self.audit_events.clone()),
         );
         let context = EngineContext::new(
             dependencies.home.clone(),
             dependencies.clock,
             settings,
             Arc::clone(&audit),
-            Arc::new(owner.child()),
+            stores,
             needs_you,
             sandbox_probe,
             os_user(&dependencies.environment),
-            dependencies.run_state.vfs.clone(),
         );
         let secrets = Secrets::new(
             Carried {
@@ -493,7 +533,18 @@ impl Engine {
     /// whose every Connection must say `hello` with its token (ADRs 0024
     /// and 0031); stops its live Runs once that one Connection ends or, on
     /// the OS, once its parent is gone, then stops every task it started
-    /// and removes its private endpoint.
+    /// and removes its private endpoint. A panic in a part every Run shares
+    /// stops it too, with no drain: it stops its live Runs for the panic,
+    /// unless the Run registry is what panicked, waiting for them at most
+    /// its drain grace ([`Engine::with_drain_grace`]), each Run not stopped
+    /// by then left resumable from its run file; then it cancels every task
+    /// it started and fails with [`AttachedFailure::Panicked`] (ADR 0148).
+    ///
+    /// # Errors
+    ///
+    /// [`AttachedFailure::NoConnection`] when `network` gave it no
+    /// Connection; [`AttachedFailure::Panicked`] when it stopped on such a
+    /// panic.
     ///
     /// # Cancel safety
     ///
@@ -502,11 +553,12 @@ impl Engine {
         &self,
         mut network: Network,
         dependencies: Dependencies,
-    ) -> Result<(), TransportError> {
+    ) -> Result<(), AttachedFailure> {
         let on_the_os = matches!(network, Network::Os);
         let parent = on_the_os.then(ParentWatch::start);
         let connection = network.attached_connection().await?;
         let owner = TaskOwner::root(dependencies.blocking);
+        let clock = dependencies.clock;
         let private = if on_the_os {
             private_endpoint(network, &owner).await
         } else {
@@ -520,11 +572,11 @@ impl Engine {
                 .map(|(_, endpoint, _)| RunOwner::Attached(endpoint.clone())),
             None,
         );
-        let connection_owner = owner.child();
+        let connection_owner = owner.child_for(OwnerKind::Connection);
         let reported = private.as_ref().map(|(_, endpoint, _)| endpoint.clone());
         // The private endpoint's Connections, which the stdio Connection
         // does not wait for.
-        let accepting = owner.child();
+        let accepting = owner.part("private endpoint");
         let stdio = rpc::serve(
             Arc::clone(&self.dispatch),
             connection,
@@ -542,36 +594,86 @@ impl Engine {
         };
         let mut private_files = None;
         if let Some((listener, _, files)) = private {
-            accepting.spawn(serve_private_endpoint(
+            serve_private_endpoint(
+                &accepting,
                 Arc::clone(&self.dispatch),
                 listener,
                 Arc::from(files.token()),
-                accepting.child(),
                 runs.clone(),
                 events,
                 context,
-            ));
+            );
             private_files = Some(files);
         }
+        let panicked = owner.panicked();
         let ended = tokio::select! {
             () = stdio => EngineEvent::StdioEnded,
             () = gone => {
                 tracing::warn!("the Attached engine's parent is gone: its Runs stop");
                 EngineEvent::ParentGone
             }
+            () = panicked => EngineEvent::panicked(runs.registry_panicked()),
         };
-        // Either end stops it, as the engine's table says (ADR 0128).
+        // Each end stops it, as the engine's table says (ADR 0128).
         if let Err(refused) = transition::engine::engine(EngineState::Attached, ended) {
             let _ = refused.logged();
         }
         accepting.stop().await;
-        runs.stop_all().await;
-        drop(runs);
-        connection_owner.stop().await;
-        owner.stop().await;
-        drop(private_files);
-        Ok(())
+        match ended {
+            EngineEvent::PartPanicked | EngineEvent::RegistryPanicked => {
+                // A panic in a part every Run shares stops the engine with
+                // no drain, and its process exits 1 (ADR 0148). Its Runs
+                // stop for the panic first, within the drain grace, unless
+                // the registry that stops them is what panicked: then each
+                // stays as it is, read as interrupted.
+                let registry = matches!(ended, EngineEvent::RegistryPanicked);
+                tracing::error!(
+                    part = owner.panicked_part(),
+                    registry,
+                    "a part every Run shares panicked: the Attached engine stops"
+                );
+                self.metrics.panicked(PanicEnded::Engine);
+                if !registry {
+                    stop_runs_on_panic(&runs, clock.sleep(self.drain_grace)).await;
+                }
+                drop(runs);
+                connection_owner.cancel();
+                owner.cancel();
+                drop(private_files);
+                Err(AttachedFailure::Panicked)
+            }
+            _ => {
+                runs.stop_all().await;
+                drop(runs);
+                connection_owner.stop().await;
+                owner.stop().await;
+                drop(private_files);
+                if owner.has_panicked() {
+                    // One panicked after the wait above stopped waiting, as
+                    // the engine stopped: it fails all the same (ADR 0148).
+                    tracing::error!(
+                        part = owner.panicked_part(),
+                        "a part every Run shares panicked as the Attached engine stopped"
+                    );
+                    self.metrics.panicked(PanicEnded::Engine);
+                    return Err(AttachedFailure::Panicked);
+                }
+                Ok(())
+            }
+        }
     }
+}
+
+/// Why an Attached engine failed ([`Engine::run_attached`]).
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum AttachedFailure {
+    /// It got no Connection.
+    #[error("it got no Connection: {0}")]
+    NoConnection(#[from] TransportError),
+    /// A part every Run shares panicked, so it stopped (ADR 0148).
+    #[error("it stopped on a panic in a part every Run shares")]
+    Panicked,
 }
 
 /// Writes the install Limits the managed Operator policy of the engine's
@@ -579,8 +681,29 @@ impl Engine {
 /// ledger of `context`, as each engine does when it starts (ADR 0041); a
 /// policy that names none, or none at all, leaves that major no managed
 /// row. The Run registry answers no command before it ends.
+/// A part of `owner` named `part` for the actors of a store the engine's
+/// Runs, Connections and calls share, such as the Audit log's writer: its
+/// actors end once every sender is gone, which `owner`'s stop would not
+/// see, since whoever waits for the engine's readers, such as the Run
+/// registry, holds a sender. A task of `owner` stops the part once that
+/// stop began, which the engine starts after its Runs and Connections have
+/// stopped, and `owner`'s stop waits for that task (ADR 0060).
+fn part_stopped_with(owner: &TaskOwner, part: &'static str) -> Arc<TaskOwner> {
+    let part = Arc::new(owner.part(part));
+    let (stopping, stopped) = (owner.token().clone(), Arc::clone(&part));
+    owner.spawn(async move {
+        stopping.cancelled().await;
+        stopped.stop().await;
+    });
+    part
+}
+
+/// Writes the managed Operator policy's Limits into the Usage ledger, from
+/// the engine's snapshot of the machine's settings, read as the engine
+/// starts (ADR 0140), so no Run counts a read of its own for them.
 async fn write_managed(context: EngineContext, version: ProductVersion) {
-    let machine = match context.settings().machine().await {
+    let snapshot = context.settings().snapshot().await;
+    let machine = match snapshot.layers() {
         Ok(machine) => machine,
         Err(error) => {
             tracing::warn!(%error, "the machine's settings files could not be read, so no managed Limit was written");
@@ -620,7 +743,7 @@ fn host_settings(
     (keychain, probe): (Keychain, SandboxProbe),
     work: CountedWork,
 ) -> Settings {
-    let probing = Arc::new(owner.child());
+    let probing = Arc::new(owner.part("sandbox probe"));
     {
         let (probing, probe) = (Arc::clone(&probing), probe.clone());
         owner.spawn(async move {
@@ -646,7 +769,7 @@ fn host_settings(
         },
         move || secrets::known_host_defaults(&keychain),
     );
-    Settings::with_host(files, product, owner.child(), work, search)
+    Settings::with_host(files, product, owner.part("settings"), work, search)
 }
 
 /// Sends each of the Resource governor's samples as `engine.system_info`
@@ -702,10 +825,54 @@ async fn private_endpoint(
     }
 }
 
-/// Serves every Connection of an Attached engine's private endpoint, each
-/// opening with a `hello` that carries `token`, its tasks children of
-/// `owner`, until the listener fails or `owner` stops.
-async fn serve_private_endpoint(
+/// Stops an Attached engine's live Runs for a panic in a part every Run
+/// shares, waiting for them until `grace`, its drain grace, ends; then logs
+/// how many it left, or that the Runs' registry never answered, each such
+/// Run resumable from its run file (ADR 0148).
+async fn stop_runs_on_panic(runs: &Runs, grace: impl Future<Output = ()>) {
+    match runs.stop_all_on_panic(grace).await {
+        PanicStop::Ended => {}
+        PanicStop::NotEnded(live_runs) => tracing::warn!(
+            live_runs,
+            "the drain grace passed: each run not yet stopped stays resumable from its run file"
+        ),
+        PanicStop::Unanswered => tracing::warn!(
+            "the drain grace passed before the Runs' registry answered: each live run stays resumable from its run file"
+        ),
+    }
+}
+
+/// Serves every Connection of an Attached engine's private endpoint on
+/// `listener`, each opening with a `hello` that carries `token`, until the
+/// listener fails or `accepting` stops. `accepting` runs the accept loop
+/// alone: each Connection and its calls belong to an owner under it, so
+/// `accepting`'s stop waits for no call, even one that cannot be cancelled,
+/// and an engine stopping on a panic goes on to its Runs' stop at once (ADR
+/// 0148).
+fn serve_private_endpoint(
+    accepting: &TaskOwner,
+    dispatch: Arc<Dispatch>,
+    listener: DaemonListener,
+    token: Arc<str>,
+    runs: Runs,
+    events: Events,
+    context: EngineContext,
+) {
+    accepting.spawn(accept_private_connections(
+        dispatch,
+        listener,
+        token,
+        accepting.child(),
+        runs,
+        events,
+        context,
+    ));
+}
+
+/// The private endpoint's accept loop: serves every Connection on
+/// `listener`, its tasks children of `owner`, until the listener fails or
+/// `owner` is cancelled, never waiting for those tasks.
+async fn accept_private_connections(
     dispatch: Arc<Dispatch>,
     listener: DaemonListener,
     token: Arc<str>,
@@ -734,7 +901,7 @@ async fn serve_private_endpoint(
             events.clone(),
             context.clone(),
         );
-        let its_owner = owner.child();
+        let its_owner = owner.child_for(OwnerKind::Connection);
         owner.spawn(async move {
             tokio::select! {
                 () = its_owner.token().cancelled() => {}

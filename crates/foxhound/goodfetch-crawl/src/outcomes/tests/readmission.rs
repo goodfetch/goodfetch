@@ -16,6 +16,7 @@ use proptest::prelude::*;
 use rusqlite::Connection;
 
 use super::super::{Filter, latest_of_readmitted, page};
+use crate::invariants::fixture;
 use crate::work_items::{self, Failure, Unsuccessful};
 
 /// How the test ends one work item's first attempt.
@@ -81,12 +82,13 @@ fn crawl_of(count: usize) -> Connection {
         })
         .collect();
     let every_host = goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap();
+    let invariants = fixture::within(&connection, goodfetch_frontier::Scope::default()).unwrap();
     work_items::admit_seeds(
         &connection,
         &mut work_items::Positions::of(&connection).unwrap(),
-        &goodfetch_frontier::Scope::default(),
+        &invariants,
         &every_host,
-        &seeds,
+        &fixture::checked(&invariants, seeds),
     )
     .unwrap();
     connection
@@ -129,6 +131,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                         not_added: &[],
                         work: &goodfetch_counted_work::CountedWork::default(),
                         keeps_records: true,
+                        clean_up_rules: &work_items::CleanUpRules::default(),
                     },
                 )
             }
@@ -387,6 +390,28 @@ fn a_re_admission_racing_the_crawls_end_is_delivered_or_refused(
     }
 }
 
+/// A crawl's finish does not close its intake over a work item still
+/// leased, whose attempt ended with its outcome unwritten: the finish gives
+/// it back as a failed attempt, retried while it has retries left, and it
+/// is delivered before the crawl may end (issue 2320).
+#[test]
+fn a_work_item_still_leased_holds_the_intake_open_until_it_is_given_back() {
+    let connection = crawl_of(1);
+    let ids = pending(&connection);
+    work_items::lease(&connection, &ids).unwrap();
+    let intake = crate::intake::Intake::default();
+
+    let closed_over_a_lease = intake.close_if_drained(&connection).unwrap();
+    work_items::recover_leases(&connection, &lost(), 2, &ended_at()).unwrap();
+    let given_back = pending(&connection);
+    let closed_over_a_retry = intake.close_if_drained(&connection).unwrap();
+
+    assert_eq!(
+        (closed_over_a_lease, given_back, closed_over_a_retry),
+        (false, ids, false)
+    );
+}
+
 /// A seed added once the crawl's last look closed it to new work is not
 /// admitted, so the call answers it as for an ended crawl, never added and
 /// then left pending.
@@ -410,6 +435,8 @@ fn a_seed_added_after_the_crawls_last_look_is_not_admitted() {
         },
     );
     let every_host = goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap();
+    let invariants = fixture::within(&connection, goodfetch_frontier::Scope::default()).unwrap();
+    let checked = fixture::checked(&invariants, [seed]);
 
     let ended = intake.close_if_drained(&connection).unwrap();
     let added = intake
@@ -417,9 +444,9 @@ fn a_seed_added_after_the_crawls_last_look_is_not_admitted() {
             work_items::admit_seeds(
                 &connection,
                 &mut work_items::Positions::of(&connection)?,
-                &goodfetch_frontier::Scope::default(),
+                &invariants,
                 &every_host,
-                std::slice::from_ref(&seed),
+                &checked,
             )
         })
         .unwrap();

@@ -64,7 +64,8 @@
 //!
 //! Size: the one table of the pages, Sessions and workers the interception
 //! holds, and how each is put under it; the pipeline, its steps, routes,
-//! answers, hops and pending navigations are in their own modules.
+//! answers, hops, pending navigations and the lookups of a browser no
+//! relay is under are in their own modules.
 #![expect(
     clippy::disallowed_types,
     reason = "routes are armed and answers delivered as their call arrives, before any `.await`: each lock guards one table or map for one operation, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
@@ -75,6 +76,7 @@ pub(crate) mod authentication;
 mod clean_up;
 pub(crate) use self::clean_up::ConsentHandling;
 mod hops;
+mod lookups;
 mod navigations;
 mod pipeline;
 mod routes;
@@ -112,11 +114,11 @@ use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
 use self::clean_up::CleanUp;
 pub(crate) use self::clean_up::SESSION_KEYS;
+pub(crate) use self::lookups::{HeldBrowser, Lookups};
 use self::navigations::{NavigatingPage, Pending};
 use self::pipeline::{PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
-use crate::borrowed::Lookups;
 use crate::clean_up_versions::Versions;
 use crate::driver::{Child, ChildKind, OnChild, OnWorker, PageDriver, ServiceWorkers};
 use crate::page_events::Refusals;
@@ -242,8 +244,9 @@ struct Tables {
     /// The Sessions whose Run was warned that `browser.block_resources`
     /// shows.
     warned: BTreeSet<SessionId>,
-    /// The Sessions on a Borrowed browser, each with the lookups its
-    /// requests' hosts are resolved through.
+    /// The Sessions no relay is under, on a Borrowed browser or launched
+    /// with none, each with the lookups its requests' hosts are resolved
+    /// through.
     interception_only: BTreeMap<SessionId, Arc<Lookups>>,
     /// Each Session's own failure slot: where a Session route's handler
     /// that failed on a service worker's request leaves its failure, for
@@ -470,11 +473,11 @@ impl Interception {
             .or_default();
     }
 
-    /// Holds the Session `session`, on a Borrowed browser, to the policy by
-    /// interception alone (ADR 0056): no relay is under that browser, so
-    /// each request's host is resolved by the engine through `lookups`,
-    /// the Run's `network.resolve` mapping first, and its answers judged
-    /// before it is sent on.
+    /// Holds the Session `session`, on a Borrowed browser or launched with
+    /// no relay, to the policy by interception alone (ADR 0056; #2435): no
+    /// relay is under that browser, so each request's host is resolved by
+    /// the engine through `lookups`, the Run's `network.resolve` mapping
+    /// first, and its answers judged before it is sent on.
     pub(crate) fn hold_by_interception_only(&self, session: &SessionId, lookups: Lookups) {
         lock(&self.shared.tables)
             .interception_only

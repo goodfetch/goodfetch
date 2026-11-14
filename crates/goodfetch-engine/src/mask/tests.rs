@@ -221,6 +221,51 @@ fn every_string_of_a_json_value_is_masked_its_members_names_included() {
     );
 }
 
+/// `Masks::json` writes what `apply_value` leaves, from the value as it
+/// is: a member renamed takes the place its new name has among the others,
+/// and of two members left with one name the later stays.
+#[rstest]
+#[case::a_string(json!("x pa ss\"w/rd>?9~"), r#""x %proxy.password%""#)]
+#[case::a_members_name_and_what_it_holds(
+    json!({ VALUE: ["x pa ss\"w/rd>?9~", 1, { "k": VALUE }] }),
+    r#"{"%proxy.password%":["x %proxy.password%",1,{"k":"%proxy.password%"}]}"#
+)]
+#[case::no_value(
+    json!({ "b": [null, true, 1.5, "plain"], "a": {} }),
+    r#"{"a":{},"b":[null,true,1.5,"plain"]}"#
+)]
+#[case::a_renamed_member_moves_to_its_names_place(
+    json!({ "a": 1, VALUE: 2 }),
+    r#"{"%proxy.password%":2,"a":1}"#
+)]
+#[case::of_two_members_left_with_one_name_the_later_stays(
+    json!({ "%proxy.password%": "first", VALUE: "second", "z": 0 }),
+    r#"{"%proxy.password%":"second","z":0}"#
+)]
+fn a_json_values_masked_text_is_written_as_the_masked_value_encodes(
+    #[case] value: serde_json::Value,
+    #[case] text: &str,
+) {
+    let (masks, _mask) = joined(VALUE, Reach::Value, Redaction::On);
+    let mut masked = value.clone();
+    masks.apply_value(&mut masked, Scope::Kept);
+
+    assert_eq!(
+        (masks.json(&value, Scope::Kept), masked.to_string()),
+        (text.to_owned(), text.to_owned())
+    );
+}
+
+#[test]
+fn a_json_values_text_is_its_own_while_no_value_is_masked() {
+    let value = json!({ "b": ["pa ss\"w/rd>?9~", 1], "a": null });
+
+    assert_eq!(
+        Masks::new().json(&value, Scope::Kept),
+        r#"{"a":null,"b":["pa ss\"w/rd>?9~",1]}"#
+    );
+}
+
 #[test]
 fn a_json_message_holding_a_value_in_a_string_is_masked_as_text() {
     let (masks, _mask) = joined(VALUE, Reach::Value, Redaction::On);
@@ -407,6 +452,33 @@ proptest! {
         let read: serde_json::Value = serde_json::from_slice(&masked).expect("the line stays one JSON message");
         prop_assert_eq!(leaks(&value, read.to_string().as_bytes()), Vec::<String>::new());
     }
+
+    #[test]
+    fn a_line_masked_into_a_buffer_follows_what_it_held_masked_as_on_its_own(
+        value in value(),
+        joins in any::<bool>(),
+        held in "[ -~]{0,8}",
+        holds in any::<bool>(),
+        form in form(),
+        around in around(),
+    ) {
+        let masks = Masks::new();
+        let mask = masks.for_run(Redaction::On);
+        if joins {
+            mask.join(SHORT_NAME, &SecretString::from(value.as_str()), Reach::Value);
+        }
+        let line = if holds {
+            format!("{around}{}{around}\n", encoded(&value, form))
+        } else {
+            format!("{around}\n")
+        };
+        let mut buffer = held.clone().into_bytes();
+
+        masks.apply_bytes_into(line.as_bytes(), Scope::KeptOutput, &mut buffer);
+
+        let alone = masks.apply_bytes(line.as_bytes(), Scope::KeptOutput);
+        prop_assert_eq!(buffer, [held.as_bytes(), &alone].concat());
+    }
 }
 
 /// A value hard to redact (TESTING.md, Secrets): quotes, backslashes,
@@ -425,8 +497,8 @@ fn hard_value() -> impl Strategy<Value = String> {
 
 /// Every formatter and serializer the Mask writes through, each with the
 /// output it makes of `text`: `apply` in each scope, `apply_bytes`,
-/// `apply_value` over a JSON value holding the text, `apply_json_line` over
-/// a message holding it, and `apply_typed` for a read of a field the
+/// `apply_bytes_into`, `apply_value` and `json` over a JSON value holding
+/// the text, `apply_json_line` over a message holding it, and `apply_typed` for a read of a field the
 /// values were typed in.
 fn through_every_formatter(masks: &Masks, text: &str, typed: &[&str]) -> Vec<(String, Vec<u8>)> {
     let mut outputs: Vec<(String, Vec<u8>)> = EVERY_SCOPE
@@ -442,9 +514,18 @@ fn through_every_formatter(masks: &Masks, text: &str, typed: &[&str]) -> Vec<(St
         "apply_bytes".to_owned(),
         masks.apply_bytes(text.as_bytes(), Scope::Kept).into_owned(),
     ));
+    let mut into = Vec::new();
+    masks.apply_bytes_into(text.as_bytes(), Scope::Kept, &mut into);
+    outputs.push(("apply_bytes_into".to_owned(), into));
     let mut value = json!({ text: [text, { "text": text }] });
     masks.apply_value(&mut value, Scope::Returned);
     outputs.push(("apply_value".to_owned(), value.to_string().into_bytes()));
+    outputs.push((
+        "json".to_owned(),
+        masks
+            .json(&json!({ text: [text, { "text": text }] }), Scope::Kept)
+            .into_bytes(),
+    ));
     let mut line =
         serde_json::to_vec(&json!({ "result": { "text": text } })).expect("a message encodes");
     line.push(b'\n');

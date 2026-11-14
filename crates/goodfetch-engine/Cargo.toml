@@ -46,6 +46,9 @@ httpdate.workspace = true
 # Period Limits count in an explicit IANA time zone (ADR 0041), read from the
 # system database, or a bundled one where the OS has none.
 jiff = { workspace = true, features = ["tzdb-zoneinfo", "tzdb-bundle-platform"] }
+# A message's nesting scanned past its strings a word at a time (ADR
+# 0140's E1).
+memchr.workspace = true
 # The addresses of `egress.local_addresses`' interface at each Session's
 # start, on every OS (ADR 0044).
 netdev.workspace = true
@@ -71,7 +74,7 @@ secrecy.workspace = true
 serde.workspace = true
 # JSON from outside is parsed with no recursion limit of the parser's own,
 # once a scan bounded its depth (SC-05).
-serde_json = { workspace = true, features = ["unbounded_depth"] }
+serde_json = { workspace = true, features = ["raw_value", "unbounded_depth"] }
 # RFC 8785, the canonical JSON each Audit log entry's hash covers (ADR 0016).
 serde_json_canonicalizer.workspace = true
 sha2.workspace = true
@@ -139,6 +142,8 @@ gungraun.workspace = true
 hyper = { workspace = true, features = ["server"] }
 rcgen = { workspace = true, features = ["ring"] }
 insta.workspace = true
+# The masking benchmark's line ends (benches/scenarios.rs).
+memchr.workspace = true
 mimalloc.workspace = true
 # The metrics tests read what the engine records through the SDK and the
 # Prometheus exporter the executables use (src/engine/tests/metrics.rs).

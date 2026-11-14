@@ -45,6 +45,7 @@ pub(crate) fn ceiling_limits() -> impl Iterator<Item = (&'static str, u64)> {
     budget::ceilings().map(budget::Ceiling::limit)
 }
 
+pub(crate) use budget::with_valgrind_tolerance;
 pub(crate) use figure::{Figure, Measured};
 pub(crate) use figures::{Figures, Recorded};
 pub(crate) use gungraun::read as read_gungraun_summaries;
@@ -250,7 +251,8 @@ fn compare(root: &Path, reports: &Reports) -> Result<ExitCode> {
         None => Vec::new(),
     };
     let ceilings = ceilings::check(root, &rows, &base_measured)?;
-    let reference = reference::check(&rows, reference_figures(root, reports)?);
+    let accepted = reference::accepted(root)?;
+    let reference = reference::check(&rows, reference_figures(root, reports)?, &accepted);
     let gating = budget::GATING;
     let mut text = format!(
         "### Performance budget\n\n{}{}\n#### Absolute ceilings\n\n{}\n#### Reference build\n\n{}",

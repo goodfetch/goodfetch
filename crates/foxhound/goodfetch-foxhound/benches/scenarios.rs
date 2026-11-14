@@ -21,10 +21,11 @@
 //!
 //! [`Frontier`] adds the outcomes the Frontier's rows count beyond a links
 //! batch, for the counts cell alone, so the heap benchmark's crawl stays as it
-//! is: a seed that redirects, a sitemap seed and a seed with a Payload under
-//! its Label's schema, each reaching one small page more; and, for the one
-//! cell that asks for them, pages `/item?id=<n>` that differ by one
-//! parameter, which the Frontier's learning reads its evidence for.
+//! is: a seed that redirects, in two hops for the test that asks, a sitemap
+//! seed and a seed with a Payload under its Label's schema, each reaching
+//! one small page more; and, for the one cell that asks for them, pages
+//! `/item?id=<n>` that differ by one parameter, which the Frontier's
+//! learning reads its evidence for.
 #![expect(
     clippy::disallowed_types,
     reason = "the site's one counter of the bytes it sent, read once the crawl ended: no lock and no order to test under loom (ADR 0060)"
@@ -149,6 +150,9 @@ struct Site {
     /// Whether it also serves [`Frontier`]'s paths, and how many of its
     /// items with them.
     frontier: Option<usize>,
+    /// Whether [`MOVED`] leads to [`MOVED_ON`] first, as
+    /// [`Frontier::second_hop`] says.
+    second_hop: bool,
     /// Whether each page has no paragraphs, as [`Options::small_pages`] says.
     small_pages: bool,
     hops: Arc<AtomicU64>,
@@ -165,6 +169,9 @@ struct Site {
 
 /// The seed that redirects, to [`MOVED_TO`].
 const MOVED: &str = "/moved";
+/// Where [`MOVED`] leads first, and which leads to [`MOVED_TO`], on a site
+/// whose chain takes a second hop.
+const MOVED_ON: &str = "/moved-on";
 /// Where [`MOVED`] leads.
 const MOVED_TO: &str = "/moved-to";
 /// The sitemap seed, whose one entry is [`FROM_SITEMAP`].
@@ -220,6 +227,19 @@ fn plain(status: u16, headers: Vec<(String, String)>, body: String) -> Sent {
     }
 }
 
+impl Site {
+    /// Where `path` redirects, on a site serving [`Frontier`]'s paths.
+    fn moved(&self, path: &str) -> Option<&'static str> {
+        self.frontier?;
+        match path {
+            MOVED if self.second_hop => Some(MOVED_ON),
+            MOVED => Some(MOVED_TO),
+            MOVED_ON if self.second_hop => Some(MOVED_TO),
+            _ => None,
+        }
+    }
+}
+
 /// One extra unit of a row's Counted work, done once per page served with
 /// that page's head, which `xtask counts` must fail on (ADR 0140).
 pub(crate) type Plant = Arc<dyn Fn(&str) + Send + Sync>;
@@ -240,9 +260,9 @@ impl Transport for Site {
             ))));
         }
         let path = hop.url.path();
-        if self.frontier.is_some() && path == MOVED {
+        if let Some(to) = self.moved(path) {
             self.hops.fetch_add(1, Ordering::Relaxed);
-            let location = ("location".to_owned(), MOVED_TO.to_owned());
+            let location = ("location".to_owned(), to.to_owned());
             return Box::pin(std::future::ready(Ok(plain(
                 302,
                 vec![location, ("content-length".to_owned(), "0".to_owned())],
@@ -529,6 +549,9 @@ pub(crate) struct Frontier {
     /// parameter, each page its own, which the Frontier's learning reads
     /// its evidence for (`F2.evidence_reads`).
     pub(crate) items: usize,
+    /// Whether the seed that redirects takes a second hop before its page,
+    /// a chain of two, which the in-memory crawl's test counts hop by hop.
+    pub(crate) second_hop: bool,
 }
 
 impl Frontier {
@@ -598,15 +621,15 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
     if let Some(amount) = limit {
         set_limit(home, start, amount, setup_vfs);
     }
-    let sent = Arc::new(AtomicU64::new(0));
-    let attempts = Arc::new(AtomicU64::new(0));
+    let (sent, attempts) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
     let (hops, sitemaps) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
     let requests = Arc::new(AtomicU64::new(0));
-    let tiers = FetchTiers::serving(Arc::new(Site {
+    let site = Arc::new(Site {
         sent: Arc::clone(&sent),
         attempts: Arc::clone(&attempts),
         plant,
         frontier: frontier.map(|frontier| frontier.items_on(linked)),
+        second_hop: frontier.is_some_and(|frontier| frontier.second_hop),
         small_pages,
         hops: Arc::clone(&hops),
         sitemaps: Arc::clone(&sitemaps),
@@ -614,9 +637,73 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         robots_txt,
         requests: Arc::clone(&requests),
         linked,
-    }));
-    let engine = foxhound(tiers, metrics);
-    let (records, handled) = goodfetch_test_support::runtime().block_on(async {
+    });
+    let (records, handled) = drive(
+        site,
+        &crawl_start(settings, fields, handler, frontier, linked),
+        Driven {
+            home,
+            start,
+            seed,
+            metrics,
+            run_state_vfs,
+            handler,
+            credits: CREDITS,
+        },
+    );
+    Crawled {
+        records,
+        handled,
+        body_bytes: sent.load(Ordering::Relaxed),
+        hops: hops.load(Ordering::Relaxed),
+        sitemaps: sitemaps.load(Ordering::Relaxed),
+        attempts: attempts.load(Ordering::Relaxed),
+        requests: requests.load(Ordering::Relaxed),
+    }
+}
+
+/// What [`drive`] runs a crawl on: the Goodfetch home `home`, a paused
+/// clock starting at `start`, entropy seeded with `seed`, `metrics`, where
+/// its engine records, among them its Counted work, and the VFS its run
+/// file opens through; whether a `handler` serves its pages, so it keeps no
+/// Record; and the `credits` its read of the Records gives, at least one a
+/// Record.
+pub(crate) struct Driven<'a> {
+    pub(crate) home: &'a Path,
+    pub(crate) start: SystemTime,
+    pub(crate) seed: u64,
+    pub(crate) metrics: Metrics,
+    pub(crate) run_state_vfs: Option<String>,
+    pub(crate) handler: bool,
+    pub(crate) credits: u64,
+}
+
+/// Runs the crawl `crawl_start` starts as the Run `pages`, on a Foxhound
+/// engine whose fetch tiers send each hop to `site`, and answers every
+/// Record of its Dataset `pages` and how many requests a handler handled:
+/// what each in-memory benchmark's crawl is driven by, the site and the
+/// crawl its own (B1's above, B4's in `examples/counts-extraction.rs`).
+pub(crate) fn drive(
+    site: Arc<dyn Transport>,
+    crawl_start: &Value,
+    on: Driven<'_>,
+) -> (Vec<Value>, u64) {
+    let Driven {
+        home,
+        start,
+        seed,
+        metrics,
+        run_state_vfs,
+        handler,
+        credits,
+    } = on;
+    let engine = foxhound(FetchTiers::serving(site), metrics);
+    let credits = json!({
+        "jsonrpc": "2.0", "method": "$/credit",
+        "params": { "id": "records", "credits": credits },
+    })
+    .to_string();
+    goodfetch_test_support::runtime().block_on(async {
         let (network, dialer) = transport::in_memory();
         let client = async {
             let (reader, mut writer) = dialer
@@ -626,11 +713,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
                 .split();
             let mut lines = BufReader::new(reader).lines();
             send(&mut writer, &hello()).await;
-            send(
-                &mut writer,
-                &crawl_start(settings, fields, handler, frontier, linked).to_string(),
-            )
-            .await;
+            send(&mut writer, &crawl_start.to_string()).await;
             let mut records = Vec::new();
             let mut waits = Waits::default();
             while let Ok(Some(line)) = lines.next_line().await {
@@ -648,7 +731,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
                         break;
                     }
                     send(&mut writer, RECORDS).await;
-                    send(&mut writer, CREDITS).await;
+                    send(&mut writer, &credits).await;
                 } else if message["method"] == "$/record" {
                     records.push(message["params"]["record"]["value"].clone());
                 } else if message["id"] == "records" {
@@ -669,16 +752,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         );
         served.expect("invariant: the engine got its Connection");
         read
-    });
-    Crawled {
-        records,
-        handled,
-        body_bytes: sent.load(Ordering::Relaxed),
-        hops: hops.load(Ordering::Relaxed),
-        sitemaps: sitemaps.load(Ordering::Relaxed),
-        attempts: attempts.load(Ordering::Relaxed),
-        requests: requests.load(Ordering::Relaxed),
-    }
+    })
 }
 
 /// What the engine runs on: the Goodfetch home `home`, a paused clock from
@@ -714,9 +788,8 @@ const FINISH: &str =
 /// Record is sent.
 const RECORDS: &str = r#"{"jsonrpc":"2.0","id":"records","method":"run.records","params":{"run_id":"pages","dataset":"pages"}}"#;
 
-/// Enough credits for every Record.
-const CREDITS: &str =
-    r#"{"jsonrpc":"2.0","method":"$/credit","params":{"id":"records","credits":1000}}"#;
+/// Enough credits for every Record of B1's site.
+const CREDITS: u64 = 1000;
 
 /// The code-free `crawl.start` from the site's index: every in-scope link
 /// followed, each page's `h1` its Record's `title`, no Politeness delay,

@@ -18,8 +18,12 @@
 //!
 //! The store opens through a VFS named by a value, none in production, and
 //! is of the Usage ledger's family: its major never changes and a newer
-//! minor only adds. Its calls block: callers run them under their owner's
-//! blocking policy.
+//! minor only adds. Its writes go to one writer, an actor of the owner it is
+//! given, which opens the store at its first write and keeps it open, its
+//! statements prepared, and the chain's tail its last commit left, which it
+//! reads back only once another engine committed (#1886). Its reads,
+//! [`AuditLog::verify`] and [`AuditLog::export`], block: callers run them
+//! under their owner's blocking policy.
 //!
 //! Size: one concern, the one store's hash chain, written by the append and
 //! the prune and read by the verify and the export, so the chain's rules
@@ -40,23 +44,26 @@ use goodfetch_protocol::audit::{
     AUDIT_LOG_ANCHOR, AUDIT_LOG_PRUNED, AUDIT_RETENTION, Actor, AuditEntry, AuditVerified,
     ExportedAuditEntry,
 };
-use goodfetch_protocol::catalog::{Product, SharedType, SharedTypeValue};
+use goodfetch_protocol::catalog::{SharedType, SharedTypeValue};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::formats::{AUDIT_LOG, Compatibility};
 use goodfetch_protocol::run::{PointInTime, RunId};
 use goodfetch_protocol::settings::SettingsLayer;
 use jiff::{SignedDuration, Timestamp};
-use rusqlite::{Connection, OptionalExtension as _, Transaction, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension as _};
+
+use crate::sqlite_store::run_cached;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 use crate::durable;
 use crate::home::Home;
-use crate::settings::SettingsFiles;
+use crate::settings::Settings;
 use crate::sqlite_store::{
     Access, Counting, Durability, File, Folder, OpenError, Opening, Schema, Synchronous, Wait,
 };
+use crate::tasks::{StateActor, TaskOwner};
 
 /// How long an append waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -119,6 +126,15 @@ pub enum AuditError {
         /// What this engine makes of it.
         compatibility: Compatibility,
     },
+    /// The log's writer is not running, as its owner stopped or the OS
+    /// refused its thread; a write it was given may be in the log.
+    #[error("the Audit log's writer at `{path}` is not running: {message}")]
+    Writer {
+        /// The store's file.
+        path: PathBuf,
+        /// Why.
+        message: String,
+    },
 }
 
 /// Where an entry's event came from: who did it, the settings layer it
@@ -157,12 +173,17 @@ pub struct NewEntry {
 /// executable whose `audit.otlp` is on installs (ADR 0016). Sending never
 /// blocks the append, and an entry it fails to send stays in the store.
 #[derive(Clone)]
-pub struct AuditEvents(Arc<dyn Fn(&ExportedAuditEntry) + Send + Sync>);
+pub struct AuditEvents(Arc<SendEntry>);
+
+/// What sends an entry: called with the entry and its line of an export.
+type SendEntry = dyn Fn(&ExportedAuditEntry, &str) + Send + Sync;
 
 impl AuditEvents {
-    /// Events that `send` sends, called with each new entry on the thread
-    /// that appended it.
-    pub fn new(send: impl Fn(&ExportedAuditEntry) + Send + Sync + 'static) -> Self {
+    /// Events that `send` sends, called with each new entry and its line of
+    /// an export, a JSON object of the same fields as the line `audit
+    /// export` writes, made from the text the append stored rather than
+    /// encoded again (#1886), on the writer's thread.
+    pub fn new(send: impl Fn(&ExportedAuditEntry, &str) + Send + Sync + 'static) -> Self {
         Self(Arc::new(send))
     }
 }
@@ -180,34 +201,76 @@ struct Head {
     hash: String,
 }
 
-/// The Audit log of one user: its store, its head file, the VFS the store
-/// opens through, and the machine's settings files its `audit.retention`
-/// is read from.
+/// The Audit log of one user: its store, with its writer, and the Runs
+/// whose entries it writes unchained. Clones share both.
 #[derive(Clone, Debug)]
 pub struct AuditLog {
+    store: Arc<Store>,
+    writer: Arc<StateActor<Held>>,
+    /// The Runs whose entries are written unchained, shared by its clones.
+    unchained: Arc<Mutex<BTreeSet<RunId>>>,
+}
+
+/// The store of an Audit log: its file, its head file, the VFS it opens
+/// through, the settings from whose snapshot of the machine's settings its
+/// `audit.retention` is read, where its entries are sent, and where its
+/// work is counted.
+#[derive(Clone, Debug)]
+struct Store {
     path: PathBuf,
     head: PathBuf,
     vfs: Option<String>,
-    retained_under: Option<(SettingsFiles, Product)>,
+    retained_under: Option<Settings>,
     events: Option<AuditEvents>,
-    /// The Runs whose entries are written unchained, shared by its clones.
-    unchained: Arc<Mutex<BTreeSet<RunId>>>,
     work: CountedWork,
+}
+
+/// The name of the log's writer: an actor of its owner, started by the
+/// first write, which every clone of the log shares.
+const WRITER: &str = "audit-log-writer";
+
+/// What the writer holds between its writes: its connection, opened by its
+/// first, and the tail its last commit left.
+#[derive(Debug, Default)]
+struct Held {
+    connection: Option<Connection>,
+    tail: Option<Tail>,
+}
+
+/// Where the chain ends: the sequence the next entry takes, the hash a
+/// chained one chains to, and the store's `data_version` when it was read,
+/// which only another connection's commit changes, so a tail of the same
+/// version is still the store's.
+#[derive(Clone, Copy, Debug)]
+struct Tail {
+    next: u64,
+    previous: [u8; 32],
+    version: i64,
 }
 
 impl AuditLog {
     /// The Audit log of `home`, opened through the SQLite VFS named `vfs`
-    /// (none in production, ADR 0060).
-    pub fn of(home: &Home, vfs: Option<String>) -> Self {
+    /// (none in production, ADR 0060), written by an actor of `owner`.
+    pub fn of(home: &Home, vfs: Option<String>, owner: Arc<TaskOwner>) -> Self {
         Self {
-            path: home.audit_log(),
-            head: home.audit_log_head(),
-            vfs,
-            retained_under: None,
-            events: None,
+            store: Arc::new(Store {
+                path: home.audit_log(),
+                head: home.audit_log_head(),
+                vfs,
+                retained_under: None,
+                events: None,
+                work: CountedWork::default(),
+            }),
+            writer: Arc::new(StateActor::of(WRITER, owner)),
             unchained: Arc::default(),
-            work: CountedWork::default(),
         }
+    }
+
+    /// Its store, to configure: the log then writes through a writer of its
+    /// own, whose connection counts and sends as the store now says.
+    fn configured(&mut self) -> &mut Store {
+        self.writer = Arc::new(StateActor::of(WRITER, Arc::clone(self.writer.owner())));
+        Arc::make_mut(&mut self.store)
     }
 
     /// The same, its Counted work counted on `work` (ADR 0140): each
@@ -215,7 +278,7 @@ impl AuditLog {
     /// write of its entries.
     #[must_use]
     pub fn counting_on(mut self, work: CountedWork) -> Self {
-        self.work = work;
+        self.configured().work = work;
         self
     }
 
@@ -253,28 +316,28 @@ impl AuditLog {
     /// The same, each entry it appends also sent to `events`.
     #[must_use]
     pub fn sending_to(mut self, events: Option<AuditEvents>) -> Self {
-        self.events = events;
+        self.configured().events = events;
         self
     }
 
     /// The same, each append first pruning what the `audit.retention` of
-    /// the machine's layers in `files` prunes, read then as an engine of
-    /// `product` resolves it; without it, nothing is ever pruned but
-    /// through [`AuditLog::prune`].
+    /// the snapshot `settings` keeps of the machine's settings prunes, as
+    /// the snapshot is then: no append reads a settings file (ADR 0140);
+    /// without it, nothing is ever pruned but through [`AuditLog::prune`].
     #[must_use]
-    pub fn retained_under(mut self, files: SettingsFiles, product: Product) -> Self {
-        self.retained_under = Some((files, product));
+    pub fn retained_under(mut self, settings: Settings) -> Self {
+        self.configured().retained_under = Some(settings);
         self
     }
 
     /// Its store's file.
     pub fn path(&self) -> &Path {
-        &self.path
+        &self.store.path
     }
 
     /// Its head file.
     pub fn head_path(&self) -> &Path {
-        &self.head
+        &self.store.head
     }
 
     /// Appends an entry of `kind`, a value of the shared type `audit_kind`,
@@ -287,17 +350,26 @@ impl AuditLog {
     /// # Errors
     ///
     /// When the store or the head file cannot be written, the store is of
-    /// another major, or the `audit.retention` it is retained under cannot
-    /// be read.
-    pub fn record(
+    /// another major, the `audit.retention` it is retained under cannot be
+    /// read, or its writer is not running.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the entry appended.
+    pub async fn record(
         &self,
         origin: &Origin,
-        kind: &SharedTypeValue,
+        kind: &'static SharedTypeValue,
         details: Value,
         now: Timestamp,
     ) -> Result<AuditEntry, AuditError> {
         let chained = !self.is_unchained(origin.run_id.as_ref());
-        self.record_as(origin, kind, details, now, chained)
+        let mut recorded = self
+            .commit_entries(vec![(origin.clone(), kind, details, chained)], now)
+            .await?;
+        recorded
+            .pop()
+            .ok_or_else(|| self.store.failed(&"the append answered no entry"))
     }
 
     /// Appends `entries` in their order, in one transaction with one sync,
@@ -311,7 +383,11 @@ impl AuditLog {
     /// # Errors
     ///
     /// As [`AuditLog::record`]: none of them is appended then.
-    pub fn record_together(
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`AuditLog::record`].
+    pub async fn record_together(
         &self,
         entries: Vec<NewEntry>,
         now: Timestamp,
@@ -324,68 +400,21 @@ impl AuditLog {
                 (entry.origin, entry.kind, entry.details, chained)
             })
             .collect();
-        self.commit_entries(entries, now)
+        self.commit_entries(entries, now).await
     }
 
-    fn record_as(
+    /// Appends `entries` on the writer, as [`Store::commit_entries`] does.
+    async fn commit_entries(
         &self,
-        origin: &Origin,
-        kind: &SharedTypeValue,
-        details: Value,
-        now: Timestamp,
-        chained: bool,
-    ) -> Result<AuditEntry, AuditError> {
-        let mut recorded =
-            self.commit_entries(vec![(origin.clone(), kind, details, chained)], now)?;
-        recorded
-            .pop()
-            .ok_or_else(|| self.failed(&"the append answered no entry"))
-    }
-
-    /// Appends each of `entries`, an origin, a kind, details and whether it
-    /// is chained, in one transaction, then writes the head file after the
-    /// last and sends each to the events.
-    fn commit_entries(
-        &self,
-        entries: Vec<(Origin, &SharedTypeValue, Value, bool)>,
+        entries: Vec<Appended>,
         now: Timestamp,
     ) -> Result<Vec<AuditEntry>, AuditError> {
         if entries.is_empty() {
             return Ok(Vec::new());
         }
-        if let Some((retention, layer)) = self.retention() {
-            self.prune(retention, Some(layer), now)?;
-        }
-        let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let mut connection = self.open()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| failed(&error))?;
-        let (mut sequence, mut previous) = self.after_last(&transaction)?;
-        let time = PointInTime::from_rfc3339(now.to_string());
-        let mut appended = Vec::with_capacity(entries.len());
-        for (origin, kind, details, chained) in entries {
-            debug_assert_eq!(kind.shared_type, SharedType::AuditKind);
-            let entry = AuditEntry {
-                sequence,
-                time: time.clone(),
-                kind: kind.name.to_owned(),
-                actor: origin.actor,
-                surface: origin.surface,
-                layer: origin.layer,
-                run_id: origin.run_id,
-                details,
-                chained,
-            };
-            let hash = self.append(&transaction, &previous, &entry)?;
-            if chained {
-                previous = decode(&hash).ok_or_else(|| failed(&"an entry's hash is no SHA-256"))?;
-            }
-            sequence += 1;
-            appended.push((entry, hash));
-        }
-        transaction.commit().map_err(|error| failed(&error))?;
-        self.appended(appended)
+        let retention = self.store.retention().await;
+        self.write(move |store, held| store.commit_entries(held, entries, retention, now))
+            .await
     }
 
     /// Prunes the entries older than `retention` at `now`, which `layer`
@@ -396,10 +425,132 @@ impl AuditLog {
     ///
     /// # Errors
     ///
-    /// When the store or the head file cannot be written, or the store is
-    /// of another major.
-    pub fn prune(
+    /// When the store or the head file cannot be written, the store is of
+    /// another major, or its writer is not running.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the log pruned.
+    pub async fn prune(
         &self,
+        retention: Duration,
+        layer: Option<SettingsLayer>,
+        now: Timestamp,
+    ) -> Result<Option<AuditEntry>, AuditError> {
+        self.write(move |store, held| store.prune(held, retention, layer, now))
+            .await
+    }
+
+    /// Runs `work` on the writer, starting it at the first write, and
+    /// answers what it returned. A write that fails leaves the writer
+    /// nothing: the next opens the store again and reads its tail back.
+    async fn write<T, F>(&self, work: F) -> Result<T, AuditError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Store, &mut Held) -> Result<T, AuditError> + Send + 'static,
+    {
+        let store = Arc::clone(&self.store);
+        self.writer
+            .run(move |held| {
+                let written = work(&store, held);
+                if written.is_err() {
+                    *held = Held::default();
+                }
+                written
+            })
+            .await
+            .map_err(|stopped| self.store.stopped(&stopped))?
+    }
+
+    /// Verifies the chain from its first entry and the head file against
+    /// its last: intact, or the first sequence that does not verify. A log
+    /// never written verifies intact and empty, and is not created.
+    ///
+    /// # Errors
+    ///
+    /// When the store cannot be read, or is of another major.
+    pub fn verify(&self) -> Result<AuditVerified, AuditError> {
+        self.store.verify()
+    }
+
+    /// Every entry in sequence with its hash.
+    ///
+    /// # Errors
+    ///
+    /// When the store cannot be read, or is of another major.
+    pub fn export(&self) -> Result<Vec<ExportedAuditEntry>, AuditError> {
+        self.store.export()
+    }
+}
+
+/// An entry to append: its origin, its kind, its details and whether it is
+/// chained.
+type Appended = (Origin, &'static SharedTypeValue, Value, bool);
+
+impl Store {
+    /// Appends each of `entries` in one transaction, on the writer's
+    /// connection, chained after the tail it holds while the store's
+    /// `data_version` says no other connection committed since, then writes
+    /// the head file after the last and sends each to the events. Under a
+    /// `retention`, with the layer that set it, it first prunes what it
+    /// prunes at `now`.
+    fn commit_entries(
+        &self,
+        held: &mut Held,
+        entries: Vec<Appended>,
+        retention: Option<(Duration, SettingsLayer)>,
+        now: Timestamp,
+    ) -> Result<Vec<AuditEntry>, AuditError> {
+        if let Some((retention, layer)) = retention {
+            self.prune(held, retention, Some(layer), now)?;
+        }
+        let failed = |error: &dyn std::fmt::Display| self.failed(error);
+        let cached = held.tail;
+        let connection = self.connection(&mut held.connection)?;
+        let committed = self.immediate(connection, |transaction| {
+            let mut tail = self.after_last(transaction, cached)?;
+            let time = PointInTime::from_rfc3339(now.to_string());
+            let mut appended = Vec::with_capacity(entries.len());
+            for (origin, kind, details, chained) in entries {
+                debug_assert_eq!(kind.shared_type, SharedType::AuditKind);
+                let entry = AuditEntry {
+                    sequence: tail.next,
+                    time: time.clone(),
+                    kind: kind.name.to_owned(),
+                    actor: origin.actor,
+                    surface: origin.surface,
+                    layer: origin.layer,
+                    run_id: origin.run_id,
+                    details,
+                    chained,
+                };
+                let (canonical, hash) = self.append(transaction, &tail.previous, &entry)?;
+                if chained {
+                    tail.previous =
+                        decode(&hash).ok_or_else(|| failed(&"an entry's hash is no SHA-256"))?;
+                }
+                tail.next += 1;
+                appended.push(Stored {
+                    entry,
+                    canonical,
+                    hash,
+                });
+            }
+            Ok(Some((appended, tail)))
+        })?;
+        // Nothing was appended when nothing was committed.
+        let Some((appended, tail)) = committed else {
+            return Ok(Vec::new());
+        };
+        held.tail = Some(tail);
+        self.appended(appended)
+    }
+
+    /// Prunes as [`AuditLog::prune`] says, on the writer's connection,
+    /// leaving it the tail its pruning record makes.
+    fn prune(
+        &self,
+        held: &mut Held,
         retention: Duration,
         layer: Option<SettingsLayer>,
         now: Timestamp,
@@ -409,70 +560,123 @@ impl AuditLog {
         let cutoff = SignedDuration::try_from(retention)
             .ok()
             .and_then(|retention| now.checked_sub(retention).ok());
-        let Some(cutoff) = cutoff.filter(|_| self.path.exists()) else {
+        let Some(cutoff) = cutoff.filter(|_| held.connection.is_some() || self.path.exists())
+        else {
             return Ok(None);
         };
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let mut connection = self.open()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| failed(&error))?;
-        let Some((through, last_pruned_hash)) = self.older_than(&transaction, cutoff)? else {
+        let cached = held.tail;
+        let connection = self.connection(&mut held.connection)?;
+        let committed = self.immediate(connection, |transaction| {
+            let Some((through, last_pruned_hash)) = self.older_than(transaction, cutoff)? else {
+                return Ok(None);
+            };
+            let tail = self.after_last(transaction, cached)?;
+            let time = PointInTime::from_rfc3339(now.to_string());
+            let anchor = anchor_entry(through, &last_pruned_hash, &time, layer);
+            let anchor =
+                serde_json_canonicalizer::to_string(&anchor).map_err(|error| failed(&error))?;
+            let execute = |statement: &str, parameters: &[&dyn rusqlite::ToSql]| {
+                transaction
+                    .prepare_cached(statement)
+                    .and_then(|mut prepared| prepared.execute(parameters))
+                    .map_err(|error| failed(&error))
+            };
+            execute("DROP TRIGGER entries_never_deleted", &[])?;
+            execute(
+                "DELETE FROM entries WHERE sequence <= ?1",
+                &[&stored(through)],
+            )?;
+            execute(NEVER_DELETED, &[])?;
+            execute(INSERT, &[&stored(through), &anchor, &last_pruned_hash])?;
+            let pruned = AuditEntry {
+                sequence: tail.next,
+                time,
+                kind: AUDIT_LOG_PRUNED.name.to_owned(),
+                actor: Actor::Engine,
+                surface: None,
+                layer,
+                run_id: None,
+                details: json!({
+                    "through_sequence": through,
+                    "last_pruned_hash": last_pruned_hash,
+                    "retention": u64::try_from(retention.as_millis()).unwrap_or(u64::MAX),
+                }),
+                chained: true,
+            };
+            let (canonical, hash) = self.append(transaction, &tail.previous, &pruned)?;
+            Ok(Some((pruned, canonical, hash, tail)))
+        })?;
+        // Nothing older than the cutoff: its reads were rolled back.
+        let Some((pruned, canonical, hash, mut tail)) = committed else {
             return Ok(None);
         };
-        let (sequence, previous) = self.after_last(&transaction)?;
-        let time = PointInTime::from_rfc3339(now.to_string());
-        let anchor = anchor_entry(through, &last_pruned_hash, &time, layer);
-        let anchor =
-            serde_json_canonicalizer::to_string(&anchor).map_err(|error| failed(&error))?;
-        transaction
-            .execute_batch("DROP TRIGGER entries_never_deleted")
-            .map_err(|error| failed(&error))?;
-        transaction
-            .execute(
-                "DELETE FROM entries WHERE sequence <= ?1",
-                [stored(through)],
-            )
-            .map_err(|error| failed(&error))?;
-        transaction
-            .execute(NEVER_DELETED, [])
-            .map_err(|error| failed(&error))?;
-        transaction
-            .execute(
-                "INSERT INTO entries (sequence, entry, hash) VALUES (?1, ?2, ?3)",
-                (stored(through), &anchor, &last_pruned_hash),
-            )
-            .map_err(|error| failed(&error))?;
-        let pruned = AuditEntry {
-            sequence,
-            time,
-            kind: AUDIT_LOG_PRUNED.name.to_owned(),
-            actor: Actor::Engine,
-            surface: None,
-            layer,
-            run_id: None,
-            details: json!({
-                "through_sequence": through,
-                "last_pruned_hash": last_pruned_hash,
-                "retention": u64::try_from(retention.as_millis()).unwrap_or(u64::MAX),
-            }),
-            chained: true,
-        };
-        let hash = self.append(&transaction, &previous, &pruned)?;
-        transaction.commit().map_err(|error| failed(&error))?;
-        Ok(self.appended(vec![(pruned, hash)])?.pop())
+        tail.previous = decode(&hash).ok_or_else(|| failed(&"an entry's hash is no SHA-256"))?;
+        tail.next += 1;
+        held.tail = Some(tail);
+        Ok(self
+            .appended(vec![Stored {
+                entry: pruned,
+                canonical,
+                hash,
+            }])?
+            .pop())
     }
 
-    /// The `audit.retention` the machine's layers set now, with the layer
-    /// that set it; none when unset, when the log is retained under no
-    /// layers, or when they cannot be read, which says nothing of the entry
-    /// being appended, so it is kept and nothing is pruned on this pass.
-    fn retention(&self) -> Option<(Duration, SettingsLayer)> {
-        let (files, product) = self.retained_under.as_ref()?;
-        self.work.count(Row::AuditConfigurationReads);
-        let resolved = files
-            .load(*product)
-            .and_then(|machine| machine.resolve(*product))
+    /// Runs `work` in one IMMEDIATE transaction of `connection`: commits it
+    /// when `work` answers something, rolls it back when `work` answers
+    /// nothing or fails. Its `BEGIN`, `COMMIT` and `ROLLBACK` go through the
+    /// connection's statement cache, as the run file's writer's do
+    /// ([`run_cached`]), so a transaction prepares nothing once its
+    /// connection prepared them (#1886). A rollback that fails after
+    /// nothing was answered fails too, so the writer, which drops its
+    /// connection on any failure, never keeps one mid-transaction; after a
+    /// failure, that drop rolls back what a failed `ROLLBACK` left.
+    fn immediate<T>(
+        &self,
+        connection: &Connection,
+        work: impl FnOnce(&Connection) -> Result<Option<T>, AuditError>,
+    ) -> Result<Option<T>, AuditError> {
+        run_cached(connection, "BEGIN IMMEDIATE").map_err(|error| self.failed(&error))?;
+        let rolled_back = || run_cached(connection, "ROLLBACK");
+        match work(connection) {
+            Ok(Some(answer)) => match run_cached(connection, "COMMIT") {
+                Ok(()) => Ok(Some(answer)),
+                Err(error) => {
+                    let _ = rolled_back();
+                    Err(self.failed(&error))
+                }
+            },
+            Ok(None) => rolled_back()
+                .map(|()| None)
+                .map_err(|error| self.failed(&error)),
+            Err(error) => {
+                let _ = rolled_back();
+                Err(error)
+            }
+        }
+    }
+
+    /// The writer's connection, the store opened now if it is not yet.
+    fn connection<'held>(
+        &self,
+        held: &'held mut Option<Connection>,
+    ) -> Result<&'held mut Connection, AuditError> {
+        match held {
+            Some(connection) => Ok(connection),
+            None => Ok(held.insert(self.open()?)),
+        }
+    }
+
+    /// The `audit.retention` the engine's snapshot of the machine's
+    /// settings sets now, with the layer that set it; none when unset, when
+    /// the log is retained under no settings, or when they cannot be read,
+    /// which says nothing of the entry being appended, so it is kept and
+    /// nothing is pruned on this pass.
+    async fn retention(&self) -> Option<(Duration, SettingsLayer)> {
+        let machine = self.retained_under.as_ref()?.snapshot().await;
+        let resolved = machine
+            .resolved()
             .inspect_err(|error| {
                 tracing::warn!(%error, "`audit.retention` cannot be read, so nothing is pruned");
             })
@@ -482,34 +686,50 @@ impl AuditLog {
             .zip(resolved.effective(&AUDIT_RETENTION).map(|set| set.layer))
     }
 
-    /// Writes the head file after the last of `appended`, each entry
-    /// committed with its hash, sends each to the events, and answers them.
-    fn appended(&self, appended: Vec<(AuditEntry, String)>) -> Result<Vec<AuditEntry>, AuditError> {
-        if let Some((last, hash)) = appended.last() {
+    /// Writes the head file after the last of `appended`, sends each to the
+    /// events with its line of an export, and answers them.
+    fn appended(&self, appended: Vec<Stored>) -> Result<Vec<AuditEntry>, AuditError> {
+        if let Some(last) = appended.last() {
             self.write_head(&Head {
-                sequence: last.sequence,
-                hash: hash.clone(),
+                sequence: last.entry.sequence,
+                hash: last.hash.clone(),
             })?;
         }
         Ok(appended
             .into_iter()
-            .map(|(entry, hash)| match &self.events {
+            .map(|stored| match &self.events {
                 Some(events) => {
-                    let exported = ExportedAuditEntry { entry, hash };
-                    (events.0)(&exported);
+                    let line = line_of(&stored.canonical, &stored.hash);
+                    let exported = ExportedAuditEntry {
+                        entry: stored.entry,
+                        hash: stored.hash,
+                    };
+                    (events.0)(&exported, &line);
                     exported.entry
                 }
-                None => entry,
+                None => stored.entry,
             })
             .collect())
     }
 
-    /// The sequence the next entry takes and the hash a chained one chains
-    /// to: the last chained entry's, past the unchained ones after it.
-    fn after_last(&self, transaction: &Transaction<'_>) -> Result<(u64, [u8; 32]), AuditError> {
+    /// Where the chain ends: `cached`, the writer's, while the store's
+    /// `data_version` is still the one it was read at, or else read back
+    /// from the last chained entry, past the unchained ones after it.
+    fn after_last(
+        &self,
+        transaction: &Connection,
+        cached: Option<Tail>,
+    ) -> Result<Tail, AuditError> {
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
+        let version: i64 = transaction
+            .prepare_cached("PRAGMA data_version")
+            .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
+            .map_err(|error| failed(&error))?;
+        if let Some(tail) = cached.filter(|tail| tail.version == version) {
+            return Ok(tail);
+        }
         let mut statement = transaction
-            .prepare("SELECT sequence, entry, hash FROM entries ORDER BY sequence DESC")
+            .prepare_cached("SELECT sequence, entry, hash FROM entries ORDER BY sequence DESC")
             .map_err(|error| failed(&error))?;
         let mut rows = statement.query([]).map_err(|error| failed(&error))?;
         let mut next = None;
@@ -521,19 +741,28 @@ impl AuditLog {
             if !is_unchained(&entry) {
                 let previous = decode(&hash)
                     .ok_or_else(|| failed(&"the last chained entry's hash is no SHA-256"))?;
-                return Ok((next, previous));
+                return Ok(Tail {
+                    next,
+                    previous,
+                    version,
+                });
             }
         }
-        Ok((next.unwrap_or(1), NO_PREVIOUS))
+        Ok(Tail {
+            next: next.unwrap_or(1),
+            previous: NO_PREVIOUS,
+            version,
+        })
     }
 
-    /// Writes `entry`, chained to `previous`, and answers its hash.
+    /// Writes `entry`, chained to `previous`, and answers its canonical
+    /// text and its hash.
     fn append(
         &self,
-        transaction: &Transaction<'_>,
+        transaction: &Connection,
         previous: &[u8; 32],
         entry: &AuditEntry,
-    ) -> Result<String, AuditError> {
+    ) -> Result<(String, String), AuditError> {
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
         let canonical =
             serde_json_canonicalizer::to_string(entry).map_err(|error| failed(&error))?;
@@ -546,12 +775,12 @@ impl AuditLog {
             &canonical,
         );
         transaction
-            .execute(
-                "INSERT INTO entries (sequence, entry, hash) VALUES (?1, ?2, ?3)",
-                (stored(entry.sequence), &canonical, &hash),
-            )
+            .prepare_cached(INSERT)
+            .and_then(|mut statement| {
+                statement.execute((stored(entry.sequence), &canonical, &hash))
+            })
             .map_err(|error| failed(&error))?;
-        Ok(hash)
+        Ok((canonical, hash))
     }
 
     /// The last sequence of the log's beginning whose entries, the anchor
@@ -559,12 +788,12 @@ impl AuditLog {
     /// the first is not that old.
     fn older_than(
         &self,
-        transaction: &Transaction<'_>,
+        transaction: &Connection,
         cutoff: Timestamp,
     ) -> Result<Option<(u64, String)>, AuditError> {
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
         let mut statement = transaction
-            .prepare("SELECT sequence, entry, hash FROM entries ORDER BY sequence")
+            .prepare_cached("SELECT sequence, entry, hash FROM entries ORDER BY sequence")
             .map_err(|error| failed(&error))?;
         let mut rows = statement.query([]).map_err(|error| failed(&error))?;
         let (mut through, mut first) = (None, true);
@@ -596,14 +825,8 @@ impl AuditLog {
         Ok(through)
     }
 
-    /// Verifies the chain from its first entry and the head file against
-    /// its last: intact, or the first sequence that does not verify. A log
-    /// never written verifies intact and empty, and is not created.
-    ///
-    /// # Errors
-    ///
-    /// When the store cannot be read, or is of another major.
-    pub fn verify(&self) -> Result<AuditVerified, AuditError> {
+    /// As [`AuditLog::verify`], on a connection of its own.
+    fn verify(&self) -> Result<AuditVerified, AuditError> {
         if !self.path.exists() {
             let first_broken = self.read_head().map(|_| 1);
             return Ok(AuditVerified {
@@ -651,12 +874,8 @@ impl AuditLog {
         })
     }
 
-    /// Every entry in sequence with its hash.
-    ///
-    /// # Errors
-    ///
-    /// When the store cannot be read, or is of another major.
-    pub fn export(&self) -> Result<Vec<ExportedAuditEntry>, AuditError> {
+    /// As [`AuditLog::export`], on a connection of its own.
+    fn export(&self) -> Result<Vec<ExportedAuditEntry>, AuditError> {
         if !self.path.exists() {
             return Ok(Vec::new());
         }
@@ -685,7 +904,7 @@ impl AuditLog {
     fn read_head(&self) -> Option<Head> {
         #[expect(
             clippy::disallowed_methods,
-            reason = "the Audit log's calls run under their caller's blocking policy"
+            reason = "the Audit log's reads run under their caller's blocking policy"
         )]
         let bytes = std::fs::read(&self.head).ok()?;
         serde_json::from_slice(&bytes).ok()
@@ -745,6 +964,33 @@ impl AuditLog {
             message: error.to_string(),
         }
     }
+
+    fn stopped(&self, error: &dyn std::fmt::Display) -> AuditError {
+        AuditError::Writer {
+            path: self.path.clone(),
+            message: error.to_string(),
+        }
+    }
+}
+
+/// An entry the store now holds: the entry, its canonical text and its
+/// hash.
+struct Stored {
+    entry: AuditEntry,
+    canonical: String,
+    hash: String,
+}
+
+/// The statement that writes an entry.
+const INSERT: &str = "INSERT INTO entries (sequence, entry, hash) VALUES (?1, ?2, ?3)";
+
+/// The line of an export of the entry whose canonical text is `canonical`
+/// and whose hash is `hash`: that text, the hash added as its last member.
+fn line_of(canonical: &str, hash: &str) -> String {
+    let members = canonical
+        .strip_suffix('}')
+        .expect("invariant: an entry's canonical JSON is an object");
+    format!("{members},\"hash\":\"{hash}\"}}")
 }
 
 /// Verifies an exported log, the JSONL `audit export` writes, which may

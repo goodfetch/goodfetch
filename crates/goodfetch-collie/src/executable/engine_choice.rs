@@ -503,7 +503,7 @@ pub fn call_attached(
         );
         match (served, answer) {
             (Err(error), Answer::Unanswered(_)) => Answer::Unanswered(exit_codes::internal(
-                format!("The Attached engine got no Connection: {error}."),
+                format!("The Attached engine failed: {error}."),
             )),
             (_, answer) => answer,
         }

@@ -114,6 +114,21 @@ rows! {
     /// `F1.block_classifications`: a fetched page's document read by the
     /// Block classification rules.
     PageBlockClassifications => "F1.block_classifications", "page_analysis", "block_classifications";
+    /// `F1.rule_list_builds`: a page's list of cosmetic Clean-up rules built,
+    /// from its URL and from the classes and IDs it holds.
+    PageRuleListBuilds => "F1.rule_list_builds", "page_analysis", "rule_list_builds";
+    /// `F1.rule_tests`: one Clean-up rule tested against one element of a
+    /// fetched page, or one procedural rule run over one of its roots.
+    PageRuleTests => "F1.rule_tests", "page_analysis", "rule_tests";
+    /// `F1.analysis_handoffs`: a page's parsing or reading handed to the
+    /// analysis pool (`TaskOwner::analysis`).
+    PageAnalysisHandoffs => "F1.analysis_handoffs", "page_analysis", "analysis_handoffs";
+    /// `F1.host_cache_entries`: a host whose Clean-up rules a Run's host
+    /// cache holds as the Run ends.
+    PageHostCacheEntries => "F1.host_cache_entries", "page_analysis", "host_cache_entries";
+    /// `F1.host_cache_bytes`: a heap byte a Run's host cache holds as the
+    /// Run ends.
+    PageHostCacheBytes => "F1.host_cache_bytes", "page_analysis", "host_cache_bytes";
     /// `E1.deep_copies`: a whole copy of what a Client's message carries.
     MessageDeepCopies => "E1.deep_copies", "json_rpc_message", "deep_copies";
     /// `E1.encodes`: an encode of what the engine sends, into bytes or into
@@ -154,12 +169,26 @@ rows! {
     BatchCompilations => "F3.compilations", "frontier_admission", "compilations";
     /// `F3.transactions`: a write of its own a links batch asks the writer for.
     BatchTransactions => "F3.transactions", "frontier_admission", "transactions";
+    /// `F3.actor_round_trips`: a message a page's task sends the actor that
+    /// owns its crawl's Run state, whose answer the task waits for (ADR 0142).
+    ActorRoundTrips => "F3.actor_round_trips", "frontier_admission", "actor_round_trips";
+    /// `F3.in_flight_serializations`: a crawl's requests in flight encoded
+    /// to JSON, for a value of its Run's progress that a reader takes.
+    InFlightSerializations => "F3.in_flight_serializations", "frontier_admission", "in_flight_serializations";
     /// `F3.invariant_reads`, of a redirect hop.
     HopInvariantReads => "F3.invariant_reads.hop", "frontier_hop", "invariant_reads";
     /// `F3.compilations`, of a redirect hop.
     HopCompilations => "F3.compilations.hop", "frontier_hop", "compilations";
     /// `F3.transactions`, of a redirect hop.
     HopTransactions => "F3.transactions.hop", "frontier_hop", "transactions";
+    /// `F3.hop_round_trips`: a message a page's task sends the actor that
+    /// owns its crawl's Run state to have a redirect hop checked, whose
+    /// answer the task waits for (ADR 0142).
+    HopRoundTrips => "F3.hop_round_trips", "frontier_hop", "round_trips";
+    /// `F3.hop_round_trips.end`: a message a page's task sends that actor to
+    /// have a redirected chain's final URL recorded, whose answer the task
+    /// waits for (ADR 0142).
+    HopEndRoundTrips => "F3.hop_round_trips.end", "frontier_hop", "end_round_trips";
     /// `F3.invariant_reads`, of a sitemap's read.
     SitemapInvariantReads => "F3.invariant_reads.sitemap", "frontier_sitemap", "invariant_reads";
     /// `F3.compilations`, of a sitemap's read.
@@ -349,9 +378,21 @@ rows! {
 /// may count while another reads: a read sees some count that was true. It
 /// holds the engine's bounded cache of compilations too ([`Self::selector`]),
 /// which every owner it is given to compiles through, so a text compiles once
-/// for the engine and its compilation counts once.
-#[derive(Clone, Debug, Default)]
+/// for the engine and its compilation counts once. A default one builds no
+/// part of that cache before a text of its kind is asked for, so the one an
+/// owner holds until it is given the engine's costs it no cache.
+#[derive(Clone, Debug)]
 pub struct CountedWork(Arc<Shared>);
+
+impl Default for CountedWork {
+    /// Never inlined: `just counts` reads `F3.counted_work_constructions`
+    /// as Callgrind's count of this function's calls, which a copy inlined
+    /// into its caller would escape.
+    #[inline(never)]
+    fn default() -> Self {
+        Self(Arc::default())
+    }
+}
 
 /// What every clone of a [`CountedWork`] shares, behind its one `Arc`: a
 /// clone costs one reference count and its handle stays a pointer wide, as

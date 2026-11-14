@@ -47,10 +47,10 @@ use goodfetch_engine::settings::{Effective, Resolved, RunSettings, get_or_defaul
 use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, Trust,
 };
-use goodfetch_engine::{CallContext, CallError, GuardAnswer};
+use goodfetch_engine::{Answered, CallContext, CallError, GuardAnswer, Params};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_page::blocks::Block;
-use goodfetch_page::document_request::DocumentRequest;
+use goodfetch_page::document_request::{DocumentRequest, Unread};
 use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, KeptFrom, KeptTree, Observer, PageValue, PooledSession,
     ProgramPages, Reader, ServedDocument,
@@ -73,6 +73,7 @@ use goodfetch_protocol::foxhound::provenance::{
 use goodfetch_protocol::foxhound::provenance::{
     EncodingProvenance, EncodingSource, ForcedBy, TierChosen, TierProvenance,
 };
+use goodfetch_protocol::foxhound::report::BROWSER_VERSION_UNREAD;
 use goodfetch_protocol::foxhound::session_pool::SESSION_POOL_MAX_SIZE;
 use goodfetch_protocol::foxhound::settings::FETCH_BLOCK_CLASSIFICATION;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -81,7 +82,7 @@ use goodfetch_protocol::page::{
     BLOCKED, BlockedDetails, BodyHandle, CONTENT_EXTRACTOR, FormatsRequest, Navigated, PageFormats,
     PageId, PageResponse, SessionId,
 };
-use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::run::{RunId, RunWarning};
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SETTING_INVALID, SettingInvalidDetails,
@@ -183,7 +184,9 @@ tokio::task_local! {
 struct Pages {
     /// The number of the next page served.
     next: u64,
-    open: BTreeMap<PageId, ServedPage>,
+    /// Each open page's state, shared with the calls that read it: a
+    /// change after a call took it copies it, never a call (E1-5).
+    open: BTreeMap<PageId, Arc<ServedPage>>,
     /// The `Link` header fields of each open page that had any, where
     /// its `rel=canonical` may be.
     links: BTreeMap<PageId, Vec<(String, String)>>,
@@ -588,6 +591,10 @@ impl Reading for OpenedReading {
         }
         HopRead::Document(decoded.opened(&self.run, fetched, (self.extractor, &self.readers, true)))
     }
+
+    fn work(&self) -> &CountedWork {
+        self.run.metrics().counted_work()
+    }
 }
 
 impl Pages {
@@ -925,11 +932,16 @@ impl FetchTiers {
         };
         // Every Session of the Run launches one build, so the document
         // request its own transport presents is read once, here.
-        let presents = self
-            .served
-            .browser
-            .get()
-            .and_then(|pages| pages.document_request());
+        let presents = match self.served.browser.get() {
+            Some(pages) => match pages.document_request(run).await {
+                Ok(request) => request,
+                Err(unread) => {
+                    warn_version_unread(run, &unread).await;
+                    None
+                }
+            },
+            None => None,
+        };
         let reqwest = Reqwest::new(config.clone())
             .map_err(|error| error.to_string())?
             .presenting(presents.clone());
@@ -1140,7 +1152,7 @@ impl FetchTiers {
             let (reading, extractor) = (run.clone(), hand_over.extractor);
             let readers = Arc::clone(&hand_over.untouched);
             run.owner()
-                .analysis(move || {
+                .analysis(run.metrics().counted_work(), move || {
                     Opened::of(&reading, &fetched, (forced, extractor), (&readers, true))
                 })
                 .await
@@ -1153,7 +1165,7 @@ impl FetchTiers {
             _ if opened.not_document.is_some() => None,
             (Some(_), _) => None,
             (None, Some(forced)) => {
-                return Err(Stop::Failed(undeclared(
+                return Err(Stop::failed(undeclared(
                     choice.tier,
                     forced,
                     &opened.document.url,
@@ -1169,7 +1181,7 @@ impl FetchTiers {
         response.encoding = opened.read.map(|read| read.encoding.name().to_owned());
         pages.open.insert(
             page_id.clone(),
-            ServedPage {
+            Arc::new(ServedPage {
                 history: vec![opened.document.url.clone()],
                 at: 0,
                 document: Arc::clone(&opened.document),
@@ -1185,7 +1197,7 @@ impl FetchTiers {
                 own: Some((response, body)),
                 certificate_exception,
                 hand_over: Arc::clone(hand_over),
-            },
+            }),
         );
         pages.opened(&page_id, opened);
         Ok(page_id)
@@ -1222,7 +1234,7 @@ impl FetchTiers {
             .light
             .prepared(run, home, pinned_by)
             .await
-            .map_err(Stop::Failed)?;
+            .map_err(Stop::failed)?;
         let rendered = crate::light_browser::render(
             run,
             &prepared.executable,
@@ -1230,7 +1242,7 @@ impl FetchTiers {
             (tier.address_check(), &tier.bounds.limits),
         )
         .await
-        .map_err(Stop::Failed)?;
+        .map_err(Stop::failed)?;
         let header = rendered
             .headers
             .iter()
@@ -1316,7 +1328,7 @@ impl FetchTiers {
         if page.not_document.is_some() {
             return None;
         }
-        let served = page.document;
+        let served = Arc::clone(&page.document);
         let links = lock(&self.served.pages)
             .links
             .get(page_id)
@@ -1341,7 +1353,7 @@ impl FetchTiers {
         let extractor = chosen_extractor(&run, served.extractor);
         let signed = run
             .owner()
-            .analysis(move || {
+            .analysis(run.metrics().counted_work(), move || {
                 let signature = goodfetch_extractor::page_signature(
                     &goodfetch_extractor::Document {
                         html: &served.html,
@@ -1593,11 +1605,14 @@ impl FetchTiers {
             own,
             untouched,
             ..
-        } = page;
+        } = &*page;
+        let document = Arc::clone(document);
+        let status = *status;
         let run = document.run.clone();
         let url = document.url.clone();
         let headers = own
-            .map(|(response, _)| response.headers)
+            .as_ref()
+            .map(|(response, _)| response.headers.clone())
             .unwrap_or_default();
         // The readers of its untouched page judged it as they read it.
         let (verdict, noindex) = if let Some((verdict, robots)) = untouched.judged(check) {
@@ -1608,7 +1623,7 @@ impl FetchTiers {
             let check = check.clone();
             let work = run.metrics().counted_work().clone();
             run.owner()
-                .analysis(move || {
+                .analysis(run.metrics().counted_work(), move || {
                     expected_page::judge(&check, &document.url, &document.html, &headers, &work)
                 })
                 .await
@@ -1620,7 +1635,7 @@ impl FetchTiers {
                 Judged::Escalated
             }
             Verdict::NotExpected => Judged::Failed(expected_page::failed(&url, status, noindex)),
-            Verdict::Unjudged => match unserved(&choice, PAGE_CHECK_CALL, false) {
+            Verdict::Unjudged => match unserved(choice, PAGE_CHECK_CALL, false) {
                 Unserved::Escalated(_) => Judged::Escalated,
                 Unserved::Refused(error) => Judged::Failed(error),
             },
@@ -1643,9 +1658,10 @@ impl FetchTiers {
         if page.not_document.is_some() {
             return None;
         }
-        let response = page.own.map(|(response, _)| response)?;
+        let response = page.own.as_ref().map(|(response, _)| response.clone())?;
         let run = page.document.run.clone();
-        self.classified(&run, response, page.document).await
+        self.classified(&run, response, Arc::clone(&page.document))
+            .await
     }
 
     /// The Block cause of `document`, which `response` answered for
@@ -1671,7 +1687,7 @@ impl FetchTiers {
         let received = run.clock().wall();
         let (block, response) = run
             .owner()
-            .analysis(move || {
+            .analysis(run.metrics().counted_work(), move || {
                 let block = pages.classify(&response, &document.html);
                 block.map(|block| (block, response))
             })
@@ -1710,7 +1726,7 @@ impl FetchTiers {
         pages.encodings.remove(page_id);
         pages.replays.remove(page_id);
         let use_signals = pages.use_signals.remove(page_id).unwrap_or_default();
-        let page = pages.open.remove(page_id)?;
+        let page = Arc::unwrap_or_clone(pages.open.remove(page_id)?);
         Some(PageFacts {
             encoding: page.encoding(),
             response: page.own.map(|(response, _)| response),
@@ -1877,8 +1893,8 @@ impl FetchTiers {
     }
 
     /// The served page `page_id`, while it is open.
-    fn served_page(&self, page_id: &PageId) -> Option<ServedPage> {
-        lock(&self.served.pages).open.get(page_id).cloned()
+    fn served_page(&self, page_id: &PageId) -> Option<Arc<ServedPage>> {
+        lock(&self.served.pages).open.get(page_id).map(Arc::clone)
     }
 
     /// The hand-over whose value, reader and observer a page of `run`
@@ -1903,6 +1919,7 @@ impl FetchTiers {
     fn next_request(&self, page_id: &PageId) -> String {
         let mut pages = lock(&self.served.pages);
         let number = pages.open.get_mut(page_id).map_or(0, |page| {
+            let page = Arc::make_mut(page);
             page.requests += 1;
             page.requests
         });
@@ -1913,7 +1930,9 @@ impl FetchTiers {
     /// request `request_id`, for `response.body`.
     fn keep_body(&self, page_id: &PageId, request_id: &str, body: BodyHandle) {
         if let Some(page) = lock(&self.served.pages).open.get_mut(page_id) {
-            page.bodies.insert(request_id.to_owned(), body);
+            Arc::make_mut(page)
+                .bodies
+                .insert(request_id.to_owned(), body);
         }
     }
 
@@ -1925,6 +1944,7 @@ impl FetchTiers {
         let Some(page) = pages.open.get_mut(page_id) else {
             return;
         };
+        let page = Arc::make_mut(page);
         match at {
             History::Pushed => {
                 page.history.truncate(page.at + 1);
@@ -1961,7 +1981,9 @@ impl FetchTiers {
         let first = page.escalated.unwrap_or(call);
         match unserved(&page.choice, first, waits) {
             Unserved::Escalated(error) => {
-                page.escalated = Some(first);
+                if page.escalated.is_none() {
+                    Arc::make_mut(page).escalated = Some(first);
+                }
                 error
             }
             Unserved::Refused(error) => error,
@@ -2028,16 +2050,35 @@ impl HandlerPages for FetchTiers {
         &self,
         page_id: &PageId,
         operation: &'static str,
-        params: &serde_json::Value,
-        _context: &CallContext,
+        params: Params<'_>,
+        context: &CallContext,
     ) -> Option<GuardAnswer> {
-        calls::on_browser(self, page_id, operation, params)
-            .or_else(|| calls::answer(self, page_id, operation, params))
+        let served = calls::on_browser(self, page_id, operation, params)
+            .or_else(|| calls::answer(self, page_id, operation, params))?;
+        let context = context.clone();
+        Some(Box::pin(async move {
+            Answered::encode(&context, &served.await?)
+        }))
     }
 
     fn opened(&self, pages: Arc<dyn BrowserPages>) {
         // A second composition of the same value keeps the first's pages.
         let _ = self.served.browser.set(pages);
+    }
+}
+
+/// Hands the Run's report the warning that the installed browser's version
+/// was not read, so its Sessions' own transport presents no browser
+/// identity (ADR 0021).
+async fn warn_version_unread(run: &Run, unread: &Unread) {
+    let warning = RunWarning {
+        code: BROWSER_VERSION_UNREAD.to_owned(),
+        message: unread.to_string(),
+        sessions: Vec::new(),
+        folder: None,
+    };
+    if let Err(error) = run.warn(warning).await {
+        tracing::warn!(%error, run_id = %run.id(), "the warning that the installed browser's version was not read was not kept");
     }
 }
 
@@ -2291,7 +2332,9 @@ impl HttpTier {
             .await
             {
                 Ok(fetched) => fetched,
-                Err(error) => return Answer::Unreachable(error.message().to_owned()),
+                Err(failure) => {
+                    return Answer::Unreachable(failure.error().message().to_owned());
+                }
             };
             let next = (300..400)
                 .contains(&fetched.status)
@@ -2530,7 +2573,7 @@ fn forced(settings: &Resolved) -> Option<(FetchTier, SettingsLayer)> {
 /// `navigation_failed` for a URL that does not parse.
 fn first_hop(request: &CrawlRequest) -> Result<Hop, Stop> {
     let url = Url::parse(&request.url).map_err(|error| {
-        Stop::Failed(CallError::new(
+        Stop::failed(CallError::new(
             &goodfetch_protocol::page::NAVIGATION_FAILED,
             format!(
                 "The crawl request's URL `{}` does not parse: {error}.",
@@ -2576,7 +2619,6 @@ fn exceptions_of(run: &Run, settings: &Resolved) -> CertificateExceptions {
         person: run.person().to_owned(),
         run_id: Some(run.id().clone()),
         audit: Arc::new(run.audit_log()),
-        owner: Arc::new(run.owner().child()),
         clock: run.clock(),
     };
     CertificateExceptions::listed(

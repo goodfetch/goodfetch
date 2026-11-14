@@ -19,16 +19,25 @@
 //!   its script from the first and last child its list names, so its markup
 //!   holds no link but home's, and a crawl that runs no script finds no
 //!   page past the first.
+//! - The realistic-page site, for #2316's scenario of pages of realistic
+//!   size, on `realistic.localhost`: see [`realistic`].
+//! - The article site, for the extraction scenario, on `article.localhost`:
+//!   see [`article`].
 //!
-//! No task names them, and neither declares a Feature.
+//! No task names them, and none declares a Feature.
+
+mod article;
+mod realistic;
 
 use super::scale::{Links, site_place, tree_page};
 use super::{Page, Visit, document};
+use crate::interface::ArticleAnswers;
 
 pub(super) const FAMILY: &str = "comparison";
 
-/// The domains of the multi-domain site.
-const DOMAINS: u64 = 50;
+/// The domains of the multi-domain site (#2283): ten pages on each at
+/// the polite scenario's 10,000.
+const DOMAINS: u64 = 1000;
 
 /// The script-rendered site's host.
 const RENDERED_HOST: &str = "rendered.localhost";
@@ -75,18 +84,35 @@ fn polite_domain(host: &str) -> Option<u64> {
 
 /// Whether `host` is one of the family's.
 pub(super) fn serves(host: &str) -> bool {
-    host == RENDERED_HOST || polite_domain(host).is_some()
+    host == RENDERED_HOST
+        || host == realistic::HOST
+        || host == article::HOST
+        || polite_domain(host).is_some()
+}
+
+/// The right answer of each page of the article site of `size` pages, as
+/// `size` is written in a path: see [`article::answers`].
+pub(super) fn article_answers(seed: u64, size: &str) -> Option<ArticleAnswers> {
+    article::answers(seed, size)
 }
 
 /// Every host name of the family.
 pub(super) fn hosts() -> impl Iterator<Item = String> {
-    (1..=DOMAINS)
-        .map(polite_host)
-        .chain(std::iter::once(RENDERED_HOST.to_owned()))
+    (1..=DOMAINS).map(polite_host).chain([
+        RENDERED_HOST.to_owned(),
+        realistic::HOST.to_owned(),
+        article::HOST.to_owned(),
+    ])
 }
 
 pub(super) fn respond(visit: &Visit<'_>) -> Page {
     let request = visit.request;
+    if request.host == realistic::HOST {
+        return realistic::respond(visit.seed, request.path);
+    }
+    if request.host == article::HOST {
+        return article::respond(visit.seed, request.path);
+    }
     let rest = request.path.strip_prefix("/sites/");
     if request.host == RENDERED_HOST {
         return match rest.and_then(site_place) {

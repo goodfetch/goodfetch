@@ -27,8 +27,8 @@ pub(crate) enum Form {
 pub(crate) enum Kind {
     /// A step on the host, whose result the gate records.
     Step,
-    /// A step beside the host's, in a container of its own, whose result
-    /// the gate records once it has ended.
+    /// A step beside the host's, in a container or in folders of its own,
+    /// whose result the gate records once it has ended.
     Beside,
     /// A command on the host that is no step of the record.
     Command,

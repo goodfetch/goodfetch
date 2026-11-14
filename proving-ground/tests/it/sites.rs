@@ -74,34 +74,37 @@ fn hrefs(body: &str) -> Vec<String> {
 }
 
 /// The multi-domain site's page `page` of `size`, on the host of its
-/// domain: `polite-<d>.localhost`, `d` being `page` modulo 50, from 1.
+/// domain: `polite-<d>.localhost`, `d` being `page` modulo 1,000, from 1.
 fn polite_url(proving_ground: &ProvingGround, size: u64, page: u64) -> String {
     format!(
         "http://polite-{}.localhost:{}/sites/{size}/{page}",
-        (page - 1) % 50 + 1,
+        (page - 1) % 1000 + 1,
         proving_ground.port()
     )
 }
 
-/// The polite scenario's multi-domain site (#1903): a crawl from its first
-/// page that follows every link across its hosts and obeys each host's
-/// robots.txt reaches each of its 1,000 pages once, each on its own
-/// domain's host, 20 on each of 50 domains, and every robots.txt holds
+/// The polite scenario's multi-domain site (#1903, #2283): a crawl from its
+/// first page that follows every link across its hosts and obeys each
+/// host's robots.txt reaches each of its 10,000 pages once, each on its own
+/// domain's host, 10 on each of 1,000 domains, and every robots.txt holds
 /// back the one other page they link, so a crawl that obeys none fetches
 /// a page of no site.
 #[test]
 fn a_polite_crawl_of_the_multi_domain_site_reaches_each_page_on_its_own_domain() {
     let proving_ground = ProvingGround::start(SEED);
-    let first = polite_url(&proving_ground, 1000, 1);
+    let first = polite_url(&proving_ground, 10_000, 1);
     let mut seen = BTreeSet::from([first.clone()]);
     let mut queue = vec![first];
     let mut held_back = BTreeSet::new();
+    let mut origins = BTreeSet::new();
     let mut robots = BTreeSet::new();
     while let Some(url) = queue.pop() {
         let page = proving_ground.get(&url);
         assert_eq!(page.status, 200, "{url}");
         let origin = url[..url.find("/sites/").expect("a site page")].to_owned();
-        robots.insert(proving_ground.get(&format!("{origin}/robots.txt")).body);
+        if origins.insert(origin.clone()) {
+            robots.insert(proving_ground.get(&format!("{origin}/robots.txt")).body);
+        }
         for href in hrefs(&page.body) {
             let link = if href.starts_with('/') {
                 format!("{origin}{href}")
@@ -132,11 +135,11 @@ fn a_polite_crawl_of_the_multi_domain_site_reaches_each_page_on_its_own_domain()
     assert_eq!(
         (seen, domains, held_back.len(), robots, private.status),
         (
-            (1..=1000)
-                .map(|page| polite_url(&proving_ground, 1000, page))
+            (1..=10_000)
+                .map(|page| polite_url(&proving_ground, 10_000, page))
                 .collect(),
-            50,
-            50,
+            1000,
+            1000,
             BTreeSet::from(["User-agent: *\nDisallow: /sites/*/private\n".to_owned()]),
             200
         )
@@ -158,7 +161,9 @@ fn a_multi_domain_page_on_another_domains_host_is_none() {
             .get(&format!("http://polite-4.localhost:{port}/sites/1000/3"))
             .status,
         proving_ground
-            .get(&format!("http://polite-51.localhost:{port}/sites/1000/51"))
+            .get(&format!(
+                "http://polite-1001.localhost:{port}/sites/10000/1001"
+            ))
             .status,
     ];
 
@@ -199,6 +204,180 @@ fn the_script_rendered_sites_links_are_seen_only_by_a_browser() {
     );
 }
 
+/// The realistic-page site (#2316): the scale site's tree, each page
+/// carrying an article of tens of kilobytes and 30 to 100 links, as a real
+/// site's does (crawlee-rs publishes its figures on pages of 58 KB). A
+/// page's header, menu and footer repeat the same links, and every page
+/// whose number ends in 7 is linked only through its old path, which
+/// answers `301` to it. A crawl that follows redirects still reaches each
+/// page once.
+#[test]
+fn the_realistic_sites_pages_are_tens_of_kilobytes_with_30_to_100_links() {
+    let proving_ground = ProvingGround::start(SEED);
+    let origin = format!("http://realistic.localhost:{}", proving_ground.port());
+    let pages: Vec<String> = (1..=1000)
+        .map(|page| proving_ground.get(&format!("{origin}/sites/1000/{page}")))
+        .map(|answer| {
+            assert_eq!(answer.status, 200);
+            answer.body
+        })
+        .collect();
+    let mut sizes: Vec<usize> = pages.iter().map(String::len).collect();
+    sizes.sort_unstable();
+    let links: Vec<Vec<String>> = pages.iter().map(|body| hrefs(body)).collect();
+    let outside: Vec<usize> = links
+        .iter()
+        .map(Vec::len)
+        .filter(|count| !(30..=100).contains(count))
+        .collect();
+    let repeated = links
+        .iter()
+        .filter(|hrefs| hrefs.iter().collect::<BTreeSet<_>>().len() < hrefs.len())
+        .count();
+    let moved = proving_ground.get(&format!("{origin}/sites/1000/moved/7"));
+    let mut crawler = Crawler::new(&proving_ground);
+    crawler.follow_scripts = false;
+    let urls: Vec<String> = crawler
+        .crawl(&format!("{origin}/sites/1000/1"))
+        .into_iter()
+        .map(|page| page.url)
+        .collect();
+    let reached: BTreeSet<String> = urls.iter().cloned().collect();
+
+    assert!(
+        sizes[sizes.len() / 2] >= 20_000,
+        "median {}",
+        sizes[sizes.len() / 2]
+    );
+    assert_eq!(
+        (
+            outside,
+            repeated,
+            moved.status,
+            moved.header("location"),
+            urls.len(),
+            reached,
+        ),
+        (
+            Vec::new(),
+            1000,
+            301,
+            Some("/sites/1000/7"),
+            1000,
+            (1..=1000)
+                .map(|page| format!("{origin}/sites/1000/{page}"))
+                .collect(),
+        )
+    );
+}
+
+/// White space collapsed, Unicode's included, and trimmed.
+fn collapsed(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The article site (#2136), for the extraction scenario: the scale site's
+/// tree, each page an article of a few paragraphs inside `<main>`, with a
+/// header, a nav, an aside and a footer around it, each holding a marker of
+/// its own, and one ad slot among the paragraphs that EasyList's
+/// `##.ad-slot` matches. Some titles carry entities and extra white space.
+/// `GET /article-answers/<size>` holds each page's right answer: its title,
+/// entity-decoded and white space collapsed, and its paragraphs, with the
+/// boilerplate's markers and the ad's.
+#[test]
+fn the_article_sites_pages_hold_an_article_among_boilerplate_and_an_ad_and_its_answers_are_right() {
+    let proving_ground = ProvingGround::start(SEED);
+    let origin = format!("http://article.localhost:{}", proving_ground.port());
+    let answers = proving_ground.control("/article-answers/1000").json();
+    let markers: Vec<&str> = answers["boilerplate"]
+        .as_array()
+        .expect("the boilerplate's markers")
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect();
+    let ad = answers["ad"].as_str().expect("the ad's marker");
+    let mut crawler = Crawler::new(&proving_ground);
+    crawler.follow_scripts = false;
+    let reached: BTreeSet<String> = crawler
+        .crawl(&format!("{origin}/sites/1000/1"))
+        .into_iter()
+        .map(|page| page.url)
+        .collect();
+    let mut sizes = Vec::new();
+    let mut raw_titles = Vec::new();
+    let mut wrong = Vec::new();
+
+    let title = regex::Regex::new("<title>([^<]*)</title>").expect("a valid expression");
+    for page in 1..=1000_usize {
+        let body = proving_ground
+            .get(&format!("{origin}/sites/1000/{page}"))
+            .body;
+        sizes.push(body.len());
+        raw_titles.push(title.captures(&body).expect("a title")[1].to_owned());
+        #[expect(
+            clippy::disallowed_types,
+            reason = "the test reads the page as a reader would: no Product's counted parse"
+        )]
+        let document = dom_query::Document::from(body.as_str());
+        let text = |selector: &str| collapsed(&document.select(selector).text());
+        let paragraphs: Vec<String> = document
+            .select("main > article > p")
+            .iter()
+            .map(|paragraph| collapsed(&paragraph.text()))
+            .collect();
+        let main = text("main");
+        let around = [
+            "body > header",
+            "body > nav",
+            "body > aside",
+            "body > footer",
+        ]
+        .map(text);
+        let answer = &answers["pages"][page - 1];
+        let right = answer["path"] == format!("/sites/1000/{page}")
+            && answer["title"] == text("title")
+            && answer["paragraphs"] == serde_json::json!(paragraphs)
+            && (3..=8).contains(&paragraphs.len())
+            && markers.len() == 4
+            && markers
+                .iter()
+                .zip(&around)
+                .all(|(marker, text)| text.contains(marker) && !main.contains(marker))
+            && text("main > article > .ad-slot").contains(ad)
+            && !paragraphs.iter().any(|paragraph| paragraph.contains(ad));
+        if !right {
+            wrong.push(page);
+        }
+    }
+
+    sizes.sort_unstable();
+    let past = proving_ground.control("/article-answers/10001");
+    assert_eq!(
+        (
+            wrong,
+            reached,
+            answers["pages"].as_array().map(Vec::len),
+            past.status
+        ),
+        (
+            Vec::new(),
+            (1..=1000)
+                .map(|page| format!("{origin}/sites/1000/{page}"))
+                .collect(),
+            Some(1000),
+            404
+        )
+    );
+    assert!(
+        (2_000..=8_000).contains(&sizes[500]),
+        "median {}",
+        sizes[500]
+    );
+    assert!(raw_titles.iter().any(|title| title.contains("&amp;")));
+    assert!(raw_titles.iter().any(|title| title.contains("&nbsp;")));
+    assert!(raw_titles.iter().any(|title| title.contains("  ")));
+}
+
 /// The comparison's sites are observed, so `just compare`'s same-work check
 /// reads what each tool fetched from them.
 #[test]
@@ -207,6 +386,8 @@ fn the_comparisons_sites_are_observed() {
     let port = proving_ground.port();
     proving_ground.get(&polite_url(&proving_ground, 1000, 7));
     proving_ground.get(&format!("http://rendered.localhost:{port}/sites/1000/7"));
+    proving_ground.get(&format!("http://realistic.localhost:{port}/sites/1000/7"));
+    proving_ground.get(&format!("http://article.localhost:{port}/sites/1000/7"));
 
     let observations = proving_ground.observations();
 
@@ -219,6 +400,41 @@ fn the_comparisons_sites_are_observed() {
         .collect();
     assert_eq!(
         hosts,
-        BTreeSet::from(["polite-7.localhost", "rendered.localhost"])
+        BTreeSet::from([
+            "article.localhost",
+            "polite-7.localhost",
+            "realistic.localhost",
+            "rendered.localhost"
+        ])
+    );
+}
+
+/// The pages of benchmark B4's site (ADR 0140, #2184), which
+/// `goodfetch-foxhound`'s counts example serves from memory: the fixture
+/// holds the documents of the article site of 16 pages, in page order, as
+/// the Proving ground serves them at this seed, so the benchmark counts
+/// the work of the pages the comparison's extraction scenario crawls.
+const BENCHMARK_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../crates/foxhound/goodfetch-foxhound/benches/fixtures/article-site-16.html"
+);
+
+#[test]
+fn the_extraction_benchmarks_fixture_is_the_article_site_of_16_pages() {
+    let proving_ground = ProvingGround::start(SEED);
+    let origin = format!("http://article.localhost:{}", proving_ground.port());
+
+    let served: String = (1..=16)
+        .map(|page| {
+            proving_ground
+                .get(&format!("{origin}/sites/16/{page}"))
+                .body
+        })
+        .collect();
+
+    let fixture = std::fs::read_to_string(BENCHMARK_FIXTURE).expect("the benchmark's fixture");
+    assert!(
+        served == fixture,
+        "{BENCHMARK_FIXTURE} is no longer the article site of 16 pages at the seed {SEED}"
     );
 }

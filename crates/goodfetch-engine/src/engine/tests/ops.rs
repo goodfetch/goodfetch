@@ -332,12 +332,14 @@ pub(super) fn series(registry: &prometheus::Registry) -> BTreeSet<String> {
 }
 
 /// `series` less what the run file and the Politeness file count, which is
-/// `xtask counts`' to hold, not this test's.
+/// `xtask counts`' to hold, not this test's, and less the size of the run
+/// files' write-ahead logs, which the run state's own tests hold.
 fn beside_the_run_file(series: BTreeSet<String>) -> BTreeSet<String> {
     series
         .into_iter()
         .filter(|line| {
-            !line.contains(r#"shared_path="run_state""#)
+            !line.starts_with("goodfetch_run_state_")
+                && !line.contains(r#"shared_path="run_state""#)
                 && !line.contains(r#"shared_path="politeness_permit""#)
         })
         .collect()
@@ -412,14 +414,14 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
         (
             beside_the_run_file(with_counted_work([
                 r#"goodfetch_client_connected{surface="cli"} 1"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 12"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 7"#.to_owned(),
                 "goodfetch_daemon_draining{} 0".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 1"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),
             ])),
             beside_the_run_file(with_counted_work([
                 r#"goodfetch_client_connected{surface="cli"} 0"#.to_owned(),
-                r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 16"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 10"#.to_owned(),
                 "goodfetch_daemon_draining{} 1".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 0"#.to_owned(),
                 r#"goodfetch_run_ended_total{completeness="complete",lifecycle="finished",run_kind="collie",verdict="verified"} 1"#.to_owned(),

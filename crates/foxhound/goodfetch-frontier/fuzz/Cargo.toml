@@ -1,8 +1,10 @@
 # goodfetch-frontier's cargo-fuzz targets (ADR 0067; TESTING.md, Fuzzing),
 # outside the workspace: each target's body is a plain function of the
 # Frontier, whose seeds and past crashers `fuzz_replay!` replays from
-# `fuzz/<target>/` on every OS. Build and run with the pinned nightly:
-# `cargo fuzz run url_key fuzz/url_key/seeds`, and `sitemap` alike.
+# `fuzz/<target>/` on every OS. Build and run with the pinned nightly, the
+# git-ignored corpus first so a run never grows the committed seeds:
+# `cargo fuzz run url_key fuzz/corpus/url_key fuzz/url_key/seeds
+# -- -dict=fuzz/url_key/dictionary.dict`, and likewise `sitemap`.
 [package]
 name = "goodfetch-frontier-fuzz"
 version = "0.0.0"

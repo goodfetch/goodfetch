@@ -73,10 +73,12 @@ fn changes() -> Contribution {
             engine
                 .known_certificates()
                 .pin(CALLER, HOST, &first, Some(&run_id), now)
+                .await
                 .unwrap();
             engine
                 .known_certificates()
                 .record_change(CALLER, HOST, &changed, Some(&run_id), now)
+                .await
                 .unwrap();
             Ok::<Value, CallError>(json!({}))
         },

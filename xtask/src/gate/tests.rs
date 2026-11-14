@@ -7,17 +7,20 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rstest::rstest;
 
+use super::host::{REMOVED_BY_THE_GATE, step_variables};
 use super::plan::{
-    Action, EarnedPasses, GateRun, Head, MAX_AGE, Outcome, Planned, Step, Touched, UNOWNED,
-    gate_input, narrowed, plan, unit,
+    Action, EarnedPasses, GateRun, Head, LintReads, MAX_AGE, Outcome, Planned, Step, Touched,
+    UNOWNED, gate_input, narrowed, plan, unit,
 };
 use super::steps::{Entry, Form, Kind, entries};
-use super::{plan_value, render, runs, step_variables};
+use super::{plan_value, render, runs};
 use crate::affected::{Job, RepoPath};
 
 const BASE: &str = "base";
 const EARLIER: &str = "earlier";
 const HOST: &str = "host";
+/// The tree of the head every case plans for, but those on `EARLIER`'s.
+const HEAD_TREE: &str = "head-tree";
 /// Now, in seconds since the Unix epoch, for every case.
 const NOW: u64 = 1_800_000_000;
 
@@ -88,14 +91,40 @@ fn planned_shuffling(
     record: Option<&GateRun>,
     touched: &BTreeMap<String, Touched>,
 ) -> Vec<Planned> {
+    let lint_holds = || Ok(());
     let head = Head {
         base: BASE,
         members,
         shuffled,
+        tree: HEAD_TREE,
         host: HOST,
         now: NOW,
+        lint: LintReads::new(&lint_holds),
     };
     plan(&head, record, "no earlier run", touched)
+}
+
+/// The plan for a head on `EARLIER`'s tree, where what lint reads besides
+/// the tree and the host reads as `lint_holds` now.
+fn planned_on_earliers_tree(record: &GateRun, lint_holds: Result<(), &str>) -> Vec<Planned> {
+    let members = members();
+    let tree = green(EARLIER).tree;
+    let lint_holds = || lint_holds.map_err(str::to_owned);
+    let head = Head {
+        base: BASE,
+        members: &members,
+        shuffled: &BTreeSet::new(),
+        tree: &tree,
+        host: HOST,
+        now: NOW,
+        lint: LintReads::new(&lint_holds),
+    };
+    plan(
+        &head,
+        Some(record),
+        "no earlier run",
+        &touched_since_earlier(Touched::default()),
+    )
 }
 
 fn action(plan: &[Planned], step: Step) -> &Action {
@@ -124,7 +153,7 @@ fn reruns(plan: &[Planned]) -> (BTreeSet<&'static str>, BTreeMap<&'static str, V
     (full, part)
 }
 
-/// The checks every run reruns, whatever the change.
+/// The checks every run on another tree reruns, whatever the change.
 const ALWAYS: [&str; 12] = [
     "dco",
     "commit-messages",
@@ -155,6 +184,36 @@ fn a_variable_whose_name_only_starts_as_the_launchers_stays() {
     let launched = "GOODFETCH_GATE_MIN_FREE_GB_PER_STEP=2\nNEXTEST_DOUBLE_SPAWN=0";
 
     assert_eq!(step_variables(launched), launched);
+}
+
+#[test]
+fn a_variable_the_gate_removes_before_its_steps_is_not_one_of_the_steps() {
+    let launched = "CARGO_BUILD_JOBS=4\nCARGO_INCREMENTAL=0\nNEXTEST_TEST_THREADS=4";
+
+    assert_eq!(step_variables(launched), "CARGO_INCREMENTAL=0");
+}
+
+/// The fingerprint may leave a variable out as removed only while
+/// `ci/pre-merge.sh` does remove it before its steps: one the script kept
+/// would reach them, and a result under another value of it would be reused.
+/// Read from the repository's own script, whose loop names those it removes.
+#[test]
+fn every_variable_the_fingerprint_leaves_out_as_removed_is_one_the_gate_removes() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask sits in the repository");
+    let script = std::fs::read_to_string(root.join("ci/pre-merge.sh")).expect("the repository's");
+    let removed: Vec<&str> = script
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("for variable in "))
+        .filter_map(|rest| rest.strip_suffix("; do"))
+        .filter(|names| !names.contains("GOODFETCH_"))
+        .flat_map(str::split_whitespace)
+        .collect();
+
+    for variable in REMOVED_BY_THE_GATE {
+        assert!(removed.contains(&variable), "{variable}: {removed:?}");
+    }
 }
 
 #[test]
@@ -791,6 +850,128 @@ fn a_changed_host_reruns_every_step() {
     assert!(part.is_empty());
 }
 
+/// The checks a run on the tree of their green result reuses.
+const TREE_ONLY: [Step; 4] = [
+    Step::Lint,
+    Step::FeatureCombinations,
+    Step::FuzzCheck,
+    Step::Proofs,
+];
+
+#[test]
+fn a_run_on_the_same_tree_reuses_the_checks_that_follow_from_the_tree_and_the_host() {
+    let plan = planned_on_earliers_tree(&full_green_run(), Ok(()));
+
+    for step in TREE_ONLY {
+        assert_eq!(
+            action(&plan, step),
+            &Action::Reuse {
+                origins: BTreeSet::from([EARLIER.to_owned()])
+            },
+            "{}",
+            step.name()
+        );
+    }
+    let (full, part) = reruns(&plan);
+    assert_eq!(
+        full,
+        BTreeSet::from([
+            "dco",
+            "commit-messages",
+            "floor-guard",
+            "commit-leaks",
+            "audit",
+            "notices",
+            "journeys-tasks",
+            "features-tests",
+        ])
+    );
+    assert!(part.is_empty());
+}
+
+#[test]
+fn another_tree_reruns_the_checks_that_follow_from_the_tree_and_the_host() {
+    let plan = planned(
+        Some(&full_green_run()),
+        &touched_since_earlier(Touched::default()),
+    );
+
+    for step in TREE_ONLY {
+        assert_eq!(
+            action(&plan, step),
+            &Action::Run {
+                why: "the tree changed since earlier".to_owned()
+            },
+            "{}",
+            step.name()
+        );
+    }
+}
+
+/// Lint also reads the day and GitHub (its register and quarantine checks):
+/// a result on the same tree holds only while they read as a green lint
+/// found them, and the other three checks read neither.
+#[test]
+fn lint_reruns_on_the_same_tree_when_what_it_reads_besides_the_tree_no_longer_holds() {
+    let plan = planned_on_earliers_tree(&full_green_run(), Err("issue #1601 is closed"));
+
+    assert_eq!(
+        action(&plan, Step::Lint),
+        &Action::Run {
+            why: "issue #1601 is closed".to_owned()
+        }
+    );
+    for step in [Step::FeatureCombinations, Step::FuzzCheck, Step::Proofs] {
+        assert_eq!(
+            action(&plan, step),
+            &Action::Reuse {
+                origins: BTreeSet::from([EARLIER.to_owned()])
+            },
+            "{}",
+            step.name()
+        );
+    }
+}
+
+#[rstest]
+#[case::on_another_host(
+    |record: &mut GateRun| record.host = "another host".to_owned(),
+    "the host or its tools changed since the run on earlier"
+)]
+#[case::older_than_a_day(
+    |record: &mut GateRun| {
+        for step in TREE_ONLY {
+            record.units.insert(unit(step, None), Outcome { at: NOW - MAX_AGE - 1, ..green(EARLIER) });
+        }
+    },
+    "its result on earlier is older than a day"
+)]
+#[case::red(
+    |record: &mut GateRun| {
+        for step in TREE_ONLY {
+            record.units.insert(unit(step, None), Outcome { green: false, ..green(EARLIER) });
+        }
+    },
+    "red on earlier"
+)]
+fn a_result_on_the_same_tree_reruns(#[case] change: fn(&mut GateRun), #[case] why: &str) {
+    let mut record = full_green_run();
+    change(&mut record);
+
+    let plan = planned_on_earliers_tree(&record, Ok(()));
+
+    for step in TREE_ONLY {
+        assert_eq!(
+            action(&plan, step),
+            &Action::Run {
+                why: why.to_owned()
+            },
+            "{}",
+            step.name()
+        );
+    }
+}
+
 #[test]
 fn a_result_older_than_a_day_reruns() {
     let mut record = full_green_run();
@@ -926,6 +1107,8 @@ const FULL_STEPS: [&str; 22] = [
     "perf",
     "linux",
     "visual",
+    "tlc",
+    "miri",
     "lint",
     "feature-combinations",
     "fuzz-check",
@@ -935,10 +1118,8 @@ const FULL_STEPS: [&str; 22] = [
     "stress",
     "journeys-tasks",
     "features-tests",
-    "tlc",
     "kennel",
     "msrv",
-    "miri",
 ];
 
 /// The steps that judge the whole change in seconds.
@@ -951,8 +1132,9 @@ const WHOLE_CHANGE_STEPS: [&str; 6] = [
     "notices",
 ];
 
-/// The steps that run beside the host's, in a container of their own.
-const BESIDE_STEPS: [&str; 3] = ["perf", "linux", "visual"];
+/// The steps that run beside the host's: each builds and writes in folders
+/// no host step reads, and its verdict is the one it gives after them.
+const BESIDE_STEPS: [&str; 5] = ["perf", "linux", "visual", "tlc", "miri"];
 
 /// The quick form's steps, in order: those that judge every change, never a
 /// test of the Pre-merge suite or a step beside the host's.
@@ -1003,6 +1185,31 @@ fn the_whole_changes_checks_end_the_full_gate_before_any_step_beside(#[case] for
         .min();
 
     assert!(last_check < first_beside, "{last_check:?} {first_beside:?}");
+}
+
+/// A step beside the host's that started after lint, the first of the
+/// host's steps that takes minutes, would wait behind it: each starts
+/// before it, after the checks of the whole change.
+#[rstest]
+#[case::all(Form::All)]
+#[case::changed(Form::Changed)]
+fn the_steps_beside_are_these_and_start_before_lint(#[case] form: Form) {
+    let list = entries(form);
+    let beside: Vec<&str> = list
+        .iter()
+        .filter(|entry| entry.kind == Kind::Beside)
+        .map(|entry| entry.name)
+        .collect();
+    let last_beside = BESIDE_STEPS
+        .map(|step| position(form, step))
+        .into_iter()
+        .max();
+
+    assert_eq!(beside, BESIDE_STEPS);
+    assert!(
+        last_beside < Some(position(form, "lint")),
+        "{last_beside:?}"
+    );
 }
 
 #[test]
@@ -1062,9 +1269,9 @@ fn a_plan_reads_back_each_steps_action_members_and_reason() {
     assert_eq!(plan_value(&text, "unowned").unwrap(), "-");
     assert_eq!(plan_value(&text, "quick.action").unwrap(), "part");
     assert_eq!(plan_value(&text, "quick.members").unwrap(), "xtask");
-    assert_eq!(plan_value(&text, "lint.action").unwrap(), "run");
+    assert_eq!(plan_value(&text, "audit.action").unwrap(), "run");
     assert_eq!(
-        plan_value(&text, "lint.why").unwrap(),
+        plan_value(&text, "audit.why").unwrap(),
         "every run reruns it"
     );
     assert_eq!(plan_value(&text, "perf.action").unwrap(), "reuse");

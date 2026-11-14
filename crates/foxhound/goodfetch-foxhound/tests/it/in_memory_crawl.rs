@@ -13,8 +13,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_engine::home::Home;
+use goodfetch_engine::ledger::Ledger;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_test_support::{CountingVfs, TestEnv};
+use jiff::Timestamp;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
@@ -319,9 +322,14 @@ fn parses(settings: &Value, planted: bool) -> u64 {
 /// B1 meets a Limit (ADR 0140's E3): every page's request is charged through
 /// the counted ledger, on the crawl's own engine, which the crawl with no
 /// Limit also reads and no Slice's transaction commits; a Slice's commit is
-/// the difference.
+/// the difference. A charge the Slices the Run holds cover runs no SQL
+/// (issue 1888), so the ledger counts one statement, the first charge's
+/// read of the Limits, which stay current on the crawl's paused clock;
+/// and the ledger holds one request per page as charged to the Limit once
+/// the crawl ended.
 #[test]
 fn a_crawl_under_a_limit_charges_each_page_through_the_counted_ledger() {
+    const LIMIT: u64 = 1_000_000;
     let charged = |limit: Option<u64>| {
         let env = TestEnv::new();
         let metrics = Metrics::none();
@@ -336,16 +344,31 @@ fn a_crawl_under_a_limit_charges_each_page_through_the_counted_ledger() {
                 ..Options::default()
             },
         );
+        let ledger = Ledger::at(Home::new(env.home().to_owned()).usage_ledger(), None);
+        let now = Timestamp::try_from(env.start_time()).unwrap();
+        let used: Vec<u64> = ledger
+            .limits()
+            .unwrap()
+            .iter()
+            .map(|limit| limit.amount - ledger.left(limit, now).unwrap())
+            .collect();
         (
-            work.read(Row::ChargeStatements),
-            work.read(Row::ChargeTransactions),
+            (
+                work.read(Row::ChargeStatements),
+                work.read(Row::ChargeTransactions),
+            ),
+            used,
         )
     };
 
-    let (limited, free) = (charged(Some(1_000_000)), charged(None));
+    let ((limited, used), (free, _)) = (charged(Some(LIMIT)), charged(None));
 
     let pages = u64::try_from(PAGES.len() + 1).unwrap();
-    assert!(limited.0 >= pages, "{limited:?} over {pages} pages");
+    assert_eq!(
+        (limited.0, used),
+        (1, vec![pages]),
+        "one read of the Limits, and each of the {pages} pages charged: {limited:?}"
+    );
     assert!(
         limited.1 > free.1,
         "a Slice taken commits: {limited:?} with a Limit, {free:?} without"
@@ -434,9 +457,9 @@ fn record_counts(planted: bool) -> ([u64; 7], u64) {
 /// B1's counts cell (ADR 0140): each Record of the code-free crawl, under its
 /// Dataset's schema, is validated and serialized once and commits in its
 /// attempt's transaction, reading no declaration and building no validator,
-/// both done when the crawl starts (ADR 0138); what its commit repeats per
-/// Record is counted (the Exception X8), and one planted unit per page adds
-/// exactly its Records' worth to every row. `xtask counts` holds the figures
+/// both done when the crawl starts (ADR 0138); its commit copies none of its
+/// data and looks up no value constant for the Run, and one planted unit per
+/// page adds exactly its Records' worth to every row. `xtask counts` holds the figures
 /// to the register, and `--prove` runs each plant through it.
 #[test]
 #[expect(
@@ -461,12 +484,16 @@ fn each_record_of_the_crawl_counts_its_work_and_a_plant_adds_one_a_record_to_eve
     ] = default;
     assert_eq!(records, u64::try_from(PAGES.len() + 1).unwrap());
     assert_eq!(
-        (reads, builds, validations, serializations, transactions),
-        (0, 0, records, records, 0)
-    );
-    assert!(
-        copies > 0 && lookups > 0,
-        "copies {copies}, lookups {lookups}"
+        (
+            reads,
+            builds,
+            validations,
+            serializations,
+            copies,
+            lookups,
+            transactions
+        ),
+        (0, 0, records, records, 0, 0, 0)
     );
     assert_eq!(
         std::array::from_fn::<u64, 7, _>(|row| planted[row] - default[row]),
@@ -475,13 +502,15 @@ fn each_record_of_the_crawl_counts_its_work_and_a_plant_adds_one_a_record_to_eve
 }
 
 /// The rows of the Frontier's admission, which every outcome reaches.
-const FRONTIER_ROWS: [Row; 12] = [
+const FRONTIER_ROWS: [Row; 14] = [
     Row::BatchInvariantReads,
     Row::BatchCompilations,
     Row::BatchTransactions,
     Row::HopInvariantReads,
     Row::HopCompilations,
     Row::HopTransactions,
+    Row::HopRoundTrips,
+    Row::HopEndRoundTrips,
     Row::SitemapInvariantReads,
     Row::SitemapCompilations,
     Row::SitemapTransactions,
@@ -533,7 +562,11 @@ fn frontier_crawl(globs: bool, schema: bool, planted: bool) -> Frontiers {
             metrics,
             settings: settings.as_object().unwrap().clone(),
             plant,
-            frontier: Some(Frontier { schema, items: 0 }),
+            frontier: Some(Frontier {
+                schema,
+                items: 0,
+                second_hop: true,
+            }),
             small_pages: true,
             ..Options::default()
         },
@@ -546,10 +579,28 @@ fn frontier_crawl(globs: bool, schema: bool, planted: bool) -> Frontiers {
     }
 }
 
+/// The rows of [`FRONTIER_ROWS`] that the Run's invariants, built once as
+/// it starts, keep at 0 on every outcome: none reads the Scope, the Payload
+/// rules or the Fragments again, nor compiles a glob of the Scope, a
+/// sitemap's rule or a Label's schema (#1896).
+const BUILT_ONCE: [Row; 7] = [
+    Row::BatchInvariantReads,
+    Row::BatchCompilations,
+    Row::HopInvariantReads,
+    Row::HopCompilations,
+    Row::SitemapInvariantReads,
+    Row::SitemapCompilations,
+    Row::PayloadCompilations,
+];
+
 /// B1's Frontier rows (ADR 0140): a batch's, a hop's, a sitemap's and a
-/// Payload's work are each counted on their own row, once the crawl met each
-/// outcome; a plant per page adds exactly its pages' worth to each; and with
-/// no glob in the Scope or no schema on the Label, their work goes.
+/// Payload's work are each counted on their own row; a plant per page adds
+/// exactly its pages' worth to each; the Run's invariants are built once,
+/// so no outcome reads or compiles one, a glob in the Scope or a schema on
+/// the Label included; the one seed with a Payload is serialized once and
+/// validated once, and with no schema on its Label not validated (#1896);
+/// a redirect hop's check and its chain's end are one round trip each to
+/// the actor that owns the crawl's Run state (#2246).
 #[test]
 #[expect(
     clippy::disallowed_methods,
@@ -570,20 +621,43 @@ fn each_outcome_of_the_frontier_counts_on_its_own_row_a_plant_adds_one_a_page_an
         )
     });
 
-    // The index and its pages, the redirect's target, the sitemap's entry and
-    // the seed with a Payload.
+    // The index and its pages, the redirect's target, which its chain
+    // reaches in two hops, the sitemap's entry and the seed with a Payload.
     assert_eq!(
         (default.pages, default.hops, default.sitemaps),
-        (u64::try_from(PAGES.len()).unwrap() + 4, 1, 1)
+        (u64::try_from(PAGES.len()).unwrap() + 4, 2, 1)
     );
     for row in FRONTIER_ROWS {
-        assert!(default.of(row) > 0, "{row:?} counted nothing");
         assert_eq!(planted.of(row) - default.of(row), default.pages, "{row:?}");
     }
-    assert!(no_globs.of(Row::BatchCompilations) < default.of(Row::BatchCompilations));
-    assert!(no_globs.of(Row::HopCompilations) < default.of(Row::HopCompilations));
-    assert_eq!(no_schema.of(Row::PayloadValidations), 0);
-    assert_eq!(no_schema.of(Row::PayloadCompilations), 0);
+    let built_once = |crawl: &Frontiers| BUILT_ONCE.map(|row| crawl.of(row));
+    assert_eq!(
+        (built_once(&default), built_once(&no_globs)),
+        ([0; 7], [0; 7])
+    );
+    for row in [Row::HopTransactions, Row::SitemapTransactions] {
+        assert!(default.of(row) > 0, "{row:?} counted nothing");
+    }
+    // A code-free page's links ride its outcome's job (#2245).
+    assert_eq!(default.of(Row::BatchTransactions), 0);
+    // Each of the redirect's two hops asks the actor that owns the Run
+    // state once, and their one chain's end once more (#2246).
+    assert_eq!(
+        (
+            default.of(Row::HopRoundTrips),
+            default.of(Row::HopEndRoundTrips)
+        ),
+        (default.hops, 1)
+    );
+    assert_eq!(
+        (
+            default.of(Row::PayloadSerializations),
+            default.of(Row::PayloadValidations),
+            no_schema.of(Row::PayloadSerializations),
+            no_schema.of(Row::PayloadValidations),
+        ),
+        (1, 1, 1, 0)
+    );
 }
 
 /// The run-state rows a crawl with `settings` counted and, when `planted`,

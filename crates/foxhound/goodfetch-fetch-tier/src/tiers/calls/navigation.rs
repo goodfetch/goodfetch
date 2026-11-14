@@ -69,7 +69,7 @@ pub(super) enum Step {
 pub(super) async fn navigate(
     tiers: &FetchTiers,
     page_id: &PageId,
-    page: ServedPage,
+    page: Arc<ServedPage>,
     step: Step,
     operation: &'static str,
 ) -> Result<Navigated, CallError> {
@@ -115,10 +115,10 @@ pub(super) async fn navigate(
         async move {
             let fetched = fetch(http.transport.as_ref(), &hop, &http.bounds, &clock).await;
             drop(held);
-            if let Err(error) = &fetched
-                && error.code() == EGRESS_REFUSED.name
+            if let Err(failure) = &fetched
+                && failure.error().code() == EGRESS_REFUSED.name
             {
-                let _ = refused_at_connection.set(error.clone());
+                let _ = refused_at_connection.set(failure.error().clone());
             }
             fetched
         }
@@ -129,7 +129,10 @@ pub(super) async fn navigate(
         (other, _) => stopped(other),
     })?;
     let extractor = page.document.extractor;
-    if let Err(refusal) = Gate::new(Arc::clone(&page.hand_over))
+    let (hand_over, forced) = (Arc::clone(&page.hand_over), page.choice.forced.is_some());
+    // The page changes below, which would copy it while this call held it.
+    drop(page);
+    if let Err(refusal) = Gate::new(Arc::clone(&hand_over))
         .judge_document(&DocumentResponse {
             url: fetched.url.as_str(),
             status: fetched.status,
@@ -140,7 +143,7 @@ pub(super) async fn navigate(
     {
         tiers.navigated(
             page_id,
-            blank(&run, &fetched.url, (extractor, &page.hand_over.untouched)),
+            blank(&run, &fetched.url, (extractor, &hand_over.untouched)),
             at,
         );
         return Err(refused(fetched.url.as_str(), &refusal));
@@ -149,7 +152,7 @@ pub(super) async fn navigate(
     // `crawl.content_types` (ADR 0119): a response that is no document
     // leaves the page holding none, and a document only a guess could read
     // is never served. The document is read on the CPU pool.
-    let opened = opened_on(&run, &fetched, (extractor, &page.hand_over.untouched)).await;
+    let opened = opened_on(&run, &fetched, (extractor, &hand_over.untouched)).await;
     if opened.read.is_none() && opened.not_document.is_none() {
         return Err(tiers.unserved(page_id, operation, false));
     }
@@ -169,9 +172,10 @@ pub(super) async fn navigate(
             .await
             .filter(|(block, _)| block.checks_the_browser())
         {
-            return Err(match page.choice.forced {
-                None => tiers.unserved(page_id, BLOCKED.name, false),
-                Some(_) => error,
+            return Err(if forced {
+                error
+            } else {
+                tiers.unserved(page_id, BLOCKED.name, false)
             });
         }
     }
@@ -193,7 +197,9 @@ async fn opened_on(
 ) -> Opened {
     let (reading, read, readers) = (run.clone(), fetched.clone(), Arc::clone(readers));
     run.owner()
-        .analysis(move || Opened::of(&reading, &read, (None, extractor), (&readers, false)))
+        .analysis(run.metrics().counted_work(), move || {
+            Opened::of(&reading, &read, (None, extractor), (&readers, false))
+        })
         .await
 }
 
@@ -230,25 +236,25 @@ struct Navigating {
 impl HopGate for Navigating {
     fn admit<'a>(&'a self, hop: &'a Hop) -> Gating<'a, Result<Permit, Stop>> {
         Box::pin(async move {
-            leased(&self.hand_over, self.operation).map_err(Stop::Failed)?;
+            leased(&self.hand_over, self.operation).map_err(Stop::failed)?;
             // The Run's egress policy judges the hop before anything is
             // sent for it, robots.txt included (spec #565).
             self.hand_over
                 .of_run
                 .address_check(&hop.url)
                 .await
-                .map_err(|refused| Stop::Failed(refused.error()))?;
+                .map_err(|refused| Stop::failed(refused.error()))?;
             let permit = {
                 let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
                 Gate::new(Arc::clone(&self.hand_over))
                     .admitted(&hop.url)
                     .await
                     .map_err(|refusal| {
-                        Stop::Failed(refused(hop.url.as_str(), &gate::refusal(refusal)))
+                        Stop::failed(refused(hop.url.as_str(), &gate::refusal(refusal)))
                     })?
             };
             // The wait for the permit may outlast the lease.
-            leased(&self.hand_over, self.operation).map_err(Stop::Failed)?;
+            leased(&self.hand_over, self.operation).map_err(Stop::failed)?;
             Ok(permit)
         })
     }
@@ -265,7 +271,7 @@ impl HopGate for Navigating {
 
     /// A handler's navigation is no crawl request's own send: it takes no
     /// token of its domain's sends, whichever hop it is.
-    fn sending<'a>(&'a self, hop: &'a Hop, _lead: bool) -> Gating<'a, ()> {
+    fn sending<'a>(&'a self, hop: &'a Hop, _lead: bool) -> Gating<'a, Result<(), Stop>> {
         Box::pin(self.hand_over.sending(hop, false))
     }
 
@@ -282,7 +288,7 @@ impl HopGate for Navigating {
 /// The error a navigation's chain ended with.
 fn stopped(stop: Stop) -> CallError {
     match stop {
-        Stop::Failed(error) => error,
+        Stop::Failed(failure) => failure.into_error(),
         // The navigation's gate refuses with an error, never a skip, and
         // the transport's egress refusal is answered as it is.
         Stop::Skipped(Skip { message, .. }) | Stop::RobotsTxtUnreachable { message, .. } => {

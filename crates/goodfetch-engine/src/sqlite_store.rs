@@ -10,7 +10,10 @@
 //! (ADR 0030). It also says which SQLite failure is a full disk or an I/O
 //! error (ADR 0122), which each store maps into its own typed error.
 //!
-//! Its calls block: callers run them under their owner's blocking policy.
+//! Its calls block: callers run them under their owner's blocking policy,
+//! or keep a file's connections in a [`KeptStore`], which runs them there.
+
+mod kept;
 
 use std::path::Path;
 use std::time::Duration;
@@ -21,6 +24,8 @@ use goodfetch_protocol::formats::{Compatibility, Format};
 use rusqlite::{Connection, OpenFlags, TransactionBehavior};
 
 use crate::sqlite_wal;
+
+pub(crate) use kept::{KeptStore, StoreFile};
 
 /// The table that names a store's format and its version (ADR 0066), the
 /// first of every store's tables.
@@ -459,6 +464,81 @@ pub(crate) fn no_checkpoint_on_close(connection: &Connection) -> rusqlite::Resul
             true,
         )
         .map(drop)
+}
+
+/// Runs `statement`, which binds nothing, through `connection`'s statement
+/// cache: a writer's transactions and savepoints prepare once per
+/// connection, not once per group, job or entry, as rusqlite's own
+/// transactions do (ADR 0138).
+pub(crate) fn run_cached(connection: &Connection, statement: &str) -> rusqlite::Result<()> {
+    connection.prepare_cached(statement)?.execute([]).map(drop)
+}
+
+/// What begins an [`immediate`] transaction.
+const BEGIN_IMMEDIATE: &str = "BEGIN IMMEDIATE";
+
+/// What commits a transaction.
+const COMMIT: &str = "COMMIT";
+
+/// Runs `work` in one `BEGIN IMMEDIATE` transaction of `connection`, its
+/// `BEGIN`, `COMMIT` and `ROLLBACK` through the statement cache, as
+/// [`run_cached`] runs them: commits once `work` succeeds, and rolls back
+/// when it or the commit fails. A rollback that fails too leaves the
+/// transaction open, so its caller lets `connection` go, which ends it.
+///
+/// # Errors
+///
+/// `work`'s error, or SQLite's at the `BEGIN` or the `COMMIT`.
+pub(crate) fn immediate<T, E: From<rusqlite::Error>>(
+    connection: &Connection,
+    work: impl FnOnce(&Connection) -> Result<T, E>,
+) -> Result<T, E> {
+    transaction(connection, BEGIN_IMMEDIATE, work)
+}
+
+/// Prepares `statements` and the `BEGIN` and `COMMIT` of the [`immediate`]
+/// transaction that runs them, once in `connection`'s statement cache:
+/// done as a connection is set up, its first such transaction prepares
+/// none (ADR 0140).
+///
+/// # Errors
+///
+/// SQLite's, at a statement it cannot prepare.
+pub(crate) fn prepare_immediate(
+    connection: &Connection,
+    statements: &[&str],
+) -> rusqlite::Result<()> {
+    for statement in [BEGIN_IMMEDIATE, COMMIT].iter().chain(statements) {
+        connection.prepare_cached(statement)?;
+    }
+    Ok(())
+}
+
+/// Runs `work` in one deferred transaction of `connection`, which takes no
+/// write lock until `work` writes, as [`immediate`] runs its own.
+///
+/// # Errors
+///
+/// As [`immediate`].
+pub(crate) fn deferred<T, E: From<rusqlite::Error>>(
+    connection: &Connection,
+    work: impl FnOnce(&Connection) -> Result<T, E>,
+) -> Result<T, E> {
+    transaction(connection, "BEGIN", work)
+}
+
+fn transaction<T, E: From<rusqlite::Error>>(
+    connection: &Connection,
+    begin: &str,
+    work: impl FnOnce(&Connection) -> Result<T, E>,
+) -> Result<T, E> {
+    run_cached(connection, begin)?;
+    let done =
+        work(connection).and_then(|answer| Ok(run_cached(connection, COMMIT).map(|()| answer)?));
+    if done.is_err() && !connection.is_autocommit() {
+        let _ = run_cached(connection, "ROLLBACK");
+    }
+    done
 }
 
 #[cfg(test)]

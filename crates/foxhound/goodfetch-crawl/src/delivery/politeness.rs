@@ -11,23 +11,18 @@ use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::Run;
 use goodfetch_frontier::backoff_classes::{Class, Met, class};
 use goodfetch_protocol::block::BlockCause;
-use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
 use goodfetch_protocol::foxhound::crawl::RESPONSE_UNAVAILABLE;
-use goodfetch_protocol::page::{NAVIGATION_FAILED, PageResponse};
-use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
+use goodfetch_protocol::page::PageResponse;
 use serde_json::{Map, Value};
 use tokio::time::Instant;
 
-use super::attempt::{Answer, block_cause};
+use super::attempt::Answer;
+use super::failure::{RETRY_AFTER, Why};
 use crate::work_items::{self, Failure, Unsuccessful};
 
 /// The `fix` of a request a site's `Retry-After` holds further away than
 /// the Run waits (ADR 0118).
 pub(super) const RETRY_AFTER_FIX: &str = "The site asked for no request to its domain before `retry_after`, further away than `politeness.retry_after.max`: re-admit the request with `run.retry_failed` once the site is back, or raise `politeness.retry_after.max` for the crawl to wait that long.";
-
-/// The detail naming the time a site's `Retry-After` asked for, as the
-/// engine's `blocked` spells it on the wire (ADRs 0038 and 0118).
-const RETRY_AFTER: &str = "retry_after";
 
 /// The header a proxy names its own errors in (RFC 9209), lower-cased as a
 /// response's headers are.
@@ -72,45 +67,29 @@ pub(super) fn domain_ending(
 /// holds the domain until then (ADR 0118). A proxy's own refusal backs no
 /// domain off.
 fn failure_ending(answer: &Answer, now: Instant, wall: SystemTime) -> Ended {
-    let (code, details) = match answer {
-        Answer::Failed { code, details, .. } => (code, details),
+    let failure = match answer {
+        Answer::Failed(failure) => failure,
         // robots.txt is the whole origin's file: one that answers 429 or
         // 5xx, or no answer, backs off the domain as a 503 does (ADR 0086).
         // A hop's on another domain key says nothing of this request's.
         Answer::RobotsTxtUnreachable(_) => return Ended::BackOff(None),
         _ => return Ended::Done,
     };
-    let asked = details
-        .get(RETRY_AFTER)
-        .and_then(retry_after::of_detail)
-        .map(|asked| at(asked, now, wall));
-    if block_cause(code, details) == Some(BlockCause::RateLimit) {
-        return Ended::TooManyRequests(asked);
-    }
-    let unavailable = code == RESPONSE_UNAVAILABLE.name
-        && details
-            .get("status")
-            .and_then(Value::as_u64)
-            .and_then(|status| u16::try_from(status).ok())
-            .is_some_and(|status| class(site_response(status)) == Class::BackOff);
-    if unavailable {
-        return Ended::BackOff(asked);
-    }
-    let unreachable = code == NAVIGATION_FAILED.name
-        && details
-            .get("error")
-            .and_then(Value::as_str)
-            .is_some_and(|error| class(Met::Failure { error }) == Class::BackOff);
-    let timed_out = code == DEADLINE_EXCEEDED.name
-        && details
-            .get("limit")
-            .and_then(|limit| limit.get("key"))
-            .and_then(Value::as_str)
-            .is_some_and(|key| [TIMEOUT_FIRST_BYTE.name, TIMEOUT_NAVIGATION.name].contains(&key));
-    if unreachable || timed_out {
-        Ended::BackOff(None)
-    } else {
-        Ended::Done
+    let asked = || failure.retry_after().map(|asked| at(asked, now, wall));
+    match failure.why() {
+        Why::Blocked(BlockCause::RateLimit) => Ended::TooManyRequests(asked()),
+        Why::Unavailable(Some(status)) if class(site_response(*status)) == Class::BackOff => {
+            Ended::BackOff(asked())
+        }
+        Why::Unreachable | Why::TimedOut => Ended::BackOff(None),
+        Why::Blocked(_)
+        | Why::Unavailable(_)
+        | Why::PageCheckFailed { .. }
+        | Why::Proxy
+        | Why::Handler
+        | Why::OutcomeNotWritten
+        | Why::Panicked
+        | Why::Other => Ended::Done,
     }
 }
 
@@ -167,17 +146,14 @@ pub(super) fn held_past_bound(
     longest_wait: Option<Duration>,
 ) -> Option<SystemTime> {
     let longest_wait = longest_wait?;
-    let Answer::Failed { details, .. } = answer else {
+    let Answer::Failed(failure) = answer else {
         return None;
     };
-    details
-        .get(RETRY_AFTER)
-        .and_then(retry_after::of_detail)
-        .filter(|until| {
-            until
-                .duration_since(asked)
-                .is_ok_and(|wait| wait > longest_wait)
-        })
+    failure.retry_after().filter(|until| {
+        until
+            .duration_since(asked)
+            .is_ok_and(|wait| wait > longest_wait)
+    })
 }
 
 /// Ends `failed` with `response_unavailable` each request admitted while

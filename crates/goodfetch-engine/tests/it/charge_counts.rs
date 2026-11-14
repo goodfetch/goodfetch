@@ -13,17 +13,24 @@ fn counted(limited: bool, planted: Option<&str>) -> Counted {
     charges(folder.path(), limited, planted, None)
 }
 
-/// Covered charges and Slices taken are told apart: a covered charge opens
-/// nothing and commits nothing, and a Slice's transaction syncs.
+/// Covered charges and Slices taken are told apart: a covered charge runs
+/// no statement, a Slice is one transaction and one sync, and no charge
+/// opens the ledger, which the run opened as it started (#1886, #1888).
 #[test]
 fn a_covered_charge_and_a_slice_taken_each_count_their_own_work() {
     let default = counted(true, None);
 
-    assert_eq!((default.covered, default.slices), (36, 4));
-    assert_eq!(default.statements, default.covered, "{default:?}");
-    assert!(default.transactions >= default.slices, "{default:?}");
-    assert!(default.syncs >= default.slices, "{default:?}");
-    assert!(default.opens >= default.slices, "{default:?}");
+    assert_eq!(
+        default,
+        Counted {
+            covered: 36,
+            slices: 4,
+            statements: 0,
+            transactions: 4,
+            syncs: 4,
+            opens: 0,
+        }
+    );
 }
 
 /// Each row's plant adds one unit per its outcome, and nothing to the others'.
@@ -47,12 +54,21 @@ fn a_plant_adds_one_unit_per_outcome_of_its_row() {
 }
 
 /// With no Limit holding the run, no charge takes a Slice, so the Slice's
-/// transactions and syncs go with it, and fewer connections open.
+/// transactions and syncs go with it, and no charge opens or reads a
+/// ledger no engine created.
 #[test]
 fn no_limit_takes_the_slices_work_away() {
-    let (default, off) = (counted(true, None), counted(false, None));
+    let off = counted(false, None);
 
-    assert_eq!((off.covered, off.slices), (40, 0));
-    assert_eq!((off.transactions, off.syncs), (0, 0));
-    assert!(off.opens < default.opens, "{off:?} against {default:?}");
+    assert_eq!(
+        off,
+        Counted {
+            covered: 40,
+            slices: 0,
+            statements: 0,
+            transactions: 0,
+            syncs: 0,
+            opens: 0,
+        }
+    );
 }

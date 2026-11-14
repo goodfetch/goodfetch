@@ -24,10 +24,10 @@ use std::collections::BTreeMap;
 use goodfetch_engine::admission::{Ended, Gate as _};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::entropy::Entropy;
-use goodfetch_engine::run_state::{RunState, RunStateOptions};
+use goodfetch_engine::run_state::{BatchRows as _, BatchWriter, RunState, RunStateOptions};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_frontier::{
-    BOUNDS_TABLES, Candidate, Declared, DomainKeys, DomainQueues, SCOPE_TABLES, Scope,
+    BOUNDS_TABLES, Bounds, Candidate, Declared, DomainKeys, DomainQueues, SCOPE_TABLES, Scope,
     VISITED_TABLES, admit,
 };
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
@@ -206,7 +206,8 @@ impl Subject {
             };
             admit(
                 connection,
-                &Scope::default(),
+                &goodfetch_frontier::Invariants::new(Scope::default(), Bounds::read(connection)?)
+                    .unwrap(),
                 &Policy::new(&["*"], &[] as &[&str]).unwrap(),
                 Candidate::Seed {
                     url: &url,
@@ -241,7 +242,7 @@ impl Subject {
             1,
             "the request just added is read not keyed yet"
         );
-        self.write(move |connection| super::set_keys(connection, &keys));
+        self.write(move |connection| super::DomainKeys(keys).write(&BatchWriter::over(connection)));
     }
 
     /// Leases the next pending request of `url`'s domain, as its queue fills
@@ -297,6 +298,7 @@ impl Subject {
                         not_added: &[],
                         work: &goodfetch_counted_work::CountedWork::default(),
                         keeps_records: true,
+                        clean_up_rules: &super::CleanUpRules::default(),
                     },
                 )
             }

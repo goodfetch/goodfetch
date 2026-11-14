@@ -5,8 +5,10 @@
 //! sets one (`labels`), so a logged-in section of a site and its public
 //! section never share a Session. In each pool, a request goes to a new
 //! Session while the pool has room, as Crawlee's does, then to one drawn
-//! from `Entropy` among the Sessions open at its domain's proxy tier; with
-//! none open there, the drawn Session makes room. A Session is retired once
+//! from `Entropy` among the Sessions open at its domain's proxy tier that
+//! send from the client it needs, its own HTTP transport or its browser
+//! ([`SendsFrom`]); with none open there, the drawn Session makes room, so
+//! `max_size` bounds both clients together. A Session is retired once
 //! its error score reaches `max_error_score`, after `max_uses` requests or
 //! at `max_age`. A block that escalates retires its Session (ADR 0021):
 //! `rate_limit` and `ip_block` move its domain one proxy tier up, where the
@@ -48,7 +50,7 @@ use rusqlite::Connection;
 
 use crate::labels::PoolKey;
 use crate::settings::PoolSettings;
-use crate::store::{self, Changes, StoredSession, StoredTier};
+use crate::store::{self, Changes, SendsFrom, StoredSession, StoredTier};
 
 /// What an attempt's ending says of the Session that served it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,7 +88,8 @@ enum Retirement {
     /// A block that moves its domain to the browser tier, such as a
     /// Challenge.
     Blocked,
-    /// It made room for a Session at another proxy tier.
+    /// It made room for a Session at another proxy tier, or of the other
+    /// client.
     PoolFull,
 }
 
@@ -283,12 +286,16 @@ impl SessionPool {
     }
 
     /// The Session of `pool` that serves a request on `domain_key` at
-    /// `now`, which counts as one of its uses, and as one attempt it serves
-    /// until [`SessionPool::settle`].
+    /// `now`, sent from `sends_from`, which counts as one of its uses, and
+    /// as one attempt it serves until [`SessionPool::settle`]. It is never
+    /// a Session of the other client: with no room, and none of that client
+    /// open at the domain's proxy tier, one drawn among every open Session
+    /// makes room.
     pub fn draw(
         &mut self,
         pool: &PoolKey,
         domain_key: &str,
+        sends_from: SendsFrom,
         settings: &PoolSettings,
         now: SystemTime,
     ) -> ServingSession {
@@ -299,18 +306,20 @@ impl SessionPool {
             let at_tier: Vec<u64> = sessions
                 .open
                 .iter()
-                .filter(|(_, open)| open.stored.proxy_tier == tier)
+                .filter(|(_, open)| {
+                    open.stored.proxy_tier == tier && open.stored.sends_from == sends_from
+                })
                 .map(|(position, _)| *position)
                 .collect();
             let every: Vec<u64> = sessions.open.keys().copied().collect();
             (sessions.open.len() < settings.max_size, at_tier, every)
         };
         let position = if room {
-            self.open_session(pool, tier, now, domain_key)
+            self.open_session(pool, tier, sends_from, now, domain_key)
         } else if at_tier.is_empty() {
             let making_room = self.pick(&every);
             self.retire(pool, making_room, Retirement::PoolFull);
-            self.open_session(pool, tier, now, domain_key)
+            self.open_session(pool, tier, sends_from, now, domain_key)
         } else {
             self.pick(&at_tier)
         };
@@ -507,12 +516,13 @@ impl SessionPool {
         }
     }
 
-    /// Opens a Session of `pool` at `tier` for a request on `domain_key`
-    /// and answers its position.
+    /// Opens a Session of `pool` at `tier`, sending from `sends_from`, for
+    /// a request on `domain_key` and answers its position.
     fn open_session(
         &mut self,
         pool: &PoolKey,
         tier: ProxyTier,
+        sends_from: SendsFrom,
         now: SystemTime,
         domain_key: &str,
     ) -> u64 {
@@ -522,6 +532,7 @@ impl SessionPool {
         sessions.opened = position;
         let stored = StoredSession {
             proxy_tier: tier,
+            sends_from,
             opened_at: now,
             uses: 0,
             error_score: 0.0,

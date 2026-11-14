@@ -104,7 +104,7 @@ fn three() -> Value {
 /// `session.pool.max_size` (ADR 0006).
 pub const SESSION_POOL_MAX_SIZE: Setting = Setting {
     name: "session.pool.max_size",
-    description: "How many Sessions a crawl's Session pool keeps open at once: 100. A request goes to a new Session while the pool has room, then to one drawn among those open.",
+    description: "How many Sessions a crawl's Session pool keeps open at once, whether each sends from its own HTTP transport or from its browser: 100. A request goes to a new Session while the pool has room, then to one drawn among those open that send from the client it needs.",
     kind: ValueKind::Count,
     default: one_hundred,
     clearable: false,

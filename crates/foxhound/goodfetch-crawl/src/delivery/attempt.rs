@@ -106,8 +106,8 @@ use goodfetch_protocol::foxhound::settings::{
 use goodfetch_protocol::page::{NAVIGATION_FAILED, PageId, PageResponse};
 use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
 use goodfetch_protocol::settings::page_check::PageCheck;
-use goodfetch_session_pool::Effect;
 use goodfetch_session_pool::escalation::{self, Action, Met};
+use goodfetch_session_pool::{Effect, SendsFrom};
 use tokio::sync::{Mutex, oneshot};
 
 use super::failure::{AttemptFailure, Why};
@@ -931,16 +931,12 @@ impl On<'_> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let tiers = &tiering.tiers;
         let hand_over = self.hand_over;
-        // A Session that may move to the browser, under `auto`, sends its
-        // HTTP from inside its browser, so its fingerprint and cookies stay
-        // the Session's on both tiers (ADR 0020; pitfall H20), and so does
-        // one forced onto `browser_fetch`.
-        // A Session forced onto its own transport keeps its cookies in a
-        // jar of its own there (ADR 0021).
-        let http = &if choice.forced.is_none() || choice.tier == FetchTier::BrowserFetch {
-            tiers.in_browser(http, run, self.in_browser, hand_over, self.context)
-        } else {
-            http.keeping_cookies_of(&self.session.id)
+        // The client the Session was drawn for (`tier_choice::sends_from`).
+        let http = &match crate::tier_choice::sends_from(choice) {
+            SendsFrom::Browser => {
+                tiers.in_browser(http, run, self.in_browser, hand_over, self.context)
+            }
+            SendsFrom::Transport => http.keeping_cookies_of(&self.session.id),
         };
         let (served, facts) = self
             .document(tiering, http, choice, hand_over)

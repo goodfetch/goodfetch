@@ -67,18 +67,27 @@ enum Keeping {
 /// The declarations, and the validator of each one's schema, at the same
 /// position: none for a Dataset with no schema, or for one whose schema the
 /// run file holds but no longer builds, under which a Record holds as it is.
+/// Beside them, at the same position, the hash of each one's schema as the
+/// run file keeps it, which each of its Records takes: none for a Dataset
+/// with no schema.
 #[derive(Debug, Default)]
 struct Declared {
     declarations: Vec<DatasetDeclaration>,
     validators: Vec<Option<jsonschema::Validator>>,
+    schema_hashes: Vec<Option<Arc<str>>>,
 }
 
 impl Declared {
-    /// `declarations`, with the validator of each schema `built` gives.
+    /// The declarations `kept` holds, each beside its schema's hash, with
+    /// the validator of each schema `built` gives.
     fn of(
-        declarations: Vec<DatasetDeclaration>,
+        kept: Vec<(DatasetDeclaration, Option<String>)>,
         built: impl Fn(&DatasetDeclaration, &Value) -> Option<jsonschema::Validator>,
     ) -> Self {
+        let (declarations, schema_hashes): (Vec<_>, Vec<_>) = kept
+            .into_iter()
+            .map(|(declaration, hash)| (declaration, hash.map(Arc::from)))
+            .unzip();
         let validators = declarations
             .iter()
             .map(|declaration| {
@@ -89,8 +98,16 @@ impl Declared {
         Self {
             declarations,
             validators,
+            schema_hashes,
         }
     }
+}
+
+/// A declared Dataset, as a Record's check finds it.
+struct Found<'a> {
+    declaration: &'a DatasetDeclaration,
+    validator: Option<&'a jsonschema::Validator>,
+    schema_hash: Option<&'a Arc<str>>,
 }
 
 /// Two Datasets are equal when they declare the same, their validators
@@ -165,6 +182,15 @@ impl Datasets {
             Arc::new(Declared {
                 declarations: declarations.to_vec(),
                 validators,
+                schema_hashes: declarations
+                    .iter()
+                    .map(|declaration| {
+                        declaration
+                            .schema
+                            .as_ref()
+                            .map(|schema| hash(schema).into())
+                    })
+                    .collect(),
             }),
             Keeping::Records,
         ))
@@ -183,12 +209,19 @@ impl Datasets {
              ON CONFLICT (name) DO UPDATE SET position = excluded.position,
                  schema = excluded.schema, schema_hash = excluded.schema_hash, key = excluded.key",
         )?;
-        for (position, declaration) in self.0.declarations.iter().enumerate() {
+        let Declared {
+            declarations,
+            schema_hashes,
+            ..
+        } = &*self.0;
+        for (position, (declaration, schema_hash)) in
+            declarations.iter().zip(schema_hashes).enumerate()
+        {
             insert.execute((
                 &declaration.name,
                 i64::try_from(position).unwrap_or(i64::MAX),
                 declaration.schema.as_ref().map(Value::to_string),
-                declaration.schema.as_ref().map(hash),
+                schema_hash.as_deref(),
                 Value::from(declaration.key.clone()).to_string(),
             ))?;
         }
@@ -220,16 +253,16 @@ impl Datasets {
     }
 
     /// The declarations the run file `connection` holds, each schema's
-    /// validator built, as a resuming crawl takes them; a row that no longer
-    /// reads is left out, and a schema that no longer builds checks nothing.
+    /// validator built and its hash as the run file keeps it, as a resuming
+    /// crawl takes them; a row that no longer reads is left out, and a
+    /// schema that no longer builds checks nothing.
     ///
     /// # Errors
     ///
     /// The run file's, when the rows cannot be read.
     pub fn read(connection: &Connection) -> rusqlite::Result<Self> {
-        let Declarations(declarations) = Declarations::read(connection)?;
         Ok(Self(
-            Arc::new(Declared::of(declarations, |declaration, schema| {
+            Arc::new(Declared::of(kept(connection)?, |declaration, schema| {
                 built(schema)
                 .inspect_err(|error| {
                     tracing::warn!(dataset = %declaration.name, %error, "a declared Dataset's schema in the run file no longer builds; its Records are not checked against it");
@@ -259,10 +292,13 @@ impl Datasets {
             }
             return Ok(Checked::default());
         }
-        for record in &records {
-            self.check_one(record, work)?;
-        }
-        Ok(Checked::new(records))
+        let schema_hashes = records
+            .iter()
+            .map(|record| self.check_one(record, work))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Checked::new(
+            records.into_iter().zip(schema_hashes).collect(),
+        ))
     }
 
     /// `record`, once it holds for the Dataset it names, as
@@ -288,8 +324,10 @@ impl Datasets {
             };
         }
         let issues = match self.issues(&record, work) {
-            Ok(issues) if issues.is_empty() => return Ok(Checked::new(vec![record])),
-            Ok(issues) => issues,
+            Ok((issues, schema_hash)) if issues.is_empty() => {
+                return Ok(Checked::new(vec![(record, schema_hash)]));
+            }
+            Ok((issues, _)) => issues,
             Err(error) => {
                 return Err(Refused {
                     error,
@@ -313,20 +351,24 @@ impl Datasets {
         })
     }
 
-    /// The declaration of the Dataset `name`, and its schema's validator.
-    fn declared(
-        &self,
-        name: &str,
-    ) -> Result<(&DatasetDeclaration, Option<&jsonschema::Validator>), CallError> {
+    /// The declaration of the Dataset `name`, with its schema's validator
+    /// and hash.
+    fn declared(&self, name: &str) -> Result<Found<'_>, CallError> {
         let Declared {
             declarations,
             validators,
+            schema_hashes,
         } = &*self.0;
         declarations
             .iter()
             .zip(validators)
-            .find(|(declared, _)| declared.name == name)
-            .map(|(declared, validator)| (declared, validator.as_ref()))
+            .zip(schema_hashes)
+            .find(|((declared, _), _)| declared.name == name)
+            .map(|((declaration, validator), schema_hash)| Found {
+                declaration,
+                validator: validator.as_ref(),
+                schema_hash: schema_hash.as_ref(),
+            })
             .ok_or_else(|| {
                 unknown(
                     declarations,
@@ -338,23 +380,35 @@ impl Datasets {
             })
     }
 
-    fn check_one(&self, record: &PushedRecord, work: &CountedWork) -> Result<(), CallError> {
-        let issues = self.issues(record, work)?;
+    /// The hash of the schema `record` holds under, its Dataset's.
+    fn check_one(
+        &self,
+        record: &PushedRecord,
+        work: &CountedWork,
+    ) -> Result<Option<Arc<str>>, CallError> {
+        let (issues, schema_hash) = self.issues(record, work)?;
         if issues.is_empty() {
-            return Ok(());
+            return Ok(schema_hash);
         }
         Err(invalid(&record.dataset, issues))
     }
 
     /// Each way `record` does not hold for the Dataset it names, checked
-    /// once.
+    /// once, and the hash of that Dataset's schema.
     fn issues(
         &self,
         record: &PushedRecord,
         work: &CountedWork,
-    ) -> Result<Vec<RecordIssue>, CallError> {
-        let (declaration, validator) = self.declared(&record.dataset)?;
-        Ok(issues(declaration, validator, &record.data, work))
+    ) -> Result<(Vec<RecordIssue>, Option<Arc<str>>), CallError> {
+        let Found {
+            declaration,
+            validator,
+            schema_hash,
+        } = self.declared(&record.dataset)?;
+        Ok((
+            issues(declaration, validator, &record.data, work),
+            schema_hash.cloned(),
+        ))
     }
 }
 
@@ -372,32 +426,12 @@ impl Declarations {
     ///
     /// The run file's, when the rows cannot be read.
     pub fn read(connection: &Connection) -> rusqlite::Result<Self> {
-        if !DATASETS_TABLE.held_by(connection)? {
-            return Ok(Self::default());
-        }
-        let mut select = connection
-            .prepare_cached("SELECT name, schema, key FROM datasets ORDER BY position")?;
-        let rows = select.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })?;
-        let mut declared = Vec::new();
-        for row in rows {
-            let (name, schema, key) = row?;
-            let schema = schema
-                .map(|schema| serde_json::from_str(&schema))
-                .transpose();
-            match (schema, serde_json::from_str(&key)) {
-                (Ok(schema), Ok(key)) => declared.push(DatasetDeclaration { name, schema, key }),
-                _ => {
-                    tracing::warn!(dataset = %name, "a declared Dataset in the run file no longer reads");
-                }
-            }
-        }
-        Ok(Self(declared))
+        Ok(Self(
+            kept(connection)?
+                .into_iter()
+                .map(|(declaration, _)| declaration)
+                .collect(),
+        ))
     }
 
     /// The declarations, in the order declared.
@@ -424,6 +458,42 @@ impl Declarations {
             ),
         ))
     }
+}
+
+/// The declarations the run file `connection` holds, in the order
+/// declared, each beside its schema's hash as the file keeps it; a row that
+/// no longer reads is left out, and a run file no crawl wrote, which holds
+/// no Dataset's table, declares none.
+fn kept(connection: &Connection) -> rusqlite::Result<Vec<(DatasetDeclaration, Option<String>)>> {
+    if !DATASETS_TABLE.held_by(connection)? {
+        return Ok(Vec::new());
+    }
+    let mut select = connection
+        .prepare_cached("SELECT name, schema, key, schema_hash FROM datasets ORDER BY position")?;
+    let rows = select.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, Option<String>>(3)?,
+        ))
+    })?;
+    let mut declared = Vec::new();
+    for row in rows {
+        let (name, schema, key, schema_hash) = row?;
+        let schema = schema
+            .map(|schema| serde_json::from_str(&schema))
+            .transpose();
+        match (schema, serde_json::from_str(&key)) {
+            (Ok(schema), Ok(key)) => {
+                declared.push((DatasetDeclaration { name, schema, key }, schema_hash));
+            }
+            _ => {
+                tracing::warn!(dataset = %name, "a declared Dataset in the run file no longer reads");
+            }
+        }
+    }
+    Ok(declared)
 }
 
 /// `dataset_unknown` for `name` among `declarations`, saying `message`.

@@ -9,14 +9,12 @@
 //! refuses it with `attempt_ended`, and a declared Effect's body with
 //! `effect_staging_refused`.
 
-use goodfetch_counted_work::Row;
 use goodfetch_dataset::Refused;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, PushedRecord};
 use goodfetch_protocol::foxhound::dataset::{
     CRAWL_REQUEST_PUSH, CrawlRequestPushParams, CrawlRequestPushed,
 };
-use goodfetch_protocol::run::{RUN_STATE_UNAVAILABLE, RunDetails};
 
 use crate::serving::{Crawls, LiveCrawl};
 
@@ -57,35 +55,29 @@ async fn push(
     else {
         return Err(ended());
     };
-    let work_item = crawl_request_id.clone();
+    // The attempt's staging is the push's only state: its entry is there
+    // until the attempt's commit takes it or its end discards it, so a push
+    // either rides that commit or is refused, with no write of its own. Its
+    // check is a validation, so it runs off the async workers.
     let work = run.metrics().counted_work().clone();
-    let answered = run
-        .state()
-        .write(move |_| {
-            // This write is the push's own, apart from its attempt's commit.
-            work.count(Row::RecordTransactions);
+    let work_item = crawl_request_id.clone();
+    let staged = run
+        .owner()
+        .blocking(move || {
             if !staging.holds(&work_item, lease_epoch) {
-                return Ok(None);
+                return None;
             }
             match datasets.check_pushed(PushedRecord { dataset, data }, &work) {
-                Ok(checked) => Ok(staging.push(&work_item, lease_epoch, checked)),
-                Err(Refused { error, rejected }) => Ok(staging
+                Ok(checked) => staging.push(&work_item, lease_epoch, checked),
+                Err(Refused { error, rejected }) => staging
                     .push(&work_item, lease_epoch, rejected)
-                    .map(|staged| staged.and(Err(error)))),
+                    .map(|staged| staged.and(Err(error))),
             }
         })
         .await;
-    match answered {
-        Ok(Some(Ok(()))) => Ok(CrawlRequestPushed {}),
-        Ok(Some(Err(refused))) => Err(refused),
-        Ok(None) => Err(ended()),
-        Err(error) => Err(CallError::new(
-            &RUN_STATE_UNAVAILABLE,
-            format!("The state of the Run `{run_id}` could not take the push: {error}"),
-            &RunDetails {
-                run_id: run_id.clone(),
-                path: None,
-            },
-        )),
+    match staged {
+        Some(Ok(())) => Ok(CrawlRequestPushed {}),
+        Some(Err(refused)) => Err(refused),
+        None => Err(ended()),
     }
 }

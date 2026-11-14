@@ -952,7 +952,8 @@ quick-steps:
 # proofs (`all`: the whole workspace). The checks that need Linux run beside
 # the other steps, each in its own container, with their lines marked:
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
-# projects in the pinned Playwright image, ADR 0073). The suite waits for
+# projects in the pinned Playwright image, ADR 0073); TLC and Miri run
+# beside them too, on the host, in folders of their own. The suite waits for
 # them and fails when one fails (ci/pre-merge.sh). A red step ends no form:
 # every other step still runs, and the end names each red step. `quick` runs only the
 # checks every change needs, for a change no test reads (ADR 0135). `all`
@@ -1785,7 +1786,8 @@ _gate-plan:
     echo '{}' >target/gate-runs/listing-tools.json
     # The variables that change what the steps run or how join the host
     # fingerprint, so a result counts only for a run in the same environment;
-    # `xtask gate plan` leaves out the launcher's own (GOODFETCH_GATE_MIN_FREE_GB).
+    # `xtask gate plan` leaves out the launcher's own (GOODFETCH_GATE_MIN_FREE_GB)
+    # and the thread and job caps the gate removes before its steps.
     variables=$(env | grep -E '^(CI|GOODFETCH_[A-Z0-9_]+|NEXTEST_[A-Z0-9_]+|CARGO_[A-Z0-9_]+|RUST[A-Z0-9_]*|UV_[A-Z0-9_]+|NODE_[A-Z0-9_]+)=' | LC_ALL=C sort || true)
     # With a GitHub token in the run's environment, lint's zizmor also runs
     # its online audits, which read GitHub: such a lint is never reused.

@@ -6,6 +6,7 @@
 //! staged with its attempt and written inside the write that commits it,
 //! so a discarded attempt's rejections never enter the table.
 
+use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_protocol::foxhound::dataset::RecordIssue;
 use goodfetch_protocol::foxhound::outcomes::DatasetRecords;
 use goodfetch_protocol::foxhound::rejections::{REJECTED_RECORDS_PAGE, RejectedRecord};
@@ -39,8 +40,9 @@ pub(crate) struct Why {
 
 /// Writes `rejections`, which the attempt of the crawl request `work_item`
 /// staged, in `connection`'s transaction: each takes its Dataset's next
-/// number, its Record and why written as `kept` encodes them. Counts each
-/// in `counted`, adding a Dataset not yet counted.
+/// number, its Record and why written with every value the Run resolved as
+/// its `%name%`, as `masks` keeps them, the Record from where it is. Counts
+/// each in `counted`, adding a Dataset not yet counted.
 ///
 /// # Errors
 ///
@@ -49,7 +51,7 @@ pub(crate) fn write(
     connection: &Connection,
     work_item: &str,
     rejections: &[Rejection],
-    kept: &mut impl FnMut(Value) -> String,
+    masks: &Masks,
     counted: &mut Vec<DatasetRecords>,
 ) -> rusqlite::Result<()> {
     if rejections.is_empty() {
@@ -62,8 +64,8 @@ pub(crate) fn write(
         insert.execute((
             &rejection.dataset,
             work_item,
-            kept(rejection.data.clone()),
-            kept(why),
+            masks.json(&rejection.data, Scope::Kept),
+            masks.json(&why, Scope::Kept),
         ))?;
         match counted
             .iter_mut()

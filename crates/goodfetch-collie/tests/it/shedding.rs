@@ -1,14 +1,16 @@
 //! The Resource governor's shedding ladder on Collie's executable over
 //! stdio (spec #213's Seam 1; ADR 0040), with a small
-//! `governor.memory_allowance` in the user configuration, which the
-//! governor reads again at every sample, and the Proving ground's heavy
-//! page: at critical an idle browser closes; a page past
+//! `governor.memory_allowance` a person writes through the engine
+//! (`config.user_write`), which the governor follows from its next sample,
+//! and the Proving ground's heavy page: at critical an idle browser closes;
+//! a page past
 //! `governor.browser.page_memory_cap` ends with `page_memory_exceeded`,
 //! which is retryable; and at the last resort the Run with the largest
 //! footprint checkpoints and stops, `stopped` and `incomplete` with
 //! `resource: "memory"`, while a Run without a browser goes on once memory
-//! frees up. Each test has its own Goodfetch home, Proving ground and
-//! Browser cache (ADRs 0059 and 0094).
+//! frees up. The same allowance edited in the file by hand while the engine
+//! runs is in force from the next Run's start. Each test has its own
+//! Goodfetch home, Proving ground and Browser cache (ADRs 0059 and 0094).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -24,7 +26,7 @@ use goodfetch_protocol::page::PageOpened;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use serde_json::{Map, Value, json};
 
-use crate::page::{browser_command_lines, opened, started_with};
+use crate::page::{browser_command_lines, next_sample, opened, started_by_a_person};
 use goodfetch_test_client::Attached;
 
 /// The Proving ground's own seed for these tests.
@@ -36,13 +38,35 @@ const MIB: u64 = 1 << 20;
 /// before the test judges what it sees.
 const SETTLE: Duration = Duration::from_secs(30);
 
+/// The Memory allowance's key.
+const ALLOWANCE: &str = "governor.memory_allowance";
+
 /// A Memory allowance no engine fits in: memory is critical at every
 /// sample.
-const CRITICAL: &str = "governor.memory_allowance = 1\n";
+const CRITICAL: u64 = 1;
 
-/// The user configuration's samples every 100 ms, with `more`.
+/// Writes the user configuration by hand, its samples every 100 ms, with
+/// `more`: before the engine starts, or as a hand edit the engine is not
+/// told of.
 fn configure(env: &TestEnv, more: &str) {
     env.user_configuration(&format!("governor.sample_interval = 100\n{more}"));
+}
+
+/// Writes `changes`, user-level values by key, `null` removing one, as the
+/// call `id` of `config.user_write`, a person's write through the engine:
+/// the governor follows it from its next sample (ADR 0040).
+fn write(engine: &mut Attached, id: i64, changes: &[(&str, Value)]) {
+    let changes: Vec<Value> = changes
+        .iter()
+        .map(|(key, value)| json!({ "key": key, "value": value }))
+        .collect();
+    let written = answer(
+        engine,
+        id,
+        "config.user_write",
+        &json!({ "changes": changes }),
+    );
+    assert!(written.get("result").is_some(), "{written}");
 }
 
 /// The browser processes the test's engine runs, helpers left out.
@@ -104,20 +128,70 @@ fn at_critical_an_idle_browser_closes() {
     configure(&env, "");
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut engine = started_with(&env, &cache, &proving_ground, "idle", &Map::new(), |_| {});
+    let mut engine = started_by_a_person(&env, &cache, &proving_ground, "idle", &Map::new());
     let session = engine.ask(2, "run.new_session", &json!({ "run_id": "idle" }));
 
     let launched = browsers_once(&env, 1);
-    configure(&env, CRITICAL);
+    write(&mut engine, 3, &[(ALLOWANCE, json!(CRITICAL))]);
     let critical = browsers_once(&env, 0);
-    configure(&env, "");
-    let _ = engine.ask(3, "run.finish", &json!({ "run_id": "idle" }));
+    write(&mut engine, 4, &[(ALLOWANCE, Value::Null)]);
+    let _ = engine.ask(5, "run.finish", &json!({ "run_id": "idle" }));
     let _ = engine.finish();
 
     assert_eq!(
         (session.get("result").is_some(), launched, critical),
         (true, 1, 0),
         "{session}"
+    );
+}
+
+/// A hand edit of the user configuration while the engine runs is no write
+/// of the engine's: the governor follows it from the engine's next read of
+/// the file, the next Run's start at the latest, which resolves the
+/// machine's settings again (ADR 0040). Nothing reads the file while one
+/// Run idles, so an idle browser stays through three samples after the
+/// Memory allowance was edited to critical by hand, none of them under
+/// that allowance, and closes once another Run starts.
+///
+/// Covers: story:3-59, setting:governor.memory_allowance, operation:run.start
+#[test]
+fn a_hand_edit_of_the_memory_allowance_is_in_force_from_the_next_runs_start() {
+    let env = TestEnv::new();
+    configure(&env, "");
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started_by_a_person(&env, &cache, &proving_ground, "idle", &Map::new());
+    let session = engine.ask(2, "run.new_session", &json!({ "run_id": "idle" }));
+    let launched = browsers_once(&env, 1);
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "samples", "method": "events.subscribe",
+        "params": { "system_info": true },
+    }));
+    engine.send(&json!({ "jsonrpc": "2.0", "method": "$/credit", "params": { "id": "samples", "credits": 1 } }));
+
+    configure(&env, &format!("{ALLOWANCE} = {CRITICAL}\n"));
+    let sampled: Vec<Value> = (0..3)
+        .map(|_| next_sample(&mut engine)["memory"]["allowance"].clone())
+        .collect();
+    let before_the_next_run = browsers(&env);
+    let next = answer(&mut engine, 3, "run.start", &json!({ "run_id": "next" }));
+    let from_the_next_run = browsers_once(&env, 0);
+    write(&mut engine, 4, &[(ALLOWANCE, Value::Null)]);
+    let _ = answer(&mut engine, 5, "run.finish", &json!({ "run_id": "idle" }));
+    let _ = answer(&mut engine, 6, "run.finish", &json!({ "run_id": "next" }));
+    let _ = engine.finish();
+
+    assert_eq!(
+        (
+            session.get("result").is_some(),
+            launched,
+            sampled.contains(&json!(CRITICAL)),
+            before_the_next_run,
+            next.get("result").is_some(),
+            from_the_next_run,
+        ),
+        (true, 1, false, 1, true, 0),
+        "{session}\n{sampled:?}\n{next}"
     );
 }
 
@@ -137,13 +211,13 @@ fn at_critical_a_page_past_its_memory_cap_ends_with_page_memory_exceeded() {
         "governor".to_owned(),
         json!({ "browser": { "page_memory_cap": 32 * MIB } }),
     );
-    let mut engine = started_with(&env, &cache, &proving_ground, "heavy", &settings, |_| {});
+    let mut engine = started_by_a_person(&env, &cache, &proving_ground, "heavy", &settings);
     let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "heavy" })));
     let loaded = heavy(&mut engine, 3, &proving_ground, &page, 64);
 
-    configure(&env, CRITICAL);
+    write(&mut engine, 4, &[(ALLOWANCE, json!(CRITICAL))]);
     let deadline = Instant::now() + SETTLE;
-    let mut id = 4;
+    let mut id = 5;
     let ended = loop {
         let read = engine.ask(
             id,
@@ -156,7 +230,7 @@ fn at_critical_a_page_past_its_memory_cap_ends_with_page_memory_exceeded() {
         id += 1;
         std::thread::sleep(Duration::from_millis(100));
     };
-    configure(&env, "");
+    write(&mut engine, 999, &[(ALLOWANCE, Value::Null)]);
     let again = engine.ask(1000, "run.new_page", &json!({ "run_id": "heavy" }));
     let _ = engine.ask(1001, "run.finish", &json!({ "run_id": "heavy" }));
     let _ = engine.finish();
@@ -200,7 +274,7 @@ fn at_the_last_resort_the_run_with_the_largest_footprint_stops_and_another_goes_
     configure(&env, "");
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut engine = started_with(&env, &cache, &proving_ground, "heavy", &Map::new(), |_| {});
+    let mut engine = started_by_a_person(&env, &cache, &proving_ground, "heavy", &Map::new());
     let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "heavy" })));
     let loaded = heavy(&mut engine, 3, &proving_ground, &page, 128);
     let light = engine.ask(4, "run.start", &json!({ "run_id": "fetching" }));
@@ -211,9 +285,15 @@ fn at_the_last_resort_the_run_with_the_largest_footprint_stops_and_another_goes_
 
     // Samples every 500 ms, so the test takes memory back in time: after
     // a stop, the governor measures again from the second sample on.
-    env.user_configuration(&format!(
-        "governor.sample_interval = 500\ngovernor.last_resort_after = 1000\n{CRITICAL}"
-    ));
+    write(
+        &mut engine,
+        5,
+        &[
+            ("governor.sample_interval", json!(500)),
+            ("governor.last_resort_after", json!(1000)),
+            (ALLOWANCE, json!(CRITICAL)),
+        ],
+    );
     let stopped = loop {
         let message = engine.next().unwrap();
         let events = message["params"]["events"]
@@ -227,11 +307,19 @@ fn at_the_last_resort_the_run_with_the_largest_footprint_stops_and_another_goes_
             break event;
         }
     };
-    configure(&env, "");
-    let heavy_report = answer(&mut engine, 5, "run.finish", &json!({ "run_id": "heavy" }));
-    let light_report = answer(
+    write(
         &mut engine,
         6,
+        &[
+            ("governor.sample_interval", json!(100)),
+            ("governor.last_resort_after", Value::Null),
+            (ALLOWANCE, Value::Null),
+        ],
+    );
+    let heavy_report = answer(&mut engine, 7, "run.finish", &json!({ "run_id": "heavy" }));
+    let light_report = answer(
+        &mut engine,
+        8,
         "run.finish",
         &json!({ "run_id": "fetching" }),
     );

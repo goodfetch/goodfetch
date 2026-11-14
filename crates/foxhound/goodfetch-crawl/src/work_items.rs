@@ -22,9 +22,9 @@
 //! commit writes, not a concern of their own.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 
-use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_counted_work::CountedWork;
 use goodfetch_dataset::{Checked, Committing};
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Keys, Waiting};
@@ -1170,6 +1170,29 @@ pub(crate) struct Committed<'a> {
     /// Whether the crawl keeps Records, its `dataset.records`: off, the
     /// commit writes none and reads nothing for one (ADR 0138).
     pub(crate) keeps_records: bool,
+    /// The Clean-up rules its Run holds to, which its Records' Provenance
+    /// names.
+    pub(crate) clean_up_rules: &'a CleanUpRules,
+}
+
+/// The digest of the Clean-up rules a Run holds to, which the Provenance of
+/// each of its Records names. The Run's start records it and nothing
+/// changes it, so a crawl reads it from its run file once, in its first
+/// commit that keeps Records, and for no Record after (ADR 0140's F4). A
+/// clone shares what was read.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CleanUpRules(Arc<OnceLock<Option<String>>>);
+
+impl CleanUpRules {
+    /// The digest, read from the run file `connection` holds unless a
+    /// commit read it before.
+    fn digest(&self, connection: &Connection) -> rusqlite::Result<Option<String>> {
+        if let Some(read) = self.0.get() {
+            return Ok(read.clone());
+        }
+        let digest = run_row::clean_up_digest(connection)?;
+        Ok(self.0.get_or_init(|| digest).clone())
+    }
 }
 
 /// Commits an attempt's Records, once, each numbered in its Dataset and
@@ -1192,6 +1215,7 @@ pub(crate) fn commit(
         not_added,
         work,
         keeps_records,
+        clean_up_rules,
     } = committed;
     if !still_leased(connection, id, lease_epoch)? {
         return Ok(false);
@@ -1202,6 +1226,7 @@ pub(crate) fn commit(
             id,
             (records, fetched, fields),
             masks,
+            clean_up_rules,
             ended_at,
             work,
         )?
@@ -1241,13 +1266,12 @@ fn commit_records(
     id: &str,
     (records, fetched, fields): (&Checked, &Fetched, &FieldsRead),
     masks: &Masks,
+    clean_up_rules: &CleanUpRules,
     ended_at: &PointInTime,
     work: &CountedWork,
 ) -> rusqlite::Result<Vec<DatasetRecords>> {
     let url = url_of(connection, id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-    // The Run's constant digest, read again at each commit.
-    work.count(Row::RecordConstantLookups);
-    let clean_up_rules = run_row::clean_up_digest(connection)?;
+    let clean_up_rules = clean_up_rules.digest(connection)?;
     let provenance = RecordProvenance {
         request_id: id.to_owned(),
         tier: fetched.tier.clone(),

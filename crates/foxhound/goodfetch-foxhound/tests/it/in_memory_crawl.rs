@@ -457,9 +457,9 @@ fn record_counts(planted: bool) -> ([u64; 7], u64) {
 /// B1's counts cell (ADR 0140): each Record of the code-free crawl, under its
 /// Dataset's schema, is validated and serialized once and commits in its
 /// attempt's transaction, reading no declaration and building no validator,
-/// both done when the crawl starts (ADR 0138); what its commit repeats per
-/// Record is counted (the Exception X8), and one planted unit per page adds
-/// exactly its Records' worth to every row. `xtask counts` holds the figures
+/// both done when the crawl starts (ADR 0138); its commit copies none of its
+/// data and looks up no value constant for the Run, and one planted unit per
+/// page adds exactly its Records' worth to every row. `xtask counts` holds the figures
 /// to the register, and `--prove` runs each plant through it.
 #[test]
 #[expect(
@@ -484,12 +484,16 @@ fn each_record_of_the_crawl_counts_its_work_and_a_plant_adds_one_a_record_to_eve
     ] = default;
     assert_eq!(records, u64::try_from(PAGES.len() + 1).unwrap());
     assert_eq!(
-        (reads, builds, validations, serializations, transactions),
-        (0, 0, records, records, 0)
-    );
-    assert!(
-        copies > 0 && lookups > 0,
-        "copies {copies}, lookups {lookups}"
+        (
+            reads,
+            builds,
+            validations,
+            serializations,
+            copies,
+            lookups,
+            transactions
+        ),
+        (0, 0, records, records, 0, 0, 0)
     );
     assert_eq!(
         std::array::from_fn::<u64, 7, _>(|row| planted[row] - default[row]),

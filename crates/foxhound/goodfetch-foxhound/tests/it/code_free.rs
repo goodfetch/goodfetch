@@ -1114,6 +1114,92 @@ fn tier_of_kind(kind: &str) -> &'static str {
     }
 }
 
+/// The fingerprints the rung site saw: the transport's, which every
+/// robots.txt request carries (#2422), and the browser's, every other one.
+struct Fingerprints {
+    transport: BTreeSet<Option<String>>,
+    browser: BTreeSet<Option<String>>,
+}
+
+impl Fingerprints {
+    fn of(every: &[RungRequest]) -> Self {
+        let transport: BTreeSet<_> = every
+            .iter()
+            .filter(|(path, _, _)| path == "/robots.txt")
+            .map(|(_, ja4, _)| ja4.clone())
+            .collect();
+        let browser = every
+            .iter()
+            .map(|(_, ja4, _)| ja4.clone())
+            .filter(|ja4| !transport.contains(ja4))
+            .collect();
+        Self { transport, browser }
+    }
+
+    /// The fingerprints of the client a page served on `tier` is sent by.
+    fn of_tier(&self, tier: &str) -> BTreeSet<Option<String>> {
+        if tier == "http" {
+            self.transport.clone()
+        } else {
+            self.browser.clone()
+        }
+    }
+}
+
+/// The entries of `by_path` whose page is past its Label's samples.
+fn past_samples<T: Clone>(by_path: &BTreeMap<String, T>) -> BTreeMap<String, T> {
+    by_path
+        .iter()
+        .filter(|(path, _)| {
+            path.rsplit('/')
+                .next()
+                .and_then(|page| page.parse::<u32>().ok())
+                .is_some_and(|page| page > RUNG_SAMPLES)
+        })
+        .map(|(path, value)| (path.clone(), value.clone()))
+        .collect()
+}
+
+/// The fingerprint of each request of `seen` for `path`.
+fn seen_with(seen: &[RungRequest], path: &str) -> Vec<Option<String>> {
+    seen.iter()
+        .filter(|(target, _, _)| target == path)
+        .map(|(_, ja4, _)| ja4.clone())
+        .collect()
+}
+
+/// The fingerprints each `visitor` cookie came back with, by its value.
+fn jars(every: &[RungRequest]) -> BTreeMap<String, BTreeSet<Option<String>>> {
+    let mut jars: BTreeMap<String, BTreeSet<Option<String>>> = BTreeMap::new();
+    for (_, ja4, visitor) in every {
+        if let Some(visitor) = visitor {
+            jars.entry(visitor.clone()).or_default().insert(ja4.clone());
+        }
+    }
+    jars
+}
+
+/// The rung site's code-free Runs under `fetch.http_from` `learned`,
+/// `transport` and `browser`, in that order, each with the requests the
+/// site received during it.
+fn rung_runs_by_http_from(
+    (engine, proving_ground): (&mut Attached, &ProvingGround),
+) -> Vec<(RungRun, Vec<RungRequest>)> {
+    let mut runs = Vec::new();
+    let mut received = 0;
+    for (run_id, http_from) in [
+        ("rungs-learned", "learned"),
+        ("rungs-transport", "transport"),
+        ("rungs-browser", "browser"),
+    ] {
+        let run = rungs_run((&mut *engine, proving_ground), run_id, http_from);
+        let requests = rung_requests(proving_ground);
+        runs.push((run, requests[received..].to_vec()));
+        received = requests.len();
+    }
+    runs
+}
+
 /// The ladder's acceptance (#2423), read from outside on the rung site.
 /// Under `auto` and `fetch.http_from: learned`, each page past its Label's
 /// samples is served on the tier its kind in the site's manifest needs:
@@ -1144,18 +1230,7 @@ fn under_auto_each_kind_of_rung_page_is_served_on_the_cheapest_tier_that_reads_i
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = rungs_engine(&env, &proving_ground);
 
-    let mut runs = Vec::new();
-    let mut received = 0;
-    for (run_id, http_from) in [
-        ("rungs-learned", "learned"),
-        ("rungs-transport", "transport"),
-        ("rungs-browser", "browser"),
-    ] {
-        let run = rungs_run((&mut engine, &proving_ground), run_id, http_from);
-        let requests = rung_requests(&proving_ground);
-        runs.push((run, requests[received..].to_vec()));
-        received = requests.len();
-    }
+    let runs = rung_runs_by_http_from((&mut engine, &proving_ground));
     assert!(engine.finished());
     let [
         (learned, learned_seen),
@@ -1167,53 +1242,15 @@ fn under_auto_each_kind_of_rung_page_is_served_on_the_cheapest_tier_that_reads_i
     };
 
     let every = rung_requests(&proving_ground);
-    // The transport's fingerprint, which every robots.txt request carries
-    // (#2422), and the browser's, every other one.
-    let transport: BTreeSet<_> = every
-        .iter()
-        .filter(|(path, _, _)| path == "/robots.txt")
-        .map(|(_, ja4, _)| ja4.clone())
-        .collect();
-    let browser_ja4: BTreeSet<_> = every
-        .iter()
-        .map(|(_, ja4, _)| ja4.clone())
-        .filter(|ja4| !transport.contains(ja4))
-        .collect();
-    let client_of = |tier: &str| -> BTreeSet<Option<String>> {
-        if tier == "http" {
-            transport.clone()
-        } else {
-            browser_ja4.clone()
-        }
-    };
+    let fingerprints = Fingerprints::of(&every);
     let manifest = rung_records(&proving_ground, &RUNGS);
     let kinds = rung_kinds(&proving_ground);
-    let past_samples = |path: &str| {
-        path.rsplit('/')
-            .next()
-            .and_then(|page| page.parse::<u32>().ok())
-            .is_some_and(|page| page > RUNG_SAMPLES)
-    };
-    // Each page past its samples: the tier Provenance names, and the
+    // Each page past its samples: the tier its kind needs, and the
     // fingerprints the site saw its requests with.
-    let served = |run: &RungRun| -> BTreeMap<String, String> {
-        run.served_on
-            .iter()
-            .filter(|(path, _)| past_samples(path))
-            .map(|(path, tier)| (path.clone(), tier.clone()))
-            .collect()
-    };
-    let needed: BTreeMap<String, String> = kinds
-        .iter()
-        .filter(|(path, _)| past_samples(path))
-        .map(|(path, kind)| (path.clone(), tier_of_kind(kind).to_owned()))
+    let needed: BTreeMap<String, String> = past_samples(&kinds)
+        .into_iter()
+        .map(|(path, kind)| (path, tier_of_kind(&kind).to_owned()))
         .collect();
-    let seen_with = |seen: &[RungRequest], path: &str| -> Vec<Option<String>> {
-        seen.iter()
-            .filter(|(target, _, _)| target == path)
-            .map(|(_, ja4, _)| ja4.clone())
-            .collect()
-    };
     let clients_seen: BTreeMap<String, BTreeSet<Option<String>>> = needed
         .keys()
         .map(|path| {
@@ -1225,26 +1262,21 @@ fn under_auto_each_kind_of_rung_page_is_served_on_the_cheapest_tier_that_reads_i
         .collect();
     let clients_implied: BTreeMap<String, BTreeSet<Option<String>>> = needed
         .iter()
-        .map(|(path, tier)| (path.clone(), client_of(tier)))
+        .map(|(path, tier)| (path.clone(), fingerprints.of_tier(tier)))
         .collect();
     let identity_requests: Vec<usize> = needed
         .keys()
         .filter(|path| path.starts_with("/identity/"))
         .map(|path| seen_with(learned_seen, path).len())
         .collect();
-    let mut jars: BTreeMap<String, BTreeSet<Option<String>>> = BTreeMap::new();
-    for (_, ja4, visitor) in &every {
-        if let Some(visitor) = visitor {
-            jars.entry(visitor.clone()).or_default().insert(ja4.clone());
-        }
-    }
+    let jars = jars(&every);
     let cookies_in_a_browser = every
         .iter()
-        .filter(|(_, ja4, visitor)| visitor.is_some() && !transport.contains(ja4))
+        .filter(|(_, ja4, visitor)| visitor.is_some() && !fingerprints.transport.contains(ja4))
         .count();
     let documents_from_the_transport = browser_seen
         .iter()
-        .filter(|(path, ja4, _)| kinds.contains_key(path) && transport.contains(ja4))
+        .filter(|(path, ja4, _)| kinds.contains_key(path) && fingerprints.transport.contains(ja4))
         .count();
     let weakened: Vec<bool> = runs
         .iter()
@@ -1252,9 +1284,9 @@ fn under_auto_each_kind_of_rung_page_is_served_on_the_cheapest_tier_that_reads_i
         .collect();
     assert_eq!(
         (
-            (transport.len(), browser_ja4.len()),
+            (fingerprints.transport.len(), fingerprints.browser.len()),
             (
-                served(learned),
+                past_samples(&learned.served_on),
                 &learned.read,
                 &clients_seen,
                 identity_requests,

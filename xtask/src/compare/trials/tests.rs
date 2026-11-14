@@ -1,6 +1,7 @@
 use super::{
-    CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, PAGESIFT_VERSION, PLAYWRIGHT_VERSION, PUPPETEER_VERSION,
-    SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SPIDER_VERSION, STAGEHAND_VERSION, Work,
+    AGENT_BROWSER_VERSION, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, PAGESIFT_VERSION,
+    PLAYWRIGHT_VERSION, PUPPETEER_VERSION, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION,
+    SPIDER_VERSION, STAGEHAND_VERSION, Work,
 };
 
 /// The Spider version Spider's side pins in its manifest, `=<version>`.
@@ -66,8 +67,8 @@ fn the_declared_crawlee_is_the_one_its_side_pins() {
     );
 }
 
-/// The report names the Puppeteer and the Stagehand the Collie scenario's
-/// arms install: each exact version in
+/// The report names the Puppeteer, the Stagehand and the agent-browser the
+/// Collie scenario's arms install: each exact version in
 /// `xtask/compare-collie-arms/package.json`.
 #[test]
 fn the_declared_arms_are_the_ones_their_side_pins() {
@@ -81,6 +82,10 @@ fn the_declared_arms_are_the_ones_their_side_pins() {
     assert_eq!(
         manifest["dependencies"]["@browserbasehq/stagehand"].as_str(),
         Some(STAGEHAND_VERSION)
+    );
+    assert_eq!(
+        manifest["dependencies"]["agent-browser"].as_str(),
+        Some(AGENT_BROWSER_VERSION)
     );
 }
 

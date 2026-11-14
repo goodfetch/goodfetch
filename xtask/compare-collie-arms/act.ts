@@ -1,13 +1,15 @@
 // One trial of the Collie scenario of `just compare` with one of the arms
-// (issues 2443 and 2441): Puppeteer, through its locators or its page
-// methods, or Stagehand with no model, each attached to the Chrome that
-// `xtask compare` launched, through the counting relay at `--cdp`. It
-// carries out the plan `--plan` names as `../compare-collie/plan.ts` does
-// and prints one JSON line of what each page came to.
+// (issues 2443, 2441 and 2442): Puppeteer, through its locators or its page
+// methods, Stagehand with no model, or agent-browser's command line, each
+// attached to the Chrome that `xtask compare` launched, through the counting
+// relay at `--cdp`. It carries out the plan `--plan` names as
+// `../compare-collie/plan.ts` does and prints one JSON line of what each
+// page came to.
 //
 // A Session is Puppeteer's `browser.createBrowserContext()`. Stagehand
-// drives the browser's one context, so it opens no Session of its own and
-// xtask plans it no Sessions cell. Connecting stays outside the marks.
+// drives the browser's one context, and agent-browser has no command that
+// closes a context it opened, so neither opens a Session of its own and
+// xtask plans them no Sessions cell. Connecting stays outside the marks.
 //
 //   node act.ts --tool puppeteer_locator --plan plan.json \
 //     --cdp ws://127.0.0.1:<relay>/devtools/browser/<id> \
@@ -17,6 +19,12 @@ import {
   Stagehand,
   type Page as StagehandDriverPage,
 } from "@browserbasehq/stagehand";
+import { findNativeBinary, nativeTarget } from "agent-browser/scripts/native.js";
+import { execFile, spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import process from "node:process";
 import {
   connect,
   type Browser,
@@ -153,8 +161,175 @@ async function stagehand(plan: Plan, cdp: string): Promise<Driver> {
   };
 }
 
+/** What one agent-browser command answered, from its `--json` line. */
+interface AgentBrowserAnswer {
+  readonly success: boolean;
+  readonly data: Readonly<Record<string, unknown>> | null;
+  readonly error: string | null;
+}
+
+function isAgentBrowserAnswer(value: unknown): value is AgentBrowserAnswer {
+  if (typeof value !== "object" || value === null) return false;
+  const answer: Record<string, unknown> = { ...value };
+  const data = answer["data"];
+  const error = answer["error"];
+  return (
+    typeof answer["success"] === "boolean" &&
+    (data === null || data === undefined || (typeof data === "object" && !Array.isArray(data))) &&
+    (error === null || error === undefined || typeof error === "string")
+  );
+}
+
+/** The `data` of a command that succeeded; the command's error otherwise. */
+function agentBrowserData(stdout: string, stderr: string): Readonly<Record<string, unknown>> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new Error(`agent-browser answered no JSON: ${stderr.trim() || stdout.trim()}`);
+  }
+  if (!isAgentBrowserAnswer(parsed)) throw new Error(`agent-browser answered ${stdout.trim()}`);
+  if (!parsed.success) throw new Error(parsed.error ?? "agent-browser failed with no error");
+  return parsed.data ?? {};
+}
+
+/** An agent-browser Session's close: its daemons close with the driver. */
+async function leaveInstancesOpen(): Promise<void> {}
+
+/** The native binary agent-browser's own launcher would run on this host. */
+function agentBrowserBinary(): string {
+  const root = dirname(createRequire(import.meta.url).resolve("agent-browser/package.json"));
+  const target = nativeTarget();
+  const binary = target === null ? null : findNativeBinary(root, target);
+  if (binary === null) throw new Error("agent-browser has no native binary for this host");
+  return binary;
+}
+
+/**
+ * agent-browser's command line. Each command is a process that hands the
+ * command to the daemon of its `--session`, an instance of the tool that the
+ * first command starts and that stays attached to the browser. Pages one
+ * after another share one instance; pages at once each get their own,
+ * started before the start mark, and each command pins its instance to the
+ * page it opened (`--pin-tab`), so no instance follows another's new page. A
+ * click checks once that its target can take it and does not wait.
+ */
+async function agentBrowser(plan: Plan, cdp: string): Promise<Driver> {
+  const binary = agentBrowserBinary();
+  // A short folder: a daemon's socket path must fit the OS's limit. The
+  // empty config keeps the user's and the folder's agent-browser.json out.
+  const folder = mkdtempSync("/tmp/ab-");
+  const config = join(folder, "config.json");
+  writeFileSync(config, "{}");
+  const env = {
+    ...process.env,
+    AGENT_BROWSER_SOCKET_DIR: folder,
+    AGENT_BROWSER_CONFIG: config,
+    AGENT_BROWSER_NO_VERSION_CHECK: "1",
+    AGENT_BROWSER_DEFAULT_TIMEOUT: String(plan.action_timeout),
+    // A daemon a crashed trial left behind ends on its own.
+    AGENT_BROWSER_IDLE_TIMEOUT_MS: "60000",
+  };
+  const started: string[] = [];
+  const argv = (instance: string, args: readonly string[]): string[] => [
+    "--session",
+    instance,
+    "--cdp",
+    cdp,
+    "--json",
+    "--pin-tab",
+    ...args,
+  ];
+  const run = (instance: string, args: readonly string[]) =>
+    new Promise<Readonly<Record<string, unknown>>>((resolve, reject) => {
+      execFile(binary, argv(instance, args), { env }, (_failed, stdout, stderr) => {
+        // A command that fails exits 1 and still prints its answer, which
+        // names the error.
+        try {
+          resolve(agentBrowserData(stdout, stderr));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+  const start = async (instance: string) => {
+    started.push(instance);
+    await run(instance, ["connect", cdp]);
+  };
+  const closeAll = () => {
+    for (const instance of started.splice(0)) {
+      spawnSync(binary, argv(instance, ["close"]), { env, stdio: "ignore" });
+    }
+    rmSync(folder, { recursive: true, force: true });
+  };
+  // A trial that fails before the driver's close leaves no daemon behind.
+  process.once("exit", closeAll);
+
+  const page = (instance: string, pageId: string): DriverPage => ({
+    async goto(url) {
+      await run(instance, ["open", url]);
+      // `open` answers no status: the navigation entry has it.
+      const data = await run(instance, [
+        "eval",
+        "performance.getEntriesByType('navigation')[0]?.responseStatus",
+      ]);
+      const status = data["result"];
+      return typeof status === "number" && status > 0 ? status : null;
+    },
+    async step(step) {
+      if (step.action === "read") return readText((await run(instance, ["eval", READ]))["result"]);
+      if (step.action === "click") await run(instance, ["click", step.selector]);
+      else if (step.action === "fill")
+        await run(instance, ["fill", step.selector, "--", step.value]);
+      else {
+        await run(instance, ["focus", step.selector]);
+        await run(instance, ["press", step.key]);
+      }
+      return null;
+    },
+    async close() {
+      await run(instance, ["tab", "close", pageId]);
+    },
+  });
+  const newPage = async (instance: string): Promise<DriverPage> => {
+    const pageId = (await run(instance, ["tab", "new"]))["tabId"];
+    if (typeof pageId !== "string") throw new Error("agent-browser's `tab new` named no page");
+    return page(instance, pageId);
+  };
+
+  let opened = false;
+  return {
+    async newSession() {
+      if (opened) throw new Error("agent-browser has no command that closes a context it opened");
+      opened = true;
+      if (!plan.at_once) {
+        await start("s");
+        return { newPage: () => newPage("s"), close: leaveInstancesOpen };
+      }
+      const instances = plan.pages.map((_, index) => `p${index}`);
+      for (const instance of instances) await start(instance);
+      let next = 0;
+      return {
+        async newPage() {
+          const instance = instances[next];
+          next += 1;
+          if (instance === undefined)
+            throw new Error("the plan opens more pages at once than it lists");
+          return newPage(instance);
+        },
+        close: leaveInstancesOpen,
+      };
+    },
+    async close() {
+      process.removeListener("exit", closeAll);
+      closeAll();
+    },
+  };
+}
+
 await main({
   puppeteer_locator: (plan, cdp) => puppeteerDriver(plan, cdp, throughLocators),
   puppeteer_page: (plan, cdp) => puppeteerDriver(plan, cdp, throughPageMethods),
   stagehand,
+  agent_browser: agentBrowser,
 });

@@ -15,8 +15,8 @@ use crate::register::document;
 
 use super::super::report::{Figure, Unit, cell_text, float, median, spread};
 use super::super::trials::{
-    CollieScenario, CollieStopped, CollieTrial, Contender, Exercise, PLAYWRIGHT_VERSION,
-    PUPPETEER_VERSION, PageDone, STAGEHAND_VERSION,
+    AGENT_BROWSER_VERSION, CollieScenario, CollieStopped, CollieTrial, Contender, Exercise,
+    PLAYWRIGHT_VERSION, PUPPETEER_VERSION, PageDone, STAGEHAND_VERSION,
 };
 use super::page_load::{self, LoadSection};
 use super::{ACTION_TIMEOUT_MILLISECONDS, EXERCISES, RATIO_CELLS, RATIO_ROW};
@@ -415,6 +415,13 @@ fn mapping(tool: Contender) -> String {
             "Stagehand {STAGEHAND_VERSION} with no model, `page.locator(…).click()` and \
              `.fill()`, and a focus then `page.keyPress()`; its click neither waits nor checks"
         ),
+        Contender::AgentBrowser => format!(
+            "agent-browser {AGENT_BROWSER_VERSION}'s command line, `agent-browser click`, \
+             `fill`, and `focus` then `press`, each a process that hands the command to its \
+             daemon, with an `eval` after each `open` for the status `open` does not answer; its \
+             click checks once that its target is visible, enabled, in the viewport and not \
+             covered, and does not wait"
+        ),
     }
 }
 
@@ -518,6 +525,20 @@ fn ratios_text(text: &mut String, ratios: &[CommandRatio], today: &Today) {
     }
 }
 
+/// How the arms are attached and measured, before the table, when the run
+/// placed any.
+const ARMS_INTRO: &str = "Beside them the arms, each attached the same way, through its own \
+    library or, for agent-browser, its command line: Puppeteer's locators and its page methods, \
+    agent-browser's command line, and Stagehand with no model, whose browser is launched with \
+    `--enable-unsafe-extension-debugging` and `--remote-allow-origins=*` for the extension it \
+    drives the browser through. That extension runs in the browser's processes, so Stagehand's \
+    CPU and memory leave its work out, while its CDP commands pass the relay and are counted. \
+    Stagehand drives the browser's one context, so it is not measured in the Sessions cell. \
+    agent-browser runs each step as a command, a process of its own that hands it to a daemon the \
+    first one started; the daemon is in agent-browser's process tree, and each command's CPU \
+    counts once the driver waited for it. Its daemon opens a context it cannot close, so it is \
+    not measured in the Sessions cell either.\n\n";
+
 /// The Collie scenario's section in Markdown.
 pub(crate) fn markdown(section: &Section) -> String {
     let mut text =
@@ -559,15 +580,7 @@ pub(crate) fn markdown(section: &Section) -> String {
         crate::test_facts::CHROME_FOR_TESTING_BUILD
     );
     if !placements.is_empty() {
-        text.push_str(
-            "Beside them the arms, each through its own library attached the same way: \
-             Puppeteer's locators and its page methods, and Stagehand with no model, whose \
-             browser is launched with `--enable-unsafe-extension-debugging` and \
-             `--remote-allow-origins=*` for the extension it drives the browser through. That \
-             extension runs in the browser's processes, so Stagehand's CPU and memory leave its \
-             work out, while its CDP commands pass the relay and are counted. Stagehand drives \
-             the browser's one context, so it is not measured in the Sessions cell.\n\n",
-        );
+        text.push_str(ARMS_INTRO);
     }
     text.push_str(
         "| Cell | Actions | Tool | CDP commands | CPU | Wall | Pages right | Peak memory |\n\

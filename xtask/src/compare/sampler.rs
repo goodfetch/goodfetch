@@ -50,7 +50,8 @@ pub(crate) struct Sample {
     /// once. None when a live process of the tree kept its own from the
     /// sampler, so the sum would leave it out.
     pub(crate) pss_bytes: Option<u64>,
-    /// CPU seconds of the tree's live processes so far.
+    /// CPU seconds of the tree's live processes so far, with those of the
+    /// children each waited for.
     pub(crate) cpu_seconds: f64,
     pub(crate) threads: u64,
     pub(crate) open_files: u64,
@@ -128,7 +129,7 @@ pub(crate) fn cpu_seconds(pid: u32) -> f64 {
     let ticks: u64 = tree(pid)
         .into_iter()
         .filter_map(|pid| process(pid, page))
-        .map(|process| process.cpu_ticks + process.waited_ticks)
+        .map(|process| process.spent_ticks())
         .sum();
     #[expect(
         clippy::cast_precision_loss,
@@ -151,6 +152,15 @@ struct Process {
     waited_ticks: u64,
     threads: u64,
     open_files: u64,
+}
+
+impl Process {
+    /// Its CPU ticks with those of the children it waited for. The OS adds a
+    /// child's to its parent's as the child leaves the tree, so the tree's
+    /// sum keeps them.
+    fn spent_ticks(&self) -> u64 {
+        self.cpu_ticks + self.waited_ticks
+    }
 }
 
 /// The `Pss:` line of a `smaps_rollup` file, in bytes: the kernel writes it
@@ -254,7 +264,7 @@ impl Sampler {
                                 .pss_bytes
                                 .zip(process.pss_bytes)
                                 .map(|(tree, own)| tree + own);
-                            ticks += process.cpu_ticks;
+                            ticks += process.spent_ticks();
                             sample.threads += process.threads;
                             sample.open_files += process.open_files;
                         }

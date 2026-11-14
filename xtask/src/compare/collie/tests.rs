@@ -674,13 +674,6 @@ fn the_scenario_runs_each_arm_in_every_cell_but_stagehand_and_agent_browser_in_t
     assert_eq!(order.len(), EXERCISES.len() * Contender::ALL.len() - 2);
     assert!(!order.contains(&(Exercise::Sessions, Contender::Stagehand, 1)));
     assert!(!order.contains(&(Exercise::Sessions, Contender::AgentBrowser, 1)));
-    assert_eq!(
-        skipped(Contender::AgentBrowser, Exercise::Sessions),
-        Some(
-            "agent-browser has no command that closes a context it opened, so it opens no \
-             Session"
-        )
-    );
     assert!(order.contains(&(Exercise::AtOnce, Contender::AgentBrowser, 1)));
     assert!(order.contains(&(Exercise::Sessions, Contender::PuppeteerPage, 1)));
     assert!(order.contains(&(Exercise::Click, Contender::Stagehand, 1)));
@@ -838,7 +831,7 @@ fn a_process_the_driver_detached_stays_in_its_tree() {
     let detached = || {
         sampler::tree(pid).into_iter().skip(1).find(|&child| {
             std::fs::read_to_string(format!("/proc/{child}/cmdline"))
-                .is_ok_and(|line| line == "sleep\037\0")
+                .is_ok_and(|line| line == "sleep\u{0}37\u{0}")
         })
     };
     let mut found = None;

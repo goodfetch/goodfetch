@@ -525,6 +525,20 @@ fn ratios_text(text: &mut String, ratios: &[CommandRatio], today: &Today) {
     }
 }
 
+/// How the arms are attached and measured, before the table, when the run
+/// placed any.
+const ARMS_INTRO: &str = "Beside them the arms, each attached the same way, through its own \
+    library or, for agent-browser, its command line: Puppeteer's locators and its page methods, \
+    agent-browser's command line, and Stagehand with no model, whose browser is launched with \
+    `--enable-unsafe-extension-debugging` and `--remote-allow-origins=*` for the extension it \
+    drives the browser through. That extension runs in the browser's processes, so Stagehand's \
+    CPU and memory leave its work out, while its CDP commands pass the relay and are counted. \
+    Stagehand drives the browser's one context, so it is not measured in the Sessions cell. \
+    agent-browser runs each step as a command, a process of its own that hands it to a daemon the \
+    first one started; the daemon is in agent-browser's process tree, and each command's CPU \
+    counts once the driver waited for it. Its daemon opens a context it cannot close, so it is \
+    not measured in the Sessions cell either.\n\n";
+
 /// The Collie scenario's section in Markdown.
 pub(crate) fn markdown(section: &Section) -> String {
     let mut text =
@@ -566,20 +580,7 @@ pub(crate) fn markdown(section: &Section) -> String {
         crate::test_facts::CHROME_FOR_TESTING_BUILD
     );
     if !placements.is_empty() {
-        text.push_str(
-            "Beside them the arms, each through its own library attached the same way: \
-             Puppeteer's locators and its page methods, agent-browser's command line, and \
-             Stagehand with no model, whose browser is launched with \
-             `--enable-unsafe-extension-debugging` and `--remote-allow-origins=*` for the \
-             extension it drives the browser through. That \
-             extension runs in the browser's processes, so Stagehand's CPU and memory leave its \
-             work out, while its CDP commands pass the relay and are counted. Stagehand drives \
-             the browser's one context, so it is not measured in the Sessions cell. agent-browser \
-             runs each step as a command, a process of its own that hands it to a daemon the \
-             first one started; the daemon is in agent-browser's process tree, and each \
-             command's CPU counts once the driver waited for it. Its daemon opens a context it \
-             cannot close, so it is not measured in the Sessions cell either.\n\n",
-        );
+        text.push_str(ARMS_INTRO);
     }
     text.push_str(
         "| Cell | Actions | Tool | CDP commands | CPU | Wall | Pages right | Peak memory |\n\

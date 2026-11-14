@@ -194,7 +194,7 @@ function agentBrowserData(stdout: string, stderr: string): Readonly<Record<strin
 }
 
 /** An agent-browser Session's close: its daemons close with the driver. */
-async function leaveDaemonsOpen(): Promise<void> {}
+async function leaveInstancesOpen(): Promise<void> {}
 
 /** The native binary agent-browser's own launcher would run on this host. */
 function agentBrowserBinary(): string {
@@ -207,12 +207,12 @@ function agentBrowserBinary(): string {
 
 /**
  * agent-browser's command line. Each command is a process that hands the
- * command to the daemon of its `--session`, which the first command starts
- * and which stays attached to the browser. Pages one after another share
- * one daemon; pages at once each get their own, started before the start
- * mark, and each command pins its daemon to the tab it opened
- * (`--pin-tab`), so no daemon follows another's new tab. A click checks
- * once that its target can take it and does not wait.
+ * command to the daemon of its `--session`, an instance of the tool that the
+ * first command starts and that stays attached to the browser. Pages one
+ * after another share one instance; pages at once each get their own,
+ * started before the start mark, and each command pins its instance to the
+ * page it opened (`--pin-tab`), so no instance follows another's new page. A
+ * click checks once that its target can take it and does not wait.
  */
 async function agentBrowser(plan: Plan, cdp: string): Promise<Driver> {
   const binary = agentBrowserBinary();
@@ -231,18 +231,18 @@ async function agentBrowser(plan: Plan, cdp: string): Promise<Driver> {
     AGENT_BROWSER_IDLE_TIMEOUT_MS: "60000",
   };
   const started: string[] = [];
-  const argv = (session: string, args: readonly string[]): string[] => [
+  const argv = (instance: string, args: readonly string[]): string[] => [
     "--session",
-    session,
+    instance,
     "--cdp",
     cdp,
     "--json",
     "--pin-tab",
     ...args,
   ];
-  const run = (session: string, args: readonly string[]) =>
+  const run = (instance: string, args: readonly string[]) =>
     new Promise<Readonly<Record<string, unknown>>>((resolve, reject) => {
-      execFile(binary, argv(session, args), { env }, (_failed, stdout, stderr) => {
+      execFile(binary, argv(instance, args), { env }, (_failed, stdout, stderr) => {
         // A command that fails exits 1 and still prints its answer, which
         // names the error.
         try {
@@ -252,24 +252,24 @@ async function agentBrowser(plan: Plan, cdp: string): Promise<Driver> {
         }
       });
     });
-  const start = async (session: string) => {
-    started.push(session);
-    await run(session, ["connect", cdp]);
+  const start = async (instance: string) => {
+    started.push(instance);
+    await run(instance, ["connect", cdp]);
   };
   const closeAll = () => {
-    for (const session of started.splice(0)) {
-      spawnSync(binary, argv(session, ["close"]), { env, stdio: "ignore" });
+    for (const instance of started.splice(0)) {
+      spawnSync(binary, argv(instance, ["close"]), { env, stdio: "ignore" });
     }
     rmSync(folder, { recursive: true, force: true });
   };
   // A trial that fails before the driver's close leaves no daemon behind.
   process.once("exit", closeAll);
 
-  const page = (session: string, tab: string): DriverPage => ({
+  const page = (instance: string, pageId: string): DriverPage => ({
     async goto(url) {
-      await run(session, ["open", url]);
+      await run(instance, ["open", url]);
       // `open` answers no status: the navigation entry has it.
-      const data = await run(session, [
+      const data = await run(instance, [
         "eval",
         "performance.getEntriesByType('navigation')[0]?.responseStatus",
       ]);
@@ -277,24 +277,24 @@ async function agentBrowser(plan: Plan, cdp: string): Promise<Driver> {
       return typeof status === "number" && status > 0 ? status : null;
     },
     async step(step) {
-      if (step.action === "read") return readText((await run(session, ["eval", READ]))["result"]);
-      if (step.action === "click") await run(session, ["click", step.selector]);
+      if (step.action === "read") return readText((await run(instance, ["eval", READ]))["result"]);
+      if (step.action === "click") await run(instance, ["click", step.selector]);
       else if (step.action === "fill")
-        await run(session, ["fill", step.selector, "--", step.value]);
+        await run(instance, ["fill", step.selector, "--", step.value]);
       else {
-        await run(session, ["focus", step.selector]);
-        await run(session, ["press", step.key]);
+        await run(instance, ["focus", step.selector]);
+        await run(instance, ["press", step.key]);
       }
       return null;
     },
     async close() {
-      await run(session, ["tab", "close", tab]);
+      await run(instance, ["tab", "close", pageId]);
     },
   });
-  const newPage = async (session: string): Promise<DriverPage> => {
-    const tab = (await run(session, ["tab", "new"]))["tabId"];
-    if (typeof tab !== "string") throw new Error("agent-browser's `tab new` named no tab");
-    return page(session, tab);
+  const newPage = async (instance: string): Promise<DriverPage> => {
+    const pageId = (await run(instance, ["tab", "new"]))["tabId"];
+    if (typeof pageId !== "string") throw new Error("agent-browser's `tab new` named no page");
+    return page(instance, pageId);
   };
 
   let opened = false;
@@ -304,20 +304,20 @@ async function agentBrowser(plan: Plan, cdp: string): Promise<Driver> {
       opened = true;
       if (!plan.at_once) {
         await start("s");
-        return { newPage: () => newPage("s"), close: leaveDaemonsOpen };
+        return { newPage: () => newPage("s"), close: leaveInstancesOpen };
       }
-      const daemons = plan.pages.map((_, index) => `p${index}`);
-      for (const daemon of daemons) await start(daemon);
+      const instances = plan.pages.map((_, index) => `p${index}`);
+      for (const instance of instances) await start(instance);
       let next = 0;
       return {
         async newPage() {
-          const daemon = daemons[next];
+          const instance = instances[next];
           next += 1;
-          if (daemon === undefined)
+          if (instance === undefined)
             throw new Error("the plan opens more pages at once than it lists");
-          return newPage(daemon);
+          return newPage(instance);
         },
-        close: leaveDaemonsOpen,
+        close: leaveInstancesOpen,
       };
     },
     async close() {

@@ -217,6 +217,20 @@ impl Learned {
         unit
     }
 
+    /// Samples `label` on `domain_key` again at once, its transport having
+    /// been refused (#2419); answers the unit its choice was dropped for,
+    /// which its attempt's outcome writes into the run file in place of
+    /// any count kept for it.
+    pub(crate) fn invalidate(&mut self, label: &str, domain_key: &str) -> Option<Unit> {
+        let unit = self.choices.invalidate(label, domain_key).cloned();
+        if unit.is_some() {
+            self.counted
+                .0
+                .remove(&(label.to_owned(), domain_key.to_owned()));
+        }
+        unit
+    }
+
     /// The choices that counted a request since the last call, for the
     /// run file.
     pub(crate) fn counted(&mut self) -> Counted {
@@ -511,6 +525,12 @@ impl RunState {
     /// Takes the sample `sampled`, as [`Learned::classify`] does.
     pub(crate) fn classify(&mut self, sampled: &Sampled, weighed: Weighed, now: u64) -> Unit {
         self.learned.classify(sampled, weighed, now)
+    }
+
+    /// Samples `label` on `domain_key` again at once, its transport having
+    /// been refused ([`Learned::invalidate`]).
+    pub(crate) fn invalidate(&mut self, label: &str, domain_key: &str) -> Option<Unit> {
+        self.learned.invalidate(label, domain_key)
     }
 
     /// Takes `latency`, the browser-fetch latency of a race of `label` on

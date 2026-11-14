@@ -14,8 +14,12 @@
 //! `rate_limit` and `ip_block` move its domain one proxy tier up, where the
 //! replacement opens; `challenge` and `captcha` move its domain to the
 //! browser tier, where the replacement serves it, leaving the proxy tier to
-//! the Challenge solver's ladder (areas 5 and 8); `payment_required`,
-//! `consent_required` and `decoy` never rotate (ADRs 0045 and 0048). The
+//! the Challenge solver's ladder (areas 5 and 8); an `ip_block` met by a
+//! request the Session's own transport sent on the tier its Label's
+//! comparison chose ([`Effect::TransportRefused`], #2419) retires it and
+//! moves no tier, the comparison sampling the Label again;
+//! `payment_required`, `consent_required` and `decoy` never rotate (ADRs
+//! 0045 and 0048). The
 //! domains' proxy tiers and browser tier are the crawl's, whichever pool
 //! met the block. Retiring is a pool Session's one transition: from open to
 //! retired, never back, in [`SessionPool::retire`]; a retired Session's
@@ -59,6 +63,10 @@ pub enum Effect {
     Success,
     /// Its site refused the page, for this Block cause.
     Blocked(BlockCause),
+    /// Its site refused the page its own transport sent on the tier its
+    /// Label's comparison chose, which the comparison answers by sampling
+    /// the Label again before any proxy tier moves (#2419).
+    TransportRefused,
     /// Its page failed its Page check.
     PageCheckFailed,
     /// Its ending says nothing of the Session, such as a handler's own
@@ -86,7 +94,8 @@ enum Retirement {
     /// A block moved its domain up a proxy tier.
     Escalated,
     /// A block that moves its domain to the browser tier, such as a
-    /// Challenge.
+    /// Challenge, or a refusal of its transport its Label's comparison
+    /// answers.
     Blocked,
     /// It made room for a Session at another proxy tier, or of the other
     /// client.
@@ -435,6 +444,10 @@ impl SessionPool {
             Effect::PageCheckFailed => self
                 .scored_down(&pool, position, settings)
                 .then_some(Retirement::ErrorScore),
+            Effect::TransportRefused => {
+                self.scored_down(&pool, position, settings);
+                Some(Retirement::Blocked)
+            }
             Effect::Blocked(cause) => match cause {
                 BlockCause::RateLimit | BlockCause::IpBlock => {
                     self.scored_down(&pool, position, settings);

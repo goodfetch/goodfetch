@@ -45,8 +45,8 @@
 //! A choice is sampled again once it served `fetch.sample.refresh_after`'s
 //! requests, or once its time passed, whichever comes first (500 requests
 //! or 24 hours by default), and at once when [`TierChoices::invalidate`]
-//! is told a declared total stopped matching (ADR 0020). A sample run is
-//! neither a retry nor a failure.
+//! is told its transport was refused (#2419) or a declared total stopped
+//! matching (ADR 0020). A sample run is neither a retry nor a failure.
 //!
 //! The hand-over of a Collie page on the planned tier, and the attempt's
 //! runs, are the delivery's (`attempt`).
@@ -512,20 +512,26 @@ impl TierChoices {
         unit
     }
 
-    /// Samples `label` on `domain_key` again at once, as a declared total
-    /// that stopped matching says (ADR 0020); a walled Label stays on
-    /// `browser`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "no contract declares a total yet: the crawl calls it once one does"
-        )
-    )]
-    pub(crate) fn invalidate(&mut self, label: &str, domain_key: &str) {
-        let id = (label.to_owned(), domain_key.to_owned());
-        if self.units.get(&id) != Some(&Unit::Walled) {
-            self.units.remove(&id);
+    /// Samples `label` on `domain_key` again at once, as a refusal of its
+    /// transport (#2419) or a declared total that stopped matching (ADR
+    /// 0020) says: a choice is dropped for a unit sampling afresh from the
+    /// same client, which it answers for the run file. A Label still
+    /// sampling keeps the samples it took, and a walled Label stays on
+    /// `browser`; for those it answers none.
+    pub(crate) fn invalidate(&mut self, label: &str, domain_key: &str) -> Option<&Unit> {
+        let unit = self
+            .units
+            .get_mut(&(label.to_owned(), domain_key.to_owned()))?;
+        match unit {
+            Unit::Learned { from, .. } | Unit::Split { from, .. } => {
+                *unit = Unit::Sampling {
+                    samples: Vec::new(),
+                    plan: None,
+                    from: *from,
+                };
+                Some(unit)
+            }
+            Unit::Sampling { .. } | Unit::Walled => None,
         }
     }
 }

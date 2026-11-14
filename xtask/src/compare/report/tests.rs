@@ -431,3 +431,36 @@ fn pagesifts_cells_note_the_buffer_its_own_spider_benchmark_reads_with() {
         (vec!["pagesift"], Vec::<&str>::new(), vec!["pagesift"])
     );
 }
+
+/// pagesift's polite cell runs one trial of each pass (#2215): its mapping
+/// says so, with the owner's decision and why, and its same-work line and
+/// its column in each table say one trial; no other cell's do.
+#[test]
+fn pagesifts_polite_cell_is_labelled_as_one_trial() {
+    let trials = comparison(&[]);
+
+    let markdown = markdown(&of(&trials), &trials);
+
+    let one = "  - one trial: the owner's decision of 2026-11-14 (#2215): a trial of this cell \
+               takes about 50 minutes, since its frontier takes a domain's pages after its first \
+               four last, at 1.5 to 3 pages a second, so one timed trial and one run under strace \
+               stand for it where the run asks for more; its figures are that trial's, with no \
+               spread.";
+    let same = "  - same work: 1 trial, each 1000 pages served in 600000 bytes.";
+    let polite = section(&markdown, "3. ");
+    let headed: Vec<&str> = markdown
+        .lines()
+        .filter(|line| line.starts_with("| Metric |") && line.contains("(one trial)"))
+        .collect();
+    assert_eq!(
+        (
+            cells_saying(&markdown, one),
+            cells_saying(polite, same),
+            headed.len(),
+            headed
+                .iter()
+                .all(|line| line.contains("| pagesift (one trial), ")),
+        ),
+        (vec!["pagesift"], vec!["pagesift"], 1, true)
+    );
+}

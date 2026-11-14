@@ -48,7 +48,8 @@ use goodfetch_protocol::run::{AxisReason, Completeness};
 use rusqlite::{Connection, OptionalExtension as _};
 use url::{Position, Url};
 
-use crate::staged::Staged;
+use crate::staged::{Admitting, Staged};
+use crate::unwritten::{Counts, Holding};
 
 /// The bounds' values and `frontier.learning`, one row, and the path
 /// budgets, in order; the count
@@ -248,47 +249,41 @@ impl Bounds {
     }
 
     /// Why a request to `url` at `depth`, counted by the path budget
-    /// `budget`, is not added, if it is not: a bound it is past, then a cap
-    /// on its shape. The requests `staged`, what an attempt's earlier staged
-    /// admissions did, counted are counted with the run file's.
+    /// `budget`, is not added, if it is not: a bound it is past, its
+    /// counts read from `so_far`, then a cap on its shape.
     pub(crate) fn refuses(
         &self,
-        connection: &Connection,
         url: &Url,
         depth: u64,
         budget: Option<&PathBudget>,
-        staged: Option<&Staged>,
+        so_far: &mut SoFar<'_, '_>,
     ) -> rusqlite::Result<Option<NotAddedReason>> {
         Ok(self
-            .past(connection, depth, budget, staged)?
+            .past(depth, budget, so_far)?
             .or_else(|| self.shape_refuses(url)))
     }
 
     /// The bound a request at `depth`, counted by the path budget `budget`,
     /// is past, if any: its depth, then the Run's count of requests, then
-    /// its path budget's, each count read where the Run's state is held
-    /// (#2244), with what `staged` counted. The caps on its URL's shape,
-    /// which come after them, are read from the URL alone
-    /// ([`Bounds::shape_refuses`]).
+    /// its path budget's, each count read from `so_far`, memory or the run
+    /// file (#2169). The caps on its URL's shape, which come after them,
+    /// are read from the URL alone ([`Bounds::shape_refuses`]).
     pub(crate) fn past(
         &self,
-        connection: &Connection,
         depth: u64,
         budget: Option<&PathBudget>,
-        staged: Option<&Staged>,
+        so_far: &mut SoFar<'_, '_>,
     ) -> rusqlite::Result<Option<NotAddedReason>> {
         if self.max_depth.is_some_and(|max| depth > max) {
             return Ok(Some(NotAddedReason::MaxDepth));
         }
         if let Some(max) = self.max_requests
-            && admitted(connection)? + staged.map_or(0, Staged::admitted) >= max
+            && so_far.admitted()? >= max
         {
             return Ok(Some(NotAddedReason::MaxRequests));
         }
         if let Some(budget) = budget
-            && path_admitted(connection, &budget.pattern)?
-                + staged.map_or(0, |staged| staged.budget(&budget.pattern))
-                >= budget.max_requests
+            && so_far.path_admitted(&budget.pattern)? >= budget.max_requests
         {
             return Ok(Some(NotAddedReason::PathBudget));
         }
@@ -351,6 +346,67 @@ fn repeats_more_than(segments: &[&str], max: u64) -> bool {
             equal_in_a_row >= width * max
         })
     })
+}
+
+/// The requests counted so far against `crawl.max_requests` and the path
+/// budgets, read for one admission on `connection` against what
+/// `admitting` adds to the run file: from the Frontier's memory once
+/// `holding` holds the counts, with what an attempt's staged admissions
+/// counted, its earlier calls' and this one's, which memory never holds;
+/// else from the run file, which holds this call's own, with its earlier
+/// calls' (#2169).
+pub(crate) struct SoFar<'h, 'a> {
+    /// The connection the admission runs on.
+    pub(crate) connection: &'h Connection,
+    /// The Frontier's memory, held for the admission, at a batching level.
+    pub(crate) holding: Option<&'h mut Holding<'a>>,
+    /// What the admission adds to the run file.
+    pub(crate) admitting: &'h Admitting,
+}
+
+impl SoFar<'_, '_> {
+    /// The requests admitted.
+    fn admitted(&mut self) -> rusqlite::Result<u64> {
+        if let Some(holding) = &mut self.holding
+            && let Some(counts) =
+                holding.counts(self.admitting.writes(), || counts(self.connection))?
+        {
+            return Ok(counts.admitted() + self.admitting.staged_admitted());
+        }
+        Ok(admitted(self.connection)? + self.admitting.earlier().map_or(0, Staged::admitted))
+    }
+
+    /// The requests the path budget of `pattern` admitted.
+    fn path_admitted(&mut self, pattern: &str) -> rusqlite::Result<u64> {
+        if let Some(holding) = &mut self.holding
+            && let Some(counts) =
+                holding.counts(self.admitting.writes(), || counts(self.connection))?
+        {
+            return Ok(counts.path_admitted(pattern) + self.admitting.staged_budget(pattern));
+        }
+        Ok(path_admitted(self.connection, pattern)?
+            + self
+                .admitting
+                .earlier()
+                .map_or(0, |staged| staged.budget(pattern)))
+    }
+}
+
+/// The Bounds' counts the run file `connection` holds, for the Frontier's
+/// memory to keep (#2169).
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+fn counts(connection: &Connection) -> rusqlite::Result<Counts> {
+    let mut statement =
+        connection.prepare_cached("SELECT pattern, admitted FROM bounds_path_counts")?;
+    let paths = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?.into(), count(row.get(1)?)))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(Counts::new(admitted(connection)?, paths))
 }
 
 /// Counts one request admitted into the run file `connection` holds, and

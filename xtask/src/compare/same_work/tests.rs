@@ -1,9 +1,10 @@
 use super::{check, strace_runs_of_other_work_set_aside};
+use crate::compare::auto::Judged;
 use crate::compare::extracted::Extracted;
 use crate::compare::matrix::{self, Row, Scenario};
 use crate::compare::trials::{
-    Comparison, CountedCell, CountedRun, INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Measured,
-    SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, Tool, Trial, Work, fixture,
+    AutoRun, Comparison, CountedCell, CountedRun, INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS,
+    Measured, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, Tool, Trial, Work, fixture,
 };
 
 /// The work of a trial that fetched every page of the site of `pages`
@@ -71,6 +72,33 @@ fn named(trials: &Comparison) -> Vec<(&'static str, String)> {
 #[test]
 fn trials_that_did_the_same_work_pass() {
     assert_eq!(named(&comparison(|_, _| work(0))), vec![]);
+}
+
+/// An auto cell's run did the same work when the Proving ground saw every
+/// page of the rungs site's manifest requested: its Records are held to the
+/// manifest as figures, pages wrong, never as other work (#2411).
+#[test]
+fn an_auto_run_that_left_a_page_of_the_manifest_unrequested_did_other_work() {
+    let run = |cell: &str, number, requested, wrong| AutoRun {
+        scenario: Scenario::Auto,
+        cell: cell.to_owned(),
+        tool: Tool::Spider,
+        number,
+        judged: Judged {
+            seconds: 1.0,
+            pages: 37,
+            requested,
+            rendered: 0,
+            wrong,
+        },
+    };
+    let mut trials = comparison(|_, _| work(0));
+    trials.auto = vec![run("spider", 1, 37, 5), run("spider", 2, 36, 0)];
+
+    assert_eq!(
+        named(&trials),
+        vec![("unrequested_pages", "auto spider run 2".to_owned())]
+    );
 }
 
 /// pagesift's polite cell is held to one trial of each pass, timed and

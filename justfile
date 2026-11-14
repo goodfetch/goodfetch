@@ -1185,7 +1185,7 @@ rss-propose *scenarios:
 # run it when the 1-minute load is under 4.
 # Spider's, crawlee-rs's, pagesift's, OpenSpider's, fastCRW's, crawlberg's
 # and chromiumoxide's crates and the sides' packages are downloaded once,
-# free. Spider's seven builds, crawlee-rs's, pagesift's, OpenSpider's,
+# free. Spider's eight builds, crawlee-rs's, pagesift's, OpenSpider's,
 # fastCRW's (its server's build in fastcrw-server, the server installed into
 # the side's profile folder), crawlberg's and chromiumoxide's go to target/compare-spider/, or to the folder GOODFETCH_COMPARE_SPIDER_BUILDS
 # names: one outside every checkout keeps them from one measurement to the
@@ -1218,6 +1218,7 @@ compare profile="release" *args:
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features jemalloc --target-dir {{ compare_spider_builds }}/spider-jemalloc
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features extraction --target-dir {{ compare_spider_builds }}/spider-extraction
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features extraction,mimalloc --target-dir {{ compare_spider_builds }}/spider-extraction-mimalloc
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features smart --target-dir {{ compare_spider_builds }}/spider-smart
     cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/crawlee-rs
     cargo build --quiet --locked --manifest-path xtask/compare-pagesift/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/pagesift
     cargo build --quiet --locked --manifest-path xtask/compare-openspider/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/openspider

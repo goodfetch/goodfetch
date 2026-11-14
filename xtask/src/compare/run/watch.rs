@@ -18,6 +18,9 @@ pub(crate) const COUNTED_BOUND_SECONDS: u64 = 1800;
 /// The longest a timed trial of the [`SITE_PAGES`]-page site may take: a
 /// browser trial took at most about 260 s on a loaded machine (#1903).
 pub(crate) const TIMED_BOUND_SECONDS: u64 = 600;
+/// The longest an auto cell's run may take: a run of the rungs site's few
+/// dozen pages took under 30 s on a debug build (#2411).
+pub(crate) const AUTO_BOUND_SECONDS: u64 = 300;
 
 /// Which trial the comparison watches, stopping it once its crawl stalls
 /// or reaches its bound.
@@ -30,6 +33,8 @@ pub(crate) enum Watch {
     Counted(u32),
     /// The `n`-th timed trial of a cell, of a site of so many pages.
     Timed(u32, u64),
+    /// The `n`-th run of an auto cell (#2411).
+    Auto(u32),
 }
 
 /// Why the watched trial, `seconds` into its crawl and `quiet` seconds
@@ -47,6 +52,11 @@ pub(crate) fn stopped(watch: Watch, seconds: u64, quiet: u64, requests: u64) -> 
             format!("timed trial {number}"),
             "a timed trial",
             TIMED_BOUND_SECONDS * pages.div_ceil(SITE_PAGES).max(1),
+        ),
+        Watch::Auto(number) => (
+            format!("auto run {number}"),
+            "an auto run",
+            AUTO_BOUND_SECONDS,
         ),
     };
     if quiet >= STALL_SECONDS {

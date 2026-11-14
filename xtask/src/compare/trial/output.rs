@@ -32,7 +32,10 @@ pub(super) fn traced(cell: &Cell, config: Config, mode: &Mode, pages: u64) -> Co
                 capacity: capacity.max(usize::try_from(pages).unwrap_or(usize::MAX)),
             }
         }
-        (config, Mode::Timed | Mode::Syscalls(_) | Mode::Callgrind(_) | Mode::Rules) => config,
+        (
+            config,
+            Mode::Timed | Mode::Syscalls(_) | Mode::Callgrind(_) | Mode::Rules | Mode::Auto,
+        ) => config,
     }
 }
 

@@ -1,0 +1,14 @@
+# The modules loom model-checks (ADR 0060): a module that synchronizes
+# threads with locks of its own, through its crate's `sync` module, which
+# maps them to loom's under `--cfg goodfetch_loom`. `just loom` builds each
+# crate's unit tests with that cfg, in a build folder of its own
+# (`target/loom/`), and runs the module's loom tests: every interleaving of
+# their threads, up to `preemptions` forced switches each.
+
+# The most forced thread switches loom explores in one interleaving.
+preemptions = 3
+
+# The CPU pool's own threads (#2200).
+[[module]]
+crate = "goodfetch-engine"
+filter = "tasks::cpu_pool::loom_tests"   # the libtest filter that selects its loom tests

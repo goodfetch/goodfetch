@@ -1581,6 +1581,26 @@ miri:
       cargo "+$toolchain" miri test --package "${module%%$'\t'*}" --lib -- "${module#*$'\t'}"
     done
 
+# loom over the modules that opt in through ci/loom.toml (ADR 0060): each
+# crate's unit tests built with `--cfg goodfetch_loom`, under which its
+# `sync` module maps its locks to loom's, in a build folder of their own,
+# `target/loom/`, which no other step reads.
+loom:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    read_list() { uv run --frozen --quiet python -c "import tomllib; loom = tomllib.load(open('ci/loom.toml', 'rb')); $1"; }
+    modules=$(read_list 'print("\n".join(m["crate"] + "\t" + m["filter"] for m in loom["module"]))')
+    preemptions=$(read_list 'print(loom["preemptions"])')
+    # Each module runs once; a `for` loop with no `break` retries nothing
+    # (xtask no-retry).
+    set -f
+    IFS=$'\n'
+    for module in $modules; do
+      RUSTFLAGS="${RUSTFLAGS:-} --cfg goodfetch_loom" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}/loom" \
+        LOOM_MAX_PREEMPTIONS="$preemptions" \
+        cargo test --locked --package "${module%%$'\t'*}" --lib -- "${module#*$'\t'}"
+    done
+
 # Builds Miri's sysroot, which fetches the standard library's dependencies,
 # so CI runs it before the egress deny; nothing while no module opts in.
 miri-setup:

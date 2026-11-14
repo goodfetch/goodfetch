@@ -38,12 +38,13 @@ use std::time::Duration;
 
 use futures_util::FutureExt as _;
 use goodfetch_counted_work::{CountedWork, Row};
-use tokio::sync::{Semaphore, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::crash_report;
 
+mod cpu_pool;
 mod state_actor;
 
 pub(crate) use state_actor::{ActorStopped, StateActor};
@@ -104,9 +105,9 @@ pub struct TaskOwner {
     /// closes its mailbox, handles what it still holds and ends.
     closing: CancellationToken,
     policy: BlockingPolicy,
-    /// The CPU pool's permits, one per core, which every owner of the
-    /// tree shares: each Page analysis on a blocking thread holds one.
-    analyses: Arc<Semaphore>,
+    /// The CPU pool, one thread a core at most, which every owner of the
+    /// tree shares: each Page analysis runs on one of its threads.
+    analyses: Arc<cpu_pool::CpuPool>,
     /// Where a panic of its tasks is told.
     panics: Panics,
 }
@@ -121,7 +122,7 @@ impl TaskOwner {
     }
 
     /// The root of a tree whose blocking work runs under `policy`, with a
-    /// CPU pool of `cores` permits.
+    /// CPU pool of at most `cores` threads.
     pub fn root_on_cores(policy: BlockingPolicy, cores: NonZeroUsize) -> Self {
         Self {
             token: CancellationToken::new(),
@@ -129,7 +130,11 @@ impl TaskOwner {
             actors: TaskTracker::new(),
             closing: CancellationToken::new(),
             policy,
-            analyses: Arc::new(Semaphore::new(cores.get())),
+            analyses: Arc::new(cpu_pool::CpuPool::new(
+                cpu_pool::THREAD_NAME,
+                cores.get(),
+                cpu_pool::KEEP_ALIVE,
+            )),
             panics: Panics::new(OwnerKind::Engine),
         }
     }
@@ -253,10 +258,11 @@ impl TaskOwner {
     }
 
     /// Runs `work`, a Page analysis's parsing or reading of a page, on the
-    /// CPU pool, and answers what it returns: on a blocking thread once
-    /// one of the pool's permits is free, held until `work` returns, so no
-    /// more analyses run at once than the machine has cores, whatever the
-    /// requests in flight (ADR 0138); inline under
+    /// CPU pool, and answers what it returns: on a thread of the pool's
+    /// own, at most one a core, started on first use and ended once idle,
+    /// so no more analyses run at once than the machine has cores, whatever
+    /// the requests in flight, and none waits behind the cap of Tokio's
+    /// blocking threads (ADR 0138, #2200); inline under
     /// [`BlockingPolicy::Inline`]. A panic in `work` resumes in the caller.
     ///
     /// Each call is one hand-off to the pool, counted on `counted` as
@@ -265,8 +271,10 @@ impl TaskOwner {
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future while it waits for a permit runs nothing;
-    /// once `work` started, as [`TaskOwner::blocking`].
+    /// Dropping the future before a thread of the pool takes `work` runs
+    /// nothing; once `work` started, as [`TaskOwner::blocking`]: it runs to
+    /// its end, the owner waits for it, and a panic in it is told to the
+    /// owner's parent.
     pub async fn analysis<T, F>(&self, counted: &CountedWork, work: F) -> T
     where
         F: FnOnce() -> T + Send + 'static,
@@ -293,8 +301,8 @@ impl TaskOwner {
         self.on_pool(work).await
     }
 
-    /// Runs `work` on the CPU pool, once one of its permits is free, or
-    /// inline under [`BlockingPolicy::Inline`].
+    /// Runs `work` on a thread of the CPU pool, or inline under
+    /// [`BlockingPolicy::Inline`]; a panic in `work` resumes in the caller.
     async fn on_pool<T, F>(&self, work: F) -> T
     where
         F: FnOnce() -> T + Send + 'static,
@@ -303,16 +311,39 @@ impl TaskOwner {
         match self.policy {
             BlockingPolicy::Inline => work(),
             BlockingPolicy::Threads => {
-                let permit = Arc::clone(&self.analyses)
-                    .acquire_owned()
+                let (answer, answered) = oneshot::channel();
+                let panics = self.panics.clone();
+                // The owner waits for the job as for its tasks.
+                let running = self.tracker.token();
+                let job: cpu_pool::Job = Box::new(move || {
+                    let _running = running;
+                    if answer.is_closed() {
+                        return;
+                    }
+                    let caught =
+                        std::panic::catch_unwind(AssertUnwindSafe(work)).map_err(|panic| Caught {
+                            panic: Some(panic),
+                            crash_report: crash_report::take_written(),
+                            panics,
+                        });
+                    // A caller that has gone drops the answer here, and a
+                    // `Caught` dropped unresumed tells its panic.
+                    let _ = answer.send(caught);
+                });
+                if let Err(cpu_pool::Stranded(stranded)) = self.analyses.run(job) {
+                    // No thread of the pool's own: the analyses run on the
+                    // owner's blocking threads rather than never.
+                    for job in stranded {
+                        self.tracker.spawn_blocking(job);
+                    }
+                }
+                match answered
                     .await
-                    .expect("invariant: the CPU pool's permits are never closed");
-                self.blocking(move || {
-                    let answer = work();
-                    drop(permit);
-                    answer
-                })
-                .await
+                    .expect("invariant: the CPU pool runs every job it queued")
+                {
+                    Ok(answer) => answer,
+                    Err(caught) => caught.resume(),
+                }
             }
         }
     }

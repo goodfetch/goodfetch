@@ -11,7 +11,15 @@
 //! decoded and its white space collapsed here, inside the timed process, as
 //! the other tools' parsers do theirs. `browser` renders each page in
 //! Chrome (`CHROME_BIN`), which only the executable built with the `chrome`
-//! feature does; every other scenario crawls in Spider's HTTP mode.
+//! feature does. `auto`, the rungs site's (#2411), crawls with
+//! `crawl_smart()`, which fetches each page over HTTP and renders it in
+//! that Chrome only where Spider finds it needs one, which only the
+//! executable built with the `smart` feature does: it writes each page's
+//! URL, whether Spider rendered it in Chrome, and the Records its HTML
+//! holds, each `article.item`'s `p.id` and `h1.name` text, read with
+//! `lol_html`, the parser Spider's smart mode reads pages with, as one JSON
+//! line to `pages.jsonl`. Every other scenario crawls in Spider's HTTP
+//! mode.
 //! `hostile`, the hostile pages' pass at each tool's defaults (#2439), sets
 //! neither the requests in flight nor robots.txt, leaving Spider's defaults.
 //!
@@ -48,8 +56,11 @@ static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-/// The file the `extraction` scenario writes each page to.
+/// The file the `extraction` and `auto` scenarios write each page to.
 const PAGES_FILE: &str = "pages.jsonl";
+
+/// A page's line of `pages.jsonl`, as its scenario reads it.
+type Line = Result<serde_json::Value, String>;
 
 /// What one crawl fetched, as Spider reports it, and where each page is
 /// written, if anywhere.
@@ -60,20 +71,21 @@ struct Fetched {
     written: Option<Written>,
 }
 
-/// The `extraction` scenario's pages: the file they are written to, and the
-/// tasks reading them. Each page is read in a task of its own, as
-/// `Website::subscribe`'s example processes a page, so the one reader of
-/// the stream keeps up with the crawl: with `llm_readability` run in the
-/// reader itself, crawls of the 10,000-page site lost pages at every
-/// capacity from 256 to 4,096 (#2136).
+/// The `extraction` and `auto` scenarios' pages: the file they are written
+/// to, how the scenario reads a page, and the tasks reading them. Each page
+/// is read in a task of its own, as `Website::subscribe`'s example
+/// processes a page, so the one reader of the stream keeps up with the
+/// crawl: with `llm_readability` run in the reader itself, crawls of the
+/// 10,000-page site lost pages at every capacity from 256 to 4,096 (#2136).
 struct Written {
     file: std::io::BufWriter<std::fs::File>,
-    reading: tokio::task::JoinSet<Result<serde_json::Value, String>>,
+    read: fn(&spider::page::Page) -> Line,
+    reading: tokio::task::JoinSet<Line>,
 }
 
 impl Written {
     /// Writes the line of a page whose task ended.
-    fn write(&mut self, read: Result<Result<serde_json::Value, String>, tokio::task::JoinError>) -> Result<(), String> {
+    fn write(&mut self, read: Result<Line, tokio::task::JoinError>) -> Result<(), String> {
         let line = read.map_err(|error| format!("reading a page: {error}"))??;
         writeln!(self.file, "{line}").map_err(|error| format!("writing {PAGES_FILE}: {error}"))
     }
@@ -84,7 +96,8 @@ impl Fetched {
         self.pages += 1;
         self.body_bytes += page.get_bytes().map_or(0, |bytes| bytes.len() as u64);
         if let Some(written) = self.written.as_mut() {
-            written.reading.spawn(async move { extracted(&page) });
+            let read = written.read;
+            written.reading.spawn(async move { read(&page) });
             // The pages read so far are written as the stream goes.
             while let Some(read) = written.reading.try_join_next() {
                 written.write(read)?;
@@ -95,7 +108,7 @@ impl Fetched {
 }
 
 /// White space collapsed to single spaces, Unicode's included, and trimmed.
-#[cfg(feature = "extraction")]
+#[cfg(any(feature = "extraction", feature = "smart"))]
 fn collapsed(text: &str) -> String {
     let mut collapsed = String::with_capacity(text.len());
     for word in text.split_whitespace() {
@@ -114,7 +127,7 @@ fn collapsed(text: &str) -> String {
 /// called as `spider_transformations` calls it, without the reader page it
 /// wraps that text in, whose head repeats the title.
 #[cfg(feature = "extraction")]
-fn extracted(page: &spider::page::Page) -> Result<serde_json::Value, String> {
+fn extracted(page: &spider::page::Page) -> Line {
     let title = page
         .get_metadata()
         .as_ref()
@@ -138,8 +151,73 @@ fn extracted(page: &spider::page::Page) -> Result<serde_json::Value, String> {
 }
 
 #[cfg(not(feature = "extraction"))]
-fn extracted(_page: &spider::page::Page) -> Result<serde_json::Value, String> {
+fn extracted(_page: &spider::page::Page) -> Line {
     Err("the extraction scenario takes the `extraction` feature's executable".to_owned())
+}
+
+/// A page's line of `pages.jsonl` in the `auto` scenario: its URL, whether
+/// Spider rendered it in Chrome, which only its Chrome path records the
+/// bytes transferred of, and the Records its HTML holds: each
+/// `article.item`'s `p.id` and `h1.name` text, white space collapsed, one
+/// holding neither none.
+#[cfg(feature = "smart")]
+fn records(page: &spider::page::Page) -> Line {
+    use std::cell::RefCell;
+
+    use lol_html::{HtmlRewriter, Settings, element, text};
+
+    /// One `article.item`'s fields, as their text arrives.
+    #[derive(Default)]
+    struct Fields {
+        id: String,
+        name: String,
+    }
+    let read: RefCell<Vec<Fields>> = RefCell::new(Vec::new());
+    let mut rewriter = HtmlRewriter::new(
+        Settings {
+            element_content_handlers: vec![
+                element!("article.item", |_| {
+                    read.borrow_mut().push(Fields::default());
+                    Ok(())
+                }),
+                text!("article.item p.id", |chunk| {
+                    if let Some(fields) = read.borrow_mut().last_mut() {
+                        fields.id.push_str(chunk.as_str());
+                    }
+                    Ok(())
+                }),
+                text!("article.item h1.name", |chunk| {
+                    if let Some(fields) = read.borrow_mut().last_mut() {
+                        fields.name.push_str(chunk.as_str());
+                    }
+                    Ok(())
+                }),
+            ],
+            ..Settings::new()
+        },
+        |_: &[u8]| {},
+    );
+    let parsing =
+        |error: lol_html::errors::RewritingError| format!("parsing {}: {error}", page.get_url());
+    rewriter.write(page.get_html_bytes_u8()).map_err(parsing)?;
+    rewriter.end().map_err(parsing)?;
+    let records: Vec<serde_json::Value> = read
+        .into_inner()
+        .into_iter()
+        .map(|fields| (collapsed(&fields.id), collapsed(&fields.name)))
+        .filter(|(id, name)| !id.is_empty() || !name.is_empty())
+        .map(|(id, name)| serde_json::json!({ "id": id, "name": name }))
+        .collect();
+    Ok(serde_json::json!({
+        "url": page.get_url(),
+        "rendered": page.bytes_transferred.is_some(),
+        "records": records,
+    }))
+}
+
+#[cfg(not(feature = "smart"))]
+fn records(_page: &spider::page::Page) -> Line {
+    Err("the auto scenario takes the `smart` feature's executable".to_owned())
 }
 
 impl Fetched {
@@ -204,15 +282,28 @@ fn arguments() -> Result<Arguments, String> {
     })
 }
 
+/// How Spider crawls a scenario's site.
+enum Mode {
+    /// Over HTTP alone (`crawl_raw()`).
+    Http,
+    /// Each page rendered in Chrome (`crawl()`).
+    Chrome,
+    /// Over HTTP, each page rendered in Chrome where Spider finds it needs
+    /// one (`crawl_smart()`).
+    Smart,
+}
+
 async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
-    let browser = match arguments.scenario.as_str() {
-        "raw" | "hostile" => false,
-        "extraction" if cfg!(feature = "extraction") => false,
+    let mode = match arguments.scenario.as_str() {
+        "raw" | "hostile" => Mode::Http,
+        "extraction" if cfg!(feature = "extraction") => Mode::Http,
         "extraction" => {
             return Err("the extraction scenario takes the `extraction` feature's executable".to_owned());
         }
-        "browser" if cfg!(feature = "chrome") => true,
+        "browser" if cfg!(feature = "chrome") => Mode::Chrome,
         "browser" => return Err("the browser scenario takes the `chrome` feature's executable".to_owned()),
+        "auto" if cfg!(feature = "smart") => Mode::Smart,
+        "auto" => return Err("the auto scenario takes the `smart` feature's executable".to_owned()),
         other => return Err(format!("Spider runs no `{other}` scenario")),
     };
     let mut site = Website::new(&arguments.url);
@@ -231,15 +322,20 @@ async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
         );
         site.with_headers(Some(headers));
     }
-    let written = if arguments.scenario == "extraction" {
-        Some(Written {
+    let read: Option<fn(&spider::page::Page) -> Line> = match arguments.scenario.as_str() {
+        "extraction" => Some(extracted),
+        "auto" => Some(records),
+        _ => None,
+    };
+    let written = match read {
+        Some(read) => Some(Written {
             file: std::io::BufWriter::new(
                 std::fs::File::create(PAGES_FILE).map_err(|error| format!("creating {PAGES_FILE}: {error}"))?,
             ),
+            read,
             reading: tokio::task::JoinSet::new(),
-        })
-    } else {
-        None
+        }),
+        None => None,
     };
     // Every page is read from the stream, drained once the crawl ends:
     // the lab found the crawl's end may come before its last page is read.
@@ -271,10 +367,10 @@ async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
             }
         }
     });
-    if browser {
-        site.crawl().await;
-    } else {
-        site.crawl_raw().await;
+    match mode {
+        Mode::Http => site.crawl_raw().await,
+        Mode::Chrome => site.crawl().await,
+        Mode::Smart => site.crawl_smart().await,
     }
     // The receiver lives until the stream is drained.
     let _ = done.send(());

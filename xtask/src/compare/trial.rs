@@ -50,6 +50,9 @@ pub(crate) enum Mode {
     /// Once on each task of a hostile pages' pass, its tool stopped at a
     /// bound, for the rules it broke (#2439; see [`rules`]).
     Rules,
+    /// Once on the rungs site, for what it read against the site's
+    /// manifest (#2411; see [`auto`]).
+    Auto,
 }
 
 /// What a counted trial prints.
@@ -145,7 +148,7 @@ pub(crate) fn observations(address: &str) -> Result<Value> {
 /// of its own.
 fn command(invocation: &Invocation, mode: &Mode, process: u32) -> Command {
     let mut command = match mode {
-        Mode::Timed | Mode::Rules => Command::new(&invocation.program),
+        Mode::Timed | Mode::Rules | Mode::Auto => Command::new(&invocation.program),
         Mode::Syscalls(output) => {
             let mut strace = Command::new(STRACE);
             let mut file = output.clone().into_os_string();
@@ -186,7 +189,7 @@ fn tool_pid(child: &Child, mode: &Mode) -> u32 {
             }
             child.id()
         }
-        Mode::Timed | Mode::Callgrind(_) | Mode::Rules => child.id(),
+        Mode::Timed | Mode::Callgrind(_) | Mode::Rules | Mode::Auto => child.id(),
     }
 }
 
@@ -357,12 +360,14 @@ impl Plan<'_> {
 
     /// The browser the cell's tool runs, in the headless browser scenario.
     fn browser(&self) -> Result<Option<&Path>> {
-        if self.cell.scenario != Scenario::Browser && !self.config.samples() {
+        if !matches!(self.cell.scenario, Scenario::Browser | Scenario::Auto)
+            && !self.config.samples()
+        {
             return Ok(None);
         }
         self.browser.map(Some).context(
-            "the headless browser scenario and Foxhound's `auto` row take Chrome for Testing's \
-             folder, --browser",
+            "the headless browser scenario, the auto cell and Foxhound's `auto` row take Chrome \
+             for Testing's folder, --browser",
         )
     }
 
@@ -493,14 +498,23 @@ impl Plan<'_> {
         }
     }
 
-    /// The site's first page on its host's name.
+    /// The site's first page on its host's name: the rungs site's root, or
+    /// another site's page 1.
     fn start_url(&self) -> String {
+        let path = match self.kind() {
+            SiteKind::Rungs => "/".to_owned(),
+            SiteKind::Scale
+            | SiteKind::MultiDomain
+            | SiteKind::Rendered
+            | SiteKind::Realistic
+            | SiteKind::Article
+            | SiteKind::Hostile => format!("/sites/{}/1", self.site.pages),
+        };
         format!(
-            "{}://{}:{}/sites/{}/1",
+            "{}://{}:{}{path}",
             self.cell.scenario.network().scheme(),
             self.kind().host_of(1),
             self.site.port(),
-            self.site.pages
         )
     }
 
@@ -793,6 +807,7 @@ impl Plan<'_> {
             }
             Mode::Timed => bail!("a timed trial counts nothing"),
             Mode::Rules => bail!("a hostile pages' run counts nothing"),
+            Mode::Auto => bail!("an auto cell's run counts nothing"),
         };
         Ok(Counted {
             count,
@@ -923,6 +938,7 @@ pub(crate) fn cell_of(scenario: Scenario, name: &str) -> Result<(&'static Cell, 
     }
 }
 
+mod auto;
 mod chrome;
 mod invocation;
 mod output;

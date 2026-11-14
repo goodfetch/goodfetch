@@ -136,6 +136,22 @@ pub(crate) enum Scenario {
     #[serde(rename = "crawl-like")]
     #[value(name = "crawl-like")]
     CrawlLike,
+    /// Each tool's own choice of HTTP or a browser, page by page, on the
+    /// rungs site (#2411): its rate, the pages it rendered and the pages
+    /// whose Records it got wrong, read against the site's manifest, not
+    /// timed.
+    Auto,
+}
+
+/// What a scenario's trials read of each tool.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Reading {
+    /// A timed crawl's figures.
+    Timed,
+    /// The rules it broke on the hostile pages (#2439).
+    Rules,
+    /// What it read on the rungs site against the site's manifest (#2411).
+    Manifest,
 }
 
 /// How a scenario's trials reach the Proving ground.
@@ -143,6 +159,10 @@ pub(crate) enum Scenario {
 pub(crate) enum Network {
     /// Plain HTTP on loopback, with no latency added.
     Loopback,
+    /// TLS from the Proving ground's local certificate authority on
+    /// loopback, with no latency added: the rungs site's browser-identity
+    /// pages answer only a TLS fingerprint (#2411).
+    TlsOnLoopback,
     /// TLS from the Proving ground's local certificate authority, with
     /// HTTP/2 offered first, through its latency proxy at a 20 ms round
     /// trip (#2284).
@@ -153,7 +173,7 @@ impl Network {
     /// The Proving ground's `--network-profile`.
     pub(crate) fn network_profile(self) -> &'static str {
         match self {
-            Self::Loopback => "none",
+            Self::Loopback | Self::TlsOnLoopback => "none",
             Self::TlsUnderRtt20 => "rtt-20",
         }
     }
@@ -167,7 +187,10 @@ impl Network {
     /// Proving ground's certificate authority and each request for the
     /// site's pages is held to TLS and HTTP/2.
     pub(crate) fn tls(self) -> bool {
-        self == Self::TlsUnderRtt20
+        match self {
+            Self::Loopback => false,
+            Self::TlsUnderRtt20 | Self::TlsOnLoopback => true,
+        }
     }
 }
 
@@ -195,6 +218,10 @@ pub(crate) enum Site {
     /// The hostile pages: each task's host, reached on the Proving
     /// ground's address with its host name sent as each request's `Host`.
     Hostile,
+    /// The rungs site on `rungs.localhost` (#2410): static,
+    /// browser-identity, script-rendered, refused and blocked pages, each
+    /// page's right Records in the site's manifest.
+    Rungs,
 }
 
 /// The multi-domain site's domains, as the Proving ground serves them
@@ -219,13 +246,14 @@ impl Site {
             Self::Realistic => "realistic.localhost".to_owned(),
             Self::Article => "article.localhost".to_owned(),
             Self::Hostile => super::hostile::TRAPS.host.to_owned(),
+            Self::Rungs => "rungs.localhost".to_owned(),
         }
     }
 
     /// Every host of the site.
     pub(crate) fn hosts(self) -> Vec<String> {
         match self {
-            Self::Scale | Self::Rendered | Self::Realistic | Self::Article => {
+            Self::Scale | Self::Rendered | Self::Realistic | Self::Article | Self::Rungs => {
                 vec![self.host_of(1)]
             }
             Self::MultiDomain => (1..=DOMAINS).map(|page| self.host_of(page)).collect(),
@@ -246,7 +274,7 @@ impl Site {
 }
 
 impl Scenario {
-    pub(crate) const ALL: [Self; 12] = [
+    pub(crate) const ALL: [Self; 13] = [
         Self::Raw,
         Self::Durable,
         Self::Polite,
@@ -259,6 +287,7 @@ impl Scenario {
         Self::Hostile,
         Self::Hostile16,
         Self::CrawlLike,
+        Self::Auto,
     ];
 
     pub(crate) fn name(self) -> &'static str {
@@ -275,6 +304,7 @@ impl Scenario {
             Self::Hostile => "hostile",
             Self::Hostile16 => "hostile-16",
             Self::CrawlLike => "crawl-like",
+            Self::Auto => "auto",
         }
     }
 
@@ -296,7 +326,8 @@ impl Scenario {
             | Self::Polite
             | Self::Extraction
             | Self::Browser
-            | Self::Hostile => self,
+            | Self::Hostile
+            | Self::Auto => self,
         }
     }
 
@@ -310,14 +341,17 @@ impl Scenario {
             Self::Realistic | Self::Long | Self::Raw64 | Self::Raw256 => Some("#2316"),
             Self::CrawlLike => Some("#2284"),
             Self::Hostile | Self::Hostile16 => Some("#2439, Q3"),
+            Self::Auto => Some("#2411, G-04 Q11"),
         }
     }
 
     /// How its trials reach the Proving ground: over TLS under a 20 ms
-    /// round trip in the crawl-like scenario, on loopback otherwise.
+    /// round trip in the crawl-like scenario, over TLS on loopback in the
+    /// auto cell, on plain loopback otherwise.
     pub(crate) fn network(self) -> Network {
         match self {
             Self::CrawlLike => Network::TlsUnderRtt20,
+            Self::Auto => Network::TlsOnLoopback,
             Self::Raw
             | Self::Durable
             | Self::Polite
@@ -348,7 +382,8 @@ impl Scenario {
             | Self::Long
             | Self::Raw64
             | Self::Raw256
-            | Self::CrawlLike => &[],
+            | Self::CrawlLike
+            | Self::Auto => &[],
         }
     }
 
@@ -356,6 +391,17 @@ impl Scenario {
     /// timing a crawl: the hostile pages'.
     pub(crate) fn hostile(self) -> bool {
         !self.hostile_tasks().is_empty()
+    }
+
+    /// What its trials read of each tool.
+    pub(crate) fn reading(self) -> Reading {
+        if self.hostile() {
+            Reading::Rules
+        } else if self == Self::Auto {
+            Reading::Manifest
+        } else {
+            Reading::Timed
+        }
     }
 
     /// The requests each tool keeps in flight: the resident-memory check's
@@ -373,7 +419,8 @@ impl Scenario {
             | Self::Long
             | Self::Hostile
             | Self::Hostile16
-            | Self::CrawlLike => crate::rss::crawl::CONCURRENCY,
+            | Self::CrawlLike
+            | Self::Auto => crate::rss::crawl::CONCURRENCY,
         }
     }
 
@@ -393,6 +440,7 @@ impl Scenario {
             Self::Browser => Site::Rendered,
             Self::Realistic => Site::Realistic,
             Self::Hostile | Self::Hostile16 => Site::Hostile,
+            Self::Auto => Site::Rungs,
         }
     }
 
@@ -407,7 +455,12 @@ impl Scenario {
         }
         match self.site() {
             Site::MultiDomain => pages.max(DOMAINS * PAGES_PER_DOMAIN),
-            Site::Scale | Site::Article | Site::Rendered | Site::Realistic | Site::Hostile => pages,
+            Site::Scale
+            | Site::Article
+            | Site::Rendered
+            | Site::Realistic
+            | Site::Hostile
+            | Site::Rungs => pages,
         }
     }
 
@@ -448,6 +501,9 @@ impl Scenario {
             }
             Self::CrawlLike => {
                 "Crawl-like: scenario 1 on the article site over TLS and HTTP/2, under the Proving ground's 20 ms round trip"
+            }
+            Self::Auto => {
+                "Auto: each tool's own choice of HTTP or a browser, page by page, on the rungs site of static, browser-identity, script-rendered, refused and blocked pages, each page's Records held to the site's manifest"
             }
         }
     }
@@ -529,6 +585,10 @@ pub(crate) enum SpiderBuild {
     /// recommends for a crawl that also parses, and the one Foxhound's
     /// executable sets.
     ExtractionMimalloc,
+    /// With Spider's `smart` feature: each page fetched over HTTP first and
+    /// rendered in Chrome only where Spider finds it needs a browser, its
+    /// Records read from what Spider delivers (#2411).
+    Smart,
 }
 
 impl SpiderBuild {
@@ -543,6 +603,7 @@ impl SpiderBuild {
             Self::Jemalloc => Some("jemalloc"),
             Self::Extraction => Some("extraction"),
             Self::ExtractionMimalloc => Some("extraction,mimalloc"),
+            Self::Smart => Some("smart"),
         }
     }
 
@@ -682,7 +743,7 @@ pub(crate) struct Cell {
 }
 
 /// Every cell, in the report's order.
-pub(crate) const CELLS: [Cell; 120] = [
+pub(crate) const CELLS: [Cell; 123] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
@@ -2162,6 +2223,63 @@ pub(crate) const CELLS: [Cell; 120] = [
         row: Row::Main,
         status: Status::Measured(Config::Crawlberg),
     },
+    Cell {
+        scenario: Scenario::Auto,
+        tool: Tool::Foxhound,
+        name: "foxhound",
+        mapping: "a code-free crawl of the rungs site over `https` at `fetch.tier: auto`, its \
+                  default, with `fetch.http_from: learned`, so each Label's tier on each domain \
+                  is learned from samples fetched on `http` and in Chrome for Testing; the \
+                  Proving ground's certificate authority trusted for `rungs.localhost` \
+                  (`tls.trusted_cas`), `run_state.durability: full`, `dataset.records: true`, \
+                  robots.txt not obeyed, `politeness.domain` delay 0 and concurrency 16 \
+                  (`sharing: run`) and `crawl.handler.concurrency: 16`; each page's Records \
+                  read with the fields `id` (`p.id`) and `name` (`h1.name`), and a page \
+                  counted rendered when its Records' Provenance names the `browser` or \
+                  `light_browser` tier",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Foxhound {
+            durability: "full",
+            commit_interval: None,
+            auto: true,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Auto,
+        tool: Tool::Spider,
+        name: "spider",
+        mapping: "Spider's `smart` feature, `crawl_smart()`, which fetches each page over HTTP \
+                  first and renders it in the Chrome `CHROME_BIN` names only where Spider finds \
+                  it needs a browser, on the rungs site over `https` (certificate errors \
+                  ignored, its Chrome's default), 16 in flight, robots.txt not obeyed, its \
+                  pages read through `subscribe(64)`; each page's Records read from the HTML \
+                  Spider delivers, and a page counted rendered when Spider rendered it in \
+                  Chrome (`Page::bytes_transferred`, which only its Chrome path sets)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Smart,
+            capacity: SPIDER_CAPACITY,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Auto,
+        tool: Tool::Crawlee,
+        name: "crawlee",
+        mapping: "Crawlee's `AdaptivePlaywrightCrawler` at its defaults, which renders a page \
+                  in Chrome or fetches it over HTTP as it predicts, on the rungs site over \
+                  `https` in the Chrome `--browser` names (certificate errors ignored, Crawlee's \
+                  default over HTTP, and in Chrome through `--ignore-certificate-errors`), \
+                  `maxConcurrency: 16`, robots.txt not obeyed, nothing kept on disk; each \
+                  page's Records read with `parseWithCheerio()`, its links enqueued only when \
+                  it has one (in Chrome, `enqueueLinks()` waits 5 s for a link and fails the \
+                  request when none comes), and a page counted rendered when the run of its \
+                  request handler that Crawlee kept had a browser page",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlee),
+    },
 ];
 
 /// The cell at the catalog's defaults (#2175) in `scenario`, one of
@@ -2352,13 +2470,20 @@ fn running() -> impl Iterator<Item = (&'static Cell, Config)> {
 
 /// Each measured cell with its configuration: each whose trials are timed.
 pub(crate) fn measured() -> impl Iterator<Item = (&'static Cell, Config)> {
-    running().filter(|(cell, _)| !cell.scenario.hostile())
+    running().filter(|(cell, _)| cell.scenario.reading() == Reading::Timed)
 }
 
 /// Each cell of the hostile pages' passes with its configuration: each
 /// whose trials count the rules its tool broke (#2439).
 pub(crate) fn ruled() -> impl Iterator<Item = (&'static Cell, Config)> {
-    running().filter(|(cell, _)| cell.scenario.hostile())
+    running().filter(|(cell, _)| cell.scenario.reading() == Reading::Rules)
+}
+
+/// Each cell of the auto cell's scenario with its configuration: each
+/// whose runs read its tool's rate, pages rendered and pages wrong against
+/// the rungs site's manifest (#2411).
+pub(crate) fn auto() -> impl Iterator<Item = (&'static Cell, Config)> {
+    running().filter(|(cell, _)| cell.scenario.reading() == Reading::Manifest)
 }
 
 #[cfg(test)]

@@ -270,9 +270,9 @@ fn a_run_given_no_name_says_machine_not_named() {
 /// Each cell of #2316's scenarios says it carries no bar, and each measured
 /// one gives its rate, latency percentiles and peak memory; no cell of the
 /// matrix's own five says so, and the hostile pages' cells say it for
-/// #2439 and the crawl-like scenario's for #2284 (their own tests). The
-/// cell at the catalog's defaults says it is pending #2175 and gives no
-/// figure.
+/// #2439, the crawl-like scenario's for #2284 and the auto cells for
+/// #2411 (their own tests). The cell at the catalog's defaults says it is
+/// pending #2175 and gives no figure.
 #[test]
 fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
     let trials = comparison(&[]);
@@ -322,7 +322,8 @@ fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
                         .collect::<Vec<_>>(),
                     CellStatus::NotSupported { .. }
                     | CellStatus::NotMeasured { .. }
-                    | CellStatus::Ruled { .. } => Vec::new(),
+                    | CellStatus::Ruled { .. }
+                    | CellStatus::Auto { .. } => Vec::new(),
                 })
         })
         .collect();
@@ -343,6 +344,7 @@ fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
                     if scenario.no_bar().is_some()
                         && !scenario.hostile()
                         && scenario != Scenario::CrawlLike
+                        && scenario != Scenario::Auto
                     {
                         every(scenario)
                     } else {

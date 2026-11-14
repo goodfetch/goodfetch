@@ -75,9 +75,10 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
 }
 
 /// Each scenario added to the matrix's own five runs scenario 1's settings,
-/// so the sides take it as `raw`, but the hostile pages' pass at defaults,
-/// which runs each tool's own; each carries no bar until the owner sets one
-/// (#2252 Q11, #2439 Q3); the matrix's own five are unchanged.
+/// so the sides take it as `raw`, but the hostile pages' pass at defaults
+/// and the auto cell, which run each tool's own; each carries no bar until
+/// the owner sets one (#2252 Q11, #2439 Q3, G-04 Q11); the matrix's own
+/// five are unchanged.
 #[test]
 fn the_added_scenarios_run_scenario_1s_settings_but_the_pass_at_defaults() {
     let read = |scenario: Scenario| (scenario.settings(), scenario.no_bar().is_some());
@@ -97,6 +98,7 @@ fn the_added_scenarios_run_scenario_1s_settings_but_the_pass_at_defaults() {
             (Scenario::Hostile, true),
             (Scenario::Raw, true),
             (Scenario::Raw, true),
+            (Scenario::Auto, true),
         ]
     );
 }
@@ -475,9 +477,18 @@ fn just_compare_builds_crawlee_rss_side_into_its_folder() {
     )));
 }
 
+/// Every scenario but the auto cell's, which maps Foxhound, Spider and
+/// Crawlee alone (#2411).
+fn timed_and_ruled() -> impl Iterator<Item = Scenario> {
+    Scenario::ALL
+        .into_iter()
+        .filter(|scenario| *scenario != Scenario::Auto)
+}
+
 /// pagesift runs on its side in every scenario, each its main row: the
 /// four HTTP scenarios, the headless browser scenario on its browser
-/// engine, #2316's four and the hostile pages' two (#2215).
+/// engine, #2316's four and the hostile pages' two (#2215); the auto cell
+/// reads three other tools (#2411).
 #[test]
 fn pagesift_runs_every_scenario_on_its_side() {
     let cells: Vec<(Scenario, &str, Row, Option<Config>)> = CELLS
@@ -494,7 +505,9 @@ fn pagesift_runs_every_scenario_on_its_side() {
 
     assert_eq!(
         cells,
-        Scenario::ALL.map(|scenario| (scenario, "pagesift", Row::Main, Some(Config::Pagesift)))
+        timed_and_ruled()
+            .map(|scenario| (scenario, "pagesift", Row::Main, Some(Config::Pagesift)))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -515,7 +528,8 @@ fn just_compare_builds_pagesifts_side_into_its_folder() {
 /// row (#2216): its polite cell is not supported, since its one pace
 /// setting is the whole crawl's, nor are the cells of 64 and 256 requests
 /// in flight, since it keeps at most 6 on a host. In the durable
-/// scenario, where Spider's cell is not supported, it is measured.
+/// scenario, where Spider's cell is not supported, it is measured. The auto
+/// cell reads three other tools (#2411).
 #[test]
 fn openspider_runs_every_scenario_on_its_side_but_polite_raw_64_and_raw_256() {
     let cells: Vec<(Scenario, &str, Row, Option<Config>)> = CELLS
@@ -542,7 +556,7 @@ fn openspider_runs_every_scenario_on_its_side_but_polite_raw_64_and_raw_256() {
     assert_eq!(
         (cells, durable(Tool::Spider), durable(Tool::OpenSpider)),
         (
-            Scenario::ALL
+            timed_and_ruled()
                 .map(|scenario| (
                     scenario,
                     "openspider",
@@ -553,7 +567,7 @@ fn openspider_runs_every_scenario_on_its_side_but_polite_raw_64_and_raw_256() {
                     ))
                     .then_some(Config::OpenSpider)
                 ))
-                .to_vec(),
+                .collect::<Vec<_>>(),
             vec![false],
             vec![true],
         )
@@ -578,7 +592,8 @@ fn just_compare_builds_openspiders_side_into_its_folder() {
 /// since its crawl jobs live in its server's memory; nor its polite cell,
 /// since it follows links on its first page's origin alone; nor its long
 /// one, past its 1,000 pages a crawl; nor those of 64 and 256 requests in
-/// flight, since a crawl job fetches one page at a time.
+/// flight, since a crawl job fetches one page at a time. The auto cell
+/// reads three other tools (#2411).
 #[test]
 fn fastcrw_runs_every_scenario_on_its_side_but_durable_polite_long_raw_64_and_raw_256() {
     let cells: Vec<(Scenario, &str, Row, Result<Config, &str>)> = CELLS
@@ -595,7 +610,7 @@ fn fastcrw_runs_every_scenario_on_its_side_but_durable_polite_long_raw_64_and_ra
 
     assert_eq!(
         cells,
-        Scenario::ALL
+        timed_and_ruled()
             .map(|scenario| (
                 scenario,
                 "fastcrw",
@@ -608,7 +623,7 @@ fn fastcrw_runs_every_scenario_on_its_side_but_durable_polite_long_raw_64_and_ra
                     _ => Ok(Config::FastCrw),
                 }
             ))
-            .to_vec()
+            .collect::<Vec<_>>()
     );
 }
 
@@ -696,7 +711,9 @@ fn just_compare_builds_crawlbergs_side_into_its_folder() {
 /// The polite scenario crawls 10,000 pages on 1,000 domains, 10 on each,
 /// where the others crawl the comparison's 1,000 (#2283) and the long one
 /// its own 100,000, and the growth cell's 100,000 there too, 100 on each
-/// domain; each page on the domain the Proving ground serves it on.
+/// domain; each page on the domain the Proving ground serves it on. The
+/// rungs site's pages are the Proving ground's own, so the auto cell
+/// passes the comparison's count on unread.
 #[test]
 fn the_polite_scenario_crawls_ten_pages_on_each_of_a_thousand_domains() {
     let sizes = |pages| Scenario::ALL.map(|scenario| scenario.site_pages(pages));
@@ -711,9 +728,9 @@ fn the_polite_scenario_crawls_ten_pages_on_each_of_a_thousand_domains() {
         ),
         (
             [
-                1000, 1000, 10_000, 1000, 1000, 1000, 100_000, 1000, 1000, 1000, 1000, 1000
+                1000, 1000, 10_000, 1000, 1000, 1000, 100_000, 1000, 1000, 1000, 1000, 1000, 1000
             ],
-            [100_000; 12],
+            [100_000; 13],
             1000,
             [
                 "polite-1.localhost",
@@ -729,8 +746,8 @@ fn the_polite_scenario_crawls_ten_pages_on_each_of_a_thousand_domains() {
 /// The crawl-like scenario (#2284): every tool's main cell, with its
 /// mapping, crawls the article site at scenario 1's settings, over TLS and
 /// HTTP/2 under the Proving ground's `rtt-20` profile, and carries no bar;
-/// no output check holds its pages, and every other scenario stays on
-/// loopback.
+/// no output check holds its pages, and every other scenario but the auto
+/// cell, over TLS with no latency added, stays on plain loopback.
 #[test]
 fn the_crawl_like_scenario_maps_every_tool_over_tls_under_rtt_20() {
     let crawl_like = Scenario::CrawlLike;
@@ -767,8 +784,69 @@ fn the_crawl_like_scenario_maps_every_tool_over_tls_under_rtt_20() {
             Scenario::Raw,
             true,
             16,
-            vec![crawl_like],
+            vec![crawl_like, Scenario::Auto],
             ("rtt-20", "https", true),
+        )
+    );
+}
+
+/// The auto cell (#2411) reads each tool's own choice of HTTP or a browser,
+/// page by page, on the rungs site over TLS on loopback: Foxhound at
+/// `fetch.tier: auto` with `fetch.http_from: learned`, Spider built with its
+/// `smart` feature and Crawlee's `AdaptivePlaywrightCrawler`, each with its
+/// mapping. It runs each side's `auto` settings, is no timed scenario and
+/// carries no bar (G-04 Q11).
+#[test]
+fn the_auto_cell_maps_foxhound_spider_smart_and_crawlees_adaptive_crawler() {
+    let auto = Scenario::Auto;
+    let mapped: Vec<(Tool, Config)> = CELLS
+        .iter()
+        .filter(|cell| cell.scenario == auto && cell.row == Row::Main && !cell.mapping.is_empty())
+        .filter_map(|cell| match cell.status {
+            Status::Measured(config) => Some((cell.tool, config)),
+            Status::NotSupported(_) | Status::Pending(_) => None,
+        })
+        .collect();
+    let chosen: Vec<Tool> = super::auto().map(|(cell, _)| cell.tool).collect();
+    let timed = super::measured().any(|(cell, _)| cell.scenario == auto);
+    let network = auto.network();
+
+    assert_eq!(
+        (
+            mapped,
+            chosen,
+            timed,
+            (
+                auto.name(),
+                auto.settings(),
+                auto.site(),
+                auto.no_bar().is_some()
+            ),
+            (network.network_profile(), network.scheme(), network.tls()),
+        ),
+        (
+            vec![
+                (
+                    Tool::Foxhound,
+                    Config::Foxhound {
+                        durability: "full",
+                        commit_interval: None,
+                        auto: true,
+                    },
+                ),
+                (
+                    Tool::Spider,
+                    Config::Spider {
+                        build: SpiderBuild::Smart,
+                        capacity: super::SPIDER_CAPACITY,
+                    },
+                ),
+                (Tool::Crawlee, Config::Crawlee),
+            ],
+            vec![Tool::Foxhound, Tool::Spider, Tool::Crawlee],
+            false,
+            ("auto", Scenario::Auto, Site::Rungs, true),
+            ("none", "https", true),
         )
     );
 }

@@ -145,7 +145,7 @@ fn item(task: &Task, target: &str) -> Option<u64> {
 
 /// An array of the observations that holds every one of its kind: none was
 /// left unrecorded.
-fn every<'a>(observations: &'a Value, name: &str) -> Result<&'a Vec<Value>> {
+pub(crate) fn every<'a>(observations: &'a Value, name: &str) -> Result<&'a Vec<Value>> {
     let list = observations[name]
         .as_array()
         .with_context(|| format!("the observations hold no {name}"))?;

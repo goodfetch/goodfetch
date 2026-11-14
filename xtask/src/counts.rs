@@ -136,7 +136,8 @@ struct Row {
     /// The family that counts it. A row the register puts on two
     /// families is counted on the one its entry names (`E5.file_opens`, on
     /// B1), or has an entry for each, which holds each family's count to
-    /// that family's own figure (`F1.analysis_handoffs`, on B1 and B4).
+    /// that family's own figure (`F1.analysis_handoffs` and `F1.parses`, on
+    /// B1 and B4).
     family: &'static str,
     /// The key of the units of the outcome that does the work, in its
     /// benchmark's line.
@@ -185,7 +186,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 114] = [
+const ROWS: [Row; 117] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -258,6 +259,12 @@ const ROWS: [Row; 114] = [
     },
     b1("F1.analysis_handoffs", "pages", true),
     b4("F1.analysis_handoffs", "pages", true),
+    // A handler's own reads of its page's tree, counted apart from the
+    // page's hand-off (#2189): B1's default cell runs no handler.
+    b1("F1.analysis_handoffs.handler", "pages", false),
+    // A code-free crawl that asks for a format reads it in its page's one
+    // hand-off, on a copy of the tree its untouched readers parsed (#2189).
+    b4("F1.parses", "pages", true),
     b4("F1.rule_list_builds", "pages", true),
     b4("F1.rule_tests", "pages", true),
     // Read as each cell's crawl ended.
@@ -271,6 +278,10 @@ const ROWS: [Row; 114] = [
     // default cell's one crawl on an empty cache, read per crawl as
     // `F1.clean_up_instructions` is: work once per engine and rules version.
     b4(SELECTOR_COMPILATION_INSTRUCTIONS, CALLGRIND_CRAWLS, true),
+    // Callgrind's count beneath the build of the version's generic set,
+    // which the Filter lists' load does once per version (issue 2191),
+    // over the same crawl as `F1.clean_up_instructions`, per crawl.
+    b4(GENERIC_SET_INSTRUCTIONS, CALLGRIND_CRAWLS, true),
     Row {
         name: "F2.transactions",
         family: "B1",
@@ -1023,6 +1034,11 @@ const CLEAN_UP_INSTRUCTIONS: &str = "F1.clean_up_instructions";
 /// [`CLEAN_UP_INSTRUCTIONS`], and holds within the same tolerance.
 const SELECTOR_COMPILATION_INSTRUCTIONS: &str = "F1.selector_compilation_instructions";
 
+/// The instructions of the generic set's build as a crawl's Filter lists
+/// load, which B4's benchmark reads under Callgrind as it reads
+/// [`CLEAN_UP_INSTRUCTIONS`], and holds within the same tolerance.
+const GENERIC_SET_INSTRUCTIONS: &str = "F1.generic_set_instructions";
+
 const fn b4(name: &'static str, unit: &'static str, happens: bool) -> Row {
     Row {
         name,
@@ -1608,7 +1624,12 @@ fn verdict(
                 one_of(row.unit),
             ));
             let limit_held = if row.valgrind.is_some()
-                || [CLEAN_UP_INSTRUCTIONS, SELECTOR_COMPILATION_INSTRUCTIONS].contains(&row.name)
+                || [
+                    CLEAN_UP_INSTRUCTIONS,
+                    SELECTOR_COMPILATION_INSTRUCTIONS,
+                    GENERIC_SET_INSTRUCTIONS,
+                ]
+                .contains(&row.name)
             {
                 limit.with_valgrind_tolerance()
             } else {

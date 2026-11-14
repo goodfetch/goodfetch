@@ -73,7 +73,7 @@ impl KeptTree {
                 let held = kept.take();
                 kept = owner
                     .owner()
-                    .analysis(owner.metrics().counted_work(), move || {
+                    .handler_analysis(owner.metrics().counted_work(), move || {
                         let tree = match held? {
                             KeptFrom::Tree(tree) => tree,
                             KeptFrom::Html(html) => work.parse_html(Row::PageParses, &html),

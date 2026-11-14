@@ -12,6 +12,8 @@
 # Modified by Goodfetch (2026-11-05): version `0.18.2+goodfetch.1`, its
 # tests and dev-dependencies left out, and `src/helpers.rs`'s one-line
 # patch, so it builds under dom_query's `atomic` feature (#2109).
+# Modified by Goodfetch (2026-11-14): `Readability::parse_keeping`, in
+# `src/readability.rs`, `src/grab.rs` and `src/lib.rs` (#2639).
 [package]
 edition = "2021"
 rust-version = "1.75"

@@ -197,8 +197,8 @@ async fn opened_on(
 ) -> Opened {
     let (reading, read, readers) = (run.clone(), fetched.clone(), Arc::clone(readers));
     run.owner()
-        .analysis(run.metrics().counted_work(), move || {
-            Opened::of(&reading, read, (None, extractor), (&readers, false))
+        .handler_analysis(run.metrics().counted_work(), move || {
+            Opened::navigated(&reading, read, extractor, &readers)
         })
         .await
 }
@@ -224,7 +224,7 @@ fn blank(
         text: None,
         pass: None,
     };
-    Opened::of(run, empty, (None, extractor), (readers, false))
+    Opened::navigated(run, empty, extractor, readers)
 }
 
 /// The gate of a served page's navigation, the call `operation`: the

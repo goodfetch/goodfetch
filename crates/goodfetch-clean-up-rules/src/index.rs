@@ -1,14 +1,22 @@
 //! The index removal files a page's plain CSS rules in (spec #2164), so
 //! that an element is tested only against the rules it could match. A rule
 //! is filed under one key of its rightmost compound, the one its subject
-//! must match: its ID, else a class, else an attribute's name, else its
-//! tag, and a rule with none of them, or one whose text this does not key
-//! exactly, under no key, which every element is tested against. A selector
-//! list is filed under each member's key.
+//! must match: its ID, else a class, else an attribute, else its tag, and a
+//! rule with none of them, or one whose text this does not key exactly,
+//! under no key, which every element is tested against. A selector list is
+//! filed under each member's key.
 //!
-//! The index only narrows: the match stays `Matcher`'s. Keys are folded to
-//! ASCII lower case on both sides, which finds every rule a case-sensitive
-//! or a case-insensitive match could accept, and never adds a removal.
+//! An attribute keys a rule by its name and, when the compound compares one
+//! with a value, by that comparison (issue 2191): an element is tested
+//! against it only when its attribute of that name holds the value, starts
+//! or ends with it or holds it anywhere, as the operator asks. A word
+//! (`~=`) is looked for anywhere and a dash match (`|=`) as a start, which
+//! each admit every value the selector could match.
+//!
+//! The index only narrows: the match stays `Matcher`'s. Keys and values are
+//! folded to ASCII lower case on both sides, which finds every rule a
+//! case-sensitive or a case-insensitive match could accept, and never adds
+//! a removal.
 
 use std::collections::BTreeMap;
 
@@ -20,10 +28,45 @@ use dom_query::NodeRef;
 pub(crate) enum Key {
     Id(String),
     Class(String),
-    Attribute(String),
+    /// An attribute's name, and the value it is compared with, if any.
+    Attribute(String, Option<Value>),
     Tag(String),
     /// No key: the rule is tested against every element.
     Universal,
+}
+
+/// The value an attribute selector compares its attribute with, folded.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Value {
+    pub(crate) operator: Operator,
+    pub(crate) text: String,
+}
+
+/// How an attribute's value is compared with a rule's, as the index reads
+/// it: each admits at least the values the selector's operator matches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Operator {
+    /// `=`.
+    Equals,
+    /// `^=`, and `|=`, whose value is the attribute's or starts it.
+    Prefix,
+    /// `$=`.
+    Suffix,
+    /// `*=`, and `~=`, whose value is one of the attribute's words.
+    Contains,
+}
+
+impl Value {
+    /// Whether an attribute holding `value`, folded, could match.
+    fn admits(&self, value: &str) -> bool {
+        let text = self.text.as_str();
+        match self.operator {
+            Operator::Equals => value == text,
+            Operator::Prefix => value.starts_with(text),
+            Operator::Suffix => value.ends_with(text),
+            Operator::Contains => value.contains(text),
+        }
+    }
 }
 
 /// The rules of one page, by position in rule order, under their keys.
@@ -31,9 +74,17 @@ pub(crate) enum Key {
 pub(crate) struct Index {
     ids: BTreeMap<String, Vec<usize>>,
     classes: BTreeMap<String, Vec<usize>>,
-    attributes: BTreeMap<String, Vec<usize>>,
+    attributes: BTreeMap<String, Attribute>,
     tags: BTreeMap<String, Vec<usize>>,
     universal: Vec<usize>,
+}
+
+/// The rules keyed by one attribute's name: those keyed by the name alone,
+/// and those that compare it with a value, with their values.
+#[derive(Default)]
+struct Attribute {
+    rules: Vec<usize>,
+    compared: Vec<(Value, usize)>,
 }
 
 impl Index {
@@ -46,7 +97,16 @@ impl Index {
                 let bucket = match key {
                     Key::Id(id) => index.ids.entry(id).or_default(),
                     Key::Class(class) => index.classes.entry(class).or_default(),
-                    Key::Attribute(name) => index.attributes.entry(name).or_default(),
+                    Key::Attribute(name, None) => {
+                        &mut index.attributes.entry(name).or_default().rules
+                    }
+                    Key::Attribute(name, Some(value)) => {
+                        // Two members of one list may share a key; the
+                        // candidates are deduplicated.
+                        let attribute = index.attributes.entry(name).or_default();
+                        attribute.compared.push((value, position));
+                        continue;
+                    }
                     Key::Tag(tag) => index.tags.entry(tag).or_default(),
                     Key::Universal => &mut index.universal,
                 };
@@ -61,7 +121,7 @@ impl Index {
 
     /// About how many bytes it holds.
     pub(crate) fn bytes(&self) -> usize {
-        let buckets = [&self.ids, &self.classes, &self.attributes, &self.tags];
+        let buckets = [&self.ids, &self.classes, &self.tags];
         let filed: usize = buckets
             .into_iter()
             .flat_map(BTreeMap::iter)
@@ -71,12 +131,28 @@ impl Index {
                     + rules.capacity() * size_of::<usize>()
             })
             .sum();
-        size_of::<Self>() + filed + self.universal.capacity() * size_of::<usize>()
+        let attributes: usize = self
+            .attributes
+            .iter()
+            .map(|(name, attribute)| {
+                size_of::<(String, Attribute)>()
+                    + name.capacity()
+                    + attribute.rules.capacity() * size_of::<usize>()
+                    + attribute.compared.capacity() * size_of::<(Value, usize)>()
+                    + attribute
+                        .compared
+                        .iter()
+                        .map(|(value, _)| value.text.capacity())
+                        .sum::<usize>()
+            })
+            .sum();
+        size_of::<Self>() + filed + attributes + self.universal.capacity() * size_of::<usize>()
     }
 
     /// Into `candidates`, the positions of the rules `node` could match, in
     /// rule order, each once: those filed under its ID, its classes, its
-    /// attributes' names and its tag, and those under no key.
+    /// attributes' names, the values its attributes could match and its
+    /// tag, and those under no key.
     pub(crate) fn candidates(&self, node: &NodeRef<'_>, candidates: &mut Vec<usize>) {
         candidates.clear();
         candidates.extend_from_slice(&self.universal);
@@ -87,7 +163,7 @@ impl Index {
             filed(&self.tags, &element.name.local, candidates);
             for attribute in &element.attrs {
                 let name: &str = &attribute.name.local;
-                filed(&self.attributes, name, candidates);
+                attributed(&self.attributes, (name, &attribute.value), candidates);
                 if name.eq_ignore_ascii_case("id") {
                     filed(&self.ids, &attribute.value, candidates);
                 } else if name.eq_ignore_ascii_case("class") {
@@ -115,12 +191,52 @@ fn filed(bucket: &BTreeMap<String, Vec<usize>>, key: &str, candidates: &mut Vec<
     }
 }
 
+/// Adds to `candidates` the rules `bucket` files under the attribute
+/// `name`: those keyed by the name alone, and those whose value `value`
+/// could match, folded as the keys are.
+fn attributed(
+    bucket: &BTreeMap<String, Attribute>,
+    (name, value): (&str, &str),
+    candidates: &mut Vec<usize>,
+) {
+    if bucket.is_empty() {
+        return;
+    }
+    let attribute = if name.bytes().any(|byte| byte.is_ascii_uppercase()) {
+        bucket.get(&name.to_ascii_lowercase())
+    } else {
+        bucket.get(name)
+    };
+    let Some(attribute) = attribute else {
+        return;
+    };
+    candidates.extend_from_slice(&attribute.rules);
+    if attribute.compared.is_empty() {
+        return;
+    }
+    let folded;
+    let value = if value.bytes().any(|byte| byte.is_ascii_uppercase()) {
+        folded = value.to_ascii_lowercase();
+        folded.as_str()
+    } else {
+        value
+    };
+    candidates.extend(
+        attribute
+            .compared
+            .iter()
+            .filter(|(compared, _)| compared.admits(value))
+            .map(|(_, at)| *at),
+    );
+}
+
 /// The parts of a compound selector that key it.
 #[derive(Default)]
 struct Compound {
     id: Option<String>,
     class: Option<String>,
-    attribute: Option<String>,
+    /// Its first attribute compared with a value, else its first one.
+    attribute: Option<(String, Option<Value>)>,
     tag: Option<String>,
     /// How many simple selectors it holds so far.
     parts: usize,
@@ -133,8 +249,8 @@ impl Compound {
             Key::Id(id)
         } else if let Some(class) = self.class {
             Key::Class(class)
-        } else if let Some(name) = self.attribute {
-            Key::Attribute(name)
+        } else if let Some((name, value)) = self.attribute {
+            Key::Attribute(name, value)
         } else if let Some(tag) = self.tag {
             Key::Tag(tag)
         } else {
@@ -203,9 +319,15 @@ pub(crate) fn keys(selector: &str) -> Vec<Key> {
                 }
                 _ => exact = false,
             },
-            Token::SquareBracketBlock => match attribute_name(&mut parser) {
-                Some(name) => {
-                    compound.attribute.get_or_insert(name);
+            Token::SquareBracketBlock => match attribute(&mut parser) {
+                Some(attribute) => {
+                    if compound
+                        .attribute
+                        .as_ref()
+                        .is_none_or(|(_, value)| value.is_none())
+                    {
+                        compound.attribute = Some(attribute);
+                    }
                 }
                 None => exact = false,
             },
@@ -217,19 +339,42 @@ pub(crate) fn keys(selector: &str) -> Vec<Key> {
     keys
 }
 
-/// The name of the attribute the block `parser` just entered selects by,
-/// folded; none when the block names a namespace or holds no name first.
-fn attribute_name(parser: &mut Parser<'_, '_>) -> Option<String> {
+/// The attribute the block `parser` just entered selects by: its name,
+/// folded, and the value it is compared with, folded, when the block reads
+/// as one; none when the block names a namespace or holds no name first.
+fn attribute(parser: &mut Parser<'_, '_>) -> Option<(String, Option<Value>)> {
     parser
         .parse_nested_block(|block| -> Result<_, ParseError<'_, ()>> {
             let name = match block.next() {
                 Ok(Token::Ident(name)) => name.to_ascii_lowercase(),
                 _ => return Ok(None),
             };
-            let namespaced = matches!(block.next_including_whitespace(), Ok(Token::Delim('|')));
+            let next = block.next_including_whitespace().cloned();
+            if matches!(next, Ok(Token::Delim('|'))) {
+                while block.next().is_ok() {}
+                return Ok(None);
+            }
+            let next = match next {
+                Ok(Token::WhiteSpace(_)) => block.next().cloned(),
+                next => next,
+            };
+            let operator = match next {
+                Ok(Token::Delim('=')) => Some(Operator::Equals),
+                Ok(Token::PrefixMatch | Token::DashMatch) => Some(Operator::Prefix),
+                Ok(Token::SuffixMatch) => Some(Operator::Suffix),
+                Ok(Token::SubstringMatch | Token::IncludeMatch) => Some(Operator::Contains),
+                _ => None,
+            };
+            let value = operator.and_then(|operator| match block.next() {
+                Ok(Token::Ident(text) | Token::QuotedString(text)) => Some(Value {
+                    operator,
+                    text: text.to_ascii_lowercase(),
+                }),
+                _ => None,
+            });
             // The block is read to its end, as its parser asks.
             while block.next().is_ok() {}
-            Ok((!namespaced).then_some(name))
+            Ok(Some((name, value)))
         })
         .ok()
         .flatten()

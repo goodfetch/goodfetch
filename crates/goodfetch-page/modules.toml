@@ -128,6 +128,7 @@ arrival = []
 blocked = []
 blocking_off = ["arrival", "blocked"]
 clean_up = []
+served_formats = ["clean_up"]
 waits = []
 
 # Which of `clean_up_versions' own modules may import which.

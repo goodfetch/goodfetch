@@ -229,5 +229,17 @@ pub(super) fn read(
     (formats, read)
 }
 
+/// Whether `request` reads nothing of the page, so that reading it needs
+/// neither a tree nor a blocking thread (issue 2189).
+pub(super) fn reads_nothing(request: &FormatsRequest) -> bool {
+    Plan::of(&Demand {
+        formats: request,
+        learning: false,
+    })
+    .readers()
+    .next()
+    .is_none()
+}
+
 #[cfg(test)]
 mod tests;

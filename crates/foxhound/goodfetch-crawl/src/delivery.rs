@@ -938,6 +938,13 @@ async fn lease_to_servers(
         if !server.serves() || server.in_flight >= policy.handler_concurrency {
             continue;
         }
+        // A Run with no work item ready asks the governor for nothing, and
+        // passes any turn it waits for to the Runs that wait.
+        let now = run.clock().now();
+        if admission.ready_at(now).is_none_or(|ready| ready > now) {
+            run.governor().pass(WorkKind::Http);
+            return Ok(());
+        }
         let mut permits: Vec<Permit> =
             std::iter::from_fn(|| run.governor().try_admit(WorkKind::Http))
                 .take(policy.handler_concurrency - server.in_flight)
@@ -1005,6 +1012,13 @@ async fn lease_to_servers(
                 fetching: (tiering, (hand_over, fetching.code_free.clone())),
                 admission,
             }));
+        }
+        // Fewer were ready than the governor admitted: each admission left
+        // goes back, and the Run's turn to the Runs that wait.
+        if !permits.is_empty() {
+            drop(permits);
+            run.governor().pass(WorkKind::Http);
+            return Ok(());
         }
     }
     Ok(())

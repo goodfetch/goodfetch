@@ -447,11 +447,7 @@ fn switched_off() -> [Cell; 3] {
             name: RECORDS_OFF_CELL,
             settings: scoped(json!({ "dataset": { "records": false } })),
             frontier: FRONTIER,
-            removes: &[
-                Row::RecordValidations,
-                Row::RecordSerializations,
-                Row::RecordConstantLookups,
-            ],
+            removes: &[Row::RecordValidations, Row::RecordSerializations],
             removes_syncs: false,
             handler: false,
             limit: false,

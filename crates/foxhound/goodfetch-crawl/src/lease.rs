@@ -36,7 +36,7 @@ use tokio::time::Instant;
 
 pub(crate) use crate::staging::SoFar;
 use crate::staging::{SetAside, Staging};
-use crate::work_items::{self, Fetched, FieldsRead};
+use crate::work_items::{self, CleanUpRules, Fetched, FieldsRead};
 
 /// The `tracing` target of the run fencing model's transitions.
 pub(crate) const TARGET: &str = "goodfetch::lease";
@@ -100,6 +100,9 @@ pub(crate) struct Leases {
     /// How each work item a commit adds is keyed, as the crawl's gate
     /// keys it; `None` leaves them for the delivery to key.
     keys: Option<Keys>,
+    /// The Clean-up rules the Run holds to, which its first commit that
+    /// keeps Records reads for every one after it.
+    clean_up_rules: CleanUpRules,
 }
 
 impl Leases {
@@ -115,6 +118,7 @@ impl Leases {
             work: CountedWork::default(),
             datasets: Datasets::default(),
             keys: None,
+            clean_up_rules: CleanUpRules::default(),
         }
     }
 
@@ -231,6 +235,7 @@ pub(crate) struct Commit {
     declared: Datasets,
     keys: Option<Keys>,
     masks: Masks,
+    clean_up_rules: CleanUpRules,
     folder: std::path::PathBuf,
     records: Vec<PushedRecord>,
     ended_at: PointInTime,
@@ -266,6 +271,7 @@ impl Commit {
             declared,
             keys,
             masks,
+            clean_up_rules,
             folder,
             records,
             ended_at,
@@ -295,6 +301,7 @@ impl Commit {
             not_added: &not_added,
             work: &counted_work,
             keeps_records: declared.keeps_records(),
+            clean_up_rules: &clean_up_rules,
         };
         Ok(
             work_items::commit(connection, &work_item, epoch, committed)?.then_some(Ok(
@@ -543,6 +550,7 @@ impl WorkItemLease {
             declared: leases.datasets.clone(),
             keys: leases.keys.clone(),
             masks: masks.clone(),
+            clean_up_rules: leases.clean_up_rules.clone(),
             folder: state
                 .path()
                 .parent()

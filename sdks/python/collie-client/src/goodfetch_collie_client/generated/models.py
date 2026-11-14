@@ -2807,6 +2807,12 @@ class TierProvenance(BaseModel):
     The call a cheaper tier could not serve, which moved the request
     here, for an escalation or a sample's browser run.
     """
+    calls_sent_on: FetchTier | None = None
+    """
+    For `discovered_api`, where its replayed calls left from: `http`
+    when the Session's own HTTP transport sent them, `browser_fetch`
+    when they left from inside its browser.
+    """
     chosen: TierChosen
     """How it was chosen."""
     forced_by: ForcedBy | None = None

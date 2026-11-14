@@ -326,11 +326,22 @@ pub type Guard = Arc<
         + Sync,
 >;
 
+/// A handler's call, given the call's params, its context and the guards
+/// to ask: the read of the params into the handler's type, in whose pass
+/// dispatch finds what it takes of them, then each guard, then the handler.
+/// It fails, before any guard is asked, only with what refuses the request
+/// before its call starts: a `_meta` dispatch does not take.
+type Call = dyn for<'params> Fn(Params<'params>, CallContext, &[Guard]) -> Result<Answer, CallError>
+    + Send
+    + Sync;
+
 /// The handler of one operation of the catalog.
 #[derive(Clone)]
 pub struct Handler {
     operation: &'static Operation,
-    call: Arc<dyn for<'params> Fn(Params<'params>, CallContext) -> Answer + Send + Sync>,
+    call: Arc<Call>,
+    /// The guards its calls ask before it, the last added first.
+    guards: Arc<[Guard]>,
     streams: bool,
     input: Option<(&'static str, usize)>,
 }
@@ -350,23 +361,38 @@ impl Handler {
         F: Fn(P, CallContext) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<R, CallError>> + Send + 'static,
     {
-        let call = move |params: Params<'_>, context: CallContext| -> Answer {
+        let call = move |params: Params<'_>,
+                         context: CallContext,
+                         guards: &[Guard]|
+              -> Result<Answer, CallError> {
+            // The one read of the params (ADR 0140's E1): into `P`, and in
+            // the same pass what dispatch takes of them. It changes
+            // nothing, so the order of refusals stays: a `_meta` dispatch
+            // refuses, then a guard's answer, then params that are no `P`.
+            let read = params.read::<P>();
+            params.taken()?;
+            for guard in guards.iter().rev() {
+                if let Some(answer) = guard(operation, params, &context) {
+                    return Ok(answer);
+                }
+            }
             // `handle` runs when the request arrives, before the next one
             // is read, so what it does before its future (arming a route or
             // a waiter, ADR 0080) is done in the Connection's arrival order.
-            let answering = params.read::<P>().map(|params| {
+            let answering = read.map(|params| {
                 let id = context.id().clone();
                 (id, handle(params, context))
             });
-            Box::pin(async move {
+            Ok(Box::pin(async move {
                 let (id, answering) = answering?;
                 let result = answering.await?;
                 Answered::of(&id, &result)
-            })
+            }))
         };
         Self {
             operation,
             call: Arc::new(call),
+            guards: Arc::new([]),
             streams: false,
             input: None,
         }
@@ -407,8 +433,19 @@ impl Handler {
         self.operation
     }
 
-    pub(crate) fn call(&self, params: Params<'_>, context: CallContext) -> Answer {
-        (self.call)(params, context)
+    /// Starts its call on `params`: the guards it asks, then the handler,
+    /// which reads `params` before this returns.
+    ///
+    /// # Errors
+    ///
+    /// `invalid_params` for a `_meta` dispatch refuses: the call does not
+    /// start, and neither a guard nor the handler ran.
+    pub(crate) fn call(
+        &self,
+        params: Params<'_>,
+        context: CallContext,
+    ) -> Result<Answer, CallError> {
+        (self.call)(params, context, &self.guards)
     }
 }
 
@@ -525,17 +562,12 @@ impl Contribution {
     #[must_use]
     pub fn guarded(mut self, guard: &Guard) -> Self {
         for handler in &mut self.handlers {
-            let (inner, operation, guard) = (
-                Arc::clone(&handler.call),
-                handler.operation,
-                Arc::clone(guard),
-            );
-            handler.call = Arc::new(move |params: Params<'_>, context: CallContext| {
-                match guard(operation, params, &context) {
-                    Some(answer) => answer,
-                    None => inner(params, context),
-                }
-            });
+            handler.guards = handler
+                .guards
+                .iter()
+                .chain([guard])
+                .map(Arc::clone)
+                .collect();
         }
         self
     }

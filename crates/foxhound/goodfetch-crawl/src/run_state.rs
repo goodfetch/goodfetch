@@ -301,16 +301,7 @@ impl RunState {
         let request = &leased.crawl_request;
         let labels = drawing.labels;
         let key = labels.pools.pool(&request.label);
-        let session = self
-            .pool
-            .draw(&key, &leased.waiting.key, &drawing.settings, drawing.wall.0);
-        let in_browser = PooledSession {
-            id: session.id.clone(),
-            source: labels.pools.source(&key),
-            address_ordinal: self.pool.address_ordinal(&session.id),
-        };
         let to_browser = self.pool.browser(&leased.waiting.key);
-        let local = self.pool.local_addresses(&session.id);
         // A sitemap's fetch runs no handler and takes no tier choice: its
         // attempt fetches it on the Run's HTTP tier.
         let choosing =
@@ -340,6 +331,24 @@ impl RunState {
             Some(Choosing::Engine) if to_browser => Chosen::Planned(browser),
             Some(Choosing::Engine) => Chosen::Planned(learned()),
         };
+        // The Session is drawn for the client its plan sends from, so it
+        // never serves a request of the other one.
+        let sends_from = match &chosen {
+            Chosen::Planned(plan) | Chosen::Racing(plan) => plan.sends_from(),
+        };
+        let session = self.pool.draw(
+            &key,
+            &leased.waiting.key,
+            sends_from,
+            &drawing.settings,
+            drawing.wall.0,
+        );
+        let in_browser = PooledSession {
+            id: session.id.clone(),
+            source: labels.pools.source(&key),
+            address_ordinal: self.pool.address_ordinal(&session.id),
+        };
+        let local = self.pool.local_addresses(&session.id);
         Drawn {
             leased,
             session,

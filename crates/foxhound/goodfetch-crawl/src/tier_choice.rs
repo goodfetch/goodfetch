@@ -41,6 +41,7 @@ use std::collections::BTreeMap;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_fetch_tier::{ReplayPlan, TierChoice};
 use goodfetch_protocol::foxhound::fetch::FetchTier;
+use goodfetch_session_pool::SendsFrom;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
@@ -99,6 +100,37 @@ pub(crate) enum AttemptPlan {
     /// A race of browser-fetch against a navigation (`fetch.tier_race`;
     /// the `tier_race` module), whose winner's run commits.
     Race(Raced),
+}
+
+impl AttemptPlan {
+    /// The client the attempt's Session sends from, which its draw asks
+    /// the pool for: a sitemap's fetch is read by an HTTP client, never a
+    /// browser; a tier as [`sends_from`] says; the engine's own plans, a
+    /// replay, a sample or a race, from the browser, where the Session may
+    /// move.
+    pub(crate) fn sends_from(&self) -> SendsFrom {
+        match self {
+            Self::Sitemap => SendsFrom::Transport,
+            Self::On(choice) => sends_from(choice),
+            Self::Replayed(_) | Self::Sample(_) | Self::Race(_) => SendsFrom::Browser,
+        }
+    }
+}
+
+/// The client a Session sends `choice`'s requests from. Under `auto`, a
+/// Session that may move to the browser sends its HTTP from inside its
+/// browser, so its fingerprint and cookies stay the Session's on both
+/// tiers (ADR 0020; pitfall H20), and so does one forced onto
+/// `browser_fetch` or `browser`; one forced onto any other tier sends from
+/// its own transport, keeping its cookies in a jar of its own there (ADR
+/// 0021).
+pub(crate) fn sends_from(choice: &TierChoice) -> SendsFrom {
+    match (&choice.forced, choice.tier) {
+        (None, _) | (Some(_), FetchTier::BrowserFetch | FetchTier::Browser) => SendsFrom::Browser,
+        (Some(_), FetchTier::Http | FetchTier::DiscoveredApi | FetchTier::LightBrowser) => {
+            SendsFrom::Transport
+        }
+    }
 }
 
 /// The unit a sample counts for.

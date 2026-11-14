@@ -29,8 +29,16 @@
 //! chain that reached another request's page never does (ADR 0120).
 //! Neither promises anything outside, so neither is synced: the attempt's
 //! outcome syncs them (ADR 0138's note of #1926).
+//!
+//! An attempt that escalates from a Session's own transport asks the loop
+//! for a Session whose client is its browser, to run again in (#2416):
+//! memory answers it, with a draw of the pool as a lease's are, and no job
+//! of the run-state writer. It costs its attempt one round trip, counted
+//! as `F3.actor_round_trips`; an attempt that does not escalate across
+//! clients asks nothing.
 
 use std::pin::Pin;
+use std::time::SystemTime;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
@@ -39,10 +47,12 @@ use goodfetch_fetch_tier::{ChainHop, HopAnswer, HopChecks};
 use goodfetch_frontier::Hop;
 use goodfetch_protocol::foxhound::crawl::Seed;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, EnqueuedLinks, SeedAttempt};
+use goodfetch_session_pool::{PoolKey, PoolSettings};
 use tokio::sync::{mpsc, oneshot};
 
-use super::StateError;
 use super::admission::{Enqueue, LinksBatch};
+use super::{DrawnSession, StateError};
+use crate::labels;
 
 /// How many questions wait in the loop's mailbox before the next task
 /// waits to send its own.
@@ -71,7 +81,35 @@ pub(crate) enum HopAsk {
     Reached,
 }
 
-/// One message to the loop.
+/// One message to the loop: a question the run file answers, or an
+/// escalated attempt's draw, which memory answers.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "a question always travels boxed on the mailbox, so boxing its larger variant again would add an allocation an ask"
+)]
+pub(crate) enum Question {
+    /// A question the run file answers.
+    Stored(Ask),
+    /// The draw of a Session for an escalated attempt.
+    Escalated {
+        escalated: Escalated,
+        answer: oneshot::Sender<DrawnSession>,
+    },
+}
+
+/// The draw of a Session whose client is its browser, for an attempt that
+/// escalated from a Session's own transport (#2416): from the pool `pool`
+/// of the crawl's `labels`, for a request on `domain_key`, under the Run's
+/// pool `settings` at `now`.
+pub(crate) struct Escalated {
+    pub(crate) labels: std::sync::Arc<labels::Declared>,
+    pub(crate) pool: PoolKey,
+    pub(crate) domain_key: String,
+    pub(crate) settings: PoolSettings,
+    pub(crate) now: SystemTime,
+}
+
+/// A question the run file answers.
 pub(crate) enum Ask {
     /// A seed added to the running crawl with no attempt. `None` once the
     /// crawl closed its intake.
@@ -121,11 +159,11 @@ pub(crate) enum Ask {
 #[derive(Clone)]
 pub(crate) struct Asking {
     work: CountedWork,
-    mailbox: mpsc::Sender<Box<Ask>>,
+    mailbox: mpsc::Sender<Box<Question>>,
 }
 
 /// The loop's side of the mailbox.
-pub(crate) struct Asked(mpsc::Receiver<Box<Ask>>);
+pub(crate) struct Asked(mpsc::Receiver<Box<Question>>);
 
 /// The mailbox of a crawl whose counted work `work` counts: the handle
 /// other tasks ask through, and the loop's side.
@@ -140,7 +178,7 @@ impl Asked {
     /// # Cancel safety
     ///
     /// Dropping the future takes no question out of the mailbox.
-    pub(crate) async fn next(&mut self) -> Option<Box<Ask>> {
+    pub(crate) async fn next(&mut self) -> Option<Box<Question>> {
         self.0.recv().await
     }
 }
@@ -149,7 +187,7 @@ impl Asking {
     /// Sends the loop the question `ask`; `Closed` once the loop ended.
     async fn send(&self, ask: Ask) -> Result<(), StateError> {
         self.mailbox
-            .send(Box::new(ask))
+            .send(Box::new(Question::Stored(ask)))
             .await
             .map_err(|_| StateError::Closed)
     }
@@ -251,6 +289,25 @@ impl Asking {
     pub(crate) async fn readmit(&self, blocked: bool) -> Result<Option<u64>, StateError> {
         self.written(|answer| Ask::Readmit { blocked, answer })
             .await
+    }
+
+    /// Asks the loop for a Session whose client is its browser, drawn as
+    /// `escalated` says, for an attempt that escalated from a Session's own
+    /// transport, and waits for it: one round trip. `Closed` once the loop
+    /// ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future before the loop answers leaves its Session with
+    /// the loop, which settles it as it finds no one waits for it.
+    pub(crate) async fn escalated(&self, escalated: Escalated) -> Result<DrawnSession, StateError> {
+        self.work.count(Row::ActorRoundTrips);
+        let (answer, answered) = oneshot::channel();
+        self.mailbox
+            .send(Box::new(Question::Escalated { escalated, answer }))
+            .await
+            .map_err(|_| StateError::Closed)?;
+        answered.await.map_err(|_| StateError::Closed)
     }
 
     /// Asks the loop `asks` of `hop` and waits for its answer: one round

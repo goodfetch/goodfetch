@@ -334,3 +334,36 @@ fn just_compare_builds_crawlee_rss_side_into_its_folder() {
         super::CRAWLEE_RS_FOLDER
     )));
 }
+
+/// The polite scenario crawls 10,000 pages on 1,000 domains, 10 on each,
+/// where the others crawl the comparison's 1,000 (#2283) and the long one
+/// its own 100,000, and the growth cell's 100,000 there too, 100 on each
+/// domain; each page on the domain the Proving ground serves it on.
+#[test]
+fn the_polite_scenario_crawls_ten_pages_on_each_of_a_thousand_domains() {
+    let sizes = |pages| Scenario::ALL.map(|scenario| scenario.site_pages(pages));
+    let site = Site::MultiDomain;
+
+    assert_eq!(
+        (
+            sizes(1000),
+            sizes(100_000),
+            site.hosts().len(),
+            [1, 1000, 1001, 10_000].map(|page| site.host_of(page)),
+        ),
+        (
+            [
+                1000, 1000, 10_000, 1000, 1000, 1000, 100_000, 1000, 1000, 1000, 1000
+            ],
+            [100_000; 11],
+            1000,
+            [
+                "polite-1.localhost",
+                "polite-1000.localhost",
+                "polite-1.localhost",
+                "polite-1000.localhost",
+            ]
+            .map(str::to_owned),
+        )
+    );
+}

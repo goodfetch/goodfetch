@@ -2,7 +2,7 @@
 //! what `just targets` measured on the owner's machine, each Product's
 //! startup to `hello` as hyperfine exports it and each resident-memory
 //! scenario's peaks as `xtask rss measure` writes them, and the latest `just
-//! compare` report's pages per second, and
+//! compare` report's pages per second and Spider's peaks at each size, and
 //! gives each target its figure and verdict: met at or under its target,
 //! missed over it with the gap and the optimization pass's write-up, or not
 //! measured. It never fails on a miss. Measurements are fixtures here.
@@ -84,8 +84,33 @@ fn peaks(workspace: &Workspace, peaks: &[(&str, &str, u64)]) {
     workspace.write(&format!("{MEASURED}/peaks.jsonl"), lines.as_bytes());
 }
 
-/// A `just compare` report with each tool's medians.
-fn spider_report(workspace: &Workspace, foxhound: (f64, u64), spider: (f64, u64)) {
+/// A `just compare` report with each tool's medians, and Spider's peak at
+/// each size of `sizes` at 16 in flight.
+fn spider_report(
+    workspace: &Workspace,
+    foxhound: (f64, u64),
+    spider: (f64, u64),
+    sizes: &[(u64, u64)],
+) {
+    let points: Vec<Value> = sizes
+        .iter()
+        .map(|(pages, peak)| {
+            json!({
+                "site_pages": pages,
+                "concurrency": 16,
+                "tools": {
+                    "foxhound": { "status": "not_measured", "reason": "a fixture" },
+                    "spider": {
+                        "status": "measured",
+                        "trials": 10,
+                        "peak_bytes": peak,
+                        "private_bytes": null,
+                        "executable_bytes": null,
+                    },
+                },
+            })
+        })
+        .collect();
     let report = json!({
         "label": "local-controlled",
         "published": false,
@@ -110,6 +135,7 @@ fn spider_report(workspace: &Workspace, foxhound: (f64, u64), spider: (f64, u64)
             "foxhound": { "pages_per_second": foxhound.0, "peak_bytes": foxhound.1 },
             "spider": { "pages_per_second": spider.0, "peak_bytes": spider.1 },
         },
+        "sizes": { "status": "measured", "points": points },
     });
     workspace.write(SPIDER, report.to_string().as_bytes());
 }
@@ -159,13 +185,20 @@ fn a_figure_over_its_target_is_missed_with_its_gap_and_one_at_or_under_is_met() 
             ("foxhound", "idle-attached-engine", 9 * MIB),
             ("collie", "idle-daemon", 16 * MIB),
             ("foxhound", "idle-daemon", 18 * MIB),
-            ("foxhound", "crawl", 33 * MIB),
-            ("foxhound", "crawl", 34 * MIB),
-            ("foxhound", "crawl", 32 * MIB),
+            ("foxhound", "crawl-1000", 33 * MIB),
+            ("foxhound", "crawl-1000", 34 * MIB),
+            ("foxhound", "crawl-1000", 32 * MIB),
         ],
     );
-    // The crawl's peak is the resident-memory check's, not the comparison's.
-    spider_report(&workspace, (30.0, 20 * MIB), (40.0, 25 * MIB));
+    // The crawl's peak is the resident-memory check's, not the
+    // comparison's; its target, the tighter of 32 MiB and Spider's peak
+    // at its size.
+    spider_report(
+        &workspace,
+        (30.0, 20 * MIB),
+        (40.0, 25 * MIB),
+        &[(1000, 32 * MIB)],
+    );
 
     let (outcome, report) = report(&workspace);
 
@@ -180,7 +213,7 @@ fn a_figure_over_its_target_is_missed_with_its_gap_and_one_at_or_under_is_met() 
             row(&report, "idle-attached-engine", "foxhound"),
             row(&report, "idle-daemon", "collie"),
             row(&report, "idle-daemon", "foxhound"),
-            row(&report, "crawl-peak", "foxhound"),
+            row(&report, "crawl-peak-1000", "foxhound"),
             row(&report, "crawl-pages-per-second", "foxhound"),
         ],
         [
@@ -199,15 +232,20 @@ fn a_figure_over_its_target_is_missed_with_its_gap_and_one_at_or_under_is_met() 
 #[test]
 fn as_many_pages_per_second_as_spider_meets_its_target() {
     let workspace = Workspace::from_fixture("empty");
-    peaks(&workspace, &[("foxhound", "crawl", 32 * MIB)]);
-    spider_report(&workspace, (40.0, 40 * MIB), (40.0, 25 * MIB));
+    peaks(&workspace, &[("foxhound", "crawl-1000", 32 * MIB)]);
+    spider_report(
+        &workspace,
+        (40.0, 40 * MIB),
+        (40.0, 25 * MIB),
+        &[(1000, 32 * MIB)],
+    );
 
     let (outcome, report) = report(&workspace);
 
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     assert_eq!(
         [
-            row(&report, "crawl-peak", "foxhound"),
+            row(&report, "crawl-peak-1000", "foxhound"),
             row(&report, "crawl-pages-per-second", "foxhound"),
         ],
         [
@@ -257,7 +295,7 @@ fn a_miss_carries_the_optimization_pass_write_up_for_it() {
 /// reach its miss: the report refuses the file, naming the key.
 #[rstest]
 #[case::a_mistyped_target("[crawl-peaks.foxhound]", "crawl-peaks")]
-#[case::a_mistyped_product("[crawl-peak.foxhoud]", "foxhoud")]
+#[case::a_mistyped_product("[crawl-peak-1000.foxhoud]", "foxhoud")]
 fn a_write_up_under_a_name_the_file_does_not_take_is_refused(
     #[case] table: &str,
     #[case] name: &str,
@@ -314,7 +352,9 @@ fn a_target_with_no_measurement_is_reported_as_not_measured_and_nothing_fails() 
             not_measured("idle-attached-engine", "foxhound"),
             not_measured("idle-daemon", "collie"),
             not_measured("idle-daemon", "foxhound"),
-            not_measured("crawl-peak", "foxhound"),
+            not_measured("crawl-peak-100", "foxhound"),
+            not_measured("crawl-peak-1000", "foxhound"),
+            not_measured("crawl-peak-10000", "foxhound"),
             not_measured("crawl-pages-per-second", "foxhound"),
         ]
     );
@@ -361,9 +401,9 @@ fn each_memory_row_shows_its_executables_pages_beside_its_figure() {
         peak.to_string()
     };
     let lines = [
-        peak("foxhound", "crawl", 40 * MIB, Some(9 * MIB)),
-        peak("foxhound", "crawl", 41 * MIB, Some(11 * MIB)),
-        peak("foxhound", "crawl", 42 * MIB, Some(10 * MIB)),
+        peak("foxhound", "crawl-1000", 40 * MIB, Some(9 * MIB)),
+        peak("foxhound", "crawl-1000", 41 * MIB, Some(11 * MIB)),
+        peak("foxhound", "crawl-1000", 42 * MIB, Some(10 * MIB)),
         peak("collie", "idle-daemon", 16 * MIB, None),
     ];
     workspace.write(
@@ -371,6 +411,12 @@ fn each_memory_row_shows_its_executables_pages_beside_its_figure() {
         lines.join("\n").as_bytes(),
     );
     startup(&workspace, "collie", 0.009);
+    spider_report(
+        &workspace,
+        (40.0, 40 * MIB),
+        (40.0, 25 * MIB),
+        &[(1000, 54 * MIB)],
+    );
 
     let (outcome, report) = report(&workspace);
 
@@ -386,7 +432,7 @@ fn each_memory_row_shows_its_executables_pages_beside_its_figure() {
     };
     assert_eq!(
         [
-            executable_pages("crawl-peak", "foxhound"),
+            executable_pages("crawl-peak-1000", "foxhound"),
             executable_pages("idle-daemon", "collie"),
             executable_pages("startup-to-hello", "collie"),
         ],
@@ -396,6 +442,66 @@ fn each_memory_row_shows_its_executables_pages_beside_its_figure() {
     assert!(
         markdown.contains("| 41.0 MiB | 10.0 MiB | 32.0 MiB | missed | 9.0 MiB |"),
         "{markdown}"
+    );
+}
+
+/// The bar (spec #2165): each crawl peak is held to the tighter of its
+/// scenario's target, 32 MiB, and Spider's peak at its own size and 16 in
+/// flight in the latest `just compare` report; a size with no Spider figure
+/// there is held to its target alone.
+#[test]
+fn each_crawl_peak_is_held_to_the_tighter_of_its_target_and_spiders_peak() {
+    let workspace = Workspace::from_fixture("empty");
+    peaks(
+        &workspace,
+        &[
+            ("foxhound", "crawl-100", 21 * MIB),
+            ("foxhound", "crawl-1000", 22 * MIB),
+            ("foxhound", "crawl-10000", 40 * MIB),
+        ],
+    );
+    spider_report(
+        &workspace,
+        (40.0, 40 * MIB),
+        (40.0, 25 * MIB),
+        &[(100, 18 * MIB), (1000, 25 * MIB)],
+    );
+
+    let (outcome, report) = report(&workspace);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let held = |target: &str| {
+        let row = report["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["target"] == target && row["product"] == "foxhound")
+            .unwrap();
+        (
+            row["value"].clone(),
+            row["verdict"].clone(),
+            row["gap"].clone(),
+        )
+    };
+    assert_eq!(
+        [
+            held("crawl-peak-100"),
+            held("crawl-peak-1000"),
+            held("crawl-peak-10000"),
+        ],
+        [
+            (
+                json!("at most Spider's 18.0 MiB"),
+                json!("missed"),
+                json!("3.0 MiB")
+            ),
+            (
+                json!("at most Spider's 25.0 MiB"),
+                json!("met"),
+                Value::Null
+            ),
+            (json!("32.0 MiB"), json!("missed"), json!("8.0 MiB")),
+        ]
     );
 }
 

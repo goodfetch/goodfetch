@@ -1,9 +1,10 @@
-//! The 1,000-page HTTP crawl of the local Proving ground (ADRs 0071 and
-//! 0134): the Proving ground serving the site, started outside the process
-//! measured, and Foxhound's Attached engine driven through one code-free
-//! crawl of it on its `http` tier at the product's defaults: the
-//! resident-memory check's `crawl` scenario. `just compare` serves its
-//! trials' sites with the same Proving ground and drives its own crawls.
+//! The HTTP crawl of the local Proving ground (ADRs 0071 and 0134): the
+//! Proving ground serving the site, started outside the process measured,
+//! and Foxhound's Attached engine driven through one code-free crawl of it
+//! on its `http` tier at the product's defaults: the resident-memory
+//! check's crawl scenarios, of 100, 1,000 and 10,000 pages (spec #2165).
+//! `just compare` serves its trials' sites with the same Proving ground and
+//! drives its own crawls.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -22,7 +23,8 @@ use serde_json::{Value, json};
 /// The host the Proving ground serves the site on.
 pub(crate) const HOST: &str = "scale.test";
 
-/// The pages of the site crawled.
+/// The pages of the site `just compare`'s timed trials crawl, the
+/// 1,000-page site.
 pub(crate) const PAGES: u64 = 1000;
 
 /// Requests in flight at once: M1's default of

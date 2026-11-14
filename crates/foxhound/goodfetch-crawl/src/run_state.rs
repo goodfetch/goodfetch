@@ -182,7 +182,7 @@ impl Learned {
     }
 
     /// How an attempt of a request of `label` at `url` on `domain_key`,
-    /// its HTTP sent `from` that client, runs at `now` (milliseconds since
+    /// its HTTP sent as `http_from` says, runs at `now` (milliseconds since
     /// the Unix epoch). A choice whose count of requests served moved is
     /// kept for the run file, so a resumed crawl goes on counting toward
     /// its refresh.
@@ -191,11 +191,11 @@ impl Learned {
         label: &str,
         domain_key: &str,
         url: &str,
-        (from, now): (SendsFrom, u64),
+        (http_from, now): (HttpFrom, u64),
     ) -> AttemptPlan {
         let (plan, unit) = self
             .choices
-            .serve_attempt(label, domain_key, url, from, now);
+            .serve_attempt(label, domain_key, url, http_from, now);
         if let Some(unit) = unit {
             self.counted
                 .0
@@ -382,11 +382,8 @@ impl RunState {
             tier: FetchTier::Browser,
             forced: None,
         });
-        let from = if labels
-            .settings
-            .http_from(&request.label, drawing.http_from)
-            .from_transport()
-        {
+        let http_from = labels.settings.http_from(&request.label, drawing.http_from);
+        let from = if http_from.from_transport() {
             SendsFrom::Transport
         } else {
             SendsFrom::Browser
@@ -397,7 +394,7 @@ impl RunState {
                 &request.label,
                 &leased.waiting.key,
                 &request.url,
-                (from, drawing.wall.1),
+                (http_from, drawing.wall.1),
             )
         };
         let chosen = match choosing {

@@ -33,6 +33,15 @@
 //! again, from the client it now sends from; a choice kept before choices
 //! kept their client reads back as sent from the browser.
 //!
+//! Under `fetch.http_from: learned` (#2417), a sample whose `http` run,
+//! sent from the transport, differed runs once more after the browser's,
+//! from the hop page of its browser Session, and counts as matched on
+//! `browser_fetch` where that run matched: the cheapest tier that served
+//! every sample is then, in order, `http`, `discovered_api`,
+//! `browser_fetch`, `light_browser` and `browser`. A choice holding
+//! `browser_fetch` is sampled again once its Label sends its HTTP from the
+//! transport alone (`transport`).
+//!
 //! A choice is sampled again once it served `fetch.sample.refresh_after`'s
 //! requests, or once its time passed, whichever comes first (500 requests
 //! or 24 hours by default), and at once when [`TierChoices::invalidate`]
@@ -45,7 +54,7 @@
 use std::collections::BTreeMap;
 
 use goodfetch_engine::run_state::RunStateTables;
-use goodfetch_fetch_tier::{ReplayPlan, TierChoice};
+use goodfetch_fetch_tier::{HttpFrom, ReplayPlan, TierChoice};
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_session_pool::SendsFrom;
 use rusqlite::{Connection, params};
@@ -162,6 +171,9 @@ pub(crate) struct Sampled {
     pub(crate) segment: String,
     /// The client its `http` run is sent from.
     pub(crate) from: SendsFrom,
+    /// Whether, its `http` run having differed, it runs once more on
+    /// `browser_fetch` (`fetch.http_from: learned`).
+    pub(crate) browser_fetch: bool,
 }
 
 /// How the weighing judged a sample's runs against the browser's.
@@ -169,16 +181,24 @@ pub(crate) struct Sampled {
 pub(crate) enum Weighed {
     /// Its `http` run staged the same results.
     Matched,
-    /// Its `http` run did not, but its `light_browser` run did.
-    MatchedLight,
-    /// Its `http` run did not, but its `discovered_api` run, replaying
-    /// `plan`, did; `light` when its `light_browser` run did too.
-    MatchedApi { plan: ReplayPlan, light: bool },
-    /// They did not, or the cheaper run escalated or failed.
-    Differed,
+    /// Its `http` run did not, or escalated or failed; the tiers between
+    /// `http` and `browser` whose runs did stage the same results.
+    Differed(Between),
     /// The browser's run met a consent wall: its Label stays on `browser`
     /// (ADR 0048).
     Walled,
+}
+
+/// The tiers between `http` and `browser` whose runs of a sample staged
+/// what the browser's did.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Between {
+    /// The plan its `discovered_api` run replayed, when that run matched.
+    pub(crate) api: Option<ReplayPlan>,
+    /// Whether its `browser_fetch` run matched.
+    pub(crate) fetch: bool,
+    /// Whether its `light_browser` run matched.
+    pub(crate) light: bool,
 }
 
 /// What every Label on every domain of a Run learned so far.
@@ -305,22 +325,28 @@ mod client {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Sample {
     segment: String,
-    matched: bool,
-    /// Whether it matched on `light_browser`, not over `http`.
-    #[serde(default)]
-    light: bool,
-    /// Whether it matched on `discovered_api`, not over `http`.
-    #[serde(default)]
-    api: bool,
+    /// The tiers that served it: none when no run matched the browser's.
+    serves: Serves,
+}
+
+impl Sample {
+    fn matched(&self) -> bool {
+        self.serves != Serves::NONE
+    }
 }
 
 /// The tiers cheaper than the browser that served every sample of a unit
 /// so far: a sample that matched over `http` is served by each, as each
 /// serves the document `http` does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "a set of the four tiers cheaper than the browser, one flag each, as the run file stores it"
+)]
 pub(crate) struct Serves {
     http: bool,
     api: bool,
+    fetch: bool,
     light: bool,
 }
 
@@ -328,47 +354,39 @@ impl Serves {
     const ALL: Self = Self {
         http: true,
         api: true,
+        fetch: true,
         light: true,
+    };
+
+    const NONE: Self = Self {
+        http: false,
+        api: false,
+        fetch: false,
+        light: false,
     };
 
     fn all() -> Self {
         Self::ALL
     }
 
-    /// The tiers that served `sample`.
-    fn of(sample: &Sample) -> Self {
-        if !sample.matched {
-            return Self {
-                http: false,
-                api: false,
-                light: false,
-            };
-        }
-        if !sample.light && !sample.api {
-            return Self::ALL;
-        }
-        Self {
-            http: false,
-            api: sample.api,
-            light: sample.light,
-        }
-    }
-
     fn and(self, other: Self) -> Self {
         Self {
             http: self.http && other.http,
             api: self.api && other.api,
+            fetch: self.fetch && other.fetch,
             light: self.light && other.light,
         }
     }
 
     /// The cheapest of them (ADR 0020): `http`, then `discovered_api`,
-    /// then `light_browser`; `browser` when none.
+    /// then `browser_fetch`, then `light_browser`; `browser` when none.
     fn tier(self) -> FetchTier {
         if self.http {
             FetchTier::Http
         } else if self.api {
             FetchTier::DiscoveredApi
+        } else if self.fetch {
+            FetchTier::BrowserFetch
         } else if self.light {
             FetchTier::LightBrowser
         } else {
@@ -399,24 +417,33 @@ impl TierChoices {
     }
 
     /// How an attempt of a request of `label` at `url` on `domain_key`,
-    /// its HTTP sent `from` that client, runs under `auto` at `now`
+    /// its HTTP sent as `http_from` says, runs under `auto` at `now`
     /// (milliseconds since the Unix epoch): a choice that served its
-    /// requests, outlived its time or was learned from another client is
-    /// sampled again, and each request a choice serves counts toward its
-    /// refresh. Answers the plan, and the unit whose count it moved, for
-    /// the run file, so a resumed crawl goes on counting.
+    /// requests, outlived its time, was learned from another client or
+    /// holds `browser_fetch` where no sample runs on it is sampled again,
+    /// and each request a choice serves counts toward its refresh. Answers
+    /// the plan, and the unit whose count it moved, for the run file, so a
+    /// resumed crawl goes on counting.
     pub(crate) fn serve_attempt(
         &mut self,
         label: &str,
         domain_key: &str,
         url: &str,
-        from: SendsFrom,
+        http_from: HttpFrom,
         now: u64,
     ) -> (AttemptPlan, Option<&Unit>) {
         let segment = segment(url);
         let id = (label.to_owned(), domain_key.to_owned());
+        let from = if http_from.from_transport() {
+            SendsFrom::Transport
+        } else {
+            SendsFrom::Browser
+        };
+        let browser_fetch = http_from == HttpFrom::Learned;
         if self.units.get(&id).is_some_and(|unit| {
-            unit.stale(now, self.sampling) || unit.from().is_some_and(|kept| kept != from)
+            unit.stale(now, self.sampling)
+                || unit.from().is_some_and(|kept| kept != from)
+                || (!browser_fetch && unit.holds(FetchTier::BrowserFetch))
         }) {
             self.units.remove(&id);
         }
@@ -432,6 +459,7 @@ impl TierChoices {
                         domain_key: domain_key.to_owned(),
                         segment,
                         from,
+                        browser_fetch,
                     }),
                     None,
                 );
@@ -477,10 +505,7 @@ impl TierChoices {
         }
         match weighed {
             Weighed::Walled => *unit = Unit::Walled,
-            Weighed::Matched
-            | Weighed::MatchedLight
-            | Weighed::MatchedApi { .. }
-            | Weighed::Differed => {
+            Weighed::Matched | Weighed::Differed(_) => {
                 unit.classify(&sampled.segment, weighed, (count, now));
             }
         }
@@ -521,6 +546,17 @@ impl Unit {
                 Some(*from)
             }
             Self::Walled => None,
+        }
+    }
+
+    /// Whether it serves some request on `tier`, as learned.
+    fn holds(&self, tier: FetchTier) -> bool {
+        match self {
+            Self::Learned { tier: learned, .. } => *learned == tier,
+            Self::Split { segments, .. } => {
+                segments.iter().any(|segment| segment.tier == Some(tier))
+            }
+            Self::Sampling { .. } | Self::Walled => false,
         }
     }
 
@@ -581,21 +617,29 @@ impl Unit {
     /// it is sampled again.
     fn classify(&mut self, segment: &str, weighed: Weighed, (count, now): (usize, u64)) {
         let (sample, replayed) = match weighed {
-            Weighed::MatchedApi { plan, light } => (
+            Weighed::Differed(Between { api, fetch, light }) => (
                 Sample {
                     segment: segment.to_owned(),
-                    matched: true,
-                    light,
-                    api: true,
+                    serves: Serves {
+                        http: false,
+                        api: api.is_some(),
+                        fetch,
+                        light,
+                    },
                 },
-                Some(plan),
+                api,
             ),
-            weighed => (
+            Weighed::Matched => (
                 Sample {
                     segment: segment.to_owned(),
-                    matched: matches!(weighed, Weighed::Matched | Weighed::MatchedLight),
-                    light: weighed == Weighed::MatchedLight,
-                    api: false,
+                    serves: Serves::ALL,
+                },
+                None,
+            ),
+            Weighed::Walled => (
+                Sample {
+                    segment: segment.to_owned(),
+                    serves: Serves::NONE,
                 },
                 None,
             ),
@@ -637,10 +681,10 @@ impl Unit {
         (now, from): (u64, SendsFrom),
         plan: Option<ReplayPlan>,
     ) -> Self {
-        if samples.iter().all(|sample| sample.matched) {
+        if samples.iter().all(Sample::matched) {
             let tier = samples
                 .iter()
-                .fold(Serves::ALL, |serves, sample| serves.and(Serves::of(sample)))
+                .fold(Serves::ALL, |serves, sample| serves.and(sample.serves))
                 .tier();
             return Self::Learned {
                 tier,
@@ -704,12 +748,12 @@ impl Segment {
         if self.tier.is_some() {
             return;
         }
-        if !sample.matched {
+        if !sample.matched() {
             self.tier = Some(FetchTier::Browser);
             return;
         }
         self.matched += 1;
-        self.serves = self.serves.and(Serves::of(sample));
+        self.serves = self.serves.and(sample.serves);
         if self.matched >= count {
             self.tier = Some(self.serves.tier());
         }

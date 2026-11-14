@@ -10,7 +10,7 @@
 //! Record's Provenance naming each transform, and each field the page did
 //! not give is null with its reason.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
@@ -759,6 +759,221 @@ fn under_transport_a_label_learned_onto_http_sends_with_the_transports_tls_and_h
         ),
         (1, sampled_then_learned("http"), transport.clone()),
         "{forced:?}\n{from_the_transport:?}"
+    );
+}
+
+/// The Proving ground's rung site: a static page, a page that answers
+/// only the pinned browser's TLS fingerprint, and a script-rendered page,
+/// each kind apart by its paths' first segment.
+const RUNGS_HOST: &str = "rungs.localhost";
+
+/// The rung site's kinds, each crawled as a Label of its own name.
+const RUNGS: [&str; 3] = ["identity", "static", "scripted"];
+
+/// The pages of each kind of the rung site.
+const RUNG_PAGES: u32 = 6;
+
+/// Crawls, code-free under `auto` with `http_from`, every page of the rung
+/// site, one request at a time, each Label its kind; answers each Record's
+/// path with its `id` and `name`, and the Run's Usage of `requests`.
+fn rungs_run(
+    (engine, proving_ground): (&mut Attached, &ProvingGround),
+    run_id: &str,
+    http_from: &str,
+) -> (Vec<(String, Value)>, Value) {
+    let origin = format!("https://{RUNGS_HOST}:{}", proving_ground.address().port());
+    let seeds: Vec<Value> = RUNGS
+        .iter()
+        .flat_map(|kind| {
+            let origin = &origin;
+            (1..=RUNG_PAGES)
+                .map(move |page| json!({ "url": format!("{origin}/{kind}/{page}"), "label": kind }))
+        })
+        .collect();
+    let (started, records) = crawl(
+        engine,
+        proving_ground,
+        (run_id, &seeds),
+        &json!({
+            "formats": {},
+            "follow": "none",
+            "fields": {
+                "id": { "locator": { "kind": "css", "selector": "p.id" } },
+                "name": { "locator": { "kind": "css", "selector": "h1.name" } },
+            },
+        }),
+        &json!({
+            "fetch": { "tier": "auto", "http_from": http_from },
+            "politeness": { "domain": { "concurrency": 1 } },
+            "frontier": { "learning": false },
+        }),
+    );
+    assert!(started.get("result").is_some(), "{started}");
+    let report = engine.call(
+        "finish",
+        "run.finish",
+        &json!({ "run_id": run_id }),
+        &mut |_| None,
+    );
+    let mut read: Vec<(String, Value)> = records
+        .iter()
+        .map(|record| {
+            (
+                path_of(record["url"].as_str().unwrap_or_default()),
+                json!({ "id": record["id"], "name": record["name"] }),
+            )
+        })
+        .collect();
+    read.sort_by(|left, right| left.0.cmp(&right.0));
+    (read, report["result"]["usage"]["requests"].clone())
+}
+
+/// The tiers `run_id`'s requests past their Label's samples were served
+/// on, by Label.
+fn learned_onto(env: &TestEnv, run_id: &str) -> BTreeMap<String, BTreeSet<String>> {
+    let mut learned: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for entry in tiers(env, run_id) {
+        if entry[2] != "sample" {
+            learned
+                .entry(entry[0].as_str().unwrap_or_default().to_owned())
+                .or_default()
+                .insert(entry[1].as_str().unwrap_or_default().to_owned());
+        }
+    }
+    learned
+}
+
+/// Each kind of the rung site and the tier its Label ends on.
+fn rungs_learned(identity: &str) -> BTreeMap<String, BTreeSet<String>> {
+    [
+        ("identity", identity),
+        ("static", "http"),
+        ("scripted", "browser"),
+    ]
+    .into_iter()
+    .map(|(label, tier)| (label.to_owned(), BTreeSet::from([tier.to_owned()])))
+    .collect()
+}
+
+/// Under `auto` and `fetch.http_from: learned` (#2417), a sample whose
+/// `http` run differed from its browser's runs once more, on
+/// `browser_fetch` from its browser Session's hop page, and a Label whose
+/// samples all matched there is served on `browser_fetch`: the rung
+/// site's page that answers only the pinned browser's fingerprint, refused
+/// to the transport, ends on `browser_fetch` with the browser's Records,
+/// its later pages each fetched once with the browser's fingerprint, while
+/// its static page ends on `http` and its script-rendered one on
+/// `browser`. The further runs add nothing to Usage, which charges each
+/// work item once as it is admitted, so both Runs report the same
+/// `requests`. Under `transport` no sample runs on `browser_fetch`, and
+/// the page refused to the transport ends on `browser`.
+///
+/// Covers: setting:fetch.http_from, setting:fetch.tier, story:5-116
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+fn under_learned_a_label_whose_http_differs_but_browser_fetch_matches_is_served_on_browser_fetch() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    env.user_configuration(&format!(
+        "tls.trusted_cas.\"{RUNGS_HOST}\" = ['{}']\n",
+        proving_ground.description().ca.display()
+    ));
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+
+    let (learned, learned_requests) =
+        rungs_run((&mut engine, &proving_ground), "rungs-learned", "learned");
+    let observations = proving_ground.observations().unwrap();
+    let (transported, transported_requests) = rungs_run(
+        (&mut engine, &proving_ground),
+        "rungs-transport",
+        "transport",
+    );
+    assert!(engine.finished());
+
+    let manifest: Value = serde_json::from_str(
+        &crate::frontier::fetch(
+            &proving_ground,
+            &format!("http://{RUNGS_HOST}/manifest.json"),
+        )
+        .body,
+    )
+    .unwrap();
+    let mut expected: Vec<(String, Value)> = manifest["pages"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{manifest}"))
+        .iter()
+        .filter(|page| page["path"] != "/")
+        .map(|page| {
+            (
+                page["path"].as_str().unwrap_or_default().to_owned(),
+                page["records"][0].clone(),
+            )
+        })
+        .collect();
+    expected.sort_by(|left, right| left.0.cmp(&right.0));
+    // Each request the site received for `path` in the learned Run, by its
+    // TLS fingerprint.
+    let fingerprints = |path: &str| -> Vec<Option<String>> {
+        ReceivedRequests::of(&observations)
+            .every()
+            .filter(|request| {
+                request.host.split(':').next() == Some(RUNGS_HOST) && request.target == path
+            })
+            .map(|request| {
+                request
+                    .tls
+                    .as_ref()
+                    .and_then(|hello| hello["ja4_base"].as_str().map(str::to_owned))
+            })
+            .collect()
+    };
+    let transport: BTreeSet<_> = (4..=RUNG_PAGES)
+        .flat_map(|page| fingerprints(&format!("/static/{page}")))
+        .collect();
+    let browser: BTreeSet<_> = (1..=3)
+        .flat_map(|page| fingerprints(&format!("/identity/{page}")))
+        .filter(|ja4| !transport.contains(ja4))
+        .collect();
+    let later: Vec<_> = (4..=RUNG_PAGES)
+        .map(|page| fingerprints(&format!("/identity/{page}")))
+        .collect();
+
+    assert_eq!(
+        (
+            learned_onto(&env, "rungs-learned"),
+            &learned,
+            transport.len(),
+            browser.len(),
+            later
+                .iter()
+                .all(|requests| requests.len() == 1 && browser.contains(&requests[0])),
+            learned_requests == transported_requests,
+            learned_onto(&env, "rungs-transport"),
+            tiers(&env, "rungs-transport")
+                .iter()
+                .any(|entry| entry[1] == "browser_fetch"),
+            &transported,
+        ),
+        (
+            rungs_learned("browser_fetch"),
+            &expected,
+            1,
+            1,
+            true,
+            true,
+            rungs_learned("browser"),
+            false,
+            &expected,
+        ),
+        "{later:?}\n{:?}\n{:?}",
+        tiers(&env, "rungs-learned"),
+        tiers(&env, "rungs-transport"),
     );
 }
 

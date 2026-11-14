@@ -270,6 +270,42 @@ fn a_browser_identity_page_answers_the_pinned_browser(#[case] switches: &[&str])
     assert_eq!(read, expected_records(&proving_ground, "/identity/1"));
 }
 
+/// Every page tells the visitors that are no browser apart by a cookie: a
+/// request that sends no `visitor` cookie is answered one of its own, a
+/// number no visitor was given before, refused or not; one that sends it
+/// is answered none, and neither are the manifest and a path the site does
+/// not have. That the pinned browser is given none, Foxhound's code-free
+/// crawl of the site shows: its browser Run is refused nothing.
+#[test]
+fn every_page_gives_a_new_visitor_a_cookie_of_its_own() {
+    let proving_ground = ProvingGround::start(SEED);
+    let given = |path: &str, cookie: &[(&str, &str)]| {
+        proving_ground
+            .get_with_headers(&proving_ground.url(HOST, path), cookie)
+            .header("set-cookie")
+            .map(str::to_owned)
+    };
+
+    assert_eq!(
+        [
+            given("/static/1", &[]),
+            given("/identity/1", &[]),
+            given("/static/2", &[("cookie", "visitor=1")]),
+            given("/manifest.json", &[]),
+            given("/other/1", &[]),
+            given("/", &[]),
+        ],
+        [
+            Some("visitor=1; Path=/; SameSite=Lax".to_owned()),
+            Some("visitor=2; Path=/; SameSite=Lax".to_owned()),
+            None,
+            None,
+            None,
+            Some("visitor=3; Path=/; SameSite=Lax".to_owned()),
+        ]
+    );
+}
+
 /// A static page holds its Record in its own markup; a script-rendered
 /// page's markup holds none, its item empty until its script fills it.
 #[test]

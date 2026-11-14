@@ -105,6 +105,8 @@ pub(crate) struct Request<'a> {
     pub(crate) path: &'a str,
     /// The query without its `?`; empty when the target has none.
     pub(crate) query: &'a str,
+    /// The `Cookie` header, empty when the request has none.
+    pub(crate) cookies: &'a str,
     /// The address the request came from.
     pub(crate) peer: IpAddr,
     /// The `ClientHello` of the request's connection; `None` over plain
@@ -113,6 +115,11 @@ pub(crate) struct Request<'a> {
 }
 
 impl Request<'_> {
+    /// The value of the cookie `name` the request sends, if any.
+    fn cookie(&self, name: &str) -> Option<&str> {
+        crate::exchange::cookie(self.cookies, name)
+    }
+
     /// The request's target, its query included.
     fn target(&self) -> String {
         if self.query.is_empty() {
@@ -234,6 +241,7 @@ pub(crate) struct Families {
     limits: limits::State,
     facets: facets::State,
     tiers: tiers::State,
+    rungs: rungs::State,
 }
 
 impl Families {
@@ -245,6 +253,7 @@ impl Families {
             limits: limits::State::default(),
             facets: facets::State::default(),
             tiers: tiers::State::default(),
+            rungs: rungs::State::default(),
         }
     }
 
@@ -280,7 +289,7 @@ impl Families {
             sitemap_seed::FAMILY => sitemap_seed::respond(&visit),
             learning::FAMILY => learning::respond(&visit),
             tiers::FAMILY => tiers::respond(&visit, &self.tiers),
-            rungs::FAMILY => rungs::respond(&visit),
+            rungs::FAMILY => rungs::respond(&visit, &self.rungs),
             comparison::FAMILY => comparison::respond(&visit),
             _ => scale::respond(&visit),
         })

@@ -36,10 +36,7 @@ impl Request<'_> {
 
     /// The value of the cookie `name` the request sends, if any.
     pub(crate) fn cookie(&self, name: &str) -> Option<&str> {
-        self.cookies
-            .split(';')
-            .filter_map(|pair| pair.trim().split_once('='))
-            .find_map(|(key, value)| (key == name).then_some(value))
+        cookie(self.cookies, name)
     }
 }
 
@@ -124,6 +121,15 @@ impl Reply {
         ));
         self
     }
+}
+
+/// The value of the cookie `name` in a `Cookie` header's `cookies`, if
+/// it holds one.
+pub(crate) fn cookie<'a>(cookies: &'a str, name: &str) -> Option<&'a str> {
+    cookies
+        .split(';')
+        .filter_map(|pair| pair.trim().split_once('='))
+        .find_map(|(key, value)| (key == name).then_some(value))
 }
 
 /// The first value of `name` in a form-encoded text (a query or a form body),

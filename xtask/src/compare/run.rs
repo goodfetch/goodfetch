@@ -104,12 +104,12 @@ fn next(state: &mut u64) -> u64 {
     z ^ (z >> 31)
 }
 
-/// `runs` runs of each of `items`, each with its number from 1, shuffled
-/// by `state` (Fisher–Yates).
-fn order<T: Copy>(items: &[T], runs: u32, state: &mut u64) -> Vec<(T, u32)> {
+/// `runs(item)` runs of each of `items`, each with its number from 1,
+/// shuffled by `state` (Fisher–Yates).
+fn order<T: Copy>(items: &[T], runs: impl Fn(T) -> u32, state: &mut u64) -> Vec<(T, u32)> {
     let mut order: Vec<_> = items
         .iter()
-        .flat_map(|&item| (1..=runs).map(move |number| (item, number)))
+        .flat_map(|&item| (1..=runs(item)).map(move |number| (item, number)))
         .collect();
     for last in (1..order.len()).rev() {
         let pick = usize::try_from(next(state) % (last as u64 + 1))
@@ -389,10 +389,10 @@ fn at_concurrency(config: Config, concurrency: u32) -> Config {
     }
 }
 
-/// Runs `options.trials` timed trials of each of `points`, in one random
-/// order, each watched (see [`watch::stopped`]): a stopped trial runs once more,
-/// and a point whose trial is stopped twice is not measured, its later
-/// trials not run. Returns the trials and the points stopped.
+/// Runs `options.trials` timed trials of each of `points`, one of a cell
+/// that runs one ([`Cell::one_trial`]), in one random order, each watched
+/// (see [`watch::stopped`]): a stopped trial runs once more, and a point
+/// whose trial is stopped twice is not measured, its later trials not run. Returns the trials and the points stopped.
 fn timed(
     executables: &Executables<'_>,
     options: &Options,
@@ -413,7 +413,9 @@ fn timed(
                     && point.concurrency == concurrency
             })
         };
-    for ((cell, config, crawl), number) in order(points, options.trials, state) {
+    for ((cell, config, crawl), number) in
+        order(points, |(cell, _, _)| cell.runs(options.trials), state)
+    {
         if is_stopped(
             &stopped,
             cell.scenario,
@@ -541,7 +543,8 @@ pub(crate) fn set_aside(done: &[CountedRun], cell: &Cell, pages: u64) -> bool {
     })
 }
 
-/// Runs a counted cell: `runs` runs of each of `cells` under `mode`, each
+/// Runs a counted cell: `runs` runs of each of `cells` under `mode`, one of
+/// a cell that runs one ([`Cell::one_trial`]), each
 /// run's counting tool writing its output into `outputs`. Under strace
 /// (`watched`), a run whose crawl stalls is stopped (see [`watch::stopped`]): its
 /// cell is not measured, and its later runs do not run; nor do the later
@@ -559,7 +562,7 @@ fn counted(
 ) -> Result<CountedCell> {
     let mut done: Vec<CountedRun> = Vec::new();
     let mut stopped: Vec<StoppedRun> = Vec::new();
-    for ((cell, config), number) in order(cells, runs, state) {
+    for ((cell, config), number) in order(cells, |(cell, _)| cell.runs(runs), state) {
         if stopped
             .iter()
             .any(|run| run.scenario == cell.scenario && run.cell == cell.name)
@@ -734,7 +737,11 @@ fn rules(
     state: &mut u64,
 ) -> Result<Vec<RuledRun>> {
     let mut runs = Vec::new();
-    for ((cell, config), number) in order(cells, RULE_RUNS.min(options.trials), state) {
+    for ((cell, config), number) in order(
+        cells,
+        |(cell, _)| cell.runs(RULE_RUNS.min(options.trials)),
+        state,
+    ) {
         let ruled: Ruled = match trial(
             executables,
             cell,

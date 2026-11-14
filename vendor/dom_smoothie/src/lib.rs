@@ -1,3 +1,5 @@
+// Modified by Goodfetch (2026-11-14): exports `Kept`, what
+// `Readability::parse_keeping` answers (#2639).
 mod config;
 mod glob;
 mod grab;
@@ -17,6 +19,7 @@ mod ac_automat;
 
 pub use config::{CandidateSelectMode, Config, ParsePolicy, TextMode};
 pub use readability::Article;
+pub use readability::Kept;
 pub use readability::Metadata;
 pub use readability::Readability;
 pub use readable::is_probably_readable;

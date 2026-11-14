@@ -1,5 +1,9 @@
+// Modified by Goodfetch (2026-11-14): `parse_keeping`, which answers the
+// document as it was handed beside its parse, and the preparation and the
+// byline's removal made on each attempt's copy of the document rather than
+// on the document itself, so `parse` leaves it untouched (#2639).
 use dom_query::local_name;
-use dom_query::{Document, NodeRef, Selection};
+use dom_query::{Document, NodeId, NodeRef, Selection};
 use foldhash::HashMap;
 use tendril::StrTendril;
 
@@ -15,6 +19,15 @@ use crate::matching::*;
 use crate::url_helpers::{is_absolute_url, resolve_url, to_absolute_url};
 use crate::Config;
 use crate::ReadabilityError;
+
+/// What [`Readability::parse_keeping`] answers (Goodfetch).
+pub struct Kept {
+    /// The document as it was handed, untouched.
+    pub untouched: Document,
+    /// The article, and the document it was read from, whose
+    /// `#readability-page-1` holds it; or why none was found.
+    pub parsed: Result<(Article, Document), ReadabilityError>,
+}
 
 /// This struct represents the content of the article
 #[derive(Debug, Clone)]
@@ -200,25 +213,33 @@ impl Readability {
     /// 5. Replace multiple `br` tags with a single `br` tag
     /// 6. Replace `font` tags with `span` tags
     /// 7. Remove comments
-    fn prepare(&mut self) {
-        self.remove_empty_imgs();
+    ///
+    /// Before them, it removes `byline`, the byline node the metadata was
+    /// read from, when there is one (Goodfetch: a node ID of the document
+    /// `parse` was handed, which each copy of it keeps).
+    pub(crate) fn prepare(doc: &Document, byline: Option<NodeId>) {
+        if let Some(byline) = byline {
+            NodeRef::new(byline, &doc.tree).remove_from_parent();
+        }
 
-        self.unwrap_noscript_images();
+        Self::remove_empty_imgs(doc);
+
+        Self::unwrap_noscript_images(doc);
 
         // remove scripts
-        self.doc.select_matcher(&MATCHER_SCRIPT).remove();
+        doc.select_matcher(&MATCHER_SCRIPT).remove();
 
         // remove styles
-        self.doc.select_matcher(&MATCHER_STYLE).remove();
+        doc.select_matcher(&MATCHER_STYLE).remove();
 
         // replace duplicating br elements
-        self.replace_brs();
+        Self::replace_brs(doc);
 
         // replace fonts with spans
-        self.replace_fonts();
+        Self::replace_fonts(doc);
 
         // remove comments
-        self.remove_comments();
+        Self::remove_comments(doc);
     }
 
     /// Return the title of the article as a `StrTendril`.
@@ -306,14 +327,14 @@ impl Readability {
         cur_title.into()
     }
 
-    fn replace_fonts(&mut self) {
-        let sel = self.doc.select_matcher(&MATCHER_FONT);
+    fn replace_fonts(doc: &Document) {
+        let sel = doc.select_matcher(&MATCHER_FONT);
         sel.rename("span");
         sel.remove_all_attrs();
     }
 
-    fn replace_brs(&mut self) {
-        let sel = self.doc.select_matcher(&MATCHER_BR);
+    fn replace_brs(doc: &Document) {
+        let sel = doc.select_matcher(&MATCHER_BR);
 
         for br in sel.nodes() {
             let mut next_sibling = br.next_sibling();
@@ -367,8 +388,8 @@ impl Readability {
         }
     }
 
-    fn remove_empty_imgs(&mut self) {
-        for node in self.doc.select_matcher(&MATCHER_IMG).nodes() {
+    fn remove_empty_imgs(doc: &Document) {
+        for node in doc.select_matcher(&MATCHER_IMG).nodes() {
             let has_src = node.query_or(false, |n| {
                 n.as_element().is_some_and(|el| {
                     el.attrs.iter().any(|a| {
@@ -386,8 +407,8 @@ impl Readability {
         }
     }
 
-    fn unwrap_noscript_images(&self) {
-        let noscript_sel = self.doc.select("noscript:has(img:only-child)");
+    fn unwrap_noscript_images(doc: &Document) {
+        let noscript_sel = doc.select("noscript:has(img:only-child)");
         for noscript_node in noscript_sel.nodes() {
             let Some(prev_sibling) = noscript_node.prev_element_sibling() else {
                 continue;
@@ -429,7 +450,9 @@ impl Readability {
         }
     }
 
-    fn parse_impl(&mut self, policy: Option<ParsePolicy>) -> Result<Article, ReadabilityError> {
+    /// The document's metadata, and the byline node [`Readability::prepare`]
+    /// removes, read before anything of the document changes.
+    fn read_metadata(&self) -> Result<(Metadata, Option<NodeId>), ReadabilityError> {
         self.verify_doc()?;
 
         let ld_meta = if self.config.disable_json_ld {
@@ -439,14 +462,22 @@ impl Readability {
         };
         let mut metadata = self.get_article_metadata(ld_meta);
 
+        let mut byline_node = None;
         if metadata.byline.is_none() {
-            metadata.byline = self.byline_adjustment();
+            if let Some((byline, node)) = self.byline_adjustment() {
+                metadata.byline = Some(byline);
+                byline_node = Some(node);
+            }
         }
+        Ok((metadata, byline_node))
+    }
 
-        self.prepare();
+    fn parse_impl(&mut self, policy: Option<ParsePolicy>) -> Result<Article, ReadabilityError> {
+        let (metadata, byline) = self.read_metadata()?;
 
         if let Some(policy) = policy {
             // When using a specific policy, make a single attempt to extract content
+            Self::prepare(&self.doc, byline);
             if self
                 .attempt_grab_article(&self.doc, &policy.into(), &metadata)
                 .is_none()
@@ -455,12 +486,18 @@ impl Readability {
             }
         } else {
             // When no policy is specified, use the multi-attempt approach for better results
-            let Some(doc) = self.grab_article(&metadata) else {
+            let Some(doc) = self.grab_article(&metadata, byline) else {
                 return Err(ReadabilityError::GrabFailed);
             };
             self.doc = doc;
         }
 
+        self.finish(metadata)
+    }
+
+    /// The article the document now holds, `#readability-page-1`,
+    /// post-processed, with `metadata`.
+    fn finish(&self, mut metadata: Metadata) -> Result<Article, ReadabilityError> {
         let root_sel = self.doc.select_single_matcher(&MATCHER_CONTENT_ID);
 
         let Some(root_node) = root_sel.nodes().first() else {
@@ -531,6 +568,33 @@ impl Readability {
     /// If the document fails to extract the content, a [`ReadabilityError::GrabFailed`] error is returned.
     pub fn parse(&mut self) -> Result<Article, ReadabilityError> {
         self.parse_impl(None)
+    }
+
+    /// [`Readability::parse`], answering beside the article the document as
+    /// it was handed, untouched (Goodfetch): each attempt reads a copy of
+    /// it, so it is kept whether an attempt finds an article or none, and a
+    /// caller reads a fallback of its own from it with no copy of its own.
+    #[must_use]
+    pub fn parse_keeping(mut self) -> Kept {
+        let grabbed = self.read_metadata().and_then(|(metadata, byline)| {
+            self.grab_article(&metadata, byline)
+                .map(|doc| (metadata, doc))
+                .ok_or(ReadabilityError::GrabFailed)
+        });
+        match grabbed {
+            Err(error) => Kept {
+                untouched: self.doc,
+                parsed: Err(error),
+            },
+            Ok((metadata, doc)) => {
+                let untouched = std::mem::replace(&mut self.doc, doc);
+                let parsed = self.finish(metadata);
+                Kept {
+                    untouched,
+                    parsed: parsed.map(|article| (article, self.doc)),
+                }
+            }
+        }
     }
 
     /// Extracts the relevant content from the document and provides it as an [`Article`] object.
@@ -831,8 +895,10 @@ impl Readability {
         metadata.favicon = extract_favicon(&self.doc, self.parse_base_url());
     }
 
-    fn byline_adjustment(&self) -> Option<String> {
-        let mut meta_byline: Option<String> = None;
+    /// The byline the document's body holds, and its node, which
+    /// [`Readability::prepare`] removes (Goodfetch: found here, removed
+    /// there, so that finding it changes nothing).
+    fn byline_adjustment(&self) -> Option<(String, NodeId)> {
         let body_node = self.doc.body()?;
         let mut next_node = next_child_or_sibling(&body_node, false);
         while let Some(node) = next_node {
@@ -843,18 +909,15 @@ impl Readability {
                     .first()
                     .map_or_else(|| node.text(), |prop_name| prop_name.text());
 
-                meta_byline = Some(normalize_spaces(&byline));
-                node.remove_from_parent();
-                break;
+                return Some((normalize_spaces(&byline), node.id));
             }
             next_node = next_child_or_sibling(&node, false);
         }
-        meta_byline
+        None
     }
 
-    fn remove_comments(&self) {
-        let comments: Vec<NodeRef> = self
-            .doc
+    fn remove_comments(doc: &Document) {
+        let comments: Vec<NodeRef> = doc
             .root()
             .descendants_it()
             .filter(NodeRef::is_comment)
@@ -1251,7 +1314,7 @@ mod tests {
         </html>"#;
 
         let mut readability = Readability::from(contents);
-        readability.replace_fonts();
+        Readability::replace_fonts(&readability.doc);
 
         debug_assert_eq!(
             &readability.doc.select("span").html(),
@@ -1277,8 +1340,8 @@ mod tests {
     #[test]
     fn test_get_title() {
         let contents = include_str!("../test-pages/rustwiki_2024.html");
-        let mut readability = Readability::from(contents);
-        readability.prepare();
+        let readability = Readability::from(contents);
+        Readability::prepare(&readability.doc, None);
 
         let title = readability.get_article_title();
 

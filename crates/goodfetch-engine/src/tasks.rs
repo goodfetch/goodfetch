@@ -273,6 +273,33 @@ impl TaskOwner {
         T: Send + 'static,
     {
         counted.count(Row::PageAnalysisHandoffs);
+        self.on_pool(work).await
+    }
+
+    /// [`TaskOwner::analysis`] of a handler's read of its page, counted
+    /// apart from the page's own reads, on `F1.analysis_handoffs.handler`
+    /// (#2189): a page makes at most one hand-off of its own, and its
+    /// handler one for each read it makes.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`TaskOwner::analysis`].
+    pub async fn handler_analysis<T, F>(&self, counted: &CountedWork, work: F) -> T
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        counted.count(Row::HandlerAnalysisHandoffs);
+        self.on_pool(work).await
+    }
+
+    /// Runs `work` on the CPU pool, once one of its permits is free, or
+    /// inline under [`BlockingPolicy::Inline`].
+    async fn on_pool<T, F>(&self, work: F) -> T
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
         match self.policy {
             BlockingPolicy::Inline => work(),
             BlockingPolicy::Threads => {

@@ -447,7 +447,7 @@ where
         document
             .run
             .owner()
-            .analysis(document.run.metrics().counted_work(), move || {
+            .handler_analysis(document.run.metrics().counted_work(), move || {
                 read(&work.parse_html(CountedRow::PageParses, &served.html))
             })
             .await,

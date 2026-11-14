@@ -701,6 +701,7 @@ const OTHER_B1_ROWS: &str = "\
 | `F1.share_readability_runs` | share readability runs per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F1.block_classifications` | Block classifications per page | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F1.analysis_handoffs` | analysis hand-offs per page | at most 1 | B1 2, B4 3 | B1, B4 | must not grow | `just counts` | implementer done |
+| `F1.analysis_handoffs.handler` | a handler's analysis hand-offs per page | one per read | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.declaration_reads` | declaration reads per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.validator_builds` | validator builds per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.validations` | validations per Record | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
@@ -776,6 +777,7 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F1.share_readability_runs", 0),
         ("F1.block_classifications", 13),
         ("F1.analysis_handoffs", 26),
+        ("F1.analysis_handoffs.handler", 0),
         ("F4.declaration_reads", 0),
         ("F4.validator_builds", 0),
         ("F4.validations", 13),
@@ -1387,27 +1389,35 @@ fn each_action_kind_is_held_to_its_own_figure(
 
 /// The rows of the extraction path (spec #2164): its hand-offs, which the
 /// register puts on two families with a figure for each, its clean-up's
-/// instructions and its selectors' compilations' instructions.
+/// instructions, its selectors' compilations' and its generic set's build's.
 const EXTRACTION_ROWS: &str = "\
 | `F1.analysis_handoffs` | hand-offs to the analysis pool per page | at most 1, and 0 when no reader needs a tree | B1 2, B4 3; until #2189 | B1, B4 | must not grow | `just counts` | implementer done |
+| `F1.analysis_handoffs.handler` | a handler's analysis hand-offs per page | one per read | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F1.clean_up_instructions` | instructions in the clean-up's removal per page | no cap (ratchet) | 1000 | B4 | must not grow | `just counts --family B4` | implementer done |
 | `F1.selector_compilation_instructions` | instructions in a crawl's selector compilations per crawl | no cap (ratchet) | 1000 | B4 | must not grow | `just counts --family B4` | implementer done |
+| `F1.generic_set_instructions` | instructions in the generic set's build per crawl | no cap (ratchet) | 1000 | B4 | must not grow | `just counts --family B4` | implementer done |
 ";
 
 /// A benchmark of `family` whose default cell counts `handoffs` hand-offs
 /// over 13 pages, and `instructions` in the clean-up over one page and in
-/// the selectors' compilations over one crawl.
+/// the selectors' compilations and the generic set's build over one crawl.
 fn extraction_benchmark(
     workspace: &Workspace,
     family: &str,
     handoffs: u64,
     instructions: u64,
 ) -> String {
+    // B1 also counts a handler's own hand-offs, a row of B1's alone.
+    let handler = if family == "B1" {
+        ",\"F1.analysis_handoffs.handler\":0"
+    } else {
+        ""
+    };
     let path = executable_script(
         workspace,
         &format!("{family}.sh"),
         &format!(
-            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"callgrind_pages\":1,\"callgrind_crawls\":1}},\"counts\":{{\"F1.analysis_handoffs\":{handoffs},\"F1.clean_up_instructions\":{instructions},\"F1.selector_compilation_instructions\":{instructions}}}}}'\n"
+            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"callgrind_pages\":1,\"callgrind_crawls\":1}},\"counts\":{{\"F1.analysis_handoffs\":{handoffs},\"F1.clean_up_instructions\":{instructions},\"F1.selector_compilation_instructions\":{instructions},\"F1.generic_set_instructions\":{instructions}{handler}}}}}'\n"
         ),
     );
     format!("{family}={}", path.display())
@@ -1467,8 +1477,8 @@ fn a_row_two_families_count_is_held_on_each_to_its_own_figure(
     );
 }
 
-/// The clean-up's instructions and the selectors' compilations' are read
-/// under Callgrind by B4's own run, and vary a little from run to run: each
+/// The clean-up's instructions, the selectors' compilations' and the generic
+/// set's build's are read under Callgrind by B4's own run, and vary a little from run to run: each
 /// row is held within the 0.5 % of a figure read under Valgrind (the
 /// register's ratchet), and fails past it.
 #[rstest]
@@ -1478,7 +1488,12 @@ fn b4s_instructions_are_held_within_the_valgrind_tolerance(
     #[case] instructions: u64,
     #[case] code: i32,
     #[case] past: bool,
-    #[values("F1.clean_up_instructions", "F1.selector_compilation_instructions")] row: &str,
+    #[values(
+        "F1.clean_up_instructions",
+        "F1.selector_compilation_instructions",
+        "F1.generic_set_instructions"
+    )]
+    row: &str,
 ) {
     let workspace = Workspace::from_fixture("empty");
     workspace.write(

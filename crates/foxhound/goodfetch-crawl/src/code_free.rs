@@ -444,6 +444,11 @@ impl CodeFree {
         (links, locators)
     }
 
+    /// The formats it reads of each page, as `page.formats` answers them.
+    pub(crate) fn formats(&self) -> FormatsRequest {
+        self.extraction.formats
+    }
+
     /// Handles the attempt `params` gives, as a handler would: reads its
     /// page's formats and fields, under `follow: scope` stages every link
     /// of its page with the attempt, for its commit to admit in its

@@ -4,8 +4,6 @@
 //! [`FilterLists`] is `Send + Sync` (`adblock` without its `single-thread`
 //! feature), so every Session shares one behind an `Arc` with no lock.
 
-use std::sync::OnceLock;
-
 use adblock::Engine;
 
 use crate::filter_set;
@@ -29,14 +27,14 @@ include!(concat!(env!("OUT_DIR"), "/embedded.rs"));
 /// engine, a small one holds its and the unbreak list's `$generichide`
 /// exceptions alone, which answer whether a page's URL turns the list's
 /// generic rules off; and the generic set removal reads every page with is
-/// built once, on first use.
+/// built with them, once per version, off every page's path (issue 2191).
 pub struct FilterLists {
     pub(crate) ads: Engine,
     pub(crate) trackers: Engine,
     pub(crate) annoyances: Engine,
     /// The `$generichide` exceptions of each list, in [`List`] order.
     generic_hide: [Engine; 3],
-    generic: OnceLock<Generic>,
+    generic: Generic,
 }
 
 /// Why the embedded Filter lists did not load: never once the build
@@ -80,21 +78,20 @@ impl FilterLists {
             .max()
             .unwrap_or_default();
         let mut buffer = Vec::with_capacity(largest);
-        let lists = Self {
-            ads: load("ads", &ADS, &mut buffer)?,
-            trackers: load("trackers", &TRACKERS, &mut buffer)?,
-            annoyances: load("annoyances", &ANNOYANCES, &mut buffer)?,
-            generic_hide: [
+        let ads = load("ads", &ADS, &mut buffer)?;
+        let trackers = load("trackers", &TRACKERS, &mut buffer)?;
+        let annoyances = load("annoyances", &ANNOYANCES, &mut buffer)?;
+        // Each engine holds its own copy: the decompressed bytes go now.
+        drop(buffer);
+        Ok(Self::of(
+            [ads, trackers, annoyances],
+            [
                 ADS_GENERIC_HIDE,
                 TRACKERS_GENERIC_HIDE,
                 ANNOYANCES_GENERIC_HIDE,
             ]
             .map(|lines| generic_hide(lines.to_owned(), UNBREAK_GENERIC_HIDE.to_owned())),
-            generic: OnceLock::new(),
-        };
-        // Each engine holds its own copy: the decompressed bytes go now.
-        drop(buffer);
-        Ok(lists)
+        ))
     }
 
     /// The size of the embedded lists' serialized forms, together.
@@ -115,13 +112,27 @@ impl FilterLists {
             engine
         };
         let unbreak = filter_set::generic_hide_lines(texts.unbreak);
-        Self {
-            ads: compiled(texts.ads),
-            trackers: compiled(texts.trackers),
-            annoyances: compiled(texts.annoyances),
-            generic_hide: [texts.ads, texts.trackers, texts.annoyances]
+        Self::of(
+            [texts.ads, texts.trackers, texts.annoyances].map(compiled),
+            [texts.ads, texts.trackers, texts.annoyances]
                 .map(|list| generic_hide(filter_set::generic_hide_lines(list), unbreak.clone())),
-            generic: OnceLock::new(),
+        )
+    }
+
+    /// The lists of the engines `[ads, trackers, annoyances]` and their
+    /// `$generichide` engines, in [`List`] order, with their generic set.
+    fn of([ads, trackers, annoyances]: [Engine; 3], generic_hide: [Engine; 3]) -> Self {
+        let generic = Generic::of([
+            (List::Ads, &ads),
+            (List::Trackers, &trackers),
+            (List::Annoyances, &annoyances),
+        ]);
+        Self {
+            ads,
+            trackers,
+            annoyances,
+            generic_hide,
+            generic,
         }
     }
 
@@ -157,9 +168,9 @@ impl FilterLists {
             .generichide
     }
 
-    /// The generic set removal reads every page with, built on first use.
+    /// The generic set removal reads every page with.
     pub(crate) fn generic(&self) -> &Generic {
-        self.generic.get_or_init(|| Generic::of(self.engines()))
+        &self.generic
     }
 }
 

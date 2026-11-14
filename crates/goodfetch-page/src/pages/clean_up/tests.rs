@@ -4,7 +4,7 @@
 use std::sync::mpsc::{self, Sender};
 
 use goodfetch_counted_work::ParsedHtml;
-use goodfetch_extractor::{BuiltIn, Extractor, Found, Serialization};
+use goodfetch_extractor::{Chosen, Extractor, Found, Serialization};
 use goodfetch_protocol::page::{FormatsRequest, PageId};
 use serde_json::{Value, json};
 
@@ -27,7 +27,7 @@ struct Counted {
 impl Extractor for Counted {
     fn main_content(&self, document: ParsedHtml, url: &str) -> Option<Found> {
         self.runs.send(()).unwrap();
-        BuiltIn::default().extractor().main_content(document, url)
+        Chosen::default().extractor().main_content(document, url)
     }
 }
 
@@ -176,7 +176,7 @@ fn a_browser_pages_formats_read_parses_its_serialization_once_with_every_format(
         (&document, None),
         Serialization::Dom,
         request,
-        (BuiltIn::default().extractor(), ShareMeasure::default()),
+        (Chosen::default().extractor(), ShareMeasure::default()),
         (None, &hidden),
         &work,
     );

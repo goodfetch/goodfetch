@@ -8,7 +8,7 @@ use goodfetch_protocol::page::{FormatsRequest, MainContent};
 use serde_json::json;
 
 use super::{URL, read};
-use crate::{BuiltIn, Context, Document, Extractor, Found, Serialization, formats};
+use crate::{Chosen, Context, Document, Extractor, Found, Serialization, formats};
 
 /// Covers: story:6-1
 #[test]
@@ -67,7 +67,7 @@ impl Counted {
 impl Extractor for Counted {
     fn main_content(&self, document: ParsedHtml, url: &str) -> Option<Found> {
         self.runs.send(()).unwrap();
-        BuiltIn::default().extractor().main_content(document, url)
+        Chosen::default().extractor().main_content(document, url)
     }
 }
 

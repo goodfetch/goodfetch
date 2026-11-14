@@ -81,8 +81,8 @@ use goodfetch_protocol::foxhound::settings::FETCH_BLOCK_CLASSIFICATION;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::proxy::{PROXY_KIND, PROXY_PROVIDER, PROXY_SERVER};
 use goodfetch_protocol::page::{
-    BLOCKED, BlockedDetails, BodyHandle, CONTENT_EXTRACTOR, FormatsRequest, Navigated, PageFormats,
-    PageId, PageResponse, SessionId,
+    BLOCKED, BlockedDetails, BodyHandle, FormatsRequest, Navigated, PageFormats, PageId,
+    PageResponse, SessionId,
 };
 use goodfetch_protocol::run::{RunId, RunWarning};
 use goodfetch_protocol::settings::page_check::PageCheck;
@@ -2677,14 +2677,9 @@ fn blocked(block: Block, response: &PageResponse, received: std::time::SystemTim
     )
 }
 
-/// The Extractor a page of `run` is signed with, as its formats read its
-/// main content: its Label's `content.extractor`, `label`, else the Run's;
-/// dom-smoothie without either (ADR 0138).
-fn chosen_extractor(run: &Run, label: Option<BuiltIn>) -> BuiltIn {
-    label
-        .or_else(|| {
-            run.settings()
-                .and_then(|settings| BuiltIn::named(settings.resolved().get(&CONTENT_EXTRACTOR)))
-        })
-        .unwrap_or_default()
+/// The main-content step a page of `run` is signed with, the one its
+/// formats read its main content with: the page crate's one resolver, given
+/// its Label's `content.extractor`, `label` (ADR 0138; spec #2164).
+fn chosen_extractor(run: &Run, label: Option<BuiltIn>) -> goodfetch_extractor::Chosen {
+    goodfetch_page::extractor::served(run.settings().map(RunSettings::resolved), label)
 }

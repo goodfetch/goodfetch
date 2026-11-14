@@ -28,7 +28,7 @@ mod tables;
 mod whitespace;
 
 pub use canonical::{canonical_url, is_canonical_link};
-pub use extractor::{BuiltIn, Extractor, Found};
+pub use extractor::{Attempts, BuiltIn, Chosen, Extractor, Found};
 pub use formats::{
     CleanUp, Context, Document, Measured, Serialization, formats, fuzz_formats,
     main_content_length, main_content_length_of, measured_formats, measured_formats_of,

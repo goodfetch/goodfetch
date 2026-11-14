@@ -54,7 +54,7 @@ use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::{RunSettings, Values};
+use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::{CallContext, CallError, Contribution, Guard, Handler};
 use goodfetch_extractor::Serialization;
 use goodfetch_protocol::connection::{Surface, WaitedFor};
@@ -100,6 +100,7 @@ use crate::browser_fetch;
 use crate::dialogs::{self, Dialogs};
 use crate::document_request::{DocumentRequest, Unread};
 use crate::driver::{Destination, SerializedDocument};
+use crate::extractor;
 use crate::guard::{self, Action, Request, Window};
 use crate::hiding::Hidden;
 use crate::interception::{
@@ -1544,10 +1545,9 @@ impl Pages {
                 base_url: served.base_url.clone(),
             };
             let request = params.formats;
-            let extractor = clean_up::extractor(
+            let extractor = extractor::served(
                 served.run.settings().map(RunSettings::resolved),
-                (&Values::default(), served.extractor),
-                &Values::default(),
+                served.extractor,
             );
             let measure =
                 clean_up::ShareMeasure::of(served.run.settings().map(RunSettings::resolved));
@@ -1597,7 +1597,7 @@ impl Pages {
             .await?;
         let request = params.formats;
         let (_, session) = self.sessions.own_settings(&page.session).await?;
-        let extractor = clean_up::extractor(
+        let extractor = extractor::chosen(
             page.run.settings().map(RunSettings::resolved),
             (&session, page.driver.value().extractor()),
             &page.settings,

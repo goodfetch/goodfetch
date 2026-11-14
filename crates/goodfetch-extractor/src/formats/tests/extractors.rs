@@ -12,10 +12,19 @@ use rstest::rstest;
 use serde_json::json;
 
 use super::URL;
-use crate::{BuiltIn, Context, Document, Serialization, formats};
+use crate::{Attempts, BuiltIn, Chosen, Context, Document, Serialization, formats};
 
-/// The Markdown and the text `built_in` reads from `html` at [`URL`].
-fn read_with(html: &str, built_in: BuiltIn) -> PageFormats {
+/// `built_in` with the default attempts.
+fn chosen(built_in: BuiltIn) -> Chosen {
+    Chosen {
+        built_in,
+        ..Chosen::default()
+    }
+}
+
+/// The Markdown and the text the `chosen` step reads from `html` at
+/// [`URL`].
+fn read_with(html: &str, chosen: Chosen) -> PageFormats {
     let request: FormatsRequest =
         serde_json::from_value(json!({ "markdown": true, "text": true })).unwrap();
     formats(
@@ -28,7 +37,7 @@ fn read_with(html: &str, built_in: BuiltIn) -> PageFormats {
         &request,
         &Context {
             clean_up: None,
-            extractor: built_in.extractor(),
+            extractor: chosen.extractor(),
             work: goodfetch_counted_work::CountedWork::default(),
         },
     )
@@ -48,8 +57,8 @@ fn each_built_in_is_chosen_by_its_name_and_dom_smoothie_by_default() {
 fn the_two_built_ins_find_another_main_content_on_one_article() {
     let html = include_str!("../fixtures/navigation-and-related.html");
 
-    let dom_smoothie = read_with(html, BuiltIn::DomSmoothie);
-    let trafilatura = read_with(html, BuiltIn::Trafilatura);
+    let dom_smoothie = read_with(html, chosen(BuiltIn::DomSmoothie));
+    let trafilatura = read_with(html, chosen(BuiltIn::Trafilatura));
 
     let image = "![](https://kites.test/images/line.jpg)";
     let paragraph = "Braided polyester is the usual choice for single-line kites";
@@ -81,7 +90,7 @@ fn a_document_with_text_outside_its_landmarks_has_main_content_whatever_the_step
 <ul><li><a href="https://example.test/one">One</a></li><li><a href="https://example.test/two">Two</a></li></ul>
 </body></html>"#;
 
-    let read = read_with(html, built_in);
+    let read = read_with(html, chosen(built_in));
 
     assert_eq!(read.main_content, Some(MainContent::Found));
     let markdown = read.markdown.unwrap();
@@ -97,7 +106,10 @@ fn a_document_with_text_outside_its_landmarks_has_main_content_whatever_the_step
 fn a_document_with_no_main_content_answers_none_whatever_the_step(
     #[values(BuiltIn::DomSmoothie, BuiltIn::Trafilatura)] built_in: BuiltIn,
 ) {
-    let read = read_with(include_str!("../fixtures/no-main-content.html"), built_in);
+    let read = read_with(
+        include_str!("../fixtures/no-main-content.html"),
+        chosen(built_in),
+    );
 
     assert_eq!(read.main_content, Some(MainContent::None));
     assert_eq!(read.markdown.as_deref(), Some(""));
@@ -127,11 +139,116 @@ fn trafilatura_reads_the_tree_it_is_given_never_a_parse_of_its_serialization() {
         "</script><p>A paragraph that only a parse of the tree's serialization holds, long enough to read as content.</p><script>",
     );
 
-    let found = BuiltIn::Trafilatura
+    let found = chosen(BuiltIn::Trafilatura)
         .extractor()
         .main_content(tree, URL)
         .unwrap();
 
     assert!(found.text.contains("lark's head knot"), "{found:?}");
     assert!(!found.text.contains("only a parse"), "{found:?}");
+}
+
+/// Covers: setting:extraction.readability
+#[test]
+fn each_number_of_attempts_is_chosen_by_its_name_and_retry_by_default() {
+    assert_eq!(Attempts::named("retry"), Some(Attempts::Retry));
+    assert_eq!(
+        Attempts::named("single_attempt"),
+        Some(Attempts::SingleAttempt)
+    );
+    assert_eq!(Attempts::named("once"), None);
+    assert_eq!(
+        Chosen::default(),
+        Chosen {
+            built_in: BuiltIn::DomSmoothie,
+            attempts: Attempts::Retry,
+        }
+    );
+}
+
+/// A short page whose text sits in a block a first attempt drops as
+/// unlikely content: one longer than its other text.
+const SHORT_PAGE: &str = r#"<!doctype html><html lang="en"><head><title>Knots</title></head><body>
+<div class="comment"><p>A lark's head knot holds a bridle to the towing ring, and a figure-eight loop at the end of the flying line keeps it from slipping under load.</p>
+<p>Tie both before the first launch of the day, and check them again after a hard landing, since a knot that has worked loose shows it only when the line pulls.</p></div>
+<div><p>Questions go to the club.</p></div>
+</body></html>"#;
+
+/// `retry` tries `dom_smoothie` again while it finds under 500 characters
+/// and keeps the best it found; `single_attempt` keeps what its one
+/// attempt, the first `retry` makes, finds.
+///
+/// Covers: setting:extraction.readability
+#[test]
+fn a_retry_keeps_text_a_single_attempt_drops_on_a_short_page() {
+    let retry = read_with(SHORT_PAGE, chosen(BuiltIn::DomSmoothie));
+    let single = read_with(
+        SHORT_PAGE,
+        Chosen {
+            built_in: BuiltIn::DomSmoothie,
+            attempts: Attempts::SingleAttempt,
+        },
+    );
+
+    let knot = "lark's head knot";
+    assert!(retry.text.as_deref().unwrap().contains(knot), "{retry:?}");
+    assert!(
+        !single.text.as_deref().unwrap().contains(knot),
+        "{single:?}"
+    );
+}
+
+/// rs-trafilatura tries once whatever `extraction.readability` says.
+///
+/// Covers: setting:extraction.readability
+#[test]
+fn trafilatura_reads_the_same_whatever_the_attempts() {
+    let html = include_str!("../fixtures/navigation-and-related.html");
+    let read = |attempts| {
+        read_with(
+            html,
+            Chosen {
+                built_in: BuiltIn::Trafilatura,
+                attempts,
+            },
+        )
+    };
+
+    assert_eq!(read(Attempts::SingleAttempt), read(Attempts::Retry));
+}
+
+/// The Page signature reads the main text the formats read when both run
+/// the same step on a page no Clean-up rule changes, under each value of
+/// `extraction.readability`, white space aside.
+///
+/// Covers: setting:extraction.readability
+#[rstest]
+fn the_page_signature_reads_the_main_text_the_formats_read_with_one_step(
+    #[values(BuiltIn::DomSmoothie, BuiltIn::Trafilatura)] built_in: BuiltIn,
+    #[values(Attempts::Retry, Attempts::SingleAttempt)] attempts: Attempts,
+    #[values(
+        SHORT_PAGE,
+        include_str!("../fixtures/navigation-and-related.html"),
+        include_str!("../fixtures/article.html")
+    )]
+    html: &str,
+) {
+    let chosen = Chosen { built_in, attempts };
+    let work = CountedWork::default();
+
+    let (_, signed) = crate::main_content::title_and_main_text_of(
+        work.parse_html(Row::PageParses, html),
+        URL,
+        chosen.extractor(),
+        &work,
+    );
+    let formats = read_with(html, chosen);
+
+    // The formats' text puts a break between blocks the signature's runs
+    // together.
+    let unspaced = |text: &str| text.split_whitespace().collect::<String>();
+    assert_eq!(
+        unspaced(&signed),
+        unspaced(formats.text.as_deref().unwrap())
+    );
 }

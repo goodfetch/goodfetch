@@ -71,9 +71,9 @@ use goodfetch_protocol::run::{
     LimitScope, MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, PointInTime,
     Presence, ProgressMessage, RUN_IN_USE, RUN_STATE_BATCH_BYTES, RUN_STATE_BATCH_INTERVAL,
     RUN_STATE_BATCH_PAGES, RUN_STATE_BATCH_PER_ATTEMPT, RUN_STATE_BATCH_SYNC,
-    RUN_STATE_COMMIT_INTERVAL, ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunListParams,
-    RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage, RunWarning, RunWriter,
-    StartInput, StartedAs, StopReason, Tags,
+    RUN_STATE_COMMIT_INTERVAL, RUN_STATE_MEMORY_BUDGET, ReachedLimit, RunAxes, RunId, RunIndexRow,
+    RunKind, RunListParams, RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage,
+    RunWarning, RunWriter, StartInput, StartedAs, StopReason, Tags,
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
@@ -5059,6 +5059,9 @@ impl Registry {
     fn opened_with(&self, settings: Option<&RunSettings>) -> RunStateOptions {
         RunStateOptions {
             durability: durability_of(settings),
+            memory_budget: settings.map_or(self.setup.run_state.memory_budget, |settings| {
+                settings.resolved().get(&RUN_STATE_MEMORY_BUDGET)
+            }),
             clock: self.setup.engine.clock(),
             ..self.setup.run_state.clone()
         }

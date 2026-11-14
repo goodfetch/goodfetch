@@ -1006,6 +1006,10 @@ fn the_tier_a_label_learned_survives_a_resume() {
     );
     let mut settings = settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } }));
     settings["crawl"]["handler"] = json!({ "concurrency": 1 });
+    // At `full`, each sample's outcome is in the file before the next
+    // request: at `batch` the kill takes the open batch, and the resumed
+    // crawl samples its requests again (ADR 0142).
+    settings["run_state"] = json!({ "durability": "full" });
     let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
     let mut killed = engine_on(&env, &cache);
     killed.send(&json!({

@@ -775,7 +775,8 @@ fn the_crawl_does_the_writers_work_at_any_concurrency_and_fast_syncs_less() {
     let (one, sixteen, full, fast) = std::thread::scope(|scope| {
         let one = scope.spawn(|| run_state_counts(&at(1), None));
         let sixteen = scope.spawn(|| run_state_counts(&at(16), None));
-        let full = scope.spawn(|| run_state_counts(&json!({}), None));
+        let full = scope
+            .spawn(|| run_state_counts(&json!({ "run_state": { "durability": "full" } }), None));
         let fast = scope
             .spawn(|| run_state_counts(&json!({ "run_state": { "durability": "fast" } }), None));
         (

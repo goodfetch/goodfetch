@@ -253,7 +253,11 @@ fn a_crawl_killed_and_resumed_keeps_its_sessions_and_revalidates_each_on_its_fir
             "/corpus/not-found",
         ],
     );
-    let settings = settings(&json!({ "max_size": 2 }));
+    // At `full`, each page's claim, which writes the pool's Sessions, is in
+    // the file before its page is served: at `batch` the kill takes the
+    // open batch, and with it the Sessions it opened (ADR 0142).
+    let mut settings = settings(&json!({ "max_size": 2 }));
+    settings["run_state"] = json!({ "durability": "full" });
     let mut killed = crate::site::engine_on(&env, &proving_ground);
     let mut before = Vec::new();
     killed.send(&json!({

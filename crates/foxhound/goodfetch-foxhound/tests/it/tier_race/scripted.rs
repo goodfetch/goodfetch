@@ -88,6 +88,9 @@ struct Asked {
     /// Each path browser-fetch sent or a navigation opened in a Session
     /// that opened from a `session.source`.
     logged_in: Vec<String>,
+    /// Each path browser-fetch sent or a navigation opened, with the
+    /// Session it was asked of.
+    in_session: Vec<(String, SessionId)>,
     /// How many times the document request was asked for.
     document_requests: usize,
 }
@@ -131,6 +134,7 @@ impl BrowserPages for Scripted {
         Box::pin(async move {
             self.ask(|asked| {
                 asked.opened.push(path_of(url));
+                asked.in_session.push((path_of(url), pooled.id.clone()));
                 if logged_in(pooled) {
                     asked.logged_in.push(path_of(url));
                 }
@@ -204,6 +208,7 @@ impl BrowserPages for Scripted {
             let path = path_of(&request.url);
             self.ask(|asked| {
                 asked.fetched.push(path.clone());
+                asked.in_session.push((path.clone(), pooled.id.clone()));
                 if logged_in(pooled) {
                     asked.logged_in.push(path.clone());
                 }
@@ -309,6 +314,7 @@ pub(super) struct Ended {
     sent: Vec<String>,
     opened: Vec<String>,
     logged_in: Vec<String>,
+    in_session: Vec<(String, SessionId)>,
     document_requests: usize,
     /// `run.finish`'s result, none when it never answered.
     finished: Option<Value>,
@@ -455,6 +461,7 @@ fn crawl_unread(
         sent: asked.sent,
         opened: asked.opened,
         logged_in: asked.logged_in,
+        in_session: asked.in_session,
         document_requests: asked.document_requests,
         finished,
         exited,
@@ -802,6 +809,64 @@ fn a_login_pool_sends_from_the_browser_while_the_runs_pool_takes_the_ladder() {
             true,
             Some(json!("finished")),
         ),
+        "{ended:?}"
+    );
+}
+
+/// A race of a Label learned onto `browser_fetch` sends its first request
+/// from the hop page of the Session its navigation opens in (#2421): under
+/// `fetch.http_from: learned`, the Label `account`, whose pool holds a
+/// login, learns `browser_fetch` from its sample on `/account/1`, and the
+/// race on `/account/2` asks its document of the browser, never of a
+/// Session's own transport, then opens its navigation, started the race's
+/// delay later while that document is still on its way, in the same
+/// Session.
+///
+/// Covers: setting:fetch.tier_race, setting:fetch.http_from, setting:session.source
+#[test]
+fn a_race_of_a_label_on_browser_fetch_sends_its_first_request_from_the_navigations_session() {
+    let env = TestEnv::new();
+    let site = Site::from([
+        ("/account/1", page("<p>orders</p>", Duration::ZERO)),
+        (
+            "/account/2",
+            page("<p>invoices</p>", Duration::from_millis(600)),
+        ),
+    ]);
+    let shop = json!({ "kind": "saved_identity", "name": "shop" });
+
+    let ended = crawl_unread(
+        &env,
+        site,
+        None,
+        (
+            &[seed("/account/1", "account"), seed("/account/2", "account")],
+            &json!({ "account": { "settings": { "session": { "source": shop } } } }),
+        ),
+        &json!({
+            "fetch": { "http_from": "learned", "tier_race": true, "sample": { "count": 1 } },
+        }),
+    );
+
+    let raced: BTreeSet<&SessionId> = ended
+        .in_session
+        .iter()
+        .filter(|(path, _)| path == "/account/2")
+        .map(|(_, session)| session)
+        .collect();
+    let account_2 = "/account/2".to_owned();
+    assert_eq!(
+        (
+            ended.sent.contains(&account_2),
+            ended.fetched.contains(&account_2),
+            ended.opened.contains(&account_2),
+            raced.len(),
+            ended
+                .finished
+                .as_ref()
+                .map(|report| report["lifecycle"].clone()),
+        ),
+        (false, true, true, 1, Some(json!("finished"))),
         "{ended:?}"
     );
 }

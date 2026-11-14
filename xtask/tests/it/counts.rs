@@ -730,6 +730,8 @@ const OTHER_B1_ROWS: &str = "\
 | `F3.actor_round_trips` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F3.hop_round_trips` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F3.hop_round_trips.end` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.in_flight_serializations` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F3.counted_work_constructions` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.file_opens` | folders created and files opened per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.spawns` | tasks spawned per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.formatting_off` | entries formatted per entry of a kind off | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
@@ -799,6 +801,8 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F3.actor_round_trips", 1),
         ("F3.hop_round_trips", 1),
         ("F3.hop_round_trips.end", 1),
+        ("F3.in_flight_serializations", 0),
+        ("F3.counted_work_constructions", 0),
         ("E5.file_opens", 0),
         ("E5.spawns", 0),
         ("E5.formatting_off", 0),
@@ -972,7 +976,7 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
 }
 
 /// Every F3 row, in what a benchmark prints and the register holds.
-const FRONTIER_ROWS: [&str; 18] = [
+const FRONTIER_ROWS: [&str; 20] = [
     "F3.invariant_reads",
     "F3.invariant_reads.hop",
     "F3.invariant_reads.sitemap",
@@ -991,6 +995,8 @@ const FRONTIER_ROWS: [&str; 18] = [
     "F3.actor_round_trips",
     "F3.hop_round_trips",
     "F3.hop_round_trips.end",
+    "F3.in_flight_serializations",
+    "F3.counted_work_constructions",
 ];
 
 /// The register's F3 rows, each with the limit 1.
@@ -1017,7 +1023,7 @@ fn frontier_benchmark(counted: &str) -> String {
         .map(|name| format!("\"{name}\":{}", if *name == counted { 5 } else { 1 }))
         .collect();
     format!(
-        "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts_ended\":1}},\"counts\":{{{}}}}}'\n",
+        "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts_ended\":1,\"added_pages\":1}},\"counts\":{{{}}}}}'\n",
         counts.join(",")
     )
 }

@@ -31,6 +31,28 @@ fn value_of(registry: &prometheus::Registry, name: &str) -> Option<f64> {
         })
 }
 
+/// An engine whose meter the registry renders, that registry, and the
+/// meter's provider, which renders while it lives.
+fn metered() -> (
+    goodfetch_engine::Engine,
+    prometheus::Registry,
+    SdkMeterProvider,
+) {
+    let registry = prometheus::Registry::new();
+    let exporter = opentelemetry_prometheus::exporter()
+        .with_registry(registry.clone())
+        .without_target_info()
+        .scope_info_enabled(false)
+        .build()
+        .unwrap();
+    let provider = SdkMeterProvider::builder().with_reader(exporter).build();
+    (
+        engine().with_metrics(Metrics::new(&provider.meter(METER))),
+        registry,
+        provider,
+    )
+}
+
 /// Each work item waiting in its domain's queue counts in
 /// `goodfetch.work_item.queued` until it is leased: three pages of one
 /// domain, admitted one at a time to a handler of concurrency 1, leave two,
@@ -40,15 +62,7 @@ fn value_of(registry: &prometheus::Registry, name: &str) -> Option<f64> {
 #[test]
 fn a_crawl_counts_the_work_items_its_domain_queues_hold() {
     let env = TestEnv::new();
-    let registry = prometheus::Registry::new();
-    let exporter = opentelemetry_prometheus::exporter()
-        .with_registry(registry.clone())
-        .without_target_info()
-        .scope_info_enabled(false)
-        .build()
-        .unwrap();
-    let provider = SdkMeterProvider::builder().with_reader(exporter).build();
-    let engine = engine().with_metrics(Metrics::new(&provider.meter(METER)));
+    let (engine, registry, _provider) = metered();
     let mut during = Vec::new();
 
     crawl_on(
@@ -82,15 +96,7 @@ fn a_crawl_counts_the_work_items_its_domain_queues_hold() {
 #[test]
 fn a_crawl_counts_each_attempt_while_it_runs_and_each_retry() {
     let env = TestEnv::new();
-    let registry = prometheus::Registry::new();
-    let exporter = opentelemetry_prometheus::exporter()
-        .with_registry(registry.clone())
-        .without_target_info()
-        .scope_info_enabled(false)
-        .build()
-        .unwrap();
-    let provider = SdkMeterProvider::builder().with_reader(exporter).build();
-    let engine = engine().with_metrics(Metrics::new(&provider.meter(METER)));
+    let (engine, registry, _provider) = metered();
     let mut during = Vec::new();
 
     crawl_on(
@@ -159,15 +165,7 @@ fn counted(registry: &prometheus::Registry, shared_path: &str, work: &str) -> Op
 /// Run state the crawl counted as `F3.actor_round_trips`.
 fn pages_and_round_trips(seeds: &Value) -> (usize, Option<f64>) {
     let env = TestEnv::new();
-    let registry = prometheus::Registry::new();
-    let exporter = opentelemetry_prometheus::exporter()
-        .with_registry(registry.clone())
-        .without_target_info()
-        .scope_info_enabled(false)
-        .build()
-        .unwrap();
-    let provider = SdkMeterProvider::builder().with_reader(exporter).build();
-    let engine = engine().with_metrics(Metrics::new(&provider.meter(METER)));
+    let (engine, registry, _provider) = metered();
     let mut pages = 0;
 
     crawl_on(
@@ -221,4 +219,175 @@ fn a_sitemap_attempt_costs_the_run_states_actor_one_round_trip() {
     }]);
 
     assert_eq!(pages_and_round_trips(&seeds), (3, Some(4.0)));
+}
+
+/// The serializations of the requests in flight `registry` counted, as
+/// `F3.in_flight_serializations`.
+fn in_flight_serializations(registry: &prometheus::Registry) -> Option<f64> {
+    counted(registry, "frontier_admission", "in_flight_serializations")
+}
+
+/// Attempts that begin, go on to handling and end while no reader takes a
+/// value of their crawl's progress serialize no request in flight: three
+/// pages, handled to the crawl's end, count none.
+///
+/// Covers: story:3-162
+#[test]
+fn attempts_whose_crawls_progress_no_reader_takes_serialize_no_request_in_flight() {
+    let env = TestEnv::new();
+    let (engine, registry, _provider) = metered();
+    let mut pages = 0;
+
+    crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "unread", "seeds": seeds(3) }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |_: &Value| {
+                pages += 1;
+                Reply::Records(vec![json!({ "handled": true })])
+            };
+            client
+                .call("run.finish", json!({ "run_id": "unread" }), &mut handler)
+                .await
+        },
+    );
+
+    assert_eq!((pages, in_flight_serializations(&registry)), (3, Some(0.0)));
+}
+
+/// A subscription to the engine's events is a reader of a crawl's progress
+/// while it is open and no longer once its Client cancelled it: a crawl
+/// under the subscription has its requests in flight serialized for the
+/// `run.progress` events it publishes, and the three attempts of a crawl
+/// started after the cancellation serialize none.
+///
+/// Covers: story:3-162, event:run.progress, operation:events.subscribe
+#[test]
+fn attempts_after_a_subscription_to_the_engines_events_ended_serialize_no_request_in_flight() {
+    const SUBSCRIPTION: i64 = 1000;
+    let env = TestEnv::new();
+    let (engine, registry, _provider) = metered();
+    let mut pages = 0;
+
+    let ((subscribed, ended), _) = crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let mut handler = |_: &Value| {
+                pages += 1;
+                Reply::Records(vec![json!({ "handled": true })])
+            };
+            client
+                .send(&json!({
+                    "jsonrpc": "2.0", "id": SUBSCRIPTION, "method": "events.subscribe", "params": {},
+                }))
+                .await;
+            client
+                .send(&json!({
+                    "jsonrpc": "2.0", "method": "$/credit",
+                    "params": { "id": SUBSCRIPTION, "credits": 1000 },
+                }))
+                .await;
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "subscribed", "seeds": seeds(1) }),
+                    &mut handler,
+                )
+                .await;
+            client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "subscribed" }),
+                    &mut handler,
+                )
+                .await;
+            let subscribed = in_flight_serializations(&registry);
+
+            client
+                .send(&json!({
+                    "jsonrpc": "2.0", "method": "$/cancel", "params": { "id": SUBSCRIPTION },
+                }))
+                .await;
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "ended", "seeds": seeds(3) }),
+                    &mut handler,
+                )
+                .await;
+            client
+                .call("run.finish", json!({ "run_id": "ended" }), &mut handler)
+                .await;
+            (subscribed, in_flight_serializations(&registry))
+        },
+    );
+
+    assert_eq!(
+        (
+            pages,
+            subscribed.is_some_and(|subscribed| subscribed > 0.0),
+            ended
+                .zip(subscribed)
+                .map(|(ended, subscribed)| ended - subscribed),
+        ),
+        (4, true, Some(0.0))
+    );
+}
+
+/// A reader that takes one value of a crawl's progress has its requests in
+/// flight serialized once: with a request in its handler, one more
+/// `run.progress` read counts one more serialization, and its value lists
+/// that request.
+///
+/// Covers: story:3-162, operation:run.progress
+#[test]
+fn a_reader_that_takes_one_value_of_a_crawls_progress_serializes_its_requests_in_flight_once() {
+    let env = TestEnv::new();
+    let (engine, registry, _provider) = metered();
+    let mut handler = |_: &Value| Reply::Silent;
+
+    let ((before, after, read), _) = crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "read", "seeds": seeds(1) }),
+                    &mut handler,
+                )
+                .await;
+            let mut params = json!({ "run_id": "read" });
+            loop {
+                let progress = client
+                    .call("run.progress", params.clone(), &mut handler)
+                    .await;
+                if progress["result"]["requests"]["handling"] == 1 {
+                    break;
+                }
+                params["after"] = progress["result"]["position"].clone();
+            }
+            let before = in_flight_serializations(&registry);
+            let read = client
+                .call("run.progress", json!({ "run_id": "read" }), &mut handler)
+                .await;
+            (before, in_flight_serializations(&registry), read)
+        },
+    );
+
+    assert_eq!(
+        (
+            after.zip(before).map(|(after, before)| after - before),
+            read["result"]["in_flight"][0]["url"].as_str(),
+        ),
+        (Some(1.0), Some("https://shop.test/page/1"))
+    );
 }

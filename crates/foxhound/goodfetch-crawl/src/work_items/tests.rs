@@ -303,6 +303,7 @@ impl Subject {
                         not_added: &[],
                         work: &goodfetch_counted_work::CountedWork::default(),
                         keeps_records: true,
+                        clean_up_rules: &super::CleanUpRules::default(),
                     },
                     &mut Changed::default(),
                 )

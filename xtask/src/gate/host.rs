@@ -12,15 +12,22 @@ use sha2::{Digest as _, Sha256};
 /// decide whether a gate begins, never what a step runs or how.
 const LAUNCHER_VARIABLES: [&str; 1] = ["GOODFETCH_GATE_MIN_FREE_GB"];
 
-/// The `NAME=value` lines of `variables` a step can read: the run's
-/// without the launcher's own, so a gate started under another disk floor
-/// still reuses the results of one started without it.
+/// The variables the gate removes from its environment before any step, so
+/// each uses every thread whatever the shell that started it capped
+/// (`ci/pre-merge.sh`, #2090's F1): no step of a planned run reads them.
+pub(super) const REMOVED_BY_THE_GATE: [&str; 2] = ["NEXTEST_TEST_THREADS", "CARGO_BUILD_JOBS"];
+
+/// The `NAME=value` lines of `variables` a step can read: the run's without
+/// the launcher's own and those the gate removes, so a gate started under
+/// another disk floor still reuses the results of one started without it,
+/// and a plan made in a shell that caps threads or jobs fingerprints the
+/// host as the gate does (#2090's F5).
 pub(super) fn step_variables(variables: &str) -> String {
     variables
         .lines()
         .filter(|line| {
             let name = line.split_once('=').map_or(*line, |(name, _)| name);
-            !LAUNCHER_VARIABLES.contains(&name)
+            !LAUNCHER_VARIABLES.contains(&name) && !REMOVED_BY_THE_GATE.contains(&name)
         })
         .collect::<Vec<_>>()
         .join("\n")

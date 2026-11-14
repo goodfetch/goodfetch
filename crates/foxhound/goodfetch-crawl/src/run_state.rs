@@ -20,10 +20,9 @@
 //! read into memory behind the same operations. Every other task reaches
 //! it over the loop's one mailbox ([`Asking`]) and queues none of these
 //! jobs with the writer itself. Its operations name no run file's type,
-//! and fail with [`StateError`]. Two jobs of a running crawl are not its
-//! own yet and stay with the page's task that queues them: a handler
-//! attempt's lesson to the Frontier (#2169) and a pushed Record's staging
-//! (#2168).
+//! and fail with [`StateError`]. One job of a running crawl is not its
+//! own yet and stays with the page's task that queues it: a handler
+//! attempt's lesson to the Frontier (#2169).
 //!
 //! It counts the crawl's requests by state ([`Tally`]): read once from
 //! the run file as the crawl opens, then counted from what each job

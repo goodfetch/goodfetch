@@ -46,7 +46,7 @@
 //! stage an output with it fails with `effect_staging_refused` (ADR 0106).
 #![expect(
     clippy::disallowed_types,
-    reason = "a lease's end discards its attempt's staging as it drops, which cannot wait, and the run-state writer's thread stages inside its writes: one Mutex guards the entries for a lookup or a push, with nothing else under it, so there is no lock order for loom to test (ADR 0060)"
+    reason = "a lease's end discards its attempt's staging as it drops, which cannot wait, the run-state writer's thread stages inside its writes and a push stages from a blocking thread: one Mutex guards the entries for a lookup or a push, with nothing else under it, so there is no lock order for loom to test (ADR 0060)"
 )]
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};

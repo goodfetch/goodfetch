@@ -12,6 +12,8 @@
 //! [`Query`] takes, in number order: the one query a reader, an Export and
 //! a Sink share, which [`Pages`] reads a page at a time.
 
+use std::sync::Arc;
+
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_engine::runs::{RunError, RunReader};
@@ -21,7 +23,6 @@ use goodfetch_protocol::foxhound::outcomes::DatasetRecords;
 use goodfetch_protocol::foxhound::provenance::RecordProvenance;
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::Connection;
-use serde_json::Value;
 
 use crate::rejections::{self, Rejection};
 
@@ -31,14 +32,20 @@ use crate::rejections::{self, Rejection};
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Checked {
     records: Vec<PushedRecord>,
+    /// The hash of the schema each Record was checked against, at the
+    /// Record's position: none for a Dataset with no schema.
+    schema_hashes: Vec<Option<Arc<str>>>,
     rejected: Vec<Rejection>,
 }
 
 impl Checked {
-    /// Records the check found holding.
-    pub(crate) fn new(records: Vec<PushedRecord>) -> Self {
+    /// Records the check found holding, each with the hash of the schema
+    /// its Dataset declares.
+    pub(crate) fn new(checked: Vec<(PushedRecord, Option<Arc<str>>)>) -> Self {
+        let (records, schema_hashes) = checked.into_iter().unzip();
         Self {
             records,
+            schema_hashes,
             rejected: Vec::new(),
         }
     }
@@ -46,14 +53,15 @@ impl Checked {
     /// The rejection of a Record the check refused.
     pub(crate) fn rejected(rejection: Rejection) -> Self {
         Self {
-            records: Vec::new(),
             rejected: vec![rejection],
+            ..Self::default()
         }
     }
 
     /// Puts `later`'s Records and rejections after these.
     pub fn append(&mut self, mut later: Self) {
         self.records.append(&mut later.records);
+        self.schema_hashes.append(&mut later.schema_hashes);
         self.rejected.append(&mut later.rejected);
     }
 
@@ -85,9 +93,12 @@ pub struct Committing<'a> {
 
 /// Commits `records`, which the attempt `committing` names staged, in
 /// `connection`'s transaction: each Record takes its Dataset's next number
-/// and the hash of the schema the run file declares it with, and each of
-/// its rejections its Dataset's next number in its rejection table; every
-/// value the Run resolved is kept as its `%name%` (ADR 0092).
+/// and the hash of the schema it was checked against, the one the run file
+/// declares its Dataset with, and each of its rejections its Dataset's next
+/// number in its rejection table; every value the Run resolved is kept as
+/// its `%name%` (ADR 0092). A Record's data is written from where it is,
+/// never copied, and nothing constant for the Run is read for it (ADR
+/// 0140's F4).
 /// Answers, per Dataset in the order first pushed (those only rejected
 /// after), how many it committed and rejected.
 ///
@@ -100,26 +111,25 @@ pub fn commit(
     records: &Checked,
 ) -> rusqlite::Result<Vec<DatasetRecords>> {
     let mut insert = connection.prepare_cached("INSERT INTO records (dataset, number, work_item, url, committed_at, data, schema_hash, provenance)
-         VALUES (?1, (SELECT coalesce(max(number), 0) + 1 FROM records WHERE dataset = ?1), ?2, ?3, ?4, ?5,
-             (SELECT schema_hash FROM datasets WHERE name = ?1), ?6)")?;
-    let provenance = masked(
-        committing.masks,
-        serde_json::to_value(committing.provenance).expect("invariant: a Provenance encodes"),
+         VALUES (?1, (SELECT coalesce(max(number), 0) + 1 FROM records WHERE dataset = ?1), ?2, ?3, ?4, ?5, ?6, ?7)")?;
+    let masks = committing.masks;
+    let provenance = masks.json(
+        &serde_json::to_value(committing.provenance).expect("invariant: a Provenance encodes"),
+        Scope::Kept,
     );
     let mut counted: Vec<DatasetRecords> = Vec::new();
     let work = committing.work;
-    for record in records.records() {
-        // What the row below does per Record: the masked copy of its data,
-        // its JSON text, and the subquery on its Run's constant schema hash.
-        work.count(Row::RecordDeepCopies);
+    for (record, schema_hash) in records.records.iter().zip(&records.schema_hashes) {
+        // What the row below does per Record: its JSON text, masked as it
+        // is written.
         work.count(Row::RecordSerializations);
-        work.count(Row::RecordConstantLookups);
         insert.execute((
             &record.dataset,
             committing.request_id,
             committing.url,
             committing.at.as_str(),
-            masked(committing.masks, record.data.clone()),
+            masks.json(&record.data, Scope::Kept),
+            schema_hash.as_deref(),
             &provenance,
         ))?;
         match counted
@@ -139,17 +149,10 @@ pub fn commit(
         connection,
         committing.request_id,
         &records.rejected,
-        &mut |value| masked(committing.masks, value),
+        masks,
         &mut counted,
     )?;
     Ok(counted)
-}
-
-/// `value` as JSON text, each value the Run resolved replaced by its
-/// `%name%`, as the engine keeps it.
-fn masked(masks: &Masks, mut value: Value) -> String {
-    masks.apply_value(&mut value, Scope::Kept);
-    value.to_string()
 }
 
 /// Which committed Records a read takes: one Dataset's, after a number,

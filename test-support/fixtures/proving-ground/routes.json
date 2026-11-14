@@ -1,4 +1,5 @@
 {
+  "article_answers": "/article-answers",
   "client_certificate": "/client-certificate",
   "client_key": "/client-key",
   "observations": "/observations",

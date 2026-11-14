@@ -22,6 +22,17 @@ serde_json = "1"
 # Foxhound's executable links.
 tikv-jemallocator = { version = "=0.6.1", optional = true }
 mimalloc = { version = "=0.1.52", default-features = false, optional = true }
+# The extraction scenario's Main content and title (#2136), set by the
+# `extraction` feature below. Spider reads no main content of its own: its
+# only path to one is `spider_transformations`, whose readability step is
+# `llm_readability`. Both are pinned as that release pairs them, with the
+# feature it turns on; the side calls `llm_readability` itself, since
+# `spider_transformations`'s text format puts the page's title before its
+# text (#2152). `html-escape` decodes the character references Spider's
+# page metadata leaves in a title.
+spider_transformations = { version = "=2.39.13", optional = true }
+llm_readability = { version = "=0.0.17", features = ["tokio"], optional = true }
+html-escape = { version = "=0.2.15", optional = true }
 
 # Each executable of the comparison is built apart, with one of these
 # features or none, into a target folder of its own (`just compare`), so
@@ -40,6 +51,11 @@ bloom = ["spider/bloom"]
 # parses.
 jemalloc = ["dep:tikv-jemallocator"]
 mimalloc = ["dep:mimalloc"]
+# The extraction scenario's: each page's Main content read by
+# `llm_readability`, as `spider_transformations` reads it, and its title
+# decoded. Only the extraction scenario's executables are built with it, so
+# no other row's Spider is built with what `spider_transformations` turns on.
+extraction = ["dep:spider_transformations", "dep:llm_readability", "dep:html-escape"]
 
 # Spider's `basic` features take native TLS, which is OpenSSL on Linux:
 # built from its source there, so no system OpenSSL is needed. The crawl is

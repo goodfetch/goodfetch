@@ -72,6 +72,8 @@ export interface ProvingGroundRoutes {
   readonly client_certificate: string;
   /** `GET`: that certificate's private key. */
   readonly client_key: string;
+  /** `GET <path>/<size>`: the right answer of each page of the article site. */
+  readonly article_answers: string;
 }
 
 const isProvingGroundRoutes: ValidateFunction<ProvingGroundRoutes> =

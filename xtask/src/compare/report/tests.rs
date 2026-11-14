@@ -254,62 +254,6 @@ fn a_run_given_no_name_says_machine_not_named() {
     );
 }
 
-/// Every cell of the extraction scenario writes content no check reads yet
-/// (#2136): each says so, and the scenario gives no standing.
-#[test]
-fn extraction_cells_say_content_not_verified_and_get_no_standing() {
-    let trials = comparison(&[
-        (Scenario::Extraction, "foxhound", [20.0, 21.0, 22.0]),
-        (Scenario::Extraction, "crawlee", [10.0, 11.0, 12.0]),
-    ]);
-
-    let report = of(&trials);
-    let markdown = markdown(&report, &trials);
-
-    let extraction = section(&markdown, "4. ");
-    let unverified = "  - content not verified: no check reads what it wrote, until #2136's \
-                      output check lands; no standing.";
-    assert_eq!(
-        (
-            report
-                .scenarios
-                .iter()
-                .find(|report| report.scenario == Scenario::Extraction)
-                .map(|report| report.standings.len()),
-            cells_saying(extraction, unverified),
-            standing_rows(extraction),
-        ),
-        (
-            Some(0),
-            vec![
-                "foxhound",
-                "spider",
-                "crawlee",
-                "scrapy",
-                "crawlee-rs",
-                "spider mimalloc"
-            ],
-            Vec::<Vec<&str>>::new()
-        )
-    );
-}
-
-/// The extraction scenario's Spider cells are declared as not doing the
-/// Product's work: each says why, with no standing and no ratio.
-#[test]
-fn spiders_extraction_cells_are_not_the_same_work() {
-    let trials = comparison(&[]);
-
-    let markdown = markdown(&of(&trials), &trials);
-
-    let unlike = "  - not the same work: it writes each page's raw HTML, where the others write \
-                  the text of its main content (until #2136); no standing and no ratio.";
-    assert_eq!(
-        cells_saying(section(&markdown, "4. "), unlike),
-        ["spider", "spider mimalloc"]
-    );
-}
-
 /// Each cell of #2316's scenarios says it carries no bar, and each measured
 /// one gives its rate, latency percentiles and peak memory; no cell of the
 /// matrix's own five says so, and the hostile pages' cells say it for

@@ -235,6 +235,7 @@ fn a_cell_whose_strace_run_missed_pages_runs_no_later_run() {
                 .collect(),
             ..Work::default()
         },
+        extracted: None,
     };
     let done = [run("spider", 970), run("crawlee", 1000)];
 
@@ -345,7 +346,8 @@ fn a_run_hands_over_its_trials_after_each_part_before_the_next() {
         "measured".to_owned()
     };
     let no_sizes = "the run asked for no scenario 1 main cell of Foxhound or Spider".to_owned();
-    let no_callgrind = "the run asked for no scenario 1 cell".to_owned();
+    let no_callgrind =
+        "the run asked for no cell of scenario 1 or of the extraction scenario".to_owned();
     assert_eq!(
         kept,
         vec![
@@ -409,7 +411,9 @@ fn a_failed_hostile_pass_leaves_the_callgrind_cell_in_the_trials_handed_over() {
         (ended.is_err(), callgrind),
         (
             true,
-            Some("the run asked for no scenario 1 cell".to_owned())
+            Some(
+                "the run asked for no cell of scenario 1 or of the extraction scenario".to_owned()
+            )
         )
     );
 }

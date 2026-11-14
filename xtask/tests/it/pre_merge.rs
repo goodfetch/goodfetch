@@ -41,7 +41,7 @@ fn listed(workspace: &Workspace, form: &str) -> Vec<Listed> {
 /// that loses `--check` or `all` still runs and passes, with less of a check
 /// behind its green, so it has to fail a test. The Pre-merge suite's step
 /// runs the exercise audit after its suite.
-const ALL_HOST_CALLS: [&str; 20] = [
+const ALL_HOST_CALLS: [&str; 18] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -58,14 +58,12 @@ const ALL_HOST_CALLS: [&str; 20] = [
     "stress",
     "journeys-tasks --check",
     "features-tests clients-tests",
-    "_tlc all",
     "_kennel all",
     "msrv",
-    "miri",
 ];
 
 /// The calls `just pre-merge` alone makes on the host, in their order.
-const CHANGED_HOST_CALLS: [&str; 20] = [
+const CHANGED_HOST_CALLS: [&str; 18] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -82,15 +80,16 @@ const CHANGED_HOST_CALLS: [&str; 20] = [
     "stress",
     "journeys-tasks --check",
     "features-tests clients-tests",
-    "_tlc",
     "_kennel",
     "msrv",
-    "miri",
 ];
 
 /// The calls of the steps the full gate and `just pre-merge` alone run beside
-/// the host's.
-const BESIDE_CALLS: [&str; 3] = ["perf", "linux", "visual"];
+/// the host's: TLC's with `all` in the full gate, without it alone.
+const BESIDE_CALLS: [&str; 6] = ["perf", "linux", "visual", "_tlc all", "_tlc", "miri"];
+
+/// The full gate's calls beside the host's, sorted.
+const ALL_BESIDE_CALLS: [&str; 5] = ["_tlc all", "linux", "miri", "perf", "visual"];
 
 /// The calls `just pre-merge quick` makes, in their order.
 const QUICK_CALLS: [&str; 9] = [
@@ -372,7 +371,7 @@ fn every_pre_merge_check_runs_and_the_skipped_parts_are_listed_last() {
         .into_iter()
         .partition(|call| BESIDE_CALLS.contains(&call.as_str()));
     beside.sort();
-    assert_eq!(beside, ["linux", "perf", "visual"]);
+    assert_eq!(beside, ALL_BESIDE_CALLS);
     assert_eq!(
         host,
         calls_between(HOST_SETUP, &ALL_HOST_CALLS, &["_skips-report"])
@@ -392,7 +391,7 @@ fn without_all_the_suites_run_over_what_changed() {
         .into_iter()
         .partition(|call| BESIDE_CALLS.contains(&call.as_str()));
     beside.sort();
-    assert_eq!(beside, ["linux", "perf", "visual"]);
+    assert_eq!(beside, ["_tlc", "linux", "miri", "perf", "visual"]);
     assert_eq!(
         host,
         calls_between(HOST_SETUP, &CHANGED_HOST_CALLS, &["_skips-report"])
@@ -482,19 +481,19 @@ const RECORDED_STEPS: [&str; 22] = [
     "stress",
     "journeys-tasks",
     "features-tests",
-    "tlc",
     "kennel",
     "msrv",
-    "miri",
     "perf",
     "linux",
     "visual",
+    "tlc",
+    "miri",
 ];
 
 /// A full gate's calls on the host when its Pre-merge suite's tests fail
 /// outright: a green gate's, without the exercise audit, which runs only
 /// after green tests or after nextest's tests alone failed (status 100).
-const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 19] = [
+const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 17] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -510,10 +509,8 @@ const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 19] = [
     "stress",
     "journeys-tasks --check",
     "features-tests clients-tests",
-    "_tlc all",
     "_kennel all",
     "msrv",
-    "miri",
 ];
 
 /// One red step, whichever it is, leaves the full gate's verdict as it was,
@@ -553,6 +550,25 @@ fn one_red_step_leaves_every_other_step_of_the_full_gate_running_and_recorded(
     #[case] recorded_red: &[&str],
     #[case] host_calls: &[&str],
 ) {
+    one_red_step(call, step, recorded_red, host_calls);
+}
+
+/// The same for TLC and Miri, which run beside the host's steps (#2090's
+/// F7). Cases of their own, so the cases above keep their names.
+#[rstest]
+#[case::tlc("_tlc all", "tlc")]
+#[case::miri("miri", "miri")]
+fn a_red_tlc_or_miri_beside_leaves_every_other_step_of_the_full_gate_running_and_recorded(
+    #[case] call: &str,
+    #[case] step: &str,
+) {
+    one_red_step(call, step, &[step], &ALL_HOST_CALLS);
+}
+
+/// A full gate in which `call` fails: `step` is the step it belongs to,
+/// `recorded_red` the steps then recorded red and `host_calls` the host's
+/// calls.
+fn one_red_step(call: &str, step: &str, recorded_red: &[&str], host_calls: &[&str]) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
     std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
@@ -566,7 +582,7 @@ fn one_red_step_leaves_every_other_step_of_the_full_gate_running_and_recorded(
         .into_iter()
         .partition(|ran| BESIDE_CALLS.contains(&ran.as_str()));
     beside.sort();
-    assert_eq!(beside, ["linux", "perf", "visual"]);
+    assert_eq!(beside, ALL_BESIDE_CALLS);
     assert_eq!(
         host,
         calls_between(HOST_SETUP, host_calls, &["_skips-report"])
@@ -630,7 +646,7 @@ fn a_red_steps_result_files_are_kept_from_the_steps_after_it(
     // The red step leaves the file, and a step after it writes over it.
     std::fs::write(
         stand_in.join("leaving"),
-        format!("{call}=target/{file}\nmiri=target/{file}\n"),
+        format!("{call}=target/{file}\nmsrv=target/{file}\n"),
     )
     .unwrap();
 

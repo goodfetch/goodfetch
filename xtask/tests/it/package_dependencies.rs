@@ -2,7 +2,7 @@
 //! `adapters/` and `integrations/` (ADR 0095): Foxhound's depend on no Collie
 //! package but the Collie client package, Collie's on no Foxhound package,
 //! and the client package on neither Product's package.
-//! Covers: story:1-120
+//! Covers: story:1-120, story:11-1012
 
 use rstest::rstest;
 

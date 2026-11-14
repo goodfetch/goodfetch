@@ -1,8 +1,10 @@
 //! The report: for each scenario, each cell's mapping and every metric of
 //! the owner's list, each the median of the cell's trials with its spread
 //! (the lowest and the highest trial), or why the cell or the metric gives
-//! no figure; and `foxhound.spider_instruction_ratio` from the Callgrind
-//! cell; the standings of Foxhound against each competitor ([`standing`]).
+//! no figure; `foxhound.spider_instruction_ratio` from the Callgrind
+//! cell; the sizes cell's peak memory of Foxhound and Spider at each size
+//! and concurrency, with the bar at 16 in flight (spec #2165); and the
+//! standings of Foxhound against each competitor ([`standing`]).
 //! Labelled `local-controlled`, measured on the machine it names, with the
 //! command that reruns it, and written only once the same-work check
 //! passed.
@@ -24,10 +26,13 @@ use super::trials::{
 
 mod published;
 mod rules;
+mod sizes;
 mod standing;
 
 #[cfg(test)]
 mod tests;
+
+use sizes::{Sizes, sizes, sizes_markdown};
 
 /// The span of one window of the core sampling.
 const CORE_WINDOW_MILLISECONDS: u64 = CORE_WINDOW_SAMPLES as u64 * INTERVAL_MILLISECONDS;
@@ -45,6 +50,8 @@ pub(crate) enum Unit {
     Cores,
     Count,
     Percent,
+    /// A share of the pages, written as a percentage.
+    Share,
 }
 
 /// A figure over a cell's trials.
@@ -95,7 +102,7 @@ pub(crate) enum CellStatus {
     NotSupported {
         reason: &'static str,
     },
-    /// Its timed trial was stopped twice (see `run::stopped`), or the
+    /// Its timed trial was stopped twice (see `run::watch::stopped`), or the
     /// ticket that brings it has not landed.
     NotMeasured {
         reason: String,
@@ -161,10 +168,11 @@ pub(crate) struct Report<'a> {
     pub(crate) scenarios: Vec<ScenarioReport>,
     pub(crate) tools: BTreeMap<&'static str, Figures>,
     pub(crate) instructions: Instructions<'a>,
+    pub(crate) sizes: Sizes<'a>,
 }
 
 /// The median of `values`, the mean of the middle two for an even count.
-fn median(values: &[f64]) -> f64 {
+pub(super) fn median(values: &[f64]) -> f64 {
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
     let middle = sorted.len() / 2;
@@ -180,11 +188,11 @@ fn median(values: &[f64]) -> f64 {
     clippy::cast_precision_loss,
     reason = "pages, bytes and counts here stay far below 2^52, where a float is exact"
 )]
-fn float(count: u64) -> f64 {
+pub(super) fn float(count: u64) -> f64 {
     count as f64
 }
 
-fn spread(values: &[f64], unit: Unit) -> Figure {
+pub(super) fn spread(values: &[f64], unit: Unit) -> Figure {
     if values.is_empty() || values.iter().any(|value| !value.is_finite()) {
         return Figure::NotMeasured {
             reason: "a trial gave no value".to_owned(),
@@ -223,6 +231,18 @@ fn peak(trial: &Trial) -> u64 {
         .as_ref()
         .map_or(0, |sampled| sampled.peak_bytes)
         .max(trial.measured.peak_bytes)
+}
+
+/// The median of `values` in whole bytes: the mean of the middle two,
+/// rounded down, for an even count; 0 for none.
+fn median_bytes(mut values: Vec<u64>) -> u64 {
+    values.sort_unstable();
+    let middle = values.len() / 2;
+    match values.len() {
+        0 => 0,
+        length if length % 2 == 0 => u64::midpoint(values[middle - 1], values[middle]),
+        _ => values[middle],
+    }
 }
 
 /// Every metric of the owner's list over `trials`, one cell's, with its
@@ -495,6 +515,20 @@ fn metrics(
             Unit::Count,
         ),
     );
+    let shares: Option<Vec<f64>> = trials
+        .iter()
+        .map(|trial| {
+            let sample_pages = trial.measured.sample_pages?;
+            Some(float(sample_pages) / float(trial.measured.work.pages))
+        })
+        .collect();
+    put(
+        "sample_share",
+        match shares {
+            Some(shares) if !shares.is_empty() => spread(&shares, Unit::Share),
+            _ => not("it fetches no sample: only Foxhound's `auto` row does"),
+        },
+    );
     metrics
 }
 
@@ -613,18 +647,8 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
                         &growth_of(&trials.growth, cell),
                     );
                     if scenario == Scenario::Raw && cell.row == Row::Main {
-                        let mut peaks: Vec<u64> = ran.iter().map(|trial| peak(trial)).collect();
-                        peaks.sort_unstable();
-                        let middle = peaks.len() / 2;
-                        let peak_bytes = match peaks.len() {
-                            0 => 0,
-                            // Whole bytes: the mean of the middle two,
-                            // rounded down.
-                            length if length % 2 == 0 => {
-                                u64::midpoint(peaks[middle - 1], peaks[middle])
-                            }
-                            _ => peaks[middle],
-                        };
+                        let peak_bytes =
+                            median_bytes(ran.iter().map(|trial| peak(trial)).collect());
                         let rates: Vec<f64> = ran.iter().map(|trial| rate(trial)).collect();
                         tools.insert(
                             cell.tool.name(),
@@ -690,6 +714,7 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
         scenarios,
         tools,
         instructions: instructions(&trials.instructions),
+        sizes: sizes(&trials.sizes),
     }
 }
 
@@ -708,10 +733,11 @@ fn shown(value: f64, unit: Unit) -> String {
         Unit::Bytes => format!("{value:.0} B"),
         Unit::Cores => format!("{value:.2}"),
         Unit::Percent => format!("{value:.1} %"),
+        Unit::Share => format!("{:.1} %", value * 100.0),
     }
 }
 
-fn cell_text(figure: &Figure) -> String {
+pub(super) fn cell_text(figure: &Figure) -> String {
     match figure {
         Figure::Measured {
             median,
@@ -792,6 +818,10 @@ const ROWS: &[(&str, &str)] = &[
     ("duplicates", "Correctness: duplicates"),
     ("errors", "Correctness: errors"),
     ("skipped", "Correctness: skipped pages"),
+    (
+        "sample_share",
+        "Tiers: share of the pages that were samples",
+    ),
 ];
 
 /// The report as Markdown, for the owner's reading of the pass (ADR 0134).
@@ -1002,6 +1032,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             );
         }
     }
+    sizes_markdown(&mut text, &report.sizes);
     text.push_str("\n## Trials, in the order run\n\n");
     let unquiet = trials
         .trials

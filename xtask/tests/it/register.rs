@@ -28,7 +28,8 @@ const CLEAN_ADR: &str = "\
 ### What every path keeps
 ";
 
-const CLEAN_TESTING: &str = "\
+/// The clean register; its one Exception expires on 2027-01-30.
+pub(crate) const CLEAN_TESTING: &str = "\
 # Testing
 
 ## Quality register

@@ -10,10 +10,11 @@
 //! Proving ground of [`super::trials::SITE_PAGES`] pages in the same tree:
 //! `scale.test`'s, or for the polite and headless browser scenarios, the
 //! multi-domain and script-rendered sites the Proving ground serves for
-//! them (#1903). #2316's four scenarios run scenario 1's settings where a
-//! lead or a gap is decided: on pages of realistic size, on a site of
-//! [`LONG_PAGES`] pages, and at 64 and 256 requests in flight. They carry
-//! no bar until the owner sets one (#2252 Q11).
+//! them (#1903), the multi-domain site with [`PAGES_PER_DOMAIN`] pages on
+//! each of its [`DOMAINS`] (#2283). #2316's four scenarios run scenario 1's
+//! settings where a lead or a gap is decided: on pages of realistic size,
+//! on a site of [`LONG_PAGES`] pages, and at 64 and 256 requests in flight.
+//! They carry no bar until the owner sets one (#2252 Q11).
 //!
 //! Size: one concern, the matrix: its scenarios, its tools and the table of
 //! every cell with its mapping (`CELLS`), which is most of its length.
@@ -125,7 +126,8 @@ pub(crate) enum Site {
     /// with its host name sent as each request's `Host`.
     Scale,
     /// The multi-domain site: page `n` on `polite-<d>.localhost`, `d`
-    /// being `n` modulo [`DOMAINS`], from 1.
+    /// being `n` modulo [`DOMAINS`], from 1, with at least
+    /// [`PAGES_PER_DOMAIN`] pages on each.
     MultiDomain,
     /// The script-rendered site on `rendered.localhost`.
     Rendered,
@@ -136,8 +138,14 @@ pub(crate) enum Site {
     Hostile,
 }
 
-/// The multi-domain site's domains, as the Proving ground serves them.
-pub(crate) const DOMAINS: u64 = 50;
+/// The multi-domain site's domains, as the Proving ground serves them
+/// (#2283).
+pub(crate) const DOMAINS: u64 = 1000;
+
+/// The fewest pages the multi-domain site has on each domain (#2283): at 1
+/// s per domain, its 1,000 pages a second then sit above what each tool
+/// can do, so each tool sets its own figure.
+pub(crate) const PAGES_PER_DOMAIN: u64 = 10;
 
 /// The host name of `scale.test`'s sites.
 pub(crate) const SCALE_HOST: &str = crate::rss::crawl::HOST;
@@ -273,15 +281,6 @@ impl Scenario {
         }
     }
 
-    /// The pages of the site its trials crawl, `declared` being the run's.
-    pub(crate) fn site_pages(self, declared: u64) -> u64 {
-        if self == Self::Long {
-            LONG_PAGES
-        } else {
-            declared
-        }
-    }
-
     /// Whether only its timed trials run: the long scenario's site is
     /// already the growth cell's length, and strace over it would take
     /// hours.
@@ -305,6 +304,21 @@ impl Scenario {
         }
     }
 
+    /// The pages of the site its trials crawl where the comparison's other
+    /// sites have `pages`: as many, but the long scenario's [`LONG_PAGES`],
+    /// and on the multi-domain site at least [`PAGES_PER_DOMAIN`] on each
+    /// of its [`DOMAINS`], 10,000 where the others have
+    /// [`super::trials::SITE_PAGES`].
+    pub(crate) fn site_pages(self, pages: u64) -> u64 {
+        if self == Self::Long {
+            return LONG_PAGES;
+        }
+        match self.site() {
+            Site::MultiDomain => pages.max(DOMAINS * PAGES_PER_DOMAIN),
+            Site::Scale | Site::Rendered | Site::Realistic | Site::Hostile => pages,
+        }
+    }
+
     /// Whether the site's links past its first page are added only by a
     /// script, so the same-work check proves each tool rendered them.
     pub(crate) fn renders_links(self) -> bool {
@@ -320,7 +334,7 @@ impl Scenario {
                 "2. Durable and resumable: state on disk, killed once half the site is served, then resumed"
             }
             Self::Polite => {
-                "3. Polite: robots.txt obeyed, 1 in flight per domain, 1 s delay, on the multi-domain site (50 domains)"
+                "3. Polite: robots.txt obeyed, 1 in flight per domain, 1 s delay, on the multi-domain site (10,000 pages on 1,000 domains)"
             }
             Self::Extraction => {
                 "4. Extraction to a dataset: title and main text per page, written to the tool's dataset or output"
@@ -373,6 +387,13 @@ impl Scenario {
 /// comparison runs: at a load of 17 to 20 on its 16 cores, 2 of 21 crawls
 /// at 64 lost pages, and a crawl that loses one fails its trial.
 pub(crate) const SPIDER_CAPACITY: usize = 64;
+
+/// The capacity Spider's main row reads its pages at with 64 requests in
+/// flight, the sizes cell's most (spec #2165): [`SPIDER_CAPACITY`] holds at
+/// 16. Of 40 crawls of scenario 1's 10,000-page site at 64 in flight at
+/// each capacity, on the gate host on 2026-11-13 at a 1-minute load of 6 to
+/// 12, 15 lost pages at 64 and none at 128, 256 or 512.
+pub(crate) const SPIDER_CAPACITY_AT_64: usize = 128;
 
 /// The same for the extraction scenario, whose reader also writes each
 /// page: of 40 crawls at each capacity, 3 lost pages at 32, 2 at 64, 1 at
@@ -460,10 +481,14 @@ pub(crate) enum Config {
     /// Foxhound's code-free crawl on its `http` tier at this
     /// `run_state.durability`, with this `run_state.commit_interval` in
     /// milliseconds at `periodic`, robots.txt not obeyed,
-    /// `politeness.domain` delay 0 and concurrency 16, no format.
+    /// `politeness.domain` delay 0 and concurrency 16, no format; or, where
+    /// `auto`, with `fetch.tier` left at `auto`, its default, which learns
+    /// each Label's tier on each domain from samples fetched on `http` and
+    /// in a browser (ADR 0020).
     Foxhound {
         durability: &'static str,
         commit_interval: Option<u64>,
+        auto: bool,
     },
     /// Spider's side at the scenario's settings: this build of it,
     /// subscribed to Spider's pages with a broadcast channel of this
@@ -492,6 +517,12 @@ impl Config {
             Self::CrawleeRs => Tool::CrawleeRs,
             Self::Pagesift => Tool::Pagesift,
         }
+    }
+
+    /// Whether the row leaves Foxhound's `fetch.tier` at `auto`, so its
+    /// samples fetch their pages twice, on `http` and then in a browser.
+    pub(crate) fn samples(self) -> bool {
+        matches!(self, Self::Foxhound { auto: true, .. })
     }
 }
 
@@ -524,7 +555,7 @@ pub(crate) struct Cell {
 }
 
 /// Every cell, in the report's order.
-pub(crate) const CELLS: [Cell; 76] = [
+pub(crate) const CELLS: [Cell; 77] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
@@ -540,6 +571,7 @@ pub(crate) const CELLS: [Cell; 76] = [
         status: Status::Measured(Config::Foxhound {
             durability: "off",
             commit_interval: None,
+            auto: false,
         }),
     },
     Cell {
@@ -684,6 +716,7 @@ pub(crate) const CELLS: [Cell; 76] = [
         status: Status::Measured(Config::Foxhound {
             durability: "full",
             commit_interval: None,
+            auto: false,
         }),
     },
     Cell {
@@ -698,6 +731,7 @@ pub(crate) const CELLS: [Cell; 76] = [
         status: Status::Measured(Config::Foxhound {
             durability: "periodic",
             commit_interval: Some(60_000),
+            auto: false,
         }),
     },
     Cell {
@@ -778,13 +812,32 @@ pub(crate) const CELLS: [Cell; 76] = [
                   set, ADR 0086's values, which the catalog holds no default for until the \
                   fetch tiers take them (its #684 note); `fetch.tier: http`, as the other tools \
                   fetch, where `auto` would also fetch each domain's first pages in a browser; \
-                  and `crawl.scope.strategy: all`, since the site spans 50 domains and links \
+                  and `crawl.scope.strategy: all`, since the site spans 1,000 domains and links \
                   nothing else",
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Foxhound {
             durability: "full",
             commit_interval: None,
+            auto: false,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Polite,
+        tool: Tool::Foxhound,
+        name: "foxhound auto",
+        mapping: "the foxhound row's settings with `fetch.tier` left at `auto`, its default \
+                  (#2283; ADR 0020's note of #768): the first `fetch.sample.count` (3) pages of \
+                  the crawl's Label on each domain are samples, each fetched on `http` and then \
+                  in Chrome for Testing, whose run commits; the row reports the share of its \
+                  pages that were samples, read from each Record's Provenance, and is held to the \
+                  bytes of each page's first answer, since a sample fetches its page twice",
+        pending: &[],
+        row: Row::Sensitivity,
+        status: Status::Measured(Config::Foxhound {
+            durability: "full",
+            commit_interval: None,
+            auto: true,
         }),
     },
     Cell {
@@ -805,7 +858,7 @@ pub(crate) const CELLS: [Cell; 76] = [
                   domain, so its same-domain delay, one request start a second on each domain \
                   (by `tldts`' registrable domain), is what holds each domain to one in flight \
                   while an answer takes under a second; `enqueueLinks({ strategy: 'all' })`, \
-                  since the site spans 50 domains and links nothing else; \
+                  since the site spans 1,000 domains and links nothing else; \
                   `persistStorage: false`",
         pending: &[],
         row: Row::Main,
@@ -816,7 +869,7 @@ pub(crate) const CELLS: [Cell; 76] = [
         tool: Tool::Scrapy,
         name: "scrapy",
         mapping: "a default `scrapy.Spider` following every link (no `allowed_domains`, since the \
-                  site spans 50 domains and links nothing else), `ROBOTSTXT_OBEY: True`, \
+                  site spans 1,000 domains and links nothing else), `ROBOTSTXT_OBEY: True`, \
                   `DOWNLOAD_DELAY: 1` with `RANDOMIZE_DOWNLOAD_DELAY: False` (its default \
                   draws each wait between 0.5 and 1.5 s, where the others wait 1 s), \
                   `CONCURRENT_REQUESTS_PER_DOMAIN: 1`, `CONCURRENT_REQUESTS: 16`, \
@@ -834,7 +887,7 @@ pub(crate) const CELLS: [Cell; 76] = [
                   domain, so its same-domain delay, one request start a second on each domain \
                   (its registrable domain, else its host name), is what holds each domain to \
                   one in flight while an answer takes under a second; `enqueue_links` with \
-                  `EnqueueStrategy::All`, since the site spans 50 domains and links nothing \
+                  `EnqueueStrategy::All`, since the site spans 1,000 domains and links nothing \
                   else; `persist_storage: false`",
         pending: &[],
         row: Row::Main,
@@ -849,7 +902,7 @@ pub(crate) const CELLS: [Cell; 76] = [
                   robots.txt fetched outside that interval, just before the first, and \
                   `per_host_concurrency` 1 where its default is 2; 16 in flight in all \
                   (`maxConcurrency`, `global_ceiling`); every link followed (`allowExternalLinks`), \
-                  since the site spans 50 domains and links nothing else; nothing kept on disk",
+                  since the site spans 1,000 domains and links nothing else; nothing kept on disk",
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Pagesift),
@@ -867,6 +920,7 @@ pub(crate) const CELLS: [Cell; 76] = [
         status: Status::Measured(Config::Foxhound {
             durability: "off",
             commit_interval: None,
+            auto: false,
         }),
     },
     Cell {
@@ -956,6 +1010,7 @@ pub(crate) const CELLS: [Cell; 76] = [
         status: Status::Measured(Config::Foxhound {
             durability: "off",
             commit_interval: None,
+            auto: false,
         }),
     },
     Cell {
@@ -1038,6 +1093,7 @@ pub(crate) const CELLS: [Cell; 76] = [
         status: Status::Measured(Config::Foxhound {
             durability: "off",
             commit_interval: None,
+            auto: false,
         }),
     },
     Cell {
@@ -1106,6 +1162,7 @@ pub(crate) const CELLS: [Cell; 76] = [
         status: Status::Measured(Config::Foxhound {
             durability: "off",
             commit_interval: None,
+            auto: false,
         }),
     },
     Cell {
@@ -1173,6 +1230,7 @@ pub(crate) const CELLS: [Cell; 76] = [
         status: Status::Measured(Config::Foxhound {
             durability: "off",
             commit_interval: None,
+            auto: false,
         }),
     },
     Cell {
@@ -1241,6 +1299,7 @@ pub(crate) const CELLS: [Cell; 76] = [
         status: Status::Measured(Config::Foxhound {
             durability: "off",
             commit_interval: None,
+            auto: false,
         }),
     },
     Cell {
@@ -1313,6 +1372,7 @@ pub(crate) const CELLS: [Cell; 76] = [
         status: Status::Measured(Config::Foxhound {
             durability: "full",
             commit_interval: None,
+            auto: false,
         }),
     },
     Cell {
@@ -1393,6 +1453,7 @@ pub(crate) const CELLS: [Cell; 76] = [
         status: Status::Measured(Config::Foxhound {
             durability: "off",
             commit_interval: None,
+            auto: false,
         }),
     },
     Cell {
@@ -1490,7 +1551,7 @@ const SPIDER_NOT_POLITE: &str = "Spider's `with_delay` waits between any two req
      its crawl, whatever their domain, and it reads only its start URL's robots.txt. On 2026-11-03 \
      (#1903), a crawl of the multi-domain site's 100-page version with `with_delay(1000)`, \
      `with_respect_robots_txt(true)` and every domain allowed (`with_external_domains`) sent its \
-     102 requests over 101.5 s, one a second across all 50 domains, read robots.txt on 1 of them, \
+     102 requests over 101.5 s, one a second across all 50 domains the site then had, read robots.txt on 1 of them, \
      and fetched the page that robots.txt disallows (`Disallow: /sites/*/private`)";
 
 /// The tools' cells declared, in a scenario, as not doing the Product's

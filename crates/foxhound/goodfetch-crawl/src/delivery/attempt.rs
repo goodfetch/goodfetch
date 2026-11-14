@@ -84,9 +84,9 @@ use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    Capture, Chosen, FetchFailure, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL,
-    PageFacts, PooledSession, ReplayPlan, Request, Requester, RunHandOver, SitePreferences, Stop,
-    TierChoice, infer_plan, tier_serves,
+    Capture, Chosen, FetchFailure, FetchTiers, HandOver, HopChecks, HttpTier, Judged,
+    PAGE_CHECK_CALL, PageFacts, PooledSession, ReplayPlan, Request, Requester, RunHandOver,
+    SitePreferences, Stop, TierChoice, infer_plan, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -255,13 +255,13 @@ const BROWSER: TierChoice = TierChoice {
 /// the navigation gate and the site's preferences read them, the
 /// Politeness it shares, robots.txt and the AI-use signal files fetched on
 /// `http`, the Run's HTTP tier, whose address check judges each redirect
-/// hop, `egress`, its domain policy, and `invariants`, its admission's,
-/// which each hop is admitted within.
+/// hop, `egress`, its domain policy, and `hops`, how each redirect hop
+/// asks the delivery loop of the visited set (ADR 0142).
 pub(super) async fn run_hand_over(
     run: &Run,
     settings: &Resolved,
     http: Option<&HttpTier>,
-    (egress, invariants): (&Arc<Policy>, Arc<goodfetch_frontier::Invariants>),
+    (egress, hops): (&Arc<Policy>, Arc<dyn HopChecks>),
 ) -> Arc<RunHandOver> {
     let site_preferences = SitePreferences::of(settings);
     // The Run reads robots.txt from the copy its user's runs share in the
@@ -289,7 +289,7 @@ pub(super) async fn run_hand_over(
         pace: goodfetch_frontier::Pace::of(settings),
         site_preferences,
         egress: Arc::clone(egress),
-        invariants,
+        hops,
         addresses: http.map(HttpTier::address_check),
     })
 }

@@ -2353,6 +2353,60 @@ not_journey = "part"
 status = "active"
 
 [[story]]
+id = 1002
+title = "As a developer, I want `Foxhound.connect()`, Python's `AsyncFoxhound` and `Foxhound`, and Rust's `Foxhound::connect()` with its `blocking` module to finish `hello` before they return, to allow many per process and to install no signal handler or import side effect, so that a crawl can live inside any program (ADRs 0078, 0081; SDK-06; P05, K04)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1003
+title = "As a developer who knows Collie, I want a Foxhound connection to carry every member of a Collie connection under the same names, Collie's Run start `start` included, so that moving a program between Products changes its import and its connection type only (ADRs 0090, 0095; SDK-02)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1004
+title = "As a developer, I want a handler's `Page` and every result, error class and Run value to be the Collie client package's own types, with `Connection` (Python `AsyncConnection`, Rust `blocking::Connection`) as the type a helper takes, so that a helper written for Collie accepts Foxhound's values and an `except` or `match` on a Collie error class catches it from either connection (ADRs 0095, 0099; K06)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1005
+title = "As a developer, I want a Foxhound program that meets a Collie engine to fail at `connect()` with `not_in_product`, its class `NotInProductError` carrying `{ engineProduct, engineVersion, neededProduct, recipe }` **(shape)** and a `fix` that names the install command of the channel the Client came from, so that the failure comes before the first crawl call and says how to mend it (ADRs 0087, 0090, 0095; P24)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1007
+title = "As a developer, I want the SDK to recognize both engine-path variables and read only `GOODFETCH_FOXHOUND_ENGINE_PATH`, so that pointing a program at a Foxhound build never moves a Collie program (ADR 0090)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1012
+title = "As a contributor, I want Foxhound's npm and PyPI packages to depend on no Collie package but the client package, and Foxhound's entries to stay out of Collie's crates, so that Collie's surfaces stay Collie's (ADRs 0087, 0095)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "actor"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1130
 title = "As a developer, I want `goodfetch-foxhound` to carry every command of Collie's unchanged, with the same flags, `--json` output and exit codes, and to add Foxhound's generated commands (a code-free crawl started with `catalog-run start` of kind `crawl`, outcomes and failed requests as `--follow` NDJSON, Records, rejected Records, Exports), so that a script moves between Products by changing the executable (ADRs 0095, 0099; SDK-05)."
 milestone = "M1 Core"

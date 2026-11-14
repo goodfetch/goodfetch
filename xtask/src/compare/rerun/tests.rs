@@ -43,6 +43,8 @@ fn the_rerun_command_gives_each_argument_again_quoted() {
             "raw",
             "--scenario",
             "browser",
+            "--scenario",
+            "collie",
             "--trials",
             "3",
             "--growth",
@@ -50,10 +52,13 @@ fn the_rerun_command_gives_each_argument_again_quoted() {
             "Hetzner Cloud CCX43, 16 dedicated vCPUs",
             "--browser",
             "/opt/chrome's build",
+            "--collie-driver",
+            "elsewhere/act.ts",
             "--out",
             "target/compare/trials.json",
         ]),
-        "just compare release --scenario raw --scenario browser --trials 3 --growth --machine \
-         'Hetzner Cloud CCX43, 16 dedicated vCPUs' --browser '/opt/chrome'\\''s build'"
+        "just compare release --scenario raw --scenario browser --scenario collie --trials 3 \
+         --growth --machine 'Hetzner Cloud CCX43, 16 dedicated vCPUs' --browser \
+         '/opt/chrome'\\''s build' --collie-driver elsewhere/act.ts"
     );
 }

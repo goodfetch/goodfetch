@@ -75,6 +75,18 @@ fn openspider_runs_as_its_executable() {
     );
 }
 
+/// crawlberg's side runs as its executable, with nothing but the arguments
+/// every side takes.
+#[test]
+fn crawlberg_runs_as_its_executable() {
+    let crawlberg = invocation(Config::Crawlberg, Path::new("/r/crawlberg"));
+
+    assert_eq!(
+        (crawlberg.program.as_path(), crawlberg.arguments),
+        (Path::new("/r/crawlberg"), Vec::new())
+    );
+}
+
 /// fastCRW's side runs as its executable, told where the server it starts
 /// is: the `crw-server` that `cargo install` left in the `bin` folder
 /// beside it.

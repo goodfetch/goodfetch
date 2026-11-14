@@ -1,9 +1,9 @@
 //! `xtask compare` (ADRs 0134 and 0138): the comparison matrix, Foxhound
 //! against the crawlers nearest it (Spider, Crawlee, Scrapy, crawlee-rs,
-//! pagesift, OpenSpider and fastCRW), on one machine with nothing else
-//! running. Each scenario sets every tool to the closest equivalent
-//! configuration and the report writes that mapping; a tool that cannot do
-//! a scenario has a cell saying so, and a Foxhound value that does not
+//! pagesift, OpenSpider, fastCRW and crawlberg), on one machine with
+//! nothing else running. Each scenario sets every tool to the closest
+//! equivalent configuration and the report writes that mapping; a tool that
+//! cannot do a scenario has a cell saying so, and a Foxhound value that does not
 //! exist yet is marked pending (the owner's comments of 2026-10-30 on
 //! #1577). Spider's main rows read its pages at the smallest channel
 //! capacity that loses none, and labelled sensitivity rows beside them run
@@ -121,7 +121,8 @@ pub(crate) struct RunArguments {
     /// `crawlee-rs`, `xtask/compare-pagesift` into `pagesift`,
     /// `xtask/compare-openspider` into `openspider`,
     /// `xtask/compare-fastcrw` into `fastcrw` (with fastCRW's server
-    /// installed into `fastcrw/<profile>/bin`) and the Collie scenario's
+    /// installed into `fastcrw/<profile>/bin`), `xtask/compare-crawlberg`
+    /// into `crawlberg` and the Collie scenario's
     /// `xtask/compare-chromiumoxide` into `chromiumoxide`.
     #[arg(long)]
     spider_builds: PathBuf,

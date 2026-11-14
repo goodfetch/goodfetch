@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use super::{
-    Executables, Options, chromiumoxide_executable, counted_output, crawlee_rs_executable,
-    fastcrw_executable, openspider_executable, order, pagesift_executable, run, set_aside,
-    size_points, spider_executable,
+    Executables, Options, chromiumoxide_executable, counted_output, crawlberg_executable,
+    crawlee_rs_executable, fastcrw_executable, openspider_executable, order, pagesift_executable,
+    run, set_aside, size_points, spider_executable,
 };
 use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
 use crate::compare::trials::{
@@ -95,6 +95,16 @@ fn fastcrw_runs_the_executable_built_in_its_folder() {
     assert_eq!(
         fastcrw_executable(Path::new("/t/compare-spider"), "release"),
         Path::new("/t/compare-spider/fastcrw/release/goodfetch-compare-fastcrw")
+    );
+}
+
+/// crawlberg's side runs the executable Cargo left in its own folder among
+/// the Rust sides' builds, under the profile's (#2218).
+#[test]
+fn crawlberg_runs_the_executable_built_in_its_folder() {
+    assert_eq!(
+        crawlberg_executable(Path::new("/t/compare-spider"), "release"),
+        Path::new("/t/compare-spider/crawlberg/release/goodfetch-compare-crawlberg")
     );
 }
 
@@ -496,7 +506,8 @@ fn the_sizes_cell_runs_spider_at_16_and_at_64_on_a_wider_channel() {
                 | Config::CrawleeRs
                 | Config::Pagesift
                 | Config::OpenSpider
-                | Config::FastCrw => None,
+                | Config::FastCrw
+                | Config::Crawlberg => None,
             };
             (config.tool(), crawl.concurrency, capacity)
         })

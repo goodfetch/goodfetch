@@ -1046,7 +1046,8 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
          once, from `{}`, unless a scenario's title names other requests in flight or another \
          site; Spider {}, Crawlee {} (`@crawlee/cheerio`, and `@crawlee/playwright` on Playwright \
          {}) on Node.js, Scrapy {} (and scrapy-playwright {} on Playwright {}) on CPython, \
-         crawlee-rs at commit `{}`, pagesift {}, OpenSpider at commit `{}` and fastCRW {}, every tool of the \
+         crawlee-rs at commit `{}`, pagesift {}, OpenSpider at commit `{}`, fastCRW {} and crawlberg {}, \
+         every tool of the \
          headless browser scenario \
          running Chrome for Testing {}; each \
          figure the {}. Every figure is measured from outside the tools: \
@@ -1074,6 +1075,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
         declared.pagesift,
         declared.openspider,
         declared.fastcrw,
+        declared.crawlberg,
         declared.browser,
         declared.statistic,
     );

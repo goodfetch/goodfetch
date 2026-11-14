@@ -469,7 +469,8 @@ impl Plan<'_> {
             | Config::CrawleeRs
             | Config::Pagesift
             | Config::OpenSpider
-            | Config::FastCrw => None,
+            | Config::FastCrw
+            | Config::Crawlberg => None,
         };
         Ok(Driven { child, engine })
     }
@@ -515,7 +516,8 @@ impl Plan<'_> {
             | Config::CrawleeRs
             | Config::Pagesift
             | Config::OpenSpider
-            | Config::FastCrw => ("", None),
+            | Config::FastCrw
+            | Config::Crawlberg => ("", None),
         }
     }
 
@@ -693,7 +695,8 @@ impl Plan<'_> {
             | Config::CrawleeRs
             | Config::Pagesift
             | Config::OpenSpider
-            | Config::FastCrw => None,
+            | Config::FastCrw
+            | Config::Crawlberg => None,
         };
         let read = records
             .as_deref()
@@ -758,7 +761,8 @@ impl Plan<'_> {
             | Config::CrawleeRs
             | Config::Pagesift
             | Config::OpenSpider
-            | Config::FastCrw => None,
+            | Config::FastCrw
+            | Config::Crawlberg => None,
         };
         let extracted = self.extracted(home.path(), records)?;
         let (count, syncs) = match &self.mode {

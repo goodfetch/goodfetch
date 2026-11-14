@@ -343,7 +343,9 @@ async fn trial(arguments: Arguments) -> Result<String, String> {
         .await
         .map_err(|error| format!("attaching to {}: {error}", arguments.cdp))?;
     // chromiumoxide's handler drives the connection: it runs until the
-    // connection closes.
+    // connection closes. A bare `tokio::spawn`, as Spider's side's: this
+    // executable stands outside the workspace and has no tracker; the task
+    // is aborted below, so none outlives the trial.
     let handling = tokio::spawn(async move { while handler.next().await.is_some() {} });
     let printed = carry_out(&plan, &browser, &arguments.marks).await;
     // Detaching leaves the browser running: xtask stops it.

@@ -288,7 +288,7 @@ pub(crate) fn trial(
     let folder = tempfile::tempdir().context("creating the trial's folder")?;
     let relay = Relay::marks_only()?;
     let tool = row.tool();
-    let mut command = super::node(tools, &tools.driver.with_file_name("load.ts"));
+    let mut command = super::tools::node(tools, &tools.driver.with_file_name("load.ts"));
     command
         .args(["--tool", tool.name(), "--url"])
         .arg(format!("http://{HOST}:{port}{}", page.path()))

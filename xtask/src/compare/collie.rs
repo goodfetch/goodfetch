@@ -40,9 +40,8 @@
 )]
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
@@ -61,6 +60,10 @@ use super::trials::{CollieScenario, CollieTrial, Contender, Ended, Exercise, Pag
 
 pub(crate) mod page_load;
 mod section;
+mod tools;
+
+use tools::adopt_orphans;
+pub(crate) use tools::{Tools, browser_flags, chromiumoxide_executable, skipped};
 
 pub(crate) use section::{Section, markdown, section};
 
@@ -344,101 +347,6 @@ pub(crate) fn configuration(urls: &[String]) -> Result<String> {
     Ok(text)
 }
 
-/// The executables and files a trial takes.
-pub(crate) struct Tools<'a> {
-    pub(crate) proving_ground: &'a Path,
-    /// Collie's Attached engine.
-    pub(crate) engine: &'a Path,
-    /// `xtask/compare-collie/act.ts`, which Node.js runs for Collie and
-    /// Playwright, as an absolute path.
-    pub(crate) driver: PathBuf,
-    /// `xtask/compare-collie-arms/act.ts`, which it runs for Puppeteer's
-    /// and Stagehand's arms (issues 2441 and 2443), as an absolute path.
-    pub(crate) arms_driver: PathBuf,
-    /// chromiumoxide's side's executable ([`chromiumoxide_executable`],
-    /// issue 2444).
-    pub(crate) chromiumoxide: PathBuf,
-    /// Chrome for Testing's folder.
-    pub(crate) browser: &'a Path,
-    /// xtask's own `GOODFETCH_*` variables, which the tool runs without.
-    pub(crate) goodfetch_variables: &'a [OsString],
-}
-
-impl Tools<'_> {
-    /// The driver that runs `tool`, none of this process's Goodfetch
-    /// variables in its environment: Node.js running its script, or
-    /// chromiumoxide's side's own executable.
-    pub(crate) fn command(&self, tool: Contender) -> Command {
-        match tool {
-            Contender::Collie | Contender::Playwright => node(self, &self.driver),
-            Contender::PuppeteerLocator
-            | Contender::PuppeteerPage
-            | Contender::Stagehand
-            | Contender::AgentBrowser => node(self, &self.arms_driver),
-            Contender::Chromiumoxide => without_goodfetch_variables(self, &self.chromiumoxide),
-        }
-    }
-}
-
-/// The folder of chromiumoxide's side's build among the Rust sides' builds,
-/// beside Spider's (`just compare`).
-const CHROMIUMOXIDE_FOLDER: &str = "chromiumoxide";
-
-/// chromiumoxide's side's executable in `builds`: `just compare` builds it
-/// into the target folder [`CHROMIUMOXIDE_FOLDER`] names, where Cargo puts
-/// it under `profile`'s folder.
-pub(crate) fn chromiumoxide_executable(builds: &Path, profile: &str) -> PathBuf {
-    builds
-        .join(CHROMIUMOXIDE_FOLDER)
-        .join(profile)
-        .join(format!(
-            "goodfetch-compare-chromiumoxide{}",
-            std::env::consts::EXE_SUFFIX
-        ))
-}
-
-/// The flags `tool`'s browser is launched with past every tool's: Stagehand
-/// drives it through an extension that speaks CDP over a WebSocket of its
-/// own, which Chrome opens to it only with these (issue 2441).
-pub(crate) fn browser_flags(tool: Contender) -> &'static [&'static str] {
-    match tool {
-        Contender::Stagehand => &[
-            "--enable-unsafe-extension-debugging",
-            "--remote-allow-origins=*",
-        ],
-        Contender::Collie
-        | Contender::Playwright
-        | Contender::PuppeteerLocator
-        | Contender::PuppeteerPage
-        | Contender::AgentBrowser
-        | Contender::Chromiumoxide => &[],
-    }
-}
-
-/// Why `tool` runs no trial of `exercise`, when it runs none: Stagehand
-/// and agent-browser open no Session of their own (issues 2441 and 2442).
-pub(crate) fn skipped(tool: Contender, exercise: Exercise) -> Option<&'static str> {
-    if exercise != Exercise::Sessions {
-        return None;
-    }
-    match tool {
-        Contender::Stagehand => {
-            Some("Stagehand drives the browser's one context, so it opens no Session")
-        }
-        // Its instances share the default context over `--cdp`; its binary
-        // creates browser contexts but never disposes of one.
-        Contender::AgentBrowser => Some(
-            "agent-browser has no command that closes a context it opened, so it opens no \
-             Session",
-        ),
-        Contender::Collie
-        | Contender::Playwright
-        | Contender::PuppeteerLocator
-        | Contender::PuppeteerPage
-        | Contender::Chromiumoxide => None,
-    }
-}
-
 /// A browser xtask launched, its whole tree stopped when dropped.
 struct Browser {
     child: Child,
@@ -622,56 +530,6 @@ struct Driven {
     end: Mark,
     peak_bytes: u64,
 }
-
-/// Node.js running the driver `script`, none of this process's Goodfetch
-/// variables in its environment.
-fn node(tools: &Tools<'_>, script: &Path) -> Command {
-    let mut command = without_goodfetch_variables(tools, Path::new("node"));
-    command.arg(script);
-    command
-}
-
-/// `program`, none of this process's Goodfetch variables in its
-/// environment.
-fn without_goodfetch_variables(tools: &Tools<'_>, program: &Path) -> Command {
-    let mut command = Command::new(program);
-    for name in tools.goodfetch_variables {
-        command.env_remove(name);
-    }
-    command
-}
-
-/// Makes the process `command` starts adopt what its descendants leave
-/// behind, such as the daemon agent-browser's command starts in a session
-/// of its own and leaves when it exits: Linux reparents each to it rather
-/// than to init, so they stay in its tree, in its figures and in
-/// [`trial::kill_tree`]'s reach.
-#[cfg(target_os = "linux")]
-#[expect(
-    unsafe_code,
-    reason = "the child marks itself a subreaper through the OS's C interface, prctl, between \
-              fork and exec"
-)]
-fn adopt_orphans(command: &mut Command) {
-    use std::os::unix::process::CommandExt as _;
-    // SAFETY: the closure runs in the forked child before exec, where only
-    // async-signal-safe calls may run: `prctl` is a system call that sets a
-    // flag on the calling process, which exec keeps, and the closure
-    // allocates nothing and takes no lock.
-    unsafe {
-        command.pre_exec(|| {
-            let on: libc::c_ulong = 1;
-            if libc::prctl(libc::PR_SET_CHILD_SUBREAPER, on) != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
-}
-
-/// Elsewhere a process left behind leaves the tree, as it did.
-#[cfg(not(target_os = "linux"))]
-fn adopt_orphans(_command: &mut Command) {}
 
 /// Runs the driver `command` in `folder`, its process tree followed by a
 /// sampler and by `relay`, and returns what it printed between the marks

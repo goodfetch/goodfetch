@@ -70,6 +70,29 @@ fn at_batch_an_attempts_write_is_answered_before_a_barrier_writes_its_batch() {
     assert_eq!((before, after), (vec![], vec![1, 2]));
 }
 
+/// A seal writes the open batch and answers once it is in the file, so a
+/// read that follows it sees every write answered before it; with no batch
+/// open it commits nothing.
+///
+/// Covers: story:3-25
+#[test]
+fn a_seal_writes_the_open_batch_and_with_none_open_commits_nothing() {
+    let env = TestEnv::new();
+    let options = options(Durability::BATCH);
+    let work = options.work.clone();
+
+    let (sealed, transactions) = with_writer_options(&env, &options, async |state| {
+        ended(state, 1).await;
+        state.seal().await.unwrap();
+        let sealed = state.read(items).await.unwrap();
+        let before = work.read(Row::RunTransactions);
+        state.seal().await.unwrap();
+        (sealed, work.read(Row::RunTransactions) - before)
+    });
+
+    assert_eq!((sealed, transactions), (vec![1], 0));
+}
+
 /// At `full`, each attempt's writes are a batch of their own: an attempt's
 /// write is synced and in the file as it is answered.
 ///

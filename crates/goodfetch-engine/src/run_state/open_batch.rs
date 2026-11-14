@@ -259,6 +259,30 @@ impl Writer {
         }
     }
 
+    /// Commits the open batch, if one is open, and answers each of `seals`
+    /// once it is in the file; with none open, at once.
+    pub(super) fn seal(&mut self, seals: Vec<super::QueuedWrite>) {
+        if seals.is_empty() {
+            return;
+        }
+        let completions = seals.into_iter().map(|seal| seal(None).0);
+        match self
+            .batching
+            .as_mut()
+            .and_then(|batching| batching.open.as_mut())
+        {
+            Some(open) => {
+                open.owed.extend(completions);
+                self.commit_batch(false, false);
+            }
+            None => {
+                for completion in completions {
+                    completion(Ok(()));
+                }
+            }
+        }
+    }
+
     /// Commits the open batch when it reached a threshold.
     fn commit_reached(&mut self) {
         let reached = self.batching.as_ref().is_some_and(|batching| {

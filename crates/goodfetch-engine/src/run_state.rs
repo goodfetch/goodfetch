@@ -545,6 +545,10 @@ enum Job {
     /// These statements prepared on each of the writer's connections. It
     /// writes nothing and commits in no group.
     Prepare(Vec<&'static str>),
+    /// A seal of the open batch ([`RunState::seal`]): it writes nothing
+    /// itself, and is answered once the batch holding every write queued
+    /// before it is in the file.
+    Seal,
 }
 
 /// A job in the writer's queue, and what it is.
@@ -565,8 +569,8 @@ impl Queued {
     }
 }
 
-/// A preparation's place in the queue, which reports what the writer's
-/// actor answers it, and that answer.
+/// A job that runs nothing, a preparation's or a seal's, and its answer,
+/// which the writer's actor sends.
 fn preparation() -> (QueuedWrite, oneshot::Receiver<Result<(), RunStateError>>) {
     let (answer, answered) = oneshot::channel();
     let job: QueuedWrite = Box::new(move |_| {
@@ -904,6 +908,33 @@ impl RunState {
         answered.await.map_err(|_| RunStateError::Closed)?
     }
 
+    /// Writes the open batch, if one is open, and answers once it is in the
+    /// file: a read that follows sees every write answered before the seal
+    /// was asked, the attempts' writes that rode the batch included (ADR
+    /// 0142). It writes nothing of its own, so with no batch open, or when
+    /// each attempt is a batch of its own, it commits nothing.
+    ///
+    /// # Errors
+    ///
+    /// `Sqlite` when the batch did not commit, `Closed` when the writer has
+    /// stopped.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future does not withdraw a seal already queued.
+    pub async fn seal(&self) -> Result<(), RunStateError> {
+        let (write, answered) = preparation();
+        self.mailbox
+            .send(Queued {
+                write,
+                job: Job::Seal,
+                syncing: Syncing::Required,
+            })
+            .await
+            .map_err(|_| RunStateError::Closed)?;
+        answered.await.map_err(|_| RunStateError::Closed)?
+    }
+
     /// Prepares each of `statements` on every connection the writer commits
     /// on, in no transaction, so that no later write prepares one of them,
     /// whichever connection its group commits on (ADR 0138's note of
@@ -1057,10 +1088,16 @@ impl Writer {
         let last = group.iter().position(|queued| queued.job == Job::Last);
         let refused = last.map_or_else(Vec::new, |at| group.split_off(at + 1));
         let last = last.is_some();
+        let seals = without_seals(&mut group);
         if self.batching.is_some() {
             self.batch(group, ticked, last);
+            self.seal(seals);
         } else {
             self.commit_each(group, ticked, last);
+            // Each write committed in its group, answered once it did.
+            for seal in seals {
+                seal(None).0(Ok(()));
+            }
         }
         for queued in refused {
             (queued.write)(None).0(Err(RunStateError::Closed));
@@ -1315,6 +1352,16 @@ fn open_connections(
     let checkpointing = open_wal_checkpointer(path, options.vfs.as_deref(), options.durability)
         .map_err(|error| sqlite_error(path, &error))?;
     Ok((connection, deferring, declared, checkpointing))
+}
+
+/// Takes the seals out of `group`, which the writer answers once the
+/// group's writes are in the file.
+fn without_seals(group: &mut Vec<Queued>) -> Vec<QueuedWrite> {
+    let (seals, writes): (Vec<Queued>, Vec<Queued>) = std::mem::take(group)
+        .into_iter()
+        .partition(|queued| queued.job == Job::Seal);
+    *group = writes;
+    seals.into_iter().map(|seal| seal.write).collect()
 }
 
 /// Takes the idle timer's ticks out of `group`: whether it held one.

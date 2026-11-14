@@ -72,6 +72,10 @@ pub(crate) const OPENSPIDER_COMMIT: &str = "2d25a7d627df4cedeb5ec657243765c0e09b
 /// fastCRW's pinned release, the `crw-server` version `just compare`
 /// installs locked beside its side (a unit test holds them equal).
 pub(crate) const FASTCRW_VERSION: &str = "0.44.2";
+/// crawlberg's pinned release on crates.io, the `version` of the
+/// `crawlberg` crate `xtask/compare-crawlberg/Cargo.toml` takes (a unit
+/// test holds them equal).
+pub(crate) const CRAWLBERG_VERSION: &str = "1.13.0";
 /// Playwright's pinned version, which both sides' headless browser crawls
 /// drive Chrome with (`playwright` in `xtask/compare-crawlee/package.json`
 /// and `xtask/compare-scrapy/pyproject.toml`), and `scrapy-playwright`'s,
@@ -124,6 +128,8 @@ pub(crate) struct Declared {
     pub(crate) openspider: String,
     /// fastCRW's release.
     pub(crate) fastcrw: String,
+    /// crawlberg's release.
+    pub(crate) crawlberg: String,
     pub(crate) playwright: String,
     pub(crate) scrapy_playwright: String,
     /// The Chrome for Testing build every tool of the headless browser

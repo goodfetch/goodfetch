@@ -324,7 +324,7 @@ fn the_extraction_scenario_crawls_the_article_site_and_names_each_extractor() {
             pinned("spider_transformations")
         ),
     ];
-    let extractors: [(&str, &[&str]); 10] = [
+    let extractors: [(&str, &[&str]); 11] = [
         ("foxhound", &["Clean-up rules", "dom_smoothie"]),
         (
             "foxhound filter lists off",
@@ -337,6 +337,7 @@ fn the_extraction_scenario_crawls_the_article_site_and_names_each_extractor() {
         ("pagesift", &["`onlyMainContent`"]),
         ("openspider", &["the text of its `main`"]),
         ("fastcrw", &["`onlyMainContent: true`"]),
+        ("crawlberg", &["`markdown.content`"]),
         ("spider mimalloc", &["the spider row's settings"]),
     ];
     let unnamed: Vec<(&str, &str)> = extractors
@@ -413,6 +414,7 @@ fn foxhounds_filter_lists_off_row_is_checked_with_the_ad_allowed() {
                 ("pagesift", false, whole),
                 ("openspider", false, whole),
                 ("fastcrw", false, whole),
+                ("crawlberg", false, whole),
                 ("spider mimalloc", false, whole),
             ],
             Row::Main,
@@ -636,6 +638,59 @@ fn just_compare_builds_fastcrws_server_and_side_into_its_folder() {
         .map(|line| recipes.contains(&line)),
         [true, true]
     );
+}
+
+/// crawlberg runs on its side in every scenario but two, each its main row
+/// (#2218): its durable cell is not supported, since its frontier lives in
+/// memory and no crawl of its resumes; nor its polite cell, since it
+/// follows no page link off its first page's host.
+#[test]
+fn crawlberg_runs_every_scenario_on_its_side_but_durable_and_polite() {
+    let cells: Vec<(Scenario, &str, Row, Result<Config, &str>)> = CELLS
+        .iter()
+        .filter(|cell| cell.tool == Tool::Crawlberg)
+        .map(|cell| {
+            let status = match cell.status {
+                Status::Measured(config) => Ok(config),
+                Status::NotSupported(reason) | Status::Pending(reason) => Err(reason),
+            };
+            (cell.scenario, cell.name, cell.row, status)
+        })
+        .collect();
+
+    let measured = Ok(Config::Crawlberg);
+    assert_eq!(
+        cells,
+        [
+            (Scenario::Raw, measured),
+            (Scenario::Durable, Err(super::CRAWLBERG_IN_MEMORY)),
+            (Scenario::Polite, Err(super::CRAWLBERG_ONE_HOST)),
+            (Scenario::Extraction, measured),
+            (Scenario::Browser, measured),
+            (Scenario::Realistic, measured),
+            (Scenario::Long, measured),
+            (Scenario::Raw64, measured),
+            (Scenario::Raw256, measured),
+            (Scenario::Hostile, measured),
+            (Scenario::Hostile16, measured),
+            (Scenario::CrawlLike, measured),
+        ]
+        .map(|(scenario, status)| (scenario, "crawlberg", Row::Main, status))
+        .to_vec()
+    );
+}
+
+/// `just compare` builds crawlberg's side, locked, at the run's profile,
+/// into the folder the run reads its executable from.
+#[test]
+fn just_compare_builds_crawlbergs_side_into_its_folder() {
+    let recipes = include_str!("../../../../justfile");
+
+    assert!(recipes.contains(&format!(
+        "cargo build --quiet --locked --manifest-path xtask/compare-crawlberg/Cargo.toml \
+         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
+        super::CRAWLBERG_FOLDER
+    )));
 }
 
 /// The polite scenario crawls 10,000 pages on 1,000 domains, 10 on each,

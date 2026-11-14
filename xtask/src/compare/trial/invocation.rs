@@ -52,19 +52,21 @@ pub(crate) fn fastcrw_server(executable: &Path) -> PathBuf {
 }
 
 /// How `config`'s tool runs `executable`: Foxhound's, Spider's,
-/// crawlee-rs's, pagesift's, OpenSpider's and fastCRW's are executables,
-/// Spider's side given its row's page channel capacity and fastCRW's the
-/// server it starts, Crawlee's is its side's script run by Node.js from
-/// `PATH`, and Scrapy's its side's script run by the interpreter of the
-/// Python environment beside it.
+/// crawlee-rs's, pagesift's, OpenSpider's, fastCRW's and crawlberg's are
+/// executables, Spider's side given its row's page channel capacity and
+/// fastCRW's the server it starts, Crawlee's is its side's script run by
+/// Node.js from `PATH`, and Scrapy's its side's script run by the
+/// interpreter of the Python environment beside it.
 pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
     match config {
-        Config::Foxhound { .. } | Config::CrawleeRs | Config::Pagesift | Config::OpenSpider => {
-            Invocation {
-                program: executable.to_owned(),
-                arguments: Vec::new(),
-            }
-        }
+        Config::Foxhound { .. }
+        | Config::CrawleeRs
+        | Config::Pagesift
+        | Config::OpenSpider
+        | Config::Crawlberg => Invocation {
+            program: executable.to_owned(),
+            arguments: Vec::new(),
+        },
         Config::FastCrw => Invocation {
             program: executable.to_owned(),
             arguments: vec!["--server".into(), fastcrw_server(executable).into()],
@@ -101,7 +103,8 @@ pub(super) fn install_bytes(config: Config, executable: &Path, browser: Option<&
         | Config::Spider { .. }
         | Config::CrawleeRs
         | Config::Pagesift
-        | Config::OpenSpider => {
+        | Config::OpenSpider
+        | Config::Crawlberg => {
             return file_bytes(executable) + browser_bytes;
         }
         Config::FastCrw => {

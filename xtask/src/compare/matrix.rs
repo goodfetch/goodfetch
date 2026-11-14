@@ -49,10 +49,13 @@ pub(crate) enum Tool {
     /// fastCRW's server, `crw-server`, a crawl job on its HTTP API (#2217).
     #[value(name = "fastcrw")]
     FastCrw,
+    /// crawlberg's engine, its streaming crawl through its library (#2218).
+    #[value(name = "crawlberg")]
+    Crawlberg,
 }
 
 impl Tool {
-    pub(crate) const ALL: [Self; 8] = [
+    pub(crate) const ALL: [Self; 9] = [
         Self::Foxhound,
         Self::Spider,
         Self::Crawlee,
@@ -61,6 +64,7 @@ impl Tool {
         Self::Pagesift,
         Self::OpenSpider,
         Self::FastCrw,
+        Self::Crawlberg,
     ];
 
     pub(crate) fn name(self) -> &'static str {
@@ -73,6 +77,7 @@ impl Tool {
             Self::Pagesift => "pagesift",
             Self::OpenSpider => "openspider",
             Self::FastCrw => "fastcrw",
+            Self::Crawlberg => "crawlberg",
         }
     }
 }
@@ -565,6 +570,9 @@ pub(crate) const OPENSPIDER_FOLDER: &str = "openspider";
 /// folder, and `{FASTCRW_FOLDER}-server` holds that server's build.
 pub(crate) const FASTCRW_FOLDER: &str = "fastcrw";
 
+/// The folder of crawlberg's side's build among the Rust sides' builds.
+pub(crate) const CRAWLBERG_FOLDER: &str = "crawlberg";
+
 /// The folder of chromiumoxide's side's build among the Rust sides' builds,
 /// for the Collie scenario's chromiumoxide arm (issue 2444).
 pub(crate) const CHROMIUMOXIDE_FOLDER: &str = "chromiumoxide";
@@ -617,6 +625,9 @@ pub(crate) enum Config {
     /// fastCRW's side at the scenario's settings: a crawl job on the server
     /// it starts.
     FastCrw,
+    /// crawlberg's side at the scenario's settings: its engine's streaming
+    /// crawl.
+    Crawlberg,
 }
 
 impl Config {
@@ -631,6 +642,7 @@ impl Config {
             Self::Pagesift => Tool::Pagesift,
             Self::OpenSpider => Tool::OpenSpider,
             Self::FastCrw => Tool::FastCrw,
+            Self::Crawlberg => Tool::Crawlberg,
         }
     }
 
@@ -670,7 +682,7 @@ pub(crate) struct Cell {
 }
 
 /// Every cell, in the report's order.
-pub(crate) const CELLS: [Cell; 108] = [
+pub(crate) const CELLS: [Cell; 120] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
@@ -804,6 +816,24 @@ pub(crate) const CELLS: [Cell; 108] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::FastCrw),
+    },
+    Cell {
+        scenario: Scenario::Raw,
+        tool: Tool::Crawlberg,
+        name: "crawlberg",
+        mapping: "its engine's streaming crawl (`CrawlEngineHandle::crawl_stream`), which hands \
+                  each page on as it is crawled, from the first page over its host, on its own \
+                  HTTP client (reqwest): `max_concurrent: 16`, the requests in flight across its \
+                  crawl, no delay between a host's requests (`rate_limit_ms: 0` where its default \
+                  is 200 ms) and no page or depth bound (`max_pages`, `max_depth`, unset by \
+                  default); robots.txt not obeyed (`respect_robots_txt: false`, its default); each \
+                  page converted to Markdown, which its crawl always does; its frontier in memory; \
+                  private addresses allowed (`allow_private_networks`), which it refuses \
+                  otherwise, and the site's host sent as each page's `Host` (`custom_headers`, \
+                  which it sends to its first page's host alone)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlberg),
     },
     Cell {
         scenario: Scenario::Raw,
@@ -981,6 +1011,15 @@ pub(crate) const CELLS: [Cell; 108] = [
         status: Status::NotSupported(FASTCRW_IN_MEMORY),
     },
     Cell {
+        scenario: Scenario::Durable,
+        tool: Tool::Crawlberg,
+        name: "crawlberg",
+        mapping: "none: crawlberg keeps its frontier in memory",
+        pending: &[],
+        row: Row::Main,
+        status: Status::NotSupported(CRAWLBERG_IN_MEMORY),
+    },
+    Cell {
         scenario: Scenario::Polite,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -1106,6 +1145,15 @@ pub(crate) const CELLS: [Cell; 108] = [
         pending: &[],
         row: Row::Main,
         status: Status::NotSupported(FASTCRW_ONE_ORIGIN),
+    },
+    Cell {
+        scenario: Scenario::Polite,
+        tool: Tool::Crawlberg,
+        name: "crawlberg",
+        mapping: "none: crawlberg follows a link only on its first page's host",
+        pending: &[],
+        row: Row::Main,
+        status: Status::NotSupported(CRAWLBERG_ONE_HOST),
     },
     Cell {
         scenario: Scenario::Extraction,
@@ -1234,6 +1282,20 @@ pub(crate) const CELLS: [Cell; 108] = [
     },
     Cell {
         scenario: Scenario::Extraction,
+        tool: Tool::Crawlberg,
+        name: "crawlberg",
+        mapping: "scenario 1's crawl with each page's URL, title (`metadata.title`) and Markdown \
+                  (`markdown.content`) written as a line of `pages.jsonl`, the Markdown of its \
+                  main content (`content.preprocessing_preset: \"aggressive\"`, the setting its \
+                  own API's `onlyMainContent` turns on), which drops every footer and aside \
+                  where its default, `standard`, drops navigation, forms and the headers, \
+                  footers and asides that navigation hints at",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlberg),
+    },
+    Cell {
+        scenario: Scenario::Extraction,
         tool: Tool::Spider,
         name: "spider mimalloc",
         mapping: "the spider row's settings (`subscribe(64)`), with `mimalloc` as its global \
@@ -1349,6 +1411,18 @@ pub(crate) const CELLS: [Cell; 108] = [
     },
     Cell {
         scenario: Scenario::Browser,
+        tool: Tool::Crawlberg,
+        name: "crawlberg",
+        mapping: "scenario 1's crawl with each page rendered in the same headless Chrome for \
+                  Testing, which its engine starts and drives over CDP (`browser.mode: always` \
+                  with `browser.chrome_path`, its `browser` feature), with no delay between a \
+                  host's pages there either (`rate_limit_ms: 0`)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlberg),
+    },
+    Cell {
+        scenario: Scenario::Browser,
         tool: Tool::Spider,
         name: "spider smart",
         mapping: "none: Spider's `smart` feature, `crawl_smart()`, which fetches each page over \
@@ -1447,6 +1521,16 @@ pub(crate) const CELLS: [Cell; 108] = [
         status: Status::Measured(Config::FastCrw),
     },
     Cell {
+        scenario: Scenario::Realistic,
+        tool: Tool::Crawlberg,
+        name: "crawlberg",
+        mapping: "scenario 1's crawl (`max_concurrent: 16`, robots.txt not obeyed, no delay) on \
+                  the realistic-page site, following each redirect itself",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlberg),
+    },
+    Cell {
         scenario: Scenario::Long,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -1534,6 +1618,16 @@ pub(crate) const CELLS: [Cell; 108] = [
         status: Status::NotSupported(FASTCRW_THOUSAND_PAGES),
     },
     Cell {
+        scenario: Scenario::Long,
+        tool: Tool::Crawlberg,
+        name: "crawlberg",
+        mapping: "scenario 1's crawl (`max_concurrent: 16`, robots.txt not obeyed, no delay, no \
+                  page bound) on the site of 100,000 pages",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlberg),
+    },
+    Cell {
         scenario: Scenario::Raw64,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -1618,6 +1712,15 @@ pub(crate) const CELLS: [Cell; 108] = [
         pending: &[],
         row: Row::Main,
         status: Status::NotSupported(FASTCRW_ONE_IN_FLIGHT),
+    },
+    Cell {
+        scenario: Scenario::Raw64,
+        tool: Tool::Crawlberg,
+        name: "crawlberg",
+        mapping: "scenario 1's crawl with `max_concurrent: 64`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlberg),
     },
     defaults(Scenario::Raw64),
     Cell {
@@ -1705,6 +1808,15 @@ pub(crate) const CELLS: [Cell; 108] = [
         pending: &[],
         row: Row::Main,
         status: Status::NotSupported(FASTCRW_ONE_IN_FLIGHT),
+    },
+    Cell {
+        scenario: Scenario::Raw256,
+        tool: Tool::Crawlberg,
+        name: "crawlberg",
+        mapping: "scenario 1's crawl with `max_concurrent: 256`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlberg),
     },
     defaults(Scenario::Raw256),
     Cell {
@@ -1821,6 +1933,20 @@ pub(crate) const CELLS: [Cell; 108] = [
         status: Status::Measured(Config::FastCrw),
     },
     Cell {
+        scenario: Scenario::Hostile,
+        tool: Tool::Crawlberg,
+        name: "crawlberg",
+        mapping: "its engine's streaming crawl at crawlberg's defaults (`CrawlConfig::default()`), \
+                  setting nothing but private addresses allowed (`allow_private_networks`) and the \
+                  `Host` it sends (`custom_headers`): robots.txt not obeyed \
+                  (`respect_robots_txt`), 200 ms between requests to a host (`rate_limit_ms` \
+                  unset), 10 requests in flight (`max_concurrent` unset) and no page or depth \
+                  bound (`max_pages`, `max_depth`)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlberg),
+    },
+    Cell {
         scenario: Scenario::Hostile16,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -1909,6 +2035,16 @@ pub(crate) const CELLS: [Cell; 108] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::FastCrw),
+    },
+    Cell {
+        scenario: Scenario::Hostile16,
+        tool: Tool::Crawlberg,
+        name: "crawlberg",
+        mapping: "scenario 1's crawl (`max_concurrent: 16`, robots.txt not obeyed, no delay) on \
+                  the `traps` family",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlberg),
     },
     Cell {
         scenario: Scenario::CrawlLike,
@@ -2014,6 +2150,18 @@ pub(crate) const CELLS: [Cell; 108] = [
         row: Row::Main,
         status: Status::Measured(Config::FastCrw),
     },
+    Cell {
+        scenario: Scenario::CrawlLike,
+        tool: Tool::Crawlberg,
+        name: "crawlberg",
+        mapping: "scenario 1's crawl (`max_concurrent: 16`, robots.txt not obeyed, no delay) on \
+                  the article site over `https`, the certificate authority `SSL_CERT_FILE` names \
+                  trusted by its TLS (rustls, with the platform's verifier) and certificates \
+                  verified (`danger_accept_invalid_certs: false`, its default)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlberg),
+    },
 ];
 
 /// The cell at the catalog's defaults (#2175) in `scenario`, one of
@@ -2105,6 +2253,22 @@ const FASTCRW_ONE_IN_FLIGHT: &str = "a fastCRW crawl job fetches one page at a t
      version, it takes the next page from its queue only once the fetch before it ends \
      (`run_crawl_inner`, `crw-crawl/src/crawl.rs`), whatever its `max_concurrency` and \
      `per_host_max_concurrent`, so a cell of 64 or 256 would measure scenario 1's one again";
+
+/// Why crawlberg has no durable cell: what its library at the pinned
+/// version ships.
+const CRAWLBERG_IN_MEMORY: &str = "crawlberg keeps its frontier in memory: at its pinned version, \
+     its frontiers are `InMemoryFrontier` and `LifoFrontier` (`src/defaults/frontier.rs`), and \
+     nothing it ships writes a crawl's frontier to disk or resumes a crawl, so a crawl killed \
+     with its process is lost; its `Frontier` trait would take one written for it, which would \
+     be the comparison's code, not crawlberg's";
+
+/// Why crawlberg has no polite cell: what its crawl at the pinned version
+/// does.
+const CRAWLBERG_ONE_HOST: &str = "crawlberg follows a link only on its first page's host, or \
+     that host's subdomains with `allow_subdomains`: at its pinned version, a page link to any \
+     other host is dropped (`host_in_scope`, `src/engine/link_scope.rs`) whatever \
+     `stay_on_domain`, which loosens document links alone, and the site's 1,000 domains are \
+     each other's siblings (`polite-<d>.localhost`), so it would crawl one of them";
 
 /// The name of Foxhound's row of the extraction scenario with its Filter
 /// lists off (#2136).

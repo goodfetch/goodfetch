@@ -1,0 +1,57 @@
+# crawlberg's side of `just compare` (#2218, spec #2212): one crawl of a
+# Proving ground site with crawlberg (MIT), a web crawling engine written in
+# Rust, through its library's streaming crawl, `CrawlEngineHandle::
+# crawl_stream`, with each scenario's settings. It is fetched and run by the
+# comparison alone, never linked into a Product.
+#
+# The pin: crawlberg 1.13.0 on crates.io, the newest on 2026-11-14,
+# published from commit abbe596555ebb47f43ef52ee6c386fc0dfb32ae8 of its
+# repository (github.com/xberg-io/crawlberg); the Cargo.lock beside this
+# file pins every crate under it, resolved from the Cargo.lock crawlberg
+# ships. Move the pin by changing `version` below and the version
+# `xtask/src/compare/trials.rs` declares (`CRAWLBERG_VERSION`, which a test
+# holds equal to this one), then `cargo update --manifest-path
+# xtask/compare-crawlberg/Cargo.toml -p crawlberg`.
+#
+# The build: the repository's pinned toolchain (`rust-toolchain.toml`,
+# found above this folder) and the workspace's release profile below, as
+# Spider's side is built, so no Rust tool has more optimization than
+# Foxhound; with crawlberg's `browser` feature, its Chrome backend, for
+# scenario 5. `just compare` runs
+#
+#   cargo build --locked --manifest-path xtask/compare-crawlberg/Cargo.toml \
+#     --profile release --target-dir target/compare-spider/crawlberg
+#
+# and the comparison runs
+# `target/compare-spider/crawlberg/release/goodfetch-compare-crawlberg`
+# (`GOODFETCH_COMPARE_SPIDER_BUILDS` moves the folder, as for Spider's).
+[package]
+name = "goodfetch-compare-crawlberg"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[dependencies]
+crawlberg = { version = "=1.13.0", features = ["browser"] }
+futures = "0.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde_json = "1"
+
+[workspace]
+
+# The workspace's release profile, so no Rust tool is built with more
+# optimization than another.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+panic = "unwind"
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "debuginfo"
+
+# The workspace's `ci` profile, for `just compare ci`'s quicker try.
+[profile.ci]
+inherits = "release"
+lto = "thin"

@@ -50,6 +50,7 @@ pub(crate) fn comparison(site_pages: u64, measured: impl Fn(&Cell, u32) -> Measu
             pagesift: "1.3.0".to_owned(),
             openspider: "2d25a7d627df4cedeb5ec657243765c0e09b4239".to_owned(),
             fastcrw: "0.44.2".to_owned(),
+            crawlberg: "1.13.0".to_owned(),
             playwright: "1.64.1".to_owned(),
             scrapy_playwright: "0.0.48".to_owned(),
             browser: "156.0.8078.4".to_owned(),

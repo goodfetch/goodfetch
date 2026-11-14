@@ -1,0 +1,453 @@
+//! B4's counts cells (ADR 0140's note of 2026-11-14, spec #2164): the
+//! extraction path's work per page. Each cell runs a code-free crawl with
+//! `formats: { text: true }` and the field `title`, on the engine and
+//! through the driver `benches/scenarios.rs` gives B1, over the Proving
+//! ground's article site served from memory, and prints what it counted as
+//! one JSON line, which `xtask counts` divides and holds to the Quality
+//! register's limits.
+//!
+//! The site is the fixture `benches/fixtures/article-site-16.html`: the 16
+//! documents of the article site of 16 pages, which the Proving ground's
+//! own test holds equal to what it serves (#2136's page: a header, a nav,
+//! an article of a few paragraphs with one ad slot a default Filter list's
+//! cosmetic rule matches, an aside and a footer). No benchmark links the
+//! Proving ground, so the pages are served from here.
+//!
+//! The cells:
+//!
+//! - `default`: the crawl at its defaults, from the site's first page,
+//!   every link followed, on one host;
+//! - `filter_lists_off`: `filter_lists.ads`, `.trackers` and `.annoyances`
+//!   off, so no rule list is built and no rule tested, and the ad stays;
+//! - `host_cache_off` and `single_attempt`: the settings
+//!   `filter_lists.host_cache: 0` and `extraction.readability:
+//!   single_attempt` do not exist yet, so each runs as `default` does until
+//!   its setting's ticket switches it on (#2186, #2190);
+//! - `many_hosts`: the same pages, one on each of [`HOSTS`] hosts, each a
+//!   seed and no link followed, since a host enters the host cache only
+//!   through a page: more hosts than the cache's default bound.
+//!
+//! The rows are those B4 holds: `F1.rule_list_builds`, `F1.rule_tests` and
+//! `F1.analysis_handoffs` per page, and `F1.host_cache_entries` and
+//! `F1.host_cache_bytes` per crawl, read as the crawl ended. It prints no
+//! `F1.parses` and no `F1.readability_runs`: a code-free crawl that asks
+//! for a format parses its page twice and runs the main-content step twice
+//! (Exception X1), and those rows stay B1's.
+//!
+//! `F1.clean_up_instructions` is the instructions Callgrind counts in the
+//! clean-up's removal and whatever it calls, on the `default` cell, for
+//! which this example runs again as `--callgrind default` under Callgrind:
+//! the base of spec #2164's 40 % criterion. It is the figure of this
+//! example's build, the `dev` profile, whose parsing, selector matching and
+//! Filter-list engine are optimized (`Cargo.toml`); `just compare`'s
+//! Callgrind cell reads the release build's whole page. Without Valgrind
+//! it goes unprinted, which `xtask counts` fails as a row not counted.
+//!
+//! `--plant <row>` does one extra unit of that row's work per page served,
+//! in every cell: a count more, or for `F1.clean_up_instructions` one more
+//! removal of the page served. The crawl fails here if it read a page's
+//! text wrong, if the work it counts did not happen, or if the Filter lists
+//! off did not take their work away.
+#![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
+#![expect(
+    clippy::print_stderr,
+    reason = "the counts harness (ADR 0140): why a row goes unprinted, which `xtask counts` fails, beside its finding"
+)]
+#![expect(
+    clippy::print_stdout,
+    reason = "the counts harness (ADR 0140): the benchmark's one output, which `xtask counts` reads"
+)]
+
+#[path = "../benches/scenarios.rs"]
+#[expect(
+    dead_code,
+    reason = "B1's site and crawl, which its own benchmarks run and this one does not"
+)]
+mod scenarios;
+
+use std::sync::{Arc, LazyLock};
+
+use bytes::Bytes;
+use goodfetch_clean_up_rules::matching::Choices;
+use goodfetch_clean_up_rules::removal::{self, Rules};
+use goodfetch_clean_up_rules::rules::FilterLists;
+use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_engine::metrics::Metrics;
+use goodfetch_fetch_tier::{Body, Hop, Reuse, Sending, Sent, Transport};
+use goodfetch_test_support::callgrind;
+use scenarios::{Driven, Plant, drive};
+use serde_json::{Map, Value, json};
+
+/// The article site of 16 pages, its documents in page order.
+const SITE: &str = include_str!("../benches/fixtures/article-site-16.html");
+
+/// The end of each of [`SITE`]'s documents.
+const DOCUMENT_END: &str = "</html>\n";
+
+/// The host of the one-host cells.
+const HOST: &str = "article.test";
+
+/// The hosts of the `many_hosts` cell, one page each: twice the host
+/// cache's default bound of 1,024 (spec #2164), so the cell reaches it.
+const HOSTS: usize = 2_048;
+
+/// The ad's marker, which the right answer of a page cleaned at the
+/// defaults does not hold (`proving-ground`'s article site).
+const AD: &str = "Sponsored offer from Harbourline Freight";
+
+/// The rows B4 holds per page.
+const PER_PAGE: [Row; 3] = [
+    Row::PageRuleListBuilds,
+    Row::PageRuleTests,
+    Row::PageAnalysisHandoffs,
+];
+
+/// The rows B4 holds per crawl, read as the crawl ended.
+const PER_CRAWL: [Row; 2] = [Row::PageHostCacheEntries, Row::PageHostCacheBytes];
+
+/// The clean-up's instructions, and the function Callgrind counts them
+/// beneath, named as Callgrind names it.
+const INSTRUCTIONS: &str = "F1.clean_up_instructions";
+const REMOVAL: &str = "goodfetch_clean_up_rules::removal::remove";
+
+/// The cell whose crawl runs again under Callgrind.
+const DEFAULT: &str = "default";
+
+/// The pages of [`SITE`].
+fn pages() -> Vec<&'static str> {
+    SITE.split_inclusive(DOCUMENT_END).collect()
+}
+
+/// The site, served from memory: the page `/sites/16/<n>` on any host, and
+/// nothing else, so each host's robots.txt is answered 404.
+struct Site {
+    pages: Vec<&'static str>,
+    /// Run once per page it serves: the benchmark's own extra unit of work.
+    plant: Option<Plant>,
+}
+
+impl Transport for Site {
+    fn send<'a>(&'a self, hop: &'a Hop, _reuse: Reuse) -> Sending<'a, Sent> {
+        let page = hop
+            .url
+            .path()
+            .strip_prefix("/sites/16/")
+            .and_then(|number| number.parse::<usize>().ok())
+            .and_then(|number| self.pages.get(number.checked_sub(1)?))
+            .copied();
+        if let (Some(plant), Some(page)) = (&self.plant, page) {
+            plant(page);
+        }
+        let (status, content_type) = match page {
+            Some(_) => (200, "text/html; charset=utf-8"),
+            None => (404, "text/plain"),
+        };
+        let body = page.unwrap_or_default();
+        Box::pin(std::future::ready(Ok(Sent {
+            status,
+            headers: vec![
+                ("content-type".to_owned(), content_type.to_owned()),
+                ("content-length".to_owned(), body.len().to_string()),
+            ],
+            body: Box::new(Whole(Some(Bytes::from_static(body.as_bytes())))),
+            reused: false,
+            decoded: false,
+            certificate_exception: None,
+        })))
+    }
+}
+
+/// A page's body, arriving in one chunk borrowed from the fixture.
+struct Whole(Option<Bytes>);
+
+impl Body for Whole {
+    fn chunk(&mut self) -> Sending<'_, Option<Bytes>> {
+        let chunk = self.0.take().filter(|chunk| !chunk.is_empty());
+        Box::pin(std::future::ready(Ok(chunk)))
+    }
+}
+
+/// One cell: its name, the settings it runs with beside the crawl's own,
+/// whether its pages are spread one a host, and whether its Filter lists
+/// are off, so it builds no rule list and keeps the ad.
+struct Cell {
+    name: &'static str,
+    settings: Value,
+    many_hosts: bool,
+    filter_lists_off: bool,
+}
+
+fn cells() -> [Cell; 5] {
+    let cell = |name, settings| Cell {
+        name,
+        settings,
+        many_hosts: false,
+        filter_lists_off: false,
+    };
+    [
+        cell(DEFAULT, json!({})),
+        Cell {
+            filter_lists_off: true,
+            ..cell(
+                "filter_lists_off",
+                json!({ "filter_lists": { "ads": false, "trackers": false, "annoyances": false } }),
+            )
+        },
+        // `filter_lists.host_cache: 0`, once #2186 brings the setting.
+        cell("host_cache_off", json!({})),
+        // `extraction.readability: single_attempt`, once #2190 brings it.
+        cell("single_attempt", json!({})),
+        Cell {
+            many_hosts: true,
+            ..cell("many_hosts", json!({}))
+        },
+    ]
+}
+
+impl Cell {
+    /// The URL of each page its crawl starts from: the site's first page,
+    /// or, spread over [`HOSTS`] hosts, each host's one page.
+    fn seeds(&self) -> Vec<String> {
+        if self.many_hosts {
+            (0..HOSTS)
+                .map(|host| format!("http://h{host}.{HOST}/sites/16/{}", host % 16 + 1))
+                .collect()
+        } else {
+            vec![format!("http://{HOST}/sites/16/1")]
+        }
+    }
+
+    /// The pages its crawl reaches.
+    fn pages(&self) -> usize {
+        if self.many_hosts { HOSTS } else { 16 }
+    }
+
+    /// Its `crawl.start`: each page's text and its `title`, every link
+    /// followed from the first page, or the seeds alone where each is a
+    /// host's one page, on the `http` tier with no Politeness delay, each
+    /// host mapped to an address the egress policy lets through, which no
+    /// connection reaches. Its own settings replace a key of these whole.
+    fn crawl_start(&self) -> Value {
+        let seeds = self.seeds();
+        let hosts: Vec<String> = seeds
+            .iter()
+            .filter_map(|seed| Some(url::Url::parse(seed).ok()?.host_str()?.to_owned()))
+            .collect();
+        let resolve: Map<String, Value> = hosts
+            .iter()
+            .map(|host| (host.clone(), json!(["127.0.0.1"])))
+            .collect();
+        let mut settings = Map::from_iter([
+            ("fetch".to_owned(), json!({ "tier": "http" })),
+            ("politeness".to_owned(), json!({ "domain": { "delay": 0 } })),
+            ("network".to_owned(), json!({ "resolve": resolve })),
+            ("egress".to_owned(), json!({ "private_ranges": hosts })),
+        ]);
+        if let Value::Object(own) = &self.settings {
+            settings.extend(own.clone());
+        }
+        let seeds: Vec<Value> = seeds
+            .iter()
+            .map(|url| json!({ "url": url, "label": "page" }))
+            .collect();
+        json!({
+            "jsonrpc": "2.0",
+            "id": "start",
+            "method": "crawl.start",
+            "params": {
+                "run_id": "pages",
+                "seeds": seeds,
+                "labels": {},
+                "datasets": [],
+                "extraction": {
+                    "formats": { "text": true },
+                    "follow": if self.many_hosts { "none" } else { "scope" },
+                    "fields": {
+                        "title": { "locator": { "kind": "css", "selector": "title" } },
+                    },
+                },
+                "settings": settings,
+            },
+        })
+    }
+}
+
+/// The embedded Filter lists, for the plant of [`INSTRUCTIONS`].
+static LISTS: LazyLock<FilterLists> =
+    LazyLock::new(|| FilterLists::embedded().expect("invariant: the embedded Filter lists load"));
+
+/// The plant of the row named `name`: one more count on `work`, the
+/// crawl's, or for [`INSTRUCTIONS`] one more removal of the page served,
+/// counted nowhere but by Callgrind.
+fn plant(name: &str, work: &CountedWork) -> Plant {
+    if name == INSTRUCTIONS {
+        return Arc::new(|page: &str| {
+            let apart = CountedWork::default();
+            let document = apart.parse_html(Row::PageParses, page);
+            let choices = Choices {
+                ads: true,
+                trackers: true,
+                annoyances: true,
+                ..Choices::default()
+            };
+            let rules = Rules {
+                lists: &LISTS,
+                version: "planted",
+                choices: &choices,
+            };
+            let url = format!("http://{HOST}/planted");
+            std::hint::black_box(removal::remove(&document, &url, rules, &apart));
+        });
+    }
+    let Some(row) = PER_PAGE
+        .into_iter()
+        .chain(PER_CRAWL)
+        .find(|row| row.name() == name)
+    else {
+        panic!("no plant for the row {name}");
+    };
+    let work = work.clone();
+    Arc::new(move |_: &str| work.count(row))
+}
+
+/// The crawl of `cell`, on an engine and in a home of its own, with the
+/// row `planted` planted: what it counted, having read each page right.
+fn crawl(cell: &Cell, planted: Option<&str>) -> CountedWork {
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    let metrics = Metrics::none();
+    let work = metrics.counted_work().clone();
+    let site = Arc::new(Site {
+        pages: pages(),
+        plant: planted.map(|name| plant(name, &work)),
+    });
+    let (records, _) = drive(
+        site,
+        &cell.crawl_start(),
+        Driven {
+            home: home.path(),
+            start: std::time::UNIX_EPOCH,
+            seed: 0,
+            metrics,
+            run_state_vfs: None,
+            handler: false,
+            credits: u64::try_from(cell.pages()).expect("invariant: a few thousand pages"),
+        },
+    );
+    assert_eq!(
+        records.len(),
+        cell.pages(),
+        "the cell {} extracts each page once",
+        cell.name
+    );
+    for record in &records {
+        let text = record["text"].as_str().unwrap_or_default();
+        assert!(
+            text.contains("of the catalogue.") && record["title"].is_string(),
+            "the cell {} read no article and title: {record}",
+            cell.name
+        );
+        assert_eq!(
+            text.contains(AD),
+            cell.filter_lists_off,
+            "the cell {} kept the ad, or removed it with its Filter lists off: {record}",
+            cell.name
+        );
+    }
+    let cleaned = work.read(Row::PageRuleListBuilds) > 0 && work.read(Row::PageRuleTests) > 0;
+    assert_eq!(
+        cleaned || planted.is_some(),
+        !cell.filter_lists_off || planted.is_some(),
+        "the cell {} built no rule list, or built one with its Filter lists off",
+        cell.name
+    );
+    work
+}
+
+/// The instructions the `default` cell's crawl runs in the clean-up's
+/// removal, with the row `planted` planted, from a run of this example
+/// under Callgrind; none without Valgrind, said on stderr.
+fn clean_up_instructions(planted: Option<&str>) -> Option<u64> {
+    let program = std::env::current_exe().expect("invariant: this executable has a path");
+    let mut arguments = vec!["--callgrind", DEFAULT];
+    if let Some(planted) = planted {
+        arguments.extend(["--plant", planted]);
+    }
+    match callgrind::instructions_beneath(&[REMOVAL], &program, &arguments) {
+        Ok(Some(instructions)) => Some(instructions),
+        // A function renamed would otherwise read as free, and pass.
+        Ok(None) => panic!("Callgrind never entered {REMOVAL}: the clean-up's removal has moved"),
+        Err(error) => {
+            eprintln!("{INSTRUCTIONS} is not read: {error}");
+            None
+        }
+    }
+}
+
+fn main() {
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let value_of = |flag: &str| {
+        arguments
+            .iter()
+            .position(|argument| argument == flag)
+            .and_then(|at| arguments.get(at + 1))
+            .map(String::as_str)
+    };
+    let planted = value_of("--plant");
+    if let Some(name) = value_of("--callgrind") {
+        let cell = cells()
+            .into_iter()
+            .find(|cell| cell.name == name)
+            .expect("invariant: its parent named a cell");
+        crawl(&cell, planted);
+        return;
+    }
+    // Side by side, each on its own paused runtime, the run under Callgrind
+    // beside them: no cell waits on another, so the family's rows stay
+    // within their minute. A plant of another row has no use for the
+    // instructions and would wait for them.
+    let reads_instructions = planted.is_none_or(|planted| planted == INSTRUCTIONS);
+    let (counted, instructions) = std::thread::scope(|scope| {
+        let instructions =
+            reads_instructions.then(|| scope.spawn(move || clean_up_instructions(planted)));
+        let cells: Vec<_> = cells()
+            .into_iter()
+            .map(|cell| scope.spawn(move || (crawl(&cell, planted), cell)))
+            .collect();
+        let counted: Vec<(CountedWork, Cell)> = cells
+            .into_iter()
+            .map(|cell| cell.join().expect("invariant: a cell's checks passed"))
+            .collect();
+        let instructions = instructions.and_then(|run| {
+            run.join()
+                .expect("invariant: the run under Callgrind passed")
+        });
+        (counted, instructions)
+    });
+    for (work, cell) in &counted {
+        let mut counts: Map<String, Value> = PER_PAGE
+            .iter()
+            .chain(&PER_CRAWL)
+            .map(|row| (row.name().to_owned(), json!(work.read(*row))))
+            .collect();
+        // The other cells run under no Callgrind: they print the row with
+        // none of its unit, which `xtask counts` reads as no figure.
+        let read = cell.name == DEFAULT;
+        if let Some(instructions) = instructions.filter(|_| read) {
+            counts.insert(INSTRUCTIONS.to_owned(), json!(instructions));
+        } else if !read {
+            counts.insert(INSTRUCTIONS.to_owned(), json!(0));
+        }
+        println!(
+            "{}",
+            json!({
+                "cell": cell.name,
+                "units": {
+                    "pages": cell.pages(),
+                    "crawls": 1,
+                    "callgrind_pages": if read { cell.pages() } else { 0 },
+                },
+                "counts": counts,
+            })
+        );
+    }
+}

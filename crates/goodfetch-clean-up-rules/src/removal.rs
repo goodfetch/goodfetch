@@ -95,12 +95,16 @@ enum Step {
 
 /// Removes from `document`, the tree of the page at `url`, in place, every
 /// element the cosmetic rules of `rules` match, their selectors compiled
-/// through the engine's cache on `work`, and answers what it removed.
+/// through the engine's cache on `work`, and answers what it removed. It
+/// counts on `work` the page's rule list it builds (`F1.rule_list_builds`)
+/// and each rule it tests: a plain rule against one element, a procedural
+/// one over one root (`F1.rule_tests`).
 pub fn remove(document: &ParsedHtml, url: &str, rules: Rules<'_>, work: &CountedWork) -> Removal {
     let page = PageRules::of(rules.lists, rules.choices, url);
     if page.is_empty() {
         return Removal::default();
     }
+    work.count(Row::PageRuleListBuilds);
     let selector =
         |text: &str| work.rules_selector(Row::PageSelectorCompilations, rules.version, text);
     let roots = roots(document, work);
@@ -130,6 +134,7 @@ pub fn remove(document: &ParsedHtml, url: &str, rules: Rules<'_>, work: &Counted
         return Removal::default();
     }
     let mut gone = BTreeSet::new();
+    let mut tests = 0_u64;
     for (index, (root, host)) in roots.iter().enumerate() {
         if host.is_some_and(|host| gone_with_an_ancestor(&host, &gone)) {
             continue;
@@ -140,10 +145,14 @@ pub fn remove(document: &ParsedHtml, url: &str, rules: Rules<'_>, work: &Counted
             .descendants_it()
             .filter(NodeRef::is_element)
             .filter_map(|node| {
-                let rule = css.iter().find(|rule| node.is_match(&rule.kind))?;
+                let rule = css.iter().find(|rule| {
+                    tests += 1;
+                    node.is_match(&rule.kind)
+                })?;
                 Some((node, rule.name.as_str(), rule.list))
             })
             .collect();
+        tests += procedural.len() as u64;
         let procedurally = procedural.iter().flat_map(|rule| {
             matches(root, &rule.kind)
                 .into_iter()
@@ -164,6 +173,7 @@ pub fn remove(document: &ParsedHtml, url: &str, rules: Rules<'_>, work: &Counted
             node.remove_from_parent();
         }
     }
+    work.count_many(Row::PageRuleTests, tests);
     Removal {
         removed_text: removed.iter().map(|element| element.text).sum(),
         removed,

@@ -197,7 +197,9 @@ async fn opened_on(
 ) -> Opened {
     let (reading, read, readers) = (run.clone(), fetched.clone(), Arc::clone(readers));
     run.owner()
-        .analysis(move || Opened::of(&reading, &read, (None, extractor), (&readers, false)))
+        .analysis(run.metrics().counted_work(), move || {
+            Opened::of(&reading, &read, (None, extractor), (&readers, false))
+        })
         .await
 }
 

@@ -1593,7 +1593,13 @@ impl Pages {
                     .read(move |kept| read(Some(kept)))
                     .await
                     .ok_or_else(|| sessions::page_closed(&params.page_id))?,
-                None => served.run.owner().analysis(move || read(None)).await,
+                None => {
+                    served
+                        .run
+                        .owner()
+                        .analysis(served.run.metrics().counted_work(), move || read(None))
+                        .await
+                }
             };
             if let Some(read) = read {
                 trace::provenance(&served.run, read.entry(&params.page_id, None)).await;
@@ -1624,7 +1630,7 @@ impl Pages {
         let (formats, read) = page
             .run
             .owner()
-            .analysis(move || {
+            .analysis(page.run.metrics().counted_work(), move || {
                 clean_up::read(
                     (&document, None),
                     Serialization::Dom,

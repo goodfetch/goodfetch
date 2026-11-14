@@ -2,6 +2,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use rstest::rstest;
 use tokio::sync::{mpsc, oneshot};
 
@@ -185,7 +186,7 @@ fn no_more_analyses_than_the_cpu_pools_permits_run_at_once() {
             releases.push(Some(release));
             let (on, told) = (Arc::clone(&owner), told.clone());
             owner.spawn(async move {
-                on.analysis(move || {
+                on.analysis(&CountedWork::default(), move || {
                     let _ = told.send(Analysed::Started(analysis));
                     let _ = go_on.blocking_recv();
                     let _ = told.send(Analysed::Ended(analysis));
@@ -245,11 +246,33 @@ fn an_analysis_runs_inline_under_the_inline_policy() {
         let owner = TaskOwner::root(BlockingPolicy::Inline);
         let caller = std::thread::current().id();
         owner
-            .analysis(move || std::thread::current().id() == caller)
+            .analysis(&CountedWork::default(), move || {
+                std::thread::current().id() == caller
+            })
             .await
     });
 
     assert!(answer);
+}
+
+/// Each analysis is one hand-off to the analysis pool, counted on the
+/// Counted work it is given (`F1.analysis_handoffs`) under either policy:
+/// under the Inline one its work runs in place, and the hand-off is still
+/// the page's.
+#[rstest]
+#[case::inline(BlockingPolicy::Inline)]
+#[case::threads(BlockingPolicy::Threads)]
+fn each_analysis_counts_one_handoff(#[case] policy: BlockingPolicy) {
+    let work = CountedWork::default();
+
+    goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(policy);
+        owner.analysis(&work, || ()).await;
+        owner.analysis(&work, || ()).await;
+        owner.stop().await;
+    });
+
+    assert_eq!(work.read(Row::PageAnalysisHandoffs), 2);
 }
 
 /// How long an Inline test waits, on the paused clock, for what an owner

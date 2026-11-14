@@ -446,7 +446,9 @@ where
         document
             .run
             .owner()
-            .analysis(move || read(&work.parse_html(CountedRow::PageParses, &served.html)))
+            .analysis(document.run.metrics().counted_work(), move || {
+                read(&work.parse_html(CountedRow::PageParses, &served.html))
+            })
             .await,
     )
 }

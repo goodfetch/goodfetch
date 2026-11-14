@@ -2742,42 +2742,45 @@ pub struct Race<'a> {
     pub request_id: &'a str,
     /// Its Label.
     pub label: &'a str,
-    /// How long after browser-fetch started the navigation was to start.
+    /// How long after its first request started the navigation was to
+    /// start.
     pub after: Duration,
-    /// How browser-fetch ended.
-    pub browser_fetch: RaceEnd,
+    /// The tier that sent its first request: `browser_fetch` from inside
+    /// a Session's browser, `http` from a Session's own transport (#2421).
+    pub first_sent_on: FetchTier,
+    /// How its first request ended.
+    pub first: RaceEnd,
     /// How the navigation ended.
     pub navigation: RaceEnd,
 }
 
 /// Records in `run`'s Provenance how a tier race ran (ADR 0040): its
-/// delay, how each run ended, and which won, `browser_fetch`, `browser`
-/// or none.
+/// delay, how each run ended, the first request under the name of the tier
+/// that sent it, `browser_fetch` or `http`, and which won, that tier,
+/// `browser` or none.
 ///
 /// # Cancel safety
 ///
 /// Dropping the future never stops the line being written once it began.
 pub async fn record_race(run: &Run, race: &Race<'_>) {
-    let winner = if race.browser_fetch == RaceEnd::Won {
-        Some(FetchTier::BrowserFetch.as_str())
+    let first = race.first_sent_on.as_str();
+    let winner = if race.first == RaceEnd::Won {
+        Some(first)
     } else if race.navigation == RaceEnd::Won {
         Some(FetchTier::Browser.as_str())
     } else {
         None
     };
-    goodfetch_page::provenance(
-        run,
-        serde_json::json!({
-            "action": TIER_RACE_ACTION,
-            "crawl_request_id": race.request_id,
-            "label": race.label,
-            "after_ms": u64::try_from(race.after.as_millis()).unwrap_or(u64::MAX),
-            "browser_fetch": race.browser_fetch.as_str(),
-            "navigation": race.navigation.as_str(),
-            "winner": winner,
-        }),
-    )
-    .await;
+    let mut entry = serde_json::json!({
+        "action": TIER_RACE_ACTION,
+        "crawl_request_id": race.request_id,
+        "label": race.label,
+        "after_ms": u64::try_from(race.after.as_millis()).unwrap_or(u64::MAX),
+        "navigation": race.navigation.as_str(),
+        "winner": winner,
+    });
+    entry[first] = serde_json::Value::from(race.first.as_str());
+    goodfetch_page::provenance(run, entry).await;
 }
 
 /// Refuses a `fetch.redirect.max` outside 1 to 19, as many redirects as

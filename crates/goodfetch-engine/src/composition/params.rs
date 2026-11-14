@@ -9,6 +9,7 @@
 //! of the request's params and counts as one (`E1.decodes`).
 
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::fmt;
 
 use goodfetch_counted_work::{CountedWork, Row};
@@ -16,56 +17,133 @@ use goodfetch_protocol::jsonrpc::{META, ProtocolFailure};
 use serde::Deserialize;
 use serde::de::value::BorrowedStrDeserializer;
 use serde::de::{
-    self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, IgnoredAny,
-    IntoDeserializer, MapAccess, SeqAccess, VariantAccess, Visitor,
+    self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, IntoDeserializer, MapAccess,
+    SeqAccess, VariantAccess, Visitor,
 };
 
-use crate::call_error::CallError;
-use crate::wire::{Key, KeySeed};
+use serde_json::value::RawValue;
 
-/// A call's params as they arrived: their JSON text, where it is in the
-/// line that carried them, `{}` for a call that sent none, with the Counted
-/// work each decode of them counts on.
-#[derive(Clone, Copy, Debug)]
-pub struct Params<'a> {
+use crate::call_error::CallError;
+use crate::trace::ID_FIELDS;
+use crate::wire::{Key, KeySeed, text};
+
+mod preamble;
+
+use preamble::Found;
+pub(crate) use preamble::Preamble;
+
+/// A request's params as they arrived, held by dispatch while the call
+/// starts: their JSON text, where it is in the line that carried them, `{}`
+/// for a request that sent none, the Counted work each decode of them
+/// counts on, and what the read into their handler's type found of what
+/// dispatch takes of them.
+pub(crate) struct Arrived<'a> {
     json: &'a str,
     work: &'a CountedWork,
+    /// What a whole read of them found, until dispatch checks it.
+    found: Cell<Option<Found<'a>>>,
+    /// What dispatch takes of them, once checked.
+    preamble: Cell<Option<Preamble<'a>>>,
+}
+
+impl<'a> Arrived<'a> {
+    /// The params whose JSON text is `json`, or those of a request that
+    /// sent none, their decodes counted on `work`.
+    pub(crate) fn new(json: Option<&'a str>, work: &'a CountedWork) -> Self {
+        Self {
+            json: json.unwrap_or("{}"),
+            work,
+            // No params hold nothing for dispatch, whoever reads them.
+            found: Cell::new(json.is_none().then(Found::default)),
+            preamble: Cell::new(None),
+        }
+    }
+
+    /// They, as a guard and a handler read them.
+    pub(crate) fn params(&'a self) -> Params<'a> {
+        Params(self)
+    }
+
+    /// What dispatch takes of them: what the read into their handler's
+    /// type found in its pass, or, when no read went through them, as when
+    /// their handler refused them, a read of its own, which counts one
+    /// decode.
+    ///
+    /// # Errors
+    ///
+    /// `invalid_params` when their `_meta` holds a key other than
+    /// `traceparent` and `tracestate` or a value that is no string.
+    pub(crate) fn preamble(&self) -> Result<Preamble<'a>, CallError> {
+        self.check()?;
+        Ok(self.preamble.take().unwrap_or_default())
+    }
+
+    /// Checks what dispatch takes of them, once.
+    fn check(&self) -> Result<(), CallError> {
+        let checked = self.preamble.take();
+        if checked.is_none() {
+            let found = self.found.take().unwrap_or_else(|| {
+                self.work.count(Row::MessageDecodes);
+                Found::scan(self.json)
+            });
+            self.preamble.set(Some(found.checked()?));
+        } else {
+            self.preamble.set(checked);
+        }
+        Ok(())
+    }
+}
+
+/// A call's params as they arrived, as its guard and its handler read
+/// them.
+#[derive(Clone, Copy)]
+pub struct Params<'a>(&'a Arrived<'a>);
+
+impl fmt::Debug for Params<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("Params").field(&self.0.json).finish()
+    }
 }
 
 impl<'a> Params<'a> {
-    /// The params whose JSON text is `json`, their decodes counted on
-    /// `work`.
-    pub fn new(json: &'a str, work: &'a CountedWork) -> Self {
-        Self { json, work }
-    }
-
-    /// The params of a call that sent none: `{}`.
-    pub fn none(work: &'a CountedWork) -> Self {
-        Self { json: "{}", work }
-    }
-
     /// Their JSON text.
     pub fn json(&self) -> &'a str {
-        self.json
+        self.0.json
     }
 
     /// They, read as `P` in one pass, each struct and map only from an
-    /// object, without their `_meta`. Counts one decode.
+    /// object, without their `_meta`. Counts one decode. A read that goes
+    /// through every member of the params also finds, in the same pass,
+    /// what dispatch takes of them.
     ///
     /// # Errors
     ///
     /// `invalid_params` when they are no `P`.
     pub fn read<P: DeserializeOwned>(&self) -> Result<P, CallError> {
-        self.work.count(Row::MessageDecodes);
-        let mut json = serde_json::Deserializer::from_str(self.json);
-        P::deserialize(Strict {
+        self.0.work.count(Row::MessageDecodes);
+        let mut found = Found::default();
+        let mut json = serde_json::Deserializer::from_str(self.0.json);
+        let params = P::deserialize(Strict {
             inner: &mut json,
-            outer: true,
+            outer: Some(&mut found),
         })
         .and_then(|params| json.end().map(|()| params))
         .map_err(|error| {
             CallError::protocol(ProtocolFailure::InvalidParams, without_position(&error))
-        })
+        })?;
+        // Only a pass through the params' own members found what dispatch
+        // takes; after any other, as into a type that ignores them,
+        // dispatch reads them itself.
+        if found.whole {
+            self.0.found.set(Some(found));
+        }
+        Ok(params)
+    }
+
+    /// Whether dispatch takes them: `invalid_params` for a `_meta` it
+    /// refuses, before the call's guard is asked and its handler called.
+    pub(crate) fn taken(self) -> Result<(), CallError> {
+        self.0.check()
     }
 
     /// The members `T` names, read where they are, for a reader that needs
@@ -76,8 +154,8 @@ impl<'a> Params<'a> {
     /// says nothing of whether the handler's read takes them. Counts one
     /// decode.
     pub fn read_members<T: Deserialize<'a>>(&self) -> Option<T> {
-        self.work.count(Row::MessageDecodes);
-        serde_json::from_str(self.json).ok()
+        self.0.work.count(Row::MessageDecodes);
+        serde_json::from_str(self.0.json).ok()
     }
 }
 
@@ -92,36 +170,41 @@ pub(crate) fn without_position(error: &serde_json::Error) -> String {
     }
 }
 
+/// Where a read of the params themselves notes what dispatch takes of
+/// them; `None` for every value inside them.
+type Outer<'t, 'de> = Option<&'t mut Found<'de>>;
+
 /// A deserializer whose structs and maps, at every depth, read only from
-/// objects; `outer` for the params themselves, whose `_meta` it skips.
-struct Strict<D> {
+/// objects; `outer` for the params themselves, whose `_meta` and IDs it
+/// notes there, their `_meta` skipped.
+struct Strict<'t, 'de, D> {
     inner: D,
-    outer: bool,
+    outer: Outer<'t, 'de>,
 }
 
 /// A visitor that reads every nested value strictly.
-struct Wrap<V> {
+struct Wrap<'t, 'de, V> {
     visitor: V,
-    outer: bool,
+    outer: Outer<'t, 'de>,
 }
 
 /// A visitor that reads only an object, its members strictly.
-struct Object<V> {
+struct Object<'t, 'de, V> {
     visitor: V,
-    outer: bool,
+    outer: Outer<'t, 'de>,
 }
 
 macro_rules! forward_strictly {
     ($($method:ident)*) => {
         $(
             fn $method<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, D::Error> {
-                self.inner.$method(Wrap { visitor, outer: false })
+                self.inner.$method(Wrap { visitor, outer: None })
             }
         )*
     };
 }
 
-impl<'de, D: Deserializer<'de>> Deserializer<'de> for Strict<D> {
+impl<'de, D: Deserializer<'de>> Deserializer<'de> for Strict<'_, 'de, D> {
     type Error = D::Error;
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, D::Error> {
@@ -177,7 +260,7 @@ impl<'de, D: Deserializer<'de>> Deserializer<'de> for Strict<D> {
             name,
             Wrap {
                 visitor,
-                outer: false,
+                outer: None,
             },
         )
     }
@@ -191,7 +274,7 @@ impl<'de, D: Deserializer<'de>> Deserializer<'de> for Strict<D> {
             length,
             Wrap {
                 visitor,
-                outer: false,
+                outer: None,
             },
         )
     }
@@ -207,7 +290,7 @@ impl<'de, D: Deserializer<'de>> Deserializer<'de> for Strict<D> {
             length,
             Wrap {
                 visitor,
-                outer: false,
+                outer: None,
             },
         )
     }
@@ -223,7 +306,7 @@ impl<'de, D: Deserializer<'de>> Deserializer<'de> for Strict<D> {
             variants,
             Wrap {
                 visitor,
-                outer: false,
+                outer: None,
             },
         )
     }
@@ -251,7 +334,7 @@ macro_rules! forward_visits {
     };
 }
 
-impl<'de, V: Visitor<'de>> Visitor<'de> for Wrap<V> {
+impl<'de, V: Visitor<'de>> Visitor<'de> for Wrap<'_, 'de, V> {
     type Value = V::Value;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -296,6 +379,7 @@ impl<'de, V: Visitor<'de>> Visitor<'de> for Wrap<V> {
         self.visitor.visit_map(Members {
             inner: members,
             outer: self.outer,
+            id: None,
         })
     }
 
@@ -306,7 +390,7 @@ impl<'de, V: Visitor<'de>> Visitor<'de> for Wrap<V> {
 
 /// Every value but an object is refused, as serde words what it did not
 /// expect.
-impl<'de, V: Visitor<'de>> Visitor<'de> for Object<V> {
+impl<'de, V: Visitor<'de>> Visitor<'de> for Object<'_, 'de, V> {
     type Value = V::Value;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -317,6 +401,7 @@ impl<'de, V: Visitor<'de>> Visitor<'de> for Object<V> {
         self.visitor.visit_map(Members {
             inner: members,
             outer: self.outer,
+            id: None,
         })
     }
 }
@@ -328,10 +413,7 @@ impl<'de, S: DeserializeSeed<'de>> DeserializeSeed<'de> for Seed<S> {
     type Value = S::Value;
 
     fn deserialize<D: Deserializer<'de>>(self, inner: D) -> Result<S::Value, D::Error> {
-        self.0.deserialize(Strict {
-            inner,
-            outer: false,
-        })
+        self.0.deserialize(Strict { inner, outer: None })
     }
 }
 
@@ -354,30 +436,34 @@ impl<'de, A: SeqAccess<'de>> SeqAccess<'de> for Items<A> {
 }
 
 /// An object's members, each value read strictly; the params' own skip
-/// their `_meta`.
-struct Members<A> {
+/// their `_meta`, noting it and their IDs where dispatch takes them.
+struct Members<'t, 'de, A> {
     inner: A,
-    outer: bool,
+    outer: Outer<'t, 'de>,
+    /// Which of the IDs the member whose key was just read is, if one.
+    id: Option<usize>,
 }
 
-impl<'de, A: MapAccess<'de>> MapAccess<'de> for Members<A> {
+impl<'de, A: MapAccess<'de>> MapAccess<'de> for Members<'_, 'de, A> {
     type Error = A::Error;
 
     fn next_key_seed<K: DeserializeSeed<'de>>(
         &mut self,
         seed: K,
     ) -> Result<Option<K::Value>, A::Error> {
-        if !self.outer {
+        let Some(found) = &mut self.outer else {
             return self.inner.next_key_seed(seed);
-        }
+        };
         loop {
             let Some(Key(key)) = self.inner.next_key_seed(KeySeed)? else {
+                found.whole = true;
                 return Ok(None);
             };
             if key == META {
-                self.inner.next_value::<IgnoredAny>()?;
+                found.meta = Some(self.inner.next_value()?);
                 continue;
             }
+            self.id = ID_FIELDS.iter().position(|field| *field == key);
             return match key {
                 Cow::Borrowed(key) => seed.deserialize(BorrowedStrDeserializer::new(key)),
                 Cow::Owned(key) => seed.deserialize(key.into_deserializer()),
@@ -387,7 +473,20 @@ impl<'de, A: MapAccess<'de>> MapAccess<'de> for Members<A> {
     }
 
     fn next_value_seed<V: DeserializeSeed<'de>>(&mut self, seed: V) -> Result<V::Value, A::Error> {
-        self.inner.next_value_seed(Seed(seed))
+        let (Some(at), Some(found)) = (self.id.take(), &mut self.outer) else {
+            return self.inner.next_value_seed(Seed(seed));
+        };
+        // An ID is noted where it is and read on into the handler's type
+        // from there, as serde_json reads any value: the pass goes through
+        // the params once, and through an ID's own text once more.
+        let value: &'de RawValue = self.inner.next_value()?;
+        found.ids[at] = text(value);
+        let mut json = serde_json::Deserializer::from_str(value.get());
+        seed.deserialize(Strict {
+            inner: &mut json,
+            outer: None,
+        })
+        .map_err(|error| de::Error::custom(without_position(&error)))
     }
 
     fn size_hint(&self) -> Option<usize> {
@@ -435,7 +534,7 @@ impl<'de, A: VariantAccess<'de>> VariantAccess<'de> for Content<A> {
             length,
             Wrap {
                 visitor,
-                outer: false,
+                outer: None,
             },
         )
     }
@@ -449,7 +548,7 @@ impl<'de, A: VariantAccess<'de>> VariantAccess<'de> for Content<A> {
             fields,
             Object {
                 visitor,
-                outer: false,
+                outer: None,
             },
         )
     }

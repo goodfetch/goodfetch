@@ -162,8 +162,8 @@ fn a_guards_refusal_comes_before_the_handler_reads_the_params(#[case] params: &s
 
 #[rstest]
 #[case::a_member_of_another_type(r#"{"count":"many"}"#)]
-#[case::a_member_missing(r#"{}"#)]
-#[case::an_array(r#"[2]"#)]
+#[case::a_member_missing(r"{}")]
+#[case::an_array(r"[2]")]
 fn params_that_are_not_the_handlers_type_are_refused_once_the_guard_let_them_pass(
     #[case] params: &str,
 ) {

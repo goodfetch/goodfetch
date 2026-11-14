@@ -209,6 +209,10 @@ pub(super) struct Tiering {
     /// its HTTP from the transport (`fetch.http_from`): drawn beside the
     /// attempt's, sharing nothing with it.
     transport: Option<SampleSession>,
+    /// The Session drawn only to read the attempt's site files from its
+    /// own transport, when neither the attempt's Session nor `transport`
+    /// sends from one (#2422).
+    site_files: Option<ServingSession>,
 }
 
 /// The Session a sample's `http` run is sent from, from its own transport,
@@ -241,6 +245,7 @@ impl Tiering {
             second_copies: second_copies.clone(),
             sends_from: SendsFrom::Browser,
             transport: None,
+            site_files: None,
         }
     }
 
@@ -253,6 +258,13 @@ impl Tiering {
     ) -> Self {
         self.sends_from = sends_from;
         self.transport = transport;
+        self
+    }
+
+    /// The same, its site files read from `site_files`' Session when
+    /// given.
+    pub(super) fn reading_site_files(mut self, site_files: Option<ServingSession>) -> Self {
+        self.site_files = site_files;
         self
     }
 
@@ -300,9 +312,8 @@ const BROWSER: TierChoice = TierChoice {
 /// What every attempt of `run` hands over alike with its pages, built once
 /// as its delivery opens, never per attempt (ADR 0138): its `settings` as
 /// the navigation gate and the site's preferences read them, the
-/// Politeness it shares, robots.txt and the AI-use signal files fetched on
-/// `http`, the Run's HTTP tier, whose address check judges each redirect
-/// hop, `egress`, its domain policy, and `hops`, how each redirect hop
+/// Politeness it shares, `http`, the Run's HTTP tier, whose address check
+/// judges each redirect hop, `egress`, its domain policy, and `hops`, how each redirect hop
 /// asks the delivery loop of the visited set (ADR 0142).
 pub(super) async fn run_hand_over(
     run: &Run,
@@ -328,7 +339,6 @@ pub(super) async fn run_hand_over(
         keys: DomainKeys::of(settings),
         politeness: shared.clone().filter(|_| paces),
         shared_politeness: shared,
-        robots: http.map(HttpTier::robots_txt_fetch),
         domain_delay: settings
             .get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY)
             .unwrap_or_default(),
@@ -433,6 +443,8 @@ pub(super) struct Attempt {
     /// The Session a sample's `http` run was sent from, from its own
     /// transport, when its Label sends its HTTP from there.
     pub(super) transport: Option<ServingSession>,
+    /// The Session drawn only to read its site files, when one was.
+    pub(super) site_files: Option<ServingSession>,
     pub(super) lease: WorkItemLease,
     pub(super) answer: Answer,
     /// What its page taught the Frontier, or teaches it with its outcome.
@@ -455,6 +467,17 @@ pub(super) struct Attempt {
     /// Whether a Challenge met on a tier short of the browser moved it to
     /// the browser, which its domain then learns (`escalation`).
     pub(super) moved: bool,
+}
+
+/// The answer of an attempt that needs the crawl's HTTP tier, which could
+/// not be built: its `what` was not fetched, retried as a failed
+/// navigation.
+fn without_http_tier(what: &str) -> Answer {
+    Answer::failed(AttemptFailure::named(
+        NAVIGATION_FAILED.name,
+        true,
+        format!("The crawl's HTTP tier could not be built, so the {what} was not fetched."),
+    ))
 }
 
 /// One attempt: the handler request, bounded by its lease, on the tier its
@@ -505,12 +528,7 @@ pub(super) async fn attempt(
             let mut raced = None;
             let answer = match (&tiering.plan, &tiering.http) {
                 (AttemptPlan::Sitemap, Some(http)) => on.sitemap(http).await,
-                (AttemptPlan::Sitemap, None) => Answer::failed(AttemptFailure::named(
-                    NAVIGATION_FAILED.name,
-                    true,
-                    "The crawl's HTTP tier could not be built, so the sitemap was not fetched."
-                        .to_owned(),
-                )),
+                (AttemptPlan::Sitemap, None) => without_http_tier("sitemap"),
                 (AttemptPlan::On(choice), _) if choice.tier == FetchTier::Browser => {
                     on.browser(&tiering.tiers, choice, Chosen::AsChosen).await
                 }
@@ -542,12 +560,7 @@ pub(super) async fn attempt(
                     | AttemptPlan::Sample(_)
                     | AttemptPlan::Race(_),
                     None,
-                ) => Answer::failed(AttemptFailure::named(
-                    NAVIGATION_FAILED.name,
-                    true,
-                    "The crawl's HTTP tier could not be built, so the request was not fetched."
-                        .to_owned(),
-                )),
+                ) => without_http_tier("request"),
             };
             (answer, merged, sampled, raced)
         }))
@@ -573,6 +586,7 @@ pub(super) async fn attempt(
         _counted: counted,
         session,
         transport: tiering.transport.map(|sample| sample.session),
+        site_files: tiering.site_files,
         lease,
         answer,
         taught,
@@ -1243,7 +1257,7 @@ impl On<'_> {
             document = async {
                 address_check(run, http, leased).await?;
                 if let Ok(url) = goodfetch_frontier::Url::parse(&leased.crawl_request.url) {
-                    self.site_preferences_judged(http, Request::CrawlRequest, &url)
+                    self.site_preferences_judged(Request::CrawlRequest, &url)
                         .await?;
                 }
                 let served: Result<PageId, Unfollowed> = if choice.tier == FetchTier::LightBrowser {
@@ -1298,7 +1312,7 @@ impl On<'_> {
         let facts = tiers
             .facts(served.page_id())
             .expect("invariant: a served page is open while it is held");
-        if let Some(refused) = self.document_refusal(http, &facts.use_signals).await {
+        if let Some(refused) = self.document_refusal(&facts.use_signals).await {
             return Err(refused.into());
         }
         Ok((served, facts))

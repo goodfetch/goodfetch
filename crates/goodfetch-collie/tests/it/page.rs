@@ -138,6 +138,28 @@ pub(crate) fn resumed_with(
     )
 }
 
+/// The next `engine.system_info` the engine sends on the subscription
+/// `samples`, every other message read past, and one credit given for the
+/// sample after it.
+pub(crate) fn next_sample(engine: &mut Attached) -> Value {
+    loop {
+        let message = engine
+            .next()
+            .expect("the engine ended before its next sample");
+        let events = message["params"]["events"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        if let Some(sample) = events
+            .into_iter()
+            .find(|event| event["event"] == "engine.system_info")
+        {
+            engine.send(&json!({ "jsonrpc": "2.0", "method": "$/credit", "params": { "id": "samples", "credits": 1 } }));
+            return sample["data"].clone();
+        }
+    }
+}
+
 /// How a test's Run begins: its Client's `hello`, and the call that begins
 /// the Run `run_id`.
 struct Beginning<'a> {

@@ -26,7 +26,7 @@ use goodfetch_protocol::page::PageOpened;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use serde_json::{Map, Value, json};
 
-use crate::page::{browser_command_lines, opened, started_by_a_person};
+use crate::page::{browser_command_lines, next_sample, opened, started_by_a_person};
 use goodfetch_test_client::Attached;
 
 /// The Proving ground's own seed for these tests.
@@ -145,27 +145,11 @@ fn at_critical_an_idle_browser_closes() {
     );
 }
 
-/// The Memory allowance of each of the next `count` samples the
-/// subscription `samples` takes, every other message read past.
-fn allowances(engine: &mut Attached, count: usize) -> Vec<Value> {
-    let mut allowances = Vec::new();
-    while allowances.len() < count {
-        let message = engine.next().unwrap();
-        if message["params"]["id"] != "samples" {
-            continue;
-        }
-        for event in message["params"]["events"].as_array().unwrap() {
-            allowances.push(event["data"]["memory"]["allowance"].clone());
-        }
-    }
-    allowances.truncate(count);
-    allowances
-}
-
 /// A hand edit of the user configuration while the engine runs is no write
-/// of the engine's: the governor follows it from the next Run's start,
-/// which resolves the machine's settings again (ADR 0040), and at no
-/// sample before. An idle browser stays through three samples after the
+/// of the engine's: the governor follows it from the engine's next read of
+/// the file, the next Run's start at the latest, which resolves the
+/// machine's settings again (ADR 0040). Nothing reads the file while one
+/// Run idles, so an idle browser stays through three samples after the
 /// Memory allowance was edited to critical by hand, none of them under
 /// that allowance, and closes once another Run starts.
 ///
@@ -183,10 +167,12 @@ fn a_hand_edit_of_the_memory_allowance_is_in_force_from_the_next_runs_start() {
         "jsonrpc": "2.0", "id": "samples", "method": "events.subscribe",
         "params": { "system_info": true },
     }));
-    engine.send(&json!({ "jsonrpc": "2.0", "method": "$/credit", "params": { "id": "samples", "credits": 64 } }));
+    engine.send(&json!({ "jsonrpc": "2.0", "method": "$/credit", "params": { "id": "samples", "credits": 1 } }));
 
     configure(&env, &format!("{ALLOWANCE} = {CRITICAL}\n"));
-    let sampled = allowances(&mut engine, 3);
+    let sampled: Vec<Value> = (0..3)
+        .map(|_| next_sample(&mut engine)["memory"]["allowance"].clone())
+        .collect();
     let before_the_next_run = browsers(&env);
     let next = answer(&mut engine, 3, "run.start", &json!({ "run_id": "next" }));
     let from_the_next_run = browsers_once(&env, 0);

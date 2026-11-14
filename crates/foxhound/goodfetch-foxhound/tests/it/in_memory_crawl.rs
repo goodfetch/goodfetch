@@ -13,8 +13,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_engine::home::Home;
+use goodfetch_engine::ledger::Ledger;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_test_support::{CountingVfs, TestEnv};
+use jiff::Timestamp;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
@@ -320,10 +323,13 @@ fn parses(settings: &Value, planted: bool) -> u64 {
 /// the counted ledger, on the crawl's own engine, which the crawl with no
 /// Limit also reads and no Slice's transaction commits; a Slice's commit is
 /// the difference. A charge the Slices the Run holds cover runs no SQL
-/// (issue 1888), so the ledger counts a statement only for a charge that
-/// reads the Limits again, the first at least, and never one per page.
+/// (issue 1888), so the ledger counts one statement, the first charge's
+/// read of the Limits, which stay current on the crawl's paused clock;
+/// and the ledger holds one request per page as charged to the Limit once
+/// the crawl ended.
 #[test]
 fn a_crawl_under_a_limit_charges_each_page_through_the_counted_ledger() {
+    const LIMIT: u64 = 1_000_000;
     let charged = |limit: Option<u64>| {
         let env = TestEnv::new();
         let metrics = Metrics::none();
@@ -338,18 +344,30 @@ fn a_crawl_under_a_limit_charges_each_page_through_the_counted_ledger() {
                 ..Options::default()
             },
         );
+        let ledger = Ledger::at(Home::new(env.home().to_owned()).usage_ledger(), None);
+        let now = Timestamp::try_from(env.start_time()).unwrap();
+        let used: Vec<u64> = ledger
+            .limits()
+            .unwrap()
+            .iter()
+            .map(|limit| limit.amount - ledger.left(limit, now).unwrap())
+            .collect();
         (
-            work.read(Row::ChargeStatements),
-            work.read(Row::ChargeTransactions),
+            (
+                work.read(Row::ChargeStatements),
+                work.read(Row::ChargeTransactions),
+            ),
+            used,
         )
     };
 
-    let (limited, free) = (charged(Some(1_000_000)), charged(None));
+    let ((limited, used), (free, _)) = (charged(Some(LIMIT)), charged(None));
 
     let pages = u64::try_from(PAGES.len() + 1).unwrap();
-    assert!(
-        (1..pages).contains(&limited.0),
-        "the Limits read on the counted ledger, and not at each page: {limited:?} over {pages} pages"
+    assert_eq!(
+        (limited.0, used),
+        (1, vec![pages]),
+        "one read of the Limits, and each of the {pages} pages charged: {limited:?}"
     );
     assert!(
         limited.1 > free.1,

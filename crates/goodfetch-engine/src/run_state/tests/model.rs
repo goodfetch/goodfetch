@@ -36,7 +36,7 @@ use tokio::runtime::Runtime;
 
 use super::{ITEMS, insert, items};
 use crate::run_state::install::{INSTALL_FILE, InstallDatabase};
-use crate::run_state::{Durability, RunState, RunStateOptions, Syncing, unclean};
+use crate::run_state::{BatchSync, Durability, RunState, RunStateOptions, Syncing, unclean};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// What the reference model knows: each value acknowledged, and each one
@@ -97,10 +97,10 @@ impl ReferenceStateMachine for Reference {
         (
             prop_oneof![Just(Layout::PerRun), Just(Layout::PerInstall)],
             prop_oneof![
-                Just(Durability::Full),
-                Just(Durability::Fast),
-                Just(Durability::Periodic { interval: INTERVAL }),
-                Just(Durability::Off),
+                Just(Durability::FULL),
+                Just(Durability::FAST),
+                Just(Durability::periodic(INTERVAL)),
+                Just(Durability::OFF),
             ],
         )
             .prop_map(|(layout, durability)| Self {
@@ -151,7 +151,7 @@ impl ReferenceStateMachine for Reference {
                 let synced = (0..*count)
                     .rev()
                     .find(|index| !is_deferred(*deferred, *index))
-                    .filter(|_| state.durability == Durability::Full);
+                    .filter(|_| state.durability == Durability::FULL);
                 if synced.is_some() {
                     state.unsynced.clear();
                 }
@@ -174,7 +174,7 @@ impl ReferenceStateMachine for Reference {
             Transition::Crash(kind) => state.crash(*kind),
             // The idle writer's timer syncs what it committed.
             Transition::Elapse => {
-                if matches!(state.durability, Durability::Periodic { .. }) {
+                if state.durability.sync_interval().is_some() {
                     state.unsynced.clear();
                 }
             }
@@ -194,15 +194,15 @@ impl Reference {
     /// since the interval last passed; at `off` any crash discards the file,
     /// so the Run starts again from nothing.
     fn crash(&mut self, kind: CrashKind) {
-        if self.durability == Durability::Off {
+        if self.durability == Durability::OFF {
             self.acknowledged.clear();
             self.uncertain.clear();
         } else if kind == CrashKind::PowerCut {
-            match self.durability {
-                Durability::Fast | Durability::Off => {
+            match self.durability.sync {
+                BatchSync::Never | BatchSync::Off => {
                     self.uncertain.append(&mut self.acknowledged);
                 }
-                Durability::Full | Durability::Periodic { .. } => {
+                BatchSync::Each | BatchSync::Interval(_) => {
                     let unsynced = std::mem::take(&mut self.unsynced);
                     self.acknowledged.retain(|value| !unsynced.contains(value));
                     self.uncertain.extend(unsynced);
@@ -296,7 +296,7 @@ impl Subject {
         drop(self.state.take());
         self.runtime.block_on(self.owner.wait());
         self.owner = TaskOwner::root(BlockingPolicy::Inline);
-        let off = self.durability == Durability::Off;
+        let off = self.durability == Durability::OFF;
         let (found, marked) = match self.install.take() {
             None => {
                 let found = after_crash(&self.vfs, &self.path).map_err(|error| error.to_string());

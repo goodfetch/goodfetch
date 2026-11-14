@@ -191,8 +191,8 @@ fn a_second_sealed_batch_waits_while_the_first_is_written() {
 ///
 /// Covers: story:3-25, story:3-27, setting:run_state.durability
 #[rstest::rstest]
-#[case::each(Durability::Full, 1)]
-#[case::never(Durability::Fast, 0)]
+#[case::each(Durability::FULL, 1)]
+#[case::never(Durability::FAST, 0)]
 fn a_barrier_commits_the_batch_in_progress_before_it_answers_synced_as_the_level_says(
     #[case] durability: Durability,
     #[case] syncs: u64,

@@ -119,6 +119,13 @@ commit_interval = 30000
 layout = "per_run"
 key_reference = "env:EXAMPLE"
 
+[settings.run_state.batch]
+per_attempt = true
+pages = 1000
+interval = 1000
+bytes = 1000
+sync = "each"
+
 [settings.checkpoint]
 interval = 30000
 
@@ -468,6 +475,13 @@ durability = "full"
 commit_interval = 30000
 layout = "per_run"
 key_reference = "env:EXAMPLE"
+
+[lock.run_state.batch]
+per_attempt = true
+pages = 1000
+interval = 1000
+bytes = 1000
+sync = "each"
 
 [lock.checkpoint]
 interval = 30000

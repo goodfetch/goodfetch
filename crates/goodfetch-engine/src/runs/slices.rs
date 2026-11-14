@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::run::{LimitScope, RUN_STATE_DURABILITY, RunId};
+use goodfetch_protocol::run::{LimitScope, RUN_STATE_BATCH_SYNC, RUN_STATE_DURABILITY, RunId};
 use goodfetch_protocol::settings::WeakenedSetting;
 use goodfetch_protocol::usage::{CONNECTION, DAEMON, INSTALL, PERSON};
 use jiff::Timestamp;
@@ -185,17 +185,21 @@ pub(super) enum OverCharge {
 /// journal: every Slice whole when its Durability level is weakened, which
 /// syncs no commit, else the bound it declares.
 fn beyond(declared: i64, weakened: &str) -> u64 {
-    let unsynced =
-        serde_json::from_str::<Vec<WeakenedSetting>>(weakened).map_or(true, |weakened| {
-            weakened
-                .iter()
-                .any(|setting| setting.key == RUN_STATE_DURABILITY.name)
+    let unsynced = serde_json::from_str::<Vec<WeakenedSetting>>(weakened)
+        .map_or(true, |weakened| {
+            weakened.iter().any(|setting| unsynced(&setting.key))
         });
     if unsynced {
         u64::MAX
     } else {
         u64::try_from(declared).unwrap_or_default()
     }
+}
+
+/// Whether a weakened setting named `key` leaves commits unsynced: `off`,
+/// or a `run_state.batch.sync` other than `each` (ADR 0142).
+fn unsynced(key: &str) -> bool {
+    key == RUN_STATE_DURABILITY.name || key == RUN_STATE_BATCH_SYNC.name
 }
 
 /// What a reclaimer finds of the run `holder` names, its state in `file`

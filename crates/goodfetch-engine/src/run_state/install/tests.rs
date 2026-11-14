@@ -311,9 +311,9 @@ fn the_install_database_syncs_once_per_synced_group_of_each_run_whatever_the_oth
             )
             .await
         };
-        let full = open("full", Durability::Full).await.unwrap();
-        let other = open("other", Durability::Full).await.unwrap();
-        let fast = open("fast", Durability::Fast).await.unwrap();
+        let full = open("full", Durability::FULL).await.unwrap();
+        let other = open("other", Durability::FULL).await.unwrap();
+        let fast = open("fast", Durability::FAST).await.unwrap();
         for state in [&full, &other, &fast] {
             state.write(insert(0)).await.unwrap();
         }

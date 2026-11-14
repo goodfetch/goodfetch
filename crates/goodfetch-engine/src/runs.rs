@@ -69,10 +69,11 @@ use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, HumanPause, Lifecycle,
     LimitScope, MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, PointInTime,
-    Presence, ProgressMessage, RUN_IN_USE, RUN_STATE_COMMIT_INTERVAL, RUN_STATE_DURABILITY,
-    ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunListParams, RunOwner, RunProgress,
-    RunReport, RunStarted, RunStorage, RunUsage, RunWarning, RunWriter, StartInput, StartedAs,
-    StopReason, Tags,
+    Presence, ProgressMessage, RUN_IN_USE, RUN_STATE_BATCH_BYTES, RUN_STATE_BATCH_INTERVAL,
+    RUN_STATE_BATCH_PAGES, RUN_STATE_BATCH_PER_ATTEMPT, RUN_STATE_BATCH_SYNC,
+    RUN_STATE_COMMIT_INTERVAL, ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunListParams,
+    RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage, RunWarning, RunWriter,
+    StartInput, StartedAs, StopReason, Tags,
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
@@ -140,7 +141,7 @@ use crate::run_index::{self, RunIndex};
 use crate::run_key::{self, KeyError, RunKey, Sealed, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
-    self, Durability, RUN_FILE, ReservedWrite, RunState, RunStateError, RunStateOptions,
+    self, BatchSync, Durability, RUN_FILE, ReservedWrite, RunState, RunStateError, RunStateOptions,
     RunStateTables, SecretColumn, Syncing,
 };
 use crate::run_trace;
@@ -6886,15 +6887,23 @@ impl SharedPoliteness {
     }
 }
 
-/// The Durability level a Run's `settings` name (`run_state.durability`,
-/// with `run_state.commit_interval` at `periodic`), `full` when it has none.
+/// How a Run's `settings` write its run file: `run_state.durability`'s
+/// preset as the resolver unfolded it into the `run_state.batch.*` keys,
+/// with `run_state.commit_interval` at `sync: interval` (ADR 0142); `batch`
+/// when it has none.
 fn durability_of(settings: Option<&RunSettings>) -> Durability {
-    settings.map_or(Durability::Full, |settings| {
+    settings.map_or_else(Durability::default, |settings| {
         let resolved = settings.resolved();
         let interval = resolved.get(&RUN_STATE_COMMIT_INTERVAL);
-        Durability::named(resolved.get(&RUN_STATE_DURABILITY), interval).expect(
-            "invariant: the settings resolver lets only `run_state.durability`'s choices through",
-        )
+        Durability {
+            per_attempt: resolved.get(&RUN_STATE_BATCH_PER_ATTEMPT),
+            pages: resolved.get(&RUN_STATE_BATCH_PAGES),
+            interval: resolved.get(&RUN_STATE_BATCH_INTERVAL),
+            bytes: resolved.get(&RUN_STATE_BATCH_BYTES),
+            sync: BatchSync::named(resolved.get(&RUN_STATE_BATCH_SYNC), interval).expect(
+                "invariant: the settings resolver lets only `run_state.batch.sync`'s choices through",
+            ),
+        }
     })
 }
 

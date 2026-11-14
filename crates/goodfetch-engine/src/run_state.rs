@@ -43,13 +43,15 @@
 //! Size: one concern, the run file's writer on its one connection: how it
 //! opens, queues jobs and commits each group, which read side by side.
 
+use std::num::NonZeroU64;
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::formats::{Compatibility, RUN_STATE};
-use goodfetch_protocol::run::{
-    DURABILITY_FAST, DURABILITY_FULL, DURABILITY_OFF, DURABILITY_PERIODIC,
+use goodfetch_protocol::run::durability::{
+    BATCH_BYTES, BATCH_INTERVAL_MS, BATCH_PAGES, BatchThreshold, SYNC_EACH, SYNC_INTERVAL,
+    SYNC_NEVER, SYNC_OFF,
 };
 use rusqlite::Connection;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -253,73 +255,149 @@ impl Default for RunStateOptions {
     }
 }
 
-/// How a run file's commits reach the disk, its Durability level
-/// (`run_state.durability`, ADRs 0002 and 0138).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Durability {
-    /// An acknowledged commit survives a power cut: `synchronous=FULL`,
-    /// with `fullfsync` on macOS, for every group with a write that needs
-    /// it.
-    #[default]
-    Full,
-    /// An acknowledged commit survives a process crash only:
-    /// `synchronous=NORMAL`, whose commits in WAL mode an OS crash or a
-    /// power cut may roll back, without damaging the file.
-    Fast,
-    /// As `fast`, with one synced group once `interval` passed since the
-    /// last one, and one for an idle writer's commits once it passed: a
-    /// power cut takes at most `interval` of acknowledged commits.
-    Periodic {
-        /// `run_state.commit_interval`.
-        interval: std::time::Duration,
-    },
+/// How a run file's changes reach the disk: `run_state.durability`'s level
+/// unfolded into its preset's `run_state.batch.*` keys, each of which a
+/// layer may also set (ADRs 0002, 0138 and 0142).
+///
+/// The writer follows `sync`; `per_attempt` and the thresholds are carried
+/// for the Run-state batches, which this writer does not seal yet: until
+/// then every level commits each write as it comes, so `batch` keeps
+/// `full`'s guarantee.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Durability {
+    /// `run_state.batch.per_attempt`: each attempt's claim and outcome a
+    /// batch of its own.
+    pub per_attempt: bool,
+    /// `run_state.batch.pages`: the attempts that seal a batch.
+    pub pages: BatchThreshold,
+    /// `run_state.batch.interval`: the milliseconds that seal a batch.
+    pub interval: BatchThreshold,
+    /// `run_state.batch.bytes`: the bytes of rows that seal a batch.
+    pub bytes: BatchThreshold,
+    /// `run_state.batch.sync`: which batches reach the disk.
+    pub sync: BatchSync,
+}
+
+/// Which of a run file's batches reach the disk before the next one starts
+/// (`run_state.batch.sync`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BatchSync {
+    /// Every batch survives a power cut: `synchronous=FULL`, with
+    /// `fullfsync` on macOS, for every group with a write that needs it.
+    Each,
+    /// As `never`, with one synced batch once `run_state.commit_interval`
+    /// passed since the last one, and one for an idle writer's batches once
+    /// it passed: a power cut takes at most that interval of work.
+    Interval(std::time::Duration),
+    /// A batch survives a process crash only: `synchronous=NORMAL`, whose
+    /// commits in WAL mode an OS crash or a power cut may roll back,
+    /// without damaging the file.
+    Never,
     /// Nothing synced (`synchronous=OFF`) but the file's "unclean" mark,
     /// set as its writer opens it and cleared by its clean stop: a crash
     /// leaves the mark, so [`unclean`] says the file is to be discarded.
     Off,
 }
 
-impl Durability {
-    /// The Durability level `run_state.durability`'s value `level` names,
-    /// `periodic` at `commit_interval`; `None` for a value that names none,
-    /// which the settings resolver never lets through.
-    pub fn named(level: &str, commit_interval: std::time::Duration) -> Option<Self> {
-        match level {
-            DURABILITY_FULL => Some(Self::Full),
-            DURABILITY_FAST => Some(Self::Fast),
-            DURABILITY_PERIODIC => Some(Self::Periodic {
-                interval: commit_interval,
-            }),
-            DURABILITY_OFF => Some(Self::Off),
+impl BatchSync {
+    /// The sync `run_state.batch.sync`'s value `sync` names, `interval` at
+    /// `commit_interval`; `None` for a value that names none, which the
+    /// settings resolver never lets through.
+    pub fn named(sync: &str, commit_interval: std::time::Duration) -> Option<Self> {
+        match sync {
+            SYNC_EACH => Some(Self::Each),
+            SYNC_INTERVAL => Some(Self::Interval(commit_interval)),
+            SYNC_NEVER => Some(Self::Never),
+            SYNC_OFF => Some(Self::Off),
             _ => None,
+        }
+    }
+}
+
+const PER_ATTEMPT_THRESHOLD: BatchThreshold = BatchThreshold::Never;
+
+impl Durability {
+    /// `full`'s preset: each attempt's writes synced as they come.
+    pub const FULL: Self = Self::per_attempt(BatchSync::Each);
+    /// `fast`'s preset: as `full`, never synced.
+    pub const FAST: Self = Self::per_attempt(BatchSync::Never);
+    /// `batch`'s preset, the default: batches of 1,000 attempts, 1 s or
+    /// 8 MiB, each synced.
+    pub const BATCH: Self = Self::batches(BatchSync::Each);
+    /// `off`'s preset: as `batch`, nothing synced.
+    pub const OFF: Self = Self::batches(BatchSync::Off);
+
+    /// `periodic`'s preset, one synced batch every `commit_interval`.
+    pub const fn periodic(commit_interval: std::time::Duration) -> Self {
+        Self::per_attempt(BatchSync::Interval(commit_interval))
+    }
+
+    const fn per_attempt(sync: BatchSync) -> Self {
+        Self {
+            per_attempt: true,
+            pages: PER_ATTEMPT_THRESHOLD,
+            interval: PER_ATTEMPT_THRESHOLD,
+            bytes: PER_ATTEMPT_THRESHOLD,
+            sync,
+        }
+    }
+
+    const fn batches(sync: BatchSync) -> Self {
+        Self {
+            per_attempt: false,
+            pages: BatchThreshold::At(NonZeroU64::new(BATCH_PAGES).expect("invariant: 1,000")),
+            interval: BatchThreshold::At(
+                NonZeroU64::new(BATCH_INTERVAL_MS).expect("invariant: 1 s"),
+            ),
+            bytes: BatchThreshold::At(NonZeroU64::new(BATCH_BYTES).expect("invariant: 8 MiB")),
+            sync,
         }
     }
 
     /// The `synchronous` level of the writer's connection, which commits
-    /// the groups that sync at `full` and `periodic`.
+    /// the groups that sync at `each` and `interval`.
     fn synchronous(self) -> Synchronous {
-        match self {
-            Self::Full | Self::Periodic { .. } => Synchronous::Full,
-            Self::Fast => Synchronous::Normal,
-            Self::Off => Synchronous::Off,
+        match self.sync {
+            BatchSync::Each | BatchSync::Interval(_) => Synchronous::Full,
+            BatchSync::Never => Synchronous::Normal,
+            BatchSync::Off => Synchronous::Off,
         }
     }
 
     /// The `synchronous` pragma of its checkpointer's connection: synced
-    /// below `full` too, so a checkpoint's pages reach the disk before the
+    /// below `each` too, so a checkpoint's pages reach the disk before the
     /// WAL frames they came from are written over. A clean stop runs no
     /// checkpoint (#2117): the file reads whole with the `-wal` beside it.
     fn checkpoint_synchronous(self) -> Synchronous {
-        match self {
-            Self::Full => Synchronous::Full,
-            Self::Fast | Self::Periodic { .. } | Self::Off => Synchronous::Normal,
+        match self.sync {
+            BatchSync::Each => Synchronous::Full,
+            BatchSync::Interval(_) | BatchSync::Never | BatchSync::Off => Synchronous::Normal,
         }
     }
 
     /// Whether the writer keeps a second connection at
     /// `synchronous=NORMAL` for the groups that do not sync.
     fn defers(self) -> bool {
-        matches!(self, Self::Full | Self::Periodic { .. })
+        matches!(self.sync, BatchSync::Each | BatchSync::Interval(_))
+    }
+
+    /// Whether nothing is synced and a crash discards the file: `sync: off`.
+    pub(crate) fn unsynced(self) -> bool {
+        self.sync == BatchSync::Off
+    }
+
+    /// The writer's sync interval: `sync: interval`'s only.
+    fn sync_interval(self) -> Option<std::time::Duration> {
+        match self.sync {
+            BatchSync::Interval(interval) => Some(interval),
+            BatchSync::Each | BatchSync::Never | BatchSync::Off => None,
+        }
+    }
+}
+
+impl Default for Durability {
+    fn default() -> Self {
+        Self::BATCH
     }
 }
 
@@ -641,12 +719,12 @@ impl RunState {
             owner.blocking_threads(),
         ));
         let mut deferral = Deferral {
-            deferring: options.durability == Durability::Full,
+            deferring: options.durability.sync == BatchSync::Each,
             declared,
             uncovered: 0,
         };
         let mut interval = Interval::of(options);
-        let marked = options.durability == Durability::Off;
+        let marked = options.durability.unsynced();
         let durability = options.durability;
         let connection = WriterConnection {
             connection,
@@ -678,7 +756,7 @@ impl RunState {
                 // `off`'s included, and `off`'s clears the mark: its sync
                 // covers the WAL, which no checkpoint copies then (#2117).
                 let synced_stop = last.is_some()
-                    && matches!(durability, Durability::Fast | Durability::Off)
+                    && matches!(durability.sync, BatchSync::Never | BatchSync::Off)
                     && connection
                         .connection
                         .pragma_update(None, "synchronous", "FULL")
@@ -1068,15 +1146,12 @@ impl Interval {
     /// The writer's interval at `options`' Durability level: `periodic`'s
     /// only.
     fn of(options: &RunStateOptions) -> Option<Self> {
-        match options.durability {
-            Durability::Periodic { interval } => Some(Self {
-                every: interval,
-                clock: options.clock,
-                synced_at: options.clock.now(),
-                owed: false,
-            }),
-            Durability::Full | Durability::Fast | Durability::Off => None,
-        }
+        options.durability.sync_interval().map(|interval| Self {
+            every: interval,
+            clock: options.clock,
+            synced_at: options.clock.now(),
+            owed: false,
+        })
     }
 
     /// How a group commits: synced once the interval passed, at a tick
@@ -1114,7 +1189,7 @@ fn idle_timer(
     mailbox: &mpsc::Sender<Queued>,
 ) -> oneshot::Sender<()> {
     let (writer_gone, mut timer_stops) = oneshot::channel::<()>();
-    let Durability::Periodic { interval } = options.durability else {
+    let Some(interval) = options.durability.sync_interval() else {
         return writer_gone;
     };
     if interval.is_zero() {
@@ -1263,7 +1338,7 @@ fn open_file(
     options: &RunStateOptions,
     tables: &[RunStateTables],
 ) -> Result<Connection, RunStateError> {
-    let marked = options.durability == Durability::Off;
+    let marked = options.durability.unsynced();
     // Below `off` the opening's commit, the file's tables and its format,
     // syncs nothing: no one is told of it, and the next synced commit, a
     // Run's start or a new run epoch, covers it, with the WAL's header
@@ -1337,7 +1412,7 @@ pub(crate) fn unclean(
         Err(error) => match error.sqlite_error_code() {
             Some(rusqlite::ErrorCode::CannotOpen) => Ok(false),
             Some(rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase)
-                if durability == Durability::Off =>
+                if durability.unsynced() =>
             {
                 Ok(true)
             }

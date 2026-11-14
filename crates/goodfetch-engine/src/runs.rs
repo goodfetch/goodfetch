@@ -2296,7 +2296,7 @@ impl Run {
         let kind = usage_kind.to_owned();
         // A charge the Run's Slices cover is a step in memory, made here
         // with no blocking task (ADR 0140's E3; E3-3 of the audit #1882).
-        let charged = self
+        let made = self
             .on_charging(
                 (),
                 move |charging, ()| {
@@ -2308,7 +2308,7 @@ impl Run {
                 move |charging, ()| charging.charge(&kind, amount, now),
             )
             .await;
-        match charged {
+        match made {
             None => Ok(()),
             Some(Ok(journaled)) => {
                 charges.add(journaled);

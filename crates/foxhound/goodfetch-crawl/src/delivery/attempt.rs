@@ -12,7 +12,10 @@
 //! and whether the cheaper runs matched it classified once the attempt
 //! settles. A run on `light_browser` is one on `http` whose page is served
 //! from the document Lightpanda's run of the page's scripts left (ADR
-//! 0020), escalated to the browser as `http`'s is.
+//! 0020), escalated to the browser as `http`'s is. Under
+//! `fetch.http_from: learned` (#2417), a sample whose `http` run differed
+//! from the browser's runs once more after it, on `browser_fetch`, from the
+//! hop page of the attempt's own browser Session.
 //!
 //! Under `fetch.tier_race` (ADR 0040; the `tier_race` module), an attempt
 //! whose tier is not forced races instead: its document is fetched through
@@ -117,7 +120,7 @@ use crate::lease::{CommitError, SoFar, WorkItemLease};
 use crate::progress::SharedInFlight;
 use crate::run_state::{Asking, Escalated};
 use crate::tier_choice::weighing::{self, StagedRun};
-use crate::tier_choice::{AttemptPlan, Sampled, Weighed};
+use crate::tier_choice::{AttemptPlan, Between, Sampled, Weighed};
 use crate::tier_race::Raced;
 use crate::work_items::{Fetched, Leased};
 
@@ -322,9 +325,12 @@ const REPLAYED: TierChoice = TierChoice {
     forced: None,
 };
 
-/// The tier a race's browser-fetch serves its page on: `http`, sent from
-/// inside the Session's browser, chosen by no one.
-const RACED: TierChoice = SAMPLED;
+/// The tier a browser-fetch the engine chose serves its page on, a
+/// race's, a sample's under `fetch.http_from: learned` and a Label's
+/// learned onto `browser_fetch`: `http`, sent from inside the Session's
+/// browser, chosen by no one. Provenance names `browser_fetch`, the tier
+/// that sent it; its handler is told `http`, the tier its page serves as.
+const FETCHED: TierChoice = SAMPLED;
 
 /// The browser's tier, chosen by no one.
 const BROWSER: TierChoice = TierChoice {
@@ -507,6 +513,18 @@ fn without_http_tier(what: &str) -> Answer {
     ))
 }
 
+/// The choice a request on `choice` is served under: a Label learned onto
+/// `browser_fetch` is served as `http` from its Session's browser (#2417).
+fn served_as(choice: &TierChoice) -> &TierChoice {
+    match choice {
+        TierChoice {
+            tier: FetchTier::BrowserFetch,
+            forced: None,
+        } => &FETCHED,
+        choice => choice,
+    }
+}
+
 /// One attempt: the handler request, bounded by its lease, on the tier its
 /// request takes. On `http` the request's document is fetched first and
 /// the handler given a page served from it; a call that tier cannot serve
@@ -562,7 +580,7 @@ pub(super) async fn attempt(
                     on.browser(&tiering.tiers, choice, Chosen::AsChosen).await
                 }
                 (AttemptPlan::On(choice), Some(http)) => {
-                    let (answer, learned) = on.http(&tiering, http, choice, None).await;
+                    let (answer, learned) = on.http(&tiering, http, served_as(choice), None).await;
                     merged = learned;
                     answer
                 }
@@ -572,7 +590,8 @@ pub(super) async fn attempt(
                     answer
                 }
                 (AttemptPlan::Sample(sample), Some(http)) => {
-                    let (answer, learned, weighed) = Box::pin(on.sample(&tiering, http)).await;
+                    let (answer, learned, weighed) =
+                        Box::pin(on.sample(&tiering, http, sample.browser_fetch)).await;
                     merged = learned;
                     sampled = weighed.map(|weighed| (sample.clone(), weighed));
                     answer
@@ -937,10 +956,13 @@ impl On<'_> {
     /// requests it enqueued, before any Hook (ADR 0103), the URL each ended
     /// on and the encoding each read in (ADRs 0118 and 0119). A browser run
     /// that met a consent wall keeps its Label on `browser` (ADR 0048).
+    /// When `browser_fetch` (`fetch.http_from: learned`), a sample whose
+    /// `http` run differed runs once more on `browser_fetch` ([`Self::fetched`]).
     async fn sample(
         &self,
         tiering: &Tiering,
         http: &HttpTier,
+        browser_fetch: bool,
     ) -> (Answer, Taught, Option<Weighed>) {
         let (sender, sent_on) = match self.sampled_from(tiering, http) {
             Ok(sender) => sender,
@@ -963,32 +985,9 @@ impl On<'_> {
         self.moves(&run.answer, &SAMPLED);
         self.lease.renew(self.lease.length());
         let cheaper = self.lease.restage();
-        // Where the Run allows it, the sample runs on `light_browser` too,
-        // before the browser, whose run stages what commits.
-        let light = if tiering.light {
-            match self
-                .on_http(tiering, http, (&LIGHT_SAMPLED, None), Chosen::Sample(None))
-                .await
-            {
-                Ok((light, _))
-                    if matches!(light.answer, Answer::LeaseEnded | Answer::ClientGone) =>
-                {
-                    return (light.answer, merged, None);
-                }
-                Ok((light, _)) => {
-                    self.lease.renew(self.lease.length());
-                    Some((light, self.lease.restage()))
-                }
-                Err((Answer::LeaseEnded, _)) => return (Answer::LeaseEnded, merged, None),
-                Err((Answer::ClientGone, _)) => return (Answer::ClientGone, merged, None),
-                Err(_) => {
-                    self.lease.renew(self.lease.length());
-                    drop(self.lease.restage());
-                    None
-                }
-            }
-        } else {
-            None
+        let light = match self.light_sampled(tiering, http).await {
+            Ok(light) => light,
+            Err(ended) => return (ended, merged, None),
         };
         let capture = Capture::under(Limits::of_run(self.run.settings()));
         let browser = self
@@ -1038,11 +1037,13 @@ impl On<'_> {
                         }
                         _ => None,
                     };
-                    Some(match replayed {
-                        Some(plan) => Weighed::MatchedApi { plan, light },
-                        None if light => Weighed::MatchedLight,
-                        None => Weighed::Differed,
-                    })
+                    let fetch =
+                        browser_fetch && Box::pin(self.fetched(tiering, http, &browser_run)).await;
+                    Some(Weighed::Differed(Between {
+                        api: replayed,
+                        fetch,
+                        light,
+                    }))
                 }
             }
             _ => None,
@@ -1083,6 +1084,57 @@ impl On<'_> {
         self.lease.put_back(browsers);
         let (run, _) = ran.ok()?;
         matches_browser(&run, &staged, browser, self.not_compared()).then_some(plan)
+    }
+
+    /// A sample's run on `browser_fetch` under `fetch.http_from: learned`
+    /// (#2417), after its browser's, whose staging is set aside meanwhile
+    /// and kept to commit: the same request sent from the hop page of the
+    /// attempt's own browser Session, its staging then discarded. Answers
+    /// whether the run staged what the browser's run `browser` did; not
+    /// when it differed, escalated or failed.
+    /// Where the Run allows it, the sample's run on `light_browser`, before
+    /// the browser, whose run stages what commits; `None` where it is not
+    /// allowed or failed, and the answer that ends the attempt where its
+    /// lease ended or its client left.
+    async fn light_sampled(
+        &self,
+        tiering: &Tiering,
+        http: &HttpTier,
+    ) -> Result<Option<(HttpRun, SoFar)>, Answer> {
+        if !tiering.light {
+            return Ok(None);
+        }
+        match self
+            .on_http(tiering, http, (&LIGHT_SAMPLED, None), Chosen::Sample(None))
+            .await
+        {
+            Ok((light, _)) if matches!(light.answer, Answer::LeaseEnded | Answer::ClientGone) => {
+                Err(light.answer)
+            }
+            Ok((light, _)) => {
+                self.lease.renew(self.lease.length());
+                Ok(Some((light, self.lease.restage())))
+            }
+            Err((ended @ (Answer::LeaseEnded | Answer::ClientGone), _)) => Err(ended),
+            Err(_) => {
+                self.lease.renew(self.lease.length());
+                drop(self.lease.restage());
+                Ok(None)
+            }
+        }
+    }
+
+    async fn fetched(&self, tiering: &Tiering, http: &HttpTier, browser: &StagedRun<'_>) -> bool {
+        let Some(browsers) = self.lease.set_aside() else {
+            return false;
+        };
+        self.lease.renew(self.lease.length());
+        let ran = self
+            .on_http(tiering, http, (&FETCHED, None), Chosen::Sample(None))
+            .await;
+        let staged = self.lease.restage();
+        self.lease.put_back(browsers);
+        ran.is_ok_and(|(run, _)| matches_browser(&run, &staged, browser, self.not_compared()))
     }
 
     /// The fields of a Record that two runs of one attempt never hold

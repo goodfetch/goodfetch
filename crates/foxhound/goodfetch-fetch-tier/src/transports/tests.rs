@@ -110,6 +110,7 @@ fn holding(local: Option<LocalSource>) -> TransportConfig {
         clock: Clock::system(),
         resolver: ResolverConfiguration::name_servers([]),
         local,
+        delays: goodfetch_engine::happy_eyeballs::Delays::default(),
     }
 }
 
@@ -128,7 +129,7 @@ fn a_sessions_lookups_take_the_engines_resolver_when_it_holds_a_local_address(
     #[case] local: Option<LocalSource>,
     #[case] route: Route,
 ) {
-    let resolver = Resolver::new(&holding(local), None);
+    let resolver = Resolver::new(&holding(local));
 
     assert_eq!(resolver.route, route);
 }

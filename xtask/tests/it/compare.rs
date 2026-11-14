@@ -62,6 +62,17 @@ const CELLS: [(&str, &str, &str); 33] = [
     ("polite", "foxhound auto", "foxhound"),
 ];
 
+/// The runs of `cell` in a pass that asks for `asked`: pagesift's polite
+/// cell runs one trial of each pass, the owner's decision of 2026-11-14
+/// (#2215), and every other cell the run's.
+fn runs(scenario: &str, cell: &str, asked: u32) -> u32 {
+    if (scenario, cell) == ("polite", "pagesift") {
+        asked.min(1)
+    } else {
+        asked
+    }
+}
+
 /// The pages of `scenario`'s site: the polite scenario's multi-domain site
 /// holds 10 pages on each of its 1,000 domains (#2283), every other the
 /// declared 1,000.
@@ -192,11 +203,12 @@ fn cell_trial(
     trial
 }
 
-/// A cell's three trials: in 1, 2 and 4 seconds at 20, 30 and 10 MiB.
+/// A cell's three trials, or its one ([`runs`]): in 1, 2 and 4 seconds at
+/// 20, 30 and 10 MiB.
 fn cell_trials(scenario: &str, cell: &str, tool: &str) -> Vec<Value> {
     [(1.0, 20), (2.0, 30), (4.0, 10)]
         .into_iter()
-        .zip(1..)
+        .zip(1..=runs(scenario, cell, 3))
         .map(|((seconds, mib), number)| {
             cell_trial(scenario, cell, tool, number, seconds, mib * MIB)
         })
@@ -303,17 +315,21 @@ fn callgrind() -> Value {
     })
 }
 
-/// A system-call cell of three runs of each measured cell: Foxhound's
-/// durable crawl syncing 7,000, 7,500 and 8,000 times.
+/// A system-call cell of three runs of each measured cell, or its one
+/// ([`runs`]): Foxhound's durable crawl syncing 7,000, 7,500 and 8,000
+/// times.
 fn strace() -> Value {
-    let mut runs = Vec::new();
+    let mut counted = Vec::new();
     for (scenario, cell, tool) in CELLS {
-        for (number, syncs) in [(1, 7000), (2, 7500), (3, 8000)] {
+        for (number, syncs) in [(1, 7000), (2, 7500), (3, 8000)]
+            .into_iter()
+            .filter(|(number, _)| *number <= runs(scenario, cell, 3))
+        {
             let syncs = if cell == "foxhound full" { syncs } else { 0 };
-            runs.push(run(scenario, cell, tool, number, 300_000, syncs));
+            counted.push(run(scenario, cell, tool, number, 300_000, syncs));
         }
     }
-    json!({ "status": "measured", "trials": 3, "runs": runs })
+    json!({ "status": "measured", "trials": 3, "runs": counted })
 }
 
 fn report(workspace: &Workspace, trials: &Value) -> crate::workspace::Outcome {
@@ -1031,7 +1047,7 @@ fn the_report_shows_the_load_each_trial_started_at() {
          Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
-        "1 of the 99 timed trials started above a 1-minute load of 4.",
+        "1 of the 97 timed trials started above a 1-minute load of 4.",
     ] {
         assert!(
             markdown.contains(expected),
@@ -1299,7 +1315,8 @@ fn a_report_of_fewer_than_10_trials_says_it_falls_short() {
     ten["trials"] = CELLS
         .iter()
         .flat_map(|(scenario, cell, tool)| {
-            (1..=10).map(move |number| cell_trial(scenario, cell, tool, number, 2.0, 20 * MIB))
+            (1..=runs(scenario, cell, 10))
+                .map(move |number| cell_trial(scenario, cell, tool, number, 2.0, 20 * MIB))
         })
         .collect();
 

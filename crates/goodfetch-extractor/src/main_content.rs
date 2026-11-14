@@ -9,8 +9,9 @@
 //!
 //! The step reads the page's tree and consumes it (ADR 0138): the text
 //! outside the landmarks is read on the tree before it, which removes
-//! nothing, and the fallback's HTML, when a reader needs it, from the one
-//! copy of the tree made for it.
+//! nothing, and the fallback's HTML, when a reader needs it, from the tree
+//! as the step was handed it, which a built-in keeps and any other step
+//! copies first (#2639).
 
 use dom_query::{Matcher, NodeRef};
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
@@ -50,8 +51,9 @@ pub fn compile_selectors(work: &CountedWork) {
 /// [`main_text_length`] counts it; none when the document has no text a
 /// person reads it for. A step that finds no text where the document holds
 /// some answers what is left of its body outside those landmarks, read
-/// from the one copy of the tree made for it (`F1.tree_copies`): a document
-/// with text a person reads is never answered as one without (pitfall D02).
+/// from the tree as the step was handed it
+/// ([`Extractor::main_content_or_document`]): a document with text a
+/// person reads is never answered as one without (pitfall D02).
 pub(crate) fn main_content(
     tree: ParsedHtml,
     url: &str,
@@ -62,14 +64,10 @@ pub(crate) fn main_content(
     if length(&remaining) == 0 {
         return None;
     }
-    let copy = work.copy_tree(Row::PageTreeCopies, &tree);
     work.count(Row::PageReadabilityRuns);
-    match extractor.main_content(tree, url) {
-        Some(Found { article, text }) if length(&text) > 0 => {
-            let found = length(&text);
-            Some((article, found))
-        }
-        Some(_) | None => Some((outside_landmarks(copy, work), length(&remaining))),
+    match extractor.main_content_or_document(tree, url, work) {
+        Ok(Found { article, text }) => Some((article, length(&text))),
+        Err(document) => Some((outside_landmarks(document, work), length(&remaining))),
     }
 }
 

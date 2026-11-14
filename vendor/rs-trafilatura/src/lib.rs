@@ -1,5 +1,7 @@
 // Modified by Goodfetch (2026-11-05): `extract_document_with_options`, a
 // document entry that reads a tree the caller parsed (#1916).
+// Modified by Goodfetch (2026-11-14): `extract_document_keeping_with_options`,
+// that entry answering the document as it was handed too (#2639).
 //! # rs-trafilatura
 //!
 //! Rust port of trafilatura - a web content extraction library.
@@ -164,6 +166,29 @@ pub fn extract_with_options(html: &str, options: &Options) -> Result<ExtractResu
 #[allow(clippy::missing_errors_doc)]
 pub fn extract_document_with_options(document: dom_query::Document, options: &Options) -> Result<ExtractResult> {
     extract::extract_document_content(document, None, options)
+}
+
+/// [`extract_document_with_options`], answering with its result the
+/// document as it was handed, untouched (Goodfetch): the backup the
+/// extraction takes of it before its cleaning, so a caller that reads a
+/// fallback of its own from the document needs no copy of it.
+///
+/// # Example
+///
+/// ```rust
+/// use rs_trafilatura::{extract_document_keeping_with_options, Options};
+///
+/// let html = "<html><body><article><p>Content</p></article></body></html>";
+/// let (untouched, result) =
+///     extract_document_keeping_with_options(dom_query::Document::from(html), &Options::default());
+/// assert!(untouched.select("article").exists());
+/// # let _ = result;
+/// ```
+pub fn extract_document_keeping_with_options(
+    document: dom_query::Document,
+    options: &Options,
+) -> (dom_query::Document, Result<ExtractResult>) {
+    extract::extract_document_content_keeping(document, None, options)
 }
 
 /// Extracts main content from HTML bytes with automatic encoding detection.

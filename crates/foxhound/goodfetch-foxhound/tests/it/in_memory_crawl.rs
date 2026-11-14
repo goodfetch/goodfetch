@@ -383,8 +383,8 @@ fn a_page_makes_one_analysis_hand_off_when_a_reader_needs_its_tree_and_none_othe
     // handler's two waits a page read its kept tree, each in a hand-off of
     // the handler's. Asking for a format, the formats read takes a copy of
     // the page's tree in its one hand-off, and the Page signature the tree;
-    // the main-content step's landmarks fallback takes a second copy, until
-    // issue 2639 copies the tree for it only when the Extractor finds nothing.
+    // the main-content step keeps the copy it reads for its landmarks
+    // fallback, so it takes none of its own (issue 2639).
     assert_eq!(
         worked.iter().map(read).collect::<Vec<_>>(),
         [
@@ -392,7 +392,7 @@ fn a_page_makes_one_analysis_hand_off_when_a_reader_needs_its_tree_and_none_othe
             (pages, 0, 0, 0),
             (0, 0, 0, 0),
             (pages, 2 * pages, pages, pages),
-            (pages, 0, pages, 2 * pages),
+            (pages, 0, pages, pages),
         ]
     );
 }

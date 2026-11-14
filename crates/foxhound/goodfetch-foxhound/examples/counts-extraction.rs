@@ -36,9 +36,11 @@
 //! readers parsed (#2189): one parse a page. It prints no
 //! `F1.readability_runs`, 2 a page here, the formats' main-content step on
 //! the cleaned tree beside the Page signature's on the tree as served (ADR
-//! 0138), which stays B1's row; and no `F1.tree_copies` until the landmarks
-//! fallback copies the tree only for a page the extractor finds nothing in,
-//! which spec #2164's sub-issue after #2189 builds.
+//! 0138), which stays B1's row; and no `F1.tree_copies`, 1 a page here, the
+//! read ahead's copy, as the landmarks fallback reads the tree its built-in
+//! kept (#2639), but 2 in `single_attempt`, whose step reads the tree in
+//! place, so the fallback reads a copy taken before it: a figure the
+//! register's row does not hold on B4 yet.
 //!
 //! `F1.clean_up_instructions` is the instructions Callgrind counts in the
 //! clean-up's removal and whatever it calls, on the `default` cell, for

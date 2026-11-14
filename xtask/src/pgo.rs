@@ -36,15 +36,16 @@ const ORDER: &str = "order.txt";
 #[derive(Subcommand)]
 pub(crate) enum Command {
     /// Fails when a Product's release executable for the target does not
-    /// start `.text` with the committed order file's hottest functions, in
+    /// start `.text` with the committed order file's first functions, in
     /// its order, as the link map beside the executable's build places
     /// them (Zig's linker strips the symbol table from the executable).
     Check(CheckArguments),
     /// Trains the profile and rewrites the committed profile and order
     /// file: an instrumented build runs the training workloads, its
-    /// profiles merged; a build guided by them is linked hottest function
-    /// first, and the training crawl's touched pages widen the order to the
-    /// code and data they hold. Linux on x86-64 alone, with `sudo -n` for
+    /// profiles merged; a build guided by them gives the touch map of the
+    /// training crawls, and the order lists the code they touched first,
+    /// the profile's hottest first, then the profile's other hot functions,
+    /// then the data they touched. Linux on x86-64 alone, with `sudo -n` for
     /// the touch map.
     Refresh(refresh::Arguments),
     /// Runs the training workloads on the executables of the manifest,

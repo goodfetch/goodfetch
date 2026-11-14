@@ -168,11 +168,13 @@ pub(crate) fn touched_sections<'a>(
     sections.into_iter().map(|(_, section)| section).collect()
 }
 
-/// The order file: the profile's `hot` functions, then the functions on
-/// the `touched` sections, then their data. A data section lists its
-/// symbols, or, with none, its own name when ci/musl/link-cc can name it
-/// (a Rust object's constant); one LLD made (merged strings) or another
-/// file's cannot be ordered. Each entry once.
+/// The order file: the functions on the `touched` sections first, those
+/// the profile counted in `hot`'s order (hottest first) and then the others
+/// in touch order; then the rest of `hot`, the other workloads' code, which
+/// no touching crawl ran; then the touched sections' data. A data section
+/// lists its symbols, or, with none, its own name when ci/musl/link-cc can
+/// name it (a Rust object's constant); one LLD made (merged strings) or
+/// another file's cannot be ordered. Each entry once.
 pub(crate) fn order_file(hot: &[String], touched: &[&Placed]) -> Vec<String> {
     let mut functions = Vec::new();
     let mut data = Vec::new();
@@ -192,10 +194,16 @@ pub(crate) fn order_file(hot: &[String], touched: &[&Placed]) -> Vec<String> {
             _ => {}
         }
     }
+    let ran: HashSet<&str> = functions.iter().map(String::as_str).collect();
+    let (hot_ran, hot_not_ran): (Vec<&String>, Vec<&String>) = hot
+        .iter()
+        .partition(|function| ran.contains(function.as_str()));
     let mut seen = HashSet::new();
-    hot.iter()
+    hot_ran
+        .into_iter()
         .cloned()
         .chain(functions)
+        .chain(hot_not_ran.into_iter().cloned())
         .chain(data)
         .filter(|entry| seen.insert(entry.clone()))
         .collect()

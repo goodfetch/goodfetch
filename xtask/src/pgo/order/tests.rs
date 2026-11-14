@@ -82,25 +82,32 @@ fn the_text_functions_are_the_symbols_the_map_places_in_text() {
 }
 
 #[test]
-fn the_order_file_lists_hot_functions_then_touched_code_and_data_in_touch_order() {
+fn the_order_file_lists_the_touched_code_hottest_first_then_the_other_hot_functions_then_touched_data()
+ {
     let placed = placed(MAP);
     // Page 3 (code), touched first; then page 5; then pages 1 and 2 (data).
     // Page 4 is never touched.
     let touched = BTreeMap::from([(3, 0), (5, 1), (1, 2), (2, 2)]);
 
     let order = order_file(
-        &["_RNvCs1_4main3hot".to_owned()],
+        &order(&[
+            "_RNvCs1_4main4cold",
+            "_RNvCs1_4main4warm",
+            "_RNvCs1_4main3hot",
+        ]),
         &touched_sections(&placed, &touched, 0x1000),
     );
 
     assert_eq!(
         order,
         [
-            // The profile's hot function.
-            "_RNvCs1_4main3hot",
-            // Code on the first touched page, then the next one's.
-            "malloc",
+            // The touched code the profile ran, hottest first.
             "_RNvCs1_4main4warm",
+            "_RNvCs1_4main3hot",
+            // The touched code it did not count, in touch order.
+            "malloc",
+            // A hot function no touching crawl ran: another workload's.
+            "_RNvCs1_4main4cold",
             // Data: a named symbol, and the sections link-cc names in a Rust
             // object; libc's `.rodata.sizes`, with no symbol, cannot be
             // ordered, and merged strings are LLD's own.

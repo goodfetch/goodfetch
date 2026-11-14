@@ -128,8 +128,8 @@ use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::run_state::{
-    Ask, Chosen, Drawing, Drawn, DrawnSession, Local, QueuedEnd, RunState, StateError, Stored,
-    Tally, Unkeyed, Within,
+    Asking, Chosen, Drawing, Drawn, DrawnSession, Local, Question, QueuedEnd, RunState, StateError,
+    Stored, Tally, Unkeyed, Within,
 };
 use crate::serving::{Crawls, Opened, Server};
 use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices, Unit};
@@ -146,8 +146,8 @@ mod politeness;
 mod watch;
 
 use attempt::{
-    Answer, Attempt, SampleSession, Taught, Tiering, effect, handler_lease, leased_count,
-    run_hand_over,
+    Answer, Attempt, Escalating, SampleSession, Taught, Tiering, effect, handler_lease,
+    leased_count, run_hand_over,
 };
 use pages::{Pages, Start};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
@@ -257,6 +257,7 @@ pub(crate) async fn drive(
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
         untouched,
         code_free: code_free.map(std::sync::Arc::new),
+        asking: arrivals.asking.clone(),
     };
     for (setting, code, message) in SWITCHED_OFF {
         if !settings.resolved().get::<bool>(setting) {
@@ -544,7 +545,7 @@ async fn answered(
     run: &Run,
     (admission, state): (&mut Admission, &mut RunState),
     in_flight: &SharedInFlight,
-    ask: Box<Ask>,
+    ask: Box<Question>,
 ) -> bool {
     let Some(added) = state.answer(ask).await else {
         return false;
@@ -703,6 +704,10 @@ struct Fetching<'a> {
     in_flight: SharedInFlight,
     /// The readers of the untouched page of each Label, built once.
     untouched: Untouched,
+    /// What an attempt that escalates from a Session's own transport asks
+    /// the crawl's Run state through, for the Session it runs again in
+    /// (#2416).
+    asking: Asking,
 }
 
 /// The readers of the untouched page a Run's documents are read by (ADR
@@ -801,7 +806,7 @@ impl Fetching<'_> {
         leased: &Leased,
         ((session, local, sends_from), chosen): ((&SessionId, Local, SendsFrom), Chosen),
         (transport, site_files): (Option<DrawnSession>, Option<DrawnSession>),
-        second_copies: &SecondCopies,
+        (second_copies, settings): (&SecondCopies, PoolSettings),
     ) -> (Tiering, Option<HttpTier>) {
         let request = &leased.crawl_request;
         let plan = match chosen {
@@ -854,7 +859,16 @@ impl Fetching<'_> {
             second_copies,
         )
         .sending(sends_from, transport)
-        .reading_site_files(site_files.map(|(drawn, _)| drawn));
+        .reading_site_files(site_files.map(|(drawn, _)| drawn))
+        .escalating((sends_from == SendsFrom::Transport).then(|| {
+            let pool = self.labels.pools.pool(&request.label);
+            Escalating {
+                asking: self.asking.clone(),
+                labels: std::sync::Arc::clone(&self.labels),
+                pool,
+                settings,
+            }
+        }));
         (tiering, reader)
     }
 
@@ -978,7 +992,7 @@ async fn lease_to_servers(
                 &leased,
                 ((&session.id, local, sends_from), chosen),
                 (transport, site_files),
-                &copies,
+                (&copies, pooled.settings),
             );
             let admission = FetchAdmission::holding(
                 permits
@@ -1296,12 +1310,22 @@ fn scored(
         if attempt.moved {
             pool.moved_to_browser(&waiting.key);
         }
-        pool.settle(
-            &attempt.session,
-            &waiting.key,
-            effect(&attempt.answer),
-            &read.pool,
-        );
+        // An attempt that escalated from its Session's own transport ran
+        // again in a Session of the browser, whose answer is the attempt's:
+        // the first met what only a browser serves, which says nothing of
+        // how its client fares until #2419 scores a transport's blocks.
+        match &attempt.escalated {
+            Some(escalated) => {
+                pool.settle(escalated, &waiting.key, effect(&attempt.answer), &read.pool);
+                pool.settle(&attempt.session, &waiting.key, Effect::Neutral, &read.pool);
+            }
+            None => pool.settle(
+                &attempt.session,
+                &waiting.key,
+                effect(&attempt.answer),
+                &read.pool,
+            ),
+        }
         // A sample's `http` run sent from a Session of its own: the
         // attempt's answer is its browser run's, which says nothing of it.
         if let Some(transport) = &attempt.transport {

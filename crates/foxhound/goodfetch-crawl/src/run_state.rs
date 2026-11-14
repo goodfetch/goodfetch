@@ -40,7 +40,7 @@ use goodfetch_engine::runs::{ChargeError, Run, UnjournaledCharges};
 use goodfetch_fetch_tier::{Choosing, HttpFrom, PooledSession, SetTier, TierChoice};
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
-use goodfetch_session_pool::{PoolSettings, SendsFrom, SessionPool};
+use goodfetch_session_pool::{Effect, LabelPools, PoolKey, PoolSettings, SendsFrom, SessionPool};
 
 use crate::labels;
 use crate::tier_choice::{AttemptPlan, Sampled, TierChoices, Unit, Weighed};
@@ -52,7 +52,7 @@ mod asks;
 mod stored;
 mod tally;
 
-pub(crate) use asks::{Ask, Asked, Asking, mailbox};
+pub(crate) use asks::{Asked, Asking, Escalated, Question, mailbox};
 pub(crate) use stored::{QueuedEnd, Stored, Unkeyed, Within};
 pub(crate) use tally::Tally;
 
@@ -273,14 +273,52 @@ impl RunState {
         Arc::clone(&self.tally)
     }
 
-    /// Answers `ask`, what another task asks of the crawl's Run state
-    /// ([`Stored::answer`]), and counts what its write changed: the work
+    /// Answers `question`, what another task asks of the crawl's Run
+    /// state: an escalated attempt's draw from memory
+    /// ([`RunState::escalated`]), any other from the run file
+    /// ([`Stored::answer`]), counting what its write changed: the work
     /// items it added, each keyed, for the loop to offer their domains'
     /// queues, when the loop waited for the write itself.
-    pub(crate) async fn answer(&mut self, ask: Box<Ask>) -> Option<Vec<Waiting>> {
+    pub(crate) async fn answer(&mut self, question: Box<Question>) -> Option<Vec<Waiting>> {
+        let ask = match *question {
+            Question::Stored(ask) => ask,
+            Question::Escalated { escalated, answer } => {
+                let drawn = self.escalated(&escalated);
+                // The attempt no longer waits for it: it served nothing.
+                if let Err(drawn) = answer.send(drawn) {
+                    self.pool.settle(
+                        &drawn.session,
+                        &escalated.domain_key,
+                        Effect::Neutral,
+                        &escalated.settings,
+                    );
+                }
+                return None;
+            }
+        };
         let (added, changed) = self.stored.answer(ask).await?;
         self.changed(changed);
         Some(added)
+    }
+
+    /// Draws the Session whose client is its browser that an attempt which
+    /// escalated from a Session's own transport runs again in (#2416), as
+    /// `escalated` says: as a lease's draw does, so one already open serves
+    /// it while the pool has no room, and the pool keeps it for the run
+    /// file as it keeps any draw.
+    fn escalated(&mut self, escalated: &Escalated) -> DrawnSession {
+        let session = self.pool.draw(
+            &escalated.pool,
+            &escalated.domain_key,
+            SendsFrom::Browser,
+            &escalated.settings,
+            escalated.now,
+        );
+        self.drawn_session(
+            (&escalated.labels.pools, &escalated.pool),
+            session,
+            SendsFrom::Browser,
+        )
     }
 
     /// Claims each pending work item of `ids`, in that order, in one job
@@ -391,7 +429,7 @@ impl RunState {
             &drawing.settings,
             drawing.wall.0,
         );
-        let session = self.drawn_session(drawing, &key, session, sends_from);
+        let session = self.drawn_session((&labels.pools, &key), session, sends_from);
         let transport = sampled_from_transport.then(|| {
             let transport = self.pool.draw(
                 &key,
@@ -400,23 +438,24 @@ impl RunState {
                 &drawing.settings,
                 drawing.wall.0,
             );
-            self.drawn_session(drawing, &key, transport, SendsFrom::Transport)
+            self.drawn_session((&labels.pools, &key), transport, SendsFrom::Transport)
         });
         // A site file is never read from a browser page, nor from a client
         // other than a Session's own transport (#2422).
-        let site_files =
-            (drawing.reads_site_files && sends_from == SendsFrom::Browser && transport.is_none())
-                .then(|| {
-                    self.pool.draw_reusing(
-                        &key,
-                        domain_key,
-                        SendsFrom::Transport,
-                        &drawing.settings,
-                        drawing.wall.0,
-                    )
-                })
-                .flatten()
-                .map(|reader| self.drawn_session(drawing, &key, reader, SendsFrom::Transport));
+        let site_files = (drawing.reads_site_files
+            && sends_from == SendsFrom::Browser
+            && transport.is_none())
+        .then(|| {
+            self.pool.draw_reusing(
+                &key,
+                domain_key,
+                SendsFrom::Transport,
+                &drawing.settings,
+                drawing.wall.0,
+            )
+        })
+        .flatten()
+        .map(|reader| self.drawn_session((&labels.pools, &key), reader, SendsFrom::Transport));
         Drawn {
             leased,
             session,
@@ -426,18 +465,17 @@ impl RunState {
         }
     }
 
-    /// `session`, drawn from the pool `key`, sending from `sends_from`, as
-    /// it runs in the browser, with its local addresses.
+    /// `session`, drawn from the pool `key` of `pools`, sending from
+    /// `sends_from`, as it runs in the browser, with its local addresses.
     fn drawn_session(
         &self,
-        drawing: &Drawing<'_>,
-        key: &goodfetch_session_pool::PoolKey,
+        (pools, key): (&LabelPools, &PoolKey),
         session: ServingSession,
         sends_from: SendsFrom,
     ) -> DrawnSession {
         let in_browser = PooledSession {
             id: session.id.clone(),
-            source: drawing.labels.pools.source(key),
+            source: pools.source(key),
             address_ordinal: self.pool.address_ordinal(&session.id),
         };
         let local = self.pool.local_addresses(&session.id);

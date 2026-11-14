@@ -31,6 +31,15 @@
 //! page with its `path`, its `kind` and the `records` a right reading
 //! gives, each a pure function of the seed.
 //!
+//! Every page, refused or not, gives a request that sends no `visitor`
+//! cookie and does not come with the pinned browser's fingerprint one of
+//! its own, numbered in the order visitors came: a cookie jar of an HTTP
+//! transport, one Session's, is then told apart by what its requests
+//! send, and a browser that sends one shows that a transport's jar
+//! reached it (#2423). The browser is given none, because an engine's
+//! browser that holds a cookie for a host its egress relay terminates is
+//! refused that host (ADR 0042).
+//!
 //! The host is under `localhost`, as the `comparison` family's are, so a
 //! browser and the system's resolver both take it to loopback.
 
@@ -40,6 +49,7 @@ use serde::Serialize;
 
 use super::{Page, Visit, document, name};
 use crate::client_hello::ClientHello;
+use crate::sync::Mutex;
 use crate::task::Record;
 
 pub(super) const HOST: &str = "rungs.localhost";
@@ -95,6 +105,16 @@ pub(super) fn of_the_pinned_browser(hello: &ClientHello) -> bool {
 
 /// Where the manifest is served.
 const MANIFEST: &str = "/manifest.json";
+
+/// The cookie that tells the site's visitors apart.
+const VISITOR: &str = "visitor";
+
+/// What the family keeps for one `serve`: how many visitors it gave a
+/// cookie.
+#[derive(Default)]
+pub(super) struct State {
+    visitors: Mutex<u64>,
+}
 
 /// The script that fills each of a script-rendered page's items from its
 /// own attributes.
@@ -286,7 +306,7 @@ fn address_blocked() -> Page {
     )
 }
 
-pub(super) fn respond(visit: &Visit<'_>) -> Page {
+pub(super) fn respond(visit: &Visit<'_>, state: &State) -> Page {
     let pages = pages(visit.seed);
     let path = visit.request.path;
     if path == MANIFEST {
@@ -297,8 +317,27 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
     let Some(page) = pages.iter().find(|page| page.path == path) else {
         return Page::not_found();
     };
-    if path == "/" {
-        return Page::ok(home(&pages));
+    let answer = answer(visit, &pages, page);
+    if visit.request.cookie(VISITOR).is_some()
+        || visit.request.tls.is_some_and(of_the_pinned_browser)
+    {
+        return answer;
+    }
+    let visitor = {
+        let mut visitors = state.visitors.lock();
+        *visitors += 1;
+        *visitors
+    };
+    answer.header(
+        "set-cookie",
+        format!("{VISITOR}={visitor}; Path=/; SameSite=Lax"),
+    )
+}
+
+/// What `page`, one of `pages`, answers `visit`.
+fn answer(visit: &Visit<'_>, pages: &[Listed], page: &Listed) -> Page {
+    if page.path == "/" {
+        return Page::ok(home(pages));
     }
     match page.kind {
         Kind::Static => Page::ok(in_markup(page)),

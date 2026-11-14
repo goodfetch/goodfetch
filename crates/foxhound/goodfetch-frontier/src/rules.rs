@@ -597,9 +597,9 @@ fn by_id(mut rules: Vec<(i64, String)>) -> Vec<(i64, String)> {
 
 /// The learned rule that refuses `key`, if one does, with its reason: a
 /// trap closed over its path pattern refuses it with `trap_path`, and a
-/// cursor learned for its listing refuses an offset URL as a `duplicate`,
-/// unless the Run's admissions do not learn (`learning`,
-/// `frontier.learning`).
+/// cursor learned for its listing refuses an offset URL as a `duplicate`.
+/// None does, and none is read, when the Run's admissions do not learn
+/// (`learning`, `frontier.learning`, #2169).
 ///
 /// # Errors
 ///
@@ -609,6 +609,9 @@ pub(crate) fn refuses(
     key: &Url,
     learning: bool,
 ) -> rusqlite::Result<Option<(NotAddedReason, i64)>> {
+    if !learning {
+        return Ok(None);
+    }
     let parts = Parts::of(key);
     let trap = connection
         .prepare_cached("SELECT id FROM learned_rules WHERE kind = ?1 AND host = ?2 AND path = ?3")?
@@ -619,7 +622,7 @@ pub(crate) fn refuses(
     if let Some(rule) = trap {
         return Ok(Some((NotAddedReason::TrapPath, rule)));
     }
-    if !learning || parts.pairs.is_empty() {
+    if parts.pairs.is_empty() {
         return Ok(None);
     }
     let mut statement = connection.prepare_cached(
@@ -730,7 +733,9 @@ pub(crate) const PAGED_OFFSETS: &str = "SELECT parameter, step FROM rules_offset
 /// whose key is `from` when an attempt enqueued it, teaches: its integer
 /// parameter values, which show an offset; a cursor link on an offset
 /// listing; and, for a URL outside its page's path pattern, that the
-/// pattern's page brought something new.
+/// pattern's page brought something new. `work`, the Run's counted work
+/// when it counts on one, counts each row of that evidence read or written
+/// (`F2.admission_evidence`, ADR 0140).
 ///
 /// # Errors
 ///
@@ -739,11 +744,47 @@ pub(crate) fn admitted(
     connection: &Connection,
     key: &Url,
     from: Option<&Url>,
+    work: Option<&CountedWork>,
+) -> rusqlite::Result<()> {
+    let mut touched = Touched::default();
+    let taught = teach(connection, key, from, &mut touched);
+    if let Some(work) = work {
+        work.count_many(Row::AdmissionEvidence, touched.0);
+    }
+    taught
+}
+
+/// The rows of learning's evidence one admission read or wrote.
+#[derive(Default)]
+struct Touched(u64);
+
+impl Touched {
+    /// Adds `rows` read or written.
+    fn add(&mut self, rows: usize) {
+        self.0 = self
+            .0
+            .saturating_add(u64::try_from(rows).unwrap_or(u64::MAX));
+    }
+
+    /// Adds the row a read found, when it found one.
+    fn found<T>(&mut self, row: Option<T>) -> Option<T> {
+        self.add(usize::from(row.is_some()));
+        row
+    }
+}
+
+/// What [`admitted`] teaches, each row of evidence it reads or writes
+/// added to `touched`.
+fn teach(
+    connection: &Connection,
+    key: &Url,
+    from: Option<&Url>,
+    touched: &mut Touched,
 ) -> rusqlite::Result<()> {
     let parts = Parts::of(key);
     for pair in &parts.pairs {
         if let Some(number) = integer(value(pair)) {
-            offset_value(connection, &parts, name(pair), number, key)?;
+            offset_value(connection, &parts, (name(pair), number), key, touched)?;
         }
     }
     let Some(from) = from else {
@@ -754,13 +795,15 @@ pub(crate) fn admitted(
         return Ok(());
     }
     if parent.path == parts.path {
-        cursor(connection, &parts, from, key)?;
+        cursor(connection, &parts, from, key, touched)?;
     }
     let from_pattern = pattern(parent.path);
     if from_pattern != pattern(parts.path) {
-        connection
-            .prepare_cached(STREAK_ENDED)?
-            .execute((parent.host, from_pattern))?;
+        touched.add(
+            connection
+                .prepare_cached(STREAK_ENDED)?
+                .execute((parent.host, from_pattern))?,
+        );
     }
     Ok(())
 }
@@ -788,9 +831,9 @@ fn integer(value: &str) -> Option<i64> {
 fn offset_value(
     connection: &Connection,
     parts: &Parts<'_>,
-    parameter: &str,
-    value: i64,
+    (parameter, value): (&str, i64),
     key: &Url,
+    touched: &mut Touched,
 ) -> rusqlite::Result<()> {
     let listing = (parts.host, parts.path, parameter);
     let seen = connection
@@ -806,9 +849,17 @@ fn offset_value(
             ))
         })
         .optional()?;
+    let seen = touched.found(seen);
     match seen {
         Some((anchor, step, .., true)) => {
-            return paged_value(connection, parts, parameter, (anchor, step), value, key);
+            return paged_value(
+                connection,
+                parts,
+                (parameter, value),
+                (anchor, step),
+                key,
+                touched,
+            );
         }
         Some((_, 1, .., false)) => return Ok(()),
         _ => {}
@@ -819,6 +870,7 @@ fn offset_value(
              VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT DO NOTHING",
         )?
         .execute((parts.host, parts.path, parameter, value, key.as_str()))?;
+    touched.add(inserted);
     if inserted == 0 {
         return Ok(());
     }
@@ -833,7 +885,7 @@ fn offset_value(
         ),
     };
     let paged = step >= OFFSET_STEP && count >= OFFSET_VALUES && (high - low) / step + 1 == count;
-    connection
+    let recorded = connection
         .prepare_cached(
             "INSERT INTO rules_offsets (host, path, parameter, anchor, step, low, high, count, paged)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -852,16 +904,19 @@ fn offset_value(
             count,
             paged,
         ))?;
+    touched.add(recorded);
     if paged {
-        connection
-            .prepare_cached(
-                "DELETE FROM rules_offset_values
-                 WHERE host = ?1 AND path = ?2 AND parameter = ?3 AND value > (
-                     SELECT value FROM rules_offset_values
-                     WHERE host = ?1 AND path = ?2 AND parameter = ?3
-                     ORDER BY value LIMIT 1 OFFSET ?4)",
-            )?
-            .execute((parts.host, parts.path, parameter, OFFSET_VALUES - 1))?;
+        touched.add(
+            connection
+                .prepare_cached(
+                    "DELETE FROM rules_offset_values
+                     WHERE host = ?1 AND path = ?2 AND parameter = ?3 AND value > (
+                         SELECT value FROM rules_offset_values
+                         WHERE host = ?1 AND path = ?2 AND parameter = ?3
+                         ORDER BY value LIMIT 1 OFFSET ?4)",
+                )?
+                .execute((parts.host, parts.path, parameter, OFFSET_VALUES - 1))?,
+        );
     }
     Ok(())
 }
@@ -872,20 +927,22 @@ fn offset_value(
 fn paged_value(
     connection: &Connection,
     parts: &Parts<'_>,
-    parameter: &str,
+    (parameter, value): (&str, i64),
     (anchor, step): (i64, i64),
-    value: i64,
     key: &Url,
+    touched: &mut Touched,
 ) -> rusqlite::Result<()> {
     let listing = (parts.host, parts.path, parameter);
     let lowered = greatest_common_divisor(step, value.abs_diff(anchor));
     if lowered != step {
-        connection
-            .prepare_cached(
-                "UPDATE rules_offsets SET step = ?4
-                 WHERE host = ?1 AND path = ?2 AND parameter = ?3",
-            )?
-            .execute((parts.host, parts.path, parameter, lowered))?;
+        touched.add(
+            connection
+                .prepare_cached(
+                    "UPDATE rules_offsets SET step = ?4
+                     WHERE host = ?1 AND path = ?2 AND parameter = ?3",
+                )?
+                .execute((parts.host, parts.path, parameter, lowered))?,
+        );
     }
     let highest: i64 = connection
         .prepare_cached(
@@ -893,6 +950,7 @@ fn paged_value(
              WHERE host = ?1 AND path = ?2 AND parameter = ?3 ORDER BY value DESC LIMIT 1",
         )?
         .query_row(listing, |row| row.get(0))?;
+    touched.add(1);
     if value >= highest {
         return Ok(());
     }
@@ -902,13 +960,16 @@ fn paged_value(
              VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT DO NOTHING",
         )?
         .execute((parts.host, parts.path, parameter, value, key.as_str()))?;
+    touched.add(inserted);
     if inserted == 1 {
-        connection
-            .prepare_cached(
-                "DELETE FROM rules_offset_values
-                 WHERE host = ?1 AND path = ?2 AND parameter = ?3 AND value = ?4",
-            )?
-            .execute((parts.host, parts.path, parameter, highest))?;
+        touched.add(
+            connection
+                .prepare_cached(
+                    "DELETE FROM rules_offset_values
+                     WHERE host = ?1 AND path = ?2 AND parameter = ?3 AND value = ?4",
+                )?
+                .execute((parts.host, parts.path, parameter, highest))?,
+        );
     }
     Ok(())
 }
@@ -941,6 +1002,7 @@ fn cursor(
     parts: &Parts<'_>,
     from: &Url,
     key: &Url,
+    touched: &mut Touched,
 ) -> rusqlite::Result<()> {
     let mut statement = connection.prepare_cached(PAGED_OFFSETS)?;
     let offsets = statement
@@ -948,6 +1010,7 @@ fn cursor(
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    touched.add(offsets.len());
     if offsets.is_empty() {
         return Ok(());
     }
@@ -957,7 +1020,7 @@ fn cursor(
         if offsets.iter().any(|(offset, _)| offset == parameter) {
             continue;
         }
-        if let Some(earlier) = cursor_link(connection, parts, pair, from, key)? {
+        if let Some(earlier) = cursor_link(connection, parts, pair, (from, key), touched)? {
             shown.get_or_insert((parameter, earlier));
         }
     }
@@ -974,6 +1037,7 @@ fn cursor(
                 row.get(0)
             })?
             .collect::<rusqlite::Result<_>>()?;
+        touched.add(first.len());
         let mut listing = key.clone();
         listing.set_query(None);
         let evidence = format!(
@@ -1001,8 +1065,8 @@ fn cursor_link(
     connection: &Connection,
     parts: &Parts<'_>,
     pair: &str,
-    from: &Url,
-    key: &Url,
+    (from, key): (&Url, &Url),
+    touched: &mut Touched,
 ) -> rusqlite::Result<Option<[(String, String); 2]>> {
     type Link = (String, String, String);
     let (parameter, value) = (name(pair), value(pair));
@@ -1021,8 +1085,8 @@ fn cursor_link(
             Ok((first, second, row.get::<_, bool>(6)?))
         })
         .optional()?;
-    let Some((first, second, refuted)) = kept else {
-        connection
+    let Some((first, second, refuted)) = touched.found(kept) else {
+        let kept = connection
             .prepare_cached(
                 "INSERT INTO rules_cursors (host, path, parameter, value, page, url, refuted)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
@@ -1035,6 +1099,7 @@ fn cursor_link(
                 from.as_str(),
                 key.as_str(),
             ))?;
+        touched.add(kept);
         return Ok(None);
     };
     if refuted {
@@ -1049,19 +1114,21 @@ fn cursor_link(
         None => pages.clone().all(|(other, ..)| other != value),
     };
     if !consistent {
-        connection
-            .prepare_cached(
-                "UPDATE rules_cursors SET refuted = 1
-                 WHERE host = ?1 AND path = ?2 AND parameter = ?3",
-            )?
-            .execute(listing)?;
+        touched.add(
+            connection
+                .prepare_cached(
+                    "UPDATE rules_cursors SET refuted = 1
+                     WHERE host = ?1 AND path = ?2 AND parameter = ?3",
+                )?
+                .execute(listing)?,
+        );
         return Ok(None);
     }
     if own.is_some() {
         return Ok(None);
     }
     let Some(second) = second else {
-        connection
+        let kept = connection
             .prepare_cached(
                 "UPDATE rules_cursors SET second_value = ?4, second_page = ?5, second_url = ?6
                  WHERE host = ?1 AND path = ?2 AND parameter = ?3",
@@ -1074,6 +1141,7 @@ fn cursor_link(
                 from.as_str(),
                 key.as_str(),
             ))?;
+        touched.add(kept);
         return Ok(None);
     };
     Ok(Some([(first.1, first.2), (second.1, second.2)]))

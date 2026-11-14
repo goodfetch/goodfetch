@@ -729,6 +729,53 @@ fn with_learning_off_admission_keeps_no_evidence_and_refuses_nothing() {
     );
 }
 
+/// With `frontier.learning` off, an admission reads and writes none of
+/// learning's tables, nor the learned identities: a listing's offset links
+/// and a cursor link, each carrying a query, are admitted with no
+/// statement on them (#2169).
+///
+/// Covers: story:6-216, setting:frontier.learning
+#[test]
+fn with_learning_off_admission_reads_no_learned_rule_and_no_evidence() {
+    let mut crawl = Crawl::new();
+    Bounds {
+        learning: false,
+        ..Bounds::default()
+    }
+    .record(&crawl.connection)
+    .unwrap();
+    crawl.seed(&at(0, 20));
+
+    let statements = crawl.statements_of(|crawl| {
+        for page in 0..3 {
+            assert_eq!(crawl.enqueue(&at(page, 20), &at(page + 1, 20)), "added");
+        }
+        assert_eq!(
+            crawl.enqueue(&at(1, 20), &format!("{LIST}?after=r-40")),
+            "added"
+        );
+    });
+
+    let learning_tables: Vec<String> = rules::TABLES
+        .statements
+        .iter()
+        .filter_map(|statement| statement.strip_prefix("CREATE TABLE IF NOT EXISTS "))
+        .map(|rest| rest.split_whitespace().next().unwrap().to_owned())
+        .chain(["learned_identities".to_owned()])
+        .collect();
+    let touching: Vec<&String> = statements
+        .iter()
+        .filter(|statement| {
+            learning_tables.iter().any(|table| {
+                statement
+                    .split(|character: char| !character.is_alphanumeric() && character != '_')
+                    .any(|word| word == table)
+            })
+        })
+        .collect();
+    assert_eq!(touching, Vec::<&String>::new());
+}
+
 /// A listing walked only by its offset leaves the Run `unverified`, while
 /// two offsets, or a parameter that steps by 1 as page numbers do, are no
 /// offset pagination, and a cursor link beside them is no rule.

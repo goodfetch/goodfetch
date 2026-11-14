@@ -58,6 +58,10 @@ pub const TABLES: RunStateTables = RunStateTables {
 pub(crate) struct Identities<'a> {
     plain: Cow<'a, str>,
     learned: Option<(String, Vec<i64>)>,
+    /// Whether the Run learns (`frontier.learning`): when it does not, no
+    /// learned rule is read for it and no learned identity is looked up
+    /// (#2169).
+    learning: bool,
 }
 
 /// The identity a request's fixed rules make, with what its learned one is
@@ -156,6 +160,7 @@ pub(crate) fn identities(
     Ok(Identities {
         plain: Cow::Owned(fixed.plain),
         learned,
+        learning: true,
     })
 }
 
@@ -176,7 +181,19 @@ pub(crate) fn under_rules<'a>(
     Ok(Identities {
         plain: Cow::Borrowed(&fixed.plain),
         learned: learned_of(connection, key, fixed)?,
+        learning: true,
     })
+}
+
+/// The identities of a request whose fixed identity is `fixed` in a Run
+/// that does not learn (`frontier.learning: false`): its fixed one alone,
+/// read from nothing, since no learned rule applies (ADR 0138).
+pub(crate) fn fixed_only(fixed: &Fixed) -> Identities<'_> {
+    Identities {
+        plain: Cow::Borrowed(&fixed.plain),
+        learned: None,
+        learning: false,
+    }
 }
 
 /// The learned identity of a request whose URL's key is `key` and whose
@@ -214,8 +231,9 @@ impl Identities<'_> {
 
 /// Whether the visited set holds `identities`, or `staged`, what an
 /// attempt's earlier staged admissions visited, or `held`, the visits a
-/// batching writer has not committed (#2168), does: its own identity, or
-/// its learned one as visited or as a visited one's learned identity.
+/// batching writer has not committed (#2168), does: its own identity, or,
+/// in a Run that learns, its learned one as visited or as a visited one's
+/// learned identity.
 ///
 /// # Errors
 ///
@@ -240,6 +258,9 @@ pub(crate) fn seen(
     };
     if let Some(visitor) = visitor(&identities.plain)? {
         return Ok(Seen::Visited(visitor));
+    }
+    if !identities.learning {
+        return Ok(Seen::New);
     }
     let (probe, rules) = match &identities.learned {
         Some((learned, rules)) => {

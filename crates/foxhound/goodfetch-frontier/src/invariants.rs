@@ -41,6 +41,9 @@ pub struct Invariants {
     /// The visits a batching writer has not committed, held once the Run
     /// batches its writes (#2168).
     unwritten: OnceLock<UnwrittenVisits>,
+    /// The Run's counted work, which counts the evidence its admissions
+    /// read and write (`F2.admission_evidence`), once the Run counts on it.
+    work: OnceLock<CountedWork>,
 }
 
 impl fmt::Debug for Invariants {
@@ -73,6 +76,7 @@ impl Invariants {
             budgets,
             sitemap_rules: Mutex::new(HashMap::new()),
             unwritten: OnceLock::new(),
+            work: OnceLock::new(),
         })
     }
 
@@ -122,6 +126,19 @@ impl Invariants {
     ) -> &UnwrittenVisits {
         self.unwritten
             .get_or_init(|| UnwrittenVisits::new(budget, committed))
+    }
+
+    /// Counts, from now on, the evidence the Run's admissions read and
+    /// write on `work`, the Run's counted work (`F2.admission_evidence`,
+    /// ADR 0140). Once is enough; a second call changes nothing.
+    pub fn count_on(&self, work: CountedWork) {
+        drop(self.work.set(work));
+    }
+
+    /// The Run's counted work, once the Run counts on it
+    /// ([`Self::count_on`]).
+    pub(crate) fn work(&self) -> Option<&CountedWork> {
+        self.work.get()
     }
 
     /// The visits the Run's writer has not committed, once the Run holds

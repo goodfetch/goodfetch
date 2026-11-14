@@ -29,6 +29,7 @@ use crate::invariants::Invariants;
 use crate::rules;
 use crate::scope::{Narrowing, Scope};
 use crate::staged::Staged;
+use crate::unwritten::{self, Holding};
 
 /// The Frontier's visited set: each identity admitted, with the ID of the
 /// crawl request it was admitted for, or that reached it by a redirect;
@@ -212,7 +213,8 @@ impl Identities<'_> {
 }
 
 /// Whether the visited set holds `identities`, or `staged`, what an
-/// attempt's earlier staged admissions visited, does: its own identity, or
+/// attempt's earlier staged admissions visited, or `held`, the visits a
+/// batching writer has not committed (#2168), does: its own identity, or
 /// its learned one as visited or as a visited one's learned identity.
 ///
 /// # Errors
@@ -222,11 +224,13 @@ pub(crate) fn seen(
     connection: &Connection,
     identities: &Identities<'_>,
     staged: Option<&Staged>,
+    held: Option<&Holding<'_>>,
 ) -> rusqlite::Result<Seen> {
     let visitor = |identity: &str| -> rusqlite::Result<Option<String>> {
         Ok(visitor(connection, identity)?.or_else(|| {
             staged
                 .and_then(|staged| staged.visitor(identity))
+                .or_else(|| held.and_then(|held| held.visitor(identity)))
                 .map(str::to_owned)
         }))
     };
@@ -253,6 +257,7 @@ pub(crate) fn seen(
         Some(learned) => Some(learned),
         None => staged
             .and_then(|staged| staged.learned(probe))
+            .or_else(|| held.and_then(|held| held.learned(probe)))
             .map(|(rule, crawl_request)| (rule, crawl_request.to_owned())),
     };
     Ok(match learned {
@@ -653,14 +658,13 @@ pub fn admit_hop(
     hop: (&Url, &HttpMethod, Option<&[u8]>),
 ) -> rusqlite::Result<Hop> {
     let (url, method, body) = hop;
-    redirect_hop(
+    let holding = invariants.unwritten().map(unwritten::UnwrittenVisits::lock);
+    judge_hop(
         connection,
-        invariants.scope(),
-        policy,
+        (invariants.scope(), policy),
         crawl_request,
-        url,
-        method,
-        body,
+        (url, method, body),
+        holding.as_ref(),
     )
 }
 
@@ -684,29 +688,35 @@ pub fn redirect_hop(
     method: &HttpMethod,
     body: Option<&[u8]>,
 ) -> rusqlite::Result<Hop> {
+    judge_hop(
+        connection,
+        (scope, policy),
+        crawl_request,
+        (url, method, body),
+        None,
+    )
+}
+
+/// Where a redirect hop leads a crawl request, as [`redirect_hop`] judges
+/// it, beside `held`, the visits a batching writer has not committed.
+fn judge_hop(
+    connection: &Connection,
+    (scope, policy): (&Scope, &Policy),
+    crawl_request: &str,
+    (url, method, body): (&Url, &HttpMethod, Option<&[u8]>),
+    held: Option<&Holding<'_>>,
+) -> rusqlite::Result<Hop> {
     match rewrite(connection, scope, policy, url)? {
         Some(SkipReason::OutOfScope) => return Ok(Hop::OutOfScope),
         Some(_) => return Ok(Hop::DomainPolicy),
         None => {}
     }
-    let hop = identities(
-        connection,
-        &Key::of(url, false),
-        Declared {
-            method,
-            body,
-            key: None,
-            keeps_fragment: false,
-        },
-    )?;
-    Ok(match seen(connection, &hop, None)? {
-        Seen::Visited(visitor)
-        | Seen::Merged {
-            crawl_request: visitor,
-            ..
-        } if visitor != crawl_request => Hop::Duplicate,
-        _ => Hop::Follow,
-    })
+    let hop = unwritten::reached_identities(connection, url, method, body)?;
+    let seen = seen(connection, &hop, None, held)?;
+    Ok(unwritten::reached_hop(unwritten::duplicate(
+        &seen,
+        crawl_request,
+    )))
 }
 
 /// Why a crawl request sent on to `url`, by a Hook's rewrite or a redirect
@@ -754,26 +764,44 @@ pub fn redirect_reached(
     method: &HttpMethod,
     body: Option<&[u8]>,
 ) -> rusqlite::Result<Hop> {
-    let reached = identities(
-        connection,
-        &Key::of(url, false),
-        Declared {
-            method,
-            body,
-            key: None,
-            keeps_fragment: false,
-        },
-    )?;
-    if let Seen::Visited(visitor)
-    | Seen::Merged {
-        crawl_request: visitor,
-        ..
-    } = seen(connection, &reached, None)?
-        && visitor != crawl_request
-    {
+    reach(connection, None, crawl_request, (url, method, body))
+}
+
+/// Records a redirect chain's end as [`redirect_reached`] does, within the
+/// Run's `invariants`: beside the visits a batching writer has not
+/// committed, which this one joins until its batch commits (#2168).
+///
+/// # Errors
+///
+/// When the run file cannot be written.
+pub fn admit_reached(
+    connection: &Connection,
+    invariants: &Invariants,
+    crawl_request: &str,
+    hop: (&Url, &HttpMethod, Option<&[u8]>),
+) -> rusqlite::Result<Hop> {
+    reach(connection, invariants.unwritten(), crawl_request, hop)
+}
+
+/// Records a redirect chain's end as [`redirect_reached`] does, beside
+/// `overlay`, the visits a batching writer has not committed, when it
+/// keeps them.
+fn reach(
+    connection: &Connection,
+    overlay: Option<&unwritten::UnwrittenVisits>,
+    crawl_request: &str,
+    (url, method, body): (&Url, &HttpMethod, Option<&[u8]>),
+) -> rusqlite::Result<Hop> {
+    let mut holding = overlay.map(unwritten::UnwrittenVisits::lock);
+    let reached = unwritten::reached_identities(connection, url, method, body)?;
+    let seen = seen(connection, &reached, None, holding.as_ref())?;
+    if unwritten::duplicate(&seen, crawl_request) {
         return Ok(Hop::Duplicate);
     }
     visit_all(connection, &reached, crawl_request)?;
+    if let Some(holding) = &mut holding {
+        holding.written(&reached, crawl_request);
+    }
     Ok(Hop::Follow)
 }
 

@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_page::url_pattern::{UnsupportedPattern, UrlPattern};
@@ -27,6 +27,7 @@ use url::{Position, Url};
 
 use crate::bounds::Bounds;
 use crate::scope::Scope;
+use crate::unwritten::UnwrittenVisits;
 
 /// What every admission of a Run measures a candidate against, built once.
 pub struct Invariants {
@@ -37,6 +38,9 @@ pub struct Invariants {
     /// Each sitemap seed's rules, compiled, by their JSON as the run file
     /// keeps them with the seed's sitemaps.
     sitemap_rules: Mutex<HashMap<String, Arc<Rules>>>,
+    /// The visits a batching writer has not committed, held once the Run
+    /// batches its writes (#2168).
+    unwritten: OnceLock<UnwrittenVisits>,
 }
 
 impl fmt::Debug for Invariants {
@@ -68,6 +72,7 @@ impl Invariants {
             bounds,
             budgets,
             sitemap_rules: Mutex::new(HashMap::new()),
+            unwritten: OnceLock::new(),
         })
     }
 
@@ -103,6 +108,23 @@ impl Invariants {
     #[must_use]
     pub const fn bounds(&self) -> &Bounds {
         &self.bounds
+    }
+
+    /// Holds, from now on, the visits the Run's writer has not committed
+    /// (#2168), against `committed`, how many commits it acknowledged: a
+    /// Run whose writer batches its writes holds them, so a redirect hop is
+    /// judged on a reader. Once is enough; a second call changes nothing.
+    pub fn hold_unwritten(&self, committed: impl Fn() -> u64 + Send + Sync + 'static) {
+        let _held = self
+            .unwritten
+            .get_or_init(|| UnwrittenVisits::new(committed));
+    }
+
+    /// The visits the Run's writer has not committed, once the Run holds
+    /// them ([`Self::hold_unwritten`]).
+    #[must_use]
+    pub fn unwritten(&self) -> Option<&UnwrittenVisits> {
+        self.unwritten.get()
     }
 
     /// The first path budget whose pattern the path and query of `url`

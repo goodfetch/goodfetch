@@ -392,6 +392,9 @@ pub fn admit_seed_in(
     {
         Scope::widen(connection, &url)?;
         admitting.widened(&url);
+        if let Some(unwritten) = invariants.unwritten() {
+            unwritten.lock().widened();
+        }
         // The seed's rules were checked as it was given.
         let _unreadable = invariants.know_sitemap_rules(&seed.rules);
     }

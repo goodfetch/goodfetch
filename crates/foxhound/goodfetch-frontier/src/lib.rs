@@ -36,6 +36,7 @@ pub mod seeds;
 pub mod sitemap;
 mod staged;
 pub mod trap_links;
+mod unwritten;
 mod url;
 
 use std::sync::Arc;
@@ -50,7 +51,7 @@ pub use admit::{
 pub use bounds::{Bounds, TABLES as BOUNDS_TABLES, completeness_reasons};
 pub use domain_key::DomainKeys;
 pub use identity::{
-    Declared, Hop, TABLES as VISITED_TABLES, admit_hop, fuzz_url_key, redirect_hop,
+    Declared, Hop, TABLES as VISITED_TABLES, admit_hop, admit_reached, fuzz_url_key, redirect_hop,
     redirect_reached, rewrite, url_key,
 };
 pub use invariants::Invariants;
@@ -67,6 +68,7 @@ pub use robots_txt::{SharedRobotsTxt, TABLES as ROBOTS_TXT_TABLES};
 pub use rules::{TABLES as RULES_TABLES, learned_rules};
 pub use scope::{Narrowing, Patterns, Scope, Strategy as ScopeStrategy, TABLES as SCOPE_TABLES};
 pub use staged::{Admitting, Refused, Staged};
+pub use unwritten::{PendingVisit, Reached, UnwrittenVisits, visit_pending};
 pub use url::{document_base, resolve_link};
 
 /// A URL as the WHATWG URL Standard parsed it.

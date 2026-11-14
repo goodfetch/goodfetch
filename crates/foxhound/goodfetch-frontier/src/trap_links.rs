@@ -302,7 +302,7 @@ pub fn seen_again(
     let identities = under_rules(connection, key, fixed)?;
     // The run file only: a request an attempt staged holds no mark until
     // its commit, which admits this link again in order on the run file.
-    let reached = match seen(connection, &identities, None)? {
+    let reached = match seen(connection, &identities, None, None)? {
         Visited::New => return Ok(()),
         Visited::Visited(crawl_request) | Visited::Merged { crawl_request, .. } => crawl_request,
     };

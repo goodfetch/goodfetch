@@ -635,7 +635,9 @@ fn each_outcome_of_the_frontier_counts_on_its_own_row_a_plant_adds_one_a_page_an
         (built_once(&default), built_once(&no_globs)),
         ([0; 7], [0; 7])
     );
-    assert!(default.of(Row::HopTransactions) > 0);
+    // At batch a redirect hop is judged on a reader beside the visits not
+    // written yet, and opens no writer transaction (#2168).
+    assert_eq!(default.of(Row::HopTransactions), 0);
     // A code-free page's links ride its outcome's job (#2245), and a
     // sitemap's read keys its entries in its fetch's (#2167).
     assert_eq!(

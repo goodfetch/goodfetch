@@ -118,6 +118,15 @@ impl Stored {
             staging,
             intake,
         } = within;
+        if !writer.per_attempt() {
+            // A batch's visits are in the file only once it commits: the
+            // Frontier holds them until then, so a redirect hop is judged
+            // on a reader (#2168).
+            let commits = writer.commits();
+            invariants
+                .frontier()
+                .hold_unwritten(move || *commits.borrow());
+        }
         Self {
             writer,
             egress,
@@ -233,6 +242,10 @@ impl Stored {
                 .await;
             }
             Ask::Hop { hop, asks, answer } => {
+                if self.invariants.frontier().unwritten().is_some() {
+                    drop(answer.send(self.hop_on_reader(hop, asks)));
+                    return None;
+                }
                 if let HopAsk::Check = asks {
                     self.work.count(Row::HopTransactions);
                 }
@@ -340,14 +353,89 @@ impl Stored {
                 &hop.crawl_request,
                 (&hop.url, &hop.method, hop.body.as_deref()),
             ),
-            HopAsk::Reached => goodfetch_frontier::redirect_reached(
+            HopAsk::Reached => goodfetch_frontier::admit_reached(
                 connection,
+                self.invariants.frontier(),
                 &hop.crawl_request,
-                &hop.url,
-                &hop.method,
-                hop.body.as_deref(),
+                (&hop.url, &hop.method, hop.body.as_deref()),
             ),
         }
+    }
+
+    /// A redirect hop's question, answered on a reader while the writer
+    /// batches, beside the visits it has not committed (#2168): the page
+    /// waits for no write. A check that a reader finds out of the scope,
+    /// while a seed widened it in a batch the reader may not see, asks the
+    /// writer again. A chain's end held as pending queues its visit before
+    /// it answers, so its page's outcome is queued after it.
+    fn hop_on_reader(&self, hop: ChainHop, asks: HopAsk) -> Queued<goodfetch_frontier::Hop> {
+        let this = self.clone();
+        Box::pin(async move {
+            let hop = Arc::new(hop);
+            let unsynced = Syncing::Deferred { charged: 0 };
+            match asks {
+                HopAsk::Check => {
+                    let before = this.commits();
+                    let (reading, asked) = (this.clone(), Arc::clone(&hop));
+                    let answer = this
+                        .writer
+                        .read(move |connection| reading.hop(connection, &asked, HopAsk::Check))
+                        .await?;
+                    let widened = this
+                        .invariants
+                        .frontier()
+                        .unwritten()
+                        .is_some_and(|unwritten| unwritten.widened_since(before));
+                    if answer != goodfetch_frontier::Hop::OutOfScope || !widened {
+                        return Ok(answer);
+                    }
+                    this.waited(1);
+                    this.work.count(Row::HopTransactions);
+                    let place = this.writer.reserve().await?;
+                    let writing = this.clone();
+                    Ok(place
+                        .write_with(unsynced, move |connection| {
+                            writing.hop(connection, &hop, HopAsk::Check)
+                        })
+                        .await?)
+                }
+                HopAsk::Reached => {
+                    let invariants = this.invariants.clone();
+                    let reached = this
+                        .writer
+                        .read(move |connection| {
+                            let unwritten = invariants.frontier().unwritten().expect(
+                                "invariant: a hop is read only beside the unwritten visits",
+                            );
+                            unwritten.hold_reached(
+                                connection,
+                                &hop.crawl_request,
+                                (&hop.url, &hop.method, hop.body.as_deref()),
+                            )
+                        })
+                        .await?;
+                    let pending = match reached {
+                        goodfetch_frontier::Reached::Duplicate => {
+                            return Ok(goodfetch_frontier::Hop::Duplicate);
+                        }
+                        goodfetch_frontier::Reached::Follow(pending) => pending,
+                    };
+                    let place = this.writer.reserve().await?;
+                    let invariants = this.invariants.clone();
+                    // Queued now, in the page's order: the answer does not
+                    // wait for its batch, and dropping the future does not
+                    // withdraw the visit.
+                    drop(place.write_with(unsynced, move |connection| {
+                        goodfetch_frontier::visit_pending(
+                            connection,
+                            invariants.frontier(),
+                            pending,
+                        )
+                    }));
+                    Ok(goodfetch_frontier::Hop::Follow)
+                }
+            }
+        })
     }
 
     /// What the crawl's Run state starts from as it opens: the Session

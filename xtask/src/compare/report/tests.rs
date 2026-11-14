@@ -147,11 +147,13 @@ fn three_sets_of_trials_read_ahead_behind_and_overlapping() {
                 "behind",
                 "behind",
                 "behind",
+                "behind",
                 "behind"
             ]),
             Some(&vec![
                 "Throughput: pages per second",
                 "overlapping: foxhound 11.5 (11.0–12.0), spider 15.0 (6.8–28.9)",
+                "behind",
                 "behind",
                 "behind",
                 "behind"
@@ -195,7 +197,8 @@ fn standings_are_against_each_competitors_main_row() {
             ("foxhound", "crawlee"),
             ("foxhound", "scrapy"),
             ("foxhound", "crawlee-rs"),
-            ("foxhound", "pagesift")
+            ("foxhound", "pagesift"),
+            ("foxhound", "openspider")
         ]
     );
 }
@@ -368,7 +371,8 @@ fn the_crawl_like_scenarios_cells_carry_no_bar() {
             "crawlee",
             "scrapy",
             "crawlee-rs",
-            "pagesift"
+            "pagesift",
+            "openspider"
         ]
     );
 }

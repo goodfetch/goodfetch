@@ -59,7 +59,7 @@ type Ran = Arc<Mutex<Vec<&'static str>>>;
 /// with `invalid_request`; each notes in `ran` that it ran.
 fn typed(ran: &Ran) -> Contribution {
     let (asked, handled) = (Arc::clone(ran), Arc::clone(ran));
-    let guard: Guard = Arc::new(move |_, params, _| {
+    let guard: Guard = Arc::new(move |_, params, _, _| {
         asked.lock().unwrap().push("guard");
         params.json().contains(r#""refuse""#).then(|| {
             Box::pin(ready(Err(CallError::protocol(

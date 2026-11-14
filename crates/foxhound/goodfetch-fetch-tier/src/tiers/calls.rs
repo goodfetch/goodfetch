@@ -54,7 +54,7 @@ use data_encoding::BASE64;
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row as CountedRow};
 use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::{CallError, Params};
+use goodfetch_engine::{CallError, ReadParams};
 use goodfetch_page::page_value::{DocumentResponse, NavigationGate, ServedDocument};
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_protocol::foxhound::fetch::{RESPONSE_NOT_DOCUMENT, ResponseNotDocumentDetails};
@@ -77,7 +77,6 @@ use goodfetch_protocol::page::{
 };
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
 use serde::Serialize;
-use serde::de::DeserializeOwned;
 use serde_json::value::RawValue;
 use url::Url;
 
@@ -101,7 +100,7 @@ pub(super) fn answer(
     tiers: &FetchTiers,
     page_id: &PageId,
     operation: &'static str,
-    params: Params<'_>,
+    params: ReadParams<'_>,
 ) -> Option<Served> {
     let page = tiers.served_page(page_id)?;
     if let Some(content_type) = &page.not_document
@@ -128,7 +127,7 @@ pub(super) fn answer(
             Some(ready(Ok(encoded(&serde_json::Map::new()))))
         }
         name if name == LOCATOR_WAIT_FOR.name => {
-            let params: LocatorWaitForParams = read(params)?;
+            let params: &LocatorWaitForParams = read(params)?;
             let wait = match params.state.unwrap_or_default() {
                 ElementState::Attached => Wait::One,
                 ElementState::Detached => Wait::None,
@@ -140,29 +139,29 @@ pub(super) fn answer(
                 page_id,
                 page,
                 operation,
-                params.locator.selector,
+                params.locator.selector.clone(),
                 wait,
             ))
         }
         name if name == LOCATOR_WAIT_FOR_COUNT.name => {
-            let params: WaitForCountParams = read(params)?;
+            let params: &WaitForCountParams = read(params)?;
             let wait = Wait::Count(params.count);
             Some(waited(
                 tiers,
                 page_id,
                 page,
                 operation,
-                params.locator.selector,
+                params.locator.selector.clone(),
                 wait,
             ))
         }
         name if name == PAGE_WAIT_FOR_URL.name => {
-            let params: WaitForUrlParams = read(params)?;
-            Some(ready(url_waited(tiers, page_id, &page, operation, &params)))
+            let params: &WaitForUrlParams = read(params)?;
+            Some(ready(url_waited(tiers, page_id, &page, operation, params)))
         }
         // A static document reached every load state once it was read.
         name if name == PAGE_WAIT_FOR_LOAD_STATE.name => {
-            let _: WaitForLoadStateParams = read(params)?;
+            let _: &WaitForLoadStateParams = read(params)?;
             Some(ready(Ok(encoded(&Reached {}))))
         }
         name if [
@@ -176,7 +175,7 @@ pub(super) fn answer(
             navigated(tiers, page_id, page, name, params)
         }
         name if name == PAGE_REQUEST.name => {
-            let params: PageRequestParams = read(params)?;
+            let params: PageRequestParams = read::<PageRequestParams>(params)?.clone();
             let tiers = tiers.clone();
             let page_id = page_id.clone();
             Some(Box::pin(async move {
@@ -185,16 +184,16 @@ pub(super) fn answer(
             }))
         }
         name if name == RESPONSE_BODY.name => {
-            let params: ResponseBodyParams = read(params)?;
+            let params: &ResponseBodyParams = read(params)?;
             Some(body(tiers, page_id, page, operation, &params.request_id))
         }
         name if name == PAGE_WAIT_FOR_RESPONSE.name => {
-            let params: WaitForExchangeParams = read(params)?;
+            let params: &WaitForExchangeParams = read(params)?;
             let waited = (params.url.as_ref(), params.timeout);
             Some(replayed::arm(tiers, page_id, &page, operation, waited))
         }
         name if name == PAGE_WAIT_FOR_REQUEST_FINISHED.name => {
-            let params: WaitForRequestFinishedParams = read(params)?;
+            let params: &WaitForRequestFinishedParams = read(params)?;
             let waited = (params.url.as_ref(), params.timeout);
             Some(replayed::arm(tiers, page_id, &page, operation, waited))
         }
@@ -233,10 +232,10 @@ fn navigated(
     page_id: &PageId,
     page: Arc<ServedPage>,
     operation: &'static str,
-    params: Params<'_>,
+    params: ReadParams<'_>,
 ) -> Option<Served> {
     let step = match operation {
-        name if name == PAGE_GOTO.name => Step::To(read::<GotoParams>(params)?.url),
+        name if name == PAGE_GOTO.name => Step::To(read::<GotoParams>(params)?.url.clone()),
         name if name == PAGE_RELOAD.name => Step::Reload,
         name if name == PAGE_GO_BACK.name => Step::Back,
         _ => Step::Forward,
@@ -308,7 +307,7 @@ pub(super) fn on_browser(
     tiers: &FetchTiers,
     page_id: &PageId,
     operation: &'static str,
-    params: Params<'_>,
+    params: ReadParams<'_>,
 ) -> Option<Served> {
     let held = lock(&tiers.served.pages)
         .browser
@@ -320,7 +319,7 @@ pub(super) fn on_browser(
     if operation != RESPONSE_BODY.name {
         return None;
     }
-    let asked: ResponseBodyParams = read(params)?;
+    let asked: &ResponseBodyParams = read(params)?;
     if asked.request_id != held.request_id {
         return None;
     }
@@ -350,9 +349,11 @@ fn not_document(content_type: &str, operation: &str) -> CallError {
     )
 }
 
-/// `params` as `P`, or `None` when they do not read.
-fn read<P: DeserializeOwned>(params: Params<'_>) -> Option<P> {
-    params.read().ok()
+/// `params` as `P`, the call's handler's type, as its handler read them,
+/// or `None` when they did not read: the call decodes them once (ADR
+/// 0140's E1).
+fn read<P: 'static>(params: ReadParams<'_>) -> Option<&P> {
+    params.get()
 }
 
 /// A served page's answer to a call, its result encoded once or its

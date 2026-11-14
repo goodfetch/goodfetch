@@ -3,7 +3,7 @@ use std::path::Path;
 use super::{
     Executables, Options, chromiumoxide_executable, counted_output, crawlberg_executable,
     crawlee_rs_executable, fastcrw_executable, openspider_executable, order, pagesift_executable,
-    run, set_aside, size_points, spider_executable,
+    profile_folder, run, set_aside, size_points, spider_executable,
 };
 use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
 use crate::compare::trials::{
@@ -116,6 +116,22 @@ fn chromiumoxide_runs_the_executable_built_in_its_folder() {
         chromiumoxide_executable(Path::new("/t/compare-spider"), "release"),
         Path::new("/t/compare-spider/chromiumoxide/release/goodfetch-compare-chromiumoxide")
     );
+}
+
+/// A profile's builds are read from the folder Cargo writes it to: `debug`
+/// for `dev` and `test`, `release` for `bench`, the profile's own name for
+/// every other (issue 2099).
+#[rstest::rstest]
+#[case::dev("dev", "debug")]
+#[case::test_profile("test", "debug")]
+#[case::release("release", "release")]
+#[case::bench("bench", "release")]
+#[case::ci("ci", "ci")]
+fn each_profiles_builds_are_read_from_the_folder_cargo_writes_it_to(
+    #[case] profile: &str,
+    #[case] folder: &str,
+) {
+    assert_eq!(profile_folder(profile), folder);
 }
 
 /// Every measured cell's 10 trials run once each, in one order that mixes
@@ -315,7 +331,7 @@ fn handed_over(scenarios: Vec<Scenario>) -> (anyhow::Result<Comparison>, Vec<[St
         proving_ground: nowhere,
         foxhound: nowhere,
         spider_builds: nowhere,
-        spider_profile: "release",
+        profile_folder: "release",
         crawlee: nowhere,
         scrapy: nowhere,
         browser: nowhere,

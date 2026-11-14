@@ -313,20 +313,10 @@ fn suite_step_with(
     )
     .unwrap();
     std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let path = std::env::join_paths(
-        std::iter::once(shims).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
-    )
-    .unwrap();
-    let justfile = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../justfile");
     let output = workspace
-        .command("just")
-        .arg("--justfile")
-        .arg(justfile)
-        .arg("--working-directory")
-        .arg(root)
+        .just(&shims)
         .arg("features-audit")
         .args(args)
-        .env("PATH", path)
         .env("CARGO_NET_OFFLINE", "true")
         .output()
         .unwrap();

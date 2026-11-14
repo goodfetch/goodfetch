@@ -2592,6 +2592,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jiff",
+ "netdev",
  "proptest",
  "psl",
  "quick-xml 0.41.0",
@@ -2602,6 +2603,7 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "socket2",
  "thiserror 2.0.21",
  "tokio",
  "tokio-rustls",
@@ -5798,9 +5800,7 @@ checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
 name = "reqwest"
-version = "0.13.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029"
+version = "0.13.5+goodfetch.1"
 dependencies = [
  "base64 0.23.1",
  "bytes",

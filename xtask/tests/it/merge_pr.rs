@@ -78,7 +78,10 @@ fn gh_stand_in(folder: &Path, calls: &Path, head: &str) -> String {
 /// takes a second more while `lengthy` exists and, while `failing` exists,
 /// leaves a red step's kept result file and fails with status 3; a `just
 /// pre-merge` that starts while another runs
-/// notes itself in `together`.
+/// notes itself in `together`. `just test-health post-merge`, the run a gate
+/// starts as it ends and no step of it, is kept out of `calls`: it writes to
+/// `post-merge-run` whether the gate's lock is still there, its niceness,
+/// whether it leads a session of its own and the signals it ignores.
 fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
@@ -114,7 +117,18 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
         (
             "just",
             format!(
-                "#!/bin/sh\necho \"just $*\" >>\"{calls}\"\n\
+                "#!/bin/sh\n\
+                 if [ \"$*\" = 'test-health post-merge' ]; then\n\
+                   {{\n\
+                     if [ -d \"{lock}\" ]; then echo lock=held; else echo lock=gone; fi\n\
+                     echo \"nice=$(nice)\"\n\
+                     if [ \"$(ps -o sid= -p $$ 2>/dev/null | tr -d ' ')\" = \"$$\" ]; then echo session=own; else echo session=another; fi\n\
+                     if [ -r /proc/self/status ]; then grep '^SigIgn:' /proc/self/status; fi\n\
+                   }} >\"{post_merge_run}.new\"\n\
+                   mv \"{post_merge_run}.new\" \"{post_merge_run}\"\n\
+                   exit 0\n\
+                 fi\n\
+                 echo \"just $*\" >>\"{calls}\"\n\
                  if [ -n \"$GOODFETCH_PERF_PULL_REQUEST\" ]; then\n\
                    echo \"acceptance $GOODFETCH_PERF_PULL_REQUEST\" >>\"{calls}\"\n\
                  fi\n\
@@ -136,10 +150,13 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                    [ -z \"$alone\" ] || rmdir \"{running}\"\n\
                    if [ -f \"{failing}\" ]; then\n\
                      mkdir -p target/red-steps/quick/nextest/quick && echo '<testsuites/>' >target/red-steps/quick/nextest/quick/junit.xml\n\
+                     mkdir -p target/steps/quick && echo 'a lint failed' >target/steps/quick/lint.log\n\
                      echo 'a test failed'; exit 3\n\
                    fi\n\
                  fi\n",
                 calls = calls.display(),
+                lock = gate_lock(workspace).display(),
+                post_merge_run = folder.join("post-merge-run").display(),
                 running = folder.join("running").display(),
                 together = folder.join("together").display(),
                 lengthy = folder.join("lengthy").display(),
@@ -175,66 +192,18 @@ struct Run {
 
 /// What a quick merge of a change a test reads says of its gate, in the
 /// gate's log and in the merge's message.
-const A_TEST_READS_THE_CHANGE: &str = "`just pre-merge quick` (a test reads the change, and the full gate runs once per finished spec, on the pull request of its `spec/<n>` branch that leaves none of its sub-issues open, on the tenth such change or with `--full`; the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)";
+const A_TEST_READS_THE_CHANGE: &str = "`just pre-merge quick` (a test reads the change, and the full gate runs only once per finished spec, on the pull request of its `spec/<n>` branch that leaves none of its sub-issues open; the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)";
 
-/// Why the pull request that finishes spec #130 takes the full gate, as its
-/// gate's log and its merge's message say it.
-const A_FINISHED_SPEC: &str = "the pull request that finishes spec #130, from `spec/130`";
-
-/// Why the tenth change a test reads takes the full gate, as its gate's log
-/// and its merge's message say it.
-const THE_TENTH_CHANGE: &str = "the tenth change a test reads since the last full gate";
-
-/// A merge `main` holds, by what its message says of the gate it passed, as
-/// `ci/merge-pr.sh` writes it after `Merged on the local gate: `.
-#[derive(Clone, Copy)]
-enum Landed {
-    /// On the quick gate, a change a test reads.
-    ATestReadsTheChange,
-    /// On the quick gate, a change no test reads.
-    NoTestReadsTheChange,
-    /// On the docs gate.
-    DocumentsAlone,
-    /// On the full gate, the pull request that finishes a spec.
-    ASpecsFullGate,
-    /// On the full gate, asked for with `--full`.
-    AFullGateAskedFor,
-    /// On the full gate, the tenth change a test reads since the one before.
-    TheTenthsFullGate,
-}
-
-impl Landed {
-    fn said(self) -> String {
-        let full_gate = |why: &str| {
-            format!(
-                "`just pre-merge all` ({why}), which starts with `just quick all`'s lint and Quick suite,"
-            )
-        };
-        match self {
-            Self::ATestReadsTheChange => A_TEST_READS_THE_CHANGE.to_owned(),
-            Self::NoTestReadsTheChange => {
-                "`just pre-merge quick` (no test, benchmark, model, container or Evaluation reads the change)".to_owned()
-            }
-            Self::DocumentsAlone => {
-                "`just pre-merge docs` (the change is documents alone)".to_owned()
-            }
-            Self::ASpecsFullGate => full_gate(A_FINISHED_SPEC),
-            Self::AFullGateAskedFor => full_gate("asked for with `--full`"),
-            Self::TheTenthsFullGate => full_gate(THE_TENTH_CHANGE),
-        }
-    }
-}
-
-/// Lands a pull request on `main` as `just merge` does: a merge commit whose
-/// message says which gate passed.
-fn land(workspace: &Workspace, landed: Landed) {
+/// Lands a pull request on `main` as `just merge` does when a test reads its
+/// change and it merged on the quick gate: a merge commit whose message says
+/// so.
+fn land_on_the_quick_gate(workspace: &Workspace) {
     let main = "refs/heads/main";
     let tree = format!("{main}^{{tree}}");
     let change = workspace.git(&["commit-tree", &tree, "-p", main, "-m", "A change"]);
     let change = change.trim();
     let message = format!(
-        "A change (#1)\n\nMerged on the local gate: {} passed at {change}.\n\nSigned-off-by: Fixture <fixture@example.invalid>",
-        landed.said()
+        "A change (#1)\n\nMerged on the local gate: {A_TEST_READS_THE_CHANGE} passed at {change}.\n\nSigned-off-by: Fixture <fixture@example.invalid>"
     );
     let merge = workspace.git(&[
         "commit-tree",
@@ -252,19 +221,17 @@ fn land(workspace: &Workspace, landed: Landed) {
 /// A repository whose `origin` is itself, with pull request #7 at a commit
 /// on `change` that contains `main`; returns it with that head.
 fn pull_request() -> (Workspace, String) {
-    pull_request_after(&[])
+    pull_request_after(0)
 }
 
-/// [`pull_request`], on a `main` that first took these merges, oldest first,
-/// each kind as many times as its count.
-fn pull_request_after(merges: &[(usize, Landed)]) -> (Workspace, String) {
+/// [`pull_request`], on a `main` that first took this many quick merges of
+/// changes a test reads.
+fn pull_request_after(quick_merges: usize) -> (Workspace, String) {
     let workspace = repository();
     let path = workspace.path().display().to_string();
     workspace.git(&["remote", "add", "origin", &path]);
-    for &(count, landed) in merges {
-        for _ in 0..count {
-            land(&workspace, landed);
-        }
+    for _ in 0..quick_merges {
+        land_on_the_quick_gate(&workspace);
     }
     workspace.git(&["merge", "--quiet", "--ff-only", "main"]);
     workspace.write("change.txt", b"a change\n");
@@ -418,6 +385,89 @@ fn a_gate_refuses_to_start_while_its_target_file_system_is_short_of_space() {
     assert!(!gate_lock(&workspace).exists());
 }
 
+/// What a gate's log says as it starts the post-merge run.
+const STARTING_THE_POST_MERGE_RUN: &str = "Starting the post-merge run";
+
+/// The log of the workspace's one gate.
+fn gate_log(workspace: &Workspace) -> String {
+    let logs: Vec<PathBuf> = std::fs::read_dir(workspace.path().join(".git/goodfetch-gate-logs"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "log"))
+        .collect();
+    assert_eq!(logs.len(), 1, "{logs:?}");
+    std::fs::read_to_string(&logs[0]).unwrap()
+}
+
+/// The quick gate runs neither `just counts` nor the Pre-merge suite, so a
+/// gate that held its lock starts the post-merge run as it ends, merged or
+/// not: `main`'s tree is then the one its worktree just built, where the run
+/// builds, and a run an earlier gate stopped has its range covered (#2619).
+/// It starts once the gate's lock is gone, which the run reads, at the lowest
+/// priority, in a session of its own with no signal ignored, since a later
+/// gate stops it with SIGTERM.
+#[rstest]
+#[case::merged(false, 0)]
+#[case::red(true, 3)]
+fn a_gate_that_held_its_lock_starts_the_post_merge_run_as_it_ends(
+    #[case] failing: bool,
+    #[case] code: i32,
+) {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    if failing {
+        std::fs::write(stand_in.join("failing"), "").unwrap();
+    }
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(code), "{}{}", run.stdout, run.stderr);
+    assert!(
+        run.stdout.contains(STARTING_THE_POST_MERGE_RUN),
+        "{}",
+        run.stdout
+    );
+    let started = stand_in.join("post-merge-run");
+    until("the post-merge run's start", || started.is_file());
+    let started = std::fs::read_to_string(started).unwrap();
+    let mut lines = started.lines();
+    assert_eq!(lines.next(), Some("lock=gone"), "{started}");
+    assert_eq!(lines.next(), Some("nice=19"), "{started}");
+    let session = lines.next();
+    if cfg!(target_os = "linux") {
+        assert_eq!(session, Some("session=own"), "{started}");
+    }
+    if let Some(signals) = lines.next() {
+        let ignored =
+            u64::from_str_radix(signals.trim_start_matches("SigIgn:").trim(), 16).unwrap();
+        // SIGHUP, SIGINT, SIGQUIT, SIGPIPE and SIGTERM, bits 0, 1, 2, 12 and 14.
+        assert_eq!(ignored & 0x5007, 0, "{started}");
+    }
+}
+
+/// A pull request the gate refuses before it takes its lock stopped no run
+/// and merged nothing: it starts no post-merge run, which its log would say.
+#[test]
+fn a_refused_pull_request_starts_no_post_merge_run() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("state"), "CLOSED\tfalse").unwrap();
+
+    let run = merge(&workspace, &stand_in, &[]);
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert!(
+        !run.stdout.contains(STARTING_THE_POST_MERGE_RUN),
+        "{}",
+        run.stdout
+    );
+    assert!(!stand_in.join("post-merge-run").exists());
+}
+
 /// A green gate merges, then sweeps the gate's `target/` before it lets
 /// the lock go, keeping every unit read since the gate started, however
 /// long it ran.
@@ -496,6 +546,12 @@ fn a_failing_gate_keeps_its_log_and_test_results_and_is_swept_too() {
             .join("red-steps/quick/nextest/quick/junit.xml")
             .is_file()
     );
+    // Each red step's own log, which the gate's summary names: the post-merge
+    // run this gate starts may check `main` out over them.
+    assert_eq!(
+        std::fs::read_to_string(kept[0].join("steps/quick/lint.log")).unwrap(),
+        "a lint failed\n"
+    );
     assert!(
         run.stdout
             .contains(&format!("kept in {}", kept[0].display())),
@@ -571,7 +627,8 @@ fn a_caller_shows_the_gates_output_and_log_and_ends_with_its_status() {
 }
 
 /// A stop signal to the process the gate's lock names stops the gate's steps
-/// and lets the lock go; nothing merges, and the caller ends with 143.
+/// and lets the lock go; nothing merges, the caller ends with 143, and the
+/// gate starts no post-merge run: whoever stopped it wants the host quiet.
 #[rstest]
 #[case::sigterm("-TERM")]
 #[case::sighup("-HUP")]
@@ -589,6 +646,9 @@ fn a_stop_signal_to_the_gate_stops_its_steps_and_releases_its_lock(#[case] stop:
     let code = caller.wait().unwrap().code();
     assert!(!runs(step.trim()), "the gate's step still runs");
     assert_eq!(code, Some(143));
+    let said = gate_log(&workspace);
+    assert!(said.contains("The gate was told to stop"), "{said}");
+    assert!(!said.contains(STARTING_THE_POST_MERGE_RUN), "{said}");
     assert!(
         !calls(&stand_in)
             .iter()
@@ -735,32 +795,27 @@ fn a_gate_the_script_does_not_know_merges_nothing() {
 
 /// Which gate `just merge` runs (ADR 0135's amendment of 2026-11-10, the
 /// owner's decision for the refactor: quick per merge, the full gate once per
-/// finished spec, and its note of 2026-11-13: only the pull request that
-/// finishes the spec). `xtask affected` says what the change is; a change a
-/// test reads takes the full gate only on a spec's pull request, whose head
-/// branch is `spec/<n>`, when none of the spec's sub-issues stays open once
-/// the issues it closes are closed, or when `--full` asks for it, and the
-/// quick gate otherwise, until nine such changes have merged on it (the tests
-/// of the count, below). A change of documents alone keeps the docs gate, and
-/// one no test reads the quick gate, on any branch. Only the full gate's
-/// stress run needs a LazyFS build, so the quick and docs gates run without
-/// one.
+/// finished spec; its note of 2026-11-13: only the pull request that finishes
+/// the spec; and its note of 2026-11-14: no other trigger). `xtask affected`
+/// says what the change is; a change a test reads takes the full gate only on
+/// a spec's pull request, whose head branch is `spec/<n>`, when none of the
+/// spec's sub-issues stays open once the issues it closes are closed, and the
+/// quick gate on every other. A change of documents alone keeps the docs
+/// gate, and one no test reads the quick gate, on any branch. Only the full
+/// gate's stress run needs a LazyFS build, so the quick and docs gates run
+/// without one.
 #[rstest]
-#[case::a_change_a_test_reads("full", "change", "0", &[], "quick")]
-#[case::a_finished_specs_pull_request("full", "spec/130", "0", &[], "all")]
-#[case::an_unfinished_specs_pull_request("full", "spec/130", "2", &[], "quick")]
-#[case::asked_for_on_an_unfinished_spec("full", "spec/130", "2", &["--full"], "all")]
-#[case::a_branch_that_only_starts_like_a_specs("full", "spec/notes", "0", &[], "quick")]
-#[case::a_branch_that_only_names_a_spec("full", "claude/spec/130", "0", &[], "quick")]
-#[case::asked_for("full", "change", "0", &["--full"], "all")]
-#[case::asked_for_on_documents("docs", "change", "0", &["--full"], "all")]
-#[case::a_specs_documents("docs", "spec/130", "0", &[], "docs")]
-#[case::a_specs_change_no_test_reads("quick", "spec/130", "0", &[], "quick")]
-fn a_change_a_test_reads_takes_the_full_gate_only_on_a_specs_pull_request_or_when_asked(
+#[case::a_change_a_test_reads("full", "change", "0", "quick")]
+#[case::a_finished_specs_pull_request("full", "spec/130", "0", "all")]
+#[case::an_unfinished_specs_pull_request("full", "spec/130", "2", "quick")]
+#[case::a_branch_that_only_starts_like_a_specs("full", "spec/notes", "0", "quick")]
+#[case::a_branch_that_only_names_a_spec("full", "claude/spec/130", "0", "quick")]
+#[case::a_specs_documents("docs", "spec/130", "0", "docs")]
+#[case::a_specs_change_no_test_reads("quick", "spec/130", "0", "quick")]
+fn a_change_a_test_reads_takes_the_full_gate_only_on_a_finished_specs_pull_request(
     #[case] affected: &str,
     #[case] branch: &str,
     #[case] sub_issues_left: &str,
-    #[case] options: &[&str],
     #[case] form: &str,
 ) {
     let (workspace, head) = pull_request();
@@ -774,15 +829,10 @@ fn a_change_a_test_reads_takes_the_full_gate_only_on_a_specs_pull_request_or_whe
         variables.push(("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()));
     }
 
-    let run = merge_with(&workspace, &stand_in, options, &variables);
+    let run = merge(&workspace, &stand_in, &variables);
 
     assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
-    let gates: Vec<&str> = run
-        .calls
-        .iter()
-        .filter_map(|call| call.strip_prefix("just pre-merge "))
-        .collect();
-    assert_eq!(gates, [form]);
+    assert_eq!(forms(&run), [form], "{}", run.stdout);
 }
 
 /// A quick merge of a change a test reads is never recorded as a full one:
@@ -829,20 +879,16 @@ fn a_quick_merge_of_a_change_a_test_reads_says_what_it_did_not_run() {
 #[case::a_finished_specs_pull_request(
     "full",
     "spec/130",
-    &[],
     "`just pre-merge all` (the pull request that finishes spec #130, from `spec/130`)"
 )]
-#[case::asked_for("full", "change", &["--full"], "`just pre-merge all` (asked for with `--full`)")]
 #[case::a_change_no_test_reads(
     "quick",
     "change",
-    &[],
     "`just pre-merge quick` (no test, benchmark, model, container or Evaluation reads the change)"
 )]
 fn a_gate_says_which_gate_ran_and_why(
     #[case] affected: &str,
     #[case] branch: &str,
-    #[case] options: &[&str],
     #[case] said: &str,
 ) {
     let (workspace, head) = pull_request();
@@ -851,10 +897,9 @@ fn a_gate_says_which_gate_ran_and_why(
     std::fs::write(stand_in.join("gate"), affected).unwrap();
     std::fs::write(stand_in.join("branch"), branch).unwrap();
 
-    let run = merge_with(
+    let run = merge(
         &workspace,
         &stand_in,
-        options,
         &[
             ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
             ("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()),
@@ -881,8 +926,8 @@ fn a_gate_says_which_gate_ran_and_why(
 /// A spec's pull request that leaves sub-issues of its spec open takes the
 /// quick gate (the owner's rule of 2026-11-13, after three full gates on an
 /// unfinished spec's pull request), and its gate's log and its merge's
-/// message say why, after the words the count of quick merges reads. The one
-/// query names the spec and the pull request.
+/// message say why, after the words a quick merge of a change a test reads
+/// opens with. The one query names the spec and the pull request.
 #[test]
 fn an_unfinished_specs_pull_request_says_why_it_took_the_quick_gate() {
     let (workspace, head) = pull_request();
@@ -924,36 +969,6 @@ fn an_unfinished_specs_pull_request_says_why_it_took_the_quick_gate() {
     );
 }
 
-/// An unfinished spec's pull request is no exception to the count: when it is
-/// the tenth change a test reads since the last full gate, it takes the full
-/// gate as the tenth.
-#[test]
-fn an_unfinished_specs_pull_request_that_is_the_tenth_takes_the_full_gate() {
-    let (workspace, head) = pull_request_after(&[(9, Landed::ATestReadsTheChange)]);
-    let stand_in = stand_ins(&workspace, &head);
-    let lazyfs = full_gate_with_lazyfs(&stand_in);
-    std::fs::write(stand_in.join("sub-issues-left"), "2").unwrap();
-
-    let run = merge(
-        &workspace,
-        &stand_in,
-        &[
-            ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
-            ("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()),
-        ],
-    );
-
-    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
-    assert_eq!(forms(&run), ["all"], "{}", run.stdout);
-    assert!(
-        run.stdout.contains(&format!(
-            "The gate is `just pre-merge all` ({THE_TENTH_CHANGE})"
-        )),
-        "{}",
-        run.stdout
-    );
-}
-
 /// Whether a spec's pull request finishes the spec decides whether it takes
 /// the full gate, so a query that fails, or answers with no whole number,
 /// merges nothing: taken for none left, it would run a full gate on an
@@ -979,7 +994,9 @@ fn a_specs_sub_issues_that_cannot_be_read_merge_nothing(#[case] answer: Option<&
 
     assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
     assert!(
-        run.stdout.contains("sub-issues of spec #130") && run.stdout.contains("`--full`"),
+        run.stdout.contains("sub-issues of spec #130")
+            && run.stdout.contains("run the command again")
+            && !run.stdout.contains("--full"),
         "{}",
         run.stdout
     );
@@ -993,136 +1010,27 @@ fn a_specs_sub_issues_that_cannot_be_read_merge_nothing(#[case] answer: Option<&
     assert!(!gate_lock(&workspace).exists());
 }
 
-/// The full gate also runs on a count (ADR 0135's amendment of 2026-11-10 and
-/// its note of 2026-11-11, the owner's decisions; #2457): once nine changes a
-/// test reads have merged on the quick gate since the last full gate, the
-/// tenth takes the full gate unasked, on any branch, and the gate's log and
-/// the merge's message say why. The count is read from `main`'s merge
-/// messages. More than nine can be there, merged before `just merge` counted
-/// or by a checkout that did not: the next change still takes the full gate,
-/// and says which change it is instead of calling itself the tenth.
+/// No count sends a change to the full gate (ADR 0135's note of 2026-11-14,
+/// the owner's rule « FULL GATE seulement en fermant une spec entière », which
+/// ended the tenth change's full gate of its amendment of 2026-11-10): however
+/// many changes a test reads merged on the quick gate before it, a change a
+/// test reads that finishes no spec takes the quick gate, from a branch that
+/// is no spec's or from an unfinished spec's, and its gate's log and its
+/// merge's message announce no full gate to come.
 #[rstest]
-#[case::the_tenth(9, THE_TENTH_CHANGE)]
-#[case::one_past_the_tenth(10, "change 11 a test reads since the last full gate, past the tenth")]
-fn the_tenth_change_a_test_reads_since_the_last_full_gate_takes_the_full_gate(
+#[case::after_nine_such_merges(9, "change", "0")]
+#[case::after_twelve_such_merges(12, "change", "0")]
+#[case::an_unfinished_specs_after_nine(9, "spec/130", "2")]
+fn no_count_of_quick_merges_sends_a_change_to_the_full_gate(
     #[case] merged_on_the_quick_gate: usize,
-    #[case] why: &str,
+    #[case] branch: &str,
+    #[case] sub_issues_left: &str,
 ) {
-    let run = merge_after(
-        &[(merged_on_the_quick_gate, Landed::ATestReadsTheChange)],
-        "full",
-    );
-
-    assert_eq!(forms(&run), ["all"], "{}", run.stdout);
-    let said = format!("`just pre-merge all` ({why})");
-    let merged = run
-        .calls
-        .iter()
-        .find(|call| call.starts_with("gh pr merge "))
-        .unwrap();
-    assert!(
-        merged.contains(&format!("--body Merged on the local gate: {said}")),
-        "{merged}"
-    );
-    assert!(
-        run.stdout.contains(&format!("The gate is {said}")),
-        "{}",
-        run.stdout
-    );
-}
-
-/// Nine merges come before the tenth, and only quick merges of changes a
-/// test reads are among them: with eight the quick gate still runs, and a
-/// merge of documents alone or of a change no test reads, among nine merges,
-/// leaves eight counted.
-#[rstest]
-#[case::eight_such_merges(&[(8, Landed::ATestReadsTheChange)])]
-#[case::a_merge_of_documents_alone_among_nine(&[
-    (4, Landed::ATestReadsTheChange),
-    (1, Landed::DocumentsAlone),
-    (4, Landed::ATestReadsTheChange),
-])]
-#[case::a_merge_of_a_change_no_test_reads_among_nine(&[
-    (4, Landed::ATestReadsTheChange),
-    (1, Landed::NoTestReadsTheChange),
-    (4, Landed::ATestReadsTheChange),
-])]
-fn the_count_holds_only_the_quick_merges_of_changes_a_test_reads(
-    #[case] merges: &[(usize, Landed)],
-) {
-    let run = merge_after(merges, "full");
-
-    assert_eq!(forms(&run), ["quick"], "{}", run.stdout);
-}
-
-/// "Since the last full gate": a finished spec's full gate, one asked for with
-/// `--full` and the tenth change's own each start the count again, so the
-/// eight changes a test reads that merged after it leave the next on the
-/// quick gate, whatever merged before it.
-#[rstest]
-#[case::a_specs(Landed::ASpecsFullGate)]
-#[case::one_asked_for(Landed::AFullGateAskedFor)]
-#[case::the_tenth_changes_own(Landed::TheTenthsFullGate)]
-fn a_full_gate_starts_the_count_of_changes_a_test_reads_again(#[case] full_gate: Landed) {
-    let run = merge_after(
-        &[
-            (9, Landed::ATestReadsTheChange),
-            (1, full_gate),
-            (8, Landed::ATestReadsTheChange),
-        ],
-        "full",
-    );
-
-    assert_eq!(forms(&run), ["quick"], "{}", run.stdout);
-}
-
-/// The count sends only a change a test reads to the full gate: documents
-/// alone keep the docs gate and a change no test reads the quick gate,
-/// however many changes a test reads have merged since the last full gate.
-#[rstest]
-#[case::documents_alone("docs", "docs")]
-#[case::a_change_no_test_reads("quick", "quick")]
-fn a_change_no_test_reads_never_takes_the_full_gate_whatever_the_count(
-    #[case] affected: &str,
-    #[case] form: &str,
-) {
-    let run = merge_after(&[(12, Landed::ATestReadsTheChange)], affected);
-
-    assert_eq!(forms(&run), [form], "{}", run.stdout);
-}
-
-/// A stand-in `git` that, asked to count the merges whose message matches
-/// (`rev-list --count … --grep=…`, the count of the quick merges since the
-/// last full gate), does `counting` instead; every other call is the system's
-/// `git`.
-fn git_counting_with(stand_in: &Path, counting: &str) {
-    let git = stand_in.join("git");
-    std::fs::write(
-        &git,
-        format!(
-            "#!/bin/sh\n\
-             case \" $* \" in\n\
-               *\" --count \"*\" --grep=\"*) {counting} ;;\n\
-               *) PATH=/usr/bin:/bin exec git \"$@\" ;;\n\
-             esac\n"
-        ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o755)).unwrap();
-}
-
-/// The count decides whether a change a test reads takes the full gate, so a
-/// count the script cannot read fails before any step: read as none, it would
-/// send the tenth change to the quick gate.
-#[rstest]
-#[case::the_count_fails("exit 128")]
-#[case::it_gives_nothing("exit 0")]
-#[case::it_gives_no_whole_number("echo nine")]
-fn a_count_of_quick_merges_that_cannot_be_read_merges_nothing(#[case] counting: &str) {
-    let (workspace, head) = pull_request();
+    let (workspace, head) = pull_request_after(merged_on_the_quick_gate);
     let stand_in = stand_ins(&workspace, &head);
     std::fs::write(stand_in.join("gate"), "full").unwrap();
-    git_counting_with(&stand_in, counting);
+    std::fs::write(stand_in.join("branch"), branch).unwrap();
+    std::fs::write(stand_in.join("sub-issues-left"), sub_issues_left).unwrap();
 
     let run = merge(
         &workspace,
@@ -1130,42 +1038,15 @@ fn a_count_of_quick_merges_that_cannot_be_read_merges_nothing(#[case] counting: 
         &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
     );
 
-    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
-    assert!(
-        run.stdout.contains("could not be counted"),
-        "{}",
-        run.stdout
-    );
-    assert!(
-        !run.calls
-            .iter()
-            .any(|call| call.starts_with("just ") || call.starts_with("gh pr merge")),
-        "{:?}",
-        run.calls
-    );
-    assert!(!gate_lock(&workspace).exists());
-}
-
-/// Runs the gate to its end on pull request #7, from a branch that is no
-/// spec's, whose change `xtask affected` calls `affected`, on a `main` that
-/// first took `merges` ([`pull_request_after`]). A LazyFS build is there for
-/// a full gate to find.
-fn merge_after(merges: &[(usize, Landed)], affected: &str) -> Run {
-    let (workspace, head) = pull_request_after(merges);
-    let stand_in = stand_ins(&workspace, &head);
-    let lazyfs = full_gate_with_lazyfs(&stand_in);
-    std::fs::write(stand_in.join("gate"), affected).unwrap();
-    std::fs::write(stand_in.join("branch"), "change").unwrap();
-    let run = merge(
-        &workspace,
-        &stand_in,
-        &[
-            ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
-            ("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()),
-        ],
-    );
     assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
-    run
+    assert_eq!(forms(&run), ["quick"], "{}", run.stdout);
+    let merged = run
+        .calls
+        .iter()
+        .find(|call| call.starts_with("gh pr merge "))
+        .unwrap();
+    assert!(!merged.contains("tenth"), "{merged}");
+    assert!(!run.stdout.contains("tenth"), "{}", run.stdout);
 }
 
 /// The forms of `just pre-merge` a gate ran, in order.
@@ -1176,15 +1057,16 @@ fn forms(run: &Run) -> Vec<&str> {
         .collect()
 }
 
-/// `--full` and `--past-cap` go together in either order, and any other
-/// option is refused before the gate starts.
+/// `--past-cap` is the one option, and any other is refused before the gate
+/// starts: `--full` too, since only a finished spec's pull request takes the
+/// full gate (ADR 0135's note of 2026-11-14).
 #[rstest]
-#[case::full_first(&["--full", "--past-cap"], Some(0), "all")]
-#[case::past_cap_first(&["--past-cap", "--full"], Some(0), "all")]
-#[case::past_cap_alone(&["--past-cap"], Some(0), "quick")]
+#[case::past_cap(&["--past-cap"], Some(0), "quick")]
+#[case::full(&["--full"], Some(2), "")]
+#[case::full_after_past_cap(&["--past-cap", "--full"], Some(2), "")]
 #[case::unknown(&["--fast"], Some(2), "")]
-#[case::unknown_after_a_known_one(&["--full", "--fast"], Some(2), "")]
-fn the_gates_options_go_in_any_order_and_no_other_is_taken(
+#[case::unknown_after_a_known_one(&["--past-cap", "--fast"], Some(2), "")]
+fn past_cap_is_the_gates_one_option(
     #[case] options: &[&str],
     #[case] code: Option<i32>,
     #[case] form: &str,
@@ -1575,8 +1457,8 @@ fn a_gate_waits_for_the_run_in_the_backstops_worktree_and_says_so(
     assert!(caller.wait().unwrap().success());
 }
 
-/// A gate never waits for the post-merge run, which cron starts every 20
-/// minutes: it tells the run to stop, starts no step until it ended, says so,
+/// A gate never waits for the post-merge run, which the gate before it
+/// started: it tells the run to stop, starts no step until it ended, says so,
 /// and goes on without waiting as for the other runs. The run leaves its range
 /// to the next one (ci/test-health/scheduled.sh).
 #[test]

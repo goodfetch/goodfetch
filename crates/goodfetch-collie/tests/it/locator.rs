@@ -412,7 +412,7 @@ fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
     let cache = browser_cache(&env).unwrap();
     let mut settings = Map::new();
     settings.insert("live_view".to_owned(), json!({ "hiding": "off" }));
-    settings.insert("consent".to_owned(), json!({ "handling": false }));
+    settings.insert("consent".to_owned(), json!({ "handling": "detect" }));
     settings.insert(
         "session".to_owned(),
         json!({ "page_check": { "login_page": { "kind": "glob", "pattern": "**/login" } } }),

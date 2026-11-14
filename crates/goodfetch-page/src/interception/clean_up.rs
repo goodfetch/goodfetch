@@ -11,13 +11,15 @@ use std::sync::Arc;
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
 use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::{Resolved, Values, catalog_value, value_as};
+use goodfetch_engine::settings::{
+    Resolved, RunSettings, Values, catalog_value, get_or_default, value_as,
+};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::page::{
     BROWSER_BLOCK_RESOURCES, BROWSER_SERVICE_WORKERS, LIVE_VIEW_HIDING,
 };
 use goodfetch_protocol::settings::{
-    FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_FIRST_PARTY_SCRIPTS,
+    CONSENT_HANDLING, FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_FIRST_PARTY_SCRIPTS,
     FILTER_LISTS_TRACKERS,
 };
 use serde_json::Value;
@@ -25,6 +27,32 @@ use tokio::sync::OnceCell;
 
 use super::steps::Blocking;
 use crate::clean_up_versions::Versions;
+
+/// What a Run's `consent.handling` lets the Consent prompt runner and the
+/// cosmetic rules do (ADR 0048, #2434).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ConsentHandling {
+    /// The runner answers each prompt: the default.
+    Answer,
+    /// The runner only looks, and still runs the wall test.
+    Detect,
+    /// The runner is neither registered nor started, and no cosmetic rule
+    /// acts, while the Filter lists still block requests.
+    Off,
+}
+
+impl ConsentHandling {
+    /// `run`'s `consent.handling`.
+    pub(crate) fn of(run: &Run) -> Self {
+        let resolved = run.settings().map(RunSettings::resolved);
+        match get_or_default::<&str>(resolved, &CONSENT_HANDLING) {
+            "detect" => Self::Detect,
+            "off" => Self::Off,
+            // The resolver takes only the catalog's values: this is `answer`.
+            _ => Self::Answer,
+        }
+    }
+}
 
 /// The engine's Clean-up rules, each part loaded when first needed.
 #[derive(Default)]

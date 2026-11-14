@@ -8,7 +8,8 @@ use super::{
 use crate::compare::extracted::{ANSWERED_PAGES, Extracted};
 use crate::compare::matrix::{self, Cell, Scenario};
 
-/// Three trials of each measured cell over the site of `site_pages` pages,
+/// Three trials of each measured cell, one of a cell that runs one
+/// ([`Cell::one_trial`]), over the site of `site_pages` pages,
 /// or of its scenario's own length, each with the figures `measured` gives
 /// its cell and number, on an unnamed machine whose memory was not read.
 /// On the article site, a trial `measured` gives no result of the output
@@ -17,7 +18,7 @@ pub(crate) fn comparison(site_pages: u64, measured: impl Fn(&Cell, u32) -> Measu
     let trials = matrix::measured()
         .flat_map(|(cell, config)| {
             let measured = &measured;
-            (1..=3).map(move |number| Trial {
+            (1..=cell.runs(3)).map(move |number| Trial {
                 scenario: cell.scenario,
                 cell: cell.name.to_owned(),
                 tool: config.tool(),

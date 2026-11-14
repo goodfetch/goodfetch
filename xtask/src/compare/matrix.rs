@@ -1608,7 +1608,32 @@ pub(crate) enum OutputCheck {
     AdAllowed,
 }
 
+/// Why pagesift's polite cell runs one trial of each pass, where the run
+/// asks for more.
+const PAGESIFT_POLITE_ONE_TRIAL: &str = "the owner's decision of 2026-11-14 (#2215): a trial of \
+     this cell takes about 50 minutes, since its frontier takes a domain's pages after its first \
+     four last, at 1.5 to 3 pages a second, so one timed trial and one run under strace stand \
+     for it where the run asks for more; its figures are that trial's, with no spread";
+
 impl Cell {
+    /// Why the cell runs one trial of each pass, timed, under strace or
+    /// any other, where the run asks for more; `None` when it runs the
+    /// run's.
+    pub(crate) fn one_trial(&self) -> Option<&'static str> {
+        (self.scenario == Scenario::Polite && self.tool == Tool::Pagesift)
+            .then_some(PAGESIFT_POLITE_ONE_TRIAL)
+    }
+
+    /// The cell's runs in a pass that asks for `asked`: one at most when it
+    /// runs [`Cell::one_trial`], otherwise `asked`.
+    pub(crate) fn runs(&self, asked: u32) -> u32 {
+        if self.one_trial().is_some() {
+            asked.min(1)
+        } else {
+            asked
+        }
+    }
+
     /// Whether the cell runs Foxhound with `filter_lists.ads`,
     /// `filter_lists.trackers` and `filter_lists.annoyances` off.
     pub(crate) fn filter_lists_off(&self) -> bool {

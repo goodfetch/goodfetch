@@ -325,6 +325,12 @@ pub enum Authority {
     /// them is `setting_locked`. The program's own code and configuration
     /// set any value.
     HostsNarrowedByRecipeOrModel(HostList),
+    /// Every layer, but a Recipe and a Client acting for a model never give
+    /// a value the key's `weakens` names unless the layers below already
+    /// give that value, which is `setting_locked`; the program's own code,
+    /// configuration and an Operator policy set any value, as
+    /// `consent.handling: off` (#2434).
+    NotWeakenedByRecipeOrModel,
     /// No layer: an honesty guarantee that stays at its built-in value
     /// whatever the layer (ADR 0028).
     Fixed,
@@ -346,6 +352,7 @@ impl Authority {
             Self::NotByModel => "not_by_model",
             Self::NotByModelRecipeAllowedBy(_) => "not_by_model_recipe_allowed_by_operator_policy",
             Self::HostsNarrowedByRecipeOrModel(_) => "hosts_narrowed_by_recipe_or_model",
+            Self::NotWeakenedByRecipeOrModel => "not_weakened_by_recipe_or_model",
             Self::Fixed => "fixed",
         }
     }

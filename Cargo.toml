@@ -17,8 +17,8 @@ members = [
   "proving-ground",
   "xtask",
 ]
-# Goodfetch's forks of `wreq`, `wreq-util`, `dom_smoothie`, `rs-trafilatura`
-# and the two crates rs-trafilatura reads trees with, which
+# Goodfetch's forks of `reqwest`, `wreq`, `wreq-util`, `dom_smoothie`,
+# `rs-trafilatura` and the two crates rs-trafilatura reads trees with, which
 # `[patch.crates-io]` below carries: crates of their own, not members. The
 # Kennel's workspace, `kennel/`, has its own lockfile and toolchain (ADR 0141).
 exclude = [
@@ -26,6 +26,7 @@ exclude = [
   "vendor/dom_smoothie",
   "vendor/html-cleaning",
   "vendor/quick_html2md",
+  "vendor/reqwest",
   "vendor/rs-trafilatura",
   "vendor/wreq",
   "vendor/wreq-util",
@@ -503,10 +504,28 @@ undocumented_unsafe_blocks = "deny"
 # `dom_smoothie` release builds under `atomic`, and move the `dom_smoothie`
 # pin to that release. The fuzz crates that link goodfetch-extractor carry
 # this patch too.
+#
+# And of `reqwest` 0.13.5 (issue 2326, ADR 0042), carried in `vendor/reqwest`
+# as version `0.13.5+goodfetch.1`: upstream's commit
+# de55373434f07f42926599dbb5a88550d8e55112 (its `.cargo_vcs_info.json`) plus
+# one change, `ClientBuilder::tcp_connector`, the service the client opens
+# its TCP connections through in place of its own, with which the HTTP tier
+# connects through the engine's connection race (ADR 0118), as `wreq` does
+# through the same hook in its fork. `vendor/reqwest.patch` is the change,
+# against the published crate. Its tests, examples and lockfile are left out.
+# Neither open upstream pull request is that hook: seanmonstar/reqwest#2879
+# replaces the TCP, TLS and proxy steps together, as one connector, so the
+# client's own TLS and proxy handling would be the caller's, and #3081 only
+# sets hyper-util's Happy Eyeballs timeout, which leaves the race, the
+# lookups and the attempt order the library's. Drop this patch, the folder,
+# the patch file and the `exclude` above when a `reqwest` release takes a
+# TCP connector, and move the `reqwest` pin to that release. The fuzz crate
+# and `proving-ground` link reqwest; the fuzz crate carries this patch too.
 [patch.crates-io]
 dom_smoothie = { path = "vendor/dom_smoothie" }
 html-cleaning = { path = "vendor/html-cleaning" }
 quick_html2md = { path = "vendor/quick_html2md" }
+reqwest = { path = "vendor/reqwest" }
 rs-trafilatura = { path = "vendor/rs-trafilatura" }
 wreq = { path = "vendor/wreq" }
 wreq-util = { path = "vendor/wreq-util" }

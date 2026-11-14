@@ -20,28 +20,33 @@ const MIB: u64 = 1024 * 1024;
 
 /// The measured cells: each tool's main rows by scenario, then Spider's
 /// sensitivity rows.
-const CELLS: [(&str, &str, &str); 26] = [
+const CELLS: [(&str, &str, &str); 31] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
     ("raw", "scrapy", "scrapy"),
     ("raw", "crawlee-rs", "crawlee-rs"),
+    ("raw", "pagesift", "pagesift"),
     ("durable", "foxhound full", "foxhound"),
     ("durable", "foxhound periodic", "foxhound"),
     ("durable", "crawlee-rs", "crawlee-rs"),
+    ("durable", "pagesift", "pagesift"),
     ("polite", "foxhound", "foxhound"),
     ("polite", "crawlee", "crawlee"),
     ("polite", "scrapy", "scrapy"),
     ("polite", "crawlee-rs", "crawlee-rs"),
+    ("polite", "pagesift", "pagesift"),
     ("extraction", "foxhound", "foxhound"),
     ("extraction", "spider", "spider"),
     ("extraction", "crawlee", "crawlee"),
     ("extraction", "scrapy", "scrapy"),
     ("extraction", "crawlee-rs", "crawlee-rs"),
+    ("extraction", "pagesift", "pagesift"),
     ("browser", "foxhound", "foxhound"),
     ("browser", "spider", "spider"),
     ("browser", "crawlee", "crawlee"),
     ("browser", "scrapy", "scrapy"),
+    ("browser", "pagesift", "pagesift"),
     ("raw", "spider capacity 4096", "spider"),
     ("raw", "spider default features", "spider"),
     ("raw", "spider bloom", "spider"),
@@ -165,6 +170,7 @@ fn trials() -> Value {
             "playwright": "1.64.1",
             "scrapy_playwright": "0.0.48",
             "crawlee_rs": "2a3ed90b8391c86005ce6ed8dd3e3248d0d34579",
+            "pagesift": "1.3.0",
             "browser": "156.0.8078.4",
             "scenarios": ["raw", "durable", "polite", "extraction", "browser"],
             "command": "just compare release",
@@ -292,6 +298,7 @@ fn trials_of_the_same_work_report_each_cells_medians_with_their_spread() {
             "crawlee": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
             "scrapy": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
             "crawlee-rs": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
+            "pagesift": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
         })
     );
 }
@@ -372,7 +379,8 @@ fn spiders_sensitivity_rows_are_labelled_and_no_target_reads_them() {
         "  - not supported: Spider's `crawl_smart()` fetched 1 of the site's 100 pages",
         "| Metric | foxhound, 1000 of the site's 1000 pages | spider, 1000 of the site's 1000 pages \
          | crawlee, 1000 of the site's 1000 pages | scrapy, 1000 of the site's 1000 pages | \
-         crawlee-rs, 1000 of the site's 1000 pages | spider capacity 4096 (sensitivity), 1000 of the site's 1000 pages | spider default \
+         crawlee-rs, 1000 of the site's 1000 pages | pagesift, 1000 of the site's 1000 pages | \
+         spider capacity 4096 (sensitivity), 1000 of the site's 1000 pages | spider default \
          features (sensitivity), 1000 of the site's 1000 pages | spider bloom (sensitivity), 1000 \
          of the site's 1000 pages | spider jemalloc (sensitivity), 1000 of the site's 1000 pages |",
     ] {
@@ -627,8 +635,9 @@ fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
         "Crawlee 3.18.2 (`@crawlee/cheerio`, and `@crawlee/playwright` on Playwright 1.64.1) on \
-         Node.js, Scrapy 2.19.0 (and scrapy-playwright 0.0.48 on Playwright 1.64.1) on CPython and \
-         crawlee-rs at commit `2a3ed90b8391c86005ce6ed8dd3e3248d0d34579`, every tool of the headless browser scenario running Chrome for Testing 156.0.8078.4",
+         Node.js, Scrapy 2.19.0 (and scrapy-playwright 0.0.48 on Playwright 1.64.1) on CPython, \
+         crawlee-rs at commit `2a3ed90b8391c86005ce6ed8dd3e3248d0d34579` and pagesift 1.3.0, every \
+         tool of the headless browser scenario running Chrome for Testing 156.0.8078.4",
         "- **crawlee**: `CheerioCrawler` (`@crawlee/cheerio`) with `persistStorage: false` and \
          `maxConcurrency: 16`",
         "- **scrapy**: a default `scrapy.Spider`",
@@ -636,6 +645,50 @@ fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
          `DOWNLOAD_DELAY: 0`",
         "not supported: Crawlee's `persistStorage` writes each request of its queue to a file",
         "not supported: Scrapy's `JOBDIR` writes its queue's index only on a clean close",
+    ] {
+        assert!(
+            markdown.contains(expected),
+            "{expected} missing:\n{markdown}"
+        );
+    }
+}
+
+/// pagesift joins the matrix's five scenarios (#2215): each of its cells
+/// is measured with every metric, the report names its pinned version and
+/// its settings, and its cell says which buffer its own benchmark reads
+/// Spider's pages with, beside the spider row's.
+#[test]
+fn pagesifts_cells_report_every_metric_with_their_mapping_and_its_pin() {
+    let workspace = Workspace::from_fixture("empty");
+
+    let outcome = report(&workspace, &trials());
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let report = written(&workspace);
+    let names = |cell: &Value| {
+        cell["metrics"]
+            .as_object()
+            .map(|metrics| metrics.keys().cloned().collect::<Vec<_>>())
+    };
+    let foxhound = names(cell(&report, 0, "foxhound"));
+    for scenario in 0..5 {
+        let cell = cell(&report, scenario, "pagesift");
+        assert_eq!(
+            (&cell["status"], names(cell)),
+            (&json!("measured"), foxhound.clone()),
+            "scenario {scenario}'s pagesift"
+        );
+    }
+    let markdown = workspace.read_text(MARKDOWN);
+    for expected in [
+        "crawlee-rs at commit `2a3ed90b8391c86005ce6ed8dd3e3248d0d34579` and pagesift 1.3.0, every",
+        "- **pagesift**: its library's `Scraper::crawl`, as its own crawl benchmark drives it",
+        "- **pagesift**: scenario 1's crawl as a job of its HTTP API (`POST /v1/crawl`)",
+        "- **pagesift**: scenario 1's crawl on its browser engine (`engine: browser`)",
+        "  - Spider beside it: pagesift's own crawl benchmark reads Spider's pages with \
+         `subscribe(256)` on each site (`benchmarks/crawl/src/bin/spider_crawl.rs` at its release \
+         1.3.0); the spider row here reads them with `subscribe(64)`, the smallest capacity that \
+         lost no page here (#2213).",
     ] {
         assert!(
             markdown.contains(expected),
@@ -734,7 +787,7 @@ fn the_report_shows_the_load_each_trial_started_at() {
          Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
-        "1 of the 78 timed trials started above a 1-minute load of 4.",
+        "1 of the 93 timed trials started above a 1-minute load of 4.",
     ] {
         assert!(
             markdown.contains(expected),

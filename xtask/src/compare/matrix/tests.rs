@@ -334,3 +334,39 @@ fn just_compare_builds_crawlee_rss_side_into_its_folder() {
         super::CRAWLEE_RS_FOLDER
     )));
 }
+
+/// pagesift runs on its side in every scenario, each its main row: the
+/// four HTTP scenarios, the headless browser scenario on its browser
+/// engine, #2316's four and the hostile pages' two (#2215).
+#[test]
+fn pagesift_runs_every_scenario_on_its_side() {
+    let cells: Vec<(Scenario, &str, Row, Option<Config>)> = CELLS
+        .iter()
+        .filter(|cell| cell.tool == Tool::Pagesift)
+        .map(|cell| {
+            let config = match cell.status {
+                Status::Measured(config) => Some(config),
+                Status::NotSupported(_) | Status::Pending(_) => None,
+            };
+            (cell.scenario, cell.name, cell.row, config)
+        })
+        .collect();
+
+    assert_eq!(
+        cells,
+        Scenario::ALL.map(|scenario| (scenario, "pagesift", Row::Main, Some(Config::Pagesift)))
+    );
+}
+
+/// `just compare` builds pagesift's side, locked, at the run's profile,
+/// into the folder the run reads its executable from.
+#[test]
+fn just_compare_builds_pagesifts_side_into_its_folder() {
+    let recipes = include_str!("../../../../justfile");
+
+    assert!(recipes.contains(&format!(
+        "cargo build --quiet --locked --manifest-path xtask/compare-pagesift/Cargo.toml \
+         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
+        super::PAGESIFT_FOLDER
+    )));
+}

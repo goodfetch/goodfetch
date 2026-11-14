@@ -40,6 +40,10 @@ pub(crate) const SCRAPY_VERSION: &str = "2.19.0";
 /// `xtask/compare-crawlee-rs/Cargo.toml`'s `crawlee` (a unit test holds
 /// the two equal).
 pub(crate) const CRAWLEE_RS_COMMIT: &str = "2a3ed90b8391c86005ce6ed8dd3e3248d0d34579";
+/// pagesift's pinned version, the exact one
+/// `xtask/compare-pagesift/Cargo.toml` holds each of its crates to (a unit
+/// test holds them equal).
+pub(crate) const PAGESIFT_VERSION: &str = "1.3.0";
 /// Playwright's pinned version, which both sides' headless browser crawls
 /// drive Chrome with (`playwright` in `xtask/compare-crawlee/package.json`
 /// and `xtask/compare-scrapy/pyproject.toml`), and `scrapy-playwright`'s,
@@ -74,6 +78,7 @@ pub(crate) struct Declared {
     pub(crate) scrapy: String,
     /// crawlee-rs's commit.
     pub(crate) crawlee_rs: String,
+    pub(crate) pagesift: String,
     pub(crate) playwright: String,
     pub(crate) scrapy_playwright: String,
     /// The Chrome for Testing build every tool of the headless browser

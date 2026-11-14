@@ -19,7 +19,7 @@ use super::trial::{self, Counted, Ruled, callgrind_missing, strace_missing};
 use super::trials::{
     CONCURRENCY, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, Comparison, CountedCell, CountedRun, Declared,
     GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_TOOLS, Machine, Measured,
-    PLAYWRIGHT_VERSION, QUIET_LOAD, QUIET_WAIT_SECONDS, RULE_RUNS, RuledRun,
+    PAGESIFT_VERSION, PLAYWRIGHT_VERSION, QUIET_LOAD, QUIET_WAIT_SECONDS, RULE_RUNS, RuledRun,
     SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SPIDER_VERSION, STATISTIC, StoppedRun,
     Trial,
 };
@@ -28,9 +28,10 @@ use super::trials::{
 pub(crate) struct Executables<'a> {
     pub(crate) proving_ground: &'a Path,
     pub(crate) foxhound: &'a Path,
-    /// The folder of the Rust sides' builds, Spider's and crawlee-rs's, and
-    /// the folder Cargo names after the profile each was built with (see
-    /// [`spider_executable`] and [`crawlee_rs_executable`]).
+    /// The folder of the Rust sides' builds, Spider's, crawlee-rs's and
+    /// pagesift's, and the folder Cargo names after the profile each was
+    /// built with (see [`spider_executable`], [`crawlee_rs_executable`] and
+    /// [`pagesift_executable`]).
     pub(crate) spider_builds: &'a Path,
     pub(crate) spider_profile: &'a str,
     /// Crawlee's side's script, run by Node.js, and Scrapy's, run by the
@@ -246,6 +247,20 @@ pub(crate) fn crawlee_rs_executable(builds: &Path, profile: &str) -> PathBuf {
         ))
 }
 
+/// pagesift's side's executable in `builds`, beside Spider's builds:
+/// `just compare` builds it into the target folder
+/// [`matrix::PAGESIFT_FOLDER`] names, where Cargo puts it under `profile`'s
+/// folder.
+pub(crate) fn pagesift_executable(builds: &Path, profile: &str) -> PathBuf {
+    builds
+        .join(matrix::PAGESIFT_FOLDER)
+        .join(profile)
+        .join(format!(
+            "goodfetch-compare-pagesift{}",
+            std::env::consts::EXE_SUFFIX
+        ))
+}
+
 /// One trial of `cell` against a fresh Proving ground, through `xtask
 /// compare trial`, which prints its figures as one JSON line. `mode` and
 /// `output` name a counted trial's tool and file; `watch`, what the
@@ -271,6 +286,9 @@ fn trial<T: serde::de::DeserializeOwned>(
         Config::Scrapy => executables.scrapy.to_owned(),
         Config::CrawleeRs => {
             crawlee_rs_executable(executables.spider_builds, executables.spider_profile)
+        }
+        Config::Pagesift => {
+            pagesift_executable(executables.spider_builds, executables.spider_profile)
         }
     };
     let serving = serve(executables.proving_ground)?;
@@ -468,7 +486,11 @@ fn watched(child: &mut Child, address: &str, watch: Watch) -> Result<Option<Stri
 fn pages_of(config: Config, pages: u64, spider_pages: Option<u64>) -> u64 {
     match config {
         Config::Spider { .. } => spider_pages.unwrap_or(pages),
-        Config::Foxhound { .. } | Config::Crawlee | Config::Scrapy | Config::CrawleeRs => pages,
+        Config::Foxhound { .. }
+        | Config::Crawlee
+        | Config::Scrapy
+        | Config::CrawleeRs
+        | Config::Pagesift => pages,
     }
 }
 
@@ -711,6 +733,7 @@ fn declared(options: &Options) -> Declared {
         crawlee: CRAWLEE_VERSION.to_owned(),
         scrapy: SCRAPY_VERSION.to_owned(),
         crawlee_rs: CRAWLEE_RS_COMMIT.to_owned(),
+        pagesift: PAGESIFT_VERSION.to_owned(),
         playwright: PLAYWRIGHT_VERSION.to_owned(),
         scrapy_playwright: SCRAPY_PLAYWRIGHT_VERSION.to_owned(),
         browser: crate::test_facts::CHROME_FOR_TESTING_BUILD.to_owned(),

@@ -16,15 +16,27 @@
 //!   under `./store` keeps the job, its frontier and its pages: the process
 //!   the comparison starts again after a kill opens the store, which resumes
 //!   the job where the killed one left it, and waits for it to end;
-//! - `polite`: robots.txt obeyed and one request start a second on each
-//!   site (`politeness` on, its default, at a 1 s interval), every link
-//!   followed (`allowExternalLinks`), since the multi-domain site spans many
-//!   hosts and links nothing else;
+//! - `polite`: robots.txt obeyed, one request in flight and one page
+//!   start a second on each site (`politeness` on, its default, at its
+//!   default 1 s interval, with `per_host_concurrency` 1 where its default
+//!   is 2; it fetches a site's robots.txt outside that interval), every
+//!   link followed (`allowExternalLinks`), since the multi-domain site
+//!   spans many hosts and links nothing else;
 //! - `extraction`: `raw` with each page's main content as Markdown (its
 //!   `onlyMainContent`, the default), its URL, title and Markdown written
 //!   to `./pages.jsonl`;
 //! - `browser`: `raw` with each page rendered in `--browser`, its browser
-//!   engine.
+//!   engine;
+//! - `hostile`: the hostile pages' pass at each tool's defaults (#2439):
+//!   `ScraperConfig::default()` and a crawl request of the first page alone,
+//!   with nothing set but what reaches the Proving ground (the resolver
+//!   above and its private-network guard off): robots.txt obeyed and its
+//!   sitemap read, `politeness` on at a 1 s interval and 2 in flight on a
+//!   site, 64 in flight in all to start with, a limit of 10,000 pages,
+//!   each page's Markdown, its `auto` engine (HTTP or a browser as it
+//!   judges each page, the browser one it looks for itself on `PATH` and
+//!   where browsers are installed) and its `auto` scope, the first page's
+//!   folder; `--concurrency` is unread.
 //!
 //! The working folder is the trial's home. It prints one line, `pages=<n>`,
 //! the pages pagesift crawled (after a resume, the killed process's too),
@@ -36,7 +48,8 @@
 //!     --host scale.test:<port> --concurrency 16 --scenario raw
 #![expect(
     clippy::disallowed_methods,
-    reason = "a comparison side, no Product crate: its `main` builds its runtime"
+    clippy::disallowed_types,
+    reason = "a comparison side, no Product crate: its `main` builds its runtime, and its page count and output are shared with pagesift's tasks through std's types, which no loom model replaces"
 )]
 
 use std::io::{self, Write as _};
@@ -83,10 +96,11 @@ enum Scenario {
     Polite,
     Extraction,
     Browser,
+    Hostile,
 }
 
 fn arguments() -> Result<Arguments, String> {
-    let usage = "usage: goodfetch-compare-pagesift --url <url> [--host <host:port>] --concurrency <n> --scenario <raw|durable|polite|extraction|browser> [--browser <executable>]";
+    let usage = "usage: goodfetch-compare-pagesift --url <url> [--host <host:port>] --concurrency <n> --scenario <raw|durable|polite|extraction|browser|hostile> [--browser <executable>]";
     let mut url = None;
     let mut host = None;
     let mut concurrency = None;
@@ -115,6 +129,7 @@ fn arguments() -> Result<Arguments, String> {
                     "polite" => Scenario::Polite,
                     "extraction" => Scenario::Extraction,
                     "browser" => Scenario::Browser,
+                    "hostile" => Scenario::Hostile,
                     other => return Err(format!("pagesift runs no `{other}` scenario")),
                 });
             }
@@ -142,10 +157,7 @@ struct Pinned {
 }
 
 impl DnsLookup for Pinned {
-    fn lookup<'a>(
-        &'a self,
-        host: &'a str,
-    ) -> pagesift_net::BoxFuture<'a, io::Result<Vec<IpAddr>>> {
+    fn lookup<'a>(&'a self, host: &'a str) -> pagesift_net::BoxFuture<'a, io::Result<Vec<IpAddr>>> {
         if host == self.name {
             Box::pin(async move { Ok(vec![self.address]) })
         } else {
@@ -171,6 +183,10 @@ fn settings(arguments: &Arguments) -> Result<(String, ScraperConfig), String> {
             .map_err(|error| error.to_string())?;
         config.fetcher.dns = Arc::new(Pinned { name, address });
     }
+    if arguments.scenario == Scenario::Hostile {
+        // Its own defaults.
+        return Ok((start.into(), config));
+    }
     let rate = &mut config.policy.rate;
     // At most `--concurrency` in flight, as the other tools: its starting
     // value and its hard ceiling, which its controller stays under.
@@ -178,6 +194,7 @@ fn settings(arguments: &Arguments) -> Result<(String, ScraperConfig), String> {
     rate.global_ceiling = Some(arguments.concurrency);
     if arguments.scenario == Scenario::Polite {
         rate.default_interval = Duration::from_secs(1);
+        rate.per_host_concurrency = 1;
     } else {
         rate.politeness = false;
         config.policy.respect_robots = false;
@@ -196,6 +213,8 @@ fn request(arguments: &Arguments, start: &str) -> serde_json::Value {
         Scenario::Raw | Scenario::Durable | Scenario::Polite => (vec!["links"], "http"),
         Scenario::Extraction => (vec!["markdown"], "http"),
         Scenario::Browser => (vec!["links"], "browser"),
+        // Its own defaults.
+        Scenario::Hostile => return serde_json::json!({ "url": start }),
     };
     serde_json::json!({
         "url": start,

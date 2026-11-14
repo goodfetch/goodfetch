@@ -40,15 +40,18 @@ pub(crate) enum Tool {
     #[serde(rename = "crawlee-rs")]
     #[value(name = "crawlee-rs")]
     CrawleeRs,
+    /// pagesift's `Scraper`, its breadth-first crawl (#2215).
+    Pagesift,
 }
 
 impl Tool {
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 6] = [
         Self::Foxhound,
         Self::Spider,
         Self::Crawlee,
         Self::Scrapy,
         Self::CrawleeRs,
+        Self::Pagesift,
     ];
 
     pub(crate) fn name(self) -> &'static str {
@@ -58,6 +61,7 @@ impl Tool {
             Self::Crawlee => "crawlee",
             Self::Scrapy => "scrapy",
             Self::CrawleeRs => "crawlee-rs",
+            Self::Pagesift => "pagesift",
         }
     }
 }
@@ -434,6 +438,9 @@ impl SpiderBuild {
 /// beside Spider's (`just compare`).
 pub(crate) const CRAWLEE_RS_FOLDER: &str = "crawlee-rs";
 
+/// The folder of pagesift's side's build among the Rust sides' builds.
+pub(crate) const PAGESIFT_FOLDER: &str = "pagesift";
+
 /// What a cell's row is read for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -470,6 +477,8 @@ pub(crate) enum Config {
     Scrapy,
     /// crawlee-rs's side at the scenario's settings: its `HtmlCrawler`.
     CrawleeRs,
+    /// pagesift's side at the scenario's settings: its `Scraper`'s crawl.
+    Pagesift,
 }
 
 impl Config {
@@ -481,6 +490,7 @@ impl Config {
             Self::Crawlee => Tool::Crawlee,
             Self::Scrapy => Tool::Scrapy,
             Self::CrawleeRs => Tool::CrawleeRs,
+            Self::Pagesift => Tool::Pagesift,
         }
     }
 }
@@ -514,7 +524,7 @@ pub(crate) struct Cell {
 }
 
 /// Every cell, in the report's order.
-pub(crate) const CELLS: [Cell; 65] = [
+pub(crate) const CELLS: [Cell; 76] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
@@ -589,6 +599,23 @@ pub(crate) const CELLS: [Cell; 65] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::CrawleeRs),
+    },
+    Cell {
+        scenario: Scenario::Raw,
+        tool: Tool::Pagesift,
+        name: "pagesift",
+        mapping: "its library's `Scraper::crawl`, as its own crawl benchmark drives it: breadth-first \
+                  from the first page over its whole host (`crawlEntireDomain`), on its HTTP engine \
+                  with each page's links its only format, a limit of 100,000 pages (its API's \
+                  maximum) and its sitemap not read (`sitemap: skip`); `maxConcurrency: 16`, its \
+                  limiter starting at 16 in flight and capped there (`global_concurrency`, \
+                  `global_ceiling`), its controller moving under the cap; `politeness` off, its \
+                  administrator's switch, so no interval and no cap per site; robots.txt not obeyed \
+                  (`ignoreRobotsTxt`, `respect_robots: false`); nothing kept on disk; on its own \
+                  allocator (`SmallCache`, tuned at start as its executable does)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Pagesift),
     },
     Cell {
         scenario: Scenario::Raw,
@@ -728,6 +755,19 @@ pub(crate) const CELLS: [Cell; 65] = [
         status: Status::Measured(Config::CrawleeRs),
     },
     Cell {
+        scenario: Scenario::Durable,
+        tool: Tool::Pagesift,
+        name: "pagesift",
+        mapping: "scenario 1's crawl as a job of its HTTP API (`POST /v1/crawl`), called in process, \
+                  with its store on disk in the trial's folder, which keeps the job, its frontier \
+                  and its pages; killed with SIGKILL once half the site is served, then the same \
+                  command in a new process on the same folder, where opening the store resumes the \
+                  job",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Pagesift),
+    },
+    Cell {
         scenario: Scenario::Polite,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -801,6 +841,20 @@ pub(crate) const CELLS: [Cell; 65] = [
         status: Status::Measured(Config::CrawleeRs),
     },
     Cell {
+        scenario: Scenario::Polite,
+        tool: Tool::Pagesift,
+        name: "pagesift",
+        mapping: "`Scraper::crawl` with robots.txt obeyed (its default) and `politeness` on (its \
+                  default): its default 1 s between the starts of a site's pages, its \
+                  robots.txt fetched outside that interval, just before the first, and \
+                  `per_host_concurrency` 1 where its default is 2; 16 in flight in all \
+                  (`maxConcurrency`, `global_ceiling`); every link followed (`allowExternalLinks`), \
+                  since the site spans 50 domains and links nothing else; nothing kept on disk",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Pagesift),
+    },
+    Cell {
         scenario: Scenario::Extraction,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -864,6 +918,17 @@ pub(crate) const CELLS: [Cell; 65] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::CrawleeRs),
+    },
+    Cell {
+        scenario: Scenario::Extraction,
+        tool: Tool::Pagesift,
+        name: "pagesift",
+        mapping: "scenario 1's crawl with each page's main content as Markdown (`formats: \
+                  [markdown]` with `onlyMainContent`, its default), each page's URL, title and \
+                  Markdown written as a line of `pages.jsonl`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Pagesift),
     },
     Cell {
         scenario: Scenario::Extraction,
@@ -943,6 +1008,17 @@ pub(crate) const CELLS: [Cell; 65] = [
     },
     Cell {
         scenario: Scenario::Browser,
+        tool: Tool::Pagesift,
+        name: "pagesift",
+        mapping: "scenario 1's crawl on its browser engine (`engine: browser`), each page rendered \
+                  in the same headless Chrome for Testing (`BrowserSource::Executable`), its pool \
+                  of browsers and tabs at its defaults",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Pagesift),
+    },
+    Cell {
+        scenario: Scenario::Browser,
         tool: Tool::Spider,
         name: "spider smart",
         mapping: "none: Spider's `smart` feature, `crawl_smart()`, which fetches each page over \
@@ -1010,6 +1086,16 @@ pub(crate) const CELLS: [Cell; 65] = [
         status: Status::Measured(Config::CrawleeRs),
     },
     Cell {
+        scenario: Scenario::Realistic,
+        tool: Tool::Pagesift,
+        name: "pagesift",
+        mapping: "scenario 1's crawl (`maxConcurrency: 16`, `politeness` off) on the realistic-page \
+                  site, its redirects followed (its default)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Pagesift),
+    },
+    Cell {
         scenario: Scenario::Long,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -1065,6 +1151,16 @@ pub(crate) const CELLS: [Cell; 65] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::CrawleeRs),
+    },
+    Cell {
+        scenario: Scenario::Long,
+        tool: Tool::Pagesift,
+        name: "pagesift",
+        mapping: "scenario 1's crawl (`maxConcurrency: 16`, `politeness` off) on the site of \
+                  100,000 pages, the most its limit lets a crawl take",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Pagesift),
     },
     Cell {
         scenario: Scenario::Raw64,
@@ -1123,6 +1219,16 @@ pub(crate) const CELLS: [Cell; 65] = [
         row: Row::Main,
         status: Status::Measured(Config::CrawleeRs),
     },
+    Cell {
+        scenario: Scenario::Raw64,
+        tool: Tool::Pagesift,
+        name: "pagesift",
+        mapping: "scenario 1's crawl with `maxConcurrency: 64`, its limiter starting at 64 in \
+                  flight and capped there",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Pagesift),
+    },
     defaults(Scenario::Raw64),
     Cell {
         scenario: Scenario::Raw256,
@@ -1180,6 +1286,16 @@ pub(crate) const CELLS: [Cell; 65] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::CrawleeRs),
+    },
+    Cell {
+        scenario: Scenario::Raw256,
+        tool: Tool::Pagesift,
+        name: "pagesift",
+        mapping: "scenario 1's crawl with `maxConcurrency: 256`, its limiter starting at 256 in \
+                  flight and capped there",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Pagesift),
     },
     defaults(Scenario::Raw256),
     Cell {
@@ -1251,6 +1367,22 @@ pub(crate) const CELLS: [Cell; 65] = [
         status: Status::Measured(Config::CrawleeRs),
     },
     Cell {
+        scenario: Scenario::Hostile,
+        tool: Tool::Pagesift,
+        name: "pagesift",
+        mapping: "`Scraper::crawl` at pagesift's defaults (`ScraperConfig::default()` and a crawl \
+                  request of the first page alone), setting nothing but what reaches the Proving \
+                  ground (its resolver answering the task's host name with the loopback address, \
+                  its private-network guard off): robots.txt obeyed and its sitemap read, \
+                  `politeness` on at 1 s between request starts and 2 in flight on a site, 64 in \
+                  flight in all to start with, a limit of 10,000 pages, each page's Markdown, its \
+                  `auto` engine (HTTP or a browser as it judges each page, the browser one it looks \
+                  for itself) and its `auto` scope, the first page's folder",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Pagesift),
+    },
+    Cell {
         scenario: Scenario::Hostile16,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -1306,6 +1438,16 @@ pub(crate) const CELLS: [Cell; 65] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::CrawleeRs),
+    },
+    Cell {
+        scenario: Scenario::Hostile16,
+        tool: Tool::Pagesift,
+        name: "pagesift",
+        mapping: "scenario 1's crawl (`maxConcurrency: 16`, `politeness` off, robots.txt not \
+                  obeyed, no delay) on the `traps` family",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Pagesift),
     },
 ];
 

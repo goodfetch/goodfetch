@@ -123,6 +123,8 @@ lint:
     step cargo-deny-spider 'ci/tool.sh cargo-deny cargo deny --all-features --manifest-path xtask/compare-spider/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     # crawlee-rs's side, no workspace member either, read the same way.
     step cargo-deny-crawlee-rs 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-crawlee-rs/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
+    # pagesift's side, the same.
+    step cargo-deny-pagesift 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-pagesift/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     # Crawlee's and Scrapy's sides, no workspace member either: their locks'
     # licenses against the same allowlist, read from what their frozen
     # installs leave beside them, with each side's own exceptions (ADR 0138).
@@ -380,6 +382,7 @@ fetch:
     cargo fetch --locked
     cargo fetch --locked --manifest-path xtask/compare-spider/Cargo.toml
     cargo fetch --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml
+    cargo fetch --locked --manifest-path xtask/compare-pagesift/Cargo.toml
     pnpm install --frozen-lockfile --dir xtask/compare-crawlee
     uv sync --frozen --directory xtask/compare-scrapy
     cd kennel && cargo fetch --locked
@@ -1082,10 +1085,12 @@ rss-propose *scenarios:
 # release profile (`profile` changes it for a quicker try), Crawlee 3.18.2
 # on Node.js (xtask/compare-crawlee: `CheerioCrawler`, and
 # `PlaywrightCrawler` for scenario 5), Scrapy 2.19.0 on CPython
-# (xtask/compare-scrapy, with scrapy-playwright for scenario 5) and
+# (xtask/compare-scrapy, with scrapy-playwright for scenario 5),
 # crawlee-rs at a pinned commit (xtask/compare-crawlee-rs: its
 # `HtmlCrawler`, built like Spider's side; it has no browser crawler, so
-# scenario 5 says so), each side installed from its own lock, outside the
+# scenario 5 says so) and pagesift 1.3.0 (xtask/compare-pagesift: its
+# `Scraper`'s crawl, built like Spider's side, its browser engine for
+# scenario 5), each side installed from its own lock, outside the
 # Products'. Scenario 5's tools
 # all run the Chrome for Testing build Foxhound pins, as Playwright
 # installed it (`pnpm exec playwright install chromium`). A cell a tool
@@ -1108,8 +1113,8 @@ rss-propose *scenarios:
 # otherwise it fails naming the trial. A host without strace or Valgrind
 # reports that cell as not run. It gates nothing and is no Live check; run
 # it when the 1-minute load is under 4.
-# Spider's and crawlee-rs's crates and the sides' packages are downloaded
-# once, free. Spider's six builds and crawlee-rs's go to
+# Spider's, crawlee-rs's and pagesift's crates and the sides' packages are
+# downloaded once, free. Spider's six builds, crawlee-rs's and pagesift's go to
 # target/compare-spider/, or to the folder GOODFETCH_COMPARE_SPIDER_BUILDS
 # names: one outside every checkout keeps them from one measurement to the
 # next, whichever worktree measures and whatever sweeps its target/ (Cargo
@@ -1135,6 +1140,7 @@ compare profile="release" *args:
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features jemalloc --target-dir {{ compare_spider_builds }}/spider-jemalloc
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features mimalloc --target-dir {{ compare_spider_builds }}/spider-mimalloc
     cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/crawlee-rs
+    cargo build --quiet --locked --manifest-path xtask/compare-pagesift/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/pagesift
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy
     "$xtask" compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile {{ profile }} "${@:2}"
@@ -1412,8 +1418,8 @@ notices *arguments:
 
 # The security advisories of the Cargo, pnpm and uv lockfiles (the
 # workspace's, and the sides of `just compare`: Spider's xtask/compare-spider,
-# crawlee-rs's xtask/compare-crawlee-rs, Crawlee's xtask/compare-crawlee and
-# Scrapy's xtask/compare-scrapy), against
+# crawlee-rs's xtask/compare-crawlee-rs, pagesift's xtask/compare-pagesift,
+# Crawlee's xtask/compare-crawlee and Scrapy's xtask/compare-scrapy), against
 # the advisory snapshot ci/advisories.toml pins (ADR 0064), offline:
 # cargo-deny's and cargo-audit's over RustSec's pinned commit, OSV-Scanner's
 # over OSV's pinned npm and PyPI databases (ci/audit.sh). Its first run
@@ -1423,6 +1429,7 @@ audit:
     ci/tool.sh cargo-audit ci/audit.sh rust
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-spider/Cargo.toml
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-crawlee-rs/Cargo.toml
+    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-pagesift/Cargo.toml
     ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-crawlee/pnpm-lock.yaml
     ci/tool.sh osv-scanner ci/audit.sh python xtask/compare-scrapy/uv.lock
     ci/tool.sh cargo-audit ci/audit.sh rust kennel/Cargo.toml

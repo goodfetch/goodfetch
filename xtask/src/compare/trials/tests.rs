@@ -1,6 +1,6 @@
 use super::{
-    CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, PLAYWRIGHT_VERSION, SCRAPY_PLAYWRIGHT_VERSION,
-    SCRAPY_VERSION, SPIDER_VERSION, Work,
+    CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, PAGESIFT_VERSION, PLAYWRIGHT_VERSION,
+    SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SPIDER_VERSION, Work,
 };
 
 /// The Spider version Spider's side pins in its manifest, `=<version>`.
@@ -34,6 +34,22 @@ fn the_declared_crawlee_rs_is_the_commit_its_side_pins() {
     assert_eq!(
         manifest["dependencies"]["crawlee"]["rev"].as_str(),
         Some(CRAWLEE_RS_COMMIT)
+    );
+}
+
+/// The trials declare the pagesift its side builds: the exact version
+/// `xtask/compare-pagesift/Cargo.toml` holds each of pagesift's crates to.
+#[test]
+fn the_declared_pagesift_is_the_version_its_side_pins() {
+    let manifest: toml::Table = include_str!("../../../compare-pagesift/Cargo.toml")
+        .parse()
+        .unwrap();
+    let pinned = |name: &str| manifest["dependencies"][name].as_str().map(str::to_owned);
+
+    let exact = Some(format!("={PAGESIFT_VERSION}"));
+    assert_eq!(
+        ["pagesift", "pagesift-sys", "pagesift-cdp", "pagesift-net"].map(pinned),
+        [exact.clone(), exact.clone(), exact.clone(), exact]
     );
 }
 

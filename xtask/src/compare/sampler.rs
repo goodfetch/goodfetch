@@ -131,12 +131,7 @@ pub(crate) fn cpu_seconds(pid: u32) -> f64 {
         .filter_map(|pid| process(pid, page))
         .map(|process| process.spent_ticks())
         .sum();
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "clock ticks stay far below 2^52"
-    )]
-    let ticks = ticks as f64;
-    ticks / ticks_per_second
+    seconds(ticks, ticks_per_second)
 }
 
 /// The CPU seconds `pid`'s own process has spent so far, user and system,
@@ -145,6 +140,11 @@ pub(crate) fn cpu_seconds(pid: u32) -> f64 {
 pub(crate) fn own_cpu_seconds(pid: u32) -> f64 {
     let (ticks_per_second, page) = system();
     let ticks = process(pid, page).map_or(0, |process| process.cpu_ticks);
+    seconds(ticks, ticks_per_second)
+}
+
+/// `ticks` of the OS's clock, in seconds.
+fn seconds(ticks: u64, ticks_per_second: f64) -> f64 {
     #[expect(
         clippy::cast_precision_loss,
         reason = "clock ticks stay far below 2^52"

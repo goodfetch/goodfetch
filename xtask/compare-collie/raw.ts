@@ -122,6 +122,8 @@ function errorText(error: unknown): string {
 /** Collie over raw JSON-RPC to `engine`, its Sessions attached to `cdp`. */
 export async function raw(engine: Engine, cdp: string): Promise<Driver> {
   const client = new Client(engine);
+  // The protocol names no surface for a client of its own: this one says
+  // the TypeScript SDK's, the surface whose calls it makes.
   await client.call("hello", {
     protocol_version: PROTOCOL_VERSION,
     surface: "sdk_typescript",

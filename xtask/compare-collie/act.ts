@@ -1,6 +1,6 @@
 // One trial of the Collie scenario of `just compare` (issue 2282): Collie's
 // Attached engine over raw JSON-RPC (`raw.ts`), the same engine through
-// Collie's TypeScript SDK as a program drives it (issue 2406), or
+// Collie's TypeScript SDK (issue 2406), or
 // Playwright, each attached to the Chrome that `xtask compare` launched,
 // through the counting relay at `--cdp`, carries out the plan `--plan` names
 // as `plan.ts` does and prints one JSON line of what each page came to. A
@@ -67,7 +67,12 @@ function collieSession(opened: CollieSession): DriverSession {
 // set: the trial's Goodfetch home, whose user configuration maps the
 // Proving ground's hosts, and the engine's path.
 
-/** Collie's TypeScript SDK over the engine the program started. */
+/**
+ * Collie's TypeScript SDK, its Connection over the engine the driver
+ * started: `connectOver` takes that engine's stdio, which counts the
+ * messages sent it, where the SDK's own start would hide them; the program
+ * leaves the engine's stderr to xtask, which the SDK's own start reads.
+ */
 async function collieProgram(cdp: string): Promise<Driver> {
   const engine = await startEngine();
   const connection = await connectOver(engine.transport);

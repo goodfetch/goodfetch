@@ -258,6 +258,13 @@ fn figures(ran: &[&CollieTrial]) -> (ToolFigures, f64) {
     (figures, median(&commands))
 }
 
+/// One trial's figures of [`EngineApart`], per action.
+struct TrialApart {
+    program: f64,
+    engine: f64,
+    messages: f64,
+}
+
 /// A Collie row's program and engine apart over its trials `ran`, each per
 /// action it took; none unless every trial gave both.
 fn engine_apart(ran: &[&CollieTrial]) -> Option<EngineApart> {
@@ -265,23 +272,22 @@ fn engine_apart(ran: &[&CollieTrial]) -> Option<EngineApart> {
         .iter()
         .map(|trial| {
             let actions = float(trial.actions);
-            let program = trial.driver_cpu_seconds?;
-            let messages = trial.messages?;
-            Some((
-                program / actions,
-                (trial.cpu_seconds - program).max(0.0) / actions,
-                float(messages) / actions,
-            ))
+            let driver = trial.driver?;
+            Some(TrialApart {
+                program: driver.cpu_seconds / actions,
+                engine: (trial.cpu_seconds - driver.cpu_seconds).max(0.0) / actions,
+                messages: float(driver.messages) / actions,
+            })
         })
         .collect::<Option<Vec<_>>>()?;
     if apart.is_empty() {
         return None;
     }
-    let column = |pick: fn(&(f64, f64, f64)) -> f64| apart.iter().map(pick).collect::<Vec<_>>();
+    let column = |pick: fn(&TrialApart) -> f64| apart.iter().map(pick).collect::<Vec<_>>();
     Some(EngineApart {
-        program_cpu_seconds_per_action: spread(&column(|apart| apart.0), Unit::Seconds),
-        engine_cpu_seconds_per_action: spread(&column(|apart| apart.1), Unit::Seconds),
-        messages_per_action: spread(&column(|apart| apart.2), Unit::Count),
+        program_cpu_seconds_per_action: spread(&column(|apart| apart.program), Unit::Seconds),
+        engine_cpu_seconds_per_action: spread(&column(|apart| apart.engine), Unit::Seconds),
+        messages_per_action: spread(&column(|apart| apart.messages), Unit::Count),
     })
 }
 
@@ -443,8 +449,8 @@ fn mapping(tool: Contender) -> String {
             `locator.fill` and `locator.press` as the protocol's catalog names them, the Guard on"
             .to_owned(),
         Contender::CollieProgram => "Collie's TypeScript SDK `@goodfetch/collie`, \
-            `locator(…).click()`, `.fill()` and `.press()`, the Guard on, over an Attached \
-            engine the program starts"
+            `locator(…).click()`, `.fill()` and `.press()`, the Guard on, its Connection over the \
+            Attached engine the driver starts, whose stderr the program does not read"
             .to_owned(),
         Contender::Playwright => format!(
             "Playwright {PLAYWRIGHT_VERSION}, `locator(…).click()`, `.fill()` and `.press()`, \
@@ -700,8 +706,9 @@ fn program_text(text: &mut String, cells: &[CellFigures]) {
     }
     let _ = writeln!(
         text,
-        "\n{program} drives the same engine as {raw}, through the TypeScript SDK from a program \
-         that starts the engine, as a user's program would. {program} carries no bar: ADR \
+        "\n{program} drives the same engine as {raw} through the TypeScript SDK, its Connection \
+         over the engine the driver starts: unlike the SDK's own start of the engine, the \
+         program does not read the engine's stderr. {program} carries no bar: ADR \
          0019's target is read on the {raw} row alone, over raw JSON-RPC. Per action, the \
          program's CPU is its driver's own process, the engine's the rest of the tree, and the \
          messages are those the driver sent the engine:\n"

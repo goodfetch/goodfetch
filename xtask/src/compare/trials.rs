@@ -578,19 +578,25 @@ pub(crate) struct CollieTrial {
     /// The highest resident memory of the tool's process tree, from its
     /// start to its exit; the browser's processes are not in it.
     pub(crate) peak_bytes: u64,
-    /// For Collie's rows, the CPU time of the driver's own process between
-    /// the marks: the program's, the engine's being the rest of the tree's
-    /// (issue 2406).
+    /// For Collie's rows, what the driver spent and sent apart from the
+    /// engine it started (issue 2406).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) driver_cpu_seconds: Option<f64>,
-    /// For Collie's rows, the JSON-RPC messages the driver sent the engine
-    /// between the marks (issue 2406).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) messages: Option<u64>,
+    pub(crate) driver: Option<DriverApart>,
     pub(crate) pages: Vec<PageDone>,
     /// Why its first attempt was stopped, when these are its retry's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) retried: Option<String>,
+}
+
+/// A Collie row's driver between a trial's marks, apart from the engine it
+/// started and drives (issue 2406).
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub(crate) struct DriverApart {
+    /// The CPU time of the driver's own process: the program's, the
+    /// engine's being the rest of the tree's.
+    pub(crate) cpu_seconds: f64,
+    /// The JSON-RPC messages the driver sent the engine.
+    pub(crate) messages: u64,
 }
 
 /// A Collie scenario trial stopped twice, which leaves its tool's figures in

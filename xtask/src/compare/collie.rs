@@ -56,7 +56,9 @@ use crate::check::Finding;
 use super::relay::{Mark, Relay};
 use super::sampler::{self, Sampler};
 use super::trial::{self, Outcome};
-use super::trials::{CollieScenario, CollieTrial, Contender, Ended, Exercise, PageDone};
+use super::trials::{
+    CollieScenario, CollieTrial, Contender, DriverApart, Ended, Exercise, PageDone,
+};
 
 pub(crate) mod page_load;
 mod section;
@@ -657,14 +659,13 @@ pub(crate) fn trial(
         cpu_seconds: (end.cpu_seconds - start.cpu_seconds).max(0.0),
         wall_seconds: end.at.duration_since(start.at).as_secs_f64(),
         peak_bytes: driven.peak_bytes,
-        driver_cpu_seconds: tool
-            .drives_collie()
-            .then(|| (end.driver_cpu_seconds - start.driver_cpu_seconds).max(0.0)),
-        messages: if tool.drives_collie() {
-            done.messages
-        } else {
-            None
-        },
+        driver: done
+            .messages
+            .filter(|_| tool.drives_collie())
+            .map(|messages| DriverApart {
+                cpu_seconds: (end.driver_cpu_seconds - start.driver_cpu_seconds).max(0.0),
+                messages,
+            }),
         pages,
         retried: None,
     }))

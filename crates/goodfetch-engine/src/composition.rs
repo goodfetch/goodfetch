@@ -14,6 +14,7 @@
 mod call_streams;
 pub(crate) mod params;
 
+use std::any::Any;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -317,14 +318,35 @@ pub type Driver = Arc<
 pub type GuardAnswer = Answer;
 
 /// What a contribution asks of each of its calls before its handler, given
-/// the operation, the call's params as they arrived and its context: an
-/// answer given in the handler's place, or `None` to let the handler
-/// answer. It runs when the request arrives, as the handler does.
+/// the operation, the call's params as they arrived and as its handler's
+/// type read them, and its context: an answer given in the handler's
+/// place, or `None` to let the handler answer. It runs when the request
+/// arrives, as the handler does.
 pub type Guard = Arc<
-    dyn for<'params> Fn(&'static Operation, Params<'params>, &CallContext) -> Option<GuardAnswer>
+    dyn for<'params, 'read> Fn(
+            &'static Operation,
+            Params<'params>,
+            ReadParams<'read>,
+            &CallContext,
+        ) -> Option<GuardAnswer>
         + Send
         + Sync,
 >;
+
+/// A call's params as its handler's type read them, when they read: what a
+/// [`Guard`] answers from in the handler's place, so that a call decodes
+/// its params once whoever answers it (ADR 0140's E1).
+#[derive(Clone, Copy)]
+pub struct ReadParams<'read>(Option<&'read dyn Any>);
+
+impl<'read> ReadParams<'read> {
+    /// The params as `P`: `None` when they did not read into the handler's
+    /// type or its type is not `P`.
+    #[must_use]
+    pub fn get<P: 'static>(self) -> Option<&'read P> {
+        self.0?.downcast_ref()
+    }
+}
 
 /// A handler's call, given the call's params, its context and the guards
 /// to ask: the read of the params into the handler's type, in whose pass
@@ -371,8 +393,9 @@ impl Handler {
             // refuses, then a guard's answer, then params that are no `P`.
             let read = params.read::<P>();
             params.taken()?;
+            let typed = ReadParams(read.as_ref().ok().map(|params| params as &dyn Any));
             for guard in guards.iter().rev() {
-                if let Some(answer) = guard(operation, params, &context) {
+                if let Some(answer) = guard(operation, params, typed, &context) {
                     return Ok(answer);
                 }
             }

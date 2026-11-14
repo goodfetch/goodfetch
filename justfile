@@ -964,8 +964,8 @@ quick-steps:
 # proofs (`all`: the whole workspace). The checks that need Linux run beside
 # the other steps, each in its own container, with their lines marked:
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
-# projects in the pinned Playwright image, ADR 0073); TLC and Miri run
-# beside them too, on the host, in folders of their own. The suite waits for
+# projects in the pinned Playwright image, ADR 0073); TLC, Miri and loom
+# run beside them too, on the host, in folders of their own. The suite waits for
 # them and fails when one fails (ci/pre-merge.sh). A red step ends no form:
 # every other step still runs, and the end names each red step. `quick` runs only the
 # checks every change needs, for a change no test reads (ADR 0135). `all`
@@ -988,6 +988,7 @@ release:
     "$just" test release
     "$just" features-audit
     "$just" _tlc all
+    "$just" loom
     "$just" _kennel all
     "$just" proofs
     "$just" rss

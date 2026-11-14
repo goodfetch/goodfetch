@@ -237,6 +237,10 @@ jobs:
       - name: "Test: the sample's broken variant fails TLC"
         if: matrix.cell == 'linux-x64-gnu'
         run: ci/egress/under-deny.sh just tlc-self-test
+      # loom over the modules ci/loom.toml lists, at 2 preemptions (ADR 0060).
+      - name: "Test: loom on the modules that opt in"
+        if: matrix.cell == 'linux-x64-gnu'
+        run: ci/egress/under-deny.sh just loom
       - name: "Test: AddressSanitizer on the crates that opt into unsafe"
         if: matrix.cell == 'linux-x64-gnu'
         run: ci/egress/under-deny.sh just asan test

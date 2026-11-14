@@ -5,8 +5,9 @@
 # (`target/loom/`), and runs the module's loom tests: every interleaving of
 # their threads, up to `preemptions` forced switches each.
 
-# The most forced thread switches loom explores in one interleaving.
-preemptions = 3
+# The most forced thread switches loom explores in one interleaving: 2 in
+# the Pre-merge and Release suites (ADR 0060; 3 is the nightly-only job's).
+preemptions = 2
 
 # The CPU pool's own threads (#2200).
 [[module]]

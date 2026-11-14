@@ -126,8 +126,8 @@ pub(crate) struct RunArguments {
     /// `xtask/compare-chromiumoxide` into `chromiumoxide`.
     #[arg(long)]
     spider_builds: PathBuf,
-    /// The folder Cargo names after the profile those builds were made
-    /// with: `release` for the release profile.
+    /// The folder Cargo wrote those builds' profile to: `release` for the
+    /// release profile, `debug` for `dev`.
     #[arg(long, default_value = "release")]
     spider_profile: String,
     /// Chrome for Testing's folder, which every tool of the headless

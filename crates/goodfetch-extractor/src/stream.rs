@@ -168,7 +168,7 @@ impl Streaming {
                 .doctype(doctypes),
         );
         Pass {
-            rewriter: Some(HtmlRewriter::new(settings, discard as fn(&[u8]))),
+            rewriter: Some(Box::new(HtmlRewriter::new(settings, discard as fn(&[u8])))),
             state,
             prefix: Prefix::Leading,
             end_tags: EndTags::default(),
@@ -182,8 +182,10 @@ type Rewriter = HtmlRewriter<'static, fn(&[u8])>;
 /// A pass over a document written in chunks ([`Streaming::start`]).
 pub struct Pass {
     /// The rewriter, none once the pass knows the tree differs: a
-    /// rewriter whose handler failed takes no more input.
-    rewriter: Option<Rewriter>,
+    /// rewriter whose handler failed takes no more input. Boxed: the pass
+    /// is held across a body's awaits, and lol-html's rewriter, some
+    /// kilobytes, would otherwise sit in every future that holds it.
+    rewriter: Option<Box<Rewriter>>,
     state: Arc<Mutex<State>>,
     /// How far the text read so far starts with the doctype.
     prefix: Prefix,

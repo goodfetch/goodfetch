@@ -644,7 +644,9 @@ impl UntouchedPass {
         let read = if self.names.named() {
             None
         } else {
-            self.pass.end().map(|read| StreamRead::of(read, self.ends))
+            self.pass
+                .end()
+                .map(|read| Box::new(StreamRead::of(read, self.ends)))
         };
         Passed {
             readers: self.readers,
@@ -659,7 +661,9 @@ impl UntouchedPass {
 #[derive(Clone, Debug)]
 pub(crate) struct Passed {
     readers: Arc<UntouchedReaders>,
-    read: Option<StreamRead>,
+    /// Boxed: a fetch's futures carry its `Fetched` across their awaits,
+    /// so the pass it holds keeps to a pointer.
+    read: Option<Box<StreamRead>>,
 }
 
 impl Passed {
@@ -672,7 +676,7 @@ impl Passed {
     /// What the readers read of the text: none when the text names an
     /// AI-use signal or the pass cannot vouch for its tree.
     pub(crate) fn read(self) -> Option<StreamRead> {
-        self.read
+        self.read.map(|read| *read)
     }
 }
 

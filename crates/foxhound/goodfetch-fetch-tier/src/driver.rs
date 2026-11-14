@@ -527,7 +527,9 @@ pub(crate) struct OwnDocument<'a> {
 /// its text, and the readers' pass over the text handed out.
 struct OwnRead {
     stream: Stream,
-    pass: Option<UntouchedPass>,
+    /// Boxed: the read is held across the body's awaits, and each of the
+    /// futures above a fetch, some holding several, would carry the pass.
+    pass: Option<Box<UntouchedPass>>,
 }
 
 impl OwnRead {
@@ -537,7 +539,7 @@ impl OwnRead {
         let (essence, charset) = content_type(declared);
         is_document(&essence).then(|| Self {
             stream: Stream::new(Kind::of(&essence), charset, own.encoding),
-            pass: own.readers.and_then(UntouchedReaders::pass),
+            pass: own.readers.and_then(UntouchedReaders::pass).map(Box::new),
         })
     }
 
@@ -560,7 +562,7 @@ impl OwnRead {
                 pass.write(text);
             }
         });
-        let passed = text.as_ref().and(pass).map(UntouchedPass::end);
+        let passed = text.as_ref().and(pass).map(|pass| pass.end());
         (text, passed)
     }
 }
@@ -879,10 +881,11 @@ struct Reading<'a> {
 /// says, its `Content-Length` declaring `expected`, decoding its codings
 /// with the engine's one decoder ([`Decoding`]) as its bytes arrive, and
 /// its text and its untouched readers' pass with `own_read`, when it is a
-/// crawl request's own document. The bytes received never pass `network.max_body_size`, and a body kept for
-/// its first bytes stops once they are decoded. With a type to sniff, the
-/// answer named no type: once the sniffer's 1,024 bytes are decoded
-/// (`kMaxBytesToSniff`), a type the Label refuses stops the read.
+/// crawl request's own document. The bytes received never pass
+/// `network.max_body_size`, and a body kept for its first bytes stops once
+/// they are decoded. With a type to sniff, the answer named no type: once
+/// the sniffer's 1,024 bytes are decoded (`kMaxBytesToSniff`), a type the
+/// Label refuses stops the read.
 ///
 /// # Errors
 ///

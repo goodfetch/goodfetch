@@ -133,6 +133,8 @@ lint:
     step cargo-deny-crawlee-rs 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-crawlee-rs/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     # pagesift's side, the same.
     step cargo-deny-pagesift 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-pagesift/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
+    # OpenSpider's side, the same.
+    step cargo-deny-openspider 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-openspider/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     step cargo-deny-chromiumoxide 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-chromiumoxide/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     # Crawlee's, Scrapy's and the Collie scenario's arms' sides, no
     # workspace member either: their locks' licenses against the same
@@ -395,6 +397,7 @@ fetch:
     cargo fetch --locked --manifest-path xtask/compare-spider/Cargo.toml
     cargo fetch --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml
     cargo fetch --locked --manifest-path xtask/compare-pagesift/Cargo.toml
+    cargo fetch --locked --manifest-path xtask/compare-openspider/Cargo.toml
     cargo fetch --locked --manifest-path xtask/compare-chromiumoxide/Cargo.toml
     pnpm install --frozen-lockfile --dir xtask/compare-crawlee
     pnpm install --frozen-lockfile --dir xtask/compare-collie-arms
@@ -1113,10 +1116,13 @@ rss-propose *scenarios:
 # (xtask/compare-scrapy, with scrapy-playwright for scenario 5),
 # crawlee-rs at a pinned commit (xtask/compare-crawlee-rs: its
 # `HtmlCrawler`, built like Spider's side; it has no browser crawler, so
-# scenario 5 says so) and pagesift 1.3.0 (xtask/compare-pagesift: its
+# scenario 5 says so), pagesift 1.3.0 (xtask/compare-pagesift: its
 # `Scraper`'s crawl, built like Spider's side, its browser engine for
-# scenario 5), each side installed from its own lock, outside the
-# Products'. Scenario 5's tools
+# scenario 5) and OpenSpider at its release v1.0.0-rc.1's commit
+# (xtask/compare-openspider: its engine's spider crawl, built like
+# Spider's side; it has no per-domain pace, so scenario 3 says so, and
+# keeps at most 6 requests in flight on a host, so the 64 and 256 cells
+# say so), each side installed from its own lock, outside the Products'. Scenario 5's tools
 # all run the Chrome for Testing build Foxhound pins, as Playwright
 # installed it (`pnpm exec playwright install chromium`). A cell a tool
 # cannot run says why: 10 trials of each measured cell in random order,
@@ -1158,9 +1164,9 @@ rss-propose *scenarios:
 # register row's Today;
 # `--scenario collie` runs it alone. It gates nothing and is no Live check;
 # run it when the 1-minute load is under 4.
-# Spider's, crawlee-rs's, pagesift's and chromiumoxide's crates and the
-# sides' packages are downloaded once, free. Spider's seven builds,
-# crawlee-rs's, pagesift's and chromiumoxide's go to
+# Spider's, crawlee-rs's, pagesift's, OpenSpider's and chromiumoxide's
+# crates and the sides' packages are downloaded once, free. Spider's seven
+# builds, crawlee-rs's, pagesift's, OpenSpider's and chromiumoxide's go to
 # target/compare-spider/, or to the folder GOODFETCH_COMPARE_SPIDER_BUILDS
 # names: one outside every checkout keeps them from one measurement to the
 # next, whichever worktree measures and whatever sweeps its target/ (Cargo
@@ -1189,6 +1195,7 @@ compare profile="release" *args:
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features extraction,mimalloc --target-dir {{ compare_spider_builds }}/spider-extraction-mimalloc
     cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/crawlee-rs
     cargo build --quiet --locked --manifest-path xtask/compare-pagesift/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/pagesift
+    cargo build --quiet --locked --manifest-path xtask/compare-openspider/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/openspider
     cargo build --quiet --locked --manifest-path xtask/compare-chromiumoxide/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/chromiumoxide
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy
@@ -1471,6 +1478,7 @@ notices *arguments:
 # The security advisories of the Cargo, pnpm and uv lockfiles (the
 # workspace's, and the sides of `just compare`: Spider's xtask/compare-spider,
 # crawlee-rs's xtask/compare-crawlee-rs, pagesift's xtask/compare-pagesift,
+# OpenSpider's xtask/compare-openspider,
 # Crawlee's xtask/compare-crawlee, Scrapy's xtask/compare-scrapy and the
 # Collie scenario's arms' xtask/compare-collie-arms and
 # xtask/compare-chromiumoxide), against
@@ -1484,6 +1492,7 @@ audit:
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-spider/Cargo.toml
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-crawlee-rs/Cargo.toml
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-pagesift/Cargo.toml
+    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-openspider/Cargo.toml
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-chromiumoxide/Cargo.toml
     ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-crawlee/pnpm-lock.yaml
     ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-collie-arms/pnpm-lock.yaml

@@ -26,17 +26,19 @@ const MIB: u64 = 1024 * 1024;
 
 /// The measured cells: each tool's main rows by scenario, then Spider's
 /// sensitivity rows and Foxhound's `auto` row.
-const CELLS: [(&str, &str, &str); 33] = [
+const CELLS: [(&str, &str, &str); 37] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
     ("raw", "scrapy", "scrapy"),
     ("raw", "crawlee-rs", "crawlee-rs"),
     ("raw", "pagesift", "pagesift"),
+    ("raw", "openspider", "openspider"),
     ("durable", "foxhound full", "foxhound"),
     ("durable", "foxhound periodic", "foxhound"),
     ("durable", "crawlee-rs", "crawlee-rs"),
     ("durable", "pagesift", "pagesift"),
+    ("durable", "openspider", "openspider"),
     ("polite", "foxhound", "foxhound"),
     ("polite", "crawlee", "crawlee"),
     ("polite", "scrapy", "scrapy"),
@@ -49,11 +51,13 @@ const CELLS: [(&str, &str, &str); 33] = [
     ("extraction", "scrapy", "scrapy"),
     ("extraction", "crawlee-rs", "crawlee-rs"),
     ("extraction", "pagesift", "pagesift"),
+    ("extraction", "openspider", "openspider"),
     ("browser", "foxhound", "foxhound"),
     ("browser", "spider", "spider"),
     ("browser", "crawlee", "crawlee"),
     ("browser", "scrapy", "scrapy"),
     ("browser", "pagesift", "pagesift"),
+    ("browser", "openspider", "openspider"),
     ("raw", "spider capacity 4096", "spider"),
     ("raw", "spider default features", "spider"),
     ("raw", "spider bloom", "spider"),
@@ -241,6 +245,7 @@ fn trials() -> Value {
             "scrapy_playwright": "0.0.48",
             "crawlee_rs": "2a3ed90b8391c86005ce6ed8dd3e3248d0d34579",
             "pagesift": "1.3.0",
+            "openspider": "2d25a7d627df4cedeb5ec657243765c0e09b4239",
             "browser": "156.0.8078.4",
             "scenarios": ["raw", "durable", "polite", "extraction", "browser"],
             "command": "just compare release",
@@ -396,6 +401,7 @@ fn trials_of_the_same_work_report_each_cells_medians_with_their_spread() {
             "scrapy": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
             "crawlee-rs": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
             "pagesift": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
+            "openspider": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
         })
     );
 }
@@ -598,7 +604,7 @@ fn spiders_sensitivity_rows_are_labelled_and_no_target_reads_them() {
         "| Metric | foxhound, 1000 of the site's 1000 pages | spider, 1000 of the site's 1000 pages \
          | crawlee, 1000 of the site's 1000 pages | scrapy, 1000 of the site's 1000 pages | \
          crawlee-rs, 1000 of the site's 1000 pages | pagesift, 1000 of the site's 1000 pages | \
-         spider capacity 4096 (sensitivity), 1000 of the site's 1000 pages | spider default \
+         openspider, 1000 of the site's 1000 pages | spider capacity 4096 (sensitivity), 1000 of the site's 1000 pages | spider default \
          features (sensitivity), 1000 of the site's 1000 pages | spider bloom (sensitivity), 1000 \
          of the site's 1000 pages | spider jemalloc (sensitivity), 1000 of the site's 1000 pages |",
     ] {
@@ -855,8 +861,8 @@ fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
     for expected in [
         "Crawlee 3.18.2 (`@crawlee/cheerio`, and `@crawlee/playwright` on Playwright 1.64.1) on \
          Node.js, Scrapy 2.19.0 (and scrapy-playwright 0.0.48 on Playwright 1.64.1) on CPython, \
-         crawlee-rs at commit `2a3ed90b8391c86005ce6ed8dd3e3248d0d34579` and pagesift 1.3.0, every \
-         tool of the headless browser scenario running Chrome for Testing 156.0.8078.4",
+         crawlee-rs at commit `2a3ed90b8391c86005ce6ed8dd3e3248d0d34579`, pagesift 1.3.0 and \
+         OpenSpider at commit `2d25a7d627df4cedeb5ec657243765c0e09b4239`, every tool of the headless browser scenario running Chrome for Testing 156.0.8078.4",
         "- **crawlee**: `CheerioCrawler` (`@crawlee/cheerio`) with `persistStorage: false` and \
          `maxConcurrency: 16`",
         "- **scrapy**: a default `scrapy.Spider`",
@@ -899,10 +905,56 @@ fn pagesifts_cells_report_every_metric_with_their_mapping_and_its_pin() {
     }
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
-        "crawlee-rs at commit `2a3ed90b8391c86005ce6ed8dd3e3248d0d34579` and pagesift 1.3.0, every",
+        "crawlee-rs at commit `2a3ed90b8391c86005ce6ed8dd3e3248d0d34579`, pagesift 1.3.0 and",
         "- **pagesift**: its library's `Scraper::crawl`, the entry point its own crawl benchmark uses",
         "- **pagesift**: scenario 1's crawl as a job of its HTTP API (`POST /v1/crawl`)",
         "- **pagesift**: scenario 1's crawl on its browser engine (`engine: browser`)",
+    ] {
+        assert!(
+            markdown.contains(expected),
+            "{expected} missing:\n{markdown}"
+        );
+    }
+}
+
+/// OpenSpider joins the matrix (#2216): its raw, durable, extraction and
+/// browser cells are measured with every metric, its polite cell is not
+/// supported with the reason, and the report names its pinned commit and
+/// its settings.
+#[test]
+fn openspiders_cells_report_every_metric_with_their_mapping_and_its_pin() {
+    let workspace = Workspace::from_fixture("empty");
+
+    let outcome = report(&workspace, &trials());
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let report = written(&workspace);
+    let names = |cell: &Value| {
+        cell["metrics"]
+            .as_object()
+            .map(|metrics| metrics.keys().cloned().collect::<Vec<_>>())
+    };
+    let foxhound = names(cell(&report, 0, "foxhound"));
+    for scenario in [0, 1, 3, 4] {
+        let cell = cell(&report, scenario, "openspider");
+        assert_eq!(
+            (&cell["status"], names(cell)),
+            (&json!("measured"), foxhound.clone()),
+            "scenario {scenario}'s openspider"
+        );
+    }
+    assert_eq!(
+        cell(&report, 2, "openspider")["status"],
+        json!("not_supported")
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    for expected in [
+        "OpenSpider at commit `2d25a7d627df4cedeb5ec657243765c0e09b4239`, every tool",
+        "- **openspider**: its engine's spider crawl (`os_engine::start_crawl`)",
+        "- **openspider**: scenario 1's crawl killed with SIGKILL",
+        "- **openspider**: scenario 1's crawl with one custom extractor",
+        "- **openspider**: scenario 1's crawl with each page rendered",
+        "  - not supported: OpenSpider spaces its fetches with one rate for its whole crawl",
     ] {
         assert!(
             markdown.contains(expected),
@@ -1049,7 +1101,7 @@ fn the_report_shows_the_load_each_trial_started_at() {
          Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
-        "1 of the 97 timed trials started above a 1-minute load of 4.",
+        "1 of the 109 timed trials started above a 1-minute load of 4.",
     ] {
         assert!(
             markdown.contains(expected),
@@ -1645,11 +1697,13 @@ fn a_competitors_trial_whose_output_differs_keeps_its_figures_labelled() {
                 ("foxhound", "scrapy", &Value::Null),
                 ("foxhound", "crawlee-rs", &Value::Null),
                 ("foxhound", "pagesift", &Value::Null),
+                ("foxhound", "openspider", &Value::Null),
                 ("foxhound filter lists off", "spider", &Value::Null),
                 ("foxhound filter lists off", "crawlee", &crawlee),
                 ("foxhound filter lists off", "scrapy", &Value::Null),
                 ("foxhound filter lists off", "crawlee-rs", &Value::Null),
                 ("foxhound filter lists off", "pagesift", &Value::Null),
+                ("foxhound filter lists off", "openspider", &Value::Null),
             ],
         )
     );

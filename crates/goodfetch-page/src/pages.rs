@@ -103,7 +103,9 @@ use crate::document_request::{DocumentRequest, Unread};
 use crate::driver::{Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
 use crate::hiding::Hidden;
-use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
+use crate::interception::{
+    Answer, ConsentHandling, Fulfillment, Interception, Overrides, Reply, Scope,
+};
 use crate::launch::Launcher;
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Matches, Pending, Registered};
@@ -1468,7 +1470,10 @@ impl Pages {
         navigated: bool,
     ) -> Result<(), CallError> {
         let walls = self.sessions.consent_walls();
+        // With `consent.handling: off` no runner looks, so there is nothing
+        // to ask (#2434).
         if navigated
+            && ConsentHandling::of(&page.run) != ConsentHandling::Off
             && crate::consent::first_pass_found(&page.driver, page.run.metrics().counted_work())
                 .await
         {

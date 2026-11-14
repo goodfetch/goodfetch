@@ -17748,8 +17748,12 @@
                     "type": "array"
                   },
                   "handling": {
-                    "description": "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering: the wall test still runs, and a consent wall is still `consent_required`.",
-                    "type": "boolean"
+                    "description": "What a browser Session does with Consent prompts: `answer` (the default, in every Access mode) refuses each prompt in every frame and hides one with no refusal that leaves the content readable; `detect` only looks: nothing is clicked or hidden, the wall test still runs, and a consent wall is still `consent_required`; `off` registers and starts no Consent prompt runner and lets no cosmetic rule act on the live page or in extracted content, so no consent wall is reported and the page's text is returned as served, while the Filter lists still block requests; the Run report lists `off` in `weakened`. A Recipe, and a Client acting for a model, never set `off` unless the layers below already give it: `setting_locked`; set it in the program's own code, in configuration or in an Operator policy.",
+                    "enum": [
+                      "answer",
+                      "detect",
+                      "off"
+                    ]
                   },
                   "on_wall": {
                     "description": "What a consent wall on a domain outside `consent.domains` does: `report` (the default) leaves the page at `consent_required`, raised as `blocked`; `ask` raises a Human pause for a person's answer, for this run or always for the domain. Until the Human pause takes a person's answer, `ask` opens no page: `capability_unavailable`.",
@@ -20390,8 +20394,12 @@
                     "type": "array"
                   },
                   "handling": {
-                    "description": "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering: the wall test still runs, and a consent wall is still `consent_required`.",
-                    "type": "boolean"
+                    "description": "What a browser Session does with Consent prompts: `answer` (the default, in every Access mode) refuses each prompt in every frame and hides one with no refusal that leaves the content readable; `detect` only looks: nothing is clicked or hidden, the wall test still runs, and a consent wall is still `consent_required`; `off` registers and starts no Consent prompt runner and lets no cosmetic rule act on the live page or in extracted content, so no consent wall is reported and the page's text is returned as served, while the Filter lists still block requests; the Run report lists `off` in `weakened`. A Recipe, and a Client acting for a model, never set `off` unless the layers below already give it: `setting_locked`; set it in the program's own code, in configuration or in an Operator policy.",
+                    "enum": [
+                      "answer",
+                      "detect",
+                      "off"
+                    ]
                   },
                   "on_wall": {
                     "description": "What a consent wall on a domain outside `consent.domains` does: `report` (the default) leaves the page at `consent_required`, raised as `blocked`; `ask` raises a Human pause for a person's answer, for this run or always for the domain. Until the Human pause takes a person's answer, `ask` opens no page: `capability_unavailable`.",
@@ -23048,8 +23056,12 @@
                     "type": "array"
                   },
                   "handling": {
-                    "description": "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering: the wall test still runs, and a consent wall is still `consent_required`.",
-                    "type": "boolean"
+                    "description": "What a browser Session does with Consent prompts: `answer` (the default, in every Access mode) refuses each prompt in every frame and hides one with no refusal that leaves the content readable; `detect` only looks: nothing is clicked or hidden, the wall test still runs, and a consent wall is still `consent_required`; `off` registers and starts no Consent prompt runner and lets no cosmetic rule act on the live page or in extracted content, so no consent wall is reported and the page's text is returned as served, while the Filter lists still block requests; the Run report lists `off` in `weakened`. A Recipe, and a Client acting for a model, never set `off` unless the layers below already give it: `setting_locked`; set it in the program's own code, in configuration or in an Operator policy.",
+                    "enum": [
+                      "answer",
+                      "detect",
+                      "off"
+                    ]
                   },
                   "on_wall": {
                     "description": "What a consent wall on a domain outside `consent.domains` does: `report` (the default) leaves the page at `consent_required`, raised as `blocked`; `ask` raises a Human pause for a person's answer, for this run or always for the domain. Until the Human pause takes a person's answer, `ask` opens no page: `capability_unavailable`.",

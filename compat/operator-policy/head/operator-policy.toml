@@ -174,7 +174,7 @@ redaction = true
 echo_repeats = 4
 
 [settings.consent]
-handling = true
+handling = "answer"
 domains = ["example"]
 on_wall = "report"
 
@@ -524,7 +524,7 @@ redaction = true
 echo_repeats = 4
 
 [lock.consent]
-handling = true
+handling = "answer"
 domains = ["example"]
 on_wall = "report"
 

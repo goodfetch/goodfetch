@@ -1759,6 +1759,86 @@ fn a_model_and_a_recipe_only_narrow_the_domain_policy(
     assert_eq!(resolved, expected);
 }
 
+/// #2434 (owner, 2026-11-11): a Recipe, and a Client acting for a model
+/// through its run layer or its project configuration, never set
+/// `consent.handling: off`, the value that weakens the run, unless the
+/// layers below already give it, which changes nothing; `answer` and
+/// `detect` stay open to them, and the program's own code and
+/// configuration set `off` (positive controls).
+/// Covers: story:5-100, error:setting_locked, setting:consent.handling
+#[rstest]
+#[case::off_from_a_recipe("answer", SettingsLayer::Recipe, false, "off", false)]
+#[case::off_from_a_model("answer", SettingsLayer::Run, true, "off", false)]
+#[case::off_from_a_models_project_configuration(
+    "answer",
+    SettingsLayer::ProjectConfiguration,
+    true,
+    "off",
+    false
+)]
+#[case::detect_from_a_recipe("answer", SettingsLayer::Recipe, false, "detect", true)]
+#[case::detect_from_a_model("answer", SettingsLayer::Run, true, "detect", true)]
+#[case::answer_from_a_model("detect", SettingsLayer::Run, true, "answer", true)]
+#[case::off_from_the_programs_own_code("answer", SettingsLayer::Run, false, "off", true)]
+#[case::off_from_project_configuration(
+    "answer",
+    SettingsLayer::ProjectConfiguration,
+    false,
+    "off",
+    true
+)]
+#[case::off_from_user_configuration("answer", SettingsLayer::UserConfiguration, false, "off", true)]
+#[case::off_a_model_repeats("off", SettingsLayer::Run, true, "off", true)]
+#[case::off_a_recipe_repeats("off", SettingsLayer::Recipe, false, "off", true)]
+fn a_model_and_a_recipe_never_switch_consent_handling_off(
+    #[case] configured: &str,
+    #[case] layer: SettingsLayer,
+    #[case] for_model: bool,
+    #[case] value: &str,
+    #[case] taken: bool,
+) {
+    let resolved = over_configuration(
+        "consent.handling",
+        &json!(configured),
+        layer,
+        for_model,
+        &json!(value),
+    );
+
+    let expected = if taken {
+        Ok(json!(value))
+    } else {
+        Err(("setting_locked", "consent.handling".to_owned()))
+    };
+    assert_eq!(resolved, expected);
+}
+
+/// #2434: `consent.handling: off` from the program's own code, from
+/// configuration and from an Operator policy resolves, and the Run report's
+/// `weakened` names the key and the layer that set it; `detect` weakens
+/// nothing (positive control).
+/// Covers: story:5-100, setting:consent.handling
+#[rstest]
+#[case::the_programs_own_code(SettingsLayer::Run)]
+#[case::user_configuration(SettingsLayer::UserConfiguration)]
+#[case::project_configuration(SettingsLayer::ProjectConfiguration)]
+#[case::an_operator_policy(SettingsLayer::OperatorPolicy)]
+fn consent_handling_off_weakens_the_run_and_detect_does_not(#[case] layer: SettingsLayer) {
+    let weakened = |value: &str| -> Vec<(String, SettingsLayer)> {
+        resolved(&only(layer, "consent.handling", &json!(value)))
+            .weakened()
+            .into_iter()
+            .map(|weakened| (weakened.key, weakened.layer))
+            .filter(|(key, _)| key == "consent.handling")
+            .collect()
+    };
+
+    assert_eq!(
+        (weakened("off"), weakened("detect")),
+        (vec![("consent.handling".to_owned(), layer)], vec![])
+    );
+}
+
 /// Story 4-4: `egress.private_ranges`, the third key of the domain policy,
 /// is never a model's even when it lists fewer ranges than configuration
 /// does; the same narrower value from the program's own code is taken

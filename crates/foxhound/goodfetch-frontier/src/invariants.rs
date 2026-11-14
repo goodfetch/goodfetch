@@ -111,13 +111,17 @@ impl Invariants {
     }
 
     /// Holds, from now on, the visits the Run's writer has not committed
-    /// (#2168), against `committed`, how many commits it acknowledged: a
-    /// Run whose writer batches its writes holds them, so a redirect hop is
-    /// judged on a reader. Once is enough; a second call changes nothing.
-    pub fn hold_unwritten(&self, committed: impl Fn() -> u64 + Send + Sync + 'static) {
-        let _held = self
-            .unwritten
-            .get_or_init(|| UnwrittenVisits::new(committed));
+    /// (#2168), against `committed`, how many commits it acknowledged, and
+    /// keeps those it wrote within `budget` bytes (#2169): a Run whose
+    /// writer batches its writes holds them, so a redirect hop is judged on
+    /// a reader. Once is enough; a second call changes nothing.
+    pub fn hold_unwritten(
+        &self,
+        budget: u64,
+        committed: impl Fn() -> u64 + Send + Sync + 'static,
+    ) -> &UnwrittenVisits {
+        self.unwritten
+            .get_or_init(|| UnwrittenVisits::new(budget, committed))
     }
 
     /// The visits the Run's writer has not committed, once the Run holds

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use goodfetch_engine::egress::Policy;
+use goodfetch_engine::run_state::WriteWatch;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
 use rusqlite::Connection;
 use tempfile::TempDir;
@@ -15,8 +16,8 @@ use url::Url;
 use crate::admit::{Candidate, admit};
 use crate::bounds::{self, Bounds};
 use crate::identity::{
-    self, Declared, Hop, Reached, admit_hop, admit_reached, hold_reached, redirect_hop,
-    visit_pending,
+    self, Declared, Hop, Key, Reached, Seen, admit_hop, admit_reached, hold_reached, redirect_hop,
+    seen, visit_pending,
 };
 use crate::invariants::Invariants;
 use crate::scope::{self, Scope};
@@ -57,12 +58,55 @@ fn run_file() -> RunFile {
 }
 
 /// The Run's invariants, holding the visits its writer has not committed
-/// against `commits`, the commits it acknowledged.
+/// against `commits`, the commits it acknowledged, at a budget of 0: once
+/// the file holds a visit, memory keeps nothing of it.
 fn holding(commits: &Arc<AtomicU64>) -> Invariants {
+    within(0, commits)
+}
+
+/// The Run's invariants, holding the visits its writer has not committed
+/// against `commits`, and keeping those it wrote within `budget` bytes.
+fn within(budget: u64, commits: &Arc<AtomicU64>) -> Invariants {
     let invariants = Invariants::new(Scope::default(), Bounds::default()).unwrap();
     let commits = Arc::clone(commits);
-    invariants.hold_unwritten(move || commits.load(Ordering::SeqCst));
+    invariants.hold_unwritten(budget, move || commits.load(Ordering::SeqCst));
     invariants
+}
+
+/// A connection to a file that holds no table: a lookup on it that reads
+/// the run file fails, so one that answers read nothing.
+fn no_file() -> Connection {
+    Connection::open_in_memory().unwrap()
+}
+
+/// Whether the visited set holds `url`'s identity, as an admission asks
+/// it beside the visits memory holds, read on `connection`.
+fn looked_up(
+    connection: &Connection,
+    identities_on: &Connection,
+    invariants: &Invariants,
+    url: &str,
+) -> rusqlite::Result<Seen> {
+    let get = HttpMethod::get();
+    let identities = identity::identities(
+        identities_on,
+        &Key::of(&Url::parse(url).unwrap(), false),
+        Declared {
+            method: &get,
+            body: None,
+            key: None,
+            keeps_fragment: false,
+        },
+    )?;
+    let holding = invariants.unwritten().unwrap().lock();
+    seen(connection, &identities, None, Some(&holding))
+}
+
+/// Commits the batch open on `file`'s writer, as the writer's commit
+/// `commit` acknowledged.
+fn commit(file: &RunFile, commits: &AtomicU64, commit: u64) {
+    file.writer.execute_batch("COMMIT").unwrap();
+    commits.store(commit, Ordering::SeqCst);
 }
 
 fn every_host() -> Policy {
@@ -251,4 +295,113 @@ fn a_seed_widening_the_scope_in_an_uncommitted_batch_is_told() {
         ),
         (false, true, false)
     );
+}
+
+/// Seeds a written batch visited stay in memory once it commits while
+/// memory is within the budget, and a lookup of one reads nothing.
+#[test]
+fn a_visit_a_committed_batch_wrote_is_looked_up_in_memory_within_the_budget() {
+    let file = run_file();
+    let commits = Arc::new(AtomicU64::new(0));
+    let invariants = within(1 << 20, &commits);
+
+    file.writer.execute_batch("BEGIN").unwrap();
+    seed(&file.writer, &invariants, "http://shop.test/a", "1");
+    commit(&file, &commits, 1);
+    let found = looked_up(&no_file(), &file.writer, &invariants, "http://shop.test/a");
+
+    assert!(matches!(found, Ok(Seen::Visited(visitor)) if visitor == "1"));
+}
+
+/// Past the budget, the visits the oldest written batches made leave
+/// memory first, and what stays is within the budget; one that left is
+/// read from the run file.
+#[test]
+fn past_the_budget_the_oldest_written_visits_leave_memory_first() {
+    let file = run_file();
+    let commits = Arc::new(AtomicU64::new(0));
+    let probe = within(1 << 20, &commits);
+    file.writer.execute_batch("BEGIN").unwrap();
+    seed(&file.writer, &probe, "http://shop.test/p", "0");
+    commit(&file, &commits, 1);
+    let one_visit = probe.unwritten().unwrap().bytes();
+    let invariants = within(2 * one_visit, &commits);
+
+    for (commit_number, (url, id)) in [
+        ("http://shop.test/a", "1"),
+        ("http://shop.test/b", "2"),
+        ("http://shop.test/c", "3"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        file.writer.execute_batch("BEGIN").unwrap();
+        seed(&file.writer, &invariants, url, id);
+        commit(&file, &commits, 2 + u64::try_from(commit_number).unwrap());
+    }
+    let in_memory = |url| match looked_up(&no_file(), &file.writer, &invariants, url) {
+        Ok(Seen::Visited(visitor)) => Some(visitor),
+        Ok(_) => panic!("a visit is held as it was admitted"),
+        Err(_) => None,
+    };
+    let held = (
+        in_memory("http://shop.test/a"),
+        in_memory("http://shop.test/b"),
+        in_memory("http://shop.test/c"),
+    );
+    let from_the_file = looked_up(
+        &file.writer,
+        &file.writer,
+        &invariants,
+        "http://shop.test/a",
+    );
+
+    assert_eq!(held, (None, Some("2".to_owned()), Some("3".to_owned())));
+    assert!(invariants.unwritten().unwrap().bytes() <= 2 * one_visit);
+    assert!(matches!(from_the_file, Ok(Seen::Visited(visitor)) if visitor == "1"));
+}
+
+/// At a budget of 0 memory keeps nothing a committed batch wrote: each
+/// lookup reads the run file, the file-first Frontier (#2168).
+#[test]
+fn at_a_budget_of_0_memory_keeps_nothing_a_committed_batch_wrote() {
+    let file = run_file();
+    let commits = Arc::new(AtomicU64::new(0));
+    let invariants = holding(&commits);
+
+    file.writer.execute_batch("BEGIN").unwrap();
+    seed(&file.writer, &invariants, "http://shop.test/a", "1");
+    commit(&file, &commits, 1);
+    let found = looked_up(&no_file(), &file.writer, &invariants, "http://shop.test/a");
+
+    assert!(found.is_err());
+    assert_eq!(invariants.unwritten().unwrap().bytes(), 0);
+}
+
+/// A writer job whose work failed is rolled back to its savepoint while
+/// its batch goes on: memory forgets what it visited, so its URL is
+/// admitted again, and keeps what the job before it visited.
+#[test]
+fn a_failed_job_leaves_nothing_it_visited_in_memory() {
+    let file = run_file();
+    let commits = Arc::new(AtomicU64::new(0));
+    let invariants = within(1 << 20, &commits);
+    let watch = invariants.unwritten().unwrap();
+
+    file.writer.execute_batch("BEGIN").unwrap();
+    watch.began();
+    seed(&file.writer, &invariants, "http://shop.test/b", "1");
+    watch.began();
+    file.writer.execute_batch("SAVEPOINT write").unwrap();
+    seed(&file.writer, &invariants, "http://shop.test/a", "2");
+    file.writer
+        .execute_batch("ROLLBACK TO write; RELEASE write")
+        .unwrap();
+    watch.failed();
+    commit(&file, &commits, 1);
+    let kept = looked_up(&no_file(), &file.writer, &invariants, "http://shop.test/b");
+    let again = seed(&file.writer, &invariants, "http://shop.test/a", "3");
+
+    assert!(matches!(kept, Ok(Seen::Visited(visitor)) if visitor == "1"));
+    assert!(matches!(again, Enqueued::Added { id, .. } if id == "3"));
 }

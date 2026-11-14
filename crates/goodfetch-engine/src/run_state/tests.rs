@@ -20,7 +20,7 @@ use rusqlite::Connection;
 
 use super::{
     Charges, DEFERRED_CHARGES, Durability, PAGE_CACHE_KIB, RunState, RunStateError,
-    RunStateOptions, RunStateTables, Syncing, open_reader, unclean,
+    RunStateOptions, RunStateTables, Syncing, WriteWatch, open_reader, unclean,
 };
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -415,6 +415,53 @@ fn a_failing_write_commits_nothing_and_leaves_its_group_committed() {
     });
 
     assert_eq!((answers, committed), ((true, false, true), vec![1, 3]));
+}
+
+/// What a watch of the writer's writes was told, in order.
+#[derive(Debug, Default)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the test's watch collects what the writer's thread tells it, read once the writer stopped"
+)]
+struct Told(std::sync::Mutex<Vec<&'static str>>);
+
+impl WriteWatch for Told {
+    fn began(&self) {
+        self.0.lock().unwrap().push("began");
+    }
+
+    fn failed(&self) {
+        self.0.lock().unwrap().push("failed");
+    }
+}
+
+/// A watch of the writer's writes is told as each write's work begins,
+/// and when one fails, before the next begins, whether the writer commits
+/// each group or batches attempts (#2169).
+#[rstest::rstest]
+#[case::full(Durability::FULL)]
+#[case::batch(Durability::BATCH)]
+fn a_watch_of_the_writes_is_told_as_each_begins_and_when_one_fails(#[case] durability: Durability) {
+    let env = TestEnv::new();
+    let options = RunStateOptions {
+        durability,
+        ..RunStateOptions::default()
+    };
+    let told = std::sync::Arc::new(Told::default());
+
+    with_writer_options(&env, &options, async |state| {
+        state.watch_writes(std::sync::Arc::clone(&told) as std::sync::Arc<dyn WriteWatch>);
+        let failing = state.write(|connection| {
+            insert(2)(connection)?;
+            Err::<(), _>(rusqlite::Error::InvalidQuery)
+        });
+        let _answers = tokio::join!(state.write(insert(1)), failing, state.write(insert(3)));
+    });
+
+    assert_eq!(
+        *told.0.lock().unwrap(),
+        ["began", "began", "failed", "began"]
+    );
 }
 
 /// A write of one row of `mib` MiB, many times the writer's page cache, so

@@ -91,12 +91,12 @@ pub struct Wreq {
 }
 
 /// What builds a [`Wreq`]'s clients: every one presents the same profile,
-/// resolves, binds and goes through the proxy alike, and differs only in
-/// the authorities it trusts and the client certificate it presents.
+/// connects and goes through the proxy alike, and differs only in the
+/// authorities it trusts and the client certificate it presents.
 struct Builder {
     profile: HttpProfile,
-    resolver: Arc<Resolver>,
-    local: Option<super::LocalSource>,
+    /// The connector its clients open their TCP connections through.
+    connect: super::connect::Connect,
     proxy: Option<wreq::Proxy>,
     /// The proxy's URL, as a failure of the proxy's own names it.
     through: Option<Url>,
@@ -187,8 +187,7 @@ impl Wreq {
         let verdicts = Verdicts::default();
         let builder = Arc::new(Builder {
             profile,
-            resolver: Arc::clone(&resolver),
-            local: config.local.clone(),
+            connect: super::connect::Connect::new(&config, Arc::clone(&resolver)),
             proxy,
             through: config.proxy.as_ref().and_then(super::proxy_named),
             decision: decision.clone(),
@@ -368,19 +367,12 @@ impl Builder {
             )
             .tls_cert_store(store)
             .tls_custom_verify(verify)
-            .dns_resolver(Arc::clone(&self.resolver) as Arc<dyn wreq::dns::Resolve>)
+            .tcp_connector(self.connect.clone())
             .redirect(wreq::redirect::Policy::none())
             .retry(wreq::retry::Policy::never())
             .connector_layer(MarkConnects);
         let builder = match identity {
             Some(identity) => builder.tls_identity(identity.clone()),
-            None => builder,
-        };
-        let builder = match &self.local {
-            Some(local) => bind_device(
-                builder.local_addresses(local.ipv4, local.ipv6),
-                local.interface.as_deref(),
-            ),
             None => builder,
         };
         let builder = if pooled {
@@ -409,23 +401,6 @@ fn build(builder: wreq::ClientBuilder) -> wreq::Result<wreq::Client> {
     builder.build()
 }
 
-/// `builder` binding its sockets to `interface`'s device, where the OS
-/// lets a socket bind one (ADR 0044).
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "illumos"))]
-fn bind_device(builder: wreq::ClientBuilder, interface: Option<&str>) -> wreq::ClientBuilder {
-    match interface {
-        Some(interface) => builder.interface(interface.to_owned()),
-        None => builder,
-    }
-}
-
-/// `builder` as it is: Windows binds the interface's address alone, which
-/// its strong host model sends from that interface (ADR 0044).
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "illumos")))]
-fn bind_device(builder: wreq::ClientBuilder, _interface: Option<&str>) -> wreq::ClientBuilder {
-    builder
-}
-
 impl Transport for Wreq {
     fn proxy(&self) -> Option<Url> {
         self.builder.through.clone()
@@ -434,7 +409,7 @@ impl Transport for Wreq {
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             self.resolver.before_sending(&hop.url).await?;
-            let sent = match hop.url.host_str() {
+            match hop.url.host_str() {
                 Some(host) if hop.url.scheme() == "https" => {
                     self.send_to(&tls_host(host), hop, reuse).await
                 }
@@ -442,11 +417,7 @@ impl Transport for Wreq {
                     .send_once(hop, reuse)
                     .await
                     .map_err(|(failure, _)| failure),
-            };
-            if let Err(failure) = &sent {
-                self.resolver.forget_unreached(&hop.url, failure).await;
             }
-            sent
         })
     }
 }
@@ -680,13 +651,6 @@ impl Body for WreqBody {
                 }
             }
         })
-    }
-}
-
-impl wreq::dns::Resolve for Resolver {
-    fn resolve(&self, name: wreq::dns::Name) -> wreq::dns::Resolving {
-        let addresses = self.addresses(name.as_str().to_owned());
-        Box::pin(async move { Ok(Box::new(addresses.await?.into_iter()) as wreq::dns::Addrs) })
     }
 }
 

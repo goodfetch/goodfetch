@@ -1,7 +1,7 @@
 //! The lookups of the HTTP tier's transports (ADR 0118), reqwest's and
 //! `wreq`'s, against the Proving ground's DNS fixture, whose record lists
-//! every query it answered: a transport looks a new host up once, however
-//! many local bindings it keeps, and keeps the answer for its TTL, but for
+//! every query it answered: a transport looks a new host up once, whatever
+//! families the Session holds, and keeps the answer for its TTL, but for
 //! an answer whose every address failed to connect, which it forgets, so
 //! the next connection asks again (RFC 8305 section 9).
 //!
@@ -10,7 +10,6 @@
 //! an answer kept is not asked again.
 #![expect(
     clippy::disallowed_types,
-    clippy::disallowed_methods,
     reason = "a loopback listener bound and closed on the test's thread, as an address nothing answers on, never an async worker (ADR 0060)"
 )]
 
@@ -92,11 +91,10 @@ fn send(transport: &dyn Transport, url: &Url) -> Result<u16, TransportFailure> {
     })
 }
 
-/// A Session holding an IPv4 and an IPv6 address, whose reqwest transport
-/// keeps a client of each, looks a new host up once: one A query and one
-/// AAAA query.
+/// A Session holding an IPv4 and an IPv6 address looks a new host up
+/// once: one A query and one AAAA query.
 #[rstest]
-fn a_new_host_is_looked_up_once_whatever_the_local_bindings(
+fn a_new_host_is_looked_up_once_by_a_session_holding_both_families(
     #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
 ) {
     let env = TestEnv::new();
@@ -130,54 +128,82 @@ fn a_new_host_is_looked_up_once_whatever_the_local_bindings(
     );
 }
 
-/// A host whose every address refused the first connection is looked up
-/// again on the next one, though its answer's TTL has not run out: the
-/// site's going direct, the proxy's through one (a tunnel, which both
-/// transports report the same way).
-#[rstest]
-fn a_host_whose_every_address_refused_is_looked_up_again_on_the_next_connection(
-    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
-    #[values(false, true)] proxied: bool,
-) {
-    let env = TestEnv::new();
-    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let refusing = {
-        let listener = TcpListener::bind((proving_ground.address().ip(), 0)).unwrap();
-        listener.local_addr().unwrap()
-    };
-    let name = kept_name(refusing.ip());
-    let refusing_url = format!("http://{name}:{}/", refusing.port());
-    let (proxy, url, refused) = if proxied {
-        let route = ProxyRoute {
-            url: refusing_url,
-            credentials: None,
-        };
-        let site = format!("https://{}/", proving_ground.address());
-        (Some(route), site, TransportFailure::ProxyUnreachable)
-    } else {
-        (None, refusing_url, TransportFailure::ConnectionRefused)
-    };
+/// The refused sends of `url` on `stack`'s transport, through `proxy`
+/// when given, on two new connections in turn, and the A queries the DNS
+/// fixture had answered for `name` after each.
+fn refused_twice(
+    stack: Stack,
+    proving_ground: &ProvingGround,
+    proxy: Option<ProxyRoute>,
+    url: &str,
+    name: &str,
+) -> (Vec<Result<u16, TransportFailure>>, Vec<usize>) {
     let transport = transport(
         stack,
-        &proving_ground,
+        proving_ground,
         LocalSource {
             ipv4: Some(Ipv4Addr::LOCALHOST),
             ..LocalSource::default()
         },
         proxy,
     );
-    let url = Url::parse(&url).unwrap();
-
+    let url = Url::parse(url).unwrap();
     let mut sends = Vec::new();
     let mut asked = Vec::new();
     for _ in 0..2 {
         sends.push(send(transport.as_ref(), &url));
-        let queries = queries_of(&proving_ground.observations().unwrap(), &name);
+        let queries = queries_of(&proving_ground.observations().unwrap(), name);
         asked.push(queries.iter().filter(|query| *query == "A").count());
     }
+    (sends, asked)
+}
 
-    assert_eq!(
-        (sends, asked),
-        (vec![Err(refused.clone()), Err(refused)], vec![1, 2])
-    );
+/// A name answering only an address nothing listens on, kept for a
+/// minute, and the URL of that address's port under it.
+fn refusing(proving_ground: &ProvingGround) -> (String, String) {
+    let refusing = {
+        let listener = TcpListener::bind((proving_ground.address().ip(), 0)).unwrap();
+        listener.local_addr().unwrap()
+    };
+    let name = kept_name(refusing.ip());
+    let url = format!("http://{name}:{}/", refusing.port());
+    (name, url)
+}
+
+/// A host whose every address refused the first connection is looked up
+/// again on the next one, though its answer's TTL has not run out.
+#[rstest]
+fn a_host_whose_every_address_refused_is_looked_up_again_on_the_next_connection(
+    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let (name, url) = refusing(&proving_ground);
+
+    let (sends, asked) = refused_twice(stack, &proving_ground, None, &url, &name);
+
+    let refused = Err(TransportFailure::ConnectionRefused);
+    assert_eq!((sends, asked), (vec![refused.clone(), refused], vec![1, 2]));
+}
+
+/// A proxy whose every address refused the first connection is looked up
+/// again on the next one, though its answer's TTL has not run out: through
+/// a tunnel, which both transports report the same way.
+#[rstest]
+fn a_proxy_whose_every_address_refused_is_looked_up_again_on_the_next_connection(
+    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let (name, proxy) = refusing(&proving_ground);
+    let route = ProxyRoute {
+        url: proxy,
+        credentials: None,
+    };
+    let site = format!("https://{}/", proving_ground.address());
+
+    let (sends, asked) = refused_twice(stack, &proving_ground, Some(route), &site, &name);
+
+    let refused = Err(TransportFailure::ProxyUnreachable);
+    assert_eq!((sends, asked), (vec![refused.clone(), refused], vec![1, 2]));
 }

@@ -57,27 +57,26 @@
 //! **Local addresses (ADR 0044):** a Session holding local addresses
 //! ([`LocalSource`]) sends every connection from its address of the
 //! target's family, and every DNS query through the engine's resolver from
-//! its address of the name server's family; a name answering only in a
-//! family it holds no address of fails `address_family_unavailable`. An
-//! interface name also binds the socket to its device on Linux, macOS and
-//! illumos (`SO_BINDTODEVICE`, `IP_BOUND_IF`), and only its address on
-//! Windows. reqwest binds one local address per client, so a reqwest
-//! Session holding both families keeps a client of each, a hop taking the
-//! family of its host's first answer, IPv4 first as the engine's resolver
-//! orders them; `wreq` binds both on one client. Its clients share one
-//! resolver cache, so a host is looked up once whatever the bindings.
+//! its address of the name server's family; a host answering, or an
+//! address naming, only a family it holds no address of fails
+//! `address_family_unavailable`. An interface name also binds the socket
+//! to its device on Linux, macOS and illumos (`SO_BINDTODEVICE`,
+//! `IP_BOUND_IF`), and only its address on Windows.
 //!
-//! **Lookups (ADR 0118):** a transport keeps a name's answer for its TTL,
-//! but for one whose every address failed to connect, which it forgets
-//! after the hop, so the next connection asks again (RFC 8305 section 9),
-//! as the engine's `http_client::connect` does: the proxy's name through a
-//! proxy, else the host's. Each connection's addresses are still raced by
-//! its library's own connector, reqwest's hyper-util and `wreq`'s, not by
-//! the engine's race.
+//! **Connections (ADR 0118):** both transports open their TCP connections
+//! through one connector, [`connect::Connect`], given to each library as
+//! its TCP connector: the engine's connection race (RFC 8305) over the
+//! transport resolver's judged answer, `resolver.attempt_delay` apart,
+//! from the Session's local address of each attempt's family. A transport
+//! keeps a name's answer for its TTL, so a host is looked up once, but
+//! forgets the answer of one whose every address failed to connect, so the
+//! next connection asks again (RFC 8305 section 9), as the engine's
+//! `http_client::connect` does: the proxy's name through a proxy, else the
+//! host's.
 //!
 //! Size: one transport, reqwest, with its clients per client-certificate
-//! scope and local binding, its resolver and its failure classification:
-//! each is read only by its `send`, so they stay one concern.
+//! scope, its resolver and its failure classification: each is read only
+//! by its `send`, so they stay one concern.
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -91,6 +90,7 @@ use bytes::Bytes;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::{Dns, HostMapping, Resolution, ResolverConfiguration, Route};
 use goodfetch_engine::egress::{Gate, Policy, Refused, RequestKind};
+use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::local_addresses::SessionAddresses;
 use goodfetch_engine::run::secret_error;
 use goodfetch_engine::tls::{
@@ -108,6 +108,7 @@ use crate::driver::{
     Body, CallFailure, Hop, Reuse, Sending, Sent, Transport, TransportFailure, judged,
 };
 
+mod connect;
 mod impersonated;
 mod in_browser;
 
@@ -139,6 +140,9 @@ pub struct TransportConfig {
     /// The Session's local addresses (`egress.local_addresses`), `None`
     /// to let the OS choose.
     pub local: Option<LocalSource>,
+    /// The connection race's delays, `resolver.resolution_delay` and
+    /// `resolver.attempt_delay` (ADR 0118).
+    pub delays: Delays,
 }
 
 /// What a Session's connections and DNS queries leave from (ADR 0044): its
@@ -236,15 +240,10 @@ pub struct Reqwest {
     /// presenting none. Clones share them.
     scopes: Scopes,
     http1_origins: Http1Origins,
-    /// The resolver of its address check, reaching every family the
-    /// Session holds.
+    /// The resolver of its address check and its connections.
     resolver: Arc<Resolver>,
-    /// Its local bindings: one for each family the Session binds a local
-    /// address of, or one, of no family, letting the OS choose.
-    bindings: Arc<[Binding]>,
-    /// The interface the Session's local addresses came from, whose device
-    /// its sockets bind.
-    interface: Option<String>,
+    /// The connector its clients open their TCP connections through.
+    connect: connect::Connect,
     trust: SharedTrust,
     client_certificates: Option<ClientCertificates>,
     proxy: Option<ProxyRoute>,
@@ -253,24 +252,10 @@ pub struct Reqwest {
     document_request: Option<DocumentRequest>,
 }
 
-/// One local binding of a transport: the family it reaches, the local
-/// address it sends from, and its resolver, answering that family alone.
+/// The clients of one client-certificate scope: those offering HTTP/2 and
+/// HTTP/1.1, and those offering HTTP/1.1 alone, for the origins that asked.
 #[derive(Debug)]
-struct Binding {
-    family: Option<IpFamily>,
-    local: Option<IpAddr>,
-    resolver: Arc<Resolver>,
-}
-
-/// The clients of one client-certificate scope: a set for each of the
-/// transport's local bindings, in their order.
-#[derive(Debug)]
-struct ScopeClients(Vec<Bound>);
-
-/// The clients of one local binding: those offering HTTP/2 and HTTP/1.1,
-/// and those offering HTTP/1.1 alone, for the origins that asked.
-#[derive(Debug)]
-struct Bound {
+struct ScopeClients {
     any: Clients,
     http1: Clients,
 }
@@ -326,26 +311,7 @@ impl Reqwest {
     )]
     pub fn new(config: TransportConfig) -> Result<Self, TransportUnavailable> {
         let resolver = Arc::new(Resolver::new(&config));
-        let families: Vec<Option<IpFamily>> = match &config.local {
-            Some(local) => local.families().into_iter().map(Some).collect(),
-            None => vec![None],
-        };
-        let bindings = families
-            .into_iter()
-            .map(|family| Binding {
-                family,
-                local: family.and_then(|family| {
-                    config
-                        .local
-                        .as_ref()
-                        .and_then(|local| local.address(family))
-                }),
-                resolver: match family {
-                    Some(family) => Arc::new(resolver.reaching(family)),
-                    None => Arc::clone(&resolver),
-                },
-            })
-            .collect();
+        let connect = connect::Connect::new(&config, Arc::clone(&resolver));
         let trust = SharedTrust::new(
             config.trust.clone(),
             config.exceptions.clone(),
@@ -356,11 +322,7 @@ impl Reqwest {
             scopes: Scopes::default(),
             http1_origins: Http1Origins::default(),
             resolver,
-            bindings,
-            interface: config
-                .local
-                .as_ref()
-                .and_then(|local| local.interface.clone()),
+            connect,
             trust,
             client_certificates: config.client_certificates.clone(),
             proxy: config.proxy.clone(),
@@ -382,40 +344,24 @@ impl Reqwest {
         self
     }
 
-    /// The clients of a scope presenting `client`: a set for each local
-    /// binding.
+    /// The clients of a scope presenting `client`.
     fn scope_clients(
         &self,
         client: Option<&Arc<CertifiedKey>>,
     ) -> Result<ScopeClients, TransportUnavailable> {
-        self.bindings
-            .iter()
-            .map(|binding| self.bound(binding, client))
-            .collect::<Result<_, _>>()
-            .map(ScopeClients)
-    }
-
-    /// The clients of `binding` presenting `client`.
-    fn bound(
-        &self,
-        binding: &Binding,
-        client: Option<&Arc<CertifiedKey>>,
-    ) -> Result<Bound, TransportUnavailable> {
         let clients = |alpn: &[&[u8]]| -> Result<Clients, TransportUnavailable> {
             let mut tls = self.trust.client_config(client.cloned());
             tls.alpn_protocols = alpn.iter().map(|protocol| protocol.to_vec()).collect();
             let client = |pooled: bool| {
                 let builder = reqwest::Client::builder()
                     .tls_backend_preconfigured(tls.clone())
-                    .dns_resolver(Arc::clone(&binding.resolver))
+                    .tcp_connector(self.connect.clone())
                     // A folded header line is read as a space, as Chrome
                     // reads it.
                     .http1_allow_obsolete_multiline_headers_in_responses(true)
                     .redirect(reqwest::redirect::Policy::none())
                     .retry(reqwest::retry::never())
-                    .connector_layer(MarkConnects)
-                    .local_address(binding.local);
-                let builder = bind_device(builder, self.interface.as_deref());
+                    .connector_layer(MarkConnects);
                 let builder = if pooled {
                     builder
                 } else {
@@ -440,7 +386,7 @@ impl Reqwest {
                 new: client(false)?,
             })
         };
-        Ok(Bound {
+        Ok(ScopeClients {
             any: clients(&[b"h2", b"http/1.1"])?,
             http1: clients(&[b"http/1.1"])?,
         })
@@ -479,36 +425,17 @@ impl Reqwest {
         AddressCheck(Arc::clone(&self.resolver))
     }
 
-    /// The clients among `clients` of the local binding `hop` goes out
-    /// from: the only one, or, for a Session holding both families, that
-    /// of its host's first answer.
-    async fn binding<'c>(
+    /// The client `hop` goes out on among `clients`, as `reuse` allows.
+    fn client<'c>(
         &self,
         clients: &'c ScopeClients,
         hop: &Hop,
-    ) -> Result<&'c Bound, TransportFailure> {
-        let first = clients
-            .0
-            .first()
-            .expect("invariant: a scope holds a set of clients for each of the transport's bindings, and it has one at least");
-        if clients.0.len() == 1 {
-            return Ok(first);
-        }
-        let family = self.resolver.first_family(&hop.url).await?;
-        Ok(self
-            .bindings
-            .iter()
-            .zip(&clients.0)
-            .find(|(binding, _)| binding.family == family)
-            .map_or(first, |(_, bound)| bound))
-    }
-
-    /// The client `hop` goes out on from `bound`, as `reuse` allows.
-    fn client<'b>(&self, bound: &'b Bound, hop: &Hop, reuse: Reuse) -> &'b reqwest::Client {
+        reuse: Reuse,
+    ) -> &'c reqwest::Client {
         let clients = if self.http1_origins.contains(&hop.url) {
-            &bound.http1
+            &clients.http1
         } else {
-            &bound.any
+            &clients.any
         };
         match reuse {
             Reuse::Allowed => &clients.pooled,
@@ -524,12 +451,8 @@ impl Reqwest {
         hop: &Hop,
         reuse: Reuse,
     ) -> Result<Sent, (TransportFailure, Option<Box<rustls::Error>>)> {
-        let bound = self
-            .binding(clients, hop)
-            .await
-            .map_err(|failure| (failure, None))?;
         let mut request = self
-            .client(bound, hop, reuse)
+            .client(clients, hop, reuse)
             .request(hop.method.clone(), hop.url.clone());
         for (name, value) in &hop.headers {
             request = request.header(name, value);
@@ -669,26 +592,6 @@ fn build(builder: reqwest::ClientBuilder) -> reqwest::Result<reqwest::Client> {
     builder.build()
 }
 
-/// `builder` binding its sockets to `interface`'s device, where the OS
-/// lets a socket bind one (ADR 0044).
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "illumos"))]
-fn bind_device(builder: reqwest::ClientBuilder, interface: Option<&str>) -> reqwest::ClientBuilder {
-    match interface {
-        Some(interface) => builder.interface(interface),
-        None => builder,
-    }
-}
-
-/// `builder` as it is: Windows binds the interface's address alone, which
-/// its strong host model sends from that interface (ADR 0044).
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "illumos")))]
-fn bind_device(
-    builder: reqwest::ClientBuilder,
-    _interface: Option<&str>,
-) -> reqwest::ClientBuilder {
-    builder
-}
-
 impl Transport for Reqwest {
     fn proxy(&self) -> Option<Url> {
         self.proxy.as_ref().and_then(proxy_named)
@@ -704,7 +607,7 @@ impl Transport for Reqwest {
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             self.resolver.before_sending(&hop.url).await?;
-            let sent = match hop.url.host_str() {
+            match hop.url.host_str() {
                 Some(host) if hop.url.scheme() == "https" => self.send_to(host, hop, reuse).await,
                 _ => {
                     let unscoped = self
@@ -717,11 +620,7 @@ impl Transport for Reqwest {
                         .await
                         .map_err(|(failure, _)| failure)
                 }
-            };
-            if let Err(failure) = &sent {
-                self.resolver.forget_unreached(&hop.url, failure).await;
             }
-            sent
         })
     }
 }
@@ -868,9 +767,8 @@ impl From<ResolveFailure> for TransportFailure {
 /// judges: in the connector when the connection goes direct, so
 /// every address a connection may try is judged on its own lookup before
 /// it tries one; ahead of the request when it goes through a proxy, which
-/// would resolve the name again itself. Its clones share the [`Dns`]'s
-/// cache, so a transport looks a name up once whatever its local bindings.
-#[derive(Clone)]
+/// would resolve the name again itself. The transport's clients and its
+/// [`AddressCheck`] share it, so a transport looks a name up once.
 struct Resolver {
     dns: Dns,
     /// The route its lookups take: the engine's own resolver, from the
@@ -878,9 +776,9 @@ struct Resolver {
     /// (ADR 0044); the direct route otherwise.
     route: Route,
     egress: Policy,
-    /// The host of the proxy its connections go to in place of the site,
-    /// when the Session has one; `None` when they go to the site directly.
-    proxy: Option<String>,
+    /// Whether its connections go to the site directly, not through a
+    /// proxy.
+    direct: bool,
     /// The families its connections may reach, those the Session holds a
     /// local address of; every family when it holds none.
     families: Option<Vec<IpFamily>>,
@@ -909,64 +807,22 @@ impl Resolver {
             dns,
             route,
             egress: config.egress.clone(),
-            proxy: config.proxy.as_ref().map(|route| {
-                Url::parse(&route.url)
-                    .ok()
-                    .and_then(|url| url.host_str().map(str::to_owned))
-                    .unwrap_or_else(|| route.url.clone())
-            }),
+            direct: config.proxy.is_none(),
             families,
-        }
-    }
-
-    /// This resolver, sharing its cache, its connections reaching `family`
-    /// alone: that of one local binding of a Session holding both.
-    fn reaching(&self, family: IpFamily) -> Self {
-        Self {
-            families: self.families.as_ref().map(|_| vec![family]),
-            ..self.clone()
         }
     }
 
     /// Whether its connections go to the site directly, not through a
     /// proxy.
     fn direct(&self) -> bool {
-        self.proxy.is_none()
+        self.direct
     }
 
-    /// Forgets the answer of the name a connection for `url` reached,
-    /// its proxy's or else its host's, after a hop that `failure` ended:
-    /// when no address it gave let a connection open, so the next
-    /// connection asks the name servers again (RFC 8305 section 9), as
-    /// the engine's `http_client::connect` does.
-    async fn forget_unreached(&self, url: &Url, failure: &TransportFailure) {
-        if !matches!(
-            failure,
-            TransportFailure::ConnectionRefused
-                | TransportFailure::ConnectionTimedOut
-                | TransportFailure::ProxyUnreachable
-        ) {
-            return;
-        }
-        let name = match (&self.proxy, url.host()) {
-            (Some(proxy), _) => proxy.as_str(),
-            (None, Some(url::Host::Domain(name))) => name,
-            (None, _) => return,
-        };
+    /// Forgets `name`'s answer, after a connection none of its addresses
+    /// let open, so the next connection asks the name servers again (RFC
+    /// 8305 section 9).
+    async fn forget(&self, name: &str) {
         self.dns.forget(name).await;
-    }
-
-    /// The family of the first address `url`'s host answers among those
-    /// the Session holds, IPv4 first; `None` for no host.
-    async fn first_family(&self, url: &Url) -> Result<Option<IpFamily>, ResolveFailure> {
-        let name = match url.host() {
-            Some(url::Host::Domain(name)) => name.to_owned(),
-            Some(url::Host::Ipv4(_)) => return Ok(Some(IpFamily::Ipv4)),
-            Some(url::Host::Ipv6(_)) => return Ok(Some(IpFamily::Ipv6)),
-            None => return Ok(None),
-        };
-        let addresses = self.addresses(name).await?;
-        Ok(addresses.first().map(|address| family_of(address.ip())))
     }
 
     /// The addresses of `name` for the connector, judged when the
@@ -1084,7 +940,7 @@ impl fmt::Debug for Resolver {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Resolver")
-            .field("proxy", &self.proxy)
+            .field("direct", &self.direct)
             .finish_non_exhaustive()
     }
 }
@@ -1141,13 +997,6 @@ impl AddressCheck {
             }),
             None => Err(None),
         }
-    }
-}
-
-impl reqwest::dns::Resolve for Resolver {
-    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
-        let addresses = self.addresses(name.as_str().to_owned());
-        Box::pin(async move { Ok(Box::new(addresses.await?.into_iter()) as reqwest::dns::Addrs) })
     }
 }
 

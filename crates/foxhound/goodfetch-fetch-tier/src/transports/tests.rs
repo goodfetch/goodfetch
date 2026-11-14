@@ -110,6 +110,7 @@ fn holding(local: Option<LocalSource>) -> TransportConfig {
         clock: Clock::system(),
         resolver: ResolverConfiguration::name_servers([]),
         local,
+        delays: goodfetch_engine::happy_eyeballs::Delays::default(),
     }
 }
 

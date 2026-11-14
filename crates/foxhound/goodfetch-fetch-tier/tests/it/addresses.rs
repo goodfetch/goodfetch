@@ -608,6 +608,7 @@ mod linux {
                 clock: Clock::system(),
                 resolver: ResolverConfiguration::system().unwrap(),
                 local: None,
+                delays: goodfetch_engine::happy_eyeballs::Delays::default(),
             },
         );
         let name = format!("{}.{}.alternating.dns.test", label(public), label(rebound));
@@ -694,6 +695,7 @@ mod linux {
                 clock: Clock::system(),
                 resolver: ResolverConfiguration::system().unwrap(),
                 local: None,
+                delays: goodfetch_engine::happy_eyeballs::Delays::default(),
             },
         );
         let name = format!("{}.127-0-0-1.alternating.dns.test", label(public));

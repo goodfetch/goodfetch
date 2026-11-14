@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_engine::CallError;
+use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_frontier::payload::PayloadRules;
 use goodfetch_frontier::{Bounds, Scope};
@@ -79,6 +80,18 @@ impl Invariants {
             PayloadRules::read(connection)?,
             fragments,
         ))
+    }
+
+    /// Prepares the statements an admission runs on each connection of
+    /// `run`'s run-state writer, once, as its crawl starts or resumes, so
+    /// that no page's admission, redirect hop or sitemap read prepares one
+    /// (ADR 0140, `F3.prepares`). One that is not prepared here is at its
+    /// first use.
+    pub(crate) async fn prepare(&self, run: &Run) {
+        let statements = goodfetch_frontier::admission_statements(&self.frontier);
+        if let Err(error) = run.state().prepare(statements).await {
+            tracing::warn!(%error, run_id = %run.id(), "the crawl's admission statements were not prepared as it started");
+        }
     }
 
     /// The Frontier's invariants.

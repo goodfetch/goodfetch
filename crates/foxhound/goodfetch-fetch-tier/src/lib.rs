@@ -70,7 +70,10 @@ pub use driver::{
     Body, FetchBounds, FetchFailure, Fetched, Hop, Reuse, Sending, Sent, Transport,
     TransportFailure, fetch, met,
 };
-pub use gate::{FetchAdmission, HandOver, RobotsTxtFetch, RunHandOver, room_taken};
+pub use gate::{
+    ChainHop, FetchAdmission, HandOver, HopAnswer, HopChecks, RobotsTxtFetch, RunHandOver,
+    room_taken,
+};
 pub use goodfetch_extractor::BuiltIn;
 pub use goodfetch_page::page_value::PooledSession;
 pub use http_profile::HttpProfile;

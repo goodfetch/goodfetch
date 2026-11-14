@@ -475,13 +475,15 @@ fn each_record_of_the_crawl_counts_its_work_and_a_plant_adds_one_a_record_to_eve
 }
 
 /// The rows of the Frontier's admission, which every outcome reaches.
-const FRONTIER_ROWS: [Row; 12] = [
+const FRONTIER_ROWS: [Row; 14] = [
     Row::BatchInvariantReads,
     Row::BatchCompilations,
     Row::BatchTransactions,
     Row::HopInvariantReads,
     Row::HopCompilations,
     Row::HopTransactions,
+    Row::HopRoundTrips,
+    Row::HopEndRoundTrips,
     Row::SitemapInvariantReads,
     Row::SitemapCompilations,
     Row::SitemapTransactions,
@@ -533,7 +535,11 @@ fn frontier_crawl(globs: bool, schema: bool, planted: bool) -> Frontiers {
             metrics,
             settings: settings.as_object().unwrap().clone(),
             plant,
-            frontier: Some(Frontier { schema, items: 0 }),
+            frontier: Some(Frontier {
+                schema,
+                items: 0,
+                second_hop: true,
+            }),
             small_pages: true,
             ..Options::default()
         },
@@ -565,7 +571,9 @@ const BUILT_ONCE: [Row; 7] = [
 /// exactly its pages' worth to each; the Run's invariants are built once,
 /// so no outcome reads or compiles one, a glob in the Scope or a schema on
 /// the Label included; the one seed with a Payload is serialized once and
-/// validated once, and with no schema on its Label not validated (#1896).
+/// validated once, and with no schema on its Label not validated (#1896);
+/// a redirect hop's check and its chain's end are one round trip each to
+/// the actor that owns the crawl's Run state (#2246).
 #[test]
 #[expect(
     clippy::disallowed_methods,
@@ -586,11 +594,11 @@ fn each_outcome_of_the_frontier_counts_on_its_own_row_a_plant_adds_one_a_page_an
         )
     });
 
-    // The index and its pages, the redirect's target, the sitemap's entry and
-    // the seed with a Payload.
+    // The index and its pages, the redirect's target, which its chain
+    // reaches in two hops, the sitemap's entry and the seed with a Payload.
     assert_eq!(
         (default.pages, default.hops, default.sitemaps),
-        (u64::try_from(PAGES.len()).unwrap() + 4, 1, 1)
+        (u64::try_from(PAGES.len()).unwrap() + 4, 2, 1)
     );
     for row in FRONTIER_ROWS {
         assert_eq!(planted.of(row) - default.of(row), default.pages, "{row:?}");
@@ -605,6 +613,15 @@ fn each_outcome_of_the_frontier_counts_on_its_own_row_a_plant_adds_one_a_page_an
     }
     // A code-free page's links ride its outcome's job (#2245).
     assert_eq!(default.of(Row::BatchTransactions), 0);
+    // Each of the redirect's two hops asks the actor that owns the Run
+    // state once, and their one chain's end once more (#2246).
+    assert_eq!(
+        (
+            default.of(Row::HopRoundTrips),
+            default.of(Row::HopEndRoundTrips)
+        ),
+        (default.hops, 1)
+    );
     assert_eq!(
         (
             default.of(Row::PayloadSerializations),

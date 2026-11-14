@@ -163,6 +163,14 @@ rows! {
     HopCompilations => "F3.compilations.hop", "frontier_hop", "compilations";
     /// `F3.transactions`, of a redirect hop.
     HopTransactions => "F3.transactions.hop", "frontier_hop", "transactions";
+    /// `F3.hop_round_trips`: a message a page's task sends the actor that
+    /// owns its crawl's Run state to have a redirect hop checked, whose
+    /// answer the task waits for (ADR 0142).
+    HopRoundTrips => "F3.hop_round_trips", "frontier_hop", "round_trips";
+    /// `F3.hop_round_trips.end`: a message a page's task sends that actor to
+    /// have a redirected chain's final URL recorded, whose answer the task
+    /// waits for (ADR 0142).
+    HopEndRoundTrips => "F3.hop_round_trips.end", "frontier_hop", "end_round_trips";
     /// `F3.invariant_reads`, of a sitemap's read.
     SitemapInvariantReads => "F3.invariant_reads.sitemap", "frontier_sitemap", "invariant_reads";
     /// `F3.compilations`, of a sitemap's read.

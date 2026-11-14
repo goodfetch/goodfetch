@@ -814,6 +814,33 @@ fn a_read_moves_no_acknowledged_commit() {
     assert_eq!((seen, after), (vec![1], before));
 }
 
+/// A preparation writes nothing, so the writer's acknowledged commits do
+/// not move for it; a statement that does not prepare is its answer, and
+/// the writer goes on writing.
+#[test]
+fn a_preparation_commits_nothing_and_answers_a_statement_that_does_not_prepare() {
+    let env = TestEnv::new();
+
+    let (before, prepared, after, refused, written) = with_writer(&env, 1, async |state| {
+        state.write(insert(1)).await.unwrap();
+        let before = *state.commits().borrow();
+        let prepared = state
+            .prepare(vec!["SELECT value FROM items WHERE value = ?1"])
+            .await;
+        let after = *state.commits().borrow();
+        let refused = state.prepare(vec!["SELECT nothing FROM nowhere"]).await;
+        state.write(insert(2)).await.unwrap();
+        (before, prepared, after, refused, state.read(items).await)
+    });
+
+    assert_eq!((prepared, after), (Ok(()), before));
+    assert!(
+        matches!(refused, Err(RunStateError::Sqlite { .. })),
+        "{refused:?}"
+    );
+    assert_eq!(written.unwrap(), vec![1, 2]);
+}
+
 /// A group that does not commit counts no transaction.
 #[test]
 fn a_group_the_file_refuses_counts_no_transaction() {

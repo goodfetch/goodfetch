@@ -43,6 +43,10 @@
 //! the Frontier's outcomes beyond a links batch: a hop's, a sitemap's and a
 //! Payload's rows say "no hops" there.
 //!
+//! `F3.hop_round_trips.end` divides by the redirected chains that ended on
+//! their document, the unit `chains`: the site's redirects are one hop
+//! each, so its chains are its hops.
+//!
 //! `F3.actor_round_trips` divides by the attempts that ended, the unit
 //! `attempts_ended`: the attempts the site served a page to and the one that
 //! read each sitemap, which is a Work item's attempt as a page's is and
@@ -339,12 +343,14 @@ struct Cell {
 const FRONTIER: Option<Frontier> = Some(Frontier {
     schema: true,
     items: 0,
+    second_hop: false,
 });
 
 /// The Frontier's outcomes with a seed whose Payload has no schema to fit.
 const UNTYPED: Option<Frontier> = Some(Frontier {
     schema: false,
     items: 0,
+    second_hop: false,
 });
 
 /// How many items the cell [`VARYING_PARAMETER`]'s site serves: as many as
@@ -364,6 +370,7 @@ fn varying_parameter() -> Cell {
         frontier: Some(Frontier {
             schema: true,
             items: ITEMS,
+            second_hop: false,
         }),
         removes: &[],
         removes_syncs: false,
@@ -1138,6 +1145,9 @@ fn main() {
             "records": if cell.name == RECORDS_OFF_CELL { 0 } else { cell.pages },
             "links_batches": if cell.handler { 0 } else { cell.pages },
             "hops": cell.hops,
+            // Each of the site's redirects leads straight to a page: a
+            // chain of one hop.
+            "chains": cell.hops,
             "sitemaps": cell.sitemaps,
             "payloads": u64::from(cell.frontier),
             "attempts": cell.attempts,

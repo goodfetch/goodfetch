@@ -1,5 +1,6 @@
 //! `xtask compare` (ADRs 0134 and 0138): the comparison matrix, Foxhound
-//! against the crawlers nearest it (Spider, Crawlee, Scrapy, crawlee-rs, pagesift and OpenSpider), on one machine with nothing else
+//! against the crawlers nearest it (Spider, Crawlee, Scrapy, crawlee-rs,
+//! pagesift, OpenSpider and fastCRW), on one machine with nothing else
 //! running. Each scenario sets every tool to the closest equivalent
 //! configuration and the report writes that mapping; a tool that cannot do
 //! a scenario has a cell saying so, and a Foxhound value that does not
@@ -118,9 +119,10 @@ pub(crate) struct RunArguments {
     /// target folder of its name under this one (`spider`, `spider-chrome`,
     /// `spider-bloom` and so on), `xtask/compare-crawlee-rs` built into
     /// `crawlee-rs`, `xtask/compare-pagesift` into `pagesift`,
-    /// `xtask/compare-openspider` into `openspider` and the
-    /// Collie scenario's `xtask/compare-chromiumoxide` into
-    /// `chromiumoxide`.
+    /// `xtask/compare-openspider` into `openspider`,
+    /// `xtask/compare-fastcrw` into `fastcrw` (with fastCRW's server
+    /// installed into `fastcrw/<profile>/bin`) and the Collie scenario's
+    /// `xtask/compare-chromiumoxide` into `chromiumoxide`.
     #[arg(long)]
     spider_builds: PathBuf,
     /// The folder Cargo names after the profile those builds were made

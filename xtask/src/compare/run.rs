@@ -21,11 +21,11 @@ use super::matrix::{self, Cell, Config, Row, Scenario, SpiderBuild};
 use super::trial::{self, Counted, Outcome, Ruled, callgrind_missing, strace_missing};
 use super::trials::{
     CONCURRENCY, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, CollieScenario, Comparison, CountedCell,
-    CountedRun, Declared, GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_SCENARIOS,
-    INSTRUCTION_TOOLS, Measured, OPENSPIDER_COMMIT, PAGESIFT_VERSION, PLAYWRIGHT_VERSION,
-    RULE_RUNS, RuledRun, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES,
-    SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint, StoppedRun, Trial,
-    size_not_run,
+    CountedRun, Declared, FASTCRW_VERSION, GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS,
+    INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Measured, OPENSPIDER_COMMIT, PAGESIFT_VERSION,
+    PLAYWRIGHT_VERSION, RULE_RUNS, RuledRun, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES,
+    SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint,
+    StoppedRun, Trial, size_not_run,
 };
 
 mod collie;
@@ -37,10 +37,10 @@ pub(crate) struct Executables<'a> {
     pub(crate) proving_ground: &'a Path,
     pub(crate) foxhound: &'a Path,
     /// The folder of the Rust sides' builds, Spider's, crawlee-rs's,
-    /// pagesift's and OpenSpider's, and the folder Cargo names after the
-    /// profile each was built with (see [`spider_executable`],
-    /// [`crawlee_rs_executable`], [`pagesift_executable`] and
-    /// [`openspider_executable`]).
+    /// pagesift's, OpenSpider's and fastCRW's, and the folder Cargo names
+    /// after the profile each was built with (see [`spider_executable`],
+    /// [`crawlee_rs_executable`], [`pagesift_executable`],
+    /// [`openspider_executable`] and [`fastcrw_executable`]).
     pub(crate) spider_builds: &'a Path,
     pub(crate) spider_profile: &'a str,
     /// Crawlee's side's script, run by Node.js, and Scrapy's, run by the
@@ -187,6 +187,21 @@ pub(crate) fn openspider_executable(builds: &Path, profile: &str) -> PathBuf {
         ))
 }
 
+/// fastCRW's side's executable in `builds`, beside Spider's builds:
+/// `just compare` builds it into the target folder
+/// [`matrix::FASTCRW_FOLDER`] names, where Cargo puts it under `profile`'s
+/// folder, and installs fastCRW's server into that profile's folder (see
+/// [`trial::fastcrw_server`]).
+pub(crate) fn fastcrw_executable(builds: &Path, profile: &str) -> PathBuf {
+    builds
+        .join(matrix::FASTCRW_FOLDER)
+        .join(profile)
+        .join(format!(
+            "goodfetch-compare-fastcrw{}",
+            std::env::consts::EXE_SUFFIX
+        ))
+}
+
 /// chromiumoxide's side's executable in `builds`, beside Spider's builds:
 /// `just compare` builds it into the target folder
 /// [`matrix::CHROMIUMOXIDE_FOLDER`] names, where Cargo puts it under
@@ -223,8 +238,9 @@ impl Crawl {
     }
 }
 
-/// The executables a trial of `config` runs: the tool's, and the
-/// interpreter that runs it when it is a script.
+/// The executables a trial of `config` runs: the tool's, the interpreter
+/// that runs it when it is a script, and fastCRW's server, which its side
+/// starts.
 fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf> {
     let executable = match config {
         Config::Foxhound { .. } => executables.foxhound.to_owned(),
@@ -242,12 +258,17 @@ fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf>
         Config::OpenSpider => {
             openspider_executable(executables.spider_builds, executables.spider_profile)
         }
+        Config::FastCrw => {
+            fastcrw_executable(executables.spider_builds, executables.spider_profile)
+        }
     };
     let program = trial::invocation(config, &executable).program;
+    let server = matches!(config, Config::FastCrw).then(|| trial::fastcrw_server(&executable));
     let mut run = vec![executable];
     if program != run[0] {
         run.push(program);
     }
+    run.extend(server);
     run
 }
 
@@ -353,7 +374,8 @@ fn pages_of(scenario: Scenario, config: Config, pages: u64, spider_pages: Option
         | Config::Scrapy
         | Config::CrawleeRs
         | Config::Pagesift
-        | Config::OpenSpider => pages,
+        | Config::OpenSpider
+        | Config::FastCrw => pages,
     }
 }
 
@@ -428,7 +450,8 @@ fn at_concurrency(config: Config, concurrency: u32) -> Config {
         | Config::Scrapy
         | Config::CrawleeRs
         | Config::Pagesift
-        | Config::OpenSpider => config,
+        | Config::OpenSpider
+        | Config::FastCrw => config,
     }
 }
 
@@ -689,6 +712,7 @@ fn declared(options: &Options) -> Declared {
         crawlee_rs: CRAWLEE_RS_COMMIT.to_owned(),
         pagesift: PAGESIFT_VERSION.to_owned(),
         openspider: OPENSPIDER_COMMIT.to_owned(),
+        fastcrw: FASTCRW_VERSION.to_owned(),
         playwright: PLAYWRIGHT_VERSION.to_owned(),
         scrapy_playwright: SCRAPY_PLAYWRIGHT_VERSION.to_owned(),
         browser: crate::test_facts::CHROME_FOR_TESTING_BUILD.to_owned(),

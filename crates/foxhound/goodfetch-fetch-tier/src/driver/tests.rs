@@ -14,6 +14,7 @@ use proptest::prelude::*;
 use super::{TransportFailure, met};
 
 mod asked;
+mod coded;
 mod kept;
 mod untyped;
 

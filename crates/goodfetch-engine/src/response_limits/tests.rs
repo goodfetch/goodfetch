@@ -11,6 +11,8 @@ use serde_json::{Value, json};
 use super::{BodyFailure, Decoding, JsonFailure, Limits, check_json_depth, parse_json};
 use crate::settings::{Layers, Values, resolve};
 
+mod codings;
+
 const URL: &str = "http://limits.test/";
 
 const MIB: usize = 1024 * 1024;
@@ -243,7 +245,7 @@ fn a_compressed_body_past_the_size_is_refused_naming_the_size() {
 fn a_body_that_is_no_stream_of_its_coding_fails_to_decode(#[case] codings: &[&str]) {
     let read = read(codings, b"plain text, never compressed", Limits::default());
 
-    assert!(matches!(read, Err(BodyFailure::Decoding)), "{read:?}");
+    assert!(matches!(read, Err(BodyFailure::Corrupt)), "{read:?}");
 }
 
 fn nested(depth: usize) -> String {
@@ -391,7 +393,7 @@ fn a_zstd_frame_whose_window_is_past_eight_mebibytes_fails_to_decode(
 
     let read = read(&["zstd"], &received, limits).map(|body| body.len());
 
-    assert!(matches!(read, Err(BodyFailure::Decoding)), "{read:?}");
+    assert!(matches!(read, Err(BodyFailure::Corrupt)), "{read:?}");
 }
 
 #[test]

@@ -162,7 +162,7 @@ pub fn read_file(url: &str, body: &[u8], limits: Limits) -> Result<Document, Ref
                     Refusal::Unreadable(too_large())
                 }
                 BodyFailure::Limit(exceeded) => Refusal::Limit(exceeded),
-                BodyFailure::Decoding => {
+                BodyFailure::Corrupt | BodyFailure::Cut => {
                     Refusal::Unreadable(Unreadable("its gzip stream does not decode".to_owned()))
                 }
             })?;

@@ -21,8 +21,8 @@
 //! sends.
 
 use std::fmt::Debug;
-use std::sync::Arc;
 
+use bytestring::ByteString;
 use goodfetch_counted_work::{ParsedHtml, Row};
 use goodfetch_engine::runs::Run;
 use tokio::sync::{mpsc, oneshot};
@@ -38,7 +38,7 @@ pub enum KeptFrom {
     /// Its untouched tree, parsed already.
     Tree(ParsedHtml),
     /// Its HTML, parsed at the first read, on `F1.parses`.
-    Html(Arc<str>),
+    Html(ByteString),
 }
 
 /// The handle to a page's kept tree. Cheap to clone; every clone reads

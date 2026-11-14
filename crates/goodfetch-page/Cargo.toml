@@ -24,6 +24,7 @@ foreign-types.workspace = true
 brotli-decompressor.workspace = true
 # Bodies are `Bytes`, read once and never copied (STYLE.md).
 bytes.workspace = true
+bytestring.workspace = true
 data-encoding.workspace = true
 flate2.workspace = true
 # Drives a Borrowed browser's CDP WebSocket's stream of messages and its

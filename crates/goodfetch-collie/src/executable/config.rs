@@ -171,6 +171,14 @@ fn describe(setting: &ExplainedSetting) -> String {
     if setting.weakens {
         origin.push("weakens a guarantee".to_owned());
     }
+    if let Some(to) = &setting.yields_to {
+        origin.push(format!(
+            "yields to {} = {} ({}): its Sessions hold a login, so their HTTP leaves from the browser",
+            to.key,
+            to.value,
+            to.layer.as_str()
+        ));
+    }
     if !setting.applied {
         let products: Vec<&str> = setting
             .products

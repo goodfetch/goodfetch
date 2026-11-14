@@ -263,6 +263,13 @@ impl LabelSettings {
         self.kept_responses.get(label).copied()
     }
 
+    /// Each declared Label that sets `fetch.http_from`, with its value.
+    pub fn own_http_from(&self) -> impl Iterator<Item = (&str, HttpFrom)> {
+        self.http_from
+            .iter()
+            .map(|(name, http_from)| (name.as_str(), *http_from))
+    }
+
     /// Where the HTTP of a request of `label` leaves from where the engine
     /// chooses its tier: its Label's `fetch.http_from`, else `run`, the
     /// Run's.

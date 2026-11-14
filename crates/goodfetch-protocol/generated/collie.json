@@ -1769,6 +1769,18 @@
           "arrived_in": "0.1",
           "description": "Whether its value weakens a guarantee class or switches off a costly\ncontrol, which the results it touches are marked with (ADR 0028).",
           "type": "boolean"
+        },
+        "yields_to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingLimit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The setting its value yields to, with that setting's value and\nlayer, when one that is set keeps its value from taking effect:\n`fetch.http_from` away from `browser` yields to the Run's\n`session.source`, whose Sessions hold a login and so send their HTTP\nfrom the browser (#2418)."
         }
       },
       "required": [

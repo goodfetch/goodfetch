@@ -2,7 +2,7 @@
 //! catalog, and what each Product's catalog holds, by the Product mark of
 //! where each entry is defined (ADRs 0095 and 0099).
 
-use crate::catalog::{Entries, ErrorCodeDefinition, Operation, Product, SharedType};
+use crate::catalog::{Entries, ErrorCodeDefinition, Operation, Product, SharedType, Yielding};
 use crate::{
     audit, block, browser_cache, checkpoint, connection, daemon, dns, download, egress, engine,
     events, executables, foxhound, governor, hostile_input, key_value_store, log, needs_you, ops,
@@ -62,6 +62,10 @@ pub const MODULES: [&Entries; 49] = [
     &foxhound::block::ENTRIES,
     &foxhound::usage::ENTRIES,
 ];
+
+/// Every setting value that yields to another setting, which
+/// `config explain` names in its `yields_to` (#2418).
+pub const YIELDING: [&Yielding; 1] = [&foxhound::fetch::HTTP_FROM_YIELDS_TO_A_LOGIN];
 
 /// The operations of `product`'s catalog: Collie's own for Collie, every
 /// operation for Foxhound, which contains Collie.

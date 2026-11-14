@@ -16,7 +16,6 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::fmt::Write as _;
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -26,9 +25,6 @@ use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::home::{USER_CONFIGURATION_FILE, per_major};
-
 use crate::rss::crawl::Site;
 
 use super::extracted::Extracted;
@@ -37,6 +33,7 @@ use super::matrix::{Cell, Config, Scenario, Site as SiteKind};
 use super::observed::{self, MARKER, Observed};
 use super::sampler::{self, Sampler};
 use super::trials::{MILESTONES, Measured, Work};
+use super::trust;
 
 /// How a trial runs its tool.
 #[derive(Clone, Debug)]
@@ -127,24 +124,6 @@ pub(crate) fn request_count(address: &str) -> Result<u64> {
     answer["requests"]
         .as_u64()
         .context("the request count holds no count")
-}
-
-/// The Proving ground's certificate authority, which signs each host's
-/// leaf it serves over TLS, written to a PEM file the trial holds.
-pub(crate) fn certificate_authority(address: &str) -> Result<tempfile::NamedTempFile> {
-    let pem = ureq::get(&format!("http://{address}/certificate-authority"))
-        .call()
-        .context("reading the Proving ground's certificate authority")?
-        .body_mut()
-        .read_to_string()
-        .context("reading the Proving ground's certificate authority")?;
-    let mut file = tempfile::Builder::new()
-        .suffix(".pem")
-        .tempfile()
-        .context("creating the certificate authority's file")?;
-    file.write_all(pem.as_bytes())
-        .context("writing the certificate authority's file")?;
-    Ok(file)
 }
 
 /// The Proving ground's observations.
@@ -519,16 +498,8 @@ impl Plan<'_> {
             if let Some(host) = host {
                 command.args(["--host", host]);
             }
-            // Each tool verifies the site's certificate against this
-            // authority: OpenSSL, Python and, on Linux, rustls's platform
-            // verifier read `SSL_CERT_FILE` (in place of the system's
-            // roots), Node.js adds `NODE_EXTRA_CA_CERTS` to its own.
-            // macOS's verifier ignores `SSL_CERT_FILE`, so Spider and
-            // crawlee-rs there reject the site's certificate.
             if let Some(authority) = self.certificate_authority {
-                command
-                    .env("SSL_CERT_FILE", authority)
-                    .env("NODE_EXTRA_CA_CERTS", authority);
+                trust::in_environment(&mut command, authority);
             }
             if let Some(browser) = self.browser()? {
                 let chrome = browser.join(CHROME);
@@ -744,30 +715,15 @@ impl Plan<'_> {
 
     /// Writes Foxhound's user configuration in `home`, where a scenario
     /// served over TLS has it trust the Proving ground's certificate
-    /// authority for the site's hosts: `tls.trusted_cas` has Configuration
-    /// authority, so a Run's settings cannot carry it (ADR 0042). Every
-    /// other home has none, as shipped.
+    /// authority for the site's hosts. Every other home has none, as
+    /// shipped.
     fn configure(&self, home: &Path) -> Result<()> {
-        let (Config::Foxhound { .. }, Some(authority)) = (self.config, self.certificate_authority)
-        else {
-            return Ok(());
-        };
-        let authority = authority
-            .to_str()
-            .with_context(|| format!("the authority's path {} is no text", authority.display()))?;
-        // A JSON string is a TOML basic string.
-        let authority = serde_json::to_string(authority)?;
-        let mut configuration = String::from("version = \"0.1\"\n\n[settings]\n");
-        for host in self.kind().hosts() {
-            let host = serde_json::to_string(&host)?;
-            writeln!(configuration, "tls.trusted_cas.{host} = [{authority}]")?;
+        match (self.config, self.certificate_authority) {
+            (Config::Foxhound { .. }, Some(authority)) => {
+                trust::in_foxhound_configuration(home, &self.kind().hosts(), authority)
+            }
+            _ => Ok(()),
         }
-        let version = ProductVersion::parse(env!("CARGO_PKG_VERSION"))
-            .context("reading the workspace's Product version")?;
-        let major = per_major(home, &version);
-        std::fs::create_dir_all(&major).with_context(|| format!("creating {}", major.display()))?;
-        let file = major.join(USER_CONFIGURATION_FILE);
-        std::fs::write(&file, configuration).with_context(|| format!("writing {}", file.display()))
     }
 
     /// Runs a timed trial.

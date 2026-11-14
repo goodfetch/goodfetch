@@ -61,6 +61,7 @@ mod same_work;
 mod sampler;
 mod trial;
 mod trials;
+mod trust;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -370,7 +371,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 .scenario
                 .network()
                 .tls()
-                .then(|| trial::certificate_authority(&arguments.address))
+                .then(|| trust::certificate_authority(&arguments.address))
                 .transpose()?;
             let plan = trial::Plan {
                 cell,

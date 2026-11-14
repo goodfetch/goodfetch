@@ -56,7 +56,9 @@ use crate::check::Finding;
 use super::relay::{Mark, Relay};
 use super::sampler::{self, Sampler};
 use super::trial::{self, Outcome};
-use super::trials::{CollieScenario, CollieTrial, Contender, Ended, Exercise, PageDone};
+use super::trials::{
+    CollieScenario, CollieTrial, Contender, DriverApart, Ended, Exercise, PageDone,
+};
 
 pub(crate) mod page_load;
 mod section;
@@ -442,13 +444,16 @@ fn oracle_outcome(address: &str, page: &PageDone) -> Result<OracleOutcome> {
         .with_context(|| format!("the oracle's answer has no outcome: {answer}"))
 }
 
-/// What the driver printed: each page, the Sessions it opened and the
-/// pages it opened with nothing to do on them.
+/// What the driver printed: each page, the Sessions it opened, the pages
+/// it opened with nothing to do on them and, a Collie driver alone, the
+/// JSON-RPC messages it sent the engine between the marks.
 #[derive(serde::Deserialize)]
 struct Printed {
     pages: Vec<DriverPage>,
     sessions: u64,
     opened: u64,
+    #[serde(default)]
+    messages: Option<u64>,
 }
 
 #[derive(serde::Deserialize)]
@@ -609,7 +614,7 @@ pub(crate) fn trial(
         .arg(format!("ws://{relayed}{path}"))
         .arg("--marks")
         .arg(format!("http://{relayed}"));
-    if tool == Contender::Collie {
+    if tool.drives_collie() {
         let page_urls: Vec<String> = cell
             .pages()
             .iter()
@@ -654,6 +659,13 @@ pub(crate) fn trial(
         cpu_seconds: (end.cpu_seconds - start.cpu_seconds).max(0.0),
         wall_seconds: end.at.duration_since(start.at).as_secs_f64(),
         peak_bytes: driven.peak_bytes,
+        driver: done
+            .messages
+            .filter(|_| tool.drives_collie())
+            .map(|messages| DriverApart {
+                cpu_seconds: (end.driver_cpu_seconds - start.driver_cpu_seconds).max(0.0),
+                messages,
+            }),
         pages,
         retried: None,
     }))

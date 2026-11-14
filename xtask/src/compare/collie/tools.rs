@@ -36,7 +36,7 @@ impl Tools<'_> {
     /// runs that one tool.
     pub(crate) fn command(&self, tool: Contender) -> Command {
         let script = match tool {
-            Contender::Collie | Contender::Playwright => &self.driver,
+            Contender::Collie | Contender::CollieProgram | Contender::Playwright => &self.driver,
             Contender::PuppeteerLocator
             | Contender::PuppeteerPage
             | Contender::Stagehand
@@ -61,6 +61,7 @@ pub(crate) fn browser_flags(tool: Contender) -> &'static [&'static str] {
             "--remote-allow-origins=*",
         ],
         Contender::Collie
+        | Contender::CollieProgram
         | Contender::Playwright
         | Contender::PuppeteerLocator
         | Contender::PuppeteerPage
@@ -86,6 +87,7 @@ pub(crate) fn skipped(tool: Contender, exercise: Exercise) -> Option<&'static st
              Session",
         ),
         Contender::Collie
+        | Contender::CollieProgram
         | Contender::Playwright
         | Contender::PuppeteerLocator
         | Contender::PuppeteerPage

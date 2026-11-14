@@ -250,15 +250,12 @@ fn an_exited_process_not_yet_waited_for_gives_no_sample() {
     assert_eq!(taken, Some(0));
 }
 
-/// A child the process waited for is gone from its tree, and the OS adds
-/// the child's CPU time to the process's own children's time: the tree's
-/// CPU seconds still count it, as they count a child still running. A shell
-/// spends a few tenths of a second in a subshell it waits for, then becomes
-/// `sleep`, which spends next to none.
+/// A shell that spends a few tenths of a second in a subshell it waits
+/// for, then becomes `sleep`, which spends next to none, with its pid once
+/// it is `sleep`.
 #[cfg(target_os = "linux")]
-#[test]
-fn the_cpu_of_a_child_the_process_waited_for_counts_in_its_tree() {
-    let mut shell = std::process::Command::new("sh")
+fn shell_that_waited_for_a_busy_child() -> (std::process::Child, u32) {
+    let shell = std::process::Command::new("sh")
         .args([
             "-c",
             "(i=0; while [ $i -lt 300000 ]; do i=$((i+1)); done); exec sleep 30",
@@ -273,18 +270,49 @@ fn the_cpu_of_a_child_the_process_waited_for_counts_in_its_tree() {
     {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
+    (shell, pid)
+}
 
+/// The CPU seconds of `pid`'s own process, read from `/proc`.
+#[cfg(target_os = "linux")]
+fn own_seconds(pid: u32) -> f64 {
     let (ticks_per_second, page) = super::system();
-    let own = super::process(pid, page).map(|process| process.cpu_ticks);
+    let own = super::process(pid, page)
+        .map(|process| process.cpu_ticks)
+        .expect("the shell became sleep before the deadline");
+    super::seconds(own, ticks_per_second)
+}
+
+/// A child the process waited for is gone from its tree, and the OS adds
+/// the child's CPU time to the process's own children's time: the tree's
+/// CPU seconds still count it, as they count a child still running.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_cpu_of_a_child_the_process_waited_for_counts_in_its_tree() {
+    let (mut shell, pid) = shell_that_waited_for_a_busy_child();
+
+    let own = own_seconds(pid);
     let seconds = super::cpu_seconds(pid);
     shell.kill().unwrap();
     shell.wait().unwrap();
 
-    let own = own.expect("the shell became sleep before the deadline");
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "clock ticks stay far below 2^52"
-    )]
-    let own = own as f64 / ticks_per_second;
     assert!(seconds > own, "{seconds} s, of which its own {own} s");
+}
+
+/// A process's own CPU seconds leave out the child it waited for, which
+/// its tree's count (issue 2406).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_process_own_cpu_leaves_out_the_child_it_waited_for() {
+    let (mut shell, pid) = shell_that_waited_for_a_busy_child();
+
+    let own = own_seconds(pid);
+    let read = super::own_cpu_seconds(pid);
+    let tree = super::cpu_seconds(pid);
+    shell.kill().unwrap();
+    shell.wait().unwrap();
+
+    // `sleep` spends no tick between the reads.
+    assert!((read - own).abs() < 1e-9, "{read} s read, {own} s its own");
+    assert!(read < tree, "{read} s read, {tree} s its tree's");
 }

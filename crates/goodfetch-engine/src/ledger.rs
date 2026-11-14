@@ -44,7 +44,7 @@ use jiff::Timestamp;
 use rusqlite::{Connection, Row};
 
 use self::changes::Changes;
-pub use self::charging::{Charged, Charging, Counted, Refusal, Reservation};
+pub use self::charging::{Change, Charged, Charging, Counted, Refusal, Reservation, Unmade};
 pub use self::period::{PeriodBounds, bounds};
 pub use self::sizing::{SliceSizing, slice_size};
 pub use self::standing::{Placement, standing};

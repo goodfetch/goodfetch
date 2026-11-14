@@ -52,6 +52,17 @@ fn recorder(folder: &Path, name: &str, then: &str) -> PathBuf {
     path
 }
 
+/// Replaces the file at `path` with its zstd copy, `<path>.zst`, as the
+/// files are committed.
+fn compress(path: &Path) {
+    let status = std::process::Command::new("zstd")
+        .args(["-q", "--rm"])
+        .arg(path)
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
 fn recorded(folder: &Path, name: &str) -> Vec<String> {
     std::fs::read_to_string(folder.join(format!("{name}.args")))
         .unwrap_or_default()
@@ -437,6 +448,26 @@ fn a_release_musl_build_uses_the_committed_profile(#[case] profile: &[&str]) {
 }
 
 #[test]
+fn a_compressed_profile_and_order_file_are_used_as_committed() {
+    let build = Build::new();
+    let committed = build.workspace.path().join("ci/pgo").join(TARGET);
+    compress(&committed.join("merged.profdata"));
+    compress(&committed.join("order.txt"));
+
+    build.flags(&["build", "--release", "--target", TARGET], &[]);
+
+    let copied = build.copied();
+    assert_eq!(
+        std::fs::read(copied.join("merged.profdata")).unwrap(),
+        PROFILE
+    );
+    assert_eq!(
+        std::fs::read_to_string(copied.join("order.txt")).unwrap(),
+        ORDER
+    );
+}
+
+#[test]
 fn a_refreshed_order_file_changes_the_flags() {
     let build = Build::new();
     let arguments = ["build", "--release", "--target", TARGET];
@@ -700,9 +731,20 @@ fn a_build_whose_text_starts_in_the_order_files_order_passes() {
     assert_eq!(outcome.findings(), []);
 }
 
-#[test]
-fn a_build_out_of_the_order_files_order_fails() {
+/// The order file is committed compressed; the plain file is read too.
+#[rstest]
+#[case::compressed(true)]
+#[case::plain(false)]
+fn a_build_out_of_the_order_files_order_fails(#[case] compressed: bool) {
     let built = Built::new(Some(ORDERED));
+    if compressed {
+        compress(
+            &built
+                .workspace
+                .path()
+                .join(format!("ci/pgo/{TARGET}/order.txt")),
+        );
+    }
     built.link(
         "goodfetch-collie",
         &[(0x1000, "hot"), (0x1010, "warm")],

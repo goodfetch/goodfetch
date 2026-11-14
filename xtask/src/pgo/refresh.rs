@@ -119,19 +119,10 @@ pub(crate) fn refresh(arguments: &Arguments, environment: &Environment) -> Resul
     let committed = committed(&environment.root, &target);
     std::fs::create_dir_all(&committed)
         .with_context(|| format!("creating {}", committed.display()))?;
-    let compressed = committed.join(format!("{PROFILE}.zst"));
-    run(
-        Command::new("zstd")
-            .args(["-q", "-19", "-f", "-o"])
-            .arg(&compressed)
-            .arg(&profile),
-        "zstd",
-    )?;
-    let plain = committed.join(PROFILE);
-    if plain.exists() {
-        std::fs::remove_file(&plain).with_context(|| format!("removing {}", plain.display()))?;
-    }
-    write_lines(&committed.join(ORDER), &order)?;
+    commit(&profile, &committed, PROFILE)?;
+    let ordered = work.join(ORDER);
+    write_lines(&ordered, &order)?;
+    commit(&ordered, &committed, ORDER)?;
     // The instrumented build is the largest; the next refresh builds it
     // again from sccache.
     let instrumented_target = work.join(INSTRUMENTED_TARGET);
@@ -142,7 +133,7 @@ pub(crate) fn refresh(arguments: &Arguments, environment: &Environment) -> Resul
         hot.len(),
         super::touch::mebibytes(&touched),
         order.len(),
-        committed.join(ORDER).display()
+        committed.join(format!("{ORDER}.zst")).display()
     ));
     Ok(ExitCode::SUCCESS)
 }
@@ -324,6 +315,25 @@ fn run(command: &mut Command, what: &str) -> Result<()> {
         .with_context(|| format!("running {what}"))?;
     if !status.success() {
         bail!("{what} failed");
+    }
+    Ok(())
+}
+
+/// Commits `source` as `<name>.zst` in the folder `committed`, compressed
+/// with zstd, and removes a plain `<name>` there: ci/musl/cargo and
+/// `xtask pgo check` read either.
+#[cfg(target_os = "linux")]
+fn commit(source: &Path, committed: &Path, name: &str) -> Result<()> {
+    run(
+        Command::new("zstd")
+            .args(["-q", "-19", "-f", "-o"])
+            .arg(committed.join(format!("{name}.zst")))
+            .arg(source),
+        "zstd",
+    )?;
+    let plain = committed.join(name);
+    if plain.exists() {
+        std::fs::remove_file(&plain).with_context(|| format!("removing {}", plain.display()))?;
     }
     Ok(())
 }

@@ -1291,7 +1291,7 @@ targets:
 # The profile-guided release build of the Linux musl executables (ADR
 # 0057's note of 2026-11-14): trains the profile on both Products' training
 # workloads with an instrumented build, then rewrites the committed
-# ci/pgo/<target>/merged.profdata.zst and order.txt, the order widened by
+# ci/pgo/<target>/merged.profdata.zst and order.txt.zst, the order widened by
 # the pages the training crawls touch (`sudo -n` sets the kernel's
 # fault-around to one page for them). Run it when the Products' code has
 # moved enough that `just targets` or a comparison reads slower, and commit

@@ -90,13 +90,46 @@ fn committed(root: &Path, target: &str) -> PathBuf {
     root.join(COMMITTED).join(target)
 }
 
+/// The text of a committed file, stored compressed with zstd as
+/// `<path>.zst`, as a refresh writes it, or as is; none when neither is
+/// there.
+fn read_committed(path: &Path) -> Result<Option<String>> {
+    let mut compressed = path.as_os_str().to_owned();
+    compressed.push(".zst");
+    let compressed = PathBuf::from(compressed);
+    if compressed.is_file() {
+        let output = std::process::Command::new("zstd")
+            .args(["-q", "-d", "-c"])
+            .arg(&compressed)
+            .output()
+            .with_context(|| format!("running zstd on {}", compressed.display()))?;
+        if !output.status.success() {
+            anyhow::bail!(
+                "zstd could not read {}: {}",
+                compressed.display(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        return String::from_utf8(output.stdout)
+            .map(Some)
+            .with_context(|| format!("reading {}", compressed.display()));
+    }
+    if path.is_file() {
+        return std::fs::read_to_string(path)
+            .map(Some)
+            .with_context(|| format!("reading {}", path.display()));
+    }
+    Ok(None)
+}
+
 /// The findings on the Products' executables the manifest at `tools` names:
 /// none to make for a target with no committed order file, whose build is
 /// not ordered.
 fn check_order(root: &Path, tools: &Path, target: Option<&str>) -> Result<Vec<Finding>> {
     let Some(order) = target
-        .map(|target| committed(root, target).join(ORDER))
-        .filter(|order| order.is_file())
+        .map(|target| read_committed(&committed(root, target).join(ORDER)))
+        .transpose()?
+        .flatten()
     else {
         check::note(&[Finding::new(
             "not-ordered",
@@ -105,11 +138,7 @@ fn check_order(root: &Path, tools: &Path, target: Option<&str>) -> Result<Vec<Fi
         )]);
         return Ok(Vec::new());
     };
-    let order: Vec<String> = std::fs::read_to_string(&order)
-        .with_context(|| format!("reading {}", order.display()))?
-        .lines()
-        .map(str::to_owned)
-        .collect();
+    let order: Vec<String> = order.lines().map(str::to_owned).collect();
     let manifest = ToolManifest::read(tools)?;
     let mut findings = Vec::new();
     for tool in [Tool::Collie, Tool::Foxhound] {

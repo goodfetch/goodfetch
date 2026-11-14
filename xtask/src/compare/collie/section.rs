@@ -62,11 +62,11 @@ pub(crate) struct ToolFigures {
 #[derive(Serialize)]
 pub(crate) struct EngineApart {
     /// The CPU time of the driver's own process.
-    pub(crate) program_cpu_seconds_per_action: Figure,
+    pub(crate) program_cpu_seconds: Figure,
     /// The rest of its tree's: the engine's, which the driver started.
-    pub(crate) engine_cpu_seconds_per_action: Figure,
+    pub(crate) engine_cpu_seconds: Figure,
     /// The JSON-RPC messages the driver sent the engine.
-    pub(crate) messages_per_action: Figure,
+    pub(crate) messages: Figure,
 }
 
 /// One cell's figures.
@@ -285,9 +285,9 @@ fn engine_apart(ran: &[&CollieTrial]) -> Option<EngineApart> {
     }
     let column = |pick: fn(&TrialApart) -> f64| apart.iter().map(pick).collect::<Vec<_>>();
     Some(EngineApart {
-        program_cpu_seconds_per_action: spread(&column(|apart| apart.program), Unit::Seconds),
-        engine_cpu_seconds_per_action: spread(&column(|apart| apart.engine), Unit::Seconds),
-        messages_per_action: spread(&column(|apart| apart.messages), Unit::Count),
+        program_cpu_seconds: spread(&column(|apart| apart.program), Unit::Seconds),
+        engine_cpu_seconds: spread(&column(|apart| apart.engine), Unit::Seconds),
+        messages: spread(&column(|apart| apart.messages), Unit::Count),
     })
 }
 
@@ -732,9 +732,9 @@ fn program_text(text: &mut String, cells: &[CellFigures]) {
                 },
                 |apart| {
                     [
-                        cell_text(&apart.program_cpu_seconds_per_action),
-                        cell_text(&apart.engine_cpu_seconds_per_action),
-                        cell_text(&apart.messages_per_action),
+                        cell_text(&apart.program_cpu_seconds),
+                        cell_text(&apart.engine_cpu_seconds),
+                        cell_text(&apart.messages),
                     ]
                 },
             );

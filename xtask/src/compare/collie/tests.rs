@@ -904,19 +904,10 @@ fn collies_rows_give_the_programs_and_the_engines_cpu_apart_and_the_messages_sen
     let report = serde_json::to_value(&section).unwrap();
     let click = &report["cells"][0]["tools"];
     let program = &click["collie_program"]["engine_apart"];
-    assert_eq!(
-        program["program_cpu_seconds_per_action"]["median"],
-        0.125 / 62.0
-    );
-    assert_eq!(
-        program["engine_cpu_seconds_per_action"]["median"],
-        0.375 / 62.0
-    );
-    assert_eq!(program["messages_per_action"]["median"], 2.0);
-    assert_eq!(
-        click["collie"]["engine_apart"]["messages_per_action"]["median"],
-        1.0
-    );
+    assert_eq!(program["program_cpu_seconds"]["median"], 0.125 / 62.0);
+    assert_eq!(program["engine_cpu_seconds"]["median"], 0.375 / 62.0);
+    assert_eq!(program["messages"]["median"], 2.0);
+    assert_eq!(click["collie"]["engine_apart"]["messages"]["median"], 1.0);
     assert!(click["playwright"]["engine_apart"].is_null());
     let text = markdown(&section);
     assert!(

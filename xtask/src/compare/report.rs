@@ -22,13 +22,16 @@ use std::fmt::Write as _;
 use serde::Serialize;
 
 use super::extracted::{Differing, Extracted};
-use super::matrix::{self, CELLS, Cell, FILTER_LISTS_OFF, OutputCheck, Row, Scenario, Status};
+use super::matrix::{
+    self, CELLS, Cell, FILTER_LISTS_OFF, OutputCheck, Reading, Row, Scenario, Status,
+};
 use super::sampler::{CORE_WINDOW_SAMPLES, INTERVAL_MILLISECONDS};
 use super::trials::{
     Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES, Machine,
     QUIET_LOAD, TRIALS, Trial,
 };
 
+mod auto;
 mod published;
 mod rules;
 mod sizes;
@@ -160,6 +163,16 @@ pub(crate) enum CellStatus {
     Ruled {
         runs: usize,
         tasks: Vec<rules::RuledTask>,
+    },
+    /// An auto cell (#2411): over its runs on the rungs site, its rate, the
+    /// pages of the site's manifest it rendered and those whose Records
+    /// were wrong.
+    Auto {
+        runs: usize,
+        pages: u64,
+        rate: Figure,
+        rendered: Figure,
+        wrong: Figure,
     },
 }
 
@@ -749,7 +762,8 @@ fn output_of(trials: &Comparison, cell: &Cell, status: &CellStatus) -> Option<Ex
         CellStatus::Measured { .. }
         | CellStatus::NotSupported { .. }
         | CellStatus::NotMeasured { .. }
-        | CellStatus::Ruled { .. } => None,
+        | CellStatus::Ruled { .. }
+        | CellStatus::Auto { .. } => None,
     }
 }
 
@@ -774,7 +788,12 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
                 Status::Pending(ticket) => CellStatus::NotMeasured {
                     reason: format!("pending {ticket}"),
                 },
-                Status::Measured(_) if scenario.hostile() => rules::status(trials, cell),
+                Status::Measured(_) if scenario.reading() == Reading::Rules => {
+                    rules::status(trials, cell)
+                }
+                Status::Measured(_) if scenario.reading() == Reading::Manifest => {
+                    auto::status(trials, cell)
+                }
                 Status::Measured(_) if let Some(reason) = stopped_reason(trials, cell) => {
                     CellStatus::NotMeasured { reason }
                 }
@@ -1141,6 +1160,13 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                     published::spider_buffer(&mut text, cell.tool, scenario.scenario);
                 }
                 CellStatus::Ruled { runs, tasks } => rules::markdown(&mut text, *runs, tasks),
+                CellStatus::Auto {
+                    runs,
+                    pages,
+                    rate,
+                    rendered,
+                    wrong,
+                } => auto::markdown(&mut text, *runs, *pages, (rate, rendered, wrong)),
             }
         }
         let measured: Vec<_> = scenario
@@ -1165,7 +1191,8 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                 )),
                 CellStatus::NotSupported { .. }
                 | CellStatus::NotMeasured { .. }
-                | CellStatus::Ruled { .. } => None,
+                | CellStatus::Ruled { .. }
+                | CellStatus::Auto { .. } => None,
             })
             .collect();
         if measured.is_empty() {

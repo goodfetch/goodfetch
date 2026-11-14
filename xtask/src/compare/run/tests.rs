@@ -250,6 +250,37 @@ fn a_timed_trial_is_stopped_once_its_crawl_stalls_or_reaches_its_bound() {
     );
 }
 
+/// An auto cell's run gets the same watch, so a tool that hangs fails the
+/// comparison instead of holding it: stopped once the Proving ground has
+/// received no request for [`super::watch::STALL_SECONDS`], or once it
+/// reaches [`super::watch::AUTO_BOUND_SECONDS`], with the measured reason.
+#[test]
+fn an_auto_run_is_stopped_once_its_crawl_stalls_or_reaches_its_bound() {
+    use super::Watch;
+    let stall = super::watch::STALL_SECONDS;
+    let bound = super::watch::AUTO_BOUND_SECONDS;
+
+    let going = (
+        super::watch::stopped(Watch::Auto(2), 60, stall - 1, 20),
+        super::watch::stopped(Watch::Auto(2), bound - 1, 0, 37),
+    );
+    let stalled = super::watch::stopped(Watch::Auto(2), 150, stall, 20);
+    let bounded = super::watch::stopped(Watch::Auto(3), bound, 1, 37);
+
+    assert_eq!(
+        (going, stalled, bounded),
+        (
+            (None, None),
+            Some(format!(
+                "auto run 2 stopped after 150 s: the Proving ground received no request for {stall} s after 20 requests"
+            )),
+            Some(format!(
+                "auto run 3 stopped after {bound} s, the longest an auto run may take, at 37 requests"
+            )),
+        )
+    );
+}
+
 /// A stopped timed trial runs once more: its retry's figures count, marked
 /// with why the first stopped; a second stop leaves the cell with both
 /// reasons, and a trial that finishes is never run again.
@@ -406,10 +437,11 @@ fn not_reached(cell: &str) -> String {
 /// A run of hours keeps what it has measured: the trials file's contents
 /// are handed over once the timed trials are in, again once the Collie
 /// scenario's are, again once the sizes cell is, again once the system-call
-/// cell is, again once the growth cell is and again once the Callgrind cell
-/// is, so a failure in a later part loses none of them (the base run of
-/// #2281 lost 220 trials to its first Callgrind run). Before its cell has
-/// run, the file says the run did not reach it.
+/// cell is, again once the growth cell is, again once the Callgrind cell
+/// is and again once the hostile pages' passes are, so a failure in a later
+/// part, the auto cells' runs (#2411) included, loses none of them (the
+/// base run of #2281 lost 220 trials to its first Callgrind run). Before
+/// its cell has run, the file says the run did not reach it.
 #[test]
 fn a_run_hands_over_its_trials_after_each_part_before_the_next() {
     // No scenario, so no cell: every part runs, over nothing.
@@ -464,6 +496,13 @@ fn a_run_hands_over_its_trials_after_each_part_before_the_next() {
                 not_reached("Callgrind")
             ],
             [
+                no_collie.clone(),
+                no_sizes.clone(),
+                strace.clone(),
+                grown(&whole.growth),
+                no_callgrind.clone()
+            ],
+            [
                 no_collie,
                 no_sizes,
                 strace,
@@ -474,9 +513,10 @@ fn a_run_hands_over_its_trials_after_each_part_before_the_next() {
     );
 }
 
-/// The hostile pages' passes run last and fail when a run of theirs does
-/// (#2439): the trials file handed over before them holds the Callgrind
-/// cell as it ended, so their failure loses no part before them (#2607).
+/// The hostile pages' passes run after the counted parts, and fail when a
+/// run of theirs does (#2439): the trials file handed over before them
+/// holds the Callgrind cell as it ended, so their failure loses no part
+/// before them (#2607).
 #[test]
 fn a_failed_hostile_pass_leaves_the_callgrind_cell_in_the_trials_handed_over() {
     // The passes' first run cannot start its Proving ground; every part

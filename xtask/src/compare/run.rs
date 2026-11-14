@@ -4,6 +4,10 @@
 //! asked for) and the Callgrind cell's runs in the same way, written to the
 //! trials file. Every executable a crawl trial runs is dropped from the
 //! page cache before it starts (spec #2165).
+//!
+//! Size: one concern, the run: each part of the comparison's trials, timed,
+//! counted, ruled and auto, run in its order beside the others, and the
+//! trials file handed over between them.
 
 use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -17,15 +21,16 @@ use crate::rss::page_cache;
 
 use self::machine::{load, machine, quiet};
 use self::watch::{Retried, Watch, retried, watched};
+use super::auto::Judged;
 use super::matrix::{self, Cell, Config, Row, Scenario, SpiderBuild};
 use super::trial::{self, Counted, Outcome, Ruled, callgrind_missing, strace_missing};
 use super::trials::{
-    CONCURRENCY, CRAWLBERG_VERSION, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, CollieScenario, Comparison,
-    CountedCell, CountedRun, Declared, FASTCRW_VERSION, GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS,
-    INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Measured, OPENSPIDER_COMMIT, PAGESIFT_VERSION,
-    PLAYWRIGHT_VERSION, RULE_RUNS, RuledRun, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES,
-    SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint,
-    StoppedRun, Trial, size_not_run,
+    AUTO_RUNS, AutoRun, CONCURRENCY, CRAWLBERG_VERSION, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION,
+    CollieScenario, Comparison, CountedCell, CountedRun, Declared, FASTCRW_VERSION, GROWTH_PAGES,
+    GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Measured,
+    OPENSPIDER_COMMIT, PAGESIFT_VERSION, PLAYWRIGHT_VERSION, RULE_RUNS, RuledRun,
+    SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES,
+    SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint, StoppedRun, Trial, size_not_run,
 };
 
 mod collie;
@@ -96,6 +101,13 @@ fn measured(options: &Options) -> Vec<(&'static Cell, Config)> {
 /// The hostile pages' cells of the scenarios a run asked for (#2439).
 fn ruled(options: &Options) -> Vec<(&'static Cell, Config)> {
     matrix::ruled()
+        .filter(|(cell, _)| options.scenarios.contains(&cell.scenario))
+        .collect()
+}
+
+/// The auto cells of the scenarios a run asked for (#2411).
+fn auto_cells(options: &Options) -> Vec<(&'static Cell, Config)> {
+    matrix::auto()
         .filter(|(cell, _)| options.scenarios.contains(&cell.scenario))
         .collect()
 }
@@ -892,12 +904,61 @@ fn rules(
     Ok(runs)
 }
 
+/// Runs each auto cell of `cells` [`AUTO_RUNS`] times, or the run's trials
+/// when fewer, in one random order: what its tool read on the rungs site
+/// against the site's manifest. Each run is watched, and one stopped fails
+/// the comparison.
+fn auto(
+    executables: &Executables<'_>,
+    options: &Options,
+    cells: &[(&'static Cell, Config)],
+    state: &mut u64,
+) -> Result<Vec<AutoRun>> {
+    let mut runs = Vec::new();
+    for ((cell, config), number) in order(
+        cells,
+        |(cell, _)| cell.runs(AUTO_RUNS.min(options.trials)),
+        state,
+    ) {
+        let judged: Judged = match trial(
+            executables,
+            cell,
+            config,
+            Crawl::of(cell.scenario, SITE_PAGES),
+            ("auto", None),
+            Watch::Auto(number),
+        )? {
+            Outcome::Done(judged) => judged,
+            Outcome::Stopped(reason) => bail!("{} {}: {reason}", cell.scenario.name(), cell.name),
+        };
+        output::line(&format!(
+            "{} {} run {number}: {} of {} pages requested, {:.1} pages/s, {} rendered, {} wrong",
+            cell.scenario.name(),
+            cell.name,
+            judged.requested,
+            judged.pages,
+            judged.rate(),
+            judged.rendered,
+            judged.wrong,
+        ));
+        runs.push(AutoRun {
+            scenario: cell.scenario,
+            cell: cell.name.to_owned(),
+            tool: config.tool(),
+            number,
+            judged,
+        });
+    }
+    Ok(runs)
+}
+
 /// Runs every declared trial and returns the trials file's contents. `keep`
 /// is handed them as they stand once the timed trials are in, again once
 /// the Collie scenario's are, again once the sizes cell is, again once the
-/// system-call cell is, again once the growth cell is and again once the
-/// Callgrind cell is, so a failure in a later part, the hostile pages'
-/// passes included, loses none of them.
+/// system-call cell is, again once the growth cell is, again once the
+/// Callgrind cell is and again once the hostile pages' passes are, so a
+/// failure in a later part, the auto cell's runs included, loses none of
+/// them.
 pub(crate) fn run(
     executables: &Executables<'_>,
     commit: String,
@@ -941,6 +1002,7 @@ pub(crate) fn run(
             reason: not_reached("Collie"),
         },
         rules: Vec::new(),
+        auto: Vec::new(),
     };
     keep(&comparison)?;
     comparison.collie =
@@ -993,6 +1055,8 @@ pub(crate) fn run(
     };
     keep(&comparison)?;
     comparison.rules = rules(executables, options, &ruled(options), &mut state)?;
+    keep(&comparison)?;
+    comparison.auto = auto(executables, options, &auto_cells(options), &mut state)?;
     Ok(comparison)
 }
 

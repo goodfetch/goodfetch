@@ -196,6 +196,9 @@ impl Engine {
                     sample: record["provenance"]["tier"]["chosen"] == "sample",
                     title: text(&record["value"]["title"]),
                     text: text(&record["value"]["text"]),
+                    id: text(&record["value"]["id"]),
+                    name: text(&record["value"]["name"]),
+                    tier: text(&record["provenance"]["tier"]["tier"]),
                 });
             }
         }
@@ -224,17 +227,32 @@ pub(crate) struct Record {
     /// scenario's Records hold.
     pub(crate) title: Option<String>,
     pub(crate) text: Option<String>,
+    /// Its fields `id` and `name`, which the auto cell's Records hold
+    /// (#2411).
+    pub(crate) id: Option<String>,
+    pub(crate) name: Option<String>,
+    /// The tier its page was served on, as its Provenance names it.
+    pub(crate) tier: Option<String>,
 }
 
 /// What each page's Record holds: in the extraction scenario, the text of
-/// its main content and its title; otherwise no format, the crawl fetching
-/// and following links as the other tools' do.
+/// its main content and its title; in the auto cell, the rungs site's
+/// Record, its `id` and `name` (#2411); otherwise no format, the crawl
+/// fetching and following links as the other tools' do.
 fn extraction(scenario: Scenario) -> Value {
     match scenario {
         Scenario::Extraction => json!({
             "formats": { "text": true },
             "follow": "scope",
             "fields": { "title": { "locator": { "kind": "css", "selector": "title" } } },
+        }),
+        Scenario::Auto => json!({
+            "formats": {},
+            "follow": "scope",
+            "fields": {
+                "id": { "locator": { "kind": "css", "selector": "p.id" } },
+                "name": { "locator": { "kind": "css", "selector": "h1.name" } },
+            },
         }),
         Scenario::Raw
         | Scenario::Durable
@@ -251,15 +269,16 @@ fn extraction(scenario: Scenario) -> Value {
 }
 
 /// Whether Foxhound's crawl in `scenario` keeps Records: in the durable
-/// scenario, whose resume is judged by them, and the extraction scenario,
-/// which writes each page's; scenario 1's maximum-throughput combination
+/// scenario, whose resume is judged by them, the extraction scenario,
+/// which writes each page's, and the auto cell, which holds each page's to
+/// the rungs site's manifest; scenario 1's maximum-throughput combination
 /// and the headless browser scenario, which asks for its settings, keep
 /// none, as the other tools keep nothing there, nor do #2316's scenarios,
 /// which run scenario 1's settings.
 pub(crate) fn keeps_records(scenario: Scenario) -> bool {
     matches!(
         scenario.settings(),
-        Scenario::Durable | Scenario::Extraction
+        Scenario::Durable | Scenario::Extraction | Scenario::Auto
     )
 }
 
@@ -268,7 +287,10 @@ pub(crate) fn keeps_records(scenario: Scenario) -> bool {
 /// other setting the catalog's default, `run_state.durability` too; in the
 /// polite scenario, Foxhound's defaults with ADR 0086's delay and
 /// concurrency per domain, the `http` tier (left at `auto` where `auto`)
-/// and a scope of every host;
+/// and a scope of every host; in the auto cell (#2411), `fetch.tier` at
+/// `auto`, its default, with `fetch.http_from: learned`, its Records kept,
+/// and its own Politeness at the crawl's concurrency, no delay and
+/// robots.txt not obeyed, every other setting the catalog's default;
 /// otherwise its own Politeness at the crawl's concurrency, no delay,
 /// robots.txt not obeyed and the maximum-throughput combination's switches
 /// off, at `durability`, on the `browser` tier in the headless browser
@@ -300,6 +322,16 @@ fn settings(
             "fetch": { "tier": "http" },
             "politeness": { "domain": { "delay": 1000, "concurrency": 1 } },
             "crawl": { "scope": { "strategy": "all" } },
+        }),
+        Scenario::Auto => json!({
+            "fetch": { "http_from": "learned" },
+            "dataset": { "records": true },
+            "politeness": {
+                "sharing": "run",
+                "domain": { "delay": 0, "concurrency": concurrency },
+            },
+            "crawl": { "handler": { "concurrency": concurrency } },
+            "site_preferences": { "respect_robots_txt": false },
         }),
         // The maximum-throughput combination (ADR 0138,
         // `docs/throughput.md`): every per-page feature the crawl does not

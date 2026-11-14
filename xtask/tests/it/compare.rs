@@ -270,6 +270,7 @@ fn trials() -> Value {
         "order_seed": 7,
         "trials": trials,
         "rules": [],
+        "auto": [],
         "syscalls": not_run("strace is not installed on this host"),
         "growth": not_run("the growth cell runs with `--growth`"),
         "sizes": not_run("the run asked for no scenario 1 main cell of Foxhound or Spider"),

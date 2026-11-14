@@ -5,6 +5,7 @@
 use goodfetch_protocol::result_document::OracleOutcome;
 use serde::{Deserialize, Serialize};
 
+use super::auto::Judged;
 use super::extracted::Extracted;
 use super::hostile::Broken;
 use super::matrix::Scenario;
@@ -107,6 +108,9 @@ pub(crate) const INSTRUCTION_SCENARIOS: [Scenario; 2] = [Scenario::Raw, Scenario
 /// Runs of each hostile pages' cell (#2439), at most: its counts are read
 /// with their spread, not timed.
 pub(crate) const RULE_RUNS: u32 = 3;
+/// Runs of each auto cell (#2411), at most: its figures are read with
+/// their spread, against the rungs site's manifest.
+pub(crate) const AUTO_RUNS: u32 = 3;
 
 /// What was declared before the first trial.
 #[derive(Debug, Serialize, Deserialize)]
@@ -752,6 +756,9 @@ pub(crate) struct Comparison {
     pub(crate) instructions: CountedCell,
     /// The hostile pages' cells' runs: the rules each tool broke (#2439).
     pub(crate) rules: Vec<RuledRun>,
+    /// The auto cell's runs: what each tool read on the rungs site against
+    /// its manifest (#2411).
+    pub(crate) auto: Vec<AutoRun>,
     /// The Collie scenario: Collie against Playwright and the arms on one
     /// browser.
     pub(crate) collie: CollieScenario,
@@ -766,6 +773,17 @@ pub(crate) struct RuledRun {
     pub(crate) tool: Tool,
     pub(crate) number: u32,
     pub(crate) tasks: Vec<Broken>,
+}
+
+/// One run of an auto cell: its tool's crawl of the rungs site, held to
+/// the site's manifest.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct AutoRun {
+    pub(crate) scenario: Scenario,
+    pub(crate) cell: String,
+    pub(crate) tool: Tool,
+    pub(crate) number: u32,
+    pub(crate) judged: Judged,
 }
 
 #[cfg(test)]

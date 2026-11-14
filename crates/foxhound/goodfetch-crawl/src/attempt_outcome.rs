@@ -23,7 +23,7 @@ use rusqlite::Connection;
 
 use crate::lease::{Commit, Committed};
 use crate::tier_choice::{self, Unit};
-use crate::work_items::{self, Unsuccessful};
+use crate::work_items::{self, Changed, Unsuccessful};
 
 /// What a fetched page teaches the Frontier (ADRs 0005 and 0120): its page
 /// signature and `rel=canonical`, and the pending requests a rule it
@@ -45,12 +45,14 @@ impl Learning {
     /// Teaches it in `connection`'s transaction, answering each pending
     /// request a rule it taught merged, and each one a rule it stopped
     /// gave back, by ID with the domain key it waits under: the requests
-    /// whose domain's queue no longer holds what the run file says.
+    /// whose domain's queue no longer holds what the run file says. With
+    /// them, what ending and giving them back changed of the crawl's
+    /// requests by state.
     ///
     /// # Errors
     ///
     /// The run state's: the caller's transaction may then hold part of it.
-    pub(crate) fn teach(self, connection: &Connection) -> rusqlite::Result<Vec<(String, String)>> {
+    pub(crate) fn teach(self, connection: &Connection) -> rusqlite::Result<Moved> {
         let Self {
             request,
             url,
@@ -62,6 +64,7 @@ impl Learning {
         let mut merged = Merged {
             ended_at,
             moved: Vec::new(),
+            changed: Changed::default(),
         };
         goodfetch_frontier::learn(
             connection,
@@ -76,20 +79,17 @@ impl Learning {
             &mut merged,
             &work,
         )?;
-        Ok(merged.moved)
+        Ok((merged.moved, merged.changed))
     }
 
     /// Teaches it as [`Learning::teach`] does, in a savepoint of its own
     /// inside `connection`'s transaction: one that fails is rolled back
-    /// alone, and answers no request merged.
+    /// alone, and answers no request merged and nothing changed.
     ///
     /// # Errors
     ///
     /// The run state's, when the savepoint could not be rolled back.
-    pub(crate) fn teach_apart(
-        self,
-        connection: &Connection,
-    ) -> rusqlite::Result<Vec<(String, String)>> {
+    pub(crate) fn teach_apart(self, connection: &Connection) -> rusqlite::Result<Moved> {
         connection
             .prepare_cached("SAVEPOINT learning")?
             .execute([])?;
@@ -104,18 +104,26 @@ impl Learning {
                     .prepare_cached("ROLLBACK TO learning")?
                     .execute([])?;
                 connection.prepare_cached("RELEASE learning")?.execute([])?;
-                Ok(Vec::new())
+                Ok(Moved::default())
             }
         }
     }
 }
 
+/// What a lesson to the Frontier moved: each pending request a rule it
+/// taught merged and each one a rule it stopped gave back, by ID with the
+/// domain key it waits under, and what that changed of the crawl's
+/// requests by state.
+pub(crate) type Moved = (Vec<(String, String)>, Changed);
+
 /// The crawl's side of a rule learned later: the pending requests it
 /// merged, ended at `ended_at`, and those its stop made pending again, by
-/// ID with their domain key.
+/// ID with their domain key, and what both changed of the crawl's requests
+/// by state.
 struct Merged {
     ended_at: PointInTime,
     moved: Vec<(String, String)>,
+    changed: Changed,
 }
 
 impl EndMerged for Merged {
@@ -124,7 +132,12 @@ impl EndMerged for Merged {
         connection: &Connection,
         crawl_requests: &BTreeSet<String>,
     ) -> rusqlite::Result<Vec<goodfetch_frontier::Ended>> {
-        let ended = work_items::end_merged(connection, crawl_requests, &self.ended_at)?;
+        let ended = work_items::end_merged(
+            connection,
+            crawl_requests,
+            &self.ended_at,
+            &mut self.changed,
+        )?;
         Ok(ended
             .into_iter()
             .map(|(id, url, key)| {
@@ -144,7 +157,7 @@ impl EndMerged for Merged {
         connection: &Connection,
         crawl_requests: &[String],
     ) -> rusqlite::Result<Vec<String>> {
-        let given = work_items::give_back(connection, crawl_requests)?;
+        let given = work_items::give_back(connection, crawl_requests, &mut self.changed)?;
         Ok(given
             .into_iter()
             .map(|(id, key)| {
@@ -219,18 +232,29 @@ pub(crate) enum Ended {
     SitemapRead(Option<Vec<Waiting>>),
 }
 
+/// What an outcome's job answers.
+#[derive(Debug)]
+pub(crate) struct Written {
+    /// How its work item ended.
+    pub(crate) ended: Ended,
+    /// Each pending request a rule its page taught merged, and each one a
+    /// rule it stopped gave back, by ID with its domain key.
+    pub(crate) moved: Vec<(String, String)>,
+    /// What the job changed of the crawl's requests by state, for the
+    /// crawl's Run state to count.
+    pub(crate) changed: Changed,
+}
+
 impl Outcome {
     /// Writes it in `connection`'s transaction, answering how its work item
-    /// ended and each pending request a rule its page taught merged, by ID
-    /// with its domain key.
+    /// ended, each pending request a rule its page taught merged, by ID
+    /// with its domain key, and what it changed of the crawl's requests by
+    /// state.
     ///
     /// # Errors
     ///
     /// The run state's: the job's savepoint then rolls it back whole.
-    pub(crate) fn write(
-        self,
-        connection: &Connection,
-    ) -> rusqlite::Result<(Ended, Vec<(String, String)>)> {
+    pub(crate) fn write(self, connection: &Connection) -> rusqlite::Result<Written> {
         let Self {
             scored,
             chosen,
@@ -243,21 +267,22 @@ impl Outcome {
         if let Some((label, domain_key, unit)) = chosen {
             tier_choice::record(connection, &label, &domain_key, &unit)?;
         }
-        let merged = match learning {
+        let (moved, mut changed) = match learning {
             Some(learning) => learning.teach_apart(connection)?,
-            None => Vec::new(),
+            None => Moved::default(),
         };
         let ended = match ending {
             Ending::Commit { commit, refused } => {
                 let (work_item, lease_epoch) = commit.attempt();
                 let (work_item, ended_at) = (work_item.to_owned(), commit.ended_at().clone());
-                match commit.write(connection)? {
+                match commit.write(connection, &mut changed)? {
                     Some(Ok(committed)) => Ended::Committed(committed),
                     Some(Err(refusal)) => end(
                         connection,
                         (&work_item, lease_epoch),
                         refused(refusal),
                         &ended_at,
+                        &mut changed,
                     )?,
                     None => Ended::LeaseLost,
                 }
@@ -272,6 +297,7 @@ impl Outcome {
                 (&work_item, lease_epoch),
                 unsuccessful,
                 &ended_at,
+                &mut changed,
             )?,
             Ending::Sitemap {
                 work_item,
@@ -287,20 +313,26 @@ impl Outcome {
                 &egress,
                 (&work_item, lease_epoch),
                 &document,
-                (&keys, &work),
+                (&keys, &work, &mut changed),
             )?),
         };
-        Ok((ended, merged))
+        Ok(Written {
+            ended,
+            moved,
+            changed: changed.with_sitemaps(connection)?,
+        })
     }
 }
 
 /// Ends the attempt of `work_item` under `lease_epoch` `unsuccessful` at
-/// `ended_at`, as [`work_items::end`] does.
+/// `ended_at`, as [`work_items::end`] does, its ending counted in
+/// `changed`.
 pub(crate) fn end(
     connection: &Connection,
     (work_item, lease_epoch): (&str, u64),
     unsuccessful: Unsuccessful,
     ended_at: &PointInTime,
+    changed: &mut Changed,
 ) -> rusqlite::Result<Ended> {
     let retried = matches!(unsuccessful, Unsuccessful::Retried(_));
     let recorded = match &unsuccessful {
@@ -309,7 +341,14 @@ pub(crate) fn end(
         }
         Unsuccessful::Skipped { .. } | Unsuccessful::Blocked(_) => None,
     };
-    let ended = work_items::end(connection, work_item, lease_epoch, unsuccessful, ended_at)?;
+    let ended = work_items::end(
+        connection,
+        work_item,
+        lease_epoch,
+        unsuccessful,
+        ended_at,
+        changed,
+    )?;
     Ok(Ended::Unsuccessful {
         ended,
         recorded,

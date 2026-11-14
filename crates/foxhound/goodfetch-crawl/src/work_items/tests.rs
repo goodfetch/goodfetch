@@ -22,7 +22,7 @@
 use std::collections::BTreeMap;
 
 use goodfetch_counted_work::CountedWork;
-use goodfetch_engine::admission::{Ended, Gate as _, Keys};
+use goodfetch_engine::admission::{Ended, Gate as _, Keys, Waiting};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::run_state::{BatchRows as _, BatchWriter, RunState, RunStateOptions};
@@ -34,13 +34,14 @@ use goodfetch_frontier::{
 };
 use goodfetch_protocol::foxhound::crawl::{SitemapRule, SitemapSeed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
+use goodfetch_protocol::foxhound::report::SitemapReport;
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
 use proptest::sample::Index;
 use rusqlite::Connection;
 
-use super::{Adding, Failure, TABLES, Unsuccessful};
+use super::{Adding, Changed, Failure, TABLES, Unsuccessful};
 
 /// The bound of each domain's queue after the crash, small so that a
 /// queue drains and fills again from the run file.
@@ -286,6 +287,7 @@ impl Subject {
                         details: serde_json::Map::new(),
                     }),
                     &ended_at,
+                    &mut Changed::default(),
                 )
             } else {
                 super::commit(
@@ -302,6 +304,7 @@ impl Subject {
                         work: &goodfetch_counted_work::CountedWork::default(),
                         keeps_records: true,
                     },
+                    &mut Changed::default(),
                 )
             }
         });
@@ -317,7 +320,7 @@ impl Subject {
         let connection = after_crash(&self.vfs, &self.path).unwrap();
         let lost = Failure::new("handler_lost", "the handler was lost");
         let at = PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned());
-        super::recover_leases(&connection, &lost, u32::MAX, &at).unwrap();
+        super::recover_leases(&connection, &lost, u32::MAX, &at, &mut Changed::default()).unwrap();
         let now = tokio::time::Instant::now();
         let mut queues = DomainQueues::new(DomainKeys::default(), BOUND, Entropy::seeded(1));
         for waiting in super::waiting(&connection, None, BOUND).unwrap() {
@@ -344,13 +347,23 @@ impl Subject {
     }
 }
 
-/// A sitemap's read keys each entry it adds as it adds it, in its fetch's
-/// outcome's one job, and answers them keyed for their domains' queues:
-/// none of them waits for a write of its key (#2167).
-#[test]
-fn a_sitemaps_read_keys_each_entry_it_adds_in_its_own_job() {
+/// What a sitemap seed's admission and its sitemap's read did, each in a
+/// job of its own.
+struct SitemapRead {
+    /// The entries the read added, keyed.
+    keyed: Vec<Waiting>,
+    /// The URLs of the work items no job keyed.
+    unkeyed: Vec<String>,
+    /// What the seed's admission, then its sitemap's read, answered that
+    /// they changed of the crawl's requests by state.
+    changed: [Changed; 2],
+}
+
+/// Admits the sitemap seed `https://shop.test/sitemap.xml`, leases its
+/// fetch and reads its sitemap, which lists two pages.
+fn sitemap_read() -> SitemapRead {
     let subject = Subject::open();
-    let (keyed, unkeyed) = subject.write(|connection| {
+    subject.write(|connection| {
         let invariants =
             goodfetch_frontier::Invariants::new(Scope::default(), Bounds::read(connection)?)
                 .unwrap();
@@ -364,17 +377,17 @@ fn a_sitemaps_read_keys_each_entry_it_adds_in_its_own_job() {
             }],
         };
         invariants.know_sitemap_rules(&seed.rules).unwrap();
-        let added = super::admit_sitemap_seed(
-            connection,
-            &mut super::Positions::keying(connection, keys.clone())?,
-            &invariants,
-            &policy,
-            &seed,
-        )?;
+        let mut positions = super::Positions::keying(connection, keys.clone())?;
+        let added =
+            super::admit_sitemap_seed(connection, &mut positions, &invariants, &policy, &seed)?;
         let Enqueued::Added { id: fetch, .. } = added else {
             panic!("the sitemap seed was not added: {added:?}");
         };
+        let mut seeded = Changed::default();
+        seeded.adds(&mut positions);
+        let seeded = seeded.with_sitemaps(connection)?;
         let leased = super::lease(connection, std::slice::from_ref(&fetch))?;
+        let mut read = Changed::default();
         let keyed = super::read_sitemap(
             connection,
             &invariants,
@@ -384,15 +397,27 @@ fn a_sitemaps_read_keys_each_entry_it_adds_in_its_own_job() {
                 "https://shop.test/a".to_owned(),
                 "https://shop.test/b".to_owned(),
             ]),
-            (&keys, &CountedWork::default()),
+            (&keys, &CountedWork::default(), &mut read),
         )?
         .expect("the fetch's lease holds");
         let unkeyed: Vec<String> = super::unkeyed(connection, usize::MAX)?
             .into_iter()
             .map(|(url, _)| url)
             .collect();
-        Ok((keyed, unkeyed))
-    });
+        Ok(SitemapRead {
+            keyed,
+            unkeyed,
+            changed: [seeded, read.with_sitemaps(connection)?],
+        })
+    })
+}
+
+/// A sitemap's read keys each entry it adds as it adds it, in its fetch's
+/// outcome's one job, and answers them keyed for their domains' queues:
+/// none of them waits for a write of its key (#2167).
+#[test]
+fn a_sitemaps_read_keys_each_entry_it_adds_in_its_own_job() {
+    let SitemapRead { keyed, unkeyed, .. } = sitemap_read();
 
     assert_eq!(
         keyed
@@ -402,6 +427,43 @@ fn a_sitemaps_read_keys_each_entry_it_adds_in_its_own_job() {
         ["shop.test", "shop.test"]
     );
     assert_eq!(unkeyed, Vec::<String>::new());
+}
+
+/// A sitemap seed's admission and its sitemap's read each answer what
+/// they changed of the crawl's requests by state, for the crawl's Run
+/// state to count with no read of the run file (#2167): the admission
+/// added the seed's fetch, the read ended it, under no ending, and added
+/// its two entries, and each read the seed's report as it left it.
+#[test]
+fn a_sitemap_seeds_admission_and_its_sitemaps_read_answer_what_they_changed() {
+    let [seeded, read] = sitemap_read().changed;
+    let report = |read, added| SitemapReport {
+        seed: "https://shop.test/sitemap.xml".to_owned(),
+        read,
+        failed: 0,
+        failures: Vec::new(),
+        added,
+        not_added: 0,
+        not_added_by_reason: Vec::new(),
+    };
+
+    assert_eq!(
+        (seeded, read),
+        (
+            Changed {
+                added: 1,
+                sitemap_seed: true,
+                sitemaps: Some(vec![report(0, 0)]),
+                ..Changed::default()
+            },
+            Changed {
+                added: 2,
+                fetches_ended: 1,
+                sitemaps: Some(vec![report(1, 2)]),
+                ..Changed::default()
+            },
+        )
+    );
 }
 
 proptest! {

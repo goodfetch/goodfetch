@@ -126,12 +126,13 @@ use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::run_state::{
-    Chosen, Drawing, Drawn, Local, QueuedEnd, RunState, StateError, Stored, Unkeyed, Within,
+    Ask, Chosen, Drawing, Drawn, Local, QueuedEnd, RunState, StateError, Stored, Tally, Unkeyed,
+    Within,
 };
 use crate::serving::{Crawls, Opened, Server};
 use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices, Unit};
 use crate::tier_race::Raced;
-use crate::work_items::{self, Failure, Leased, Unsuccessful};
+use crate::work_items::{self, Changed, Failure, Leased, Unsuccessful};
 use goodfetch_protocol::foxhound::progress::{HELD_DOMAINS, InFlightPhase, InFlightRequest};
 
 mod attempt;
@@ -398,10 +399,11 @@ async fn deliver(
     let Some((mut admission, mut state)) = opened(run, settings, choices, arrivals).await else {
         return;
     };
+    let (in_flight, mut stop) = (&fetching.in_flight, None::<StopReason>);
+    show_counted(run, &state, in_flight, []).await;
     let run_leases = leases_of(run, arrivals, &admission);
     let (mut wakes, mut queued) = (admission.wakes(), run.metrics().level(&WORK_ITEM_QUEUED));
-    let mut pages = Pages::new(run, &fetching.in_flight);
-    let mut stop: Option<StopReason> = None;
+    let mut pages = Pages::new(run, in_flight);
     // Resolved once, as the Run opened: no turn reads the settings again
     // (ADR 0138).
     let (resolved, read) = (settings.resolved(), Read::of(settings.resolved()));
@@ -430,8 +432,8 @@ async fn deliver(
                 return;
             }
             if !servers.iter_mut().any(Serving::serves) {
-                let state = (&mut admission, state.stored());
-                match waited(run, state, servers, arrivals, false).await {
+                let state = (&mut admission, &mut state);
+                match waited(run, state, servers, arrivals, in_flight, false).await {
                     Waited::Ended => return,
                     Waited::Stop(reason) => stop = Some(reason),
                     Waited::Again => {}
@@ -443,7 +445,7 @@ async fn deliver(
                 Ok(Idle::Admit | Idle::Wait) => {}
                 Ok(Idle::Done) => {
                     let state = (&mut admission, &mut state);
-                    match drained(run, resolved, state, servers, arrivals).await {
+                    match drained(run, resolved, state, servers, arrivals, in_flight).await {
                         Waited::Ended => return,
                         Waited::Stop(reason) => stop = Some(reason),
                         Waited::Again => {}
@@ -482,9 +484,7 @@ async fn deliver(
                 servers.push(Serving::joined(server));
             }
             Some(ask) = arrivals.asked.next() => {
-                for waiting in state.stored().answer(ask).await.unwrap_or_default() {
-                    admission.enqueue(waiting);
-                }
+                answered(run, (&mut admission, &mut state), in_flight, ask).await;
             }
             ended = pages.ended() => {
                 let state = (&mut state, fetching);
@@ -516,6 +516,40 @@ fn show(
     let queued = admission.queued(now, HELD_DOMAINS);
     count.set(admission.waiting());
     progress::show(run, (&queued, now), resolved, room, (handlers, concurrency));
+}
+
+/// Shows the crawl's requests by state as its Run state `state` counts
+/// them now and, in the same change of the Run's progress, that the
+/// attempts of the work items `ended` left the requests `in_flight`, their
+/// outcomes written (ADR 0102; #2167).
+async fn show_counted<'a>(
+    run: &Run,
+    state: &RunState,
+    in_flight: &SharedInFlight,
+    ended: impl IntoIterator<Item = &'a str>,
+) {
+    in_flight.lock().await.settled(run, ended, state.tally());
+}
+
+/// Answers `ask`, what another task asks of the crawl's Run state. When
+/// the loop waited for its write itself, a seed, a batch of seeds or a
+/// re-admission, it offers their domains' queues the work items the write
+/// added, shows what it changed of the crawl's requests by state, with
+/// the requests `in_flight`, and answers that the crawl may have new work.
+async fn answered(
+    run: &Run,
+    (admission, state): (&mut Admission, &mut RunState),
+    in_flight: &SharedInFlight,
+    ask: Box<Ask>,
+) -> bool {
+    let Some(added) = state.answer(ask).await else {
+        return false;
+    };
+    for waiting in added {
+        admission.enqueue(waiting);
+    }
+    show_counted(run, state, in_flight, []).await;
+    true
 }
 
 /// The ending of a crawl whose state or admission failed with `error`:
@@ -580,7 +614,10 @@ pub(crate) async fn resume(
         .write(move |connection| {
             bounds.record(connection)?;
             goodfetch_frontier::payload::record_max_size(connection, &resolved)?;
-            work_items::recover_leases(connection, &lost, retry_max, &resumed_at)?;
+            // The crawl's Run state opens after this job, and counts its
+            // requests on from what the run file then holds.
+            let recovered = &mut Changed::default();
+            work_items::recover_leases(connection, &lost, retry_max, &resumed_at, recovered)?;
             let fragments = labels::Fragments::read(connection)?;
             let invariants = Invariants::read(connection, fragments.clone())?;
             Ok((
@@ -960,18 +997,20 @@ enum Waited {
 /// the crawl is kept alive, also
 /// writes the tier choices' counts `state` holds that the run file has not
 /// heard of: no lease follows the last draws to carry them (ADR 0142).
+/// What that job changed of the crawl's requests by state is counted and
+/// shown with the requests `in_flight`.
 async fn drained(
     run: &Run,
     resolved: &Resolved,
     (admission, state): (&mut Admission, &mut RunState),
     servers: &mut Vec<Serving>,
     arrivals: &mut Opened,
+    in_flight: &SharedInFlight,
 ) -> Waited {
     let keeps_alive: bool = resolved.get(&CRAWL_KEEP_ALIVE);
     let counted = state.counted();
-    let stored = state.stored();
     if keeps_alive && !run.is_let_finish() && !counted.is_empty() {
-        if let Err(error) = stored.count(counted).await {
+        if let Err(error) = state.stored().count(counted).await {
             tracing::warn!(%error, run_id = %run.id(), "the tier choices' counts were not written");
         }
     } else if !keeps_alive || run.is_let_finish() {
@@ -986,19 +1025,25 @@ async fn drained(
         // Its answer promises nothing outside (#2117): the Run's end, which
         // follows it, syncs, and so does a later call's refusal, as its own
         // write commits after the close.
-        match stored
+        let closed = state
+            .stored()
             .close_if_drained(counted, (unwritten, retry_max), ended_at)
-            .await
-        {
-            Ok(true) => {}
-            Ok(false) => return Waited::Again,
+            .await;
+        match closed {
+            Ok((closed, changed)) => {
+                state.changed(changed);
+                show_counted(run, state, in_flight, []).await;
+                if !closed {
+                    return Waited::Again;
+                }
+            }
             Err(error) => {
                 tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
                 end(run, admission, failed(run, &error)).await;
                 return Waited::Ended;
             }
         }
-        let ending = match stored.short_of_scope().await {
+        let ending = match state.stored().short_of_scope().await {
             Ok(reasons) => Ending::Finished(reasons),
             Err(error) => {
                 tracing::error!(%error, run_id = %run.id(), "what cut the crawl could not be read");
@@ -1010,19 +1055,22 @@ async fn drained(
     }
     progress::show_waits(run, &[], resolved, run.clock().now(), Room::None);
     progress::show_idle(run, true);
-    waited(run, (admission, stored), servers, arrivals, true).await
+    waited(run, (admission, state), servers, arrivals, in_flight, true).await
 }
 
 /// Waits, with nothing to deliver now, until the Run stops at once, is
 /// asked to stop at its next safe point, a Connection joins to serve it, a
 /// seed is added or failures are re-admitted or, `until_finish`,
 /// `run.finish` lets it finish; meanwhile it answers what other tasks ask
-/// of the crawl's Run state, `stored`.
+/// of the crawl's Run state, `state`, and shows what a write it waited
+/// for changed of the crawl's requests by state, with the requests
+/// `in_flight`.
 async fn waited(
     run: &Run,
-    (admission, stored): (&mut Admission, &Stored),
+    (admission, state): (&mut Admission, &mut RunState),
     servers: &mut Vec<Serving>,
     arrivals: &mut Opened,
+    in_flight: &SharedInFlight,
     until_finish: bool,
 ) -> Waited {
     loop {
@@ -1030,7 +1078,7 @@ async fn waited(
             biased;
             () = run.cancellation().cancelled() => {
                 admission.close().await;
-                release(run, stored).await;
+                release(run, state.stored()).await;
                 return Waited::Ended;
             }
             reason = run.stopping() => return Waited::Stop(reason),
@@ -1040,10 +1088,7 @@ async fn waited(
                 return Waited::Again;
             }
             Some(ask) = arrivals.asked.next() => {
-                if let Some(added) = stored.answer(ask).await {
-                    for waiting in added {
-                        admission.enqueue(waiting);
-                    }
+                if answered(run, (&mut *admission, &mut *state), in_flight, ask).await {
                     return Waited::Again;
                 }
             }
@@ -1103,15 +1148,17 @@ struct Scored {
 
 /// Settles the attempts that ended, `ended`, in the order they ended,
 /// under the Run's policy and pool settings, resolved as it opened (ADR
-/// 0138): takes each out of the requests in flight
-/// its progress shows, frees its place on its Connection and scores its
+/// 0138): frees each one's place on its Connection and scores its
 /// Session; queues each one's outcome as one job of the run state's
 /// writer, in their order, so the writer takes them in one group rather
 /// than the loop waiting for each in turn (#1765), and each one's failure
-/// rolls back its own alone (ADR 0138); then returns each one's domain
-/// turn and puts each retried work item back in its queue, in their order,
-/// offers its domain's queue each work item an outcome added, keyed as it
-/// was added, and journals what the queues changed.
+/// rolls back its own alone (ADR 0138); once they are written, counts what
+/// they changed of the crawl's requests by state and shows it with the
+/// attempts out of the requests in flight, as one change of the Run's
+/// progress (#2167); then returns each one's domain turn and puts each
+/// retried work item back in its queue, in their order, offers its
+/// domain's queue each work item an outcome added, keyed as it was added,
+/// and journals what the queues changed.
 async fn settled(
     run: &Run,
     read: Read,
@@ -1120,8 +1167,7 @@ async fn settled(
     servers: &mut [Serving],
     ended: Vec<Attempt>,
 ) {
-    let (attempts, mut settlings, scores) =
-        scored(run, read, (&mut *state, fetching), servers, ended).await;
+    let (attempts, mut settlings, scores) = scored(run, read, &mut *state, servers, ended);
     for attempt in &attempts {
         fetching
             .retire(run, state.pool(), &servers[attempt.server].context)
@@ -1133,18 +1179,21 @@ async fn settled(
         let on = (run, state.stored());
         queued.push(queue_outcome(on, read.policy, held, attempt, scored).await);
     }
-    let stored = state.stored();
     let mut retried = Vec::with_capacity(queued.len());
     let mut keyed = Vec::new();
-    for (outcome, settling) in join_all(queued.into_iter().map(|queued| queued.finished(stored)))
-        .await
-        .into_iter()
-        .zip(&mut settlings)
-    {
+    let stored = state.stored();
+    let finished = join_all(queued.into_iter().map(|queued| queued.finished(stored))).await;
+    for (outcome, settling) in finished.into_iter().zip(&mut settlings) {
         settling.merged.extend(outcome.merged);
         keyed.extend(outcome.keyed);
         retried.push(outcome.retried);
+        state.changed(outcome.changed);
     }
+    let ended = settlings
+        .iter()
+        .map(|settling| settling.waiting.id.as_str());
+    show_counted(run, state, &fetching.in_flight, ended).await;
+    let stored = state.stored();
     returned(run, (admission, stored), settlings.into_iter().zip(retried)).await;
     for waiting in keyed {
         admission.enqueue(waiting);
@@ -1152,15 +1201,17 @@ async fn settled(
     journal(run, stored, admission).await;
 }
 
-/// Takes each attempt of `ended` out of the requests in flight its
-/// progress shows, frees its place on its Connection and scores its
-/// Session in `pool` under what the loop `read`, in their order, answering them with
-/// what each one's settling keeps and what its outcome writes of its
-/// score and tier choice.
-async fn scored(
+/// Frees the place of each attempt of `ended` on its Connection, counts
+/// what its lesson to the Frontier changed of the crawl's requests by
+/// state when it taught it in a job of its own, and scores its Session in
+/// `state`'s pool under what the loop `read`, in their order, answering
+/// them with what each one's settling keeps and what its outcome writes of
+/// its score and tier choice. Each stays among the requests in flight its
+/// Run's progress shows until its outcome is written.
+fn scored(
     run: &Run,
     read: Read,
-    (state, fetching): (&mut RunState, &Fetching<'_>),
+    state: &mut RunState,
     servers: &mut [Serving],
     ended: Vec<Attempt>,
 ) -> (Vec<Attempt>, Vec<Settling>, Vec<Scored>) {
@@ -1175,12 +1226,10 @@ async fn scored(
         if let Some((raced, latency)) = attempt.raced.take() {
             state.time(&raced.label, &raced.domain_key, latency);
         }
+        if let Some(changed) = attempt.taught.changed.take() {
+            state.changed(*changed);
+        }
         let pool = state.pool();
-        fetching
-            .in_flight
-            .lock()
-            .await
-            .ended(run, &attempt.leased.crawl_request.id);
         let server = &mut servers[attempt.server];
         server.in_flight -= 1;
         if let Answer::ClientGone = attempt.answer {
@@ -1279,7 +1328,9 @@ async fn opened(
     arrivals: &Opened,
 ) -> Option<(Admission, RunState)> {
     match open(run, settings, arrivals).await {
-        Ok((admission, pool, stored)) => Some((admission, RunState::new(pool, choices, stored))),
+        Ok((admission, (pool, tally), stored)) => {
+            Some((admission, RunState::new(pool, choices, tally, stored)))
+        }
         Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the crawl's admission could not open");
             run.end(failed(run, &error)).await;
@@ -1292,12 +1343,13 @@ async fn opened(
 /// and what its Run state reads and writes of the run file, each work
 /// item it adds with no attempt keyed as that gate keys it; keys the work
 /// items not keyed yet and fills each domain's queue; and opens its
-/// Session pool from the run file, on an `Entropy` of its own.
+/// Session pool from the run file, on an `Entropy` of its own, with the
+/// requests by state its Run state counts on from.
 async fn open(
     run: &Run,
     settings: &RunSettings,
     arrivals: &Opened,
-) -> Result<(Admission, SessionPool, Stored), String> {
+) -> Result<(Admission, (SessionPool, Tally), Stored), String> {
     let resolved = settings.resolved();
     let mut admission = run
         .admission(resolved)
@@ -1322,8 +1374,8 @@ async fn open(
     fill(&stored, &mut admission, None)
         .await
         .map_err(|error| error.to_string())?;
-    let pool = stored
-        .pool(run.fork_entropy().await)
+    let (pool, tally) = stored
+        .open(run.fork_entropy().await)
         .await
         .map_err(|error| error.to_string())?;
     let pool = match Rotation::of(resolved) {
@@ -1338,7 +1390,7 @@ async fn open(
         )),
         None => pool,
     };
-    Ok((admission, pool, stored))
+    Ok((admission, (pool, tally), stored))
 }
 
 /// The interface `egress.local_addresses` names, if it names one.
@@ -1504,7 +1556,9 @@ async fn admit(
         keys.push(admitted.key);
     }
     if !refused.is_empty() {
-        end_unsent(run, pooled.state.stored(), admission, refused).await?;
+        let changed = end_unsent(run, pooled.state.stored(), admission, refused).await?;
+        pooled.state.changed(changed);
+        show_counted(run, pooled.state, &pooled.fetching.in_flight, []).await;
     }
     let asked = ids.clone();
     let drawn = if ids.is_empty() {
@@ -1591,12 +1645,14 @@ struct QueuedOutcome {
 
 /// What an attempt's outcome left the delivery to do once it was written:
 /// the pending requests a rule its page taught merged, by ID with their
-/// domain key, each work item it added keyed, in order, and whether its
-/// work item waits again for a retry.
+/// domain key, each work item it added keyed, in order, whether its work
+/// item waits again for a retry, and what its job changed of the crawl's
+/// requests by state.
 struct Finished {
     merged: Vec<(String, String)>,
     keyed: Vec<Waiting>,
     retried: bool,
+    changed: Changed,
 }
 
 /// Queues `attempt`'s outcome as one job of the run state's writer (ADR
@@ -1746,11 +1802,13 @@ impl QueuedOutcome {
             merged: Vec::new(),
             keyed: Vec::new(),
             retried: false,
+            changed: Changed::default(),
         };
         let ended = match written.await {
-            Ok((ended, merged)) => {
-                finished.merged = merged;
-                ended
+            Ok(written) => {
+                finished.merged = written.moved;
+                finished.changed = written.changed;
+                written.ended
             }
             Err(error) => {
                 let cause = error.to_string();
@@ -1764,7 +1822,8 @@ impl QueuedOutcome {
                 } else {
                     tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
                 }
-                finished.retried = outcome_lost((&run, stored), policy, &leased, &cause).await;
+                (finished.retried, finished.changed) =
+                    outcome_lost((&run, stored), policy, &leased, &cause).await;
                 lease.release();
                 return finished;
             }
@@ -1820,15 +1879,15 @@ impl QueuedOutcome {
 /// Ends the attempt of `leased` whose outcome's job failed for `cause`,
 /// in a job of its own: retried while `policy` leaves it retries, failed
 /// with that cause otherwise, as any attempt that failed. Answers whether
-/// it waits again for a retry. When this job fails too, its work item
-/// stays leased until the crawl's finish, which gives it back
-/// ([`drained`]).
+/// it waits again for a retry, and what the job changed of the crawl's
+/// requests by state. When this job fails too, its work item stays leased
+/// until the crawl's finish, which gives it back ([`drained`]).
 async fn outcome_lost(
     (run, stored): (&Run, &Stored),
     policy: CrawlPolicy,
     leased: &Leased,
     cause: &str,
-) -> bool {
+) -> (bool, Changed) {
     let lost = AttemptFailure::outcome_not_written(cause);
     let (why, retryable) = (lost.why().clone(), lost.retryable);
     let masks = run.secrets().mask().masks().clone();
@@ -1839,20 +1898,23 @@ async fn outcome_lost(
         .end_lost(attempt, unsuccessful, run.point_in_time())
         .await;
     match ended {
-        Ok(attempt_outcome::Ended::Unsuccessful {
-            ended: true,
-            recorded,
-            retried,
-        }) => {
+        Ok((
+            attempt_outcome::Ended::Unsuccessful {
+                ended: true,
+                recorded,
+                retried,
+            },
+            changed,
+        )) => {
             if let Some(code) = recorded {
                 run.record_outcome(&code);
             }
-            retried
+            (retried, changed)
         }
-        Ok(_) => false,
+        Ok((_, changed)) => (false, changed),
         Err(error) => {
             tracing::warn!(%error, run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt whose outcome was not committed was not ended: its work item stays leased until the crawl's finish");
-            false
+            (false, Changed::default())
         }
     }
 }

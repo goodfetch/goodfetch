@@ -24,10 +24,17 @@
 //! own yet and stay with the page's task that queues them: a handler
 //! attempt's lesson to the Frontier (#2169) and a pushed Record's staging
 //! (#2168).
+//!
+//! It counts the crawl's requests by state ([`Tally`]): read once from
+//! the run file as the crawl opens, then counted from what each job
+//! answers that it changed, so a live crawl's progress is built from this
+//! state and reads no count from the run file (#2167).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::local_addresses::{SessionAddresses, Unavailable};
 use goodfetch_engine::run_state::{BatchRows, BatchWriter, RunStateError};
 use goodfetch_engine::runs::{ChargeError, Run, UnjournaledCharges};
@@ -39,14 +46,16 @@ use goodfetch_session_pool::{PoolSettings, SessionPool};
 use crate::labels;
 use crate::tier_choice::{AttemptPlan, Sampled, TierChoices, Unit, Weighed};
 use crate::tier_race::Latencies;
-use crate::work_items::Leased;
+use crate::work_items::{Changed, Leased};
 
 pub(crate) mod admission;
 mod asks;
 mod stored;
+mod tally;
 
-pub(crate) use asks::{Asked, Asking, mailbox};
+pub(crate) use asks::{Ask, Asked, Asking, mailbox};
 pub(crate) use stored::{QueuedEnd, Stored, Unkeyed, Within};
+pub(crate) use tally::Tally;
 
 /// Why the crawl's Run state did not take an operation.
 #[derive(Debug, thiserror::Error)]
@@ -196,17 +205,28 @@ pub(crate) struct RunState {
     pool: SessionPool,
     learned: Learned,
     latencies: Latencies,
+    /// Its requests by state. Each value of the Run's progress shares the
+    /// counts it was shown, so a change copies them once and no reader
+    /// waits for the loop.
+    tally: Arc<Tally>,
     stored: Stored,
 }
 
 impl RunState {
-    /// The state of a crawl that draws from `pool` and learned `choices`,
-    /// what is still the run file's read and written through `stored`.
-    pub(crate) fn new(pool: SessionPool, choices: TierChoices, stored: Stored) -> Self {
+    /// The state of a crawl that draws from `pool`, learned `choices` and
+    /// counts its requests on from `tally`, what is still the run file's
+    /// read and written through `stored`.
+    pub(crate) fn new(
+        pool: SessionPool,
+        choices: TierChoices,
+        tally: Tally,
+        stored: Stored,
+    ) -> Self {
         Self {
             pool,
             learned: Learned::from(choices),
             latencies: Latencies::default(),
+            tally: Arc::new(tally),
             stored,
         }
     }
@@ -214,6 +234,30 @@ impl RunState {
     /// What is still the run file's, as the loop reads and writes it.
     pub(crate) fn stored(&self) -> &Stored {
         &self.stored
+    }
+
+    /// Counts what a job of the run file `changed` of the crawl's requests
+    /// by state.
+    pub(crate) fn changed(&mut self, changed: Changed) {
+        if !changed.is_empty() {
+            Arc::make_mut(&mut self.tally).change(changed);
+        }
+    }
+
+    /// The crawl's requests by state as counted now, for a value of its
+    /// Run's progress to share.
+    pub(crate) fn tally(&self) -> Arc<Tally> {
+        Arc::clone(&self.tally)
+    }
+
+    /// Answers `ask`, what another task asks of the crawl's Run state
+    /// ([`Stored::answer`]), and counts what its write changed: the work
+    /// items it added, each keyed, for the loop to offer their domains'
+    /// queues, when the loop waited for the write itself.
+    pub(crate) async fn answer(&mut self, ask: Box<Ask>) -> Option<Vec<Waiting>> {
+        let (added, changed) = self.stored.answer(ask).await?;
+        self.changed(changed);
+        Some(added)
     }
 
     /// Claims each pending work item of `ids`, in that order, in one job

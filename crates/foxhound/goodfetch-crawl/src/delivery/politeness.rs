@@ -18,7 +18,7 @@ use tokio::time::Instant;
 use super::attempt::Answer;
 use super::failure::{RETRY_AFTER, Why};
 use crate::run_state::{StateError, Stored};
-use crate::work_items::Failure;
+use crate::work_items::{Changed, Failure};
 
 /// The `fix` of a request a site's `Retry-After` holds further away than
 /// the Run waits (ADR 0118).
@@ -161,13 +161,14 @@ pub(super) fn held_past_bound(
 /// no handler request sent: its status `null`, that time as `retry_after`
 /// and a `fix` naming `politeness.retry_after.max` (ADR 0118). Its attempt
 /// counts, so `run.failed_requests` lists it and `run.retry_failed`
-/// re-admits it.
+/// re-admits it. Answers what ending them changed of the crawl's requests
+/// by state.
 pub(super) async fn end_unsent(
     run: &Run,
     stored: &Stored,
     admission: &mut Admission,
     refused: Vec<(Admitted, SystemTime)>,
-) -> Result<(), StateError> {
+) -> Result<Changed, StateError> {
     let unsent = refused
         .iter()
         .map(|(admitted, until)| {
@@ -186,7 +187,7 @@ pub(super) async fn end_unsent(
             (admitted.id.clone(), failure)
         })
         .collect();
-    stored.end_unsent(unsent, run.point_in_time()).await?;
+    let changed = stored.end_unsent(unsent, run.point_in_time()).await?;
     let now = run.clock().now();
     for (admitted, _) in refused {
         run.record_outcome(RESPONSE_UNAVAILABLE.name);
@@ -194,7 +195,7 @@ pub(super) async fn end_unsent(
             .ended(&admitted.id, &admitted.key, now, Ended::Done)
             .await;
     }
-    Ok(())
+    Ok(changed)
 }
 
 #[cfg(test)]

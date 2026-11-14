@@ -21,7 +21,7 @@ use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 use serde_json::json;
 
-use super::{Ended, Ending, Learning, Outcome};
+use super::{Ended, Ending, Learning, Outcome, Written};
 use crate::invariants::fixture;
 use crate::lease::{Leases, WorkItemLease};
 use crate::staging::Staging;
@@ -214,7 +214,13 @@ fn an_outcome_whose_learning_fails_still_commits() {
             .await;
 
         assert!(
-            matches!(written, Ok((Ended::Committed(_), _))),
+            matches!(
+                written,
+                Ok(Written {
+                    ended: Ended::Committed(_),
+                    ..
+                })
+            ),
             "the outcome did not commit: {written:?}"
         );
         drop(pages.leased);
@@ -263,7 +269,7 @@ fn a_failed_attempt_still_commits_what_it_learned() {
             .unwrap();
 
         assert!(
-            matches!(written.0, Ended::Unsuccessful { ended: true, .. }),
+            matches!(written.ended, Ended::Unsuccessful { ended: true, .. }),
             "{written:?}"
         );
         drop(pages.leased);
@@ -317,7 +323,14 @@ fn one_pages_failing_outcome_rolls_back_alone() {
         let (first, second) = tokio::join!(first, second);
 
         assert!(
-            first.is_err() && matches!(second, Ok((Ended::Committed(_), _))),
+            first.is_err()
+                && matches!(
+                    second,
+                    Ok(Written {
+                        ended: Ended::Committed(_),
+                        ..
+                    })
+                ),
             "{first:?}, {second:?}"
         );
         drop(pages.leased);

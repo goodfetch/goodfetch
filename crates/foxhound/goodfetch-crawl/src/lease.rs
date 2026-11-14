@@ -36,7 +36,7 @@ use tokio::time::Instant;
 
 pub(crate) use crate::staging::SoFar;
 use crate::staging::{SetAside, Staging};
-use crate::work_items::{self, Fetched, FieldsRead};
+use crate::work_items::{self, Changed, Fetched, FieldsRead};
 
 /// The `tracing` target of the run fencing model's transitions.
 pub(crate) const TARGET: &str = "goodfetch::lease";
@@ -249,7 +249,8 @@ impl Commit {
 
     /// Writes it in `connection`'s transaction: `None` when the run file no
     /// longer holds its lease, the refusal of a Record that does not hold
-    /// for its Dataset, nothing written then, or what it committed.
+    /// for its Dataset, nothing written then, or what it committed, which
+    /// `changed` counts among the crawl's requests by state.
     ///
     /// # Errors
     ///
@@ -257,6 +258,7 @@ impl Commit {
     pub(crate) fn write(
         self,
         connection: &rusqlite::Connection,
+        changed: &mut Changed,
     ) -> rusqlite::Result<Option<Result<Committed, CallError>>> {
         let Self {
             work_item,
@@ -280,6 +282,7 @@ impl Commit {
         };
         let replayed = staged.admit(connection, keys)?;
         let (writes, not_added, keyed) = (replayed.writes, replayed.not_added, replayed.keyed);
+        changed.and(replayed.changed);
         let files = goodfetch_engine::key_value_store::apply(connection, &folder, writes)?;
         let suspected = staged.suspected(connection)?;
         let fetched = staged.fetched().clone();
@@ -297,7 +300,7 @@ impl Commit {
             keeps_records: declared.keeps_records(),
         };
         Ok(
-            work_items::commit(connection, &work_item, epoch, committed)?.then_some(Ok(
+            work_items::commit(connection, &work_item, epoch, committed, changed)?.then_some(Ok(
                 Committed {
                     files,
                     suspected,
@@ -489,7 +492,10 @@ impl WorkItemLease {
     /// trap and kept marked, whose Provenance the caller writes (ADR 0035),
     /// and the work items it added keyed. A job of its own: an attempt's
     /// outcome writes [`WorkItemLease::committing`]'s [`Commit`] in its one
-    /// job instead (ADR 0138).
+    /// job instead (ADR 0138), which answers the crawl's Run state what it
+    /// changed of its requests by state. This one answers it to nobody: a
+    /// running crawl calls it only for a late answer, whose lease ended
+    /// first, so it is refused before any write.
     ///
     /// # Errors
     ///
@@ -510,7 +516,7 @@ impl WorkItemLease {
     ) -> Result<Committed, CommitError> {
         let commit = self.committing(state, masks, records, ended_at)?;
         let written = state
-            .write(move |connection| commit.write(connection))
+            .write(move |connection| commit.write(connection, &mut Changed::default()))
             .await;
         self.committed(written)
     }

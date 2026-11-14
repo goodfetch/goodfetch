@@ -11,6 +11,10 @@
 //! are already decided (the domain keys, the tier choices' counts, the
 //! per-domain queues' journal), and as a job where it still reads the
 //! file to decide (an admission, a claim, an outcome).
+//!
+//! Each job that changes the crawl's requests by state answers what it
+//! changed ([`Changed`]), which the Run state counts in memory: once the
+//! crawl opened, no count is read from the run file (#2167).
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -30,19 +34,26 @@ use goodfetch_session_pool::{Changes, SessionPool};
 use rusqlite::Connection;
 
 use super::admission::{self, Enqueue, LinksBatch};
-use super::asks::{Answering, Ask, HopAsk, Queued, Written};
+use super::asks::{self, Answering, Ask, HopAsk, Queued};
+use super::tally::Tally;
 use super::{Counted, StateError};
-use crate::attempt_outcome::{self, Ended, Ending, Outcome};
+use crate::attempt_outcome::{self, Ended, Ending, Outcome, Written};
 use crate::completeness;
 use crate::intake::Intake;
 use crate::invariants::Invariants;
 use crate::staging::Staging;
-use crate::work_items::{self, Failure, Leased, Positions, Unsuccessful};
+use crate::work_items::{self, Changed, Failure, Leased, Positions, Unsuccessful};
 
-/// What an outcome's job answers: how its work item ended, and each
-/// pending request a rule its page taught merged, by ID with its domain
-/// key.
-pub(crate) type EndWritten = Result<(Ended, Vec<(String, String)>), StateError>;
+/// What an outcome's job answers: how its work item ended, each pending
+/// request a rule its page taught merged, by ID with its domain key, and
+/// what it changed of the crawl's requests by state.
+pub(crate) type EndWritten = Result<Written, StateError>;
+
+/// What a write the loop waited for gave the crawl: the work items it
+/// added, each keyed as it was added, for the loop to offer their
+/// domains' queues, and what it changed of the crawl's requests by state,
+/// for the Run state to count.
+pub(crate) type Given = (Vec<Waiting>, Changed);
 
 /// An outcome's job, queued, which answers once it is written.
 pub(crate) type QueuedEnd = Pin<Box<dyn Future<Output = EndWritten> + Send>>;
@@ -120,8 +131,9 @@ impl Stored {
     /// What gives the crawl work with no attempt, a seed, a batch of seeds
     /// or a re-admission, is written first and then answered: the work
     /// items it added, each keyed as it was added, for the loop to offer
-    /// their domains' queues.
-    pub(crate) async fn answer(&self, ask: Box<Ask>) -> Option<Vec<Waiting>> {
+    /// their domains' queues, and what it changed of the crawl's requests
+    /// by state.
+    pub(crate) async fn answer(&self, ask: Box<Ask>) -> Option<Given> {
         // A program's links batch and a redirect hop promise nothing
         // outside: their attempt's outcome syncs them. A handler's enqueue
         // is synced as it was; #2168 answers it from memory.
@@ -141,9 +153,9 @@ impl Stored {
                         )
                     })?;
                     // With no attempt, none ended: it always answers.
-                    Ok((admitted.flatten(), positions.keyed()))
+                    Ok((admitted.flatten(), given(connection, &mut positions)?))
                 });
-                return Some(given(answer, written.await));
+                return Some(answered(answer, written.await));
             }
             Ask::Seeds { seeds, answer } => {
                 let written = self.writer.write(move |connection| {
@@ -156,21 +168,22 @@ impl Stored {
                             seeds,
                         )
                     })?;
-                    Ok((admitted, positions.keyed()))
+                    Ok((admitted, given(connection, &mut positions)?))
                 });
-                return Some(given(answer, written.await));
+                return Some(answered(answer, written.await));
             }
             Ask::Readmit { blocked, answer } => {
                 let written = self.writer.write(move |connection| {
+                    let mut changed = Changed::default();
                     let readmitted = this
                         .intake
-                        .admitting(|| work_items::readmit(connection, blocked))?
+                        .admitting(|| work_items::readmit(connection, blocked, &mut changed))?
                         .map(|readmitted| u64::try_from(readmitted.len()).unwrap_or(u64::MAX));
                     // Each keeps its domain key: its queue takes it when
                     // it is filled again.
-                    Ok((readmitted, Vec::new()))
+                    Ok((readmitted, (Vec::new(), changed)))
                 });
-                return Some(given(answer, written.await));
+                return Some(answered(answer, written.await));
             }
             Ask::StagedSeed {
                 seed,
@@ -324,15 +337,22 @@ impl Stored {
         }
     }
 
-    /// The Session pool the run file holds, drawing on `entropy`.
+    /// What the crawl's Run state starts from as it opens: the Session
+    /// pool the run file holds, drawing on `entropy`, and its requests by
+    /// state, which it counts in memory from then on.
     ///
     /// # Errors
     ///
     /// The run file's.
-    pub(crate) async fn pool(&self, entropy: Entropy) -> Result<SessionPool, StateError> {
+    pub(crate) async fn open(&self, entropy: Entropy) -> Result<(SessionPool, Tally), StateError> {
         Ok(self
             .writer
-            .read(move |connection| SessionPool::open(connection, entropy))
+            .read(move |connection| {
+                Ok((
+                    SessionPool::open(connection, entropy)?,
+                    Tally::read(connection)?,
+                ))
+            })
             .await?)
     }
 
@@ -460,6 +480,8 @@ impl Stored {
 
     /// Ends the attempt of `work_item` under `lease_epoch` `unsuccessful`
     /// at `ended_at`, in a job of its own: one whose outcome's job failed.
+    /// Answers how it ended, and what that changed of the crawl's requests
+    /// by state.
     ///
     /// # Errors
     ///
@@ -469,23 +491,27 @@ impl Stored {
         (work_item, lease_epoch): (String, u64),
         unsuccessful: Unsuccessful,
         ended_at: PointInTime,
-    ) -> Result<Ended, StateError> {
+    ) -> Result<(Ended, Changed), StateError> {
         Ok(self
             .writer
             .write(move |connection| {
-                attempt_outcome::end(
+                let mut changed = Changed::default();
+                let ended = attempt_outcome::end(
                     connection,
                     (&work_item, lease_epoch),
                     unsuccessful,
                     &ended_at,
-                )
+                    &mut changed,
+                )?;
+                Ok((ended, changed.with_sitemaps(connection)?))
             })
             .await?)
     }
 
     /// Leases each pending work item of `unsent` and ends it `failed` with
     /// its failure at `ended_at`, in one job: a request its domain's site
-    /// asked not to send, which no attempt runs.
+    /// asked not to send, which no attempt runs. Answers what that changed
+    /// of the crawl's requests by state.
     ///
     /// # Errors
     ///
@@ -494,10 +520,11 @@ impl Stored {
         &self,
         unsent: Vec<(String, Failure)>,
         ended_at: PointInTime,
-    ) -> Result<(), StateError> {
+    ) -> Result<Changed, StateError> {
         Ok(self
             .writer
             .write(move |connection| {
+                let mut changed = Changed::default();
                 for (id, failure) in unsent {
                     for leased in work_items::lease(connection, std::slice::from_ref(&id))? {
                         work_items::end(
@@ -506,10 +533,11 @@ impl Stored {
                             leased.lease_epoch,
                             Unsuccessful::Failed(failure.clone()),
                             &ended_at,
+                            &mut changed,
                         )?;
                     }
                 }
-                Ok(())
+                changed.with_sitemaps(connection)
             })
             .await?)
     }
@@ -532,7 +560,8 @@ impl Stored {
     /// and answers whether it closed, in one job that first writes
     /// `counted` and gives back each work item still leased, whose attempt
     /// ended with its outcome unwritten: retried while it has retries left
-    /// of `retry_max`, else failed with `unwritten`, at `ended_at`. Its
+    /// of `retry_max`, else failed with `unwritten`, at `ended_at`, which
+    /// it answers as what it changed of the crawl's requests by state. Its
     /// answer promises nothing outside (#2117): the Run's end, which
     /// follows it, syncs.
     ///
@@ -544,7 +573,7 @@ impl Stored {
         counted: Counted,
         (unwritten, retry_max): (Failure, u32),
         ended_at: PointInTime,
-    ) -> Result<bool, StateError> {
+    ) -> Result<(bool, Changed), StateError> {
         let intake = self.intake.clone();
         Ok(self
             .writer
@@ -553,8 +582,18 @@ impl Stored {
                 // No attempt is in flight: a work item still leased is
                 // one whose attempt ended with its outcome unwritten. It
                 // is retried or fails before the crawl may finish.
-                work_items::recover_leases(connection, &unwritten, retry_max, &ended_at)?;
-                intake.close_if_drained(connection)
+                let mut changed = Changed::default();
+                work_items::recover_leases(
+                    connection,
+                    &unwritten,
+                    retry_max,
+                    &ended_at,
+                    &mut changed,
+                )?;
+                Ok((
+                    intake.close_if_drained(connection)?,
+                    changed.with_sitemaps(connection)?,
+                ))
             })
             .await?)
     }
@@ -593,14 +632,23 @@ impl Stored {
     }
 }
 
-/// Answers `answer` with what its job `written` answered, and gives the
-/// work items the job added, none when it failed; a task that is gone is
+/// What the admission that ran with `positions` in `connection`'s
+/// transaction gave the crawl: the work items it added, keyed, and what
+/// adding them changed of the crawl's requests by state.
+fn given(connection: &Connection, positions: &mut Positions) -> rusqlite::Result<Given> {
+    let mut changed = Changed::default();
+    let added = changed.adds(positions);
+    Ok((added, changed.with_sitemaps(connection)?))
+}
+
+/// Answers `answer` with what its job `written` answered, and gives what
+/// the job gave the crawl, nothing when it failed; a task that is gone is
 /// answered nothing.
-fn given<T>(answer: Written<T>, written: Result<(T, Vec<Waiting>), RunStateError>) -> Vec<Waiting> {
-    let (answered, added) = match written {
-        Ok((answered, added)) => (Ok(answered), added),
-        Err(error) => (Err(error.into()), Vec::new()),
+fn answered<T>(answer: asks::Written<T>, written: Result<(T, Given), RunStateError>) -> Given {
+    let (answered, given) = match written {
+        Ok((answered, given)) => (Ok(answered), given),
+        Err(error) => (Err(error.into()), Given::default()),
     };
     drop(answer.send(answered));
-    added
+    given
 }

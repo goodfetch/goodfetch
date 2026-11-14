@@ -11,8 +11,8 @@ use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_protocol::foxhound::frontier::FRONTIER_LEARNING;
 use goodfetch_protocol::page::PageId;
 
-use crate::attempt_outcome::Learning;
-use crate::work_items::Leased;
+use crate::attempt_outcome::{Learning, Moved};
+use crate::work_items::{Changed, Leased};
 
 /// What a fetched page taught the Frontier, or teaches it with its
 /// attempt's outcome.
@@ -23,6 +23,11 @@ pub(in crate::delivery) struct Taught {
     /// their queues. Beside them, those a rule it stopped made pending
     /// again, which their queues take back when filled again.
     pub(in crate::delivery) merged: Vec<(String, String)>,
+    /// What ending those and giving these back changed of the crawl's
+    /// requests by state, in the lesson's own job, when it changed any:
+    /// the delivery's loop has the crawl's Run state count it once the
+    /// attempt ends (#2167).
+    pub(in crate::delivery) changed: Option<Box<Changed>>,
     /// What it teaches in its attempt's outcome, which a code-free attempt
     /// leaves to it.
     pub(in crate::delivery) learning: Option<Box<Learning>>,
@@ -65,8 +70,8 @@ pub(super) async fn learn(
     };
     if in_outcome {
         return Taught {
-            merged: Vec::new(),
             learning: Some(Box::new(learning)),
+            ..Taught::default()
         };
     }
     let learned = run
@@ -75,11 +80,13 @@ pub(super) async fn learn(
         // the handler reads what it taught, and the outcome's sync covers it.
         .write_deferred(move |connection| learning.teach(connection))
         .await;
+    let (merged, changed) = learned.unwrap_or_else(|error| {
+        tracing::warn!(%error, run_id = %run.id(), "the Frontier could not learn from a fetched page");
+        Moved::default()
+    });
     Taught {
-        merged: learned.unwrap_or_else(|error| {
-            tracing::warn!(%error, run_id = %run.id(), "the Frontier could not learn from a fetched page");
-            Vec::new()
-        }),
+        merged,
+        changed: (!changed.is_empty()).then(|| Box::new(changed)),
         learning: None,
     }
 }

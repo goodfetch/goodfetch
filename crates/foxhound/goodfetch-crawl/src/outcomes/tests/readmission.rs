@@ -17,7 +17,7 @@ use rusqlite::Connection;
 
 use super::super::{Filter, latest_of_readmitted, page};
 use crate::invariants::fixture;
-use crate::work_items::{self, Failure, Unsuccessful};
+use crate::work_items::{self, Changed, Failure, Unsuccessful};
 
 /// How the test ends one work item's first attempt.
 #[derive(Clone, Copy, Debug)]
@@ -132,6 +132,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                         work: &goodfetch_counted_work::CountedWork::default(),
                         keeps_records: true,
                     },
+                    &mut Changed::default(),
                 )
             }
             First::Fails => work_items::end(
@@ -140,6 +141,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                 epoch,
                 Unsuccessful::Failed(failure()),
                 &ended_at(),
+                &mut Changed::default(),
             ),
             First::Skipped => work_items::end(
                 connection,
@@ -150,6 +152,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                     message: Some("no".to_owned()),
                 },
                 &ended_at(),
+                &mut Changed::default(),
             ),
             First::Blocked => work_items::end(
                 connection,
@@ -157,6 +160,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                 epoch,
                 Unsuccessful::Blocked(goodfetch_protocol::block::BlockCause::RateLimit),
                 &ended_at(),
+                &mut Changed::default(),
             ),
             First::Retried => work_items::end(
                 connection,
@@ -164,6 +168,7 @@ fn end_each(connection: &Connection, end: impl Fn(usize) -> First) {
                 epoch,
                 Unsuccessful::Retried(failure()),
                 &ended_at(),
+                &mut Changed::default(),
             ),
         };
         assert!(ended.unwrap());
@@ -197,7 +202,14 @@ fn a_lease_a_resume_fails_ends_with_its_handler_lost_outcome() {
     let connection = crawl_of(2);
     work_items::lease(&connection, &pending(&connection)).unwrap();
 
-    work_items::recover_leases(&connection, &lost(), 0, &ended_at()).unwrap();
+    work_items::recover_leases(
+        &connection,
+        &lost(),
+        0,
+        &ended_at(),
+        &mut Changed::default(),
+    )
+    .unwrap();
 
     let (counts, _) = crate::report::ended(&connection).unwrap();
     let errors: Vec<Vec<(u32, String)>> = latest_of_readmitted(&connection, false)
@@ -245,7 +257,14 @@ fn a_lease_a_resume_retries_keeps_its_handler_lost_error_for_its_next_outcome() 
     let connection = crawl_of(1);
     work_items::lease(&connection, &pending(&connection)).unwrap();
 
-    work_items::recover_leases(&connection, &lost(), 1, &ended_at()).unwrap();
+    work_items::recover_leases(
+        &connection,
+        &lost(),
+        1,
+        &ended_at(),
+        &mut Changed::default(),
+    )
+    .unwrap();
     end_each(&connection, |_| First::Fails);
 
     let errors: Vec<(u32, String)> = latest_of_readmitted(&connection, false)
@@ -362,8 +381,9 @@ fn a_re_admission_racing_the_crawls_end_is_delivered_or_refused(
     let connection = crawl_of(1);
     end_each(&connection, |_| First::Fails);
     let intake = crate::intake::Intake::default();
-    let readmit =
-        |connection: &Connection| intake.admitting(|| work_items::readmit(connection, false));
+    let readmit = |connection: &Connection| {
+        intake.admitting(|| work_items::readmit(connection, false, &mut Changed::default()))
+    };
 
     let (ended, readmitted) = match order {
         Order::LastLookFirst => {
@@ -401,7 +421,14 @@ fn a_work_item_still_leased_holds_the_intake_open_until_it_is_given_back() {
     let intake = crate::intake::Intake::default();
 
     let closed_over_a_lease = intake.close_if_drained(&connection).unwrap();
-    work_items::recover_leases(&connection, &lost(), 2, &ended_at()).unwrap();
+    work_items::recover_leases(
+        &connection,
+        &lost(),
+        2,
+        &ended_at(),
+        &mut Changed::default(),
+    )
+    .unwrap();
     let given_back = pending(&connection);
     let closed_over_a_retry = intake.close_if_drained(&connection).unwrap();
 
@@ -485,7 +512,7 @@ proptest! {
             .collect();
 
         let before = listed(&connection, blocked);
-        let readmitted = work_items::readmit(&connection, blocked).unwrap();
+        let readmitted = work_items::readmit(&connection, blocked, &mut Changed::default()).unwrap();
 
         prop_assert_eq!((&before, &readmitted), (&expected, &expected));
     }
@@ -506,7 +533,7 @@ proptest! {
         end_each(&connection, |index| endings[index]);
         let ended = crate::report::ended(&connection).unwrap().0;
         let ended_model = decoded(&connection);
-        work_items::readmit(&connection, blocked).unwrap();
+        work_items::readmit(&connection, blocked, &mut Changed::default()).unwrap();
         let readmitted = crate::report::ended(&connection).unwrap().0;
         let readmitted_model = decoded(&connection);
         end_each(&connection, |index| again[index]);
@@ -524,7 +551,7 @@ proptest! {
     ) {
         let connection = crawl_of(endings.len());
         end_each(&connection, |index| endings[index]);
-        let readmitted = work_items::readmit(&connection, true).unwrap();
+        let readmitted = work_items::readmit(&connection, true, &mut Changed::default()).unwrap();
         end_each(&connection, |_| First::Succeeds);
 
         let all = page(&connection, 0, &Filter { kinds: None, labels: None, codes: None }).unwrap();

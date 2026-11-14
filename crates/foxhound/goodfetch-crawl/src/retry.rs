@@ -29,7 +29,7 @@ use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 
 use crate::run_state::StateError;
 use crate::serving::{Crawls, LiveCrawl};
-use crate::work_items;
+use crate::work_items::{self, Changed};
 
 /// The handler of `run.retry_failed` on the crawls of `crawls`.
 pub(crate) fn handler(crawls: Crawls) -> Handler {
@@ -139,7 +139,11 @@ async fn reopened(
 async fn readmit(run: &Run, blocked: bool) -> Result<u64, CallError> {
     let readmitted = run
         .state()
-        .write(move |connection| work_items::readmit(connection, blocked))
+        .write(move |connection| {
+            // Its Run state, built after this write, counts its requests
+            // on from what the run file then holds.
+            work_items::readmit(connection, blocked, &mut Changed::default())
+        })
         .await
         .map_err(|error| unwritten(run, &error))?;
     Ok(u64::try_from(readmitted.len()).unwrap_or(u64::MAX))

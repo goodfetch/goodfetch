@@ -56,7 +56,8 @@ use goodfetch_protocol::settings::{
 };
 use tokio_util::sync::CancellationToken;
 
-use super::{Failure, Machine, Reach, multi_thread_runtime};
+use super::super::runtime;
+use super::{Failure, Machine, Reach};
 use crate::executable::metrics::Export;
 use crate::executable::otlp::ToCollector;
 
@@ -70,7 +71,8 @@ struct Configured {
     ops: Option<SocketAddr>,
     /// Where its metrics are exported over OTLP, if anywhere.
     otlp_metrics: Option<String>,
-    /// The machine's settings, which choose the run-state layout.
+    /// The machine's settings, which choose the run-state layout and the
+    /// runtime's threads.
     settings: Resolved,
 }
 
@@ -153,7 +155,7 @@ pub(in crate::executable) fn run(
     let engine = engine.clone().with_metrics(export.metrics());
     let browsers = Arc::new(PinnedBrowser::of(identity, machine));
     let pid = std::process::id();
-    let runtime = multi_thread_runtime();
+    let runtime = runtime::multi_thread(runtime::Threads::of(Some(&configured.settings)));
     let ended = runtime.block_on(async {
         // Listening for the signals comes first, so one sent as soon as the
         // Daemon reports that it serves is acted on.

@@ -86,10 +86,12 @@ const CHANGED_HOST_CALLS: [&str; 18] = [
 
 /// The calls of the steps the full gate and `just pre-merge` alone run beside
 /// the host's: TLC's with `all` in the full gate, without it alone.
-const BESIDE_CALLS: [&str; 6] = ["perf", "linux", "visual", "_tlc all", "_tlc", "miri"];
+const BESIDE_CALLS: [&str; 7] = [
+    "perf", "linux", "visual", "_tlc all", "_tlc", "miri", "loom",
+];
 
 /// The full gate's calls beside the host's, sorted.
-const ALL_BESIDE_CALLS: [&str; 5] = ["_tlc all", "linux", "miri", "perf", "visual"];
+const ALL_BESIDE_CALLS: [&str; 6] = ["_tlc all", "linux", "loom", "miri", "perf", "visual"];
 
 /// The calls `just pre-merge quick` makes, in their order.
 const QUICK_CALLS: [&str; 9] = [
@@ -391,7 +393,7 @@ fn without_all_the_suites_run_over_what_changed() {
         .into_iter()
         .partition(|call| BESIDE_CALLS.contains(&call.as_str()));
     beside.sort();
-    assert_eq!(beside, ["_tlc", "linux", "miri", "perf", "visual"]);
+    assert_eq!(beside, ["_tlc", "linux", "loom", "miri", "perf", "visual"]);
     assert_eq!(
         host,
         calls_between(HOST_SETUP, &CHANGED_HOST_CALLS, &["_skips-report"])
@@ -465,7 +467,7 @@ fn a_red_check_leaves_every_other_check_of_the_quick_and_docs_forms_running(
 
 /// The steps a full gate records, in the order it records them: the host's
 /// as each ends, then the steps beside once it has waited for them.
-const RECORDED_STEPS: [&str; 22] = [
+const RECORDED_STEPS: [&str; 23] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -488,6 +490,7 @@ const RECORDED_STEPS: [&str; 22] = [
     "visual",
     "tlc",
     "miri",
+    "loom",
 ];
 
 /// A full gate's calls on the host when its Pre-merge suite's tests fail
@@ -553,12 +556,14 @@ fn one_red_step_leaves_every_other_step_of_the_full_gate_running_and_recorded(
     one_red_step(call, step, recorded_red, host_calls);
 }
 
-/// The same for TLC and Miri, which run beside the host's steps (#2090's
-/// F7). Cases of their own, so the cases above keep their names.
+/// The same for TLC, Miri (#2090's F7) and loom (#2200), which run beside
+/// the host's steps. Cases of their own, so the cases above keep their
+/// names.
 #[rstest]
 #[case::tlc("_tlc all", "tlc")]
 #[case::miri("miri", "miri")]
-fn a_red_tlc_or_miri_beside_leaves_every_other_step_of_the_full_gate_running_and_recorded(
+#[case::loom("loom", "loom")]
+fn a_red_step_beside_the_hosts_leaves_every_other_step_of_the_full_gate_running_and_recorded(
     #[case] call: &str,
     #[case] step: &str,
 ) {

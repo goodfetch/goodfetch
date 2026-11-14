@@ -103,6 +103,7 @@ mod other_product;
 mod otlp;
 pub mod output;
 mod runs;
+mod runtime;
 mod service;
 mod settings_flags;
 mod upgrade;
@@ -887,14 +888,7 @@ fn run_attached(
     } else {
         None
     };
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "main builds the runtime (ADR 0060)"
-    )]
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .expect("invariant: the OS gives the runtime its threads");
+    let runtime = runtime::multi_thread(runtime::Threads::of(settings));
     let served = runtime.block_on(async {
         if let Some((endpoint, token)) = daemon {
             return match transport::connect_daemon(&endpoint).await {

@@ -8601,6 +8601,17 @@
       ]
     },
     {
+      "id": "setting:governor.blocking_threads",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:governor.browser.contexts_per_process",
       "kind": "setting",
       "area": 3,
@@ -8800,6 +8811,17 @@
     },
     {
       "id": "setting:governor.sample_interval",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:governor.worker_threads",
       "kind": "setting",
       "area": 3,
       "milestone": null,

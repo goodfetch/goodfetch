@@ -105,6 +105,8 @@ mod settings_flags;
 mod shedding;
 #[cfg(target_os = "linux")]
 mod storage;
+#[cfg(target_os = "linux")]
+mod threads;
 mod upgrade_files;
 mod usage;
 mod views;

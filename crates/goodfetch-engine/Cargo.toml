@@ -155,6 +155,11 @@ proptest-state-machine.workspace = true
 rstest.workspace = true
 tempfile.workspace = true
 
+# The CPU pool's loom tests (src/tasks/cpu_pool/loom_tests.rs), built only
+# by `just loom`, which sets `--cfg goodfetch_loom` (ADR 0060).
+[target.'cfg(goodfetch_loom)'.dev-dependencies]
+loom.workspace = true
+
 # ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
 [[bench]]
 name = "instructions"

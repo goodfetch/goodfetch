@@ -344,6 +344,9 @@ pub(crate) struct Plan<'a> {
     /// scenario served over TLS (#2284) has each tool trust: none
     /// otherwise.
     pub(crate) certificate_authority: Option<&'a Path>,
+    /// The `[settings]` lines, `<key> = <TOML value>`, every Foxhound
+    /// trial's user configuration holds (`--foxhound-setting`, #2200).
+    pub(crate) foxhound_settings: &'a [String],
 }
 
 impl Plan<'_> {
@@ -651,12 +654,13 @@ impl Plan<'_> {
 
     /// Writes Foxhound's user configuration in `home`, where a scenario
     /// served over TLS has it trust the Proving ground's certificate
-    /// authority for the site's hosts. Every other home has none, as
-    /// shipped.
+    /// authority for the site's hosts, and which holds the settings the
+    /// run gives Foxhound. Every other home has none, as shipped.
     fn configure(&self, home: &Path) -> Result<()> {
-        match (self.config, self.certificate_authority) {
-            (Config::Foxhound { .. }, Some(authority)) => {
-                trust::in_foxhound_configuration(home, &self.kind().hosts(), authority)
+        let (trusted, settings) = (self.certificate_authority, self.foxhound_settings);
+        match self.config {
+            Config::Foxhound { .. } if trusted.is_some() || !settings.is_empty() => {
+                trust::in_foxhound_configuration(home, &self.kind().hosts(), trusted, settings)
             }
             _ => Ok(()),
         }

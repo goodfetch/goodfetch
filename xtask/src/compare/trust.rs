@@ -46,23 +46,31 @@ pub(crate) fn in_environment(command: &mut Command, authority: &Path) {
         .env("NODE_EXTRA_CA_CERTS", authority);
 }
 
-/// Writes Foxhound's user configuration in `home`, trusting `authority`
-/// for each of `hosts`: `tls.trusted_cas` has Configuration authority, so
-/// a Run's settings cannot carry it (ADR 0042).
+/// Writes Foxhound's user configuration in `home`: its `[settings]` trust
+/// `authority` for each of `hosts` where a scenario is served over TLS
+/// (`tls.trusted_cas` has Configuration authority, so a Run's settings
+/// cannot carry it, ADR 0042), and hold each of `settings`, a
+/// `<key> = <TOML value>` line the run gives Foxhound (#2200).
 pub(crate) fn in_foxhound_configuration(
     home: &Path,
     hosts: &[String],
-    authority: &Path,
+    authority: Option<&Path>,
+    settings: &[String],
 ) -> Result<()> {
-    let authority = authority
-        .to_str()
-        .with_context(|| format!("the authority's path {} is no text", authority.display()))?;
-    // A JSON string is a TOML basic string.
-    let authority = serde_json::to_string(authority)?;
     let mut configuration = String::from("version = \"0.1\"\n\n[settings]\n");
-    for host in hosts {
-        let host = serde_json::to_string(host)?;
-        writeln!(configuration, "tls.trusted_cas.{host} = [{authority}]")?;
+    if let Some(authority) = authority {
+        let authority = authority
+            .to_str()
+            .with_context(|| format!("the authority's path {} is no text", authority.display()))?;
+        // A JSON string is a TOML basic string.
+        let authority = serde_json::to_string(authority)?;
+        for host in hosts {
+            let host = serde_json::to_string(host)?;
+            writeln!(configuration, "tls.trusted_cas.{host} = [{authority}]")?;
+        }
+    }
+    for setting in settings {
+        writeln!(configuration, "{setting}")?;
     }
     let version = ProductVersion::parse(env!("CARGO_PKG_VERSION"))
         .context("reading the workspace's Product version")?;

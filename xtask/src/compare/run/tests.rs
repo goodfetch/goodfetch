@@ -310,6 +310,7 @@ fn handed_over(scenarios: Vec<Scenario>) -> (anyhow::Result<Comparison>, Vec<[St
         scrapy: nowhere,
         browser: nowhere,
         collie: None,
+        foxhound_settings: &[],
     };
     let options = Options {
         machine: None,

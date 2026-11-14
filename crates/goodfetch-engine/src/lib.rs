@@ -83,6 +83,7 @@ mod settings_editor;
 mod sqlite_store;
 mod sqlite_wal;
 pub mod staging;
+mod sync;
 pub mod tasks;
 pub mod tls;
 pub mod trace;

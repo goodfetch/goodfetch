@@ -27,6 +27,7 @@ mod websocket;
 
 pub use self::stream::send_events;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use std::fmt;
@@ -129,11 +130,14 @@ impl<'a> Preamble<'a> {
     /// last of its name: no Trace context when they hold no `_meta`, and
     /// `invalid_params` when their `_meta` holds a key other than
     /// `traceparent` and `tracestate` or a value that is no string. Params
-    /// that are no object hold none, and their handler refuses them.
-    pub(crate) fn read(params: Option<&'a str>) -> Result<Self, CallError> {
-        let Some(Members { meta, ids }) =
-            params.and_then(|params| serde_json::from_str::<Members<'a>>(params).ok())
-        else {
+    /// that are no object hold none, and their handler refuses them. A
+    /// request that carries params counts this decode of them on `work`
+    /// (`E1.decodes`).
+    pub(crate) fn read(params: Option<&'a str>, work: &CountedWork) -> Result<Self, CallError> {
+        let Some(Members { meta, ids }) = params.and_then(|params| {
+            work.count(Row::MessageDecodes);
+            serde_json::from_str::<Members<'a>>(params).ok()
+        }) else {
             return Ok(Self::default());
         };
         let meta = meta.map(trace_context).transpose()?;

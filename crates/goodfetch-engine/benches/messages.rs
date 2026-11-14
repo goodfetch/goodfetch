@@ -97,6 +97,13 @@ impl Traffic {
     pub(crate) const fn incoming(self) -> usize {
         Self::OPENING + self.small + self.large + 2 * self.plugin
     }
+
+    /// The requests among them: `hello`, `events.subscribe` and each call,
+    /// every one with params; a `$/credit` and a reply to a handler request
+    /// are none.
+    pub(crate) const fn requests(self) -> usize {
+        2 + self.small + self.large + self.plugin
+    }
 }
 
 /// Whether the Connection asks for log events, the feature on this path that

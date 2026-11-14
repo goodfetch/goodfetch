@@ -172,7 +172,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 102] = [
+const ROWS: [Row; 103] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -412,6 +412,13 @@ const ROWS: [Row; 102] = [
         name: "E1.encodes",
         family: "B3",
         unit: "answers_and_events",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E1.decodes",
+        family: "B3",
+        unit: "requests",
         happens: true,
         valgrind: None,
     },

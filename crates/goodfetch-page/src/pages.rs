@@ -1031,7 +1031,7 @@ fn page_of(params: Params<'_>) -> Option<PageId> {
     struct Located {
         page_id: Option<String>,
     }
-    let addressed: Addressed<'_> = serde_json::from_str(params.json()).ok()?;
+    let addressed: Addressed<'_> = params.read_members()?;
     if let Some(page_id) = addressed.page_id {
         return Some(PageId(page_id));
     }

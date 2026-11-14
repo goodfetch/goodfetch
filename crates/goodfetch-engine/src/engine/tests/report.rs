@@ -218,7 +218,10 @@ async fn cancelled_stop(params: Value, context: CallContext) -> Result<Value, Ca
         .expect("invariant: the engine handles `run.stop`");
     let params = params.to_string();
     let answered = stop
-        .call(crate::Params::new(&params), context)
+        .call(
+            crate::Params::new(&params, &goodfetch_counted_work::CountedWork::default()),
+            context,
+        )
         .now_or_never();
     Ok(json!({ "answered": answered.is_some() }))
 }

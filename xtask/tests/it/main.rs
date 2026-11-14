@@ -22,6 +22,8 @@ mod clients;
 mod codegen;
 mod commit_messages;
 mod compare;
+#[cfg(unix)]
+mod compare_recipe;
 mod compat;
 #[cfg(unix)]
 mod compiler_cache;

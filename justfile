@@ -138,6 +138,8 @@ lint:
     # fastCRW's driver side, the same; fastCRW's server (AGPL-3.0) is in no
     # lock of this repository: `just compare` installs it from its own.
     step cargo-deny-fastcrw 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-fastcrw/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
+    # crawlberg's side, the same, its `browser` feature included.
+    step cargo-deny-crawlberg 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-crawlberg/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     step cargo-deny-chromiumoxide 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-chromiumoxide/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     # Crawlee's, Scrapy's and the Collie scenario's arms' sides, no
     # workspace member either: their locks' licenses against the same
@@ -402,6 +404,7 @@ fetch:
     cargo fetch --locked --manifest-path xtask/compare-pagesift/Cargo.toml
     cargo fetch --locked --manifest-path xtask/compare-openspider/Cargo.toml
     cargo fetch --locked --manifest-path xtask/compare-fastcrw/Cargo.toml
+    cargo fetch --locked --manifest-path xtask/compare-crawlberg/Cargo.toml
     cargo fetch --locked --manifest-path xtask/compare-chromiumoxide/Cargo.toml
     pnpm install --frozen-lockfile --dir xtask/compare-crawlee
     pnpm install --frozen-lockfile --dir xtask/compare-collie-arms
@@ -1127,13 +1130,17 @@ rss-propose *scenarios:
 # (xtask/compare-openspider: its engine's spider crawl, built like
 # Spider's side; it has no per-domain pace, so scenario 3 says so, and
 # keeps at most 6 requests in flight on a host, so the 64 and 256 cells
-# say so) and fastCRW 0.44.2 (xtask/compare-fastcrw: a driver of its
+# say so), fastCRW 0.44.2 (xtask/compare-fastcrw: a driver of its
 # server, `crw-server`, AGPL-3.0, installed from crates.io with the lock it
 # ships beside the driver and run, never linked, a crawl job of its HTTP
 # API polled until it ends; it keeps its jobs in memory, follows links on
 # one origin, fetches one page at a time and crawls at most 1,000 pages, so
 # scenarios 2 and 3, `long` and the 64 and 256 cells say so, and it reaches
-# the hostile pages' hosts through the Proving ground's open proxy), each
+# the hostile pages' hosts through the Proving ground's open proxy) and
+# crawlberg 1.13.0 (xtask/compare-crawlberg: its engine's streaming crawl,
+# MIT, built like Spider's side, its Chrome backend for scenario 5; it keeps
+# its frontier in memory and follows page links on its first page's host
+# alone, so scenarios 2 and 3 say so), each
 # side installed from its own lock, outside the Products'. Scenario 5's tools
 # all run the Chrome for Testing build Foxhound pins, as Playwright
 # installed it (`pnpm exec playwright install chromium`). A cell a tool
@@ -1176,14 +1183,18 @@ rss-propose *scenarios:
 # register row's Today;
 # `--scenario collie` runs it alone. It gates nothing and is no Live check;
 # run it when the 1-minute load is under 4.
-# Spider's, crawlee-rs's, pagesift's, OpenSpider's, fastCRW's and
-# chromiumoxide's crates and the sides' packages are downloaded once, free.
-# Spider's seven builds, crawlee-rs's, pagesift's, OpenSpider's, fastCRW's
-# (its server's build in fastcrw-server, the server installed into the
-# side's profile folder) and chromiumoxide's go to target/compare-spider/, or to the folder GOODFETCH_COMPARE_SPIDER_BUILDS
+# Spider's, crawlee-rs's, pagesift's, OpenSpider's, fastCRW's, crawlberg's
+# and chromiumoxide's crates and the sides' packages are downloaded once,
+# free. Spider's seven builds, crawlee-rs's, pagesift's, OpenSpider's,
+# fastCRW's (its server's build in fastcrw-server, the server installed into
+# the side's profile folder), crawlberg's and chromiumoxide's go to target/compare-spider/, or to the folder GOODFETCH_COMPARE_SPIDER_BUILDS
 # names: one outside every checkout keeps them from one measurement to the
 # next, whichever worktree measures and whatever sweeps its target/ (Cargo
-# still rebuilds what a changed side needs).
+# still rebuilds what a changed side needs). Each build's executables are
+# read from the folder Cargo writes the profile to: `debug/` for `dev` and
+# `test`, `release/` for `release` and `bench`, the profile's own name for
+# every other. fastCRW's server is installed into the same one, and xtask
+# takes the profile and maps it to that folder the same way.
 # xtask is built once and runs from its copy in the target folder's
 # compare/xtask: a build in the checkout while the matrix runs, for hours,
 # relinks or sweeps its debug executable, never the one measuring.
@@ -1192,6 +1203,7 @@ rss-propose *scenarios:
 compare profile="release" *args:
     #!/usr/bin/env bash
     set -euo pipefail
+    folder={{ if profile == "dev" { "debug" } else if profile == "test" { "debug" } else if profile == "bench" { "release" } else { profile } }}
     {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
     cargo build --quiet --locked --bin xtask
     target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
@@ -1209,8 +1221,9 @@ compare profile="release" *args:
     cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/crawlee-rs
     cargo build --quiet --locked --manifest-path xtask/compare-pagesift/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/pagesift
     cargo build --quiet --locked --manifest-path xtask/compare-openspider/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/openspider
-    cargo --config xtask/compare-fastcrw/server-profile.toml install --quiet --locked --force crw-server --version =0.44.2 --features cdp --profile {{ profile }} --target-dir {{ compare_spider_builds }}/fastcrw-server --root {{ compare_spider_builds }}/fastcrw/{{ profile }}
+    cargo --config xtask/compare-fastcrw/server-profile.toml install --quiet --locked --force crw-server --version =0.44.2 --features cdp --profile {{ profile }} --target-dir {{ compare_spider_builds }}/fastcrw-server --root {{ compare_spider_builds }}/fastcrw/"$folder"
     cargo build --quiet --locked --manifest-path xtask/compare-fastcrw/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/fastcrw
+    cargo build --quiet --locked --manifest-path xtask/compare-crawlberg/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/crawlberg
     cargo build --quiet --locked --manifest-path xtask/compare-chromiumoxide/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/chromiumoxide
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy
@@ -1522,6 +1535,7 @@ notices *arguments:
 # crawlee-rs's xtask/compare-crawlee-rs, pagesift's xtask/compare-pagesift,
 # OpenSpider's xtask/compare-openspider, fastCRW's driver's
 # xtask/compare-fastcrw (its server's own lock, in its crate, is not read),
+# crawlberg's xtask/compare-crawlberg,
 # Crawlee's xtask/compare-crawlee, Scrapy's xtask/compare-scrapy and the
 # Collie scenario's arms' xtask/compare-collie-arms and
 # xtask/compare-chromiumoxide), against
@@ -1537,6 +1551,7 @@ audit:
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-pagesift/Cargo.toml
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-openspider/Cargo.toml
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-fastcrw/Cargo.toml
+    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-crawlberg/Cargo.toml
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-chromiumoxide/Cargo.toml
     ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-crawlee/pnpm-lock.yaml
     ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-collie-arms/pnpm-lock.yaml

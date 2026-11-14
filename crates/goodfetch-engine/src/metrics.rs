@@ -244,6 +244,19 @@ impl Metrics {
         }
     }
 
+    /// The occurrences of `metric`, a counter with no label, that a crate
+    /// adds to as each happens, such as a lookup that read the run file.
+    pub fn occurrences(&self, metric: &goodfetch_protocol::catalog::Metric) -> Occurrences {
+        Occurrences(
+            self.0
+                .meter
+                .u64_counter(metric.name)
+                .with_description(metric.description)
+                .with_unit(metric.unit)
+                .build(),
+        )
+    }
+
     /// A Run of `kind` became live, started or resumed.
     pub(crate) fn run_live(&self, kind: RunKind) {
         self.0
@@ -347,6 +360,17 @@ impl Level {
 impl Drop for Level {
     fn drop(&mut self) {
         self.counter.add(-self.counted, &[]);
+    }
+}
+
+/// How many times something happened, on a counter with no label.
+#[derive(Debug)]
+pub struct Occurrences(Counter<u64>);
+
+impl Occurrences {
+    /// Counts `count` more.
+    pub fn add(&self, count: u64) {
+        self.0.add(count, &[]);
     }
 }
 

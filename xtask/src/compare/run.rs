@@ -20,8 +20,8 @@ use self::watch::{Retried, Watch, retried, watched};
 use super::matrix::{self, Cell, Config, Row, Scenario, SpiderBuild};
 use super::trial::{self, Counted, Outcome, Ruled, callgrind_missing, strace_missing};
 use super::trials::{
-    CONCURRENCY, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, CollieScenario, Comparison, CountedCell,
-    CountedRun, Declared, FASTCRW_VERSION, GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS,
+    CONCURRENCY, CRAWLBERG_VERSION, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, CollieScenario, Comparison,
+    CountedCell, CountedRun, Declared, FASTCRW_VERSION, GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS,
     INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Measured, OPENSPIDER_COMMIT, PAGESIFT_VERSION,
     PLAYWRIGHT_VERSION, RULE_RUNS, RuledRun, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES,
     SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint,
@@ -37,12 +37,13 @@ pub(crate) struct Executables<'a> {
     pub(crate) proving_ground: &'a Path,
     pub(crate) foxhound: &'a Path,
     /// The folder of the Rust sides' builds, Spider's, crawlee-rs's,
-    /// pagesift's, OpenSpider's and fastCRW's, and the folder Cargo names
-    /// after the profile each was built with (see [`spider_executable`],
-    /// [`crawlee_rs_executable`], [`pagesift_executable`],
-    /// [`openspider_executable`] and [`fastcrw_executable`]).
+    /// pagesift's, OpenSpider's, fastCRW's and crawlberg's, and the folder
+    /// Cargo wrote the profile each was built with to ([`profile_folder`];
+    /// see [`spider_executable`], [`crawlee_rs_executable`],
+    /// [`pagesift_executable`], [`openspider_executable`],
+    /// [`fastcrw_executable`] and [`crawlberg_executable`]).
     pub(crate) spider_builds: &'a Path,
-    pub(crate) spider_profile: &'a str,
+    pub(crate) profile_folder: &'a str,
     /// Crawlee's side's script, run by Node.js, and Scrapy's, run by the
     /// Python environment beside it.
     pub(crate) crawlee: &'a Path,
@@ -134,25 +135,43 @@ fn drawn_seed() -> u64 {
     now.as_second().unsigned_abs() ^ u64::from(now.subsec_nanosecond().unsigned_abs()) << 32
 }
 
+/// The folder Cargo writes `profile`'s builds to: `debug` for `dev` and
+/// `test`, `release` for `release` and `bench`, and the profile's own name
+/// for every other.
+pub(crate) fn profile_folder(profile: &str) -> &str {
+    match profile {
+        "dev" | "test" => "debug",
+        "bench" => "release",
+        other => other,
+    }
+}
+
 /// The executable of `build` among Spider's side's builds in `builds`:
 /// `just compare` builds each into the target folder
-/// [`SpiderBuild::folder`] names, where Cargo puts it under `profile`'s
-/// folder.
-pub(crate) fn spider_executable(builds: &Path, profile: &str, build: SpiderBuild) -> PathBuf {
-    builds.join(build.folder()).join(profile).join(format!(
-        "goodfetch-compare-spider{}",
-        std::env::consts::EXE_SUFFIX
-    ))
+/// [`SpiderBuild::folder`] names, where Cargo puts it under
+/// `profile_folder`.
+pub(crate) fn spider_executable(
+    builds: &Path,
+    profile_folder: &str,
+    build: SpiderBuild,
+) -> PathBuf {
+    builds
+        .join(build.folder())
+        .join(profile_folder)
+        .join(format!(
+            "goodfetch-compare-spider{}",
+            std::env::consts::EXE_SUFFIX
+        ))
 }
 
 /// crawlee-rs's side's executable in `builds`, beside Spider's builds:
 /// `just compare` builds it into the target folder
 /// [`matrix::CRAWLEE_RS_FOLDER`] names, where Cargo puts it under
-/// `profile`'s folder.
-pub(crate) fn crawlee_rs_executable(builds: &Path, profile: &str) -> PathBuf {
+/// `profile_folder`.
+pub(crate) fn crawlee_rs_executable(builds: &Path, profile_folder: &str) -> PathBuf {
     builds
         .join(matrix::CRAWLEE_RS_FOLDER)
-        .join(profile)
+        .join(profile_folder)
         .join(format!(
             "goodfetch-compare-crawlee-rs{}",
             std::env::consts::EXE_SUFFIX
@@ -161,12 +180,12 @@ pub(crate) fn crawlee_rs_executable(builds: &Path, profile: &str) -> PathBuf {
 
 /// pagesift's side's executable in `builds`, beside Spider's builds:
 /// `just compare` builds it into the target folder
-/// [`matrix::PAGESIFT_FOLDER`] names, where Cargo puts it under `profile`'s
-/// folder.
-pub(crate) fn pagesift_executable(builds: &Path, profile: &str) -> PathBuf {
+/// [`matrix::PAGESIFT_FOLDER`] names, where Cargo puts it under
+/// `profile_folder`.
+pub(crate) fn pagesift_executable(builds: &Path, profile_folder: &str) -> PathBuf {
     builds
         .join(matrix::PAGESIFT_FOLDER)
-        .join(profile)
+        .join(profile_folder)
         .join(format!(
             "goodfetch-compare-pagesift{}",
             std::env::consts::EXE_SUFFIX
@@ -176,11 +195,11 @@ pub(crate) fn pagesift_executable(builds: &Path, profile: &str) -> PathBuf {
 /// OpenSpider's side's executable in `builds`, beside Spider's builds:
 /// `just compare` builds it into the target folder
 /// [`matrix::OPENSPIDER_FOLDER`] names, where Cargo puts it under
-/// `profile`'s folder.
-pub(crate) fn openspider_executable(builds: &Path, profile: &str) -> PathBuf {
+/// `profile_folder`.
+pub(crate) fn openspider_executable(builds: &Path, profile_folder: &str) -> PathBuf {
     builds
         .join(matrix::OPENSPIDER_FOLDER)
-        .join(profile)
+        .join(profile_folder)
         .join(format!(
             "goodfetch-compare-openspider{}",
             std::env::consts::EXE_SUFFIX
@@ -189,15 +208,29 @@ pub(crate) fn openspider_executable(builds: &Path, profile: &str) -> PathBuf {
 
 /// fastCRW's side's executable in `builds`, beside Spider's builds:
 /// `just compare` builds it into the target folder
-/// [`matrix::FASTCRW_FOLDER`] names, where Cargo puts it under `profile`'s
-/// folder, and installs fastCRW's server into that profile's folder (see
+/// [`matrix::FASTCRW_FOLDER`] names, where Cargo puts it under
+/// `profile_folder`, and installs fastCRW's server into that folder (see
 /// [`trial::fastcrw_server`]).
-pub(crate) fn fastcrw_executable(builds: &Path, profile: &str) -> PathBuf {
+pub(crate) fn fastcrw_executable(builds: &Path, profile_folder: &str) -> PathBuf {
     builds
         .join(matrix::FASTCRW_FOLDER)
-        .join(profile)
+        .join(profile_folder)
         .join(format!(
             "goodfetch-compare-fastcrw{}",
+            std::env::consts::EXE_SUFFIX
+        ))
+}
+
+/// crawlberg's side's executable in `builds`, beside Spider's builds:
+/// `just compare` builds it into the target folder
+/// [`matrix::CRAWLBERG_FOLDER`] names, where Cargo puts it under
+/// `profile_folder`.
+pub(crate) fn crawlberg_executable(builds: &Path, profile_folder: &str) -> PathBuf {
+    builds
+        .join(matrix::CRAWLBERG_FOLDER)
+        .join(profile_folder)
+        .join(format!(
+            "goodfetch-compare-crawlberg{}",
             std::env::consts::EXE_SUFFIX
         ))
 }
@@ -205,11 +238,11 @@ pub(crate) fn fastcrw_executable(builds: &Path, profile: &str) -> PathBuf {
 /// chromiumoxide's side's executable in `builds`, beside Spider's builds:
 /// `just compare` builds it into the target folder
 /// [`matrix::CHROMIUMOXIDE_FOLDER`] names, where Cargo puts it under
-/// `profile`'s folder (issue 2444).
-pub(crate) fn chromiumoxide_executable(builds: &Path, profile: &str) -> PathBuf {
+/// `profile_folder` (issue 2444).
+pub(crate) fn chromiumoxide_executable(builds: &Path, profile_folder: &str) -> PathBuf {
     builds
         .join(matrix::CHROMIUMOXIDE_FOLDER)
-        .join(profile)
+        .join(profile_folder)
         .join(format!(
             "goodfetch-compare-chromiumoxide{}",
             std::env::consts::EXE_SUFFIX
@@ -245,21 +278,24 @@ fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf>
     let executable = match config {
         Config::Foxhound { .. } => executables.foxhound.to_owned(),
         Config::Spider { build, .. } => {
-            spider_executable(executables.spider_builds, executables.spider_profile, build)
+            spider_executable(executables.spider_builds, executables.profile_folder, build)
         }
         Config::Crawlee => executables.crawlee.to_owned(),
         Config::Scrapy => executables.scrapy.to_owned(),
         Config::CrawleeRs => {
-            crawlee_rs_executable(executables.spider_builds, executables.spider_profile)
+            crawlee_rs_executable(executables.spider_builds, executables.profile_folder)
         }
         Config::Pagesift => {
-            pagesift_executable(executables.spider_builds, executables.spider_profile)
+            pagesift_executable(executables.spider_builds, executables.profile_folder)
         }
         Config::OpenSpider => {
-            openspider_executable(executables.spider_builds, executables.spider_profile)
+            openspider_executable(executables.spider_builds, executables.profile_folder)
         }
         Config::FastCrw => {
-            fastcrw_executable(executables.spider_builds, executables.spider_profile)
+            fastcrw_executable(executables.spider_builds, executables.profile_folder)
+        }
+        Config::Crawlberg => {
+            crawlberg_executable(executables.spider_builds, executables.profile_folder)
         }
     };
     let program = trial::invocation(config, &executable).program;
@@ -375,7 +411,8 @@ fn pages_of(scenario: Scenario, config: Config, pages: u64, spider_pages: Option
         | Config::CrawleeRs
         | Config::Pagesift
         | Config::OpenSpider
-        | Config::FastCrw => pages,
+        | Config::FastCrw
+        | Config::Crawlberg => pages,
     }
 }
 
@@ -451,7 +488,8 @@ fn at_concurrency(config: Config, concurrency: u32) -> Config {
         | Config::CrawleeRs
         | Config::Pagesift
         | Config::OpenSpider
-        | Config::FastCrw => config,
+        | Config::FastCrw
+        | Config::Crawlberg => config,
     }
 }
 
@@ -713,6 +751,7 @@ fn declared(options: &Options) -> Declared {
         pagesift: PAGESIFT_VERSION.to_owned(),
         openspider: OPENSPIDER_COMMIT.to_owned(),
         fastcrw: FASTCRW_VERSION.to_owned(),
+        crawlberg: CRAWLBERG_VERSION.to_owned(),
         playwright: PLAYWRIGHT_VERSION.to_owned(),
         scrapy_playwright: SCRAPY_PLAYWRIGHT_VERSION.to_owned(),
         browser: crate::test_facts::CHROME_FOR_TESTING_BUILD.to_owned(),

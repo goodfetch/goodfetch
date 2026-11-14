@@ -19,6 +19,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_engine::metrics::Metrics;
 use goodfetch_page::url_pattern::{UnsupportedPattern, UrlPattern};
 use goodfetch_protocol::foxhound::crawl::SitemapRule;
 use goodfetch_protocol::foxhound::frontier::PathBudget;
@@ -116,16 +117,18 @@ impl Invariants {
 
     /// Holds, from now on, the visits the Run's writer has not committed
     /// (#2168), against `committed`, how many commits it acknowledged, and
-    /// keeps those it wrote within `budget` bytes (#2169): a Run whose
-    /// writer batches its writes holds them, so a redirect hop is judged on
-    /// a reader. Once is enough; a second call changes nothing.
+    /// keeps those it wrote within `budget` bytes (#2169), measured on
+    /// `metrics`: a Run whose writer batches its writes holds them, so a
+    /// redirect hop is judged on a reader. Once is enough; a second call
+    /// changes nothing.
     pub fn hold_unwritten(
         &self,
         budget: u64,
         committed: impl Fn() -> u64 + Send + Sync + 'static,
+        metrics: &Metrics,
     ) -> &UnwrittenVisits {
         self.unwritten
-            .get_or_init(|| UnwrittenVisits::new(budget, committed))
+            .get_or_init(|| UnwrittenVisits::new(budget, committed, metrics))
     }
 
     /// Counts, from now on, the evidence the Run's admissions read and
@@ -146,6 +149,21 @@ impl Invariants {
     #[must_use]
     pub fn unwritten(&self) -> Option<&UnwrittenVisits> {
         self.unwritten.get()
+    }
+
+    /// Has the Frontier's memory, when the Run holds the batches' visits
+    /// ([`Self::hold_unwritten`]), read the Scope's seeds and the visits
+    /// the run file `connection` holds, a reader's, as the crawl opens,
+    /// within the memory budget: a lookup it then answers reads nothing
+    /// (#2169).
+    ///
+    /// # Errors
+    ///
+    /// When the run file cannot be read.
+    pub fn fill_memory(&self, connection: &Connection) -> rusqlite::Result<()> {
+        self.unwritten().map_or(Ok(()), |unwritten| {
+            unwritten.read(connection, self.scope.strategy().seed_keys())
+        })
     }
 
     /// The first path budget whose pattern the path and query of `url`

@@ -52,10 +52,9 @@ use quick_xml::events::{BytesStart, Event};
 use rusqlite::{Connection, OptionalExtension as _};
 use url::Url;
 
-use crate::admit::{Candidate, admit};
-use crate::bounds::{count_admitted, count_refused, cut_by};
+use crate::admit::{Candidate, admit, widen};
+use crate::bounds::{SoFar, count_admitted, count_refused, cut_by};
 use crate::invariants::{Invariants, Rules};
-use crate::scope::Scope;
 use crate::staged::Admitting;
 use crate::url::parse as parse_url;
 
@@ -390,11 +389,8 @@ pub fn admit_seed_in(
     if let Enqueued::Added { url, .. } = &answer
         && let Ok(url) = Url::parse(url)
     {
-        Scope::widen(connection, &url)?;
-        admitting.widened(&url);
-        if let Some(unwritten) = invariants.unwritten() {
-            unwritten.lock().widened();
-        }
+        let mut holding = invariants.unwritten().map(|unwritten| unwritten.lock());
+        widen(connection, invariants, &url, admitting, holding.as_mut())?;
         // The seed's rules were checked as it was given.
         let _unreadable = invariants.know_sitemap_rules(&seed.rules);
     }
@@ -435,9 +431,9 @@ impl Nested<'_> {
     /// it refuses a page at its level's depth.
     fn refuses(
         &self,
-        connection: &Connection,
         url: &Url,
         budget: Option<&PathBudget>,
+        so_far: &mut SoFar<'_, '_>,
     ) -> rusqlite::Result<Option<NotAddedReason>> {
         if self
             .hosts
@@ -452,7 +448,7 @@ impl Nested<'_> {
         {
             return Ok(Some(NotAddedReason::MaxSitemapNesting));
         }
-        bounds.refuses(connection, url, self.level, budget, None)
+        bounds.refuses(url, self.level, budget, so_far)
     }
 }
 
@@ -506,16 +502,32 @@ fn admit_fetch(
         return Ok(not_added(admitting, NotAddedReason::Duplicate));
     }
     let budget = nested.and_then(|nested| nested.invariants.budget_of(&url));
-    if let Some(nested) = nested
-        && let Some(reason) = nested.refuses(connection, &url, budget)?
-    {
-        count_refused(connection, reason, budget)?;
-        return Ok(not_added(admitting, reason));
+    // Held from the bounds' check through the count, as a page's
+    // admission holds it (#2169).
+    let mut holding = nested
+        .and_then(|nested| nested.invariants.unwritten())
+        .map(|unwritten| unwritten.lock());
+    if let Some(nested) = nested {
+        let mut so_far = SoFar {
+            connection,
+            holding: holding.as_mut(),
+            admitting,
+        };
+        if let Some(reason) = nested.refuses(&url, budget, &mut so_far)? {
+            count_refused(connection, reason, budget)?;
+            return Ok(not_added(admitting, reason));
+        }
     }
     let id = add(&url)?;
     if nested.is_some() {
         count_admitted(connection, budget)?;
+        if let Some(holding) = &mut holding
+            && admitting.writes()
+        {
+            holding.counted(budget.map(|budget| budget.pattern.as_str()));
+        }
     }
+    drop(holding);
     let (seed, level) = nested.map_or((id.as_str(), 0), |nested| (nested.seed, nested.level));
     connection
         .prepare_cached(

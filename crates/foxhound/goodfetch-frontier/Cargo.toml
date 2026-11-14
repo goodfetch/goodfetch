@@ -22,13 +22,16 @@ goodfetch-protocol.workspace = true
 # Each Label's Payload is checked against its JSON Schema at enqueue (ADR
 # 0082); no remote or file reference is resolved.
 jsonschema.workspace = true
+# A Run keeps each robots.txt copy's parse while it is fresh, in a
+# bounded cache (ADR 0140's E6).
+moka.workspace = true
 psl.workspace = true
 # A sitemap seed's sitemaps are XML (ADR 0093).
 quick-xml.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-tokio = { workspace = true, features = ["sync", "time"] }
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
 tracing.workspace = true
 url.workspace = true
 goodfetch-workspace-hack.workspace = true

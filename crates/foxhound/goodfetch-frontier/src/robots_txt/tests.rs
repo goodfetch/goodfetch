@@ -12,20 +12,22 @@
     reason = "a test's fetch counts its calls in an atomic; no lock order is tested here"
 )]
 
+use std::cell::Cell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, UNIX_EPOCH};
 
 use ::url::Url;
+use goodfetch_counted_work::Row;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::politeness::{Politeness, PolitenessOptions};
-use goodfetch_engine::robots_txt::{Answer, Copies, Fetched, parse};
+use goodfetch_engine::robots_txt::{Answer, Copies, Fetched, MAX_SIZE, parse};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_test_support::TestEnv;
 use proptest::prelude::*;
 use rstest::rstest;
 
-use super::{Copy, FRESH_FOR, SharedRobotsTxt, TABLES, applies, fresh, kept};
+use super::{Copy, FRESH_FOR, KEPT_BYTES, SharedRobotsTxt, TABLES, applies, fresh, kept};
 
 const DAY: i64 = 86_400_000;
 const FILE: &[u8] = b"User-agent: *\nDisallow: /private/\n";
@@ -416,18 +418,31 @@ async fn the_copy_follows_the_politeness_files_refusal_cases(
     }
 }
 
-/// How many origins the copy holds state for in memory.
+/// How many origins the copy holds a reading in flight for.
 fn origins_held(copies: &SharedRobotsTxt) -> usize {
     copies.in_flight.lock().unwrap().len()
 }
 
-/// The copy holds an origin in memory only while a reader of it is in
-/// flight, so a crawl over many origins keeps no state that grows with
-/// them (STYLE.md, Memory and hot paths).
+/// How many parses `copies` keeps, and what they weigh, once moka has
+/// applied its bound.
+fn parses_kept(copies: &SharedRobotsTxt) -> (u64, u64) {
+    copies.parses.run_pending_tasks();
+    (copies.parses.entry_count(), copies.parses.weighted_size())
+}
+
+/// The robots.txt reads and parses `copies` counted (ADR 0140's E6).
+fn reads_and_parses(copies: &SharedRobotsTxt) -> (u64, u64) {
+    let work = copies.politeness.work();
+    (work.read(Row::RobotsReads), work.read(Row::RobotsParses))
+}
+
+/// The copy holds an origin's reading in flight only while a reader of it
+/// is in flight, so readings in flight do not grow with a crawl's origins
+/// (STYLE.md, Memory and hot paths).
 ///
 /// Covers: story:6-241
 #[tokio::test(start_paused = true)]
-async fn an_origin_is_held_in_memory_only_while_it_is_read() {
+async fn an_origin_is_in_flight_only_while_it_is_read() {
     let env = TestEnv::new();
     let owner = TaskOwner::root(BlockingPolicy::Inline);
     let clock = Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001));
@@ -444,6 +459,161 @@ async fn an_origin_is_held_in_memory_only_while_it_is_read() {
     assert_eq!(
         (origins_held(&copies), fetches.load(Ordering::SeqCst)),
         (0, 3)
+    );
+}
+
+/// A Run reads and parses each origin's copy once while it is fresh: its
+/// later readers read neither the file nor the robots.txt again, and
+/// another Run of the file reads and parses it once of its own.
+///
+/// Covers: story:6-241
+#[tokio::test(start_paused = true)]
+async fn a_run_reads_and_parses_a_fresh_copy_once() {
+    let env = TestEnv::new();
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let clock = Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001));
+    let run = SharedRobotsTxt::new(file(&env, "engine", &owner).await, clock);
+    let other_run = SharedRobotsTxt::new(file(&env, "other", &owner).await, clock);
+    let fetches = Arc::new(AtomicUsize::new(0));
+
+    let mut read = Vec::new();
+    for _ in 0..3 {
+        read.push(
+            (*run
+                .copy(&location(), counted(&fetches, response(200, FILE)))
+                .await)
+                .clone(),
+        );
+        tokio::time::advance(Duration::from_hours(1)).await;
+    }
+    let other = other_run
+        .copy(&location(), counted(&fetches, response(200, FILE)))
+        .await;
+
+    assert_eq!(
+        (
+            read,
+            (*other).clone(),
+            fetches.load(Ordering::SeqCst),
+            reads_and_parses(&run),
+            reads_and_parses(&other_run),
+        ),
+        (
+            vec![Fetched::File(parse(FILE)); 3],
+            Fetched::File(parse(FILE)),
+            1,
+            (1, 1),
+            (1, 1),
+        )
+    );
+}
+
+/// A reader answered from the Run's kept parse lets the work beside it run
+/// before it answers, as the file read it replaces did, so a crawl whose
+/// every origin is kept still lets the Connection that answers the SDK's
+/// calls run page by page rather than once the crawl idles.
+#[tokio::test(start_paused = true)]
+async fn a_kept_parse_lets_other_tasks_run_before_it_answers() {
+    let env = TestEnv::new();
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let clock = Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001));
+    let run = SharedRobotsTxt::new(file(&env, "engine", &owner).await, clock);
+    let fetches = Arc::new(AtomicUsize::new(0));
+    let location = location();
+    run.copy(&location, counted(&fetches, response(200, FILE)))
+        .await;
+    let beside_ran = Cell::new(false);
+
+    let ((ran_before_the_answer, answered), ()) = tokio::join!(
+        async {
+            let answered = run
+                .copy(&location, counted(&fetches, response(200, FILE)))
+                .await;
+            (beside_ran.get(), answered)
+        },
+        async { beside_ran.set(true) },
+    );
+
+    assert_eq!(
+        (
+            ran_before_the_answer,
+            (*answered).clone(),
+            reads_and_parses(&run)
+        ),
+        (true, Fetched::File(parse(FILE)), (1, 1))
+    );
+}
+
+/// A Run's parse of a copy lasts as long as the copy is fresh: a day after
+/// its fetch the next reader reads the file again, and a fetch then
+/// answered 500 applies the last good copy without keeping it, so the
+/// reader after it reads and fetches again, as a Run did with no parse kept.
+///
+/// Covers: story:6-240, story:6-241
+#[tokio::test(start_paused = true)]
+async fn a_runs_parse_lasts_as_long_as_its_copy_is_fresh() {
+    let env = TestEnv::new();
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let clock = Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001));
+    let run = SharedRobotsTxt::new(file(&env, "engine", &owner).await, clock);
+    let fetches = Arc::new(AtomicUsize::new(0));
+    let newer: &[u8] = b"User-agent: *\nDisallow: /\n";
+
+    run.copy(&location(), counted(&fetches, response(200, FILE)))
+        .await;
+    tokio::time::advance(Duration::from_hours(24)).await;
+    let failed = run
+        .copy(&location(), counted(&fetches, response(500, b"")))
+        .await;
+    let after_the_failure = run
+        .copy(&location(), counted(&fetches, response(200, newer)))
+        .await;
+    let kept = run
+        .copy(&location(), counted(&fetches, response(200, FILE)))
+        .await;
+
+    assert_eq!(
+        (
+            (*failed).clone(),
+            (*after_the_failure).clone(),
+            (*kept).clone(),
+            fetches.load(Ordering::SeqCst),
+            reads_and_parses(&run),
+        ),
+        (
+            Fetched::File(parse(FILE)),
+            Fetched::File(parse(newer)),
+            Fetched::File(parse(newer)),
+            3,
+            (3, 3),
+        )
+    );
+}
+
+/// The parses a Run keeps stay within [`KEPT_BYTES`], however many origins
+/// it reads, each with a file of the most bytes read.
+///
+/// Covers: story:6-241
+#[tokio::test(start_paused = true)]
+async fn the_parses_a_run_keeps_stay_within_their_bound() {
+    let env = TestEnv::new();
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let clock = Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001));
+    let run = SharedRobotsTxt::new(file(&env, "engine", &owner).await, clock);
+    let fetches = Arc::new(AtomicUsize::new(0));
+    let largest = vec![b'#'; MAX_SIZE];
+    let origins = KEPT_BYTES / u64::try_from(MAX_SIZE).unwrap() + 8;
+
+    for origin in 0..origins {
+        let location = Url::parse(&format!("https://{origin}.test/robots.txt")).unwrap();
+        run.copy(&location, counted(&fetches, response(200, &largest)))
+            .await;
+    }
+    let (parses, bytes) = parses_kept(&run);
+
+    assert!(
+        (1..origins).contains(&parses) && bytes <= KEPT_BYTES,
+        "{parses} parses of {origins} origins kept, {bytes} bytes over {KEPT_BYTES}"
     );
 }
 

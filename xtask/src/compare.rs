@@ -1,9 +1,9 @@
 //! `xtask compare` (ADRs 0134 and 0138): the comparison matrix, Foxhound
 //! against the crawlers nearest it (Spider, Crawlee, Scrapy, crawlee-rs,
-//! pagesift, OpenSpider and fastCRW), on one machine with nothing else
-//! running. Each scenario sets every tool to the closest equivalent
-//! configuration and the report writes that mapping; a tool that cannot do
-//! a scenario has a cell saying so, and a Foxhound value that does not
+//! pagesift, OpenSpider, fastCRW and crawlberg), on one machine with
+//! nothing else running. Each scenario sets every tool to the closest
+//! equivalent configuration and the report writes that mapping; a tool that
+//! cannot do a scenario has a cell saying so, and a Foxhound value that does not
 //! exist yet is marked pending (the owner's comments of 2026-10-30 on
 //! #1577). Spider's main rows read its pages at the smallest channel
 //! capacity that loses none, and labelled sensitivity rows beside them run
@@ -122,12 +122,13 @@ pub(crate) struct RunArguments {
     /// `crawlee-rs`, `xtask/compare-pagesift` into `pagesift`,
     /// `xtask/compare-openspider` into `openspider`,
     /// `xtask/compare-fastcrw` into `fastcrw` (with fastCRW's server
-    /// installed into `fastcrw/<profile>/bin`) and the Collie scenario's
+    /// installed into `fastcrw/<profile>/bin`), `xtask/compare-crawlberg`
+    /// into `crawlberg` and the Collie scenario's
     /// `xtask/compare-chromiumoxide` into `chromiumoxide`.
     #[arg(long)]
     spider_builds: PathBuf,
-    /// The folder Cargo names after the profile those builds were made
-    /// with: `release` for the release profile.
+    /// The profile those builds were made with, which names the folder
+    /// Cargo wrote them to ([`run::profile_folder`]): `debug` for `dev`.
     #[arg(long, default_value = "release")]
     spider_profile: String,
     /// Chrome for Testing's folder, which every tool of the headless
@@ -323,6 +324,7 @@ fn measure(arguments: &RunArguments, environment: &Environment) -> Result<ExitCo
     let out = environment.path(&arguments.out);
     let folder = out.parent().unwrap_or_else(|| Path::new("."));
     let proving_ground = tools.path(Tool::ProvingGround)?;
+    let profile_folder = run::profile_folder(&arguments.spider_profile);
     let collie = Asked::collie(&arguments.scenarios)
         .then(|| -> Result<_> {
             Ok(collie::Tools {
@@ -332,7 +334,7 @@ fn measure(arguments: &RunArguments, environment: &Environment) -> Result<ExitCo
                 arms_driver: absolute(&environment.path(&arguments.collie_arms_driver))?,
                 chromiumoxide: absolute(&run::chromiumoxide_executable(
                     &environment.path(&arguments.spider_builds),
-                    &arguments.spider_profile,
+                    profile_folder,
                 ))?,
                 browser: &browser,
                 goodfetch_variables: &environment.goodfetch_variables,
@@ -344,7 +346,7 @@ fn measure(arguments: &RunArguments, environment: &Environment) -> Result<ExitCo
             proving_ground,
             foxhound: tools.path(Tool::Foxhound)?,
             spider_builds: &environment.path(&arguments.spider_builds),
-            spider_profile: &arguments.spider_profile,
+            profile_folder,
             browser: &browser,
             crawlee: &environment.path(&arguments.crawlee),
             scrapy: &environment.path(&arguments.scrapy),

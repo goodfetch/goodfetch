@@ -27,9 +27,8 @@ const SEED: &str = "https://shop.test/";
 /// How many admissions one transaction of the run file holds.
 const BATCH: u64 = 1_000;
 
-/// A run file on disk holding the Frontier's tables, opened as a crawl's
-/// is (WAL, `run_state.durability = fast`, the writer's bounded page
-/// cache), its seed admitted.
+/// A run file on disk holding the Frontier's tables ([`run_file`]), its
+/// seed admitted.
 struct RunFile {
     connection: Connection,
     invariants: Invariants,
@@ -39,29 +38,7 @@ struct RunFile {
 
 impl RunFile {
     fn open(env: &TestEnv) -> Self {
-        let connection = Connection::open(env.folder().join("run.sqlite")).unwrap();
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "the test's own new run file, which no other connection opens"
-        )]
-        connection
-            .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
-            .unwrap();
-        connection
-            .pragma_update(None, "synchronous", "NORMAL")
-            .unwrap();
-        connection
-            .pragma_update(None, "cache_size", -i64::from(PAGE_CACHE_KIB))
-            .unwrap();
-        for statement in VISITED_TABLES
-            .statements
-            .iter()
-            .chain(SCOPE_TABLES.statements)
-            .chain(BOUNDS_TABLES.statements)
-            .chain(RULES_TABLES.statements)
-        {
-            connection.execute(statement, []).unwrap();
-        }
+        let connection = run_file(env);
         let file = Self {
             connection,
             invariants: Invariants::new(Scope::default(), Bounds::default()).unwrap(),
@@ -125,6 +102,36 @@ impl RunFile {
         }
         added
     }
+}
+
+/// A run file on disk in `env`'s folder holding the Frontier's tables,
+/// opened as a crawl's is: WAL, `run_state.durability = fast`, the
+/// writer's bounded page cache.
+pub(super) fn run_file(env: &TestEnv) -> Connection {
+    let connection = Connection::open(env.folder().join("run.sqlite")).unwrap();
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test's own new run file, which no other connection opens"
+    )]
+    connection
+        .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
+        .unwrap();
+    connection
+        .pragma_update(None, "synchronous", "NORMAL")
+        .unwrap();
+    connection
+        .pragma_update(None, "cache_size", -i64::from(PAGE_CACHE_KIB))
+        .unwrap();
+    for statement in VISITED_TABLES
+        .statements
+        .iter()
+        .chain(SCOPE_TABLES.statements)
+        .chain(BOUNDS_TABLES.statements)
+        .chain(RULES_TABLES.statements)
+    {
+        connection.execute(statement, []).unwrap();
+    }
+    connection
 }
 
 /// Admits `href`, a link found on the seed's page.

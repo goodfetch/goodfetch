@@ -1534,10 +1534,9 @@ fn one_of(unit: &str) -> &str {
         LINKS_BATCHES => "links batch",
         "audit_entries" => "audit_entry",
         "entries" => "entry",
-        "batched_pages" | "full_pages" => "page",
+        "batched_pages" | "full_pages" | CALLGRIND_PAGES => "page",
         ADDED_PAGES => "page added",
         ATTEMPTS_ENDED => "attempt",
-        CALLGRIND_PAGES => "page",
         CALLGRIND_CRAWLS => "crawl",
         unit => unit.trim_end_matches('s'),
     }

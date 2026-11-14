@@ -34,7 +34,7 @@ use goodfetch_test_support::{
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use goodfetch_test_client::{Attached, Hello, hello};
+use goodfetch_test_client::{Attached, Hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -170,7 +170,7 @@ struct Beginning<'a> {
 
 impl<'a> Beginning<'a> {
     /// `method` beginning `run_id`, asked by a Client that says
-    /// [`hello`]'s `hello`.
+    /// [`Hello::needing`]'s `hello`.
     fn by(method: &'a str, run_id: &'a str) -> Self {
         Self {
             hello: Hello::needing(Product::Collie),

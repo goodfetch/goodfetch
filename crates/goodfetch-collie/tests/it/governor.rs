@@ -20,7 +20,7 @@ use std::process::{Command, Stdio};
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::{MESSAGE_DEADLINE, TestEnv};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::page::next_sample;
 use goodfetch_test_client::{Attached, hello};

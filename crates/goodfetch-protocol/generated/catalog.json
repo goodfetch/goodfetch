@@ -1803,6 +1803,7 @@
           "values": [
             "acknowledgements",
             "actor_round_trips",
+            "admission_evidence",
             "analysis_handoffs",
             "answers",
             "batches",

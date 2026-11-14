@@ -186,7 +186,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 113] = [
+const ROWS: [Row; 114] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -278,6 +278,10 @@ const ROWS: [Row; 113] = [
     // default cell's one crawl on an empty cache, read per crawl as
     // `F1.clean_up_instructions` is: work once per engine and rules version.
     b4(SELECTOR_COMPILATION_INSTRUCTIONS, CALLGRIND_CRAWLS, true),
+    // Callgrind's count beneath the build of the version's generic set,
+    // which the Filter lists' load does once per version (issue 2191),
+    // over the same crawl as `F1.clean_up_instructions`, per crawl.
+    b4(GENERIC_SET_INSTRUCTIONS, CALLGRIND_CRAWLS, true),
     Row {
         name: "F2.transactions",
         family: "B1",
@@ -1004,6 +1008,11 @@ const CLEAN_UP_INSTRUCTIONS: &str = "F1.clean_up_instructions";
 /// [`CLEAN_UP_INSTRUCTIONS`], and holds within the same tolerance.
 const SELECTOR_COMPILATION_INSTRUCTIONS: &str = "F1.selector_compilation_instructions";
 
+/// The instructions of the generic set's build as a crawl's Filter lists
+/// load, which B4's benchmark reads under Callgrind as it reads
+/// [`CLEAN_UP_INSTRUCTIONS`], and holds within the same tolerance.
+const GENERIC_SET_INSTRUCTIONS: &str = "F1.generic_set_instructions";
+
 const fn b4(name: &'static str, unit: &'static str, happens: bool) -> Row {
     Row {
         name,
@@ -1589,7 +1598,12 @@ fn verdict(
                 one_of(row.unit),
             ));
             let limit_held = if row.valgrind.is_some()
-                || [CLEAN_UP_INSTRUCTIONS, SELECTOR_COMPILATION_INSTRUCTIONS].contains(&row.name)
+                || [
+                    CLEAN_UP_INSTRUCTIONS,
+                    SELECTOR_COMPILATION_INSTRUCTIONS,
+                    GENERIC_SET_INSTRUCTIONS,
+                ]
+                .contains(&row.name)
             {
                 limit.with_valgrind_tolerance()
             } else {

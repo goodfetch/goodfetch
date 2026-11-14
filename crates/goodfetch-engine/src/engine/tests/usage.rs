@@ -340,6 +340,10 @@ async fn charge_from_tasks(params: Value, context: CallContext) -> Result<Value,
             slices = journaled_slices(&run) => journal.read(slices),
         }
     };
+    // A claim's journal rides the open batch at a level that batches
+    // attempts, answered before the batch commits and seen by a reader only
+    // once it does (ADR 0142): the last read follows the batch's seal.
+    run.state().seal().await.unwrap();
     journal.read(journaled_slices(&run).await);
     Ok(json!({
         "charged": charged,

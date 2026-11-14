@@ -2363,7 +2363,10 @@ impl Run {
     /// queued, with the write, which answers what `work` returned once its
     /// commit is acknowledged, before a sync of its own: it is an attempt's
     /// claim, which a power cut may take, and the writer bounds what such
-    /// writes charge by [`DEFERRED_CHARGES`] (ADR 0138's note of #1926).
+    /// writes charge by [`DEFERRED_CHARGES`] (ADR 0138's note of #1926). At
+    /// a level that batches attempts it rides the open batch once the file
+    /// declares its charges unsynced: answered once its savepoint is
+    /// released, and seen by a reader only once the batch commits (ADR 0142).
     /// The caller need not wait for it: dropping it does not withdraw the
     /// write, and every write queued after it runs after it.
     ///

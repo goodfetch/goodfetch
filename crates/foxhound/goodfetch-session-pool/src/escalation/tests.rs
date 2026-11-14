@@ -11,6 +11,17 @@ const fn on(tier: FetchTier, forced: bool) -> Met {
     Met {
         tier: Some(tier),
         forced,
+        from_transport: false,
+    }
+}
+
+/// Met on `tier`, sent by its Session's own transport on the tier its
+/// Label's comparison chose.
+const fn by_transport(tier: FetchTier, forced: bool) -> Met {
+    Met {
+        tier: Some(tier),
+        forced,
+        from_transport: true,
     }
 }
 
@@ -63,7 +74,7 @@ const fn on(tier: FetchTier, forced: bool) -> Met {
     on(FetchTier::Browser, true),
     Action::Blocked
 )]
-#[case::a_challenge_the_handler_fetched(BlockCause::Challenge, Met { tier: None, forced: false }, Action::Blocked)]
+#[case::a_challenge_the_handler_fetched(BlockCause::Challenge, Met { tier: None, forced: false, from_transport: false }, Action::Blocked)]
 #[case::an_ip_block_on_http(BlockCause::IpBlock, on(FetchTier::Http, false), Action::Blocked)]
 #[case::a_rate_limit_on_http(BlockCause::RateLimit, on(FetchTier::Http, false), Action::Blocked)]
 #[case::payment_required_on_http(
@@ -78,6 +89,52 @@ const fn on(tier: FetchTier, forced: bool) -> Met {
 )]
 #[case::a_decoy_on_http(BlockCause::Decoy, on(FetchTier::Http, false), Action::Blocked)]
 fn a_block_moves_its_request_to_the_browser_only_for_a_challenge_on_a_tier_short_of_it_not_forced(
+    #[case] cause: BlockCause,
+    #[case] met: Met,
+    #[case] action: Action,
+) {
+    assert_eq!(on_block(cause, met), action);
+}
+
+/// A refusal of a Label's transport is answered on the fetch tier first:
+/// an IP block met by the request a Session's own transport sent on the
+/// tier its Label's comparison chose drops that choice, and the request
+/// runs again as a sample (#2419). A rate limit, a Challenge and a refusal
+/// of anything else keep their paths.
+///
+/// Covers: story:6-251
+#[rstest]
+#[case::an_ip_block_on_http(
+    BlockCause::IpBlock,
+    by_transport(FetchTier::Http, false),
+    Action::Sample
+)]
+#[case::an_ip_block_on_discovered_api(
+    BlockCause::IpBlock,
+    by_transport(FetchTier::DiscoveredApi, false),
+    Action::Sample
+)]
+#[case::a_rate_limit_on_http(
+    BlockCause::RateLimit,
+    by_transport(FetchTier::Http, false),
+    Action::Blocked
+)]
+#[case::a_challenge_on_http(
+    BlockCause::Challenge,
+    by_transport(FetchTier::Http, false),
+    Action::MoveToBrowser
+)]
+#[case::an_ip_block_on_forced_http(
+    BlockCause::IpBlock,
+    by_transport(FetchTier::Http, true),
+    Action::Blocked
+)]
+#[case::an_ip_block_on_http_from_the_browser(
+    BlockCause::IpBlock,
+    on(FetchTier::Http, false),
+    Action::Blocked
+)]
+fn a_refusal_of_the_transport_samples_its_label_again(
     #[case] cause: BlockCause,
     #[case] met: Met,
     #[case] action: Action,

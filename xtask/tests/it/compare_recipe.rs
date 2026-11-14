@@ -3,8 +3,9 @@
 //! each of which records how it was called and builds nothing (`jq` gives
 //! the fixture's target folder). Cargo writes the `dev` profile's builds to
 //! `debug/` and every other profile's to a folder of its name, so the recipe
-//! hands `xtask compare run` that folder, where the matrix reads the sides'
-//! executables, and installs fastCRW's server into it.
+//! installs fastCRW's server into that folder, beside fastCRW's side, and
+//! hands `xtask compare run` the profile itself, which xtask maps to the
+//! same folder and its rerun command names.
 
 use std::path::Path;
 
@@ -20,9 +21,9 @@ fn recorder(calls: &Path) -> String {
     )
 }
 
-/// Runs `just compare <profile>` on the repository's justfile in the
+/// Runs `just compare [profile]` on the repository's justfile in the
 /// fixture, and returns the recorded calls.
-fn compare(profile: &str) -> Vec<String> {
+fn compare(profile: Option<&str>) -> Vec<String> {
     let workspace = Workspace::from_fixture("empty");
     let root = workspace.path();
     let calls = root.join("calls");
@@ -40,20 +41,11 @@ fn compare(profile: &str) -> Vec<String> {
     write_executable(&root.join("target/debug/xtask"), &recorder(&calls));
     std::fs::create_dir_all(root.join("ci/musl")).unwrap();
     write_executable(&root.join("ci/musl/install.sh"), "#!/bin/sh\n");
-    let path = std::env::join_paths(
-        std::iter::once(shims).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
-    )
-    .unwrap();
-    let justfile = Path::new(env!("CARGO_MANIFEST_DIR")).join("../justfile");
 
     let output = workspace
-        .command("just")
-        .arg("--justfile")
-        .arg(justfile)
-        .arg("--working-directory")
-        .arg(root)
-        .args(["compare", profile])
-        .env("PATH", path)
+        .just(&shims)
+        .arg("compare")
+        .args(profile)
         .output()
         .unwrap();
 
@@ -87,17 +79,20 @@ fn option_of<'a>(calls: &'a [String], call: &str, option: &str) -> &'a str {
     words.next().unwrap()
 }
 
-/// `just compare dev` reads the sides' executables from `debug/`, where
-/// Cargo wrote them, and installs fastCRW's server there; `release` reads
-/// and installs into `release/`, as before.
+/// `just compare dev` installs fastCRW's server into `debug/`, where Cargo
+/// writes the sides' `dev` builds, and runs xtask with the profile `dev`;
+/// `release`, or no profile, installs into `release/` and runs with
+/// `release`, as before.
 #[rstest]
-#[case::dev("dev", "debug")]
-#[case::release("release", "release")]
-fn just_compare_reads_each_profiles_builds_from_the_folder_cargo_wrote(
+#[case::dev(Some("dev"), "dev", "debug")]
+#[case::release(Some("release"), "release", "release")]
+#[case::no_profile(None, "release", "release")]
+fn just_compare_installs_into_the_profiles_folder_and_runs_with_the_profile(
+    #[case] asked: Option<&str>,
     #[case] profile: &str,
     #[case] folder: &str,
 ) {
-    let calls = compare(profile);
+    let calls = compare(asked);
 
     assert_eq!(
         (
@@ -110,7 +105,7 @@ fn just_compare_reads_each_profiles_builds_from_the_folder_cargo_wrote(
         ),
         (
             format!("target/compare-spider/fastcrw/{folder}").as_str(),
-            folder,
+            profile,
         )
     );
 }

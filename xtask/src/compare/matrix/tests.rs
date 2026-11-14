@@ -615,7 +615,7 @@ fn fastcrw_runs_every_scenario_on_its_side_but_durable_polite_long_raw_64_and_ra
 /// `just compare` builds fastCRW's server, locked at its pinned version
 /// with its `cdp` feature, at the run's profile, and installs it beside its
 /// side's executable, which it builds, locked, into the folder the run reads
-/// that executable from.
+/// that executable from: the profile's folder, `$folder` in the recipe.
 #[test]
 fn just_compare_builds_fastcrws_server_and_side_into_its_folder() {
     let recipes = include_str!("../../../../justfile");
@@ -627,7 +627,7 @@ fn just_compare_builds_fastcrws_server_and_side_into_its_folder() {
                 "cargo --config xtask/compare-fastcrw/server-profile.toml install --quiet \
                  --locked --force crw-server --version ={} --features cdp --profile \
                  {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{folder}-server \
-                 --root {{{{ compare_spider_builds }}}}/{folder}/{{{{ profile }}}}\n",
+                 --root {{{{ compare_spider_builds }}}}/{folder}/\"$folder\"\n",
                 crate::compare::trials::FASTCRW_VERSION
             ),
             format!(

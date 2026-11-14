@@ -1193,7 +1193,8 @@ rss-propose *scenarios:
 # still rebuilds what a changed side needs). Each build's executables are
 # read from its folder's `debug/` for the `dev` profile, the folder Cargo
 # writes that profile to, and from the folder of the profile's own name for
-# every other (fastCRW's server is installed into the same one).
+# every other; fastCRW's server is installed into the same one. xtask takes
+# the profile and maps it to that folder the same way.
 # xtask is built once and runs from its copy in the target folder's
 # compare/xtask: a build in the checkout while the matrix runs, for hours,
 # relinks or sweeps its debug executable, never the one measuring.
@@ -1228,7 +1229,7 @@ compare profile="release" *args:
     uv sync --frozen --quiet --directory xtask/compare-scrapy
     pnpm install --frozen-lockfile --reporter=silent --filter goodfetch-compare-collie...
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-collie-arms
-    "$xtask" compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile "$folder" "${@:2}"
+    "$xtask" compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile {{ profile }} "${@:2}"
 
 # The Kennel (ADR 0141), from the repository. On macOS: its release
 # executable in `Kennel.app`, signed ad hoc under the stable bundle

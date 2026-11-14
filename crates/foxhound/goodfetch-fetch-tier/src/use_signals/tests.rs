@@ -12,7 +12,10 @@ use goodfetch_protocol::response_limits::LimitSetting;
 use rstest::rstest;
 use url::Url;
 
-use super::{Purpose, UseSignals, content_signals_refusing, rsl_refusing, tdmrep_file_refusing};
+use super::{
+    Purpose, SignalNames, UseSignals, content_signals_refusing, names_signals, rsl_refusing,
+    tdmrep_file_refusing,
+};
 use crate::untouched::{UntouchedDemand, UntouchedReaders};
 
 /// The signals `headers` and the markup `html` of a document a handler's
@@ -422,4 +425,26 @@ fn a_document_whose_tree_the_pass_cannot_vouch_for_is_parsed_once() {
         (signals.refusing(Purpose::Collect).is_some(), parses),
         (true, 1)
     );
+}
+
+#[rstest]
+#[case::none("<p>tdm reservation, application/rsl xml</p>", false)]
+#[case::a_reservation(r#"<meta name="tdm-reservation" content="1">"#, true)]
+#[case::in_any_case(r#"<meta name="TDM-Reservation" content="1">"#, true)]
+#[case::an_rsl_type(r#"<link rel="license" type="APPLICATION/RSL+XML">"#, true)]
+#[case::at_the_very_end("<p>application/rsl+xml", true)]
+#[case::at_the_very_start("tdm-reservation", true)]
+fn a_signals_name_is_found_split_at_every_byte_as_whole(#[case] html: &str, #[case] named: bool) {
+    assert_eq!(names_signals(html), named);
+    for cut in 0..=html.len() {
+        let mut names = SignalNames::default();
+        names.read(&html.as_bytes()[..cut]);
+        names.read(&html.as_bytes()[cut..]);
+        assert_eq!(names.named(), named, "cut at {cut}");
+    }
+    let mut names = SignalNames::default();
+    for byte in html.as_bytes() {
+        names.read(std::slice::from_ref(byte));
+    }
+    assert_eq!(names.named(), named, "byte by byte");
 }

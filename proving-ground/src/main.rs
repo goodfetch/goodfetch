@@ -47,6 +47,7 @@ mod network_fixture;
 mod observation;
 mod oracle;
 mod output;
+mod page_load;
 mod portal;
 mod protection;
 mod push;

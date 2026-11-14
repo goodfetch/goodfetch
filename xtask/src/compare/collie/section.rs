@@ -1,7 +1,8 @@
 //! The Collie scenario's section of the report (issue 2282): each cell's
 //! median figures per action and per tool, the `actionability.test` pages
-//! each tool got right, and `collie.playwright_command_ratio` beside the
-//! register row's Today.
+//! each tool got right, `collie.playwright_command_ratio` beside the
+//! register row's Today, the opening cell's wall time beside the commands
+//! awaited one after another, and the page-load cell's rows (issue 2319).
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -15,6 +16,7 @@ use super::super::report::{Figure, Unit, cell_text, float, median, spread};
 use super::super::trials::{
     CollieScenario, CollieStopped, CollieTrial, Contender, Exercise, PageDone,
 };
+use super::page_load::{self, LoadSection};
 use super::{ACTION_TIMEOUT_MILLISECONDS, EXERCISES, RATIO_CELLS, RATIO_ROW};
 
 /// A page some trial did not get right.
@@ -39,6 +41,9 @@ pub(crate) struct Tally {
 #[derive(Serialize)]
 pub(crate) struct ToolFigures {
     pub(crate) commands_per_action: Figure,
+    /// The commands awaited one after another, those sent together or
+    /// while others were in flight counting once.
+    pub(crate) rounds_per_action: Figure,
     pub(crate) cpu_seconds_per_action: Figure,
     pub(crate) wall_seconds_per_action: Figure,
     pub(crate) peak_bytes: Figure,
@@ -97,6 +102,7 @@ pub(crate) enum Section {
         pages_right: BTreeMap<&'static str, Tally>,
         ratios: Vec<CommandRatio>,
         today: Today,
+        page_load: LoadSection,
     },
 }
 
@@ -168,6 +174,7 @@ fn not_measured(stopped: &CollieStopped) -> ToolFigures {
     };
     ToolFigures {
         commands_per_action: figure(),
+        rounds_per_action: figure(),
         cpu_seconds_per_action: figure(),
         wall_seconds_per_action: figure(),
         peak_bytes: figure(),
@@ -186,6 +193,7 @@ fn figures(ran: &[&CollieTrial]) -> (ToolFigures, f64) {
     let commands = per_action(&|trial| float(trial.commands));
     let figures = ToolFigures {
         commands_per_action: spread(&commands, Unit::Count),
+        rounds_per_action: spread(&per_action(&|trial| float(trial.rounds)), Unit::Count),
         cpu_seconds_per_action: spread(&per_action(&|trial| trial.cpu_seconds), Unit::Seconds),
         wall_seconds_per_action: spread(&per_action(&|trial| trial.wall_seconds), Unit::Seconds),
         peak_bytes: spread(
@@ -202,7 +210,7 @@ fn figures(ran: &[&CollieTrial]) -> (ToolFigures, f64) {
 /// The Collie scenario's section of the report, its ratio held to the
 /// Today of TESTING.md's `register`.
 pub(crate) fn section(scenario: &CollieScenario, register: &str) -> Section {
-    let (trials, trials_run, stopped) = match scenario {
+    let (trials, trials_run, stopped, loads, loads_stopped) = match scenario {
         CollieScenario::NotRun { reason } => {
             return Section::NotRun {
                 reason: reason.clone(),
@@ -212,7 +220,9 @@ pub(crate) fn section(scenario: &CollieScenario, register: &str) -> Section {
             trials,
             trials_run,
             stopped,
-        } => (trials, trials_run, stopped),
+            loads,
+            loads_stopped,
+        } => (trials, trials_run, stopped, loads, loads_stopped),
     };
     let today = today(register);
     let mut cells = Vec::new();
@@ -277,6 +287,7 @@ pub(crate) fn section(scenario: &CollieScenario, register: &str) -> Section {
         pages_right,
         ratios,
         today,
+        page_load: page_load::section(loads, loads_stopped),
     }
 }
 
@@ -347,7 +358,7 @@ fn ratios_text(text: &mut String, ratios: &[CommandRatio], today: &Today) {
 /// The Collie scenario's section in Markdown.
 pub(crate) fn markdown(section: &Section) -> String {
     let mut text = String::from("\n## The Collie scenario: Collie against Playwright\n\n");
-    let (trials, cells, pages_right, ratios, today) = match section {
+    let (trials, cells, pages_right, ratios, today, loads) = match section {
         Section::NotRun { reason } => {
             let _ = writeln!(text, "The Collie scenario was not run: {reason}.");
             return text;
@@ -358,7 +369,8 @@ pub(crate) fn markdown(section: &Section) -> String {
             pages_right,
             ratios,
             today,
-        } => (trials, cells, pages_right, ratios, today),
+            page_load,
+        } => (trials, cells, pages_right, ratios, today, page_load),
     };
     let _ = writeln!(
         text,
@@ -392,6 +404,7 @@ pub(crate) fn markdown(section: &Section) -> String {
             );
         }
     }
+    opening_text(&mut text, cells);
     text.push_str("\nPages of `actionability.test` right, over every cell:\n\n");
     for (tool, right) in pages_right {
         let _ = write!(text, "- {tool}: {} of {}", right.right, right.ran);
@@ -417,5 +430,43 @@ pub(crate) fn markdown(section: &Section) -> String {
         }
     }
     ratios_text(&mut text, ratios, today);
+    page_load::markdown(&mut text, loads);
     text
+}
+
+/// The opening cell's wall time per page opened beside the CDP commands
+/// each tool awaited one after another, appended to `text`; it has no bar.
+fn opening_text(text: &mut String, cells: &[CellFigures]) {
+    let Some(cell) = cells.iter().find(|cell| cell.exercise == Exercise::Opening) else {
+        return;
+    };
+    let _ = writeln!(
+        text,
+        "\nPages opened one after another in one Session, each kept open ({} of them), \
+         per page opened, with no bar:\n",
+        cell.actions
+    );
+    for (tool, figures) in &cell.tools {
+        let (
+            Figure::Measured { median: wall, .. },
+            Figure::Measured { median: rounds, .. },
+            Figure::Measured {
+                median: commands, ..
+            },
+        ) = (
+            &figures.wall_seconds_per_action,
+            &figures.rounds_per_action,
+            &figures.commands_per_action,
+        )
+        else {
+            let _ = writeln!(text, "- {tool}: not measured.");
+            continue;
+        };
+        let _ = writeln!(
+            text,
+            "- {tool}: {:.1} ms per page opened, {rounds:.2} CDP commands awaited one after \
+             another, of {commands:.2} sent.",
+            wall * 1000.0
+        );
+    }
 }

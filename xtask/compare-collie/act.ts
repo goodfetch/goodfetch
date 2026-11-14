@@ -10,7 +10,9 @@
 //   `browser.newContext()`), goes to its URL and takes its steps, then
 //   closes; one after another, or all at once when `at_once` is set;
 // - with `sessions` set, that many Sessions open one after another, each
-//   with one page, and close.
+//   with one page, and close;
+// - with `openings` set, that many pages open one after another in the
+//   trial's one Session, each kept open until the last is (issue 2319).
 //
 // Around the measured part it asks `--marks` for `/start` and `/end`, which
 // xtask answers once it has read the relay's command count and the
@@ -55,6 +57,8 @@ interface Plan {
   readonly pages: readonly PlannedPage[];
   readonly at_once: boolean;
   readonly sessions: number;
+  /** Pages opened one after another in one Session, each kept open. */
+  readonly openings: number;
   /** How long an action waits for its target, in milliseconds. */
   readonly action_timeout: number;
 }
@@ -215,6 +219,7 @@ function isPlan(value: unknown): value is Plan {
     plan["pages"].every(isPlannedPage) &&
     typeof plan["at_once"] === "boolean" &&
     typeof plan["sessions"] === "number" &&
+    typeof plan["openings"] === "number" &&
     typeof plan["action_timeout"] === "number"
   );
 }
@@ -275,14 +280,30 @@ if (
 }
 const plan = parsePlan(readFileSync(values.plan, "utf8"));
 const driver = await (values.tool === "collie" ? collie(values.cdp) : playwright(plan, values.cdp));
-let pages: PageResult[];
+let pages: PageResult[] = [];
 let sessions = 0;
-if (plan.sessions > 0) {
+let opened = 0;
+if (plan.openings > 0) {
+  // One page first, outside the marks, as the Sessions cell's first
+  // Session; the measured pages stay open until the end mark.
+  const session = await driver.newSession();
+  const first = await session.newPage();
+  await mark(values.marks, "start");
+  const kept: DriverPage[] = [];
+  while (opened < plan.openings) {
+    kept.push(await session.newPage());
+    opened += 1;
+  }
+  await mark(values.marks, "end");
+  for (const page of kept) await page.close();
+  await first.close();
+  await session.close();
+} else if (plan.sessions > 0) {
   // One Session first, outside the marks, so each tool is attached to the
   // browser before the openings it measures.
   const first = await driver.newSession();
   await mark(values.marks, "start");
-  for (let opened = 0; opened < plan.sessions; opened += 1) {
+  for (let started = 0; started < plan.sessions; started += 1) {
     const session = await driver.newSession();
     const page = await session.newPage();
     await page.close();
@@ -291,18 +312,16 @@ if (plan.sessions > 0) {
   }
   await mark(values.marks, "end");
   await first.close();
-  pages = [];
 } else {
   const session = await driver.newSession();
   await mark(values.marks, "start");
   if (plan.at_once) {
     pages = await Promise.all(plan.pages.map((planned) => onPage(session, planned)));
   } else {
-    pages = [];
     for (const planned of plan.pages) pages.push(await onPage(session, planned));
   }
   await mark(values.marks, "end");
   await session.close();
 }
 await driver.close();
-process.stdout.write(`${JSON.stringify({ pages, sessions })}\n`);
+process.stdout.write(`${JSON.stringify({ pages, sessions, opened })}\n`);

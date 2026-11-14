@@ -7,7 +7,7 @@ use std::fmt::{self, Debug, Formatter};
 use crate::blocks::{PageLists, fit, text};
 use crate::canonical::canonical_url;
 use crate::contacts::contacts;
-use crate::extractor::{Article, BuiltIn, Extractor};
+use crate::extractor::{Article, Chosen, Extractor};
 use crate::light::light;
 use crate::main_content::{main_content, main_text_length};
 use crate::markdown::markdown;
@@ -81,7 +81,7 @@ impl Default for Context<'_> {
     fn default() -> Self {
         Self {
             clean_up: None,
-            extractor: BuiltIn::default().extractor(),
+            extractor: Chosen::default().extractor(),
             work: CountedWork::default(),
         }
     }

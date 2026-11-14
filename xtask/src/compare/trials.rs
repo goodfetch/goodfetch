@@ -430,6 +430,9 @@ pub(crate) enum Exercise {
     Sessions,
     /// 16 pages acting at once in one Session.
     AtOnce,
+    /// Pages opened one after another in one Session, each kept open
+    /// (issue 2319).
+    Opening,
 }
 
 /// A tool of the Collie scenario, which the driver
@@ -502,6 +505,10 @@ pub(crate) struct CollieTrial {
     /// The CDP commands the counting relay passed to the browser between
     /// the marks: every WebSocket message from the tool.
     pub(crate) commands: u64,
+    /// The rounds the tool waited on the browser between the marks: its
+    /// CDP commands awaited one after another, those sent together or
+    /// while others were in flight counting once.
+    pub(crate) rounds: u64,
     /// The CPU time of the tool's process tree between the marks.
     pub(crate) cpu_seconds: f64,
     /// The time between the marks.
@@ -526,6 +533,82 @@ pub(crate) struct CollieStopped {
     pub(crate) reason: String,
 }
 
+/// A page of the Collie scenario's page-load cell (issue 2319): the
+/// Proving ground's `page-load.test` page of 150 subresources.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LoadPage {
+    /// Every subresource on the page's own host.
+    Plain,
+    /// 30 of them on hosts the embedded Filter lists block.
+    Ads,
+}
+
+/// A row of the page-load cell: a tool and the settings it loads with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Row {
+    /// Collie at its defaults.
+    Defaults,
+    /// `live_view.hiding: off`.
+    LiveHidingOff,
+    /// `live_view.hiding: off` and `consent.handling: off`.
+    ConsentOff,
+    /// `live_view.hiding: off` and the three Filter lists off.
+    FilterListsOff,
+    /// `security.raw_cdp_egress_proxy` off.
+    EgressRelayOff,
+    /// Playwright at its defaults.
+    Playwright,
+    /// Playwright with a route that lets every request through.
+    PlaywrightRouted,
+}
+
+/// One trial of the page-load cell: one tool, in a fresh process, launching
+/// its own browser against a fresh Proving ground, timed from the call that
+/// loads the page to its `load` event.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct LoadTrial {
+    pub(crate) page: LoadPage,
+    pub(crate) row: Row,
+    /// Its number among its row's trials on its page, from 1.
+    pub(crate) number: u32,
+    /// The 1-minute load average when it started, where the OS gives one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) load: Option<f64>,
+    /// The document's status, when the navigation answered one.
+    pub(crate) status: Option<u16>,
+    /// The SHA-256 of the page's `#content` text, in hex.
+    pub(crate) read: Option<String>,
+    /// The page's own subresources the Proving ground answered, each once.
+    pub(crate) own: u64,
+    /// The requests the Proving ground received for the page's host and
+    /// the ad hosts: those the tool sent.
+    pub(crate) sent: u64,
+    /// The CPU time of the tool's process tree, its browser in it, between
+    /// the marks.
+    pub(crate) cpu_seconds: f64,
+    /// The time from the call that loads the page to its `load` event.
+    pub(crate) wall_seconds: f64,
+    /// The highest resident memory of the tool's process tree, its browser
+    /// in it, from its start to its exit.
+    pub(crate) peak_bytes: u64,
+    /// Why its first attempt was stopped, when these are its retry's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) retried: Option<String>,
+}
+
+/// A page-load trial stopped twice, which leaves its row's figures on its
+/// page unmeasured and its later trials there not run.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct LoadStopped {
+    pub(crate) page: LoadPage,
+    pub(crate) row: Row,
+    pub(crate) number: u32,
+    /// Both attempts' reasons.
+    pub(crate) reason: String,
+}
+
 /// The Collie scenario: its cells' trials, both tools in each.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -534,11 +617,15 @@ pub(crate) enum CollieScenario {
         reason: String,
     },
     Measured {
-        /// Trials of each tool in each cell.
+        /// Trials of each tool in each cell, and of each row on each page.
         trials: u32,
         trials_run: Vec<CollieTrial>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         stopped: Vec<CollieStopped>,
+        /// The page-load cell's trials (issue 2319).
+        loads: Vec<LoadTrial>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        loads_stopped: Vec<LoadStopped>,
     },
 }
 

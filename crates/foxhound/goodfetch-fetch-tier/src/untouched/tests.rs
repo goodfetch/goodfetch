@@ -6,13 +6,17 @@
     reason = "ADR 0138: a test's own parse, on no page's path"
 )]
 
+use std::fmt::Write as _;
+use std::sync::Arc;
+
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use goodfetch_protocol::foxhound::crawl::FieldLocator;
 use goodfetch_protocol::settings::page_check::{PageCheck, PageMatch};
+use proptest::prelude::*;
 use rstest::rstest;
 use url::Url;
 
-use super::{UntouchedDemand, UntouchedReaders};
+use super::{StreamRead, UntouchedDemand, UntouchedReaders};
 use crate::document::{first_elements, matched};
 use crate::expected_page::{self, judge};
 use crate::refresh;
@@ -324,6 +328,124 @@ fn a_document_naming_a_use_signal_is_read_on_its_tree() {
         "<meta name=\"tdm-reservation\" content=\"1\"><title>",
     );
     assert!(readers.stream(&signalled).is_none());
+}
+
+/// What `readers` read of `html` in one pass, its text written in chunks
+/// cut at `cuts`, in order.
+fn passed(readers: &Arc<UntouchedReaders>, html: &str, cuts: &[usize]) -> Option<StreamRead> {
+    let mut pass = readers.pass().expect("the readers read in one pass");
+    let mut at = 0;
+    for &cut in cuts.iter().chain(&[html.len()]) {
+        pass.write(&html.as_bytes()[at..cut]);
+        at = cut;
+    }
+    pass.end()
+        .by(readers)
+        .expect("the readers that started it read it")
+        .read()
+}
+
+/// The corpus, and B1's page naming an AI-use signal.
+fn chunked_corpus() -> Vec<String> {
+    let signalled = B1_PAGE.replace(
+        "<title>",
+        "<meta name=\"tdm-reservation\" content=\"1\"><title>",
+    );
+    corpus()
+        .into_iter()
+        .map(|(html, _)| html.to_owned())
+        .chain([signalled])
+        .collect()
+}
+
+/// The pass over a crawl request's own document, read in chunks as they
+/// arrive, reads what the readers read in one pass of the whole text, or
+/// leaves the document to the tree as they do, a doctype, an end tag or a
+/// signal's name split between two chunks included (issue 2188).
+#[rstest]
+#[case::cut_at_every_byte(false)]
+#[case::byte_by_byte(true)]
+fn a_pass_reads_a_text_in_chunks_as_it_reads_it_whole(#[case] byte_by_byte: bool) {
+    let work = CountedWork::default();
+    let readers = Arc::new(UntouchedReaders::of(streaming_demand(), &work));
+    for html in chunked_corpus() {
+        let whole = readers.stream(&html);
+        if byte_by_byte {
+            let cuts: Vec<usize> = (1..html.len()).collect();
+            assert_eq!(passed(&readers, &html, &cuts), whole, "{html}");
+        } else {
+            for cut in 0..=html.len() {
+                assert_eq!(
+                    passed(&readers, &html, &[cut]),
+                    whole,
+                    "cut at {cut} of {html}"
+                );
+            }
+        }
+    }
+    assert_eq!(work.read(Row::PageParses), 0);
+}
+
+#[test]
+fn readers_of_another_label_do_not_read_a_pass() {
+    let work = CountedWork::default();
+    let (readers, other) = (
+        Arc::new(UntouchedReaders::of(streaming_demand(), &work)),
+        UntouchedReaders::of(streaming_demand(), &work),
+    );
+    let mut pass = readers.pass().expect("the readers read in one pass");
+    pass.write(PAGE.as_bytes());
+
+    assert!(pass.end().by(&other).is_none());
+}
+
+#[test]
+fn readers_that_need_a_tree_start_no_pass() {
+    let readers = Arc::new(UntouchedReaders::of(
+        UntouchedDemand {
+            signs: true,
+            ..streaming_demand()
+        },
+        &CountedWork::default(),
+    ));
+
+    assert!(readers.pass().is_none());
+}
+
+/// A page of 300 sections, each with this module's links, fields and
+/// controls, multi-byte text and a comment, and no table, since the pass
+/// does not vouch for a table's tree.
+fn large_page() -> String {
+    let mut html = String::from(
+        "<!doctype html><html><head><title>Large</title><base href=\"/k/\"><meta name=\"robots\" content=\"noindex\"></head><body>\n",
+    );
+    for section in 0..300 {
+        write!(
+            html,
+            "<section><h1>Café {section} 漢字</h1><!-- note ç {section} -->\n<nav><a href=\"/n/{section}\">Nav</a></nav><div id=\"p{section}\" hidden><a href=\"h/{section}\">Hidden &amp; more</a></div>\n<button aria-controls=\"p{section}\">Open</button><p class=\"sku\">naïve 🦀 {section}</p><ul><li>{section}</li><li><a href=\"l/{section}\">List</a></li></ul></section>\r\n",
+        )
+        .expect("invariant: writing to a String cannot fail");
+    }
+    html.push_str("</body></html>");
+    html
+}
+
+proptest! {
+    #![proptest_config(goodfetch_test_support::proptest_config())]
+
+    /// A large page cut anywhere is read in chunks as it is read whole.
+    #[test]
+    fn a_large_page_cut_anywhere_reads_as_it_reads_whole(
+        cuts in prop::collection::vec(any::<prop::sample::Index>(), 0..64),
+    ) {
+        let html = large_page();
+        let readers = Arc::new(UntouchedReaders::of(streaming_demand(), &CountedWork::default()));
+        let whole = readers.stream(&html);
+        prop_assert!(whole.is_some());
+        let mut cuts: Vec<usize> = cuts.iter().map(|cut| cut.index(html.len() + 1)).collect();
+        cuts.sort_unstable();
+        prop_assert_eq!(passed(&readers, &html, &cuts), whole);
+    }
 }
 
 /// While a handler reads the Run's pages, the Page signature reads a copy

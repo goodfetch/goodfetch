@@ -15,12 +15,12 @@ use std::cell::RefCell;
 
 use goodfetch_clean_up_rules::removal::{self, Removed, Rules, Share};
 use goodfetch_counted_work::{CountedWork, ParsedHtml};
-use goodfetch_engine::settings::{Resolved, Values};
+use goodfetch_engine::settings::Resolved;
 use goodfetch_extractor::{
-    BuiltIn, CleanUp, Context, Demand, Document, Extractor, Measured, Plan, Reader, Serialization,
+    CleanUp, Context, Demand, Document, Extractor, Measured, Plan, Reader, Serialization,
 };
 use goodfetch_protocol::page::{
-    CONTENT_EXTRACTOR, EXTRACTION_REMOVAL_SHARE, FormatsRequest, PageFormats, PageId, SessionId,
+    EXTRACTION_REMOVAL_SHARE, FormatsRequest, PageFormats, PageId, SessionId,
 };
 use serde_json::{Value, json};
 
@@ -137,29 +137,6 @@ impl CleanUp for Matcher<'_> {
         *self.removal.borrow_mut() = Some(removal);
         took
     }
-}
-
-/// The main-content step a page's formats read with: the
-/// `content.extractor` of its own settings `page`, else the one its crawl
-/// request's Label chooses, `label`, else its Session's `session`, else
-/// its Run's resolved settings `run`; dom-smoothie without any. A value no
-/// built-in has never reaches here: it was refused where it was set.
-pub(super) fn extractor(
-    run: Option<&Resolved>,
-    (session, label): (&Values, Option<BuiltIn>),
-    page: &Values,
-) -> BuiltIn {
-    let named = |values: &Values| {
-        values
-            .get(CONTENT_EXTRACTOR.name)
-            .and_then(Value::as_str)
-            .and_then(BuiltIn::named)
-    };
-    named(page)
-        .or(label)
-        .or_else(|| named(session))
-        .or_else(|| run.and_then(|run| BuiltIn::named(run.get(&CONTENT_EXTRACTOR))))
-        .unwrap_or_default()
 }
 
 /// The formats `request` names, read from `document`, serialized as

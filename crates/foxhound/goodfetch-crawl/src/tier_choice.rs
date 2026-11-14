@@ -42,6 +42,13 @@
 //! `browser_fetch` is sampled again once its Label sends its HTTP from the
 //! transport alone (`transport`).
 //!
+//! A sample's `discovered_api` run follows the same ladder under
+//! `learned` (#2420): its calls are replayed from the transport first,
+//! and from the browser Session's hop page where that replay differed. A
+//! Label learned onto `discovered_api` keeps the client every sample's
+//! replay matched from ([`Replay`]): the transport only where each one
+//! matched there, the browser once one matched only from it.
+//!
 //! A choice is sampled again once it served `fetch.sample.refresh_after`'s
 //! requests, or once its time passed, whichever comes first (500 requests
 //! or 24 hours by default), and at once when [`TierChoices::invalidate`]
@@ -108,8 +115,9 @@ pub(crate) enum AttemptPlan {
     Sitemap,
     /// On this tier, forced or learned.
     On(TierChoice),
-    /// On `discovered_api`, its calls replayed as the Label's plan says.
-    Replayed(ReplayPlan),
+    /// On `discovered_api`, its calls replayed as the Label's plan says,
+    /// from the client the plan names.
+    Replayed(Replay),
     /// A sample: on `http`, then on `browser`, whose run commits.
     Sample(Sampled),
     /// A race of browser-fetch against a navigation (`fetch.tier_race`;
@@ -122,7 +130,8 @@ impl AttemptPlan {
     /// the pool for, its Label's HTTP sent `from` that client under
     /// `auto` (`fetch.http_from`): a sitemap's fetch is read by an HTTP
     /// client, never a browser; a forced tier as [`sends_from`] says; a
-    /// learned `http` or `discovered_api`, and a replay, from `from`; any
+    /// learned `http` or `discovered_api` from `from`; a replay from the
+    /// client its samples matched from; any
     /// other learned tier, a sample or a race from the browser, where the
     /// Session may move. A sample's `http` run sent from the transport
     /// takes a Session of its own beside it.
@@ -137,8 +146,8 @@ impl AttemptPlan {
             Self::On(TierChoice {
                 tier: FetchTier::Http | FetchTier::DiscoveredApi,
                 forced: None,
-            })
-            | Self::Replayed(_) => from,
+            }) => from,
+            Self::Replayed(replay) => replay.from,
             Self::On(TierChoice { forced: None, .. }) | Self::Sample(_) | Self::Race(_) => {
                 SendsFrom::Browser
             }
@@ -189,12 +198,44 @@ pub(crate) enum Weighed {
     Walled,
 }
 
+/// The calls a `discovered_api` run replays and the client they leave
+/// from (#2420): the Session's own transport, or its browser's hop page.
+/// Kept in the run file, so a resumed crawl replays from the same client.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Replay {
+    pub(crate) plan: ReplayPlan,
+    #[serde(
+        default = "browser",
+        skip_serializing_if = "is_browser",
+        with = "client"
+    )]
+    pub(crate) from: SendsFrom,
+}
+
+impl Replay {
+    /// The replay a Label keeps once a sample's replay, `newer`, matched
+    /// too: `newer`'s plan, from the browser where either matched only
+    /// from there, since every request must then replay from it.
+    fn and(self, newer: Self) -> Self {
+        let from = if self.from == SendsFrom::Browser {
+            SendsFrom::Browser
+        } else {
+            newer.from
+        };
+        Self {
+            plan: newer.plan,
+            from,
+        }
+    }
+}
+
 /// The tiers between `http` and `browser` whose runs of a sample staged
 /// what the browser's did.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Between {
-    /// The plan its `discovered_api` run replayed, when that run matched.
-    pub(crate) api: Option<ReplayPlan>,
+    /// The plan its `discovered_api` run replayed, and from which client,
+    /// when that run matched.
+    pub(crate) api: Option<Replay>,
     /// Whether its `browser_fetch` run matched.
     pub(crate) fetch: bool,
     /// Whether its `light_browser` run matched.
@@ -213,12 +254,12 @@ pub(crate) struct TierChoices {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum Unit {
     /// Its first samples, in the order they were classified, each sent
-    /// `from` that client, and the plan the last that matched on
-    /// `discovered_api` replayed.
+    /// `from` that client, and the replay its samples that matched on
+    /// `discovered_api` agree on ([`Replay::and`]).
     Sampling {
         samples: Vec<Sample>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        plan: Option<ReplayPlan>,
+        replay: Option<Replay>,
         #[serde(
             default = "browser",
             skip_serializing_if = "is_browser",
@@ -228,14 +269,14 @@ pub(crate) enum Unit {
     },
     /// One tier for every request, chosen at `since` (milliseconds since
     /// the Unix epoch) from samples sent `from` that client, having
-    /// `served` requests since, with the plan `discovered_api` replays.
+    /// `served` requests since, with the replay `discovered_api` runs.
     Learned {
         tier: FetchTier,
         since: u64,
         #[serde(default, skip_serializing_if = "is_zero")]
         served: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        plan: Option<ReplayPlan>,
+        replay: Option<Replay>,
         #[serde(
             default = "browser",
             skip_serializing_if = "is_browser",
@@ -245,7 +286,7 @@ pub(crate) enum Unit {
     },
     /// A tier per path segment, in the order the segments came, chosen at
     /// `since` from samples sent `from` that client, having `served`
-    /// requests since, with the plan `discovered_api` replays; any other
+    /// requests since, with the replay `discovered_api` runs; any other
     /// segment takes `browser`.
     Split {
         segments: Vec<Segment>,
@@ -253,7 +294,7 @@ pub(crate) enum Unit {
         #[serde(default, skip_serializing_if = "is_zero")]
         served: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        plan: Option<ReplayPlan>,
+        replay: Option<Replay>,
         #[serde(
             default = "browser",
             skip_serializing_if = "is_browser",
@@ -465,10 +506,10 @@ impl TierChoices {
                 );
             }
             Some(Plan::On(FetchTier::DiscoveredApi)) => {
-                let plan = self.units.get(&id).and_then(Unit::replay_plan).cloned();
-                // A unit holds a plan once one of its samples matched on
+                let replay = self.units.get(&id).and_then(Unit::replay).cloned();
+                // A unit holds a replay once one of its samples matched on
                 // `discovered_api`; one without stays on the browser.
-                plan.map_or(
+                replay.map_or(
                     AttemptPlan::On(TierChoice {
                         tier: FetchTier::Browser,
                         forced: None,
@@ -493,7 +534,7 @@ impl TierChoices {
         let count = self.sampling.count;
         let fresh = || Unit::Sampling {
             samples: Vec::new(),
-            plan: None,
+            replay: None,
             from: sampled.from,
         };
         let unit = self
@@ -526,7 +567,7 @@ impl TierChoices {
             Unit::Learned { from, .. } | Unit::Split { from, .. } => {
                 *unit = Unit::Sampling {
                     samples: Vec::new(),
-                    plan: None,
+                    replay: None,
                     from: *from,
                 };
                 Some(unit)
@@ -566,13 +607,13 @@ impl Unit {
         }
     }
 
-    /// The plan `discovered_api` replays for it, once a sample matched
-    /// there.
-    fn replay_plan(&self) -> Option<&ReplayPlan> {
+    /// What `discovered_api` replays for it, and from which client, once
+    /// a sample matched there.
+    fn replay(&self) -> Option<&Replay> {
         match self {
-            Self::Sampling { plan, .. } | Self::Learned { plan, .. } | Self::Split { plan, .. } => {
-                plan.as_ref()
-            }
+            Self::Sampling { replay, .. }
+            | Self::Learned { replay, .. }
+            | Self::Split { replay, .. } => replay.as_ref(),
             Self::Walled => None,
         }
     }
@@ -654,29 +695,27 @@ impl Unit {
             Self::Learned { .. } | Self::Walled => {}
             Self::Sampling {
                 samples,
-                plan,
+                replay,
                 from,
             } => {
-                if replayed.is_some() {
-                    *plan = replayed;
-                }
+                kept_with(replay, replayed);
                 samples.push(sample);
                 if samples.len() >= count {
-                    let plan = plan.take();
-                    *self = Self::chosen(samples, count, (now, *from), plan);
+                    let replay = replay.take();
+                    *self = Self::chosen(samples, count, (now, *from), replay);
                 }
             }
-            Self::Split { segments, plan, .. } => {
-                if replayed.is_some() {
-                    *plan = replayed;
-                }
+            Self::Split {
+                segments, replay, ..
+            } => {
+                kept_with(replay, replayed);
                 Segment::take(segments, &sample, count);
             }
         }
     }
 
     /// What a Label on a domain learned at `now` from its first `samples`,
-    /// sent `from` that client, `plan` the one its samples replayed on
+    /// sent `from` that client, `replay` the one its samples replayed on
     /// `discovered_api`: the cheapest tier that served every one
     /// ([`Serves`]) when every one matched; split by first segment when
     /// some segment matched throughout and another did not; `browser`
@@ -685,7 +724,7 @@ impl Unit {
         samples: &[Sample],
         count: usize,
         (now, from): (u64, SendsFrom),
-        plan: Option<ReplayPlan>,
+        replay: Option<Replay>,
     ) -> Self {
         if samples.iter().all(Sample::matched) {
             let tier = samples
@@ -696,7 +735,7 @@ impl Unit {
                 tier,
                 since: now,
                 served: 0,
-                plan,
+                replay,
                 from,
             };
         }
@@ -712,7 +751,7 @@ impl Unit {
                 segments,
                 since: now,
                 served: 0,
-                plan,
+                replay,
                 from,
             }
         } else {
@@ -720,10 +759,21 @@ impl Unit {
                 tier: FetchTier::Browser,
                 since: now,
                 served: 0,
-                plan: None,
+                replay: None,
                 from,
             }
         }
+    }
+}
+
+/// Keeps a sample's matching replay, `replayed`, in `kept`
+/// ([`Replay::and`]).
+fn kept_with(kept: &mut Option<Replay>, replayed: Option<Replay>) {
+    if let Some(newer) = replayed {
+        *kept = Some(match kept.take() {
+            Some(older) => older.and(newer),
+            None => newer,
+        });
     }
 }
 

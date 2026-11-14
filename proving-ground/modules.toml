@@ -92,7 +92,7 @@ scope = []
 sitemap_seed = ["sitemaps"]
 sitemaps = []
 statuses = []
-tiers = []
+tiers = ["rungs"]
 traps = []
 
 [submodules.model]

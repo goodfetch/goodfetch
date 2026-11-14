@@ -4,8 +4,11 @@
 //! other path answers 404.
 //! Covers: story:2-33
 
+use goodfetch_test_support::TestEnv;
+
 use crate::crawler::field;
 use crate::proving_ground::ProvingGround;
+use crate::rungs::{AS_COLLIE_STARTS_IT, PinnedBrowser, reqwest_gets_on};
 
 const SEED: u64 = 926;
 
@@ -148,5 +151,33 @@ fn a_painted_page_leaves_its_text_to_its_canvas_script() {
             answer.body.contains("getImageData(0, 0, 1, 1).data[3]"),
         ),
         (200, true, true)
+    );
+}
+
+/// A guarded list's API answers its items only to the pinned browser's
+/// TLS fingerprint: reqwest over TLS and any client over plain text get a
+/// `403` that holds no item, while the pinned browser loads every page of
+/// the list, by page number, as a scroll list's (#2420).
+#[test]
+fn a_guarded_lists_api_answers_only_the_pinned_browser() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(SEED);
+    let refused = |(status, body): (u16, String)| {
+        let answer: serde_json::Value = serde_json::from_str(&body).expect("a JSON answer");
+        (status, answer.get("items").is_some())
+    };
+
+    let over_tls = reqwest_gets_on(&proving_ground, "tiers.test", "/api/guarded/1?page=1");
+    let plain = proving_ground.get(&proving_ground.url("tiers.test", "/api/guarded/1?page=1"));
+    let dom = PinnedBrowser::on(&env, &proving_ground, AS_COLLIE_STARTS_IT, "tiers.test")
+        .loads("/guarded/1");
+
+    assert_eq!(
+        (
+            refused(over_tls),
+            refused((plain.status, plain.body)),
+            dom.matches("<li class=\"item\">").count(),
+        ),
+        ((403, false), (403, false), 6)
     );
 }

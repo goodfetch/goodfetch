@@ -132,6 +132,12 @@ pub struct TierProvenance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub call: Option<String>,
+    /// For `discovered_api`, where its replayed calls left from: `http`
+    /// when the Session's own HTTP transport sent them, `browser_fetch`
+    /// when they left from inside its browser.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub calls_sent_on: Option<FetchTier>,
 }
 
 /// How the tier of a Record's document was chosen (ADRs 0023 and 0093).

@@ -39,6 +39,12 @@
 //!   each answer names, or once with a token its document issued, which
 //!   the API takes only once.
 //!
+//! - `/guarded/<n>`: a list by page number, as `/scroll/<n>`, whose API
+//!   answers its items only on a connection whose TLS fingerprint is the
+//!   pinned browser's (the `rungs` family's browser identity); any other
+//!   client, and any call over plain text, gets a `403` that holds no
+//!   item, so its calls replay from inside that browser only (#2420).
+//!
 //! - `/deep/<n>`: a list by page number, whose second page, from `n` =
 //!   [`DEEP_FROM`] on, answers JSON nested [`DEEP_NESTING`] deep, past the
 //!   engine's `network.max_json_depth`: a plan learned on the first lists
@@ -56,6 +62,7 @@ use std::time::Duration;
 
 use hyper::StatusCode;
 
+use super::rungs::of_the_pinned_browser;
 use super::{Held, Page, Visit, canonical_number, document, name};
 use crate::generator;
 use crate::sync::Mutex;
@@ -196,6 +203,13 @@ const SCROLL_SCRIPT: &str = r"for (let page = 1; page !== null; ) {
 }
 ";
 
+/// The script of `/guarded/<n>`: it loads its list's pages, page after
+/// page, by their number, until its API names no next page.
+const GUARDED_SCRIPT: &str = r"for (let page = 1; page !== null; ) {
+  page = load(`/api/guarded/${feed.dataset.number}?page=${page}`).next;
+}
+";
+
 /// The script of `/deep/<n>`: it loads its list's pages by page number.
 const DEEP_SCRIPT: &str = r"for (let page = 1; page !== null; ) {
   page = load(`/api/deep/${feed.dataset.number}?page=${page}`).next;
@@ -247,6 +261,7 @@ fn list_place(kind: &str) -> u64 {
         "scroll" => 1,
         "cursor" => 2,
         "deep" => 5,
+        "guarded" => 6,
         _ => 3,
     }
 }
@@ -273,6 +288,7 @@ fn list_shell(state: &State, kind: &str, number: u64) -> Option<Page> {
         "scroll" => (SCROLL_SCRIPT, String::new()),
         "cursor" => (CURSOR_SCRIPT, String::new()),
         "deep" => (DEEP_SCRIPT, String::new()),
+        "guarded" => (GUARDED_SCRIPT, String::new()),
         "signed" => {
             let mut tokens = state.tokens.lock();
             tokens.issued += 1;
@@ -294,7 +310,11 @@ fn list_api(visit: &Visit<'_>, state: &State, kind: &str, number: u64) -> Option
     let seed = visit.seed;
     let json = |value: serde_json::Value| Page::text("application/json", value.to_string());
     Some(match kind {
-        "scroll" | "deep" => {
+        "guarded" if !visit.request.tls.is_some_and(of_the_pinned_browser) => Page {
+            status: StatusCode::FORBIDDEN,
+            ..json(serde_json::json!({ "error": "this API answers only the browser it expects" }))
+        },
+        "scroll" | "deep" | "guarded" => {
             let page = visit
                 .request
                 .parameter("page")

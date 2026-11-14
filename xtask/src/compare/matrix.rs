@@ -43,16 +43,19 @@ pub(crate) enum Tool {
     CrawleeRs,
     /// pagesift's `Scraper`, its breadth-first crawl (#2215).
     Pagesift,
+    /// OpenSpider's spider crawl through its engine's library (#2216).
+    Openspider,
 }
 
 impl Tool {
-    pub(crate) const ALL: [Self; 6] = [
+    pub(crate) const ALL: [Self; 7] = [
         Self::Foxhound,
         Self::Spider,
         Self::Crawlee,
         Self::Scrapy,
         Self::CrawleeRs,
         Self::Pagesift,
+        Self::Openspider,
     ];
 
     pub(crate) fn name(self) -> &'static str {
@@ -63,6 +66,7 @@ impl Tool {
             Self::Scrapy => "scrapy",
             Self::CrawleeRs => "crawlee-rs",
             Self::Pagesift => "pagesift",
+            Self::Openspider => "openspider",
         }
     }
 }
@@ -547,6 +551,9 @@ pub(crate) const CRAWLEE_RS_FOLDER: &str = "crawlee-rs";
 /// The folder of pagesift's side's build among the Rust sides' builds.
 pub(crate) const PAGESIFT_FOLDER: &str = "pagesift";
 
+/// The folder of OpenSpider's side's build among the Rust sides' builds.
+pub(crate) const OPENSPIDER_FOLDER: &str = "openspider";
+
 /// The folder of chromiumoxide's side's build among the Rust sides' builds,
 /// for the Collie scenario's chromiumoxide arm (issue 2444).
 pub(crate) const CHROMIUMOXIDE_FOLDER: &str = "chromiumoxide";
@@ -593,6 +600,9 @@ pub(crate) enum Config {
     CrawleeRs,
     /// pagesift's side at the scenario's settings: its `Scraper`'s crawl.
     Pagesift,
+    /// OpenSpider's side at the scenario's settings: its engine's spider
+    /// crawl.
+    Openspider,
 }
 
 impl Config {
@@ -605,6 +615,7 @@ impl Config {
             Self::Scrapy => Tool::Scrapy,
             Self::CrawleeRs => Tool::CrawleeRs,
             Self::Pagesift => Tool::Pagesift,
+            Self::Openspider => Tool::Openspider,
         }
     }
 
@@ -644,7 +655,7 @@ pub(crate) struct Cell {
 }
 
 /// Every cell, in the report's order.
-pub(crate) const CELLS: [Cell; 84] = [
+pub(crate) const CELLS: [Cell; 96] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
@@ -739,6 +750,23 @@ pub(crate) const CELLS: [Cell; 84] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Pagesift),
+    },
+    Cell {
+        scenario: Scenario::Raw,
+        tool: Tool::Openspider,
+        name: "openspider",
+        mapping: "its engine's spider crawl (`os_engine::start_crawl`), the call its own command line \
+                  starts a crawl with, from the first page over its host, on its own HTTP \
+                  fetcher: `speed.threads: 16`, as many in flight on a host as threads \
+                  (`max_per_host` unset) over at most 6 connections to it \
+                  (`connections_per_host: auto`, its default), no rate (`max_urls_per_sec` \
+                  unset) and its adaptive throttle on (its default); robots.txt not obeyed \
+                  (`robots.mode: ignore`); its crawl file, an SQLite database, kept in the \
+                  trial's folder on its `Balanced` storage profile, its command line's; the \
+                  analysis its command line runs once a crawl ends (its SEO reports) not run",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Openspider),
     },
     Cell {
         scenario: Scenario::Raw,
@@ -893,6 +921,20 @@ pub(crate) const CELLS: [Cell; 84] = [
         status: Status::Measured(Config::Pagesift),
     },
     Cell {
+        scenario: Scenario::Durable,
+        tool: Tool::Openspider,
+        name: "openspider",
+        mapping: "scenario 1's crawl killed with SIGKILL once half the site is served, then the same \
+                  command in a new process on the same folder, which resumes the crawl file the \
+                  killed one left (`os_engine::resume_crawl`, its command line's `--resume`) once \
+                  that file's heartbeat is older than OpenSpider's 10 s, before which it holds \
+                  the crawl as still running and refuses to resume it, so the trial's time holds \
+                  that wait",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Openspider),
+    },
+    Cell {
         scenario: Scenario::Polite,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -1002,6 +1044,15 @@ pub(crate) const CELLS: [Cell; 84] = [
         status: Status::Measured(Config::Pagesift),
     },
     Cell {
+        scenario: Scenario::Polite,
+        tool: Tool::Openspider,
+        name: "openspider",
+        mapping: "none: OpenSpider's one pace setting is its whole crawl's, not each domain's",
+        pending: &[],
+        row: Row::Main,
+        status: Status::NotSupported(OPENSPIDER_NOT_POLITE),
+    },
+    Cell {
         scenario: Scenario::Extraction,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -1104,6 +1155,18 @@ pub(crate) const CELLS: [Cell; 84] = [
     },
     Cell {
         scenario: Scenario::Extraction,
+        tool: Tool::Openspider,
+        name: "openspider",
+        mapping: "scenario 1's crawl with one custom extractor, the text of its `main` \
+                  (`custom_extraction`: CSS `main`, text output), each crawled page's URL, title \
+                  and that text read from its crawl file once the crawl ends and written as a \
+                  line of `pages.jsonl`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Openspider),
+    },
+    Cell {
+        scenario: Scenario::Extraction,
         tool: Tool::Spider,
         name: "spider mimalloc",
         mapping: "the spider row's settings (`subscribe(64)`), with `mimalloc` as its global \
@@ -1192,6 +1255,18 @@ pub(crate) const CELLS: [Cell; 84] = [
     },
     Cell {
         scenario: Scenario::Browser,
+        tool: Tool::Openspider,
+        name: "openspider",
+        mapping: "scenario 1's crawl with each page rendered in the same headless Chrome for \
+                  Testing (`rendering.mode: javascript`, `rendering.chromium_path`), its tabs at \
+                  their default, as many as threads up to the machine's cores, and its other \
+                  rendering settings at their defaults",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Openspider),
+    },
+    Cell {
+        scenario: Scenario::Browser,
         tool: Tool::Spider,
         name: "spider smart",
         mapping: "none: Spider's `smart` feature, `crawl_smart()`, which fetches each page over \
@@ -1270,6 +1345,16 @@ pub(crate) const CELLS: [Cell; 84] = [
         status: Status::Measured(Config::Pagesift),
     },
     Cell {
+        scenario: Scenario::Realistic,
+        tool: Tool::Openspider,
+        name: "openspider",
+        mapping: "scenario 1's crawl (`speed.threads: 16`, robots.txt not obeyed) on the \
+                  realistic-page site",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Openspider),
+    },
+    Cell {
         scenario: Scenario::Long,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -1336,6 +1421,16 @@ pub(crate) const CELLS: [Cell; 84] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Pagesift),
+    },
+    Cell {
+        scenario: Scenario::Long,
+        tool: Tool::Openspider,
+        name: "openspider",
+        mapping: "scenario 1's crawl (`speed.threads: 16`, robots.txt not obeyed) on the site of \
+                  100,000 pages, under its limit of 5,000,000 (`limits.max_urls`)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Openspider),
     },
     Cell {
         scenario: Scenario::Raw64,
@@ -1405,6 +1500,16 @@ pub(crate) const CELLS: [Cell; 84] = [
         row: Row::Main,
         status: Status::Measured(Config::Pagesift),
     },
+    Cell {
+        scenario: Scenario::Raw64,
+        tool: Tool::Openspider,
+        name: "openspider",
+        mapping: "scenario 1's crawl with `speed.threads: 64`, over at most 6 connections to the \
+                  host (`connections_per_host: auto`)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Openspider),
+    },
     defaults(Scenario::Raw64),
     Cell {
         scenario: Scenario::Raw256,
@@ -1473,6 +1578,17 @@ pub(crate) const CELLS: [Cell; 84] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Pagesift),
+    },
+    Cell {
+        scenario: Scenario::Raw256,
+        tool: Tool::Openspider,
+        name: "openspider",
+        mapping: "scenario 1's crawl with `speed.threads: 256`, which its engine clamps to its \
+                  most, 200, over at most 6 connections to the host \
+                  (`connections_per_host: auto`)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Openspider),
     },
     defaults(Scenario::Raw256),
     Cell {
@@ -1561,6 +1677,20 @@ pub(crate) const CELLS: [Cell; 84] = [
         status: Status::Measured(Config::Pagesift),
     },
     Cell {
+        scenario: Scenario::Hostile,
+        tool: Tool::Openspider,
+        name: "openspider",
+        mapping: "its engine's spider crawl at OpenSpider's defaults (`CrawlConfig::default()`), \
+                  setting nothing but its resolver answering the task's host name with the \
+                  loopback address (`network.resolve`): robots.txt obeyed (`robots.mode: \
+                  respect`) and the sitemaps it names read (`sitemaps.auto_discover_robots`), 5 \
+                  threads, its adaptive throttle on, a limit of 5,000,000 pages and no browser \
+                  (`rendering.mode: text`)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Openspider),
+    },
+    Cell {
         scenario: Scenario::Hostile16,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -1627,6 +1757,16 @@ pub(crate) const CELLS: [Cell; 84] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Pagesift),
+    },
+    Cell {
+        scenario: Scenario::Hostile16,
+        tool: Tool::Openspider,
+        name: "openspider",
+        mapping: "scenario 1's crawl (`speed.threads: 16`, robots.txt not obeyed, no rate) on the \
+                  `traps` family",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Openspider),
     },
     Cell {
         scenario: Scenario::CrawlLike,
@@ -1708,6 +1848,19 @@ pub(crate) const CELLS: [Cell; 84] = [
         row: Row::Main,
         status: Status::Measured(Config::Pagesift),
     },
+    Cell {
+        scenario: Scenario::CrawlLike,
+        tool: Tool::Openspider,
+        name: "openspider",
+        mapping: "scenario 1's crawl (`speed.threads: 16`, robots.txt not obeyed) on the article \
+                  site over `https`, its `reqwest` client's HTTP/2 negotiated by ALPN \
+                  (`http.version: auto`, its default), the certificate authority `SSL_CERT_FILE` \
+                  names added to the certificates it trusts (`network.trusted_certificates`) and \
+                  certificates verified (its default)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Openspider),
+    },
 ];
 
 /// The cell at the catalog's defaults (#2175) in `scenario`, one of
@@ -1751,6 +1904,16 @@ const SPIDER_NOT_POLITE: &str = "Spider's `with_delay` waits between any two req
      `with_respect_robots_txt(true)` and every domain allowed (`with_external_domains`) sent its \
      102 requests over 101.5 s, one a second across all 50 domains the site then had, read robots.txt on 1 of them, \
      and fetched the page that robots.txt disallows (`Disallow: /sites/*/private`)";
+
+/// Why OpenSpider has no polite cell: what its code at the pinned commit
+/// does.
+const OPENSPIDER_NOT_POLITE: &str = "OpenSpider spaces its fetches with one rate for its whole \
+     crawl, `speed.max_urls_per_sec`: at its pinned commit, a bucket of one token in its fetcher \
+     that holds pages, resources, robots.txt and sitemaps alike, whatever their domain \
+     (`crates/os-fetch/src/rate.rs`), not a delay between one domain's requests. Its only delay of \
+     a site's own is robots.txt's `Crawl-delay` (`robots.respect_crawl_delay`), which the site \
+     does not set, and it fetches a host other than its first page's for that URL's status alone \
+     unless `cdns` names it (`crates/os-url/src/scope.rs`)";
 
 /// The name of Foxhound's row of the extraction scenario with its Filter
 /// lists off (#2136).

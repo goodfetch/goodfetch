@@ -206,6 +206,7 @@ fn a_raw_trial_that_fetched_a_page_twice_did_other_work() {
             "scrapy",
             "crawlee-rs",
             "pagesift",
+            "openspider",
             "spider capacity 4096",
             "spider default features",
             "spider bloom",
@@ -271,6 +272,7 @@ fn a_resumed_trial_whose_pages_were_first_served_other_bytes_did_other_work() {
             ),
             ("different_bytes", "durable crawlee-rs trial 3".to_owned()),
             ("different_bytes", "durable pagesift trial 3".to_owned()),
+            ("different_bytes", "durable openspider trial 3".to_owned()),
         ]
     );
 }
@@ -331,15 +333,22 @@ fn a_browser_trial_that_never_rendered_the_links_misses_the_script_rendered_page
                 finding.message.as_str()
             ))
             .collect::<Vec<_>>(),
-        ["foxhound", "spider", "crawlee", "scrapy", "pagesift"]
-            .map(|cell| (
-                "unrendered_pages",
-                format!("browser {cell} trial 2"),
-                "3 of the site's 3 pages its script links not reached",
-            ))
-            .iter()
-            .map(|(kind, subject, message)| (*kind, subject.as_str(), *message))
-            .collect::<Vec<_>>()
+        [
+            "foxhound",
+            "spider",
+            "crawlee",
+            "scrapy",
+            "pagesift",
+            "openspider"
+        ]
+        .map(|cell| (
+            "unrendered_pages",
+            format!("browser {cell} trial 2"),
+            "3 of the site's 3 pages its script links not reached",
+        ))
+        .iter()
+        .map(|(kind, subject, message)| (*kind, subject.as_str(), *message))
+        .collect::<Vec<_>>()
     );
 }
 

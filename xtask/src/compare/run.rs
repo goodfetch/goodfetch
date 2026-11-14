@@ -22,9 +22,10 @@ use super::trial::{self, Counted, Outcome, Ruled, callgrind_missing, strace_miss
 use super::trials::{
     CONCURRENCY, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, CollieScenario, Comparison, CountedCell,
     CountedRun, Declared, GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_SCENARIOS,
-    INSTRUCTION_TOOLS, Measured, PAGESIFT_VERSION, PLAYWRIGHT_VERSION, RULE_RUNS, RuledRun,
-    SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES,
-    SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint, StoppedRun, Trial, size_not_run,
+    INSTRUCTION_TOOLS, Measured, OPENSPIDER_COMMIT, PAGESIFT_VERSION, PLAYWRIGHT_VERSION,
+    RULE_RUNS, RuledRun, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES,
+    SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint, StoppedRun, Trial,
+    size_not_run,
 };
 
 mod collie;
@@ -35,10 +36,11 @@ mod watch;
 pub(crate) struct Executables<'a> {
     pub(crate) proving_ground: &'a Path,
     pub(crate) foxhound: &'a Path,
-    /// The folder of the Rust sides' builds, Spider's, crawlee-rs's and
-    /// pagesift's, and the folder Cargo names after the profile each was
-    /// built with (see [`spider_executable`], [`crawlee_rs_executable`] and
-    /// [`pagesift_executable`]).
+    /// The folder of the Rust sides' builds, Spider's, crawlee-rs's,
+    /// pagesift's and OpenSpider's, and the folder Cargo names after the
+    /// profile each was built with (see [`spider_executable`],
+    /// [`crawlee_rs_executable`], [`pagesift_executable`] and
+    /// [`openspider_executable`]).
     pub(crate) spider_builds: &'a Path,
     pub(crate) spider_profile: &'a str,
     /// Crawlee's side's script, run by Node.js, and Scrapy's, run by the
@@ -168,6 +170,20 @@ pub(crate) fn pagesift_executable(builds: &Path, profile: &str) -> PathBuf {
         ))
 }
 
+/// OpenSpider's side's executable in `builds`, beside Spider's builds:
+/// `just compare` builds it into the target folder
+/// [`matrix::OPENSPIDER_FOLDER`] names, where Cargo puts it under
+/// `profile`'s folder.
+pub(crate) fn openspider_executable(builds: &Path, profile: &str) -> PathBuf {
+    builds
+        .join(matrix::OPENSPIDER_FOLDER)
+        .join(profile)
+        .join(format!(
+            "goodfetch-compare-openspider{}",
+            std::env::consts::EXE_SUFFIX
+        ))
+}
+
 /// chromiumoxide's side's executable in `builds`, beside Spider's builds:
 /// `just compare` builds it into the target folder
 /// [`matrix::CHROMIUMOXIDE_FOLDER`] names, where Cargo puts it under
@@ -219,6 +235,9 @@ fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf>
         }
         Config::Pagesift => {
             pagesift_executable(executables.spider_builds, executables.spider_profile)
+        }
+        Config::Openspider => {
+            openspider_executable(executables.spider_builds, executables.spider_profile)
         }
     };
     let program = trial::invocation(config, &executable).program;
@@ -327,7 +346,8 @@ fn pages_of(scenario: Scenario, config: Config, pages: u64, spider_pages: Option
         | Config::Crawlee
         | Config::Scrapy
         | Config::CrawleeRs
-        | Config::Pagesift => pages,
+        | Config::Pagesift
+        | Config::Openspider => pages,
     }
 }
 
@@ -401,7 +421,8 @@ fn at_concurrency(config: Config, concurrency: u32) -> Config {
         | Config::Crawlee
         | Config::Scrapy
         | Config::CrawleeRs
-        | Config::Pagesift => config,
+        | Config::Pagesift
+        | Config::Openspider => config,
     }
 }
 
@@ -661,6 +682,7 @@ fn declared(options: &Options) -> Declared {
         scrapy: SCRAPY_VERSION.to_owned(),
         crawlee_rs: CRAWLEE_RS_COMMIT.to_owned(),
         pagesift: PAGESIFT_VERSION.to_owned(),
+        openspider: OPENSPIDER_COMMIT.to_owned(),
         playwright: PLAYWRIGHT_VERSION.to_owned(),
         scrapy_playwright: SCRAPY_PLAYWRIGHT_VERSION.to_owned(),
         browser: crate::test_facts::CHROME_FOR_TESTING_BUILD.to_owned(),

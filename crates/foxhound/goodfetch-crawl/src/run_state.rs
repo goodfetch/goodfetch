@@ -46,7 +46,7 @@ mod asks;
 mod stored;
 
 pub(crate) use asks::{Asked, Asking, mailbox};
-pub(crate) use stored::{QueuedEnd, Stored, Within};
+pub(crate) use stored::{QueuedEnd, Stored, Unkeyed, Within};
 
 /// Why the crawl's Run state did not take an operation.
 #[derive(Debug, thiserror::Error)]

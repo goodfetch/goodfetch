@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
+use goodfetch_engine::admission::{Keys, Waiting};
 use goodfetch_engine::egress::Policy;
 use goodfetch_frontier::{EndMerged, PageSeen, Url, sitemap};
 use goodfetch_protocol::foxhound::crawl::CrawlRequest;
@@ -172,13 +173,15 @@ pub(crate) enum Ending {
         ended_at: PointInTime,
     },
     /// Its sitemap's `document` is read, its entries admitted under the
-    /// Run's domain policy `egress` and within its `invariants` (ADR 0093).
+    /// Run's domain policy `egress` and within its `invariants` (ADR 0093),
+    /// each keyed under `keys` as it is added.
     Sitemap {
         work_item: String,
         lease_epoch: u64,
         egress: Arc<Policy>,
         invariants: Arc<goodfetch_frontier::Invariants>,
         document: sitemap::Document,
+        keys: Keys,
         work: CountedWork,
     },
 }
@@ -211,8 +214,9 @@ pub(crate) enum Ended {
         recorded: Option<String>,
         retried: bool,
     },
-    /// Its sitemap was read, when its lease still held.
-    SitemapRead(bool),
+    /// Its sitemap was read, when its lease still held: each work item
+    /// its read added, keyed, in order.
+    SitemapRead(Option<Vec<Waiting>>),
 }
 
 impl Outcome {
@@ -275,6 +279,7 @@ impl Outcome {
                 egress,
                 invariants,
                 document,
+                keys,
                 work,
             } => Ended::SitemapRead(work_items::read_sitemap(
                 connection,
@@ -282,7 +287,7 @@ impl Outcome {
                 &egress,
                 (&work_item, lease_epoch),
                 &document,
-                &work,
+                (&keys, &work),
             )?),
         };
         Ok((ended, merged))

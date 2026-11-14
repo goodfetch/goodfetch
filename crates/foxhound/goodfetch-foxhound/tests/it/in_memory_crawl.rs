@@ -608,11 +608,16 @@ fn each_outcome_of_the_frontier_counts_on_its_own_row_a_plant_adds_one_a_page_an
         (built_once(&default), built_once(&no_globs)),
         ([0; 7], [0; 7])
     );
-    for row in [Row::HopTransactions, Row::SitemapTransactions] {
-        assert!(default.of(row) > 0, "{row:?} counted nothing");
-    }
-    // A code-free page's links ride its outcome's job (#2245).
-    assert_eq!(default.of(Row::BatchTransactions), 0);
+    assert!(default.of(Row::HopTransactions) > 0);
+    // A code-free page's links ride its outcome's job (#2245), and a
+    // sitemap's read keys its entries in its fetch's (#2167).
+    assert_eq!(
+        (
+            default.of(Row::BatchTransactions),
+            default.of(Row::SitemapTransactions)
+        ),
+        (0, 0)
+    );
     // Each of the redirect's two hops asks the actor that owns the Run
     // state once, and their one chain's end once more (#2246).
     assert_eq!(

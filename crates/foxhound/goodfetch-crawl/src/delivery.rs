@@ -70,12 +70,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, SystemTime};
 
 use futures_util::future::join_all;
-use goodfetch_counted_work::Row;
 use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::egress::Policy;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::local_addresses::{BlockSizes, LocalAddresses, Rotation, System};
@@ -128,7 +126,7 @@ use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::run_state::{
-    Chosen, Drawing, Drawn, Local, QueuedEnd, RunState, StateError, Stored, Within,
+    Chosen, Drawing, Drawn, Local, QueuedEnd, RunState, StateError, Stored, Unkeyed, Within,
 };
 use crate::serving::{Crawls, Opened, Server};
 use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices, Unit};
@@ -254,10 +252,6 @@ pub(crate) async fn drive(
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
         untouched,
         code_free: code_free.map(std::sync::Arc::new),
-        sitemaps: (
-            std::sync::Arc::clone(&arrivals.egress),
-            arrivals.invariants.shared_frontier(),
-        ),
     };
     for (setting, code, message) in SWITCHED_OFF {
         if !settings.resolved().get::<bool>(setting) {
@@ -666,12 +660,6 @@ struct Fetching<'a> {
     in_flight: SharedInFlight,
     /// The readers of the untouched page of each Label, built once.
     untouched: Untouched,
-    /// What each sitemap's read admits its entries under: the Run's domain
-    /// policy and its invariants, built once (#1896).
-    sitemaps: (
-        std::sync::Arc<Policy>,
-        std::sync::Arc<goodfetch_frontier::Invariants>,
-    ),
 }
 
 /// The readers of the untouched page a Run's documents are read by (ADR
@@ -1074,7 +1062,8 @@ enum Idle {
 }
 
 /// What a crawl with no attempt in flight does next: its queues filled
-/// again from the pending work items when they hold none ready.
+/// again from the pending work items when they hold none ready, once any
+/// work item an admission left with no domain key is keyed.
 async fn when_idle(
     run: &Run,
     admission: &mut Admission,
@@ -1083,7 +1072,7 @@ async fn when_idle(
     if admission.ready_at(run.clock().now()).is_some() {
         return Ok(Idle::Wait);
     }
-    key_new(stored, admission).await?;
+    key_new(stored, admission, Unkeyed::Running).await?;
     fill(stored, admission, None).await?;
     if admission.ready_at(run.clock().now()).is_some() {
         return Ok(Idle::Admit);
@@ -1142,8 +1131,7 @@ async fn settled(
     for ((attempt, settling), scored) in attempts.into_iter().zip(&settlings).zip(scores) {
         let held = settling.held.is_some();
         let on = (run, state.stored());
-        let under = (&fetching.sitemaps, read.policy);
-        queued.push(queue_outcome(on, under, held, attempt, scored).await);
+        queued.push(queue_outcome(on, read.policy, held, attempt, scored).await);
     }
     let stored = state.stored();
     let mut retried = Vec::with_capacity(queued.len());
@@ -1160,9 +1148,6 @@ async fn settled(
     returned(run, (admission, stored), settlings.into_iter().zip(retried)).await;
     for waiting in keyed {
         admission.enqueue(waiting);
-    }
-    if let Err(error) = key_new(stored, admission).await {
-        tracing::warn!(%error, run_id = %run.id(), "the requests a handler enqueued were not keyed yet");
     }
     journal(run, stored, admission).await;
 }
@@ -1331,7 +1316,7 @@ async fn open(
         admission.keys(),
         run.metrics().counted_work().clone(),
     );
-    key_new(&stored, &mut admission)
+    key_new(&stored, &mut admission, Unkeyed::Opening)
         .await
         .map_err(|error| error.to_string())?;
     fill(&stored, &mut admission, None)
@@ -1409,19 +1394,28 @@ async fn warn_rotated(run: &Run, rotated: Rotated) {
     }
 }
 
-/// How many work items not keyed yet [`key_new`] reads at a time, so a
-/// stream of added seeds never sits in memory whole.
+/// How many work items not keyed yet [`key_new`] reads at a time, so the
+/// seeds of a start never sit in memory whole.
 const KEYED_AT_ONCE: usize = 1024;
 
-/// Keys each work item not keyed yet, the seeds at the start and those a
-/// sitemap's read added since, and offers it to its domain's queue, which
-/// takes it unless full; one it refuses waits in run state until its
-/// queue fills again.
-async fn key_new(stored: &Stored, admission: &mut Admission) -> Result<(), StateError> {
+/// Keys each work item not keyed yet, `found` as the crawl opens or once
+/// it is idle: the seeds its start wrote, which no gate had keyed. Every
+/// work item added once it runs is keyed in the write that adds it, a
+/// seed, a re-admission, an attempt's links and a sitemap's entries
+/// (#2167), so an idle crawl finds none; one an admission left so would
+/// wait outside every domain's queue for ever, and is keyed here, in a
+/// write the Run state counts. It offers each to its domain's queue, which
+/// takes it unless full; one it refuses waits in run state until its queue
+/// fills again.
+async fn key_new(
+    stored: &Stored,
+    admission: &mut Admission,
+    found: Unkeyed,
+) -> Result<(), StateError> {
     loop {
         let unkeyed = stored.unkeyed(KEYED_AT_ONCE).await?;
         let read = unkeyed.len();
-        key(stored, admission, unkeyed).await?;
+        key(stored, admission, unkeyed, found).await?;
         if read < KEYED_AT_ONCE {
             return Ok(());
         }
@@ -1433,6 +1427,7 @@ async fn key(
     stored: &Stored,
     admission: &mut Admission,
     unkeyed: Vec<(String, Waiting)>,
+    found: Unkeyed,
 ) -> Result<(), StateError> {
     if unkeyed.is_empty() {
         return Ok(());
@@ -1448,7 +1443,7 @@ async fn key(
         .iter()
         .map(|waiting| (waiting.id.clone(), waiting.key.clone()))
         .collect();
-    stored.key(keys).await?;
+    stored.key(keys, found).await?;
     for waiting in keyed {
         admission.enqueue(waiting);
     }
@@ -1611,18 +1606,11 @@ struct Finished {
 /// links admitted and keyed, or its handler's skip, its block, or its work
 /// item retried or failed, under the Run's `policy`, with no retry when its
 /// failure's site asked for a time further away than the Run waits
-/// (`held`), or its sitemap's entries admitted under the Run's domain
-/// policy and within its invariants, `sitemaps`, the fetch ended with no
-/// outcome (ADR 0093).
+/// (`held`), or its sitemap's entries admitted and keyed, the fetch ended
+/// with no outcome (ADR 0093).
 async fn queue_outcome(
     (run, file): (&Run, &Stored),
-    (sitemaps, policy): (
-        &(
-            std::sync::Arc<Policy>,
-            std::sync::Arc<goodfetch_frontier::Invariants>,
-        ),
-        CrawlPolicy,
-    ),
+    policy: CrawlPolicy,
     held: bool,
     attempt: Attempt,
     scored: Scored,
@@ -1660,16 +1648,7 @@ async fn queue_outcome(
             refused(SkipReason::RobotsTxt)
         }
         Answer::SitemapRead(document) => {
-            let work = run.metrics().counted_work().clone();
-            work.count(Row::SitemapTransactions);
-            let ending = attempt_outcome::Ending::Sitemap {
-                work_item,
-                lease_epoch,
-                egress: std::sync::Arc::clone(&sitemaps.0),
-                invariants: std::sync::Arc::clone(&sitemaps.1),
-                document,
-                work,
-            };
+            let ending = file.sitemap_read((work_item, lease_epoch), document);
             return queued(on, (leased, lease), (scored, taught, ending), false).await;
         }
         Answer::Handled(handled) => {
@@ -1826,8 +1805,11 @@ impl QueuedOutcome {
             }
             attempt_outcome::Ended::SitemapRead(read) => {
                 lease.release();
-                if !read {
-                    tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "a sitemap's fetch past its lease reads nothing");
+                match read {
+                    Some(keyed) => finished.keyed = keyed,
+                    None => {
+                        tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "a sitemap's fetch past its lease reads nothing");
+                    }
                 }
             }
         }

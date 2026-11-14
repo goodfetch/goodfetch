@@ -327,19 +327,23 @@ pub(crate) fn check_seed(
 /// Reads `document`, what the sitemap fetch `id` holding its lease under
 /// `lease_epoch` gave, admitting its entries and nested sitemaps within the
 /// Scope of the Run's `invariants` and under its domain policy `policy`,
-/// and ends the fetch, with no outcome; answers whether its lease held.
+/// and ends the fetch, with no outcome. Each work item it adds is keyed
+/// under `keys` as it is added, as an attempt's commit keys its links, so
+/// its fetch's outcome is the one write its read asks for (#2167); answers
+/// them keyed, in order, as they wait for their domains' queues, or `None`
+/// when its lease no longer held.
 pub(crate) fn read_sitemap(
     connection: &Connection,
     invariants: &goodfetch_frontier::Invariants,
     policy: &Policy,
     (id, lease_epoch): (&str, u64),
     document: &sitemap::Document,
-    work: &CountedWork,
-) -> rusqlite::Result<bool> {
+    (keys, work): (&Keys, &CountedWork),
+) -> rusqlite::Result<Option<Vec<Waiting>>> {
     if !still_leased(connection, id, lease_epoch)? {
-        return Ok(false);
+        return Ok(None);
     }
-    let mut positions = Positions::of(connection)?;
+    let mut positions = Positions::keying(connection, keys.clone())?;
     sitemap::read(
         connection,
         invariants,
@@ -352,7 +356,7 @@ pub(crate) fn read_sitemap(
     connection
         .prepare_cached("UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2")
         .and_then(|mut cached| cached.execute((SUCCEEDED, id)))?;
-    Ok(true)
+    Ok(Some(positions.keyed()))
 }
 
 /// Admits each seed through the Frontier within the Run's `invariants` and

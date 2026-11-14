@@ -21,16 +21,19 @@
 
 use std::collections::BTreeMap;
 
-use goodfetch_engine::admission::{Ended, Gate as _};
+use goodfetch_counted_work::CountedWork;
+use goodfetch_engine::admission::{Ended, Gate as _, Keys};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::run_state::{BatchRows as _, BatchWriter, RunState, RunStateOptions};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
+use goodfetch_frontier::sitemap::Document;
 use goodfetch_frontier::{
     BOUNDS_TABLES, Bounds, Candidate, Declared, DomainKeys, DomainQueues, SCOPE_TABLES, Scope,
     VISITED_TABLES, admit,
 };
-use goodfetch_protocol::foxhound::frontier::HttpMethod;
+use goodfetch_protocol::foxhound::crawl::{SitemapRule, SitemapSeed};
+use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
@@ -339,6 +342,66 @@ impl Subject {
         }
         admitted
     }
+}
+
+/// A sitemap's read keys each entry it adds as it adds it, in its fetch's
+/// outcome's one job, and answers them keyed for their domains' queues:
+/// none of them waits for a write of its key (#2167).
+#[test]
+fn a_sitemaps_read_keys_each_entry_it_adds_in_its_own_job() {
+    let subject = Subject::open();
+    let (keyed, unkeyed) = subject.write(|connection| {
+        let invariants =
+            goodfetch_frontier::Invariants::new(Scope::default(), Bounds::read(connection)?)
+                .unwrap();
+        let policy = Policy::new(&["*"], &[] as &[&str]).unwrap();
+        let keys = Keys::new(|_| "shop.test".to_owned());
+        let seed = SitemapSeed {
+            sitemap: "https://shop.test/sitemap.xml".to_owned(),
+            rules: vec![SitemapRule {
+                pattern: "https://shop.test/**".to_owned(),
+                label: "page".to_owned(),
+            }],
+        };
+        invariants.know_sitemap_rules(&seed.rules).unwrap();
+        let added = super::admit_sitemap_seed(
+            connection,
+            &mut super::Positions::keying(connection, keys.clone())?,
+            &invariants,
+            &policy,
+            &seed,
+        )?;
+        let Enqueued::Added { id: fetch, .. } = added else {
+            panic!("the sitemap seed was not added: {added:?}");
+        };
+        let leased = super::lease(connection, std::slice::from_ref(&fetch))?;
+        let keyed = super::read_sitemap(
+            connection,
+            &invariants,
+            &policy,
+            (&fetch, leased[0].lease_epoch),
+            &Document::Entries(vec![
+                "https://shop.test/a".to_owned(),
+                "https://shop.test/b".to_owned(),
+            ]),
+            (&keys, &CountedWork::default()),
+        )?
+        .expect("the fetch's lease holds");
+        let unkeyed: Vec<String> = super::unkeyed(connection, usize::MAX)?
+            .into_iter()
+            .map(|(url, _)| url)
+            .collect();
+        Ok((keyed, unkeyed))
+    });
+
+    assert_eq!(
+        keyed
+            .iter()
+            .map(|waiting| waiting.key.as_str())
+            .collect::<Vec<_>>(),
+        ["shop.test", "shop.test"]
+    );
+    assert_eq!(unkeyed, Vec::<String>::new());
 }
 
 proptest! {

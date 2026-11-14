@@ -24,6 +24,7 @@ use goodfetch_engine::run_state::{
 };
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_fetch_tier::ChainHop;
+use goodfetch_frontier::sitemap;
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_session_pool::{Changes, SessionPool};
 use rusqlite::Connection;
@@ -31,7 +32,7 @@ use rusqlite::Connection;
 use super::admission::{self, Enqueue, LinksBatch};
 use super::asks::{Answering, Ask, HopAsk, Queued, Written};
 use super::{Counted, StateError};
-use crate::attempt_outcome::{self, Ended, Outcome};
+use crate::attempt_outcome::{self, Ended, Ending, Outcome};
 use crate::completeness;
 use crate::intake::Intake;
 use crate::invariants::Invariants;
@@ -60,6 +61,21 @@ pub(crate) struct Stored {
     intake: Intake,
     keys: Keys,
     work: CountedWork,
+}
+
+/// When the delivery loop found work items with no domain key.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Unkeyed {
+    /// As the crawl opens: the seeds its start wrote, which no gate had
+    /// keyed.
+    Opening,
+    /// While the crawl runs, once it is idle. Every admission keys the
+    /// work items it adds, in the write that adds them (#2167), so none
+    /// is expected: one found is a work item an admission left out of
+    /// every domain's queue, which would hold the crawl for ever. A
+    /// sitemap's read was the last admission to leave any, so the write
+    /// of their keys counts on its row, `F3.transactions.sitemap`.
+    Running,
 }
 
 /// What a crawl's admissions are judged within and staged in: its domain
@@ -337,7 +353,9 @@ impl Stored {
     }
 
     /// Writes `keys`, each work item's ID with the domain key the loop
-    /// keyed it under. Keys promise nothing outside (#2117): the outcome
+    /// keyed it under, `found` as the crawl opens or while it runs, where
+    /// the write counts as `F3.transactions.sitemap` ([`Unkeyed`]). Keys
+    /// promise nothing outside (#2117): the outcome
     /// of the attempt that claims the item syncs them, and a power cut
     /// that takes them leaves the items unkeyed, which the next look keys
     /// again.
@@ -345,7 +363,14 @@ impl Stored {
     /// # Errors
     ///
     /// The run file's.
-    pub(crate) async fn key(&self, keys: Vec<(String, String)>) -> Result<(), StateError> {
+    pub(crate) async fn key(
+        &self,
+        keys: Vec<(String, String)>,
+        found: Unkeyed,
+    ) -> Result<(), StateError> {
+        if matches!(found, Unkeyed::Running) {
+            self.work.count(Row::SitemapTransactions);
+        }
         Ok(self
             .writer
             .write_batch(
@@ -396,6 +421,27 @@ impl Stored {
             }
             counted.write(&BatchWriter::over(connection))?;
             work_items::lease(connection, &ids)
+        }
+    }
+
+    /// How the sitemap's fetch `work_item` under `lease_epoch` ends once
+    /// its `document` is read: its entries admitted under the Run's domain
+    /// policy and within its invariants (ADR 0093), each keyed as it is
+    /// added, in its outcome's one job, so its read asks the writer for no
+    /// write of its own.
+    pub(crate) fn sitemap_read(
+        &self,
+        (work_item, lease_epoch): (String, u64),
+        document: sitemap::Document,
+    ) -> Ending {
+        Ending::Sitemap {
+            work_item,
+            lease_epoch,
+            egress: Arc::clone(&self.egress),
+            invariants: self.invariants.shared_frontier(),
+            document,
+            keys: self.keys.clone(),
+            work: self.work.clone(),
         }
     }
 

@@ -6,14 +6,19 @@
 //! engine is given, which the Prometheus exporter the executables use
 //! renders.
 
+use std::time::Duration;
+
 use goodfetch_engine::metrics::{METER, Metrics};
 use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_frontier::Url;
+use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_test_support::TestEnv;
 use opentelemetry::metrics::MeterProvider as _;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use serde_json::{Value, json};
 
-use super::{Reply, SITEMAP, crawl_on, dependencies, engine, seeds};
+use super::{Reply, SITEMAP, crawl_on, dependencies, engine, page_of, run_file, seeds};
+use crate::work_items;
 
 /// The value of the series `name` of `registry`, if it has one.
 fn value_of(registry: &prometheus::Registry, name: &str) -> Option<f64> {
@@ -219,6 +224,85 @@ fn a_sitemap_attempt_costs_the_run_states_actor_one_round_trip() {
     }]);
 
     assert_eq!(pages_and_round_trips(&seeds), (3, Some(4.0)));
+}
+
+/// Every admission keys the work items it adds, in the write that adds
+/// them, a sitemap's read included (#2167). One that left a work item with
+/// no domain key would leave it out of every domain's queue: the crawl,
+/// once idle, keys what it finds so and delivers it, and that write of
+/// keys, apart from the write that added the work item, counts as
+/// `F3.transactions.sitemap`, the row of the last admission that asked
+/// for one.
+///
+/// Covers: story:3-25
+#[test]
+fn a_work_item_left_with_no_domain_key_is_keyed_once_its_crawl_is_idle_and_its_keys_write_counts() {
+    let env = TestEnv::new();
+    let (engine, registry, _provider) = metered();
+    let mut pages = Vec::new();
+
+    crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "left",
+                        "seeds": seeds(1),
+                        "settings": { "crawl": { "keep_alive": true }, "timeout": { "run": 600_000 } },
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |params: &Value| {
+                pages.push(page_of(params));
+                Reply::Records(vec![json!({ "handled": true })])
+            };
+            client
+                .call("run.outcomes", json!({ "run_id": "left" }), &mut handler)
+                .await;
+            // The paused clock moves on once the crawl waits for new work.
+            tokio::time::sleep(Duration::from_mins(1)).await;
+            {
+                let connection = run_file(&env, "left");
+                let get = HttpMethod::get();
+                work_items::add(
+                    &connection,
+                    &mut work_items::Positions::of(&connection).unwrap(),
+                    &Url::parse("https://shop.test/left").unwrap(),
+                    work_items::Adding {
+                        method: &get,
+                        body: None,
+                        label: "page",
+                        payload: None,
+                        priority: 0,
+                        forefront: false,
+                        depth: 0,
+                    },
+                )
+                .unwrap();
+            }
+            client
+                .call("run.finish", json!({ "run_id": "left" }), &mut handler)
+                .await
+        },
+    );
+
+    assert_eq!(
+        (
+            pages,
+            counted(&registry, "frontier_sitemap", "transactions")
+        ),
+        (
+            vec![
+                "https://shop.test/page/1".to_owned(),
+                "https://shop.test/left".to_owned()
+            ],
+            Some(1.0)
+        )
+    );
 }
 
 /// The serializations of the requests in flight `registry` counted, as

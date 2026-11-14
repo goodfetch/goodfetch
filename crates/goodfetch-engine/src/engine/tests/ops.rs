@@ -406,6 +406,8 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
     // No Limit holds the Runs and no engine created the ledger, so their
     // charging reads it without creating it: no Usage charge opens it or
     // commits (#2110).
+    // The Client's 4 requests, its `hello` and 3 calls, each decode their
+    // params twice, for dispatch and for their handler (Exception X37).
     assert_eq!(
         (
             beside_the_run_file(while_running),
@@ -414,6 +416,7 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
         (
             beside_the_run_file(with_counted_work([
                 r#"goodfetch_client_connected{surface="cli"} 1"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="decodes"} 8"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 7"#.to_owned(),
                 "goodfetch_daemon_draining{} 0".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 1"#.to_owned(),
@@ -421,6 +424,7 @@ fn the_daemon_records_its_clients_its_runs_and_its_drain_in_the_runtimes_metrics
             ])),
             beside_the_run_file(with_counted_work([
                 r#"goodfetch_client_connected{surface="cli"} 0"#.to_owned(),
+                r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="decodes"} 8"#.to_owned(),
                 r#"goodfetch_counted_work_total{shared_path="json_rpc_message",work="encodes"} 10"#.to_owned(),
                 "goodfetch_daemon_draining{} 1".to_owned(),
                 r#"goodfetch_run_active{run_kind="collie"} 0"#.to_owned(),

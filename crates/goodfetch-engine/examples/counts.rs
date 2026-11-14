@@ -109,10 +109,14 @@ fn plant(name: &str, work: &CountedWork) -> Plant {
             work.count(Row::MessageDeepCopies);
             drop(params.json().to_owned());
         }),
+        // The params' text encoded, never read: a read is a decode, which
+        // `E1.decodes` counts.
         "E1.encodes" => Arc::new(move |params: Params<'_>| {
             work.count(Row::MessageEncodes);
-            drop(serde_json::to_vec(&params.read::<Value>().ok()));
+            drop(serde_json::to_vec(params.json()));
         }),
+        // One more read of the call's params, which counts itself.
+        "E1.decodes" => Arc::new(|params: Params<'_>| drop(params.read::<Value>())),
         other => panic!("no plant for the row {other}"),
     }
 }
@@ -338,6 +342,7 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
     );
     let units = BTreeMap::from([
         ("incoming_messages", count(TRAFFIC.incoming())),
+        ("requests", count(TRAFFIC.requests())),
         ("answers_and_events", count(sent.answers_and_events())),
         ("covered_charges", charged.covered),
         ("slices", charged.slices),

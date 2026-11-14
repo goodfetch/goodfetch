@@ -5,12 +5,15 @@
 //! read from an array, by position, which the schema's `type: object`
 //! refuses; read through [`Params::read`], that is `invalid_params`. The
 //! params' `_meta`, the Trace context the RPC layer takes (ADR 0132), is no
-//! member of any params type, and the read skips it.
+//! member of any params type, and the read skips it. Each read is a decode
+//! of the request's params and counts as one (`E1.decodes`).
 
 use std::borrow::Cow;
 use std::fmt;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::jsonrpc::{META, ProtocolFailure};
+use serde::Deserialize;
 use serde::de::value::BorrowedStrDeserializer;
 use serde::de::{
     self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, IgnoredAny,
@@ -21,21 +24,24 @@ use crate::call_error::CallError;
 use crate::wire::{Key, KeySeed};
 
 /// A call's params as they arrived: their JSON text, where it is in the
-/// line that carried them, `{}` for a call that sent none.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// line that carried them, `{}` for a call that sent none, with the Counted
+/// work each decode of them counts on.
+#[derive(Clone, Copy, Debug)]
 pub struct Params<'a> {
     json: &'a str,
+    work: &'a CountedWork,
 }
 
 impl<'a> Params<'a> {
-    /// The params whose JSON text is `json`.
-    pub fn new(json: &'a str) -> Self {
-        Self { json }
+    /// The params whose JSON text is `json`, their decodes counted on
+    /// `work`.
+    pub fn new(json: &'a str, work: &'a CountedWork) -> Self {
+        Self { json, work }
     }
 
     /// The params of a call that sent none: `{}`.
-    pub fn none() -> Self {
-        Self { json: "{}" }
+    pub fn none(work: &'a CountedWork) -> Self {
+        Self { json: "{}", work }
     }
 
     /// Their JSON text.
@@ -44,12 +50,13 @@ impl<'a> Params<'a> {
     }
 
     /// They, read as `P` in one pass, each struct and map only from an
-    /// object, without their `_meta`.
+    /// object, without their `_meta`. Counts one decode.
     ///
     /// # Errors
     ///
     /// `invalid_params` when they are no `P`.
     pub fn read<P: DeserializeOwned>(&self) -> Result<P, CallError> {
+        self.work.count(Row::MessageDecodes);
         let mut json = serde_json::Deserializer::from_str(self.json);
         P::deserialize(Strict {
             inner: &mut json,
@@ -59,6 +66,18 @@ impl<'a> Params<'a> {
         .map_err(|error| {
             CallError::protocol(ProtocolFailure::InvalidParams, without_position(&error))
         })
+    }
+
+    /// The members `T` names, read where they are, for a reader that needs
+    /// a few of them before the call's handler reads them all, as a guard
+    /// finding the page a call names; `None` when they do not read as `T`.
+    /// Unlike [`Params::read`], it reads as serde does: it keeps their
+    /// `_meta` and takes a struct from an array too, so what it answers
+    /// says nothing of whether the handler's read takes them. Counts one
+    /// decode.
+    pub fn read_members<T: Deserialize<'a>>(&self) -> Option<T> {
+        self.work.count(Row::MessageDecodes);
+        serde_json::from_str(self.json).ok()
     }
 }
 

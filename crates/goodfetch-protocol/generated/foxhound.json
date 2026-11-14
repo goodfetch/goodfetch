@@ -15469,6 +15469,7 @@
             "constant_lookups",
             "cpu_stat_opens",
             "declaration_reads",
+            "decodes",
             "deep_copies",
             "detection_reads",
             "document_encodes",

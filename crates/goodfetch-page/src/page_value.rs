@@ -45,6 +45,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use bytestring::ByteString;
+use goodfetch_counted_work::{CountedWork, ParsedHtml};
 pub use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::response_limits::LimitExceeded;
 use goodfetch_engine::runs::Run;
@@ -56,6 +57,7 @@ use goodfetch_protocol::page::{
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::session_source::SessionSource;
+use serde_json::Value;
 
 use crate::blocks::Block;
 use crate::document_request::{DocumentRequest, Unread};
@@ -208,6 +210,19 @@ pub trait BrowserPages: Send + Sync {
         page_id: &'a PageId,
         request: FormatsRequest,
     ) -> Opening<'a, Result<PageFormats, CallError>>;
+
+    /// The reader of the formats `request` names of `run`'s served
+    /// documents, read with `label`, their Label's `content.extractor`, in
+    /// each document's one hand-off to the analysis pool, before its tree
+    /// goes to its Page signature (issue 2189): [`BrowserPages::formats`]
+    /// then answers from what it read. None when the Product reads its
+    /// served documents' formats only when asked.
+    fn served_formats<'a>(
+        &'a self,
+        run: &'a Run,
+        request: FormatsRequest,
+        label: Option<BuiltIn>,
+    ) -> Opening<'a, Option<Arc<dyn ServedFormatsAhead>>>;
 
     /// The Block cause of a document a fetch tier served, which `response`
     /// answered with the markup `markup`, as the Product's Block
@@ -730,6 +745,39 @@ pub struct ServedDocument {
     /// `html`. None for a page no handler reads, whose formats parse
     /// `html`.
     pub tree: Option<KeptTree>,
+    /// Its formats, read ahead in its hand-off to the analysis pool
+    /// ([`ServedFormatsAhead`]): `page.formats` answers a call asking for
+    /// them from these, with no read of its own. None when nothing read
+    /// them ahead.
+    pub formats: Option<Arc<dyn FormatsReadAhead>>,
+}
+
+/// How the formats of a Run's served documents are read ahead, as
+/// `page.formats` reads them, in each document's one hand-off to the
+/// analysis pool, before its tree goes to its Page signature (issue 2189),
+/// made by [`BrowserPages::served_formats`].
+pub trait ServedFormatsAhead: Send + Sync {
+    /// The formats of the document `html`, served at `url` with the base
+    /// URL `base_url`, read on a copy of its untouched tree `kept`, which
+    /// stays as it was, else on a parse of `html`, counted on `work`.
+    fn read(
+        &self,
+        document: (&ByteString, &str, &str),
+        kept: Option<&ParsedHtml>,
+        work: &CountedWork,
+    ) -> Arc<dyn FormatsReadAhead>;
+}
+
+/// The formats a [`ServedFormatsAhead`] read of one served document, and
+/// what its rules did, which `page.formats` answers a call asking for the
+/// same request with.
+pub trait FormatsReadAhead: Send + Sync {
+    /// Its formats, when they are those `request` names.
+    fn answers(&self, request: FormatsRequest) -> Option<&PageFormats>;
+
+    /// The Provenance entry of its read, for the page `page_id`, when its
+    /// rules ran.
+    fn entry(&self, page_id: &PageId) -> Option<Value>;
 }
 
 impl Debug for ServedDocument {

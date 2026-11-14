@@ -1,3 +1,5 @@
+// Modified by Goodfetch (2026-11-14): `grab_article` prepares each
+// attempt's copy of the document, so the document is left untouched (#2639).
 use dom_query::Tree;
 use foldhash::{HashMap, HashSet};
 use std::vec;
@@ -21,11 +23,15 @@ use crate::Metadata;
 use crate::Readability;
 
 impl Readability {
-    pub(crate) fn grab_article(&self, metadata: &Metadata) -> Option<Document> {
+    /// Goodfetch: each attempt prepares its own copy of the document,
+    /// `byline` removed (`Readability::prepare`), so the document itself is
+    /// left as it was handed.
+    pub(crate) fn grab_article(&self, metadata: &Metadata, byline: Option<NodeId>) -> Option<Document> {
         let mut flags: FlagSet<GrabFlags> = FlagSet::full();
         let mut best_attempt: Option<(Document, usize)> = None;
         loop {
             let doc = self.doc.clone();
+            Self::prepare(&doc, byline);
             let article_node = self.attempt_grab_article(&doc, &flags, metadata);
             // Now that we've gone through the full algorithm, check to see if
             // we got any meaningful content. If we didn't, we may need to re-run
@@ -767,7 +773,7 @@ mod tests {
 
         assert_eq!(count_before, 10);
 
-        let clean_doc = ra.grab_article(&Metadata::default()).unwrap();
+        let clean_doc = ra.grab_article(&Metadata::default(), None).unwrap();
         let sel = clean_doc.select("body > *");
         let count_after = sel.nodes().iter().filter(|n| n.is_element()).count();
         assert_eq!(count_after, 1);

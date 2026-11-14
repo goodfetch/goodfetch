@@ -553,7 +553,7 @@ impl NavigationGate for Gate {
                     self.0
                         .run()
                         .owner()
-                        .analysis(counted, move || {
+                        .handler_analysis(counted, move || {
                             readers.markup_use_signals(signals, &html, &url, &work)
                         })
                         .await

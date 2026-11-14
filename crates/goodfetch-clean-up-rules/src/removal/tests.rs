@@ -378,7 +378,12 @@ const TAGS: [&str; 7] = ["div", "span", "p", "a", "ul", "li", "DIV"];
 const CLASSES: [&str; 5] = ["ad", "AD", "promo", "card", "sponsor-label"];
 const IDS: [&str; 3] = ["top", "ad", "Ad"];
 const ATTRIBUTES: [&str; 3] = ["data-ad", "href", "title"];
-const VALUES: [&str; 2] = ["x", "Sponsored"];
+const VALUES: [&str; 4] = ["x", "Sponsored", "x-y", "Sponsored story"];
+/// The values an attribute selector compares with, by each operator: the
+/// pages' values, parts of them and other cases of them.
+const RULE_VALUES: [&str; 7] = ["x", "Sponsored", "spon", "ORED", "y", "x-y", "story"];
+const OPERATORS: [&str; 6] = ["=", "^=", "$=", "*=", "~=", "|="];
+const FLAGS: [&str; 3] = ["", " i", " s"];
 const WORDS: [&str; 3] = ["Sponsored", "story", "a longer run of text"];
 
 fn one_of(words: &'static [&'static str]) -> impl Strategy<Value = &'static str> {
@@ -444,7 +449,10 @@ fn compound() -> impl Strategy<Value = String> {
         prop::option::of(one_of(&TAGS)),
         prop::option::of(one_of(&IDS)),
         prop::collection::vec(one_of(&CLASSES), 0..3),
-        prop::option::of((one_of(&ATTRIBUTES), prop::option::of(one_of(&VALUES)))),
+        prop::option::of((
+            one_of(&ATTRIBUTES),
+            prop::option::of((one_of(&OPERATORS), one_of(&RULE_VALUES), one_of(&FLAGS))),
+        )),
         prop::option::weighted(
             0.3,
             one_of(&[
@@ -466,7 +474,9 @@ fn compound() -> impl Strategy<Value = String> {
                 .chain(id.map(|id| format!("#{id}")))
                 .chain(classes.into_iter().map(|class| format!(".{class}")))
                 .chain(attribute.map(|(name, value)| match value {
-                    Some(value) => format!("[{name}=\"{value}\"]"),
+                    Some((operator, value, flag)) => {
+                        format!("[{name}{operator}\"{value}\"{flag}]")
+                    }
                     None => format!("[{name}]"),
                 }))
                 .chain(pseudo_class.map(str::to_owned))

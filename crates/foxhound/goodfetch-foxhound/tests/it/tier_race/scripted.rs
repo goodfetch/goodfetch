@@ -35,11 +35,14 @@ use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::tls::ExceptionUsed;
 use goodfetch_engine::transport::{self, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{CallContext, CallError, Channel, Dependencies, Engine, Identity};
-use goodfetch_fetch_tier::{Body, FetchTiers, Hop, PooledSession, Reuse, Sending, Sent, Transport};
+use goodfetch_fetch_tier::{
+    Body, BuiltIn, FetchTiers, Hop, PooledSession, Reuse, Sending, Sent, Transport,
+};
 use goodfetch_page::blocks::Block;
 use goodfetch_page::document_request::{DocumentRequest, Unread};
 use goodfetch_page::page_value::{
     BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages as _, Opening, PageValue,
+    ServedFormatsAhead,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -257,6 +260,15 @@ impl BrowserPages for Scripted {
                 "The scripted browser reads no formats.",
             ))
         })
+    }
+
+    fn served_formats<'a>(
+        &'a self,
+        _run: &'a Run,
+        _request: FormatsRequest,
+        _label: Option<BuiltIn>,
+    ) -> Opening<'a, Option<Arc<dyn ServedFormatsAhead>>> {
+        Box::pin(std::future::ready(None))
     }
 
     fn classify(&self, _response: &PageResponse, _markup: &str) -> Option<Block> {

@@ -9,8 +9,8 @@ use serde_json::json;
 
 use super::URL;
 use crate::{
-    BuiltIn, Chosen, CleanUp, Context, Document, Extractor, Found, Serialization, measured_formats,
-    page_signature,
+    Attempts, BuiltIn, Chosen, CleanUp, Context, Document, Extractor, Found, Serialization,
+    measured_formats, page_signature,
 };
 
 /// A page with a main content.
@@ -54,16 +54,15 @@ fn counted(work: &CountedWork) -> (u64, u64, u64) {
 }
 
 /// A read of the main content after the Clean-up rules parses the page
-/// once, for the clean-up, whose tree the step then reads, and copies it
-/// once, for the fallback that removes the landmarks: one run of the step
-/// (`F1.readability_runs` ≤ 1, `F1.tree_copies` ≤ 1).
-///
-/// rs-trafilatura reads that tree as dom-smoothie does (#1916).
+/// once, for the clean-up, whose tree the step then reads, with one run of
+/// the step (`F1.readability_runs` ≤ 1). A step that keeps the tree it was
+/// handed, dom-smoothie's retries and rs-trafilatura (#1916), copies
+/// nothing on a page it finds main content in (#2639).
 #[rstest]
 #[case::markdown(json!({ "markdown": true }))]
 #[case::text(json!({ "text": true }))]
 #[case::main_html(json!({ "html": true }))]
-fn a_read_of_the_main_content_parses_the_page_once_and_copies_its_tree_once(
+fn a_read_of_the_main_content_parses_the_page_once_and_copies_nothing_for_a_step_that_keeps_its_tree(
     #[case] request: serde_json::Value,
     #[values(BuiltIn::DomSmoothie, BuiltIn::Trafilatura)] built_in: BuiltIn,
 ) {
@@ -73,7 +72,7 @@ fn a_read_of_the_main_content_parses_the_page_once_and_copies_its_tree_once(
         clean_up: Some(&Keeps),
         extractor: Chosen {
             built_in,
-            ..Chosen::default()
+            attempts: Attempts::Retry,
         }
         .extractor(),
         work: work.clone(),
@@ -86,7 +85,59 @@ fn a_read_of_the_main_content_parses_the_page_once_and_copies_its_tree_once(
             .main_content_length
             .is_some_and(|length| length > 0)
     );
-    assert_eq!(counted(&work), (1, 1, 1));
+    assert_eq!(counted(&work), (1, 0, 1));
+}
+
+/// A page whose one text is a button's, outside any landmark, which
+/// neither built-in keeps as main content.
+const BUTTON_PAGE: &str = "<!doctype html><html lang=\"en\"><head><title>Kites</title></head>\
+     <body><button>Fly the kite</button></body></html>";
+
+/// A built-in that finds nothing in a page answers the landmarks fallback
+/// a step that keeps no tree answers, from the tree it was handed and
+/// kept, with no copy of its own (#2639): the fallback's Markdown, text
+/// and HTML are those of #1913 (pitfall D02).
+#[rstest]
+fn a_page_a_built_in_finds_nothing_in_reads_the_fallback_from_the_tree_it_kept(
+    #[values(BuiltIn::DomSmoothie, BuiltIn::Trafilatura)] built_in: BuiltIn,
+) {
+    let request: FormatsRequest = serde_json::from_value(json!({
+        "markdown": true,
+        "text": true,
+        "html": true,
+    }))
+    .unwrap();
+    let read = |extractor: &dyn Extractor| {
+        let work = CountedWork::default();
+        let context = Context {
+            clean_up: Some(&Keeps),
+            extractor,
+            work: work.clone(),
+        };
+        let measured = measured_formats(&document(BUTTON_PAGE), &request, &context);
+        (measured.formats, counted(&work))
+    };
+
+    let extractor = Chosen {
+        built_in,
+        ..Chosen::default()
+    }
+    .extractor();
+    let found = extractor.main_content(ParsedHtml::from(BUTTON_PAGE), URL);
+
+    let (kept, kept_counts) = read(extractor);
+    let (copied, copied_counts) = read(&FindsNothing);
+
+    assert!(
+        found
+            .as_ref()
+            .is_none_or(|found| found.text.trim().is_empty()),
+        "{:?}",
+        found.map(|found| found.text)
+    );
+    assert_eq!(kept, copied);
+    assert_eq!(kept.markdown.as_deref(), Some("Fly the kite\n"));
+    assert_eq!((kept_counts, copied_counts), ((1, 0, 1), (1, 1, 1)));
 }
 
 /// A shadow root, inside the article.
@@ -117,7 +168,7 @@ impl CleanUp for RemovesAds {
 /// roots composed, reads one tree of it (`F1.parses` ≤ 1 with every
 /// format on, ADR 0138): the clean-up's, composed in place and read by
 /// every reader of the cleaned page before the main-content step consumes
-/// it, with the one copy of it the landmarks fallback needs.
+/// it, which keeps it for the landmarks fallback, so nothing copies it.
 #[rstest]
 #[case::rules_keep_the_page(&Keeps as &dyn CleanUp)]
 #[case::rules_remove_an_ad(&RemovesAds as &dyn CleanUp)]
@@ -149,7 +200,7 @@ fn every_format_asked_reads_one_tree_of_the_page(#[case] clean_up: &dyn CleanUp)
     assert_eq!(formats.contacts.unwrap().emails.len(), 1);
     assert_eq!(formats.metadata.unwrap().json_ld.len(), 1);
     assert_eq!(formats.images.unwrap().len(), 1);
-    assert_eq!(counted(&work), (1, 1, 1));
+    assert_eq!(counted(&work), (1, 0, 1));
 }
 
 /// A Page signature reads the untouched tree it is given with one run of

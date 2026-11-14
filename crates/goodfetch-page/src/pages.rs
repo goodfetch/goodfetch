@@ -56,7 +56,7 @@ use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::{CallContext, CallError, Contribution, Guard, Handler};
-use goodfetch_extractor::Serialization;
+use goodfetch_extractor::{BuiltIn, Serialization};
 use goodfetch_protocol::connection::{Surface, WaitedFor};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::dialog::{
@@ -111,7 +111,7 @@ use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Matches, Pending, Registered};
 use crate::page_value::{
     BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages, Opening, PageValue,
-    PooledSession, ProgramPages,
+    PooledSession, ProgramPages, ServedFormatsAhead,
 };
 use crate::proxy;
 use crate::recovery;
@@ -123,6 +123,7 @@ mod arrival;
 mod blocked;
 mod blocking_off;
 mod clean_up;
+pub(crate) mod served_formats;
 mod waits;
 
 /// What the page crate adds to the engine (ADR 0087): its run state's
@@ -1011,6 +1012,19 @@ impl BrowserPages for Opener {
         }))
     }
 
+    fn served_formats<'a>(
+        &'a self,
+        run: &'a Run,
+        request: FormatsRequest,
+        label: Option<BuiltIn>,
+    ) -> Opening<'a, Option<Arc<dyn ServedFormatsAhead>>> {
+        Box::pin(async move {
+            let cosmetic = self.pages.interception.served_cosmetic(run).await;
+            let reader = served_formats::ServedFormatsReader::of(run, request, label, cosmetic);
+            Some(Arc::new(reader) as Arc<dyn ServedFormatsAhead>)
+        })
+    }
+
     fn classify(&self, response: &PageResponse, markup: &str) -> Option<Block> {
         self.pages.blocks.classify(response, markup)
     }
@@ -1539,12 +1553,22 @@ impl Pages {
     async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
         if let Some(served) = self.product.document(&params.page_id) {
             tracing::Span::current().record("run_id", served.run.id().as_str());
+            let request = params.formats;
+            // Formats read ahead in the document's hand-off answer a call
+            // asking for them (issue 2189).
+            if let Some(ahead) = &served.formats
+                && let Some(formats) = ahead.answers(request)
+            {
+                if let Some(entry) = ahead.entry(&params.page_id) {
+                    trace::provenance(&served.run, entry).await;
+                }
+                return Ok(formats.clone());
+            }
             let document = SerializedDocument {
                 html: served.html.clone(),
                 url: served.url.clone(),
                 base_url: served.base_url.clone(),
             };
-            let request = params.formats;
             let extractor = extractor::served(
                 served.run.settings().map(RunSettings::resolved),
                 served.extractor,
@@ -1566,6 +1590,9 @@ impl Pages {
             // A page whose handler's reads keep its untouched tree reads a
             // copy of it, on its owner (ADR 0138); any other parses it.
             let (formats, read) = match &served.tree {
+                // A request that reads nothing of the page needs no tree
+                // and no blocking thread (issue 2189).
+                _ if clean_up::reads_nothing(&request) => read(None),
                 // Its tree is gone only as its Run stops, or after a read
                 // of it panicked.
                 Some(tree) => tree

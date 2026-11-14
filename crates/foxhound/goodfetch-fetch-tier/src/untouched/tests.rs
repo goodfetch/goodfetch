@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use goodfetch_protocol::foxhound::crawl::FieldLocator;
+use goodfetch_protocol::page::FormatsRequest;
 use goodfetch_protocol::settings::page_check::{PageCheck, PageMatch};
 use proptest::prelude::*;
 use rstest::rstest;
@@ -65,6 +66,7 @@ fn demand() -> UntouchedDemand {
         }),
         signs: true,
         keeps: false,
+        formats: FormatsRequest::default(),
     }
 }
 
@@ -248,6 +250,7 @@ fn streaming_demand() -> UntouchedDemand {
         }),
         signs: false,
         keeps: false,
+        formats: FormatsRequest::default(),
     }
 }
 

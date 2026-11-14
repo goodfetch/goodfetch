@@ -1,6 +1,9 @@
 // Modified by Goodfetch (2026-11-05): `extract_document_content`, the
 // extraction from a document the caller parsed, which `extract_content`
 // runs after its own parse (#1916).
+// Modified by Goodfetch (2026-11-14): `extract_document_content_keeping`,
+// the same extraction answering its backup of the document as it was
+// handed, which a caller reads its own fallback from (#2639).
 //! Core content extraction algorithm.
 //!
 //! This module contains the main extraction logic ported from go-trafilatura.
@@ -53,6 +56,14 @@ pub(crate) fn extract_content(html: &str, options: &Options) -> Result<ExtractRe
 /// out.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn extract_document_content(document: Document, html_len: Option<usize>, options: &Options) -> Result<ExtractResult> {
+    extract_document_content_keeping(document, html_len, options).1
+}
+
+/// [`extract_document_content`], answering with its result the document
+/// as it was handed (Goodfetch): the backup the extraction takes before its
+/// cleaning, which nothing changes, so a caller reads its own fallback from
+/// it with no copy of its own.
+pub(crate) fn extract_document_content_keeping(document: Document, html_len: Option<usize>, options: &Options) -> (Document, Result<ExtractResult>) {
     let mut warnings = Vec::new();
 
     // Extract metadata first (works on full document before cleaning)
@@ -465,7 +476,7 @@ pub(crate) fn extract_document_content(document: Document, html_len: Option<usiz
         }
     }
 
-    final_result
+    (doc_backup, final_result)
 }
 
 /// Counts words in text that meet minimum length requirement.

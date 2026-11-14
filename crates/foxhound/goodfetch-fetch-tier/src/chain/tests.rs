@@ -40,6 +40,7 @@ fn stub(content: &str) -> Fetched {
         )),
         unaccepted: None,
         certificate_exception: None,
+        text: None,
     }
 }
 

@@ -34,6 +34,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
 use bytes::Bytes;
+use bytestring::ByteString;
 use encoding_rs::Encoding;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
@@ -96,7 +97,7 @@ use crate::canonical::canonical;
 use crate::chain::{
     Followed, Following, HopRead, Reading, Redirected, Skip, Stop, Unfollowed, follow_reading,
 };
-use crate::charset::{self, Kind, Read};
+use crate::charset::{Kind, Read, Text};
 use crate::choice::{
     ENCODING_CALL, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved,
 };
@@ -104,7 +105,7 @@ use crate::content_types::{Accepts, ContentTypes, is_document, typed};
 use crate::cookies::{Jars, WithJar};
 use crate::discovered_api::Plan;
 use crate::document::{self, FieldElement, LocatorInvalid, Matched, SelectorInvalid, matched};
-use crate::driver::{FetchBounds, Hop, Transport, fetch_accepting, fetch_start};
+use crate::driver::{FetchBounds, Hop, OwnDocument, Transport, fetch_accepting, fetch_start};
 use crate::expected_page::{self, Verdict};
 use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::light_browser::LightBrowser;
@@ -367,8 +368,9 @@ struct Decoded {
     not_document: Option<String>,
     encoding: &'static Encoding,
     read: Option<Read>,
-    /// Its text: empty for a response holding no document.
-    html: String,
+    /// Its text: empty for a response holding no document; a UTF-8 body
+    /// read in place, the bytes the fetch kept (issue 2187).
+    html: ByteString,
     /// What the readers of its untouched page read it on.
     untouched: Untouched,
 }
@@ -405,28 +407,23 @@ impl Decoded {
             .map(|(_, value)| value.as_str());
         let (essence, charset) = typed(header, &fetched.body, fetched.url.path());
         let not_document = (!is_document(&essence)).then_some(essence.clone());
-        let read = not_document
-            .is_none()
-            .then(|| {
-                charset::read(
-                    &fetched.body,
-                    Kind::of(&essence),
-                    charset.as_deref(),
-                    forced,
-                )
-            })
-            .flatten();
-        let (html, encoding) = match read {
-            _ if not_document.is_some() => (String::new(), encoding_rs::UTF_8),
-            Some(read) => {
-                tracing::debug!(run_id = %run.id(), url, encoding = read.encoding.name(), source = read.source.as_str(), "a document's encoding was found");
-                (charset::decode(&fetched.body, read), read.encoding)
-            }
-            None => (
-                String::from_utf8_lossy(&fetched.body).into_owned(),
-                encoding_rs::UTF_8,
+        // The fetch read the text of a document its `Content-Type` typed as
+        // its bytes arrived, under the same `fetch.encoding` unless a
+        // coalesced fetch read it for another request.
+        let text = not_document.is_none().then(|| match &fetched.text {
+            Some(streamed) if streamed.read_under(forced) => streamed.text(&fetched.body),
+            _ => Text::of(
+                &fetched.body,
+                Kind::of(&essence),
+                charset.as_deref(),
+                forced,
             ),
-        };
+        });
+        let (html, read) = text.map_or_else(Default::default, |text| (text.html, text.read));
+        let encoding = read.map_or(encoding_rs::UTF_8, |read| {
+            tracing::debug!(run_id = %run.id(), url, encoding = read.encoding.name(), source = read.source.as_str(), "a document's encoding was found");
+            read.encoding
+        });
         let untouched = match readers.stream(&html) {
             Some(streamed) => Untouched::Streamed(streamed),
             None => Untouched::Tree(
@@ -524,12 +521,8 @@ impl Decoded {
         };
         // A handler's reads keep the page's untouched tree, or its HTML,
         // which the first read that needs a tree parses (ADR 0138).
-        let tree = (readers.keeps() && not_document.is_none()).then(|| {
-            KeptTree::keep(
-                run,
-                kept.unwrap_or_else(|| KeptFrom::Html(Arc::from(html.as_str()))),
-            )
-        });
+        let tree = (readers.keeps() && not_document.is_none())
+            .then(|| KeptTree::keep(run, kept.unwrap_or_else(|| KeptFrom::Html(html.clone()))));
         let links = fetched
             .headers
             .iter()
@@ -1081,9 +1074,13 @@ impl FetchTiers {
             readers: Arc::clone(&hand_over.untouched),
         });
         let on = (&clock, run.owner(), &reading);
+        let own = OwnDocument {
+            accepts: &accepts,
+            encoding: hand_over.encoding,
+        };
         let fetched = follow_reading(hop, &tier.following, &gate, on, |hop| {
             let lead = std::mem::replace(&mut first, false);
-            let (accepts, clock) = (&accepts, &clock);
+            let clock = &clock;
             async move {
                 if lead {
                     tier.redundant
@@ -1091,7 +1088,7 @@ impl FetchTiers {
                             tier.transport.as_ref(),
                             &tier.bounds,
                             run,
-                            (&hop, Some(accepts)),
+                            (&hop, Some(own)),
                             requester,
                         )
                         .await
@@ -1101,7 +1098,7 @@ impl FetchTiers {
                         &hop,
                         &tier.bounds,
                         clock,
-                        Some(accepts),
+                        Some(own),
                     )
                     .await
                 }
@@ -1310,6 +1307,7 @@ impl FetchTiers {
             // which relays them unread: no `tls.accept_invalid_certs`
             // exception is taken on this tier.
             certificate_exception: None,
+            text: None,
         };
         // Lightpanda follows its redirects itself: the chain records none.
         let followed = Followed {
@@ -1386,7 +1384,6 @@ impl FetchTiers {
                 canonical,
             });
         }
-        let served = ServedDocument::clone(&served);
         let run = served.run.clone();
         let work = run.metrics().counted_work().clone();
         let extractor = chosen_extractor(&run, served.extractor);
@@ -1408,7 +1405,7 @@ impl FetchTiers {
                     _ => None,
                 };
                 Signed {
-                    url: served.url,
+                    url: served.url.clone(),
                     signature,
                     canonical,
                 }
@@ -2078,11 +2075,11 @@ impl HandlerPages for FetchTiers {
         }))
     }
 
-    fn document(&self, page_id: &PageId) -> Option<ServedDocument> {
+    fn document(&self, page_id: &PageId) -> Option<Arc<ServedDocument>> {
         lock(&self.served.pages)
             .open
             .get(page_id)
-            .map(|page| ServedDocument::clone(&page.document))
+            .map(|page| Arc::clone(&page.document))
     }
 
     fn call(

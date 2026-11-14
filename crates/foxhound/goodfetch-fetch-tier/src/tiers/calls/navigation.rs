@@ -221,6 +221,7 @@ fn blank(
         body: Bytes::new(),
         unaccepted: None,
         certificate_exception: None,
+        text: None,
     };
     Opened::of(run, &empty, (None, extractor), (readers, false))
 }

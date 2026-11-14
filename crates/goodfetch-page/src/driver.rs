@@ -51,6 +51,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use bytestring::ByteString;
 use goodfetch_cdp::generated::{browser, dom, emulation, input, network, page, runtime, target};
 use goodfetch_cdp::{
     Command, Connection, Failure, NetError, Refusal, SessionId as TargetSession, Subscription,
@@ -1018,7 +1019,7 @@ async fn prepare(browser: &Browser, session: &TargetSession) -> Result<(), CallE
 /// A page's document as it stands, serialized once.
 pub(crate) struct SerializedDocument {
     /// Its HTML.
-    pub(crate) html: String,
+    pub(crate) html: ByteString,
     /// Its URL.
     pub(crate) url: String,
     /// Its base URL.
@@ -2117,7 +2118,7 @@ impl PageDriver {
             .outer_html;
         let url = root.document_url.unwrap_or_default();
         Ok(SerializedDocument {
-            html,
+            html: ByteString::from(html),
             base_url: root.base_url.unwrap_or_else(|| url.clone()),
             url,
         })

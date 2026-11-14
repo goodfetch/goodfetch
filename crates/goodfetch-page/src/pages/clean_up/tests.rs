@@ -38,7 +38,7 @@ fn read_measured(request: Value, measure: ShareMeasure) -> (usize, Option<Value>
     let (runs, reported) = mpsc::channel();
     let counted = Counted { runs };
     let document = SerializedDocument {
-        html: ARTICLE.to_owned(),
+        html: ARTICLE.into(),
         url: "https://kites.test/journal/lines".to_owned(),
         base_url: "https://kites.test/journal/lines".to_owned(),
     };
@@ -148,11 +148,13 @@ fn a_call_reading_nothing_of_the_cleaned_page_runs_no_rule_and_records_none() {
 fn a_browser_pages_formats_read_parses_its_serialization_once_with_every_format() {
     let work = goodfetch_counted_work::CountedWork::default();
     let document = SerializedDocument {
-        html: ARTICLE.replace(
-            "</article>",
-            "<table><tr><th>Line</th></tr><tr><td>Polyester</td></tr></table>\
-             <a href=\"mailto:kites@kites.test\">Write</a><img src=\"/reel.png\" alt=\"A reel\"></article>",
-        ),
+        html: ARTICLE
+            .replace(
+                "</article>",
+                "<table><tr><th>Line</th></tr><tr><td>Polyester</td></tr></table>\
+                 <a href=\"mailto:kites@kites.test\">Write</a><img src=\"/reel.png\" alt=\"A reel\"></article>",
+            )
+            .into(),
         url: "https://kites.test/journal/lines".to_owned(),
         base_url: "https://kites.test/journal/lines".to_owned(),
     };

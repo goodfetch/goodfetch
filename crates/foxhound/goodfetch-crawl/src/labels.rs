@@ -110,7 +110,7 @@ impl Declared {
         {
             return Err(locked(login, "the Run"));
         }
-        for (label, http_from) in self.settings.http_froms() {
+        for (label, http_from) in self.settings.own_http_from() {
             if http_from == HttpFrom::Transport
                 && let Some(login) = self.login(label)
             {

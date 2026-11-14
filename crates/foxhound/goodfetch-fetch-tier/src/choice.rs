@@ -264,7 +264,7 @@ impl LabelSettings {
     }
 
     /// Each declared Label that sets `fetch.http_from`, with its value.
-    pub fn http_froms(&self) -> impl Iterator<Item = (&str, HttpFrom)> {
+    pub fn own_http_from(&self) -> impl Iterator<Item = (&str, HttpFrom)> {
         self.http_from
             .iter()
             .map(|(name, http_from)| (name.as_str(), *http_from))

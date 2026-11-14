@@ -18,6 +18,16 @@
 //! bounded cache of compilations, keyed by their text and the digest of the
 //! rules' version (`CountedWork::rules_selector`), so a page compiles none
 //! that an earlier page, of this Run or another, compiled.
+//!
+//! An element is tested only against the plain rules it could match: the
+//! page's rules are filed in an [`Index`] by a key of each one's subject,
+//! and one walk tests each element against the rules its own ID, classes,
+//! attributes and tag file, the earliest in rule order winning, as it did
+//! when every element was tested against every rule (spec #2164).
+
+mod hosts;
+#[cfg(test)]
+mod tests;
 
 use std::collections::BTreeSet;
 
@@ -25,9 +35,14 @@ use adblock::cosmetic_filter_cache::ProceduralOrActionFilter;
 use adblock::filters::cosmetic::{CosmeticFilterAction, CosmeticFilterOperator};
 use dom_query::{Matcher, NodeId, NodeRef, Selection};
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
+use selectors::context::SelectorCaches;
 
-use crate::cosmetic::{HIDDEN, PageRules};
-use crate::matching::{Choices, List};
+pub use self::hosts::HostCache;
+use self::hosts::{Host, HostKey};
+use crate::generic::Generic;
+use crate::index::Index;
+use crate::list::List;
+use crate::matching::Choices;
 use crate::rules::FilterLists;
 
 /// The share of the main content's text above which a removal is flagged
@@ -63,7 +78,8 @@ pub struct Removed {
 }
 
 /// The Clean-up rules a page is cleaned with: the Filter lists of one
-/// version, that version's digest, and what the page's settings turn on.
+/// version, that version's digest, what the page's settings turn on, and
+/// the rule lists of the hosts its Run read pages of.
 #[derive(Clone, Copy)]
 pub struct Rules<'a> {
     /// The Filter lists.
@@ -72,6 +88,8 @@ pub struct Rules<'a> {
     pub version: &'a str,
     /// Which of them are on.
     pub choices: &'a Choices,
+    /// The Run's host cache.
+    pub hosts: &'a HostCache,
 }
 
 /// One rule as removal applies it.
@@ -83,6 +101,25 @@ struct Rule<K> {
 
 /// A procedural rule's operators, in order.
 struct Procedural(Vec<Step>);
+
+impl Procedural {
+    /// About how many bytes its operators hold beyond their own size: a
+    /// compiled selector, which the engine's cache shares, none.
+    fn bytes(&self) -> usize {
+        let Self(steps) = self;
+        steps.capacity() * size_of::<Step>()
+            + steps
+                .iter()
+                .map(|step| match step {
+                    Step::HasText(text) => text.capacity(),
+                    Step::Css(_)
+                    | Step::MinTextLength(_)
+                    | Step::UpwardBy(_)
+                    | Step::UpwardTo(_) => 0,
+                })
+                .sum::<usize>()
+    }
+}
 
 /// One procedural operator removal evaluates.
 enum Step {
@@ -96,64 +133,78 @@ enum Step {
 /// Removes from `document`, the tree of the page at `url`, in place, every
 /// element the cosmetic rules of `rules` match, their selectors compiled
 /// through the engine's cache on `work`, and answers what it removed. It
-/// counts on `work` the page's rule list it builds (`F1.rule_list_builds`)
-/// and each rule it tests: a plain rule against one element, a procedural
-/// one over one root (`F1.rule_tests`).
+/// counts on `work` each rule list it builds for a host its Run's host
+/// cache does not hold (`F1.rule_list_builds`), and each rule it tests: a
+/// plain rule against one element that could match it, a procedural one
+/// over one root (`F1.rule_tests`).
 pub fn remove(document: &ParsedHtml, url: &str, rules: Rules<'_>, work: &CountedWork) -> Removal {
-    let page = PageRules::of(rules.lists, rules.choices, url);
-    if page.is_empty() {
+    let on = rules.choices.lists();
+    if on.is_empty() {
         return Removal::default();
     }
-    work.count(Row::PageRuleListBuilds);
     let selector =
         |text: &str| work.rules_selector(Row::PageSelectorCompilations, rules.version, text);
+    let generic = rules.lists.generic();
+    let host = rules
+        .hosts
+        .host(&HostKey::of(rules.lists, rules.version, url, on), |key| {
+            work.count(Row::PageRuleListBuilds);
+            Host::build(rules.lists, generic, url, key, &selector)
+        });
     let roots = roots(document, work);
-    let (classes, ids) = classes_and_ids(roots.iter().map(|(root, _)| root));
-    let css: Vec<Rule<Matcher>> = page
-        .css_rules(
-            &classes.iter().map(String::as_str).collect::<Vec<_>>(),
-            &ids.iter().map(String::as_str).collect::<Vec<_>>(),
-        )
-        .into_iter()
-        .filter(|rule| rule.style == HIDDEN)
-        .filter_map(|rule| {
-            Some(Rule {
-                kind: selector(&rule.selector)?,
-                name: rule.selector,
-                list: rule.list,
-            })
-        })
-        .collect();
-    let procedural: Vec<Rule<Procedural>> = page
-        .procedural()
-        .into_iter()
-        .filter_map(|(filter, list)| procedural(&filter, list, &selector))
-        .collect();
-    let mut removed = Vec::new();
-    if css.is_empty() && procedural.is_empty() {
+    let page = class_and_id_rules(rules.lists, &host, &roots, &selector);
+    if host.generic.is_empty()
+        && host.rules.is_empty()
+        && page.rules.is_empty()
+        && host.procedural.is_empty()
+    {
         return Removal::default();
     }
+    let sources = Sources {
+        generic,
+        host: &host,
+        page: &page,
+    };
+    let mut removed = Vec::new();
+    let mut candidates = Candidates::default();
     let mut gone = BTreeSet::new();
     let mut tests = 0_u64;
-    for (index, (root, host)) in roots.iter().enumerate() {
-        if host.is_some_and(|host| gone_with_an_ancestor(&host, &gone)) {
+    for (index, (root, ancestor)) in roots.iter().enumerate() {
+        if ancestor.is_some_and(|ancestor| gone_with_an_ancestor(&ancestor, &gone)) {
             continue;
         }
         // One pass over each root finds, in document order, each element a
-        // plain rule matches, credited to the first rule that matches it.
+        // plain rule matches, credited to the first rule that matches it:
+        // the earliest, in selector order, of those the generic set, the
+        // host's rules and the page's own file under the element's keys,
+        // each selector applied as the first list and rank holding it. The
+        // matches of one root share their caches, since nothing leaves the
+        // tree before the pass has collected them all.
+        let mut caches = SelectorCaches::default();
         let found: Vec<(NodeRef<'_>, &str, List)> = root
             .descendants_it()
             .filter(NodeRef::is_element)
             .filter_map(|node| {
-                let rule = css.iter().find(|rule| {
-                    tests += 1;
-                    node.is_match(&rule.kind)
-                })?;
-                Some((node, rule.name.as_str(), rule.list))
+                let (rule, list) =
+                    candidates
+                        .of(&node, sources)
+                        .iter()
+                        .find_map(|(at, list, _)| {
+                            let matcher = match *at {
+                                At::Generic(at) => generic.matcher(at, selector),
+                                At::Host(at) => host.rules[at].matcher.as_ref(),
+                                At::Page(at) => page.rules[at].kind.as_ref(),
+                            }?;
+                            tests += 1;
+                            matcher
+                                .match_element_with_caches(&node, &mut caches)
+                                .then_some((sources.selector(*at), *list))
+                        })?;
+                Some((node, rule, list))
             })
             .collect();
-        tests += procedural.len() as u64;
-        let procedurally = procedural.iter().flat_map(|rule| {
+        tests += host.procedural.len() as u64;
+        let procedurally = host.procedural.iter().flat_map(|rule| {
             matches(root, &rule.kind)
                 .into_iter()
                 .map(|node| (node, rule.name.as_str(), rule.list))
@@ -177,6 +228,129 @@ pub fn remove(document: &ParsedHtml, url: &str, rules: Rules<'_>, work: &Counted
     Removal {
         removed_text: removed.iter().map(|element| element.text).sum(),
         removed,
+    }
+}
+
+/// The generic rules a class or ID keys that apply to one page: those its
+/// classes and IDs key, of each list `host` applies them for, less the
+/// host's exceptions, in selector order, then list order, filed in an
+/// index.
+struct ClassAndIdRules {
+    rules: Vec<Rule<Option<Matcher>>>,
+    index: Index,
+}
+
+/// The page's class and ID rules, of `lists` as `host` applies them,
+/// for the classes and IDs `roots` hold, compiled through `selector`.
+fn class_and_id_rules(
+    lists: &FilterLists,
+    host: &Host,
+    roots: &[(NodeRef<'_>, Option<NodeRef<'_>>)],
+    selector: &impl Fn(&str) -> Option<Matcher>,
+) -> ClassAndIdRules {
+    let mut rules: Vec<(String, List)> = Vec::new();
+    if !host.exceptions.is_empty() {
+        let (classes, ids) = classes_and_ids(roots.iter().map(|(root, _)| root));
+        for (list, exceptions) in &host.exceptions {
+            let engine = lists.engine(*list);
+            rules.extend(
+                engine
+                    .hidden_class_id_selectors(classes.iter(), ids.iter(), exceptions)
+                    .into_iter()
+                    .map(|selector| (selector, *list)),
+            );
+        }
+    }
+    rules.sort_unstable();
+    rules.dedup_by(|later, earlier| later.0 == earlier.0);
+    let rules: Vec<Rule<Option<Matcher>>> = rules
+        .into_iter()
+        .map(|(name, list)| Rule {
+            kind: selector(&name),
+            name,
+            list,
+        })
+        .collect();
+    let index = Index::of(rules.iter().map(|rule| rule.name.as_str()));
+    ClassAndIdRules { rules, index }
+}
+
+/// Where a candidate rule is held.
+#[derive(Clone, Copy)]
+enum At {
+    Generic(usize),
+    Host(usize),
+    Page(usize),
+}
+
+/// The rules one page is read with: the generic set, its host's and its
+/// own class and ID rules.
+#[derive(Clone, Copy)]
+struct Sources<'r> {
+    generic: &'r Generic,
+    host: &'r Host,
+    page: &'r ClassAndIdRules,
+}
+
+impl<'r> Sources<'r> {
+    /// The selector of the rule at `at`.
+    fn selector(self, at: At) -> &'r str {
+        match at {
+            At::Generic(at) => self.generic.rule(at).0,
+            At::Host(at) => &self.host.rules[at].selector,
+            At::Page(at) => &self.page.rules[at].name,
+        }
+    }
+}
+
+/// The scratch space of an element's candidates, reused element to
+/// element.
+#[derive(Default)]
+struct Candidates {
+    generic: Vec<usize>,
+    host: Vec<usize>,
+    page: Vec<usize>,
+    /// Each candidate rule, with the list and rank its selector is applied
+    /// as.
+    all: Vec<(At, List, u8)>,
+}
+
+impl Candidates {
+    /// The rules `node` could match, each selector once, as the first list
+    /// and rank holding it, in selector order.
+    fn of(&mut self, node: &NodeRef<'_>, sources: Sources<'_>) -> &[(At, List, u8)] {
+        let Sources {
+            generic,
+            host,
+            page,
+        } = sources;
+        self.all.clear();
+        if !host.generic.is_empty() {
+            generic.index().candidates(node, &mut self.generic);
+            self.all.extend(self.generic.iter().filter_map(|at| {
+                let list = host.generic_list(*at, generic.rule(*at).1)?;
+                Some((At::Generic(*at), list, 0))
+            }));
+        }
+        host.index.candidates(node, &mut self.host);
+        self.all.extend(self.host.iter().map(|at| {
+            let rule = &host.rules[*at];
+            (At::Host(*at), rule.list, rule.rank)
+        }));
+        page.index.candidates(node, &mut self.page);
+        self.all.extend(
+            self.page
+                .iter()
+                .map(|at| (At::Page(*at), page.rules[*at].list, 1)),
+        );
+        self.all
+            .sort_unstable_by(|(a, a_list, a_rank), (b, b_list, b_rank)| {
+                (sources.selector(*a), a_list, a_rank).cmp(&(sources.selector(*b), b_list, b_rank))
+            });
+        self.all.dedup_by(|(later, ..), (earlier, ..)| {
+            sources.selector(*later) == sources.selector(*earlier)
+        });
+        &self.all
     }
 }
 

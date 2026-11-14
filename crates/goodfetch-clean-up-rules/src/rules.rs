@@ -4,9 +4,13 @@
 //! [`FilterLists`] is `Send + Sync` (`adblock` without its `single-thread`
 //! feature), so every Session shares one behind an `Arc` with no lock.
 
+use std::sync::OnceLock;
+
 use adblock::Engine;
 
 use crate::filter_set;
+use crate::generic::Generic;
+use crate::list::List;
 use crate::stand_ins;
 
 /// One embedded engine as the build wrote it.
@@ -21,11 +25,18 @@ include!(concat!(env!("OUT_DIR"), "/embedded.rs"));
 
 /// The embedded Filter lists, loaded: EasyList, EasyPrivacy and Fanboy
 /// Annoyance, each with Brave's unbreak list; the consent vendors' entries
-/// stay in, each joining the never-block list (#717).
+/// stay in, each joining the never-block list (#717). Beside each list's
+/// engine, a small one holds its and the unbreak list's `$generichide`
+/// exceptions alone, which answer whether a page's URL turns the list's
+/// generic rules off; and the generic set removal reads every page with is
+/// built once, on first use.
 pub struct FilterLists {
     pub(crate) ads: Engine,
     pub(crate) trackers: Engine,
     pub(crate) annoyances: Engine,
+    /// The `$generichide` exceptions of each list, in [`List`] order.
+    generic_hide: [Engine; 3],
+    generic: OnceLock<Generic>,
 }
 
 /// Why the embedded Filter lists did not load: never once the build
@@ -73,6 +84,13 @@ impl FilterLists {
             ads: load("ads", &ADS, &mut buffer)?,
             trackers: load("trackers", &TRACKERS, &mut buffer)?,
             annoyances: load("annoyances", &ANNOYANCES, &mut buffer)?,
+            generic_hide: [
+                ADS_GENERIC_HIDE,
+                TRACKERS_GENERIC_HIDE,
+                ANNOYANCES_GENERIC_HIDE,
+            ]
+            .map(|lines| generic_hide(lines.to_owned(), UNBREAK_GENERIC_HIDE.to_owned())),
+            generic: OnceLock::new(),
         };
         // Each engine holds its own copy: the decompressed bytes go now.
         drop(buffer);
@@ -96,12 +114,59 @@ impl FilterLists {
             engine.use_resources(stand_ins::resources());
             engine
         };
+        let unbreak = filter_set::generic_hide_lines(texts.unbreak);
         Self {
             ads: compiled(texts.ads),
             trackers: compiled(texts.trackers),
             annoyances: compiled(texts.annoyances),
+            generic_hide: [texts.ads, texts.trackers, texts.annoyances]
+                .map(|list| generic_hide(filter_set::generic_hide_lines(list), unbreak.clone())),
+            generic: OnceLock::new(),
         }
     }
+
+    /// Each list's engine, in [`List`] order.
+    pub(crate) fn engines(&self) -> [(List, &Engine); 3] {
+        [
+            (List::Ads, &self.ads),
+            (List::Trackers, &self.trackers),
+            (List::Annoyances, &self.annoyances),
+        ]
+    }
+
+    /// The engine of `list`.
+    pub(crate) fn engine(&self, list: List) -> &Engine {
+        match list {
+            List::Ads => &self.ads,
+            List::Trackers => &self.trackers,
+            List::Annoyances => &self.annoyances,
+        }
+    }
+
+    /// Whether a `$generichide` exception of `list`, or of the unbreak
+    /// list, turns the list's generic rules off for the page at `url`, as
+    /// the list's engine answers it.
+    pub(crate) fn generic_hide(&self, list: List, url: &str) -> bool {
+        let at = match list {
+            List::Ads => 0,
+            List::Trackers => 1,
+            List::Annoyances => 2,
+        };
+        self.generic_hide[at]
+            .url_cosmetic_resources(url)
+            .generichide
+    }
+
+    /// The generic set removal reads every page with, built on first use.
+    pub(crate) fn generic(&self) -> &Generic {
+        self.generic.get_or_init(|| Generic::of(self.engines()))
+    }
+}
+
+/// The engine of `lines`, a list's `$generichide` exceptions, and
+/// `unbreak`, the unbreak list's.
+fn generic_hide(lines: String, unbreak: String) -> Engine {
+    Engine::new_with_filter_set(filter_set::of(lines, unbreak))
 }
 
 /// The texts of one version's Filter lists.

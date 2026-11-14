@@ -189,6 +189,7 @@ trackers = true
 annoyances = true
 first_party_scripts = true
 page_scriptlets = true
+host_cache = 4
 extra = ["example"]
 
 [settings.clean_up]

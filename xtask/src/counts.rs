@@ -185,7 +185,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 110] = [
+const ROWS: [Row; 111] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -260,14 +260,17 @@ const ROWS: [Row; 110] = [
     b4("F1.analysis_handoffs", "pages", true),
     b4("F1.rule_list_builds", "pages", true),
     b4("F1.rule_tests", "pages", true),
-    // Read as each cell's crawl ended. No Run keeps a host cache until
-    // #2186, so no cell does their work yet.
-    b4("F1.host_cache_entries", CRAWLS, false),
-    b4("F1.host_cache_bytes", CRAWLS, false),
+    // Read as each cell's crawl ended.
+    b4("F1.host_cache_entries", CRAWLS, true),
+    b4("F1.host_cache_bytes", CRAWLS, true),
     // Callgrind's count beneath the clean-up's removal, which B4's own run
     // reads on its default cell alone: the other cells print none of its
     // unit.
     b4(CLEAN_UP_INSTRUCTIONS, CALLGRIND_PAGES, true),
+    // Callgrind's count beneath each selector's compilation over the
+    // default cell's one crawl on an empty cache, read per crawl as
+    // `F1.clean_up_instructions` is: work once per engine and rules version.
+    b4(SELECTOR_COMPILATION_INSTRUCTIONS, CALLGRIND_CRAWLS, true),
     Row {
         name: "F2.transactions",
         family: "B1",
@@ -981,11 +984,18 @@ const fn b1(name: &'static str, unit: &'static str, happens: bool) -> Row {
 const CRAWLS: &str = "crawls";
 /// The pages of the cell that B4's benchmark runs again under Callgrind.
 const CALLGRIND_PAGES: &str = "callgrind_pages";
+/// The one crawl of that cell its run under Callgrind counts.
+const CALLGRIND_CRAWLS: &str = "callgrind_crawls";
 
 /// The clean-up's instructions per page, which B4's benchmark reads under
 /// Callgrind in its own run: a figure that varies, so held within the
 /// tolerance of a figure read under Valgrind (the register's ratchet).
 const CLEAN_UP_INSTRUCTIONS: &str = "F1.clean_up_instructions";
+
+/// The instructions of a crawl's selector compilations on an empty cache,
+/// which B4's benchmark reads under Callgrind as it reads
+/// [`CLEAN_UP_INSTRUCTIONS`], and holds within the same tolerance.
+const SELECTOR_COMPILATION_INSTRUCTIONS: &str = "F1.selector_compilation_instructions";
 
 const fn b4(name: &'static str, unit: &'static str, happens: bool) -> Row {
     Row {
@@ -1501,6 +1511,7 @@ fn one_of(unit: &str) -> &str {
         ADDED_PAGES => "page added",
         ATTEMPTS_ENDED => "attempt",
         CALLGRIND_PAGES => "page",
+        CALLGRIND_CRAWLS => "crawl",
         unit => unit.trim_end_matches('s'),
     }
 }
@@ -1570,7 +1581,9 @@ fn verdict(
                 cell.name,
                 one_of(row.unit),
             ));
-            let limit_held = if row.valgrind.is_some() || row.name == CLEAN_UP_INSTRUCTIONS {
+            let limit_held = if row.valgrind.is_some()
+                || [CLEAN_UP_INSTRUCTIONS, SELECTOR_COMPILATION_INSTRUCTIONS].contains(&row.name)
+            {
                 limit.with_valgrind_tolerance()
             } else {
                 *limit

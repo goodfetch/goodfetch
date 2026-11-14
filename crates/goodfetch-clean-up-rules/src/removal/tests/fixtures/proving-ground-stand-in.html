@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A page that calls a blocked tracker</title>
+<script src="https://static.chartbeat.com/js/chartbeat.js"></script>
+</head>
+<body>
+<main>
+<h1>A page that calls a blocked tracker</h1>
+<script>
+let outcome = "worked";
+try {
+  pSUPERFLY.virtualPage("/stand-in");
+} catch {
+  outcome = "broken";
+}
+document.write(`<img src="/stand-in/${outcome}.gif" alt="" width="1" height="1">`);
+</script>
+</main>
+</body>
+</html>

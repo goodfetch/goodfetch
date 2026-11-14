@@ -1191,10 +1191,10 @@ rss-propose *scenarios:
 # names: one outside every checkout keeps them from one measurement to the
 # next, whichever worktree measures and whatever sweeps its target/ (Cargo
 # still rebuilds what a changed side needs). Each build's executables are
-# read from its folder's `debug/` for the `dev` profile, the folder Cargo
-# writes that profile to, and from the folder of the profile's own name for
-# every other; fastCRW's server is installed into the same one. xtask takes
-# the profile and maps it to that folder the same way.
+# read from the folder Cargo writes the profile to: `debug/` for `dev` and
+# `test`, `release/` for `release` and `bench`, the profile's own name for
+# every other. fastCRW's server is installed into the same one, and xtask
+# takes the profile and maps it to that folder the same way.
 # xtask is built once and runs from its copy in the target folder's
 # compare/xtask: a build in the checkout while the matrix runs, for hours,
 # relinks or sweeps its debug executable, never the one measuring.
@@ -1203,7 +1203,7 @@ rss-propose *scenarios:
 compare profile="release" *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    folder={{ if profile == "dev" { "debug" } else { profile } }}
+    folder={{ if profile == "dev" { "debug" } else if profile == "test" { "debug" } else if profile == "bench" { "release" } else { profile } }}
     {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
     cargo build --quiet --locked --bin xtask
     target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)

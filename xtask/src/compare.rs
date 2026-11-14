@@ -127,7 +127,7 @@ pub(crate) struct RunArguments {
     #[arg(long)]
     spider_builds: PathBuf,
     /// The profile those builds were made with, which names the folder
-    /// Cargo wrote them to: `release`, or `debug` for `dev`.
+    /// Cargo wrote them to ([`run::profile_folder`]): `debug` for `dev`.
     #[arg(long, default_value = "release")]
     spider_profile: String,
     /// Chrome for Testing's folder, which every tool of the headless

@@ -135,11 +135,15 @@ fn drawn_seed() -> u64 {
     now.as_second().unsigned_abs() ^ u64::from(now.subsec_nanosecond().unsigned_abs()) << 32
 }
 
-/// The folder Cargo writes `profile`'s builds to: `debug` for `dev`, whose
-/// name Cargo reserves for that folder, and the profile's own name for every
-/// other.
+/// The folder Cargo writes `profile`'s builds to: `debug` for `dev` and
+/// `test`, `release` for `release` and `bench`, and the profile's own name
+/// for every other.
 pub(crate) fn profile_folder(profile: &str) -> &str {
-    if profile == "dev" { "debug" } else { profile }
+    match profile {
+        "dev" | "test" => "debug",
+        "bench" => "release",
+        other => other,
+    }
 }
 
 /// The executable of `build` among Spider's side's builds in `builds`:

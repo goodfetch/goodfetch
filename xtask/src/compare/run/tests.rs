@@ -119,10 +119,13 @@ fn chromiumoxide_runs_the_executable_built_in_its_folder() {
 }
 
 /// A profile's builds are read from the folder Cargo writes it to: `debug`
-/// for `dev`, the profile's own name for every other (issue 2099).
+/// for `dev` and `test`, `release` for `bench`, the profile's own name for
+/// every other (issue 2099).
 #[rstest::rstest]
 #[case::dev("dev", "debug")]
+#[case::test_profile("test", "debug")]
 #[case::release("release", "release")]
+#[case::bench("bench", "release")]
 #[case::ci("ci", "ci")]
 fn each_profiles_builds_are_read_from_the_folder_cargo_writes_it_to(
     #[case] profile: &str,

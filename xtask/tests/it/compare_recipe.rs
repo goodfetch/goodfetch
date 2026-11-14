@@ -1,11 +1,11 @@
 //! `just compare <profile>` (issue 2099): the repository's recipe, run in an
 //! empty fixture with stand-ins for Cargo, xtask, pnpm and uv on the path,
 //! each of which records how it was called and builds nothing (`jq` gives
-//! the fixture's target folder). Cargo writes the `dev` profile's builds to
-//! `debug/` and every other profile's to a folder of its name, so the recipe
-//! installs fastCRW's server into that folder, beside fastCRW's side, and
-//! hands `xtask compare run` the profile itself, which xtask maps to the
-//! same folder and its rerun command names.
+//! the fixture's target folder). Cargo writes the `dev` and `test` profiles'
+//! builds to `debug/`, `bench`'s to `release/` and every other profile's to
+//! a folder of its name, so the recipe installs fastCRW's server into that
+//! folder, beside fastCRW's side, and hands `xtask compare run` the profile
+//! itself, which xtask maps to the same folder and its rerun command names.
 
 use std::path::Path;
 
@@ -81,10 +81,11 @@ fn option_of<'a>(calls: &'a [String], call: &str, option: &str) -> &'a str {
 
 /// `just compare dev` installs fastCRW's server into `debug/`, where Cargo
 /// writes the sides' `dev` builds, and runs xtask with the profile `dev`;
-/// `release`, or no profile, installs into `release/` and runs with
-/// `release`, as before.
+/// `bench` installs into `release/`, where Cargo writes it; `release`, or no
+/// profile, installs into `release/` and runs with `release`, as before.
 #[rstest]
 #[case::dev(Some("dev"), "dev", "debug")]
+#[case::bench(Some("bench"), "bench", "release")]
 #[case::release(Some("release"), "release", "release")]
 #[case::no_profile(None, "release", "release")]
 fn just_compare_installs_into_the_profiles_folder_and_runs_with_the_profile(

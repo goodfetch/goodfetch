@@ -78,7 +78,7 @@ fn auto() -> Value {
 /// `fetch.tier` (ADRs 0020 and 0093; spec #579).
 pub const FETCH_TIER: Setting = Setting {
     name: "fetch.tier",
-    description: "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose, whether set or left at the built-in default: it learns the tier per Label on each domain by sample comparison, the first `fetch.sample.count` requests (3) of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all of them staged the same Records (compared after Unicode NFC and whitespace normalization of their strings, in any order) and the same enqueues, the browser's run never matching where it ended on another URL or read its document in another `document.characterSet`, and staying on `browser` for the Run where its browser sample met a consent wall; split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; a choice is sampled again as `fetch.sample.refresh_after` says; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records the tier that sent each attempt's document, `browser_fetch` where a document tier's request left from inside the Session's browser, as it does under `auto`, and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; a `standard` Session forced onto `http` sends from its own transport, which presents its browser's `User-Agent` and document request headers (where the browser is an installed one, such as the distribution's Chromium on Linux arm64 and musl, those of the version its executable prints for `--version`, read once per Run without starting a browser; none, with the Run warned `browser_version_unread`, where no browser is installed or it does not print a version and exit within 10 seconds), as do the reads of robots.txt, sitemaps and AI-use signal files that transport sends under every tier, and keeps the Session's cookies in a jar of its own, over reqwest's TLS fingerprint, not the browser's; `light_browser` forces the Lightpanda tier where `fetch.light_browser` allows it, and under `auto` a Run that allows it also runs a sample on `light_browser` where its `http` run differed, the Label moving to `light_browser` once every sample matched there or over `http`; under `auto`, a sample whose `http` run escalated at a network wait also runs on `discovered_api` once its browser run answered: the JSON calls the browser's page made, read as a page-number or cursor plan, are replayed over HTTP for the same request, a `page.wait_for_response` armed before a navigation of its page answered from the calls that navigation replays and any other escalating, and a Label whose samples all matched there, or over `http`, moves to `discovered_api`, its later requests replaying the plan for their own pages; `browser_fetch` forces the HTTP tier sent from inside the Session's browser context, the one tier that sends HTTP with the browser's own TLS fingerprint, its cookies the Session's, nothing escalating; forcing `discovered_api` is refused with `capability_unavailable` at the crawl's start until a forced tier takes its browser sample.",
+    description: "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose, whether set or left at the built-in default: it learns the tier per Label on each domain by sample comparison, the first `fetch.sample.count` requests (3) of a Label on a domain each run on `http` and then on `browser`, whose run commits (sent from one Session, or from two that share nothing where `fetch.http_from` sends the Label's HTTP from the transport), the Label moving to `http` once all of them staged the same Records (compared after Unicode NFC and whitespace normalization of their strings, in any order) and the same enqueues, the browser's run never matching where it ended on another URL or read its document in another `document.characterSet`, and staying on `browser` for the Run where its browser sample met a consent wall; split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; a choice is sampled again as `fetch.sample.refresh_after` says; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records the tier that sent each attempt's document, `browser_fetch` where a document tier's request left from inside the Session's browser, as it does under `auto` unless `fetch.http_from` sends it from the Session's own transport, and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; a `standard` Session forced onto `http` sends from its own transport, which presents its browser's `User-Agent` and document request headers (where the browser is an installed one, such as the distribution's Chromium on Linux arm64 and musl, those of the version its executable prints for `--version`, read once per Run without starting a browser; none, with the Run warned `browser_version_unread`, where no browser is installed or it does not print a version and exit within 10 seconds), as do the reads of robots.txt, sitemaps and AI-use signal files that transport sends under every tier, and keeps the Session's cookies in a jar of its own, over reqwest's TLS fingerprint, not the browser's; `light_browser` forces the Lightpanda tier where `fetch.light_browser` allows it, and under `auto` a Run that allows it also runs a sample on `light_browser` where its `http` run differed, the Label moving to `light_browser` once every sample matched there or over `http`; under `auto`, a sample whose `http` run escalated at a network wait also runs on `discovered_api` once its browser run answered: the JSON calls the browser's page made, read as a page-number or cursor plan, are replayed over HTTP for the same request, a `page.wait_for_response` armed before a navigation of its page answered from the calls that navigation replays and any other escalating, and a Label whose samples all matched there, or over `http`, moves to `discovered_api`, its later requests replaying the plan for their own pages; `browser_fetch` forces the HTTP tier sent from inside the Session's browser context, the one tier that sends HTTP with the browser's own TLS fingerprint, its cookies the Session's, nothing escalating; forcing `discovered_api` is refused with `capability_unavailable` at the crawl's start until a forced tier takes its browser sample.",
     kind: ValueKind::Choice(FETCH_TIERS),
     default: auto,
     clearable: false,
@@ -112,6 +112,34 @@ pub const FETCH_LIGHT_BROWSER: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The values `fetch.http_from` takes: the default, then the two that
+/// weaken browser-fetch for identity consistency (ADR 0023).
+pub const HTTP_FROM_VALUES: &[&str] = &["browser", "learned", "transport"];
+
+fn from_the_browser() -> Value {
+    Value::String("browser".to_owned())
+}
+
+/// Whether a `fetch.http_from` sends a Label's HTTP from anywhere but the
+/// Session's browser: a weakened control (ADR 0023).
+fn not_from_the_browser(value: &Value) -> bool {
+    value.as_str().is_some_and(|from| from != "browser")
+}
+
+/// `fetch.http_from` (ADRs 0020 and 0023; spec #2413).
+pub const FETCH_HTTP_FROM: Setting = Setting {
+    name: "fetch.http_from",
+    description: "Where a Label's HTTP leaves from where the engine chooses its tier, under `fetch.tier: auto`, set for the Run or for one of its Labels; a forced `fetch.tier` ignores it. `browser` (the default) sends a sample's `http` run and a Label learned onto `http` from inside the Session's browser, recorded as `browser_fetch`, so the site meets one TLS fingerprint and one cookie jar. `transport` sends them from a Session's own HTTP transport, over its own TLS fingerprint and headers, recorded as `http`: a sample's `http` run and its `browser` run are drawn from two Sessions, one of each client, which share no cookie, storage or local address, and a Label learned onto `http` sends its documents, their redirect hops and its served pages' requests from a Session's own transport. `learned` behaves as `transport` until the engine learns per Label which client a site accepts. A choice learned under one value is sampled again under another that no longer allows its sender. `learned` and `transport` are a weakened control, named in the Run report's `weakened` and recorded in the Audit log as `feature_switched_off`.",
+    kind: ValueKind::Choice(HTTP_FROM_VALUES),
+    default: from_the_browser,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: Some(not_from_the_browser),
     fixed_for_run: false,
     unbuilt: None,
     arrived_in: ARRIVED_IN,
@@ -324,7 +352,7 @@ fn fewer_samples(value: &Value) -> bool {
 /// `fetch.sample.count` (ADRs 0020 and 0023; spec #579).
 pub const FETCH_SAMPLE_COUNT: Setting = Setting {
     name: "fetch.sample.count",
-    description: "How many of a Label's first requests on a domain are samples under `fetch.tier: auto`, each fetched on `http` and then on `browser`, whose run commits: the Label moves to `http` once all of them gave the same Records and enqueues. 3 by default; set for the Run only. Fewer than 3 is a weakened control, named in the Run report's `weakened`.",
+    description: "How many of a Label's first requests on a domain are samples under `fetch.tier: auto`, each fetched on `http` and then on `browser`, whose run commits, from two Sessions that share nothing where `fetch.http_from` sends the Label's HTTP from the transport: the Label moves to `http` once all of them gave the same Records and enqueues. 3 by default; set for the Run only. Fewer than 3 is a weakened control, named in the Run report's `weakened`.",
     kind: ValueKind::Count,
     default: sample_count,
     clearable: false,
@@ -426,6 +454,7 @@ pub const ENTRIES: Entries = Entries {
         FETCH_TIER,
         FETCH_TIER_RACE,
         FETCH_LIGHT_BROWSER,
+        FETCH_HTTP_FROM,
         FETCH_SAMPLE_COUNT,
         FETCH_SAMPLE_REFRESH_AFTER,
         FETCH_ENCODING,

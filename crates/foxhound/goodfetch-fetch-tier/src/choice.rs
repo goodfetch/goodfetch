@@ -5,7 +5,8 @@
 //! value wins for its requests. Under `auto`, set for its Label or its
 //! Run or left at the built-in default, the engine chooses: the crawl
 //! learns the tier per Label on a domain (`goodfetch-crawl`'s
-//! `tier_choice`). A Label also takes `fetch.encoding`,
+//! `tier_choice`), its HTTP leaving from where `fetch.http_from` says. A
+//! Label also takes `fetch.http_from`, `fetch.encoding`,
 //! `crawl.content_types` and `session.page_check`. A call the request's tier cannot serve exactly
 //! escalates the request to the browser under `auto`, and fails with
 //! `browser_required` under a forced tier, which nothing escalates.
@@ -17,8 +18,9 @@ use goodfetch_engine::CallError;
 use goodfetch_extractor::BuiltIn;
 use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, CRAWL_CONTENT_TYPES, LabelDeclaration};
 use goodfetch_protocol::foxhound::fetch::{
-    BROWSER_REQUIRED, BrowserRequiredDetails, FETCH_ENCODING, FETCH_KEPT_RESPONSES_URLS,
-    FETCH_TIER, FETCH_TIER_RACE, FETCH_TIERS, FetchTier,
+    BROWSER_REQUIRED, BrowserRequiredDetails, FETCH_ENCODING, FETCH_HTTP_FROM,
+    FETCH_KEPT_RESPONSES_URLS, FETCH_TIER, FETCH_TIER_RACE, FETCH_TIERS, FetchTier,
+    HTTP_FROM_VALUES,
 };
 use goodfetch_protocol::foxhound::frontier::CRAWL_KEEP_URL_FRAGMENT;
 use goodfetch_protocol::page::{CONTENT_EXTRACTOR, CONTENT_EXTRACTORS};
@@ -39,7 +41,7 @@ const SESSION_SOURCE_KEYS: &str = "session.source.";
 const PROXY_KEYS: &str = "proxy.";
 
 /// The Labels a crawl declares, each with what it sets of its own: its
-/// `fetch.tier`, the `fetch.encoding`, `crawl.content_types` (ADR 0119) and
+/// `fetch.tier`, the `fetch.http_from`, the `fetch.encoding`, `crawl.content_types` (ADR 0119) and
 /// `session.page_check` it sets, if any (ADR 0093), whether it keeps its URLs' fragments
 /// (`crawl.keep_url_fragment`, ADR 0120) and whether it keeps responses
 /// for its handler (`fetch.kept_responses.urls`, ADR 0110), when it says,
@@ -49,6 +51,7 @@ const PROXY_KEYS: &str = "proxy.";
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LabelSettings {
     tiers: BTreeMap<String, SetTier>,
+    http_from: BTreeMap<String, HttpFrom>,
     encodings: BTreeMap<String, String>,
     content_types: BTreeMap<String, ContentTypes>,
     page_checks: BTreeMap<String, PageCheck>,
@@ -64,6 +67,50 @@ pub enum Choosing {
     Engine,
     /// `fetch.tier` forces this tier.
     Forced(TierChoice),
+}
+
+/// Where a request's HTTP leaves from where the engine chooses its tier:
+/// `fetch.http_from`, the Run's or a declared Label's own (ADR 0023).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum HttpFrom {
+    /// From inside the Session's browser, as `browser_fetch`: the default.
+    #[default]
+    Browser,
+    /// Learned per Label; as [`HttpFrom::Transport`] until the engine
+    /// learns which client a site accepts.
+    Learned,
+    /// From a Session's own HTTP transport, as `http`.
+    Transport,
+}
+
+impl HttpFrom {
+    /// The value `name` names, if it names one.
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "browser" => Some(Self::Browser),
+            "learned" => Some(Self::Learned),
+            "transport" => Some(Self::Transport),
+            _ => None,
+        }
+    }
+
+    /// The Run's own `fetch.http_from` under `settings`.
+    pub fn of_run(settings: &goodfetch_engine::settings::Resolved) -> Self {
+        settings
+            .value(&FETCH_HTTP_FROM)
+            .as_str()
+            .and_then(Self::named)
+            .unwrap_or_default()
+    }
+
+    /// Whether the HTTP it chooses leaves from a Session's own transport
+    /// rather than from inside its browser.
+    pub const fn from_transport(self) -> bool {
+        match self {
+            Self::Browser => false,
+            Self::Learned | Self::Transport => true,
+        }
+    }
 }
 
 /// The Run's `fetch.tier`, or a declared Label's own.
@@ -83,13 +130,15 @@ impl LabelSettings {
     /// # Errors
     ///
     /// `setting_not_applicable` for a key a Label does not take here (every
-    /// key but `fetch.tier`, `fetch.encoding`, `crawl.content_types`,
+    /// key but `fetch.tier`, `fetch.http_from`, `fetch.encoding`,
+    /// `crawl.content_types`,
     /// `session.page_check`, `crawl.keep_url_fragment`,
     /// `fetch.kept_responses.urls`, `content.extractor` and
     /// `session.source`, which the Session pool reads; `fetch.tier_race` and every `proxy.*` key, the pools'
     /// identity policy, are the Run's only), and
     /// `setting_invalid` for a `fetch.tier` that names no tier, a
-    /// `fetch.encoding` that is no WHATWG Encoding label, a
+    /// `fetch.http_from` that names no sender, a `fetch.encoding` that is
+    /// no WHATWG Encoding label, a
     /// `crawl.content_types` that is no list of media ranges, a
     /// `session.page_check` that is no Page check, a
     /// `crawl.keep_url_fragment` that is no Boolean, a
@@ -97,6 +146,7 @@ impl LabelSettings {
     /// `content.extractor` that names no built-in.
     pub fn of(labels: &BTreeMap<String, LabelDeclaration>) -> Result<Self, CallError> {
         let mut tiers = BTreeMap::new();
+        let mut http_from = BTreeMap::new();
         let mut encodings = BTreeMap::new();
         let mut content_types = BTreeMap::new();
         let mut page_checks = BTreeMap::new();
@@ -108,6 +158,10 @@ impl LabelSettings {
             flatten("", &declaration.settings, &mut keys);
             let mut tier = SetTier::Unset;
             for (key, value) in keys {
+                if key == FETCH_HTTP_FROM.name {
+                    http_from.insert(name.clone(), http_from_of(name, &key, &value)?);
+                    continue;
+                }
                 if key == FETCH_ENCODING.name {
                     if let Some(encoding) = encoding(name, &value)? {
                         encodings.insert(name.clone(), encoding);
@@ -162,30 +216,13 @@ impl LabelSettings {
                 if key != FETCH_TIER.name {
                     return Err(not_taken(name, key));
                 }
-                let text = value.as_str();
-                tier = match (text, text.and_then(FetchTier::named)) {
-                    (Some("auto"), _) => SetTier::Auto,
-                    (_, Some(forced)) => SetTier::Forced(forced),
-                    _ => {
-                        return Err(CallError::new(
-                            &SETTING_INVALID,
-                            format!(
-                                "The Label `{name}` sets `fetch.tier` to {value}, which is none of {}.",
-                                FETCH_TIERS.join(", ")
-                            ),
-                            &SettingInvalidDetails {
-                                key,
-                                layer: Some(SettingsLayer::Run),
-                                reason: format!("{value} is none of {}", FETCH_TIERS.join(", ")),
-                            },
-                        ));
-                    }
-                };
+                tier = tier_of(name, key, &value)?;
             }
             tiers.insert(name.clone(), tier);
         }
         Ok(Self {
             tiers,
+            http_from,
             encodings,
             content_types,
             page_checks,
@@ -224,6 +261,13 @@ impl LabelSettings {
     /// a list that keeps any: `None` when it leaves it to the Run.
     pub fn keeps_responses(&self, label: &str) -> Option<bool> {
         self.kept_responses.get(label).copied()
+    }
+
+    /// Where the HTTP of a request of `label` leaves from where the engine
+    /// chooses its tier: its Label's `fetch.http_from`, else `run`, the
+    /// Run's.
+    pub fn http_from(&self, label: &str, run: HttpFrom) -> HttpFrom {
+        self.http_from.get(label).copied().unwrap_or(run)
     }
 
     /// The encoding `fetch.encoding` forces on the own document of a
@@ -302,7 +346,7 @@ fn not_taken(name: &str, key: String) -> CallError {
             ""
         };
         format!(
-            "which a Label does not take in this engine{only}: only `fetch.tier`, `fetch.encoding`, `fetch.kept_responses.urls`, `crawl.content_types`, `crawl.keep_url_fragment`, `content.extractor`, `session.page_check` and `session.source` are set per Label"
+            "which a Label does not take in this engine{only}: only `fetch.tier`, `fetch.http_from`, `fetch.encoding`, `fetch.kept_responses.urls`, `crawl.content_types`, `crawl.keep_url_fragment`, `content.extractor`, `session.page_check` and `session.source` are set per Label"
         )
     };
     CallError::new(
@@ -314,6 +358,48 @@ fn not_taken(name: &str, key: String) -> CallError {
             fix: "the Run's settings".to_owned(),
         },
     )
+}
+
+/// The tier the Label `label` sets its `fetch.tier` to with `value`.
+///
+/// # Errors
+///
+/// `SETTING_INVALID` when `value` names neither auto nor a tier.
+fn tier_of(label: &str, key: String, value: &Value) -> Result<SetTier, CallError> {
+    let text = value.as_str();
+    match (text, text.and_then(FetchTier::named)) {
+        (Some("auto"), _) => Ok(SetTier::Auto),
+        (_, Some(forced)) => Ok(SetTier::Forced(forced)),
+        _ => Err(CallError::new(
+            &SETTING_INVALID,
+            format!(
+                "The Label `{label}` sets `fetch.tier` to {value}, which is none of {}.",
+                FETCH_TIERS.join(", ")
+            ),
+            &SettingInvalidDetails {
+                key,
+                layer: Some(SettingsLayer::Run),
+                reason: format!("{value} is none of {}", FETCH_TIERS.join(", ")),
+            },
+        )),
+    }
+}
+
+/// Where the Label `label` sends its HTTP from, as its `fetch.http_from`
+/// sets it to `value`.
+///
+/// # Errors
+///
+/// `SETTING_INVALID` when `value` names no sender.
+fn http_from_of(label: &str, key: &str, value: &Value) -> Result<HttpFrom, CallError> {
+    value.as_str().and_then(HttpFrom::named).ok_or_else(|| {
+        invalid(
+            label,
+            key,
+            value,
+            &format!("is none of {}", HTTP_FROM_VALUES.join(", ")),
+        )
+    })
 }
 
 /// `setting_invalid` for the Label `name`'s `key`, set to `value`, which

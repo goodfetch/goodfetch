@@ -8413,6 +8413,16 @@
       ]
     },
     {
+      "id": "setting:fetch.http_from",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:fetch.kept_responses.urls",
       "kind": "setting",
       "area": 6,

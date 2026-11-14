@@ -46,6 +46,10 @@ enum Reach {
     /// A check that judges the whole change and takes seconds or minutes:
     /// every run reruns it.
     Always,
+    /// A check whose result follows from the tree and the host: it reruns on
+    /// another tree, whatever the change reaches. Lint's also follows from
+    /// the day and GitHub, which the plan reads again ([`LintReads`]).
+    Tree,
     /// The step runs when the selection runs this job of the pull-request
     /// tier.
     Job(Job),
@@ -120,15 +124,12 @@ impl Step {
             Self::Dco
             | Self::CommitMessages
             | Self::FloorGuard
-            | Self::Lint
-            | Self::FeatureCombinations
             | Self::Audit
             | Self::CommitLeaks
-            | Self::FuzzCheck
-            | Self::Proofs
             | Self::JourneysTasks
             | Self::FeaturesTests
             | Self::Notices => Reach::Always,
+            Self::Lint | Self::FeatureCombinations | Self::FuzzCheck | Self::Proofs => Reach::Tree,
             Self::Perf => Reach::Job(Job::Perf),
             // On a Linux host the Pre-merge suite runs these tests itself;
             // elsewhere they are a slice of it, in a container.
@@ -221,8 +222,8 @@ pub(crate) const XTASK: &str = "xtask";
 
 /// A file or folder of the gate's inputs that reaches only what reads it
 /// (#2090's F4; ADR 0135). `steps` are those that run or read it, of the
-/// steps a run may reuse: one only a check every run reruns reads needs none,
-/// and neither does one no gate step runs. The evidence of what each member
+/// steps a run on another tree may reuse: one only a check every such run
+/// reruns reads needs none, and neither does one no gate step runs. The evidence of what each member
 /// read still applies to it, so a test naming a `ci/` file reruns that test's
 /// member.
 pub(crate) struct Narrowed {
@@ -257,7 +258,7 @@ const NARROWED: [Narrowed; 43] = [
         steps: &[Step::Linux],
         member: Some(XTASK),
     },
-    // What one step of those a run may reuse runs or reads.
+    // What one step of those a run on another tree may reuse runs or reads.
     read_by("ci/perf.sh", &[Step::Perf]),
     read_by("ci/perf-reference.toml", &[Step::Perf]),
     read_by("ci/linux.sh", &[Step::Linux]),
@@ -271,7 +272,7 @@ const NARROWED: [Narrowed; 43] = [
     read_by("ci/container.sh", &[Step::Perf, Step::Linux, Step::Visual]),
     read_by("ci/msrv.sh", &[Step::Msrv]),
     read_by("ci/miri.toml", &[Step::Miri]),
-    // What only the checks every run reruns read.
+    // What only the checks every run on another tree reruns read.
     read_by("ci/gitleaks.toml", &[]),
     read_by("ci/commit-leaks.sh", &[]),
     read_by("ci/commit-messages.toml", &[]),
@@ -459,10 +460,30 @@ pub(crate) struct Head<'a> {
     /// The members whose tests Vitest, Playwright or pytest run, which order
     /// them by the head's seed, and [`UNOWNED`].
     pub(crate) shuffled: &'a BTreeSet<String>,
+    /// The head's tree.
+    pub(crate) tree: &'a str,
     /// The fingerprint of this host and its tools.
     pub(crate) host: &'a str,
     /// Now, in seconds since the Unix epoch.
     pub(crate) now: u64,
+    /// What lint reads besides the tree and the host, read again now. Asked
+    /// only for a green lint this run would otherwise reuse.
+    pub(crate) lint: LintReads<'a>,
+}
+
+/// What lint reads besides the tree and the host, its register check the
+/// day and its quarantine check GitHub, read again now: `Ok` when a lint run
+/// now would read what a green one did, or why not.
+pub(crate) struct LintReads<'a>(&'a dyn Fn() -> Result<(), String>);
+
+impl<'a> LintReads<'a> {
+    pub(crate) fn new(read: &'a impl Fn() -> Result<(), String>) -> Self {
+        Self(read)
+    }
+
+    fn hold(&self) -> Result<(), String> {
+        (self.0)()
+    }
 }
 
 /// What the run does with a step.
@@ -605,6 +626,9 @@ fn judge(
     if !outcome.green {
         return Err(format!("red on {origin}"));
     }
+    if matches!(step.reach(), Reach::Tree) && outcome.tree != head.tree {
+        return Err(format!("the tree changed since {origin}"));
+    }
     still_holds(
         step,
         member,
@@ -612,6 +636,10 @@ fn judge(
         outcome.at,
         (head, previous, touched),
     )?;
+    // Lint alone reads more than the tree and the host.
+    if matches!(step, Step::Lint) {
+        head.lint.hold()?;
+    }
     Ok(outcome.clone())
 }
 
@@ -675,6 +703,8 @@ fn still_holds(
     let reached = touched.steps.contains(&step)
         || match step.reach() {
             Reach::Always => true,
+            // Judged by its tree, in `judge`.
+            Reach::Tree => false,
             Reach::Job(job) => touched.jobs.contains(&job),
             Reach::Crates => touched.crates,
             Reach::Members => member.is_some_and(|member| {

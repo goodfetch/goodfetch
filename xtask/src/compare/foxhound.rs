@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 
 use crate::rss::crawl::Site;
 
-use super::matrix::Scenario;
+use super::matrix::{Cell, Scenario};
 
 /// The Run every trial crawls in.
 const RUN: &str = "crawl";
@@ -108,13 +108,13 @@ impl Engine {
         self.call_with(id, method, params, |_| {})
     }
 
-    /// Starts the code-free crawl of `scenario`'s site from `start` at
-    /// `durability`, with its `run_state.commit_interval` at `periodic`,
+    /// Starts the code-free crawl of `cell`'s scenario's site from `start`
+    /// at `durability`, with its `run_state.commit_interval` at `periodic`,
     /// and `fetch.tier` left at `auto` where `auto`.
     pub(crate) fn start(
         &mut self,
         site: &Site<'_>,
-        scenario: Scenario,
+        cell: &Cell,
         start: &str,
         durability: (&str, Option<u64>),
         auto: bool,
@@ -126,8 +126,8 @@ impl Engine {
                 "run_id": RUN,
                 "seeds": [{ "url": start, "label": "page" }],
                 "datasets": [],
-                "extraction": extraction(scenario),
-                "settings": settings(site, scenario, durability, auto),
+                "extraction": extraction(cell.scenario),
+                "settings": settings(site, cell, durability, auto),
             }),
         )?;
         Ok(())
@@ -137,14 +137,14 @@ impl Engine {
     pub(crate) fn resume(
         &mut self,
         site: &Site<'_>,
-        scenario: Scenario,
+        cell: &Cell,
         durability: (&str, Option<u64>),
         auto: bool,
     ) -> Result<()> {
         self.call(
             "resume",
             "run.resume",
-            &json!({ "run_id": RUN, "settings": settings(site, scenario, durability, auto) }),
+            &json!({ "run_id": RUN, "settings": settings(site, cell, durability, auto) }),
         )?;
         Ok(())
     }
@@ -189,13 +189,13 @@ impl Engine {
             }
             if message["method"] == RECORD && message["params"]["id"] == id {
                 let record = &message["params"]["record"];
+                let text = |value: &Value| value.as_str().map(str::to_owned);
                 records.push(Record {
-                    url: record["url"].as_str().unwrap_or_default().to_owned(),
-                    committed_at: record["committed_at"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_owned(),
+                    url: text(&record["url"]).unwrap_or_default(),
+                    committed_at: text(&record["committed_at"]).unwrap_or_default(),
                     sample: record["provenance"]["tier"]["chosen"] == "sample",
+                    title: text(&record["value"]["title"]),
+                    text: text(&record["value"]["text"]),
                 });
             }
         }
@@ -210,14 +210,20 @@ impl Engine {
     }
 }
 
-/// What the comparison reads of one Record.
+/// What the comparison reads of one Record of the crawl's Dataset, as
+/// `run.records` sends it.
 pub(crate) struct Record {
+    /// Its crawl request's URL.
     pub(crate) url: String,
     /// When it was committed, RFC 3339.
     pub(crate) committed_at: String,
     /// Whether its page was a sample of `auto`'s comparison of tiers, its
     /// document from the sample's browser run (ADR 0093).
     pub(crate) sample: bool,
+    /// Its field `title` and its `text` format, which the extraction
+    /// scenario's Records hold.
+    pub(crate) title: Option<String>,
+    pub(crate) text: Option<String>,
 }
 
 /// What each page's Record holds: in the extraction scenario, the text of
@@ -265,13 +271,15 @@ pub(crate) fn keeps_records(scenario: Scenario) -> bool {
 /// otherwise its own Politeness at the crawl's concurrency, no delay,
 /// robots.txt not obeyed and the maximum-throughput combination's switches
 /// off, at `durability`, on the `browser` tier in the headless browser
-/// scenario and the `http` tier otherwise.
+/// scenario and the `http` tier otherwise; on the extraction scenario's row
+/// that says so (#2136), the ads, trackers and annoyances Filter lists off.
 fn settings(
     site: &Site<'_>,
-    scenario: Scenario,
+    cell: &Cell,
     (durability, commit_interval): (&str, Option<u64>),
     auto: bool,
 ) -> Value {
+    let scenario = cell.scenario;
     let hosts = scenario.site().hosts();
     let resolve: serde_json::Map<String, Value> = hosts
         .iter()
@@ -324,6 +332,9 @@ fn settings(
     };
     if let (Value::Object(settings), Value::Object(added)) = (&mut settings, added) {
         settings.extend(added);
+    }
+    if cell.filter_lists_off() {
+        settings["filter_lists"] = json!({ "ads": false, "trackers": false, "annoyances": false });
     }
     settings["run_state"] = json!({ "durability": durability });
     if let Some(interval) = commit_interval {

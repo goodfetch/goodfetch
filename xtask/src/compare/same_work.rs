@@ -18,15 +18,23 @@
 //! that cell's system calls are not measured, with the pages the run
 //! reached, and the timed figures count
 //! ([`strace_runs_of_other_work_set_aside`]).
+//!
+//! On the article site, the same work is also the same output (#2136):
+//! each trial's pages were held to the site's right answers as it ended
+//! ([`super::extracted`]). A trial of Foxhound's whose pages differ under
+//! its cell's check is refused here, in every pass; a competitor's keeps
+//! its figures, which the report labels; and a trial no check read is no
+//! figure, while the Proving ground serves the site's answers.
 
 use std::collections::BTreeMap;
 
 use crate::check::Finding;
 
-use super::matrix::{self, Row, Scenario};
+use super::extracted::{ANSWERED_PAGES, Extracted};
+use super::matrix::{self, OutputCheck, Row, Scenario};
 use super::trials::{
-    Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_TOOLS, SIZE_CONCURRENCIES,
-    SIZE_TOOLS, SIZES, SizesCell, StoppedRun, Tool, Trial, Work, size_not_run,
+    Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS,
+    SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, StoppedRun, Tool, Trial, Work, size_not_run,
 };
 
 /// What one trial of a pass did, whichever pass.
@@ -35,6 +43,9 @@ struct Done<'a> {
     cell: &'a str,
     number: u32,
     work: &'a Work,
+    /// What the output check found of the pages it wrote, where it read
+    /// them.
+    extracted: Option<&'a Extracted>,
 }
 
 /// One pass of trials: the timed one, a counted cell, the growth cell or
@@ -81,6 +92,7 @@ fn of_trials<'a>(trials: impl IntoIterator<Item = &'a Trial>) -> Vec<Done<'a>> {
             cell: &trial.cell,
             number: trial.number,
             work: &trial.measured.work,
+            extracted: trial.measured.extracted.as_ref(),
         })
         .collect()
 }
@@ -92,6 +104,7 @@ fn of_runs(runs: &[CountedRun]) -> Vec<Done<'_>> {
             cell: &run.cell,
             number: run.number,
             work: &run.work,
+            extracted: run.extracted.as_ref(),
         })
         .collect()
 }
@@ -149,11 +162,10 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         .copied()
         .filter(|scenario| !scenario.timed_only())
         .collect();
-    let raw: &[Scenario] = if ran.contains(&Scenario::Raw) {
-        &[Scenario::Raw]
-    } else {
-        &[]
-    };
+    let instructions: Vec<Scenario> = INSTRUCTION_SCENARIOS
+        .into_iter()
+        .filter(|scenario| ran.contains(scenario))
+        .collect();
     let mut findings = check_pass(&Pass {
         suffix: String::new(),
         declared,
@@ -176,9 +188,9 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         (
             " callgrind",
             &trials.instructions,
-            raw,
+            &instructions[..],
             &INSTRUCTION_TOOLS[..],
-            // The ratio reads each tool's main row.
+            // The ratios read each tool's main rows.
             &[Row::Main][..],
             "Callgrind counted no instruction, so the run measured nothing",
         ),
@@ -225,6 +237,11 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             stopped: of_stopped(stopped),
         }));
     }
+    let raw: &[Scenario] = if ran.contains(&Scenario::Raw) {
+        &[Scenario::Raw]
+    } else {
+        &[]
+    };
     findings.extend(check_sizes(&trials.sizes, raw));
     findings
 }
@@ -274,10 +291,53 @@ fn check_sizes(sizes: &SizesCell, raw: &[Scenario]) -> Vec<Finding> {
 }
 
 /// Each finding of one pass: a measured cell short of or past its declared
-/// trials, and every trial that did other work ([`other_work`]).
+/// trials, every trial that did other work ([`other_work`]), and every
+/// one whose output is refused ([`other_output`]).
 fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
     let mut findings = short_or_past(pass);
     findings.extend(other_work(pass).into_iter().map(|(_, finding)| finding));
+    findings.extend(other_output(pass));
+    findings
+}
+
+/// Every trial of a pass on the article site whose output is refused:
+/// Foxhound's whose pages differ from the right answer under its cell's
+/// check, and any tool's that no check read, on a site whose answers the
+/// Proving ground serves.
+fn other_output(pass: &Pass<'_>) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for done in &pass.done {
+        let site_pages = done.scenario.site_pages(pass.site_pages);
+        let Some((cell, check)) = matrix::cell(done.scenario, done.cell)
+            .and_then(|cell| Some((cell, cell.output_check()?)))
+            .filter(|_| site_pages <= ANSWERED_PAGES)
+        else {
+            continue;
+        };
+        let Some(extracted) = done.extracted else {
+            findings.push(Finding::new(
+                "output_unchecked",
+                pass.subject(done),
+                "no output check read the pages it wrote, so its figures are of no known output",
+            ));
+            continue;
+        };
+        let (differing, held) = match check {
+            OutputCheck::Whole => (&extracted.whole, ""),
+            OutputCheck::AdAllowed => (&extracted.ad_allowed, ", the ad allowed"),
+        };
+        if cell.tool == matrix::Tool::Foxhound && differing.pages > 0 {
+            findings.push(Finding::new(
+                "output_differs",
+                pass.subject(done),
+                format!(
+                    "{} of the site's {site_pages} pages differ from the right answer{held}; the first: {}",
+                    differing.pages,
+                    differing.first.as_deref().unwrap_or("not named")
+                ),
+            ));
+        }
+    }
     findings
 }
 

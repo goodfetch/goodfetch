@@ -3,12 +3,17 @@
 //! origin, with `--host`, when given, sent as each request's `Host` so the
 //! Proving ground serves its family on the loopback address. `--scenario`
 //! names the matrix's scenario: `extraction` also writes each page's URL,
-//! title and HTML as one JSON line to `pages.jsonl` in the working folder,
-//! and `browser` renders each page in Chrome (`CHROME_BIN`), which only the
-//! executable built with the `chrome` feature does; every other scenario
-//! crawls in Spider's HTTP mode. `hostile`, the hostile pages' pass at each
-//! tool's defaults (#2439), sets neither the requests in flight nor
-//! robots.txt, leaving Spider's defaults.
+//! title and Main content as one JSON line to `pages.jsonl` in the working
+//! folder, which only the executable built with the `extraction` feature
+//! does (#2136): the Main content is `llm_readability`'s text of the page,
+//! the readability step of `spider_transformations`, Spider's only path to
+//! one, and the title is Spider's page metadata's, its character references
+//! decoded and its white space collapsed here, inside the timed process, as
+//! the other tools' parsers do theirs. `browser` renders each page in
+//! Chrome (`CHROME_BIN`), which only the executable built with the `chrome`
+//! feature does; every other scenario crawls in Spider's HTTP mode.
+//! `hostile`, the hostile pages' pass at each tool's defaults (#2439), sets
+//! neither the requests in flight nor robots.txt, leaving Spider's defaults.
 //!
 //! `--capacity` is the capacity of the broadcast channel Spider sends each
 //! page on. Spider's `Website` keeps a receiver of its own that never
@@ -52,35 +57,100 @@ const PAGES_FILE: &str = "pages.jsonl";
 struct Fetched {
     pages: u64,
     body_bytes: u64,
-    written: Option<std::io::BufWriter<std::fs::File>>,
+    written: Option<Written>,
+}
+
+/// The `extraction` scenario's pages: the file they are written to, and the
+/// tasks reading them. Each page is read in a task of its own, as
+/// `Website::subscribe`'s example processes a page, so the one reader of
+/// the stream keeps up with the crawl: with `llm_readability` run in the
+/// reader itself, crawls of the 10,000-page site lost pages at every
+/// capacity from 256 to 4,096 (#2136).
+struct Written {
+    file: std::io::BufWriter<std::fs::File>,
+    reading: tokio::task::JoinSet<Result<serde_json::Value, String>>,
+}
+
+impl Written {
+    /// Writes the line of a page whose task ended.
+    fn write(&mut self, read: Result<Result<serde_json::Value, String>, tokio::task::JoinError>) -> Result<(), String> {
+        let line = read.map_err(|error| format!("reading a page: {error}"))??;
+        writeln!(self.file, "{line}").map_err(|error| format!("writing {PAGES_FILE}: {error}"))
+    }
 }
 
 impl Fetched {
-    fn add(&mut self, page: &spider::page::Page) -> Result<(), String> {
+    fn add(&mut self, page: spider::page::Page) -> Result<(), String> {
         self.pages += 1;
         self.body_bytes += page.get_bytes().map_or(0, |bytes| bytes.len() as u64);
         if let Some(written) = self.written.as_mut() {
-            let title = page
-                .get_metadata()
-                .as_ref()
-                .and_then(|metadata| metadata.title.as_ref())
-                .map(|title| title.to_string());
-            let line = serde_json::json!({
-                "url": page.get_url(),
-                "title": title,
-                "content": page.get_html(),
-            });
-            writeln!(written, "{line}").map_err(|error| format!("writing {PAGES_FILE}: {error}"))?;
+            written.reading.spawn(async move { extracted(&page) });
+            // The pages read so far are written as the stream goes.
+            while let Some(read) = written.reading.try_join_next() {
+                written.write(read)?;
+            }
         }
         Ok(())
     }
 }
 
+/// White space collapsed to single spaces, Unicode's included, and trimmed.
+#[cfg(feature = "extraction")]
+fn collapsed(text: &str) -> String {
+    let mut collapsed = String::with_capacity(text.len());
+    for word in text.split_whitespace() {
+        if !collapsed.is_empty() {
+            collapsed.push(' ');
+        }
+        collapsed.push_str(word);
+    }
+    collapsed
+}
+
+/// A page's line of `pages.jsonl`: its URL, its title and its Main content.
+/// The title is Spider's page metadata's, which holds the `<title>`'s source
+/// text: its character references are decoded and its white space
+/// collapsed. The Main content is `llm_readability`'s text of the page,
+/// called as `spider_transformations` calls it, without the reader page it
+/// wraps that text in, whose head repeats the title.
+#[cfg(feature = "extraction")]
+fn extracted(page: &spider::page::Page) -> Result<serde_json::Value, String> {
+    let title = page
+        .get_metadata()
+        .as_ref()
+        .and_then(|metadata| metadata.title.as_ref())
+        .map(|title| collapsed(&html_escape::decode_html_entities(title.as_str())));
+    // The page's own URL, which a page read from the subscription has not
+    // parsed yet; `spider_transformations` passes a placeholder there.
+    let parsed;
+    let url = match page.get_url_parsed_ref() {
+        Some(url) => url,
+        None => {
+            parsed = spider::reqwest::Url::parse(page.get_url())
+                .map_err(|error| format!("parsing {}: {error}", page.get_url()))?;
+            &parsed
+        }
+    };
+    let text = llm_readability::extractor::extract(&mut page.get_html_bytes_u8(), url)
+        .map_err(|error| format!("reading {}'s main content: {error}", page.get_url()))?
+        .text;
+    Ok(serde_json::json!({ "url": page.get_url(), "title": title, "text": text }))
+}
+
+#[cfg(not(feature = "extraction"))]
+fn extracted(_page: &spider::page::Page) -> Result<serde_json::Value, String> {
+    Err("the extraction scenario takes the `extraction` feature's executable".to_owned())
+}
+
 impl Fetched {
-    /// Flushes the pages written, once the stream is drained.
-    fn finish(mut self) -> Result<Self, String> {
+    /// Writes the pages still being read and flushes the file, once the
+    /// stream is drained.
+    async fn finish(mut self) -> Result<Self, String> {
         if let Some(written) = self.written.as_mut() {
-            written.flush().map_err(|error| format!("writing {PAGES_FILE}: {error}"))?;
+            while let Some(read) = written.reading.join_next().await {
+                written.write(read)?;
+            }
+            written.file.flush().map_err(|error| format!("writing {PAGES_FILE}: {error}"))?;
         }
         Ok(self)
     }
@@ -136,7 +206,11 @@ fn arguments() -> Result<Arguments, String> {
 
 async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
     let browser = match arguments.scenario.as_str() {
-        "raw" | "extraction" | "hostile" => false,
+        "raw" | "hostile" => false,
+        "extraction" if cfg!(feature = "extraction") => false,
+        "extraction" => {
+            return Err("the extraction scenario takes the `extraction` feature's executable".to_owned());
+        }
         "browser" if cfg!(feature = "chrome") => true,
         "browser" => return Err("the browser scenario takes the `chrome` feature's executable".to_owned()),
         other => return Err(format!("Spider runs no `{other}` scenario")),
@@ -158,9 +232,12 @@ async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
         site.with_headers(Some(headers));
     }
     let written = if arguments.scenario == "extraction" {
-        Some(std::io::BufWriter::new(
-            std::fs::File::create(PAGES_FILE).map_err(|error| format!("creating {PAGES_FILE}: {error}"))?,
-        ))
+        Some(Written {
+            file: std::io::BufWriter::new(
+                std::fs::File::create(PAGES_FILE).map_err(|error| format!("creating {PAGES_FILE}: {error}"))?,
+            ),
+            reading: tokio::task::JoinSet::new(),
+        })
     } else {
         None
     };
@@ -180,15 +257,15 @@ async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
         loop {
             tokio::select! {
                 page = pages.recv() => match page {
-                    Ok(page) => fetched.add(&page)?,
+                    Ok(page) => fetched.add(page)?,
                     Err(RecvError::Lagged(lost)) => return Err(format!("the page stream lost {lost} pages")),
-                    Err(RecvError::Closed) => return fetched.finish(),
+                    Err(RecvError::Closed) => return fetched.finish().await,
                 },
                 _ = &mut ended => loop {
                     match pages.try_recv() {
-                        Ok(page) => fetched.add(&page)?,
+                        Ok(page) => fetched.add(page)?,
                         Err(TryRecvError::Lagged(lost)) => return Err(format!("the page stream lost {lost} pages")),
-                        Err(_) => return fetched.finish(),
+                        Err(_) => return fetched.finish().await,
                     }
                 },
             }

@@ -1,7 +1,8 @@
 use std::path::Path;
 
-use super::{instructions_of, invocation, system_calls_of};
-use crate::compare::matrix::{Config, SpiderBuild};
+use super::output::traced;
+use super::{Mode, instructions_of, invocation, system_calls_of};
+use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
 
 fn spider(capacity: usize) -> Config {
     Config::Spider {
@@ -61,6 +62,35 @@ fn a_spider_row_gives_spiders_side_its_page_channels_capacity() {
             vec!["--capacity".into(), "64".into()],
             vec!["--capacity".into(), "4096".into()],
         )
+    );
+}
+
+/// On the article site Spider's side reads each page in a task of its own,
+/// and strace and Callgrind slow those tasks unevenly: at the row's
+/// capacity, 5 of 20 crawls of the 1,000-page site lost pages under strace
+/// (#2136). A counted run there gives the channel the whole site, where no
+/// page can be lost, and reads no memory; a timed trial keeps the row's
+/// capacity, and so does a counted run of a scenario that reads no page.
+#[test]
+fn a_counted_run_on_the_article_site_gives_spiders_channel_the_whole_site() {
+    let cell = |scenario| matrix::cell(scenario, "spider").unwrap();
+    let capacity = |scenario, capacity, mode: Mode| {
+        let Config::Spider { capacity, .. } = traced(cell(scenario), spider(capacity), &mode, 1000)
+        else {
+            panic!("Spider's configuration stays Spider's");
+        };
+        capacity
+    };
+
+    assert_eq!(
+        [
+            capacity(Scenario::Extraction, 64, Mode::Timed),
+            capacity(Scenario::Extraction, 64, Mode::Syscalls("counts".into())),
+            capacity(Scenario::Extraction, 64, Mode::Callgrind("counts".into())),
+            capacity(Scenario::Extraction, 4096, Mode::Syscalls("counts".into())),
+            capacity(Scenario::Raw, 64, Mode::Syscalls("counts".into())),
+        ],
+        [64, 1000, 1000, 4096, 64]
     );
 }
 

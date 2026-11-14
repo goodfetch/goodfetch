@@ -5,11 +5,14 @@ use super::{
     CollieScenario, Comparison, CountedCell, Declared, GrowthCell, Machine, Measured, SizesCell,
     Trial,
 };
+use crate::compare::extracted::{ANSWERED_PAGES, Extracted};
 use crate::compare::matrix::{self, Cell, Scenario};
 
 /// Three trials of each measured cell over the site of `site_pages` pages,
 /// or of its scenario's own length, each with the figures `measured` gives
 /// its cell and number, on an unnamed machine whose memory was not read.
+/// On the article site, a trial `measured` gives no result of the output
+/// check read every page right.
 pub(crate) fn comparison(site_pages: u64, measured: impl Fn(&Cell, u32) -> Measured) -> Comparison {
     let trials = matrix::measured()
         .flat_map(|(cell, config)| {
@@ -23,7 +26,13 @@ pub(crate) fn comparison(site_pages: u64, measured: impl Fn(&Cell, u32) -> Measu
                 concurrency: cell.scenario.concurrency(),
                 load: None,
                 retried: None,
-                measured: measured(cell, number),
+                measured: {
+                    let mut measured = measured(cell, number);
+                    if cell.output_check().is_some() && site_pages <= ANSWERED_PAGES {
+                        measured.extracted.get_or_insert_with(Extracted::default);
+                    }
+                    measured
+                },
             })
         })
         .collect();

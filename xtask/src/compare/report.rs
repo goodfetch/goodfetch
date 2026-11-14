@@ -1,10 +1,14 @@
 //! The report: for each scenario, each cell's mapping and every metric of
 //! the owner's list, each the median of the cell's trials with its spread
 //! (the lowest and the highest trial), or why the cell or the metric gives
-//! no figure; `foxhound.spider_instruction_ratio` from the Callgrind
-//! cell; the sizes cell's peak memory of Foxhound and Spider at each size
-//! and concurrency, with the bar at 16 in flight (spec #2165); and the
-//! standings of Foxhound against each competitor ([`standing`]).
+//! no figure; `foxhound.spider_instruction_ratio` and the extraction
+//! scenario's two ratios from the Callgrind cell ([`RATIOS`]); the sizes
+//! cell's peak memory of Foxhound and Spider at each size and concurrency,
+//! with the bar at 16 in flight (spec #2165); and the standings of Foxhound
+//! against each competitor ([`standing`]). On the article site, a cell also
+//! says what the output check found of its pages (#2136): a competitor
+//! whose pages differ keeps its figures, labelled `output differs: N of
+//! <pages>`, in its mapping, its column and its standings.
 //! Labelled `local-controlled`, measured on the machine it names, with the
 //! command that reruns it, and written only once the same-work check
 //! passed.
@@ -17,7 +21,8 @@ use std::fmt::Write as _;
 
 use serde::Serialize;
 
-use super::matrix::{CELLS, Cell, Row, Scenario, Status};
+use super::extracted::{Differing, Extracted};
+use super::matrix::{self, CELLS, Cell, FILTER_LISTS_OFF, OutputCheck, Row, Scenario, Status};
 use super::sampler::{CORE_WINDOW_SAMPLES, INTERVAL_MILLISECONDS};
 use super::trials::{
     Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES, Machine,
@@ -37,8 +42,46 @@ use sizes::{Sizes, sizes, sizes_markdown};
 /// The span of one window of the core sampling.
 const CORE_WINDOW_MILLISECONDS: u64 = CORE_WINDOW_SAMPLES as u64 * INTERVAL_MILLISECONDS;
 
-/// The Quality register's row the Callgrind cell gives (ADR 0140).
-const RATIO_ROW: &str = "foxhound.spider_instruction_ratio";
+/// A ratio the Callgrind cell gives: a row of the Quality register (ADR
+/// 0140), Foxhound's instructions per page on one of its main rows over
+/// Spider's main row's in the same scenario.
+struct RatioRow {
+    row: &'static str,
+    scenario: Scenario,
+    /// Foxhound's cell.
+    foxhound: &'static str,
+    described: &'static str,
+}
+
+/// The Callgrind cell's ratios: scenario 1's, and the extraction
+/// scenario's two (#2136; the owner's decision of 2026-11-10, #2252 Q7).
+/// At Foxhound's defaults Spider does not do the Clean-up rules' work, so
+/// that ratio carries no parity Contract; with Foxhound's Filter lists off
+/// both read the same Main content, and the distance between the two is
+/// the clean-up's cost (ADR 0023).
+const RATIOS: [RatioRow; 3] = [
+    RatioRow {
+        row: "foxhound.spider_instruction_ratio",
+        scenario: Scenario::Raw,
+        foxhound: "foxhound",
+        described: "scenario 1 of ADR 0138's matrix",
+    },
+    RatioRow {
+        row: "foxhound.spider_extraction_instruction_ratio",
+        scenario: Scenario::Extraction,
+        foxhound: "foxhound",
+        described: "the extraction scenario of ADR 0138's matrix, Foxhound at its defaults",
+    },
+    RatioRow {
+        row: "foxhound.spider_extraction_instruction_ratio_filter_lists_off",
+        scenario: Scenario::Extraction,
+        foxhound: FILTER_LISTS_OFF,
+        described: "the extraction scenario of ADR 0138's matrix, Foxhound's Filter lists off",
+    },
+];
+
+/// Spider's main row, in every scenario the Callgrind cell counts.
+const SPIDER: &str = "spider";
 
 /// A metric's unit, as the Markdown writes it.
 #[derive(Clone, Copy, Serialize)]
@@ -78,9 +121,10 @@ pub(crate) struct CellReport {
     pub(crate) row: Row,
     pub(crate) mapping: &'static str,
     pub(crate) pending: &'static [&'static str],
-    /// Why it does not do the Product's work, when the matrix declares so:
-    /// it gets no standing.
-    pub(crate) unlike_work: Option<&'static str>,
+    /// What the output check found of the pages its trials wrote, on the
+    /// article site: under each check, its worst trial's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) output: Option<Extracted>,
     #[serde(flatten)]
     pub(crate) status: CellStatus,
 }
@@ -120,9 +164,6 @@ pub(crate) enum CellStatus {
 pub(crate) struct ScenarioReport {
     pub(crate) scenario: Scenario,
     pub(crate) title: &'static str,
-    /// Whether no check read the content its cells wrote: none of them
-    /// gets a standing.
-    pub(crate) content_unverified: bool,
     pub(crate) cells: Vec<CellReport>,
     pub(crate) standings: Vec<standing::Standings>,
 }
@@ -135,21 +176,34 @@ pub(crate) struct Figures {
     pub(crate) peak_bytes: u64,
 }
 
-/// The Callgrind cell's figure.
+/// One ratio of the Callgrind cell's.
+#[derive(Serialize)]
+pub(crate) struct InstructionRatio {
+    pub(crate) row: &'static str,
+    pub(crate) scenario: &'static str,
+    /// Foxhound's cell.
+    pub(crate) foxhound: &'static str,
+    pub(crate) foxhound_per_page: f64,
+    pub(crate) spider_per_page: f64,
+    /// Foxhound's per page over Spider's, to three decimals, as the
+    /// register's figures are.
+    pub(crate) ratio: f64,
+    /// Spider's label when its pages differ under the check Foxhound's
+    /// cell is held to: the ratio is then of unlike work.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) spider_output_differs: Option<String>,
+}
+
+/// The Callgrind cell's figures.
 #[derive(Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub(crate) enum Instructions<'a> {
     NotRun {
         reason: &'a str,
     },
+    /// A ratio for each of [`RATIOS`] whose scenario the cell counted.
     Measured {
-        row: &'static str,
-        scenario: &'static str,
-        foxhound_per_page: f64,
-        spider_per_page: f64,
-        /// Foxhound's per page over Spider's, to three decimals, as the
-        /// register's figures are.
-        ratio: f64,
+        ratios: Vec<InstructionRatio>,
     },
 }
 
@@ -586,11 +640,58 @@ fn growth_of<'a>(growth: &'a GrowthCell, cell: &Cell) -> Result<Vec<&'a Trial>, 
     }
 }
 
-/// `tool`'s median instructions per page over its scenario 1 runs.
-fn per_page(runs: &[CountedRun], tool: super::trials::Tool) -> f64 {
+/// The pages that differ under `check`.
+fn differing(extracted: &Extracted, check: OutputCheck) -> &Differing {
+    match check {
+        OutputCheck::Whole => &extracted.whole,
+        OutputCheck::AdAllowed => &extracted.ad_allowed,
+    }
+}
+
+/// Under each check, the worst of what the output check found of some
+/// crawls: the one with the most differing pages. None when it read none.
+fn worst<'a>(found: impl Iterator<Item = &'a Extracted>) -> Option<Extracted> {
+    found.fold(None, |worst: Option<Extracted>, extracted| {
+        let Some(mut worst) = worst else {
+            return Some(extracted.clone());
+        };
+        if extracted.whole.pages > worst.whole.pages {
+            worst.whole = extracted.whole.clone();
+        }
+        if extracted.ad_allowed.pages > worst.ad_allowed.pages {
+            worst.ad_allowed = extracted.ad_allowed.clone();
+        }
+        Some(worst)
+    })
+}
+
+/// The label of an output that differs under `check` on a site of
+/// `site_pages` pages; none when every page read right.
+fn output_differs(output: &Extracted, check: OutputCheck, site_pages: u64) -> Option<String> {
+    let differing = differing(output, check);
+    (differing.pages > 0).then(|| format!("output differs: {} of {site_pages}", differing.pages))
+}
+
+/// A cell's label when its output differs under its own check.
+fn own_output_differs(cell: &CellReport, scenario: Scenario) -> Option<String> {
+    let CellStatus::Measured { site_pages, .. } = &cell.status else {
+        return None;
+    };
+    let check = matrix::cell(scenario, cell.cell)?.output_check()?;
+    output_differs(cell.output.as_ref()?, check, *site_pages)
+}
+
+/// A cell's runs of the Callgrind cell.
+fn counted<'a>(runs: &'a [CountedRun], scenario: Scenario, cell: &str) -> Vec<&'a CountedRun> {
+    runs.iter()
+        .filter(|run| run.scenario == scenario && run.cell == cell)
+        .collect()
+}
+
+/// The median instructions per page over a cell's runs.
+fn per_page(runs: &[&CountedRun]) -> f64 {
     let counts: Vec<f64> = runs
         .iter()
-        .filter(|run| run.tool == tool)
         .map(|run| float(run.count) / float(run.work.pages))
         .collect();
     median(&counts)
@@ -599,17 +700,52 @@ fn per_page(runs: &[CountedRun], tool: super::trials::Tool) -> f64 {
 fn instructions(cell: &CountedCell) -> Instructions<'_> {
     match cell {
         CountedCell::NotRun { reason } => Instructions::NotRun { reason },
-        CountedCell::Measured { runs, .. } => {
-            let foxhound_per_page = per_page(runs, super::trials::Tool::Foxhound);
-            let spider_per_page = per_page(runs, super::trials::Tool::Spider);
-            Instructions::Measured {
-                row: RATIO_ROW,
-                scenario: super::trials::INSTRUCTION_SCENARIO,
-                foxhound_per_page,
-                spider_per_page,
-                ratio: (foxhound_per_page / spider_per_page * 1000.0).round() / 1000.0,
-            }
-        }
+        CountedCell::Measured { runs, .. } => Instructions::Measured {
+            ratios: RATIOS
+                .iter()
+                .filter_map(|row| {
+                    let foxhound = counted(runs, row.scenario, row.foxhound);
+                    let spider = counted(runs, row.scenario, SPIDER);
+                    if foxhound.is_empty() || spider.is_empty() {
+                        return None;
+                    }
+                    let (foxhound_per_page, spider_per_page) =
+                        (per_page(&foxhound), per_page(&spider));
+                    let spider_output_differs = matrix::cell(row.scenario, row.foxhound)
+                        .and_then(Cell::output_check)
+                        .and_then(|check| {
+                            let output =
+                                worst(spider.iter().filter_map(|run| run.extracted.as_ref()))?;
+                            output_differs(&output, check, spider.first()?.work.pages)
+                        });
+                    Some(InstructionRatio {
+                        row: row.row,
+                        scenario: row.described,
+                        foxhound: row.foxhound,
+                        foxhound_per_page,
+                        spider_per_page,
+                        ratio: (foxhound_per_page / spider_per_page * 1000.0).round() / 1000.0,
+                        spider_output_differs,
+                    })
+                })
+                .collect(),
+        },
+    }
+}
+
+/// What the output check found of a measured cell's trials, on the article
+/// site: under each check, its worst trial's.
+fn output_of(trials: &Comparison, cell: &Cell, status: &CellStatus) -> Option<Extracted> {
+    match status {
+        CellStatus::Measured { .. } if cell.output_check().is_some() => worst(
+            trials_of(&trials.trials, cell)
+                .into_iter()
+                .filter_map(|trial| trial.measured.extracted.as_ref()),
+        ),
+        CellStatus::Measured { .. }
+        | CellStatus::NotSupported { .. }
+        | CellStatus::NotMeasured { .. }
+        | CellStatus::Ruled { .. } => None,
     }
 }
 
@@ -685,20 +821,20 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
                     }
                 }
             };
+            let output = output_of(trials, cell, &status);
             cells.push(CellReport {
                 cell: cell.name,
                 tool: cell.tool.name(),
                 row: cell.row,
                 mapping: cell.mapping,
                 pending: cell.pending,
-                unlike_work: cell.unlike_work(),
+                output,
                 status,
             });
         }
         scenarios.push(ScenarioReport {
             scenario,
             title: scenario.title(),
-            content_unverified: scenario.content_unverified(),
             standings: standing::of(scenario, &cells),
             cells,
         });
@@ -752,6 +888,54 @@ pub(super) fn cell_text(figure: &Figure) -> String {
         ),
         Figure::NotMeasured { reason } => format!("not measured: {reason}"),
     }
+}
+
+/// What the output check found of a measured cell's pages, on the article
+/// site: every page read right under the cell's own check, or its label
+/// with the first difference; and that no check read them, on a site
+/// whose right answers the Proving ground does not serve.
+fn output_line(text: &mut String, scenario: Scenario, cell: &CellReport) {
+    let CellStatus::Measured { site_pages, .. } = &cell.status else {
+        return;
+    };
+    let Some(check) = matrix::cell(scenario, cell.cell).and_then(Cell::output_check) else {
+        return;
+    };
+    let Some(output) = &cell.output else {
+        let _ = writeln!(
+            text,
+            "  - output not checked: the Proving ground serves the right answers of sites of up to {} pages.",
+            super::extracted::ANSWERED_PAGES
+        );
+        return;
+    };
+    let allowed = match check {
+        OutputCheck::Whole => "",
+        OutputCheck::AdAllowed => ", the ad allowed",
+    };
+    let Some(label) = output_differs(output, check, *site_pages) else {
+        let _ = writeln!(
+            text,
+            "  - output: every page's title and Main content read right{allowed}."
+        );
+        return;
+    };
+    let _ = write!(
+        text,
+        "  - {label}{allowed}; the first: {}.",
+        differing(output, check)
+            .first
+            .as_deref()
+            .unwrap_or("not named")
+    );
+    if check == OutputCheck::Whole {
+        let _ = write!(
+            text,
+            " With the ad allowed: {} of {site_pages}.",
+            output.ad_allowed.pages
+        );
+    }
+    text.push('\n');
 }
 
 /// A cell's column heading in a scenario's tables: its name, labelled when
@@ -914,20 +1098,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                     }
                 );
             }
-            if !matches!(cell.status, CellStatus::NotSupported { .. }) {
-                if scenario.content_unverified {
-                    text.push_str(
-                        "  - content not verified: no check reads what it wrote, until #2136's \
-                         output check lands; no standing.\n",
-                    );
-                }
-                if let Some(reason) = cell.unlike_work {
-                    let _ = writeln!(
-                        text,
-                        "  - not the same work: {reason}; no standing and no ratio."
-                    );
-                }
-            }
+            output_line(&mut text, scenario.scenario, cell);
             match &cell.status {
                 CellStatus::NotSupported { reason } => {
                     let _ = writeln!(text, "  - not supported: {reason}.");
@@ -962,7 +1133,12 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                     curve,
                     ..
                 } => Some((
-                    format!("{}, {pages} of the site's {site_pages} pages", column(cell)),
+                    format!(
+                        "{}, {pages} of the site's {site_pages} pages{}",
+                        column(cell),
+                        own_output_differs(cell, scenario.scenario)
+                            .map_or_else(String::new, |label| format!(", {label}"))
+                    ),
                     metrics,
                     curve,
                 )),
@@ -1013,21 +1189,39 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
         }
         standing::markdown(&mut text, scenario);
     }
-    match &report.instructions {
-        Instructions::NotRun { reason } => {
-            let _ = writeln!(text, "\n`{RATIO_ROW}`: not run: {reason}.");
-        }
-        Instructions::Measured {
-            row,
-            scenario,
-            foxhound_per_page,
-            spider_per_page,
-            ratio,
-        } => {
-            let _ = writeln!(
-                text,
-                "\n`{row}`: {ratio:.3}, Foxhound's {foxhound_per_page:.0} instructions per page over Spider's {spider_per_page:.0}, under Callgrind on {scenario}, the median of each tool's runs, all of the same work."
-            );
+    for row in &RATIOS {
+        let ratio = match &report.instructions {
+            Instructions::NotRun { reason } => Err(*reason),
+            Instructions::Measured { ratios } => ratios
+                .iter()
+                .find(|ratio| ratio.row == row.row)
+                .ok_or("the run asked for no Callgrind cell of its scenario"),
+        };
+        match ratio {
+            Err(reason) => {
+                let _ = writeln!(text, "\n`{}`: not run: {reason}.", row.row);
+            }
+            Ok(InstructionRatio {
+                row,
+                scenario,
+                foxhound_per_page,
+                spider_per_page,
+                ratio,
+                spider_output_differs,
+                ..
+            }) => {
+                let _ = write!(
+                    text,
+                    "\n`{row}`: {ratio:.3}, Foxhound's {foxhound_per_page:.0} instructions per page over Spider's {spider_per_page:.0}, under Callgrind on {scenario}, the median of each tool's runs, all of the same pages and bytes."
+                );
+                if let Some(label) = spider_output_differs {
+                    let _ = write!(
+                        text,
+                        " Spider's output differs under this row's check ({label}), so the ratio is of unlike work and no parity Contract reads it."
+                    );
+                }
+                text.push('\n');
+            }
         }
     }
     sizes_markdown(&mut text, &report.sizes);

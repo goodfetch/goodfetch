@@ -1,8 +1,9 @@
 use super::{check, strace_runs_of_other_work_set_aside};
+use crate::compare::extracted::Extracted;
 use crate::compare::matrix::{self, Row, Scenario};
 use crate::compare::trials::{
-    Comparison, CountedCell, CountedRun, INSTRUCTION_TOOLS, Measured, SIZE_CONCURRENCIES,
-    SIZE_TOOLS, SIZES, SizesCell, Tool, Trial, Work, fixture,
+    Comparison, CountedCell, CountedRun, INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Measured,
+    SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, Tool, Trial, Work, fixture,
 };
 
 /// The work of a trial that fetched every page of the site of `pages`
@@ -312,6 +313,7 @@ fn counted(
                 count: 9,
                 syncs: 0,
                 work: on_site(cell.scenario, work(cell.scenario, cell.name, number)),
+                extracted: cell.output_check().map(|_| Extracted::default()),
             })
         })
         .collect();
@@ -439,10 +441,12 @@ fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
     trials.syscalls = counted(|_, _, _| true, |_, _, _| work(0));
     trials.instructions = counted(
         |scenario, row, tool| {
-            scenario == Scenario::Raw && row == Row::Main && INSTRUCTION_TOOLS.contains(&tool)
+            INSTRUCTION_SCENARIOS.contains(&scenario)
+                && row == Row::Main
+                && INSTRUCTION_TOOLS.contains(&tool)
         },
-        |_, cell, number| {
-            if (cell, number) == ("spider", 3) {
+        |scenario, cell, number| {
+            if (scenario, cell, number) == (Scenario::Raw, "spider", 3) {
                 short()
             } else {
                 work(0)

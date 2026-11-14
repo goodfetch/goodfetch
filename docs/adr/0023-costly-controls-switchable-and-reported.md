@@ -23,6 +23,8 @@ ADR 0016 made the costly security controls switchable. At the owner's request th
 
 > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): the sample comparison row's switch is the setting `fetch.tier`, which forces a tier at any scope down to a crawl's Label, besides per run.
 
+> Note (agent decision, on a default, not read by the owner), 2026-11-14, [#2415](https://github.com/goodfetch/goodfetch/issues/2415): the browser-fetch row's switch is the setting `fetch.http_from`, set for the Run or a Label. `browser`, its default, keeps the control on; `learned` and `transport` switch it off, so a Session's own transport sends the Label's HTTP, Provenance records `http` where it did, and the Run report's `weakened` and `config explain` name the setting with the layer that set it. Under a forced `fetch.tier` the setting has no effect.
+
 > Note (agent decision, on a guarantee, not read by the owner but for what lowers the Verdict, decided by the owner on 2026-11-10 below (grilling of G-06, Q3)), 2026-11-06, [#1577](https://github.com/goodfetch/goodfetch/issues/1577) ([ADR 0138](0138-a-page-is-analysed-once-costly-features-are-settings-and-run-state-commits-in-groups-at-a-chosen-durability-level.md)): switching a control off removes its work as well as its effect. As built, the table gains these rows:
 >
 > | Control | When switched off |

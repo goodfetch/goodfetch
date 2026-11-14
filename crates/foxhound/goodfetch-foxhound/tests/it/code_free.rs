@@ -532,6 +532,272 @@ fn a_document_sent_from_the_sessions_browser_under_auto_is_recorded_on_browser_f
     );
 }
 
+/// The host of the pages a Label's samples fetch from each client: its
+/// storage page answers a `mark` cookie, its quiet page none.
+const MARKS_HOST: &str = "scope.test";
+
+/// The user configuration that trusts the Proving ground's CA for
+/// [`MARKS_HOST`].
+fn trusting_marks_host(proving_ground: &ProvingGround) -> String {
+    format!(
+        "tls.trusted_cas.\"{MARKS_HOST}\" = ['{}']\n",
+        proving_ground.description().ca.display()
+    )
+}
+
+/// How a client shows itself: its TLS `ClientHello`'s JA4, without the
+/// extensions a resumed handshake adds, and the headers it sends but
+/// `cookie`, in order, with their values.
+type Client = (Option<String>, Vec<(String, String)>);
+
+/// A request [`MARKS_HOST`] received for a page `marked`: its mark, the
+/// client it came from and whether it carried its own mark's cookie.
+type Marked = (String, Client, bool);
+
+/// Fetches, under `fetch`, one seed of label `page` per mark
+/// `{prefix}-1` to `{prefix}-5` at `{origin}{page}?mark=…`, one request
+/// at a time, and answers each request [`MARKS_HOST`] received for one of
+/// them, in order. Frontier learning is off: it would skip the marks
+/// after the first few, whose pages read alike.
+fn marked_run(
+    (engine, proving_ground): (&mut Attached, &ProvingGround),
+    (run_id, origin, page, prefix): (&str, &str, &str, &str),
+    fetch: &Value,
+) -> Vec<Marked> {
+    let seeds: Vec<Value> = (1..=5)
+        .map(|mark| json!({ "url": format!("{origin}{page}?mark={prefix}-{mark}"), "label": "page" }))
+        .collect();
+    let (started, records) = crawl(
+        engine,
+        proving_ground,
+        (run_id, &seeds),
+        &json!({
+            "formats": {},
+            "follow": "none",
+            "fields": { "title": { "locator": { "kind": "css", "selector": "h1" } } },
+        }),
+        &json!({
+            "fetch": fetch,
+            "politeness": { "domain": { "concurrency": 1 } },
+            "frontier": { "learning": false },
+        }),
+    );
+    assert!(started.get("result").is_some(), "{started}");
+    assert_eq!(records.len(), 5, "{run_id}");
+
+    let observations = proving_ground.observations().unwrap();
+    let query = format!("{page}?mark={prefix}-");
+    ReceivedRequests::of(&observations)
+        .every()
+        .filter(|request| request.host == MARKS_HOST && request.target.starts_with(&query))
+        .map(|request| {
+            let mark = request.target[page.len() + "?mark=".len()..].to_owned();
+            let ja4 = request
+                .tls
+                .as_ref()
+                .and_then(|hello| hello["ja4_base"].as_str().map(str::to_owned));
+            let headers = request
+                .headers
+                .iter()
+                .filter(|(name, _)| !name.eq_ignore_ascii_case("cookie"))
+                .cloned()
+                .collect();
+            let own_cookie = request
+                .cookies
+                .iter()
+                .any(|(name, value)| name == "mark" && *value == mark);
+            (mark, (ja4, headers), own_cookie)
+        })
+        .collect()
+}
+
+/// The marks among `requests` sent with their own mark's cookie.
+fn with_their_own_cookie(requests: &[Marked]) -> Vec<String> {
+    requests
+        .iter()
+        .filter(|(_, _, own)| *own)
+        .map(|(mark, _, _)| mark.clone())
+        .collect()
+}
+
+/// The keys of `run_id`'s `weakened` list, as `run.finish` reports it.
+fn weakened(engine: &mut Attached, run_id: &str) -> BTreeSet<String> {
+    let report = engine.call(
+        "finish",
+        "run.finish",
+        &json!({ "run_id": run_id }),
+        &mut |_| None,
+    );
+    strings(&report["result"]["weakened"], "key")
+}
+
+/// The provenance of a Label's three samples, their cheaper run on
+/// `cheaper`, then of its two requests learned onto `cheaper`.
+fn sampled_then_learned(cheaper: &str) -> Vec<Value> {
+    let sample = [
+        json!(["page", cheaper, "sample", null, null]),
+        json!(["page", "browser", "sample", null, null]),
+    ];
+    let learned = json!(["page", cheaper, "compared", null, null]);
+    [
+        &sample[..],
+        &sample[..],
+        &sample[..],
+        &[learned.clone(), learned],
+    ]
+    .concat()
+}
+
+/// Under `auto`, `fetch.http_from: transport` sends each sample's `http`
+/// run from a transport Session and its browser run from another Session,
+/// nothing carried between them: no browser run carries the cookie its
+/// sample's `http` run was answered, and every run of the cheaper tier is
+/// recorded on `http`. The Run lists the setting in `weakened` and the
+/// Audit log records it. Under the default, `browser`, each sample's
+/// cheaper run is sent from inside the Session's browser as before, so the
+/// browser run carries the cookie it set, every cheaper run is recorded on
+/// `browser_fetch`, and nothing is weakened.
+///
+/// Covers: setting:fetch.http_from, story:5-116, operation:crawl.start
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+fn under_transport_a_samples_browser_run_carries_nothing_of_its_http_run() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let origin = proving_ground.url(MARKS_HOST, "");
+
+    let from_the_transport = marked_run(
+        (&mut engine, &proving_ground),
+        ("from-the-transport", &origin, "/storage", "t"),
+        &json!({ "tier": "auto", "http_from": "transport" }),
+    );
+    let from_the_browser = marked_run(
+        (&mut engine, &proving_ground),
+        ("from-the-browser", &origin, "/storage", "b"),
+        &json!({ "tier": "auto" }),
+    );
+    let weakened = ["from-the-transport", "from-the-browser"]
+        .map(|run_id| weakened(&mut engine, run_id).contains("fetch.http_from"));
+    assert!(engine.finished());
+
+    assert_eq!(
+        (
+            tiers(&env, "from-the-transport"),
+            with_their_own_cookie(&from_the_transport),
+            tiers(&env, "from-the-browser"),
+            with_their_own_cookie(&from_the_browser),
+            weakened,
+            switched_off_in_audit_log(&env).contains("fetch.http_from"),
+        ),
+        (
+            sampled_then_learned("http"),
+            Vec::<String>::new(),
+            sampled_then_learned("browser_fetch"),
+            ["b-1", "b-2", "b-3"].map(str::to_owned).to_vec(),
+            [true, false],
+            true,
+        ),
+        "{from_the_transport:?}\n{from_the_browser:?}"
+    );
+}
+
+/// Under `auto`, `fetch.http_from: transport` sends each request of a
+/// Label learned onto `http` from the transport, and Provenance records it
+/// on `http`: its TLS `ClientHello` and its headers are those of a crawl
+/// forced onto `http`. The transport passes for the engine's Chrome on the
+/// wire, so only the cookies a Session keeps tell the two clients apart,
+/// which the case above reads.
+///
+/// Covers: setting:fetch.http_from, setting:fetch.tier
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+fn under_transport_a_label_learned_onto_http_sends_with_the_transports_tls_and_headers() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    env.user_configuration(&trusting_marks_host(&proving_ground));
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let origin = format!("https://{MARKS_HOST}:{}", proving_ground.address().port());
+
+    let forced = marked_run(
+        (&mut engine, &proving_ground),
+        ("forced-http", &origin, "/quiet", "r"),
+        &json!({ "tier": "http" }),
+    );
+    let from_the_transport = marked_run(
+        (&mut engine, &proving_ground),
+        ("from-the-transport", &origin, "/quiet", "t"),
+        &json!({ "tier": "auto", "http_from": "transport" }),
+    );
+    assert!(engine.finished());
+
+    let clients = |requests: &[Marked], marks: &[&str]| -> BTreeSet<Client> {
+        requests
+            .iter()
+            .filter(|(mark, _, _)| marks.contains(&mark.as_str()))
+            .map(|(_, client, _)| client.clone())
+            .collect()
+    };
+    let transport = clients(&forced, &["r-1", "r-2", "r-3", "r-4", "r-5"]);
+    assert_eq!(
+        (
+            transport.len(),
+            tiers(&env, "from-the-transport"),
+            clients(&from_the_transport, &["t-4", "t-5"]),
+        ),
+        (1, sampled_then_learned("http"), transport.clone()),
+        "{forced:?}\n{from_the_transport:?}"
+    );
+}
+
+/// `config explain` lists `fetch.http_from`, `browser` by default, which
+/// weakens nothing; a Run that sends from the transport, `learned` or
+/// `transport`, weakens it.
+///
+/// Covers: setting:fetch.http_from, command:config.explain
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+#[rstest]
+#[case::by_default(&[], json!(["browser", "default", false]))]
+#[case::learned(&["--set", "fetch.http_from=learned"], json!(["learned", "run", true]))]
+#[case::transport(&["--set", "fetch.http_from=transport"], json!(["transport", "run", true]))]
+fn config_explain_lists_where_a_labels_http_leaves_from(
+    #[case] set: &[&str],
+    #[case] explained: Value,
+) {
+    let env = TestEnv::new();
+    let output = goodfetch_test_support::cli(&env, env!("CARGO_BIN_EXE_goodfetch-foxhound"))
+        .args(["config", "explain", "fetch.http_from", "--json"])
+        .args(set.iter().copied())
+        .run()
+        .unwrap();
+
+    assert_eq!(output.exit, Some(0), "{}", output.stderr);
+    let document: Value = serde_json::from_str(&output.stdout).unwrap();
+    let listed: Vec<Value> = document["settings"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{document}"))
+        .iter()
+        .filter(|setting| setting["key"] == "fetch.http_from")
+        .map(|setting| json!([setting["value"], setting["layer"], setting["weakens"]]))
+        .collect();
+    assert_eq!(listed, vec![explained], "{document}");
+}
+
 /// Each attempt's browser page carries that attempt's own lease, however
 /// many attempts run at once: of 16 seeds on the `browser` tier at a
 /// concurrency of 16, one page answers 3 s late and 15 at once, and each

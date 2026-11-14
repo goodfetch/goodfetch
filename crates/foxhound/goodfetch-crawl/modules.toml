@@ -44,6 +44,7 @@ stored = ["admission", "asks", "tally"]
 tally = []
 
 [submodules.tier_choice]
+client = []
 weighing = []
 
 [submodules.code_free]

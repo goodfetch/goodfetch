@@ -82,7 +82,7 @@ use goodfetch_engine::metrics::Level;
 use goodfetch_engine::runs::{ChargeError, Ending, Run, UnjournaledCharges};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
-    ContentTypes, FetchAdmission, FetchTiers, HandOver, HopChecks, HttpTier, LocalSource,
+    ContentTypes, FetchAdmission, FetchTiers, HandOver, HopChecks, HttpFrom, HttpTier, LocalSource,
     RunHandOver, SetTier, TierChoice, UntouchedDemand, UntouchedReaders,
 };
 use goodfetch_frontier::Bounds;
@@ -113,7 +113,9 @@ use goodfetch_protocol::run::{
 };
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::usage::REQUESTS;
-use goodfetch_session_pool::{Changes, LocalAddressing, PoolSettings, Rotated, SessionPool};
+use goodfetch_session_pool::{
+    Changes, Effect, LocalAddressing, PoolSettings, Rotated, SendsFrom, SessionPool,
+};
 use serde_json::{Map, Value};
 use tokio::sync::oneshot;
 use tokio::time::Instant;
@@ -126,8 +128,8 @@ use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::run_state::{
-    Ask, Chosen, Drawing, Drawn, Local, QueuedEnd, RunState, StateError, Stored, Tally, Unkeyed,
-    Within,
+    Ask, Chosen, Drawing, Drawn, DrawnSession, Local, QueuedEnd, RunState, StateError, Stored,
+    Tally, Unkeyed, Within,
 };
 use crate::serving::{Crawls, Opened, Server};
 use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices, Unit};
@@ -144,7 +146,8 @@ mod politeness;
 mod watch;
 
 use attempt::{
-    Answer, Attempt, Taught, Tiering, effect, handler_lease, leased_count, run_hand_over,
+    Answer, Attempt, SampleSession, Taught, Tiering, effect, handler_lease, leased_count,
+    run_hand_over,
 };
 use pages::{Pages, Start};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
@@ -241,6 +244,7 @@ pub(crate) async fn drive(
         interface,
         labels: std::sync::Arc::new(labels),
         run_tier,
+        http_from: HttpFrom::of_run(settings.resolved()),
         run_encoding: settings
             .resolved()
             .get::<Option<&str>>(&FETCH_ENCODING)
@@ -681,6 +685,8 @@ struct Fetching<'a> {
     labels: std::sync::Arc<labels::Declared>,
     /// The tier the Run's own `fetch.tier` forces.
     run_tier: SetTier,
+    /// The Run's own `fetch.http_from`.
+    http_from: HttpFrom,
     /// The Run's own `fetch.encoding`, a WHATWG Encoding label.
     run_encoding: Option<String>,
     /// The Run's own `crawl.content_types`.
@@ -778,15 +784,18 @@ impl Fetching<'_> {
         })
     }
 
-    /// How `leased`'s attempt runs in the pool Session `session`, as
-    /// `chosen` (its Label and the Run's `fetch.tier` chose it as its
-    /// Session was drawn): a race is timed by its Label on its domain's
-    /// browser-fetch latencies; and what it fetches its document with.
+    /// How `leased`'s attempt runs in the pool Session `session`, sending
+    /// from `sends_from`, as `chosen` (its Label and the Run's `fetch.tier`
+    /// chose it as its Session was drawn): a race is timed by its Label on
+    /// its domain's browser-fetch latencies; and what it fetches its
+    /// document with, a sample's `http` run on `transport`'s Session when
+    /// one was drawn for it.
     fn served(
         &self,
         state: &RunState,
         leased: &Leased,
-        (session, chosen, local): (&SessionId, Chosen, Local),
+        ((session, local, sends_from), chosen): ((&SessionId, Local, SendsFrom), Chosen),
+        transport: Option<DrawnSession>,
         second_copies: &SecondCopies,
     ) -> Tiering {
         let request = &leased.crawl_request;
@@ -811,6 +820,11 @@ impl Fetching<'_> {
             }),
         };
         let http = self.session_tier(session, local);
+        let transport = transport.map(|drawn| SampleSession {
+            http: self.session_tier(&drawn.session.id, drawn.local),
+            session: drawn.session,
+            in_browser: drawn.in_browser,
+        });
         Tiering::of(
             self.tiers,
             http.as_ref(),
@@ -818,6 +832,7 @@ impl Fetching<'_> {
             self.labels.settings.page_check(&request.label).cloned(),
             second_copies,
         )
+        .sending(sends_from, transport)
     }
 
     /// The Run's HTTP tier as the pool Session `session`, holding `local`,
@@ -916,10 +931,15 @@ async fn lease_to_servers(
         for drawn in served {
             let Drawn {
                 leased,
-                session,
-                in_browser,
-                local,
+                session:
+                    DrawnSession {
+                        session,
+                        in_browser,
+                        local,
+                        sends_from,
+                    },
                 chosen,
+                transport,
             } = drawn;
             let lease = run_leases.grant(
                 &leased.crawl_request.id,
@@ -929,8 +949,13 @@ async fn lease_to_servers(
             server.in_flight += 1;
             let copies = admission.second_copies();
             let fetching = &pooled.fetching;
-            let tiering =
-                fetching.served(pooled.state, &leased, (&session.id, chosen, local), &copies);
+            let tiering = fetching.served(
+                pooled.state,
+                &leased,
+                ((&session.id, local, sends_from), chosen),
+                transport,
+                &copies,
+            );
             let admission = FetchAdmission::holding(
                 permits
                     .pop()
@@ -1253,6 +1278,11 @@ fn scored(
             effect(&attempt.answer),
             &read.pool,
         );
+        // A sample's `http` run sent from a Session of its own: the
+        // attempt's answer is its browser run's, which says nothing of it.
+        if let Some(transport) = &attempt.transport {
+            pool.settle(transport, &waiting.key, Effect::Neutral, &read.pool);
+        }
         let held = held_past_bound(
             &attempt.answer,
             attempt.handed_at.unwrap_or_else(|| run.clock().wall()),
@@ -1596,6 +1626,7 @@ async fn leased_and_drawn(
         labels: &fetching.labels,
         settings: pooled.settings,
         run_tier: fetching.run_tier,
+        http_from: fetching.http_from,
         races: fetching.races,
         wall: (run.clock().wall(), wall_ms(run)),
     };

@@ -285,6 +285,7 @@ max_size = 4
 tier = "auto"
 tier_race = true
 light_browser = true
+http_from = "browser"
 encoding = "example"
 coalesce = true
 block_classification = true

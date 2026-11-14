@@ -93,9 +93,10 @@ read -r -a arguments <<<"${command#ld.lld }"
 
 # A profile-guided build's order file (ADR 0057's note of 2026-11-14),
 # which ci/musl/cargo names: LLD lays the executable's sections out in the
-# order of the symbols it lists. An anonymous constant's section
-# (`.rodata..L*`, `.data.rel.ro..L*`) has no named symbol, so the file
-# lists it by its section's name, and each Rust object holding such a
+# order of the symbols it lists. A constant's section with no named
+# symbol, an anonymous constant's (`.rodata..L*`, `.data.rel.ro..L*`) or a
+# function's jump table (`.rodata.<function>`), is listed by its section's
+# name (`.rodata.*`, `.data.rel.ro.*`), and each Rust object holding such a
 # section is linked from a copy in which the section has a symbol of that
 # name: hidden, which the executable keeps local, since llvm-objcopy writes
 # an added local symbol after the global ones, which LLD refuses.
@@ -103,7 +104,7 @@ extra=()
 order=${GOODFETCH_MUSL_ORDER_FILE:-}
 if [[ -n "$order" ]]; then
   remaining=$scratch/anonymous
-  grep -E '^\.(rodata|data\.rel\.ro)\.\.L' "$order" >"$remaining" || true
+  grep -E '^\.(rodata|data\.rel\.ro)\.' "$order" >"$remaining" || true
   if [[ -s "$remaining" ]]; then
     tools=${GOODFETCH_MUSL_LLVM_TOOLS:?ci/musl/cargo sets the folder of the toolchain\'s LLVM tools}
     for index in "${!arguments[@]}"; do

@@ -7,16 +7,17 @@
 //! is repository tooling, so the module declares no Feature.
 #![cfg(unix)]
 
+use std::fmt::Write as _;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
 use rstest::rstest;
 
-use crate::workspace::Workspace;
+use crate::workspace::{Workspace, finding};
 
 const TARGET: &str = "x86_64-unknown-linux-musl";
 const PROFILE: &[u8] = b"an indexed profile";
-const ORDER: &str = "_RNvCs1_4main3hot\n.rodata..Lanon.0a1b.3\n.data.rel.ro..Lanon.0a1b.4\n.rodata..Lanon.ffff.9\n_RNvCs1_4main4cold\n";
+const ORDER: &str = "_RNvCs1_4main3hot\n.rodata..Lanon.0a1b.3\n.rodata._RNvCs1_4main3hot\n.data.rel.ro..Lanon.0a1b.4\n.rodata..Lanon.ffff.9\n_RNvCs1_4main4cold\n";
 
 fn repository_script(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -92,7 +93,8 @@ impl Linker {
              '  1 .text._RNvCs1_4main3hot 00000010 0000000000000000 TEXT' \
              '  2 .rodata..Lanon.0a1b.3 00000008 0000000000000000 DATA' \
              '  3 .data.rel.ro..Lanon.0a1b.4 00000010 0000000000000000 DATA' \
-             '  4 .rodata..Lanon.0a1b.5 00000008 0000000000000000 DATA'",
+             '  4 .rodata..Lanon.0a1b.5 00000008 0000000000000000 DATA' \
+             '  5 .rodata._RNvCs1_4main3hot 00000020 0000000000000000 DATA'",
         );
         Self {
             workspace,
@@ -189,8 +191,10 @@ fn an_undefined_symbol_in_a_response_file_reaches_zigs_cc_as_a_linker_option() {
 }
 
 /// With an order file, the static-PIE's LLD lays its sections out in the
-/// file's order, and writes the map that places them beside the executable. An anonymous constant (`.rodata..L*`, `.data.rel.ro..L*`)
-/// has no symbol to name it by, so the Rust object is linked from a copy
+/// file's order, and writes the map that places them beside the
+/// executable. An anonymous constant (`.rodata..L*`, `.data.rel.ro..L*`)
+/// and a function's jump table (`.rodata.<function>`) have no symbol to
+/// name them by, so the Rust object is linked from a copy
 /// in which llvm-objcopy gives each the file lists and the object holds a
 /// hidden symbol named like its section, which the executable keeps local.
 /// (llvm-objcopy writes an added local symbol after the global ones, which
@@ -207,19 +211,21 @@ fn an_order_file_orders_the_static_pies_sections() {
 
     let objcopy = linker.asked("llvm-objcopy");
     assert_eq!(
-        objcopy[1..5],
+        objcopy[1..7],
         [
             "  --add-symbol",
             "  .rodata..Lanon.0a1b.3=.rodata..Lanon.0a1b.3:0,global,hidden,object",
             "  --add-symbol",
             "  .data.rel.ro..Lanon.0a1b.4=.data.rel.ro..Lanon.0a1b.4:0,global,hidden,object",
+            "  --add-symbol",
+            "  .rodata._RNvCs1_4main3hot=.rodata._RNvCs1_4main3hot:0,global,hidden,object",
         ]
     );
     assert_eq!(
-        objcopy[5],
+        objcopy[7],
         linker.build().join("main.rcgu.o").display().to_string()
     );
-    let copy = &objcopy[6];
+    let copy = &objcopy[8];
     let lld = linker.asked("zig");
     assert_eq!(
         lld,
@@ -307,6 +313,11 @@ impl Build {
                  esac",
                 sysroot.display()
             ),
+        );
+        recorder(
+            &sysroot.join("lib/rustlib/x86_64-unknown-linux-gnu/bin"),
+            "llvm-objcopy",
+            "exit 0",
         );
         Self {
             workspace,
@@ -553,4 +564,197 @@ fn an_unknown_setting_fails() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+/// An ordered build without the LLVM tools that order it stops before
+/// building, naming the recipe that installs them.
+#[test]
+fn an_ordered_build_without_the_llvm_tools_fails() {
+    let build = Build::new();
+    std::fs::remove_file(
+        build
+            .stand_in
+            .join("sysroot/lib/rustlib/x86_64-unknown-linux-gnu/bin/llvm-objcopy"),
+    )
+    .unwrap();
+
+    let output = build.run(&["build", "--release", "--target", TARGET], &[]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("just musl-toolchain"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!build.stand_in.join("flags").exists());
+}
+
+/// A release build of both Products for `xtask pgo check`: each Product's
+/// path a hard link to the file the linker wrote in `deps/`, as Cargo
+/// leaves it, with the link map ci/musl/link-cc wrote beside that file.
+struct Built {
+    workspace: Workspace,
+}
+
+impl Built {
+    /// A build whose target has `order` as its committed order file, or
+    /// none.
+    fn new(order: Option<&str>) -> Self {
+        let workspace = Workspace::from_fixture("empty");
+        if let Some(order) = order {
+            workspace.write(&format!("ci/pgo/{TARGET}/order.txt"), order.as_bytes());
+        }
+        let release = workspace.path().join("build/release");
+        workspace.write(
+            "tools.json",
+            serde_json::json!({
+                "collie": release.join("goodfetch-collie"),
+                "foxhound": release.join("goodfetch-foxhound"),
+            })
+            .to_string()
+            .as_bytes(),
+        );
+        Self { workspace }
+    }
+
+    /// Links `binary`, its `.text` holding `functions` at these addresses,
+    /// with its link map unless `map` is false.
+    fn link(&self, binary: &str, functions: &[(u64, &str)], map: bool) {
+        let deps = format!("build/release/deps/{binary}-0f1e");
+        self.workspace.write(&deps, b"an executable");
+        // An unrelated build's file of the same Product, which is no link.
+        self.workspace
+            .write(&format!("build/release/deps/{binary}-9a8b"), b"older");
+        std::fs::hard_link(
+            self.workspace.path().join(&deps),
+            self.workspace
+                .path()
+                .join(format!("build/release/{binary}")),
+        )
+        .unwrap();
+        if map {
+            let mut text = String::from(
+                "             VMA              LMA     Size Align Out     In      Symbol\n",
+            );
+            writeln!(
+                text,
+                "{0:>16x} {0:>16x} {1:>8x} {2:>5} .text",
+                0x1000, 0x1000, 16
+            )
+            .unwrap();
+            for &(address, name) in functions {
+                writeln!(
+                    text,
+                    "{address:>16x} {address:>16x} {:>8x} {:>5}         /b/main.rcgu.o:(.text.{name})",
+                    0x10, 16
+                )
+                .unwrap();
+                writeln!(
+                    text,
+                    "{address:>16x} {address:>16x} {:>8x} {:>5}                 {name}",
+                    0x10, 1
+                )
+                .unwrap();
+            }
+            self.workspace
+                .write(&format!("{deps}.map"), text.as_bytes());
+        }
+    }
+
+    fn check(&self) -> crate::workspace::Outcome {
+        self.workspace
+            .xtask(&["pgo", "check", "--tools", "tools.json", "--target", TARGET])
+    }
+
+    fn subject(&self, binary: &str) -> String {
+        self.workspace
+            .path()
+            .join("build/release")
+            .join(binary)
+            .display()
+            .to_string()
+    }
+}
+
+const ORDERED: &str = "hot\nwarm\ntepid\n.rodata..Lanon.0a1b.3\n";
+
+#[test]
+fn a_build_whose_text_starts_in_the_order_files_order_passes() {
+    let built = Built::new(Some(ORDERED));
+    built.link(
+        "goodfetch-collie",
+        &[(0x1000, "hot"), (0x1010, "warm"), (0x1020, "cold")],
+        true,
+    );
+    built.link(
+        "goodfetch-foxhound",
+        &[(0x1000, "hot"), (0x1010, "warm")],
+        true,
+    );
+
+    let outcome = built.check();
+
+    assert_eq!(outcome.code, 0, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(outcome.findings(), []);
+}
+
+#[test]
+fn a_build_out_of_the_order_files_order_fails() {
+    let built = Built::new(Some(ORDERED));
+    built.link(
+        "goodfetch-collie",
+        &[(0x1000, "hot"), (0x1010, "warm")],
+        true,
+    );
+    // `tepid` placed before `warm`, which the file lists ahead of it.
+    built.link(
+        "goodfetch-foxhound",
+        &[(0x1000, "hot"), (0x1010, "tepid"), (0x1020, "warm")],
+        true,
+    );
+
+    let outcome = built.check();
+
+    assert_eq!(outcome.code, 1, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        [finding(
+            "out-of-order",
+            &built.subject("goodfetch-foxhound")
+        )]
+    );
+}
+
+#[test]
+fn a_build_without_a_link_map_fails() {
+    let built = Built::new(Some(ORDERED));
+    built.link(
+        "goodfetch-collie",
+        &[(0x1000, "hot"), (0x1010, "warm")],
+        false,
+    );
+    built.link(
+        "goodfetch-foxhound",
+        &[(0x1000, "hot"), (0x1010, "warm")],
+        true,
+    );
+
+    let outcome = built.check();
+
+    assert_eq!(outcome.code, 1, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        [finding("no-link-map", &built.subject("goodfetch-collie"))]
+    );
+}
+
+#[test]
+fn a_target_without_an_order_file_is_noted_unordered() {
+    let built = Built::new(None);
+
+    let outcome = built.check();
+
+    assert_eq!(outcome.code, 0, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(outcome.findings(), []);
+    assert_eq!(outcome.notes(), [finding("not-ordered", TARGET)]);
 }

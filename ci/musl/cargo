@@ -87,8 +87,12 @@ profile_guided() {
   add_rustflags "-Cprofile-use=$copy/merged.profdata" -Cllvm-args=-no-pgo-warn-mismatch
   if [[ -f "$copy/order.txt" ]]; then
     export GOODFETCH_MUSL_ORDER_FILE="$copy/order.txt"
-    # rustup's llvm-tools component (rust-toolchain.toml).
+    # rustup's llvm-tools component, which ci/musl/install.sh adds.
     GOODFETCH_MUSL_LLVM_TOOLS="$(rustc --print sysroot)/lib/rustlib/$(rustc --print host-tuple)/bin"
+    if [[ ! -x "$GOODFETCH_MUSL_LLVM_TOOLS/llvm-objcopy" ]]; then
+      echo "error: rustup's llvm-tools component, which orders a profile-guided build, is not installed: run \`just musl-toolchain\`" >&2
+      exit 2
+    fi
     export GOODFETCH_MUSL_LLVM_TOOLS
   fi
 }

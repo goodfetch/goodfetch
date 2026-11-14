@@ -518,26 +518,22 @@ impl Stored {
             .await?)
     }
 
-    /// Has the Frontier's memory read the visits the run file holds, as
-    /// the crawl opens, within the memory budget, when it holds the
-    /// batches' visits: a lookup it then answers reads nothing (#2169).
+    /// Has the Frontier's memory read the Scope's seeds and the visits the
+    /// run file holds, as the crawl opens, within the memory budget, when
+    /// it holds the batches' visits: a lookup it then answers reads
+    /// nothing (#2169).
     ///
     /// # Errors
     ///
     /// The run file's.
-    pub(crate) async fn read_visits(&self) -> Result<(), StateError> {
+    pub(crate) async fn fill_memory(&self) -> Result<(), StateError> {
         if self.invariants.frontier().unwritten().is_none() {
             return Ok(());
         }
         let invariants = self.invariants.clone();
         Ok(self
             .writer
-            .read(move |connection| {
-                invariants
-                    .frontier()
-                    .unwritten()
-                    .map_or(Ok(()), |unwritten| unwritten.read_visits(connection))
-            })
+            .read(move |connection| invariants.frontier().fill_memory(connection))
             .await?)
     }
 

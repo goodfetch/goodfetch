@@ -52,10 +52,9 @@ use quick_xml::events::{BytesStart, Event};
 use rusqlite::{Connection, OptionalExtension as _};
 use url::Url;
 
-use crate::admit::{Candidate, admit};
+use crate::admit::{Candidate, admit, widen};
 use crate::bounds::{SoFar, count_admitted, count_refused, cut_by};
 use crate::invariants::{Invariants, Rules};
-use crate::scope::Scope;
 use crate::staged::Admitting;
 use crate::url::parse as parse_url;
 
@@ -390,11 +389,8 @@ pub fn admit_seed_in(
     if let Enqueued::Added { url, .. } = &answer
         && let Ok(url) = Url::parse(url)
     {
-        Scope::widen(connection, &url)?;
-        admitting.widened(&url);
-        if let Some(unwritten) = invariants.unwritten() {
-            unwritten.lock().widened();
-        }
+        let mut holding = invariants.unwritten().map(|unwritten| unwritten.lock());
+        widen(connection, invariants, &url, admitting, holding.as_mut())?;
         // The seed's rules were checked as it was given.
         let _unreadable = invariants.know_sitemap_rules(&seed.rules);
     }

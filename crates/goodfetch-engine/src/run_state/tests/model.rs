@@ -1,31 +1,32 @@
-//! The model-based test of run state (ADR 0060; TESTING.md, Model-based
-//! tests and crashes in one process): grouped commits, a failing write in a
-//! group, commits cut off by a crash, and process crashes and power cuts
-//! through the crash VFS, each followed by reopening the file. Each case
-//! draws its layout, a run file of its own or one inside the install
-//! database, which then opens through the crash VFS itself, and its
-//! Durability level, each of the four (ADR 0138). Its checkpointer copies the WAL past a
-//! threshold of two pages, so it runs beside nearly every commit, and a
-//! group may run a `PASSIVE` checkpoint of its own connection while the
-//! writer holds the group's transaction: the checkpoint is never refused as
-//! busy, and the writer commits every write of the group (ADR 0138). A
-//! write may be deferred, as an attempt's claim is (ADR 0138's note of
-//! #1926): at `full` its commit syncs only with a later write that needs a
-//! sync, so a power cut may take it until then, and never a write that
-//! needed one. At `periodic` a power cut may take what was committed since
-//! the interval last passed, which a step lets pass, and the idle writer's
-//! timer then syncs it. After every step the writer's view, and
-//! after every crash the reopened file, holds nothing that was never
-//! written, nothing twice, and every acknowledged commit, except those a
-//! power cut may take in `fast` mode, the deferred ones no synced
-//! commit covered yet at `full` and those of the last interval at
-//! `periodic`; and the run file, and the install database in its layout,
-//! pass `PRAGMA integrity_check`, the run file only below `off`. At `off`,
-//! every crash leaves the file's "unclean" mark, or a file a power cut
-//! damaged, so the file is discarded and the Run starts again from
-//! nothing, in a new run folder; below it, no file holds the mark. 16
-//! cases in the Quick suite and 256 in the Pre-merge suite
-//! (`proptest_config`).
+//! The model-based test of run state (ADR 0060; TESTING.md, Model-based tests
+//! and crashes in one process): grouped commits, a failing write in a group,
+//! commits cut off by a crash, and process crashes and power cuts through the
+//! crash VFS, each followed by reopening the file. Each case draws its layout,
+//! a run file of its own or one inside the install database, which then opens
+//! through the crash VFS itself, and its Durability level, each of the five
+//! (ADR 0138, ADR 0142). Its checkpointer copies the WAL past a threshold of
+//! two pages, so it runs beside nearly every commit, and a group may run a
+//! `PASSIVE` checkpoint of its own connection while the writer holds the
+//! group's transaction: the checkpoint is never refused as busy, and the writer
+//! commits every write of the group (ADR 0138). A write may be deferred, as an
+//! attempt's claim is (ADR 0138's note of #1926): at `full` its commit syncs
+//! only with a later write that needs a sync, so a power cut may take it until
+//! then, and never a write that needed one. At `periodic` a power cut may take
+//! what was committed since the interval last passed, which a step lets pass,
+//! and the idle writer's timer then syncs it. At `batch` and `off`, a deferred
+//! write rides the writer's open batch: it is answered before the batch
+//! commits, which a later write that needs a sync or the batch's interval does,
+//! so the writer's view may not show it yet and any crash may take it until
+//! then. After every step the writer's view, and after every crash the reopened
+//! file, holds nothing that was never written, nothing twice, and every
+//! acknowledged commit, except those a power cut may take in `fast` mode, the
+//! deferred ones no synced commit covered yet at `full` and those of the last
+//! interval at `periodic`; and the run file, and the install database in its
+//! layout, pass `PRAGMA integrity_check`, the run file only below `off`. At
+//! `off`, every crash leaves the file's "unclean" mark, or a file a power cut
+//! damaged, so the file is discarded and the Run starts again from nothing, in
+//! a new run folder; below it, no file holds the mark. 16 cases in the Quick
+//! suite and 256 in the Pre-merge suite (`proptest_config`).
 
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
@@ -51,6 +52,9 @@ struct Reference {
     /// cut may take: the deferred writes' at `full`, every one since the
     /// interval last passed at `periodic`.
     unsynced: Vec<i64>,
+    /// The values answered in the writer's open batch at `batch` and `off`, which
+    /// the writer's view may not show yet and any crash may take.
+    open: Vec<i64>,
     uncertain: Vec<i64>,
 }
 
@@ -97,6 +101,7 @@ impl ReferenceStateMachine for Reference {
         (
             prop_oneof![Just(Layout::PerRun), Just(Layout::PerInstall)],
             prop_oneof![
+                Just(Durability::BATCH),
                 Just(Durability::FULL),
                 Just(Durability::FAST),
                 Just(Durability::periodic(INTERVAL)),
@@ -109,6 +114,7 @@ impl ReferenceStateMachine for Reference {
                 next: 0,
                 acknowledged: Vec::new(),
                 unsynced: Vec::new(),
+                open: Vec::new(),
                 uncertain: Vec::new(),
             })
             .boxed()
@@ -147,20 +153,28 @@ impl ReferenceStateMachine for Reference {
                 // more: a deferred write queued before one that needs a
                 // sync commits in its group or an earlier one, which that
                 // sync covers; one queued after the last such write may
-                // commit unsynced.
-                let synced = (0..*count)
+                // commit unsynced, or, at `batch` and `off`, stay in the open batch.
+                let barrier = (0..*count)
                     .rev()
-                    .find(|index| !is_deferred(*deferred, *index))
-                    .filter(|_| state.durability == Durability::FULL);
+                    .find(|index| !is_deferred(*deferred, *index));
+                let batches = !state.durability.per_attempt;
+                let synced = barrier.filter(|_| batches || state.durability == Durability::FULL);
                 if synced.is_some() {
                     state.unsynced.clear();
+                    let open = std::mem::take(&mut state.open);
+                    state.acknowledged.extend(open);
                 }
                 for index in 0..*count {
                     let value = state.next + i64::try_from(index).unwrap();
                     if Some(index) != *failing {
-                        state.acknowledged.push(value);
-                        if synced.is_none_or(|synced| index > synced) {
-                            state.unsynced.push(value);
+                        let covered = synced.is_some_and(|synced| index <= synced);
+                        if batches && !covered {
+                            state.open.push(value);
+                        } else {
+                            state.acknowledged.push(value);
+                            if !covered {
+                                state.unsynced.push(value);
+                            }
                         }
                     }
                 }
@@ -172,11 +186,14 @@ impl ReferenceStateMachine for Reference {
                 state.crash(*kind);
             }
             Transition::Crash(kind) => state.crash(*kind),
-            // The idle writer's timer syncs what it committed.
+            // The idle writer's timer syncs what it committed, or commits
+            // its open batch.
             Transition::Elapse => {
                 if state.durability.sync_interval().is_some() {
                     state.unsynced.clear();
                 }
+                let open = std::mem::take(&mut state.open);
+                state.acknowledged.extend(open);
             }
         }
         state
@@ -191,9 +208,12 @@ fn is_deferred(deferred: u8, index: usize) -> bool {
 impl Reference {
     /// A power cut in `fast` mode may take acknowledged commits, at `full`
     /// the deferred ones no synced commit covered and at `periodic` those
-    /// since the interval last passed; at `off` any crash discards the file,
-    /// so the Run starts again from nothing.
+    /// since the interval last passed; any crash may take the open batch's
+    /// at `batch` and `off`; at `off` any crash discards the file, so the Run starts
+    /// again from nothing.
     fn crash(&mut self, kind: CrashKind) {
+        let open = std::mem::take(&mut self.open);
+        self.uncertain.extend(open);
         if self.durability == Durability::OFF {
             self.acknowledged.clear();
             self.uncertain.clear();
@@ -409,7 +429,7 @@ fn run_file(env: &TestEnv, discarded: usize) -> String {
 }
 
 /// Every acknowledged value is there once, and nothing else but values a
-/// crash cut off.
+/// crash cut off or the open batch holds.
 fn check(present: &[i64], reference: &Reference) {
     let mut seen = present.to_vec();
     seen.dedup();
@@ -426,7 +446,9 @@ fn check(present: &[i64], reference: &Reference) {
     }
     for value in present {
         assert!(
-            reference.acknowledged.contains(value) || reference.uncertain.contains(value),
+            reference.acknowledged.contains(value)
+                || reference.uncertain.contains(value)
+                || reference.open.contains(value),
             "{value} was never acknowledged: {present:?}"
         );
     }

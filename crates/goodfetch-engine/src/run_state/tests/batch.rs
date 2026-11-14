@@ -62,7 +62,8 @@ impl BatchRows for CutOff {
 }
 
 /// A sealed batch is written all or nothing (ADR 0142): a crash inside it
-/// leaves the run file as of the batch before, with none of its rows.
+/// leaves the run file as of the batch before, with none of its rows, at
+/// `full`, where the batch before was written as it was answered.
 ///
 /// Covers: story:3-25
 #[test]
@@ -71,6 +72,7 @@ fn a_crash_inside_a_sealed_batch_leaves_the_run_file_as_of_the_batch_before() {
     let vfs = CrashVfs::register(&env.unique_name("batch-crash"), env.seed()).unwrap();
     let options = RunStateOptions {
         vfs: Some(vfs.name().to_owned()),
+        durability: Durability::FULL,
         ..RunStateOptions::default()
     };
     let path = env.folder().join("run.sqlite");
@@ -91,7 +93,8 @@ fn a_crash_inside_a_sealed_batch_leaves_the_run_file_as_of_the_batch_before() {
 }
 
 /// A sealed batch one of whose rows the file refuses writes none of its
-/// rows, and the writes beside it commit.
+/// rows, and the writes beside it commit: the read, a write, commits them
+/// at every level.
 #[test]
 fn a_sealed_batch_with_a_refused_row_writes_none_of_its_rows() {
     let env = TestEnv::new();
@@ -104,7 +107,7 @@ fn a_sealed_batch_with_a_refused_row_writes_none_of_its_rows() {
             )
             .await;
         sealed(state, &[4]).await.unwrap();
-        (refused, state.read(items).await.unwrap())
+        (refused, state.write(items).await.unwrap())
     });
 
     assert_eq!(
@@ -137,7 +140,8 @@ impl BatchRows for Held {
 
 /// One sealed batch waits at a time (ADR 0142): while the writer writes a
 /// batch, a second sealed batch is not queued, so a write queued after it
-/// was sealed commits before it.
+/// was sealed is written before it. The read, a write, commits them at
+/// every level.
 #[test]
 fn a_second_sealed_batch_waits_while_the_first_is_written() {
     let env = TestEnv::new();
@@ -174,7 +178,7 @@ fn a_second_sealed_batch_waits_while_the_first_is_written() {
         };
         let (first, waited) = tokio::join!(first, rest);
         first.unwrap();
-        let order = state.read(in_order).await.unwrap();
+        let order = state.write(in_order).await.unwrap();
         drop(state);
         owner.wait().await;
         (waited, order)

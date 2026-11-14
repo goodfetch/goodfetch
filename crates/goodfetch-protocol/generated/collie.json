@@ -10956,6 +10956,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The rows each Run-state batch of a run file wrote as its writer committed it, one a write, at a Durability level that batches attempts (`run_state.batch.per_attempt: false`, ADR 0142).",
+      "instrument": "histogram",
+      "labels": [],
+      "name": "goodfetch.run_state.batch_rows",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{row}"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The checkpoints of a run file's write-ahead log that could not copy the whole log into the file, or start the log again, because a reader held an old snapshot of it (ADR 0138).",
       "instrument": "counter",
       "labels": [],

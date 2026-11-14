@@ -67,6 +67,7 @@ use wal_checkpointer::{WalCheckpointer, note_wal_pages, open_wal_checkpointer};
 
 mod batch;
 pub mod install;
+mod open_batch;
 mod readers;
 pub mod run_row;
 mod wal_checkpointer;
@@ -259,10 +260,12 @@ impl Default for RunStateOptions {
 /// unfolded into its preset's `run_state.batch.*` keys, each of which a
 /// layer may also set (ADRs 0002, 0138 and 0142).
 ///
-/// The writer follows `sync`; `per_attempt` and the thresholds are carried
-/// for the Run-state batches, which this writer does not seal yet: until
-/// then every level commits each write as it comes, so `batch` keeps
-/// `full`'s guarantee.
+/// With `per_attempt`, the writer commits each group of writes as it
+/// comes. Without it, the writer holds one transaction open across groups,
+/// the open batch ([`open_batch`]): an attempt's write is answered once it
+/// is in it, and the batch commits at a barrier, a write that must be in
+/// the file before it is answered, at a threshold, or as the writer ends.
+/// `sync` says which commits reach the disk.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Durability {
     /// `run_state.batch.per_attempt`: each attempt's claim and outcome a
@@ -376,9 +379,15 @@ impl Durability {
     }
 
     /// Whether the writer keeps a second connection at
-    /// `synchronous=NORMAL` for the groups that do not sync.
+    /// `synchronous=NORMAL` for the commits that do not sync: the deferred
+    /// writes' at `each` when each attempt is a batch, and the batches
+    /// between two synced ones at `interval`.
     fn defers(self) -> bool {
-        matches!(self.sync, BatchSync::Each | BatchSync::Interval(_))
+        match self.sync {
+            BatchSync::Each => self.per_attempt,
+            BatchSync::Interval(_) => true,
+            BatchSync::Never | BatchSync::Off => false,
+        }
     }
 
     /// Whether nothing is synced and a crash discards the file: `sync: off`.
@@ -434,10 +443,21 @@ pub enum Syncing {
     Declaring,
     /// Committed without a sync of its own at `full`: a power cut before
     /// the next synced commit may take it, as it may an attempt's claim.
+    /// Without `per_attempt`, answered once it is in the open batch.
     Deferred {
         /// The most it charges of any one Slice of the Usage ledger, which
         /// counts against [`DEFERRED_CHARGES`].
         charged: u64,
+    },
+    /// An attempt's write that tells something outside, such as its
+    /// outcome (ADR 0142): as `Required` when each attempt is a batch of
+    /// its own (`run_state.batch.per_attempt`), else answered once it is in
+    /// the open batch, whose thresholds it counts towards.
+    Attempt {
+        /// The attempts it ends, towards `run_state.batch.pages`.
+        ended: u64,
+        /// The bytes of the rows it writes, towards `run_state.batch.bytes`.
+        bytes: u64,
     },
 }
 
@@ -706,89 +726,46 @@ impl RunState {
         let (connection, deferring, declared, checkpointing) = owner
             .blocking(move || open_connections(&opened_path, &opened, &tables))
             .await?;
-        let mut checkpointer = WalCheckpointer::start(&path, options, checkpointing, owner)
+        let checkpointer = WalCheckpointer::start(&path, options, checkpointing, owner)
             .map_err(|error| sqlite_error(&path, &error))?;
         let (mailbox, jobs) = mpsc::channel(MAILBOX);
-        let actor_path = path.clone();
         let (committed, commits) = watch::channel(0_u64);
         let (failed, failures) = watch::channel(None);
-        let counted = options.work.clone();
         let readers = std::sync::Arc::new(RunStateReaders::new(
             path.clone(),
             options.vfs.clone(),
             owner.blocking_threads(),
         ));
-        let mut deferral = Deferral {
-            deferring: options.durability.sync == BatchSync::Each,
-            declared,
-            uncovered: 0,
+        let mut writer = Writer {
+            connection: WriterConnection {
+                connection,
+                deferring,
+                readers: std::sync::Arc::clone(&readers),
+            },
+            path: path.clone(),
+            epoch,
+            durability: options.durability,
+            marked: options.durability.unsynced(),
+            deferral: Deferral {
+                deferring: options.durability.sync == BatchSync::Each,
+                declared,
+                uncovered: 0,
+            },
+            interval: Interval::of(options),
+            checkpointer,
+            signals: Signals {
+                commits: committed,
+                failures: failed,
+                work: options.work.clone(),
+            },
+            batching: open_batch::Batching::of(options, owner, &mailbox),
+            // The idle writer's timer at `periodic`, which ends with the
+            // writer.
+            _idle_timer: idle_timer(owner, options, &mailbox),
         };
-        let mut interval = Interval::of(options);
-        let marked = options.durability.unsynced();
-        let durability = options.durability;
-        let connection = WriterConnection {
-            connection,
-            deferring,
-            readers: std::sync::Arc::clone(&readers),
-        };
-        // The idle writer's timer at `periodic`, which ends with the writer.
-        let writer_gone = idle_timer(owner, options, &mailbox);
         owner
-            .actor_until("run-state-writer", jobs, move |mut group: Vec<Queued>| {
-                let _held_until_the_writer_ends = &writer_gone;
-                let signals = Signals {
-                    commits: &committed,
-                    failures: &failed,
-                    work: &counted,
-                };
-                let ticked = without_ticks(&mut group);
-                connection.prepare(&mut group, &actor_path);
-                let last = group.iter().position(|queued| queued.job == Job::Last);
-                let refused = last.map_or_else(Vec::new, |at| group.split_off(at + 1));
-                let planned = match &interval {
-                    Some(interval) => interval.plan(ticked, last.is_some()),
-                    None => deferral.plan(&group),
-                };
-                // A tick with nothing committed unsynced commits nothing.
-                let idle =
-                    group.is_empty() && !interval.as_ref().is_some_and(|interval| interval.owed);
-                // A clean stop commits synced at every level, `fast`'s and
-                // `off`'s included, and `off`'s clears the mark: its sync
-                // covers the WAL, which no checkpoint copies then (#2117).
-                let synced_stop = last.is_some()
-                    && matches!(durability.sync, BatchSync::Never | BatchSync::Off)
-                    && connection
-                        .connection
-                        .pragma_update(None, "synchronous", "FULL")
-                        .is_ok();
-                let clean = marked && synced_stop;
-                let group: Vec<QueuedWrite> =
-                    group.into_iter().map(|queued| queued.write).collect();
-                let committed = if idle {
-                    None
-                } else {
-                    let on = connection.for_group(planned.synced);
-                    let marks = Marks {
-                        declare: planned.declare,
-                        clean,
-                    };
-                    commit_group(on, &actor_path, (epoch, marks), group, &signals)
-                };
-                if let Some(declared) = committed {
-                    deferral.committed(planned, declared);
-                    if let Some(interval) = &mut interval {
-                        interval.committed(planned.synced);
-                    }
-                    checkpointer.committed(&connection.connection, &actor_path, last.is_some());
-                }
-                for queued in refused {
-                    (queued.write)(None).0(Err(RunStateError::Closed));
-                }
-                if last.is_some() {
-                    ControlFlow::Break(())
-                } else {
-                    ControlFlow::Continue(())
-                }
+            .actor_until("run-state-writer", jobs, move |group: Vec<Queued>| {
+                writer.handle(group)
             })
             .map_err(|error| sqlite_error(&path, &error))?;
         Ok(Self {
@@ -1049,6 +1026,106 @@ impl WriterConnection {
     }
 }
 
+/// The writer's actor: its connections, what it knows of its syncs and
+/// charges, and, at a level that batches attempts, its open batch.
+struct Writer {
+    connection: WriterConnection,
+    path: PathBuf,
+    /// The run epoch it commits under.
+    epoch: u64,
+    durability: Durability,
+    /// Whether the file carries the "unclean" mark, which its clean stop
+    /// clears: at `off`.
+    marked: bool,
+    deferral: Deferral,
+    /// At `run_state.batch.sync: interval` only.
+    interval: Option<Interval>,
+    checkpointer: WalCheckpointer,
+    signals: Signals,
+    /// Without `run_state.batch.per_attempt` only.
+    batching: Option<open_batch::Batching>,
+    /// Held until the writer ends, which ends the idle timer.
+    _idle_timer: oneshot::Sender<()>,
+}
+
+impl Writer {
+    /// Handles one group of the writer's jobs: up to its last write, whose
+    /// commit stops the writer and refuses the jobs after it.
+    fn handle(&mut self, mut group: Vec<Queued>) -> ControlFlow<()> {
+        let ticked = without_ticks(&mut group);
+        self.connection.prepare(&mut group, &self.path);
+        let last = group.iter().position(|queued| queued.job == Job::Last);
+        let refused = last.map_or_else(Vec::new, |at| group.split_off(at + 1));
+        let last = last.is_some();
+        if self.batching.is_some() {
+            self.batch(group, ticked, last);
+        } else {
+            self.commit_each(group, ticked, last);
+        }
+        for queued in refused {
+            (queued.write)(None).0(Err(RunStateError::Closed));
+        }
+        if last {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    }
+
+    /// Commits `group` in a transaction of its own, each attempt a batch of
+    /// its own (`run_state.batch.per_attempt`).
+    fn commit_each(&mut self, group: Vec<Queued>, ticked: bool, last: bool) {
+        let planned = match &self.interval {
+            Some(interval) => interval.plan(ticked, last),
+            None => self.deferral.plan(&group),
+        };
+        // A tick with nothing committed unsynced commits nothing.
+        let idle =
+            group.is_empty() && !self.interval.as_ref().is_some_and(|interval| interval.owed);
+        if idle {
+            return;
+        }
+        let synced_stop = self.synced_stop(last);
+        let clean = self.marked && synced_stop;
+        let group: Vec<QueuedWrite> = group.into_iter().map(|queued| queued.write).collect();
+        let on = self.connection.for_group(planned.synced);
+        let marks = Marks {
+            declare: planned.declare,
+            clean,
+        };
+        if let Some(declared) =
+            commit_group(on, &self.path, (self.epoch, marks), group, &self.signals)
+        {
+            self.deferral.committed(planned, declared);
+            self.committed(planned.synced, last);
+        }
+    }
+
+    /// Whether the writer's `last` write syncs at a level that syncs
+    /// nothing else, having switched its connection to `synchronous=FULL`:
+    /// a clean stop commits synced at every level, `fast`'s and `off`'s
+    /// included, and `off`'s clears the mark: its sync covers the WAL,
+    /// which no checkpoint copies then (#2117). No transaction may be open
+    /// on the connection.
+    fn synced_stop(&self, last: bool) -> bool {
+        last && matches!(self.durability.sync, BatchSync::Never | BatchSync::Off)
+            && self
+                .connection
+                .connection
+                .pragma_update(None, "synchronous", "FULL")
+                .is_ok()
+    }
+
+    /// Notes a commit, `synced` or not, the writer's `last` or not.
+    fn committed(&mut self, synced: bool, last: bool) {
+        if let Some(interval) = &mut self.interval {
+            interval.committed(synced);
+        }
+        self.checkpointer
+            .committed(&self.connection.connection, &self.path, last);
+    }
+}
+
 /// What the writer knows of the charges its unsynced commits hold, against
 /// [`DEFERRED_CHARGES`].
 struct Deferral {
@@ -1082,7 +1159,7 @@ impl Deferral {
         let mut charged = 0_u64;
         for queued in group {
             match queued.syncing {
-                Syncing::Required => required = true,
+                Syncing::Required | Syncing::Attempt { .. } => required = true,
                 Syncing::Declaring => {
                     required = true;
                     declaring = true;
@@ -1523,10 +1600,10 @@ where
 
 /// Where the writer signals each acknowledged commit and the first storage
 /// failure.
-struct Signals<'a> {
-    commits: &'a watch::Sender<u64>,
-    failures: &'a watch::Sender<Option<String>>,
-    work: &'a CountedWork,
+struct Signals {
+    commits: watch::Sender<u64>,
+    failures: watch::Sender<Option<String>>,
+    work: CountedWork,
 }
 
 /// What a group's commit also writes in the run file.
@@ -1552,7 +1629,7 @@ fn commit_group(
     path: &Path,
     (epoch, marks): (u64, Marks),
     group: Vec<QueuedWrite>,
-    signals: &Signals<'_>,
+    signals: &Signals,
 ) -> Option<bool> {
     let grouped = u64::try_from(group.len().saturating_sub(1)).unwrap_or(u64::MAX);
     let mut declared = None;
@@ -1564,10 +1641,7 @@ fn commit_group(
             (completions, Ok(()))
         }
         Err((completions, error)) => {
-            if let RunStateError::Storage { message, .. } = &error {
-                tracing::warn!(path = %path.display(), %message, "a commit of run state met a full disk or an I/O error and was rolled back");
-                signals.storage_failed(message);
-            }
+            signals.failed(path, &error);
             (completions, Err(error))
         }
     };
@@ -1577,7 +1651,16 @@ fn commit_group(
     declared
 }
 
-impl Signals<'_> {
+impl Signals {
+    /// Signals a commit of the file at `path` that failed on `error`: a
+    /// full disk or an I/O error goes to the storage failures.
+    fn failed(&self, path: &Path, error: &RunStateError) {
+        if let RunStateError::Storage { message, .. } = error {
+            tracing::warn!(path = %path.display(), %message, "a commit of run state met a full disk or an I/O error and was rolled back");
+            self.storage_failed(message);
+        }
+    }
+
     /// Signals a storage failure, `message`, unless one came first.
     fn storage_failed(&self, message: &str) {
         self.failures.send_if_modified(|failure| {
@@ -1596,15 +1679,35 @@ fn commit_writes(
     (epoch, marks): (u64, Marks),
     group: Vec<QueuedWrite>,
 ) -> Result<(Vec<Completion>, bool), (Vec<Completion>, RunStateError)> {
-    let refuse = |group: Vec<QueuedWrite>, error: RunStateError| {
+    if let Err(error) = begin(connection, path, epoch) {
         let completions = group.into_iter().map(|job| job(None).0).collect();
-        (completions, error)
-    };
-    if let Err(error) = run_cached(connection, "BEGIN IMMEDIATE") {
-        return Err(refuse(group, commit_error(path, &error)));
+        return Err((completions, error));
     }
-    let transaction = connection;
-    let found = transaction
+    let mut completions = Vec::with_capacity(group.len());
+    let mut jobs = group.into_iter();
+    for job in jobs.by_ref() {
+        let (completion, ends_group) = job(Some((connection, path)));
+        completions.push(completion);
+        if let Some(error) = ends_group {
+            // The rest of the group never runs: in a transaction SQLite
+            // ended, each of its statements would commit on its own.
+            completions.extend(jobs.map(|job| job(None).0));
+            roll_back(connection);
+            return Err((completions, error));
+        }
+    }
+    match finish(connection, path, marks) {
+        Ok(declared) => Ok((completions, declared)),
+        Err(error) => Err((completions, error)),
+    }
+}
+
+/// Begins a transaction on `connection` that commits only under `epoch`:
+/// the file at `path` holds another epoch, and the transaction is rolled
+/// back, `Fenced`.
+fn begin(connection: &Connection, path: &Path, epoch: u64) -> Result<(), RunStateError> {
+    run_cached(connection, "BEGIN IMMEDIATE").map_err(|error| commit_error(path, &error))?;
+    let found = connection
         .prepare_cached("SELECT epoch FROM run")
         .and_then(|mut epoch| epoch.query_row([], |row| row.get::<_, i64>(0)))
         .map(Some)
@@ -1614,75 +1717,61 @@ fn commit_writes(
         });
     match found {
         Err(error) => {
-            let _ = run_cached(transaction, "ROLLBACK");
-            return Err(refuse(group, commit_error(path, &error)));
+            roll_back(connection);
+            Err(commit_error(path, &error))
         }
         Ok(Some(found)) if i64::try_from(epoch).ok() != Some(found) => {
-            let _ = run_cached(transaction, "ROLLBACK");
+            roll_back(connection);
             let found = u64::try_from(found).unwrap_or_default();
-            return Err(refuse(group, RunStateError::Fenced { held: epoch, found }));
+            Err(RunStateError::Fenced { held: epoch, found })
         }
-        Ok(_) => {}
+        Ok(_) => Ok(()),
     }
-    let mut completions = Vec::with_capacity(group.len());
-    let mut jobs = group.into_iter();
-    let mut ended = None;
-    for job in jobs.by_ref() {
-        let (completion, ends_group) = job(Some((transaction, path)));
-        completions.push(completion);
-        if ends_group.is_some() {
-            ended = ends_group;
-            break;
-        }
-    }
+}
+
+/// Writes `marks` and the journal's position in the transaction open on
+/// `connection`, then commits it: answers whether it declared
+/// [`DEFERRED_CHARGES`]. A failure rolls the transaction back.
+fn finish(connection: &Connection, path: &Path, marks: Marks) -> Result<bool, RunStateError> {
     let mut declared = false;
-    let ended = ended.or_else(|| {
-        marks
-            .clean
-            .then(|| run_cached(transaction, "DELETE FROM unclean").err())
-            .flatten()
-            .map(|error| commit_error(path, &error))
-    });
-    let failed = match ended {
-        // The rest of the group never runs: in a transaction SQLite ended,
-        // each of its statements would commit on its own.
-        Some(error) => {
-            completions.extend(jobs.map(|job| job(None).0));
-            Some(error)
-        }
-        None if marks.declare => transaction
-            .prepare_cached(
-                "UPDATE run SET journal_position = journal_position + 1, deferred_charges = ?1",
-            )
-            .and_then(|mut statement| {
-                statement.execute([i64::try_from(DEFERRED_CHARGES).unwrap_or(i64::MAX)])
-            })
-            .map(|changed| declared = changed == 1)
-            .err()
-            .map(|error| commit_error(path, &error)),
-        None => run_cached(
-            transaction,
-            "UPDATE run SET journal_position = journal_position + 1",
-        )
-        .err()
-        .map(|error| commit_error(path, &error)),
+    let cleared = if marks.clean {
+        run_cached(connection, "DELETE FROM unclean")
+    } else {
+        Ok(())
     };
-    if let Some(error) = failed {
-        // SQLite may have rolled the transaction back already after a full
-        // disk or an I/O error; `ROLLBACK` makes the state the same either
-        // way (ADR 0122).
-        let _ = run_cached(transaction, "ROLLBACK");
-        return Err((completions, error));
-    }
-    match run_cached(transaction, "COMMIT") {
-        Ok(()) => Ok((completions, declared)),
+    let written = cleared.and_then(|()| {
+        if marks.declare {
+            connection
+                .prepare_cached(
+                    "UPDATE run SET journal_position = journal_position + 1, deferred_charges = ?1",
+                )
+                .and_then(|mut statement| {
+                    statement.execute([i64::try_from(DEFERRED_CHARGES).unwrap_or(i64::MAX)])
+                })
+                .map(|changed| declared = changed == 1)
+        } else {
+            run_cached(
+                connection,
+                "UPDATE run SET journal_position = journal_position + 1",
+            )
+        }
+    });
+    // A commit that fails leaves the transaction open: it is rolled back,
+    // as SQLite advises (ADR 0122).
+    match written.and_then(|()| run_cached(connection, "COMMIT")) {
+        Ok(()) => Ok(declared),
         Err(error) => {
-            // A commit that fails leaves the transaction open: it is rolled
-            // back, as SQLite advises (ADR 0122).
-            let _ = run_cached(transaction, "ROLLBACK");
-            Err((completions, commit_error(path, &error)))
+            roll_back(connection);
+            Err(commit_error(path, &error))
         }
     }
+}
+
+/// Rolls back the transaction open on `connection`. SQLite may have rolled
+/// it back already after a full disk or an I/O error; `ROLLBACK` makes the
+/// state the same either way (ADR 0122).
+fn roll_back(connection: &Connection) {
+    let _ = run_cached(connection, "ROLLBACK");
 }
 
 #[cfg(test)]

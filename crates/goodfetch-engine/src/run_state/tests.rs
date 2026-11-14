@@ -8,6 +8,7 @@
 )]
 
 mod batch;
+mod batching;
 mod model;
 mod wal;
 
@@ -670,11 +671,14 @@ fn acknowledged_writes_are_there_after_the_file_opens_again() {
     assert_eq!(reopened, vec![5, 6]);
 }
 
-/// What a run file's transactions and its writer's reads count, beyond its
-/// opening, once `test` ran on its writer.
+/// What a run file's transactions and its writer's reads count at `full`,
+/// beyond its opening, once `test` ran on its writer.
 fn counted(test: impl AsyncFnOnce(&RunState)) -> (u64, u64) {
     let env = TestEnv::new();
-    let options = RunStateOptions::default();
+    let options = RunStateOptions {
+        durability: Durability::FULL,
+        ..RunStateOptions::default()
+    };
     let work = options.work.clone();
     let opening = with_writer_options(&env, &options, async |state| {
         let opening = work.read(Row::RunTransactions);
@@ -987,8 +991,9 @@ fn deferred_charges_defer_only_within_the_bound_a_synced_commit_declared() {
 }
 
 /// A declaring write, a crawl's start, syncs and declares the bound in its
-/// own commit (#2117), so the first deferred charges commit unsynced, and a
-/// power cut after them leaves the bound declared for the reclaim.
+/// own commit (#2117), so the first deferred charges commit unsynced at
+/// `full`, and a power cut after them leaves the bound declared for the
+/// reclaim.
 ///
 /// Covers: story:3-25
 #[test]
@@ -998,6 +1003,7 @@ fn a_declaring_write_declares_the_bound_the_first_deferred_charges_defer_within(
     let counting = goodfetch_test_support::CountingVfs::register();
     let options = RunStateOptions {
         vfs: Some(counting.name().to_owned()),
+        durability: Durability::FULL,
         ..RunStateOptions::default()
     };
     let added = with_writer_options(&env, &options, async |state| {
@@ -1019,6 +1025,7 @@ fn a_declaring_write_declares_the_bound_the_first_deferred_charges_defer_within(
     let vfs = CrashVfs::register(&crashed.unique_name("declared-bound"), crashed.seed()).unwrap();
     let options = RunStateOptions {
         vfs: Some(vfs.name().to_owned()),
+        durability: Durability::FULL,
         ..RunStateOptions::default()
     };
     with_writer_options(&crashed, &options, async |state| {
@@ -1077,6 +1084,7 @@ fn syncs_of_a_run(durability: Durability) -> [u64; 4] {
 ///
 /// Covers: story:3-25, story:3-27, setting:run_state.durability
 #[rstest::rstest]
+#[case::batch(Durability::BATCH, [2, 1, 1, 0])]
 #[case::full(Durability::FULL, [2, 1, 1, 0])]
 #[case::fast(Durability::FAST, [2, 0, 1, 0])]
 #[case::periodic(Durability::periodic(Duration::from_secs(3600)), [2, 0, 1, 0])]
@@ -1099,6 +1107,7 @@ fn a_run_file_syncs_its_switch_to_wal_what_it_acknowledges_and_its_clean_stop(
 #[rstest::rstest]
 #[case::full_synced_write(Durability::FULL, false, vec![1])]
 #[case::full_clean_stop(Durability::FULL, true, vec![1, 2])]
+#[case::batch_clean_stop(Durability::BATCH, true, vec![1, 2])]
 #[case::fast_clean_stop(Durability::FAST, true, vec![1, 2])]
 #[case::periodic_clean_stop(Durability::periodic(Duration::from_secs(3600)), true, vec![1, 2])]
 #[case::off_clean_stop(Durability::OFF, true, vec![1, 2])]

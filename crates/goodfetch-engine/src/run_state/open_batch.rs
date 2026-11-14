@@ -16,6 +16,7 @@
 
 use std::time::Duration;
 
+use goodfetch_counted_work::Row;
 use goodfetch_protocol::ops::RUN_STATE_BATCH_ROWS;
 use goodfetch_protocol::run::durability::BatchThreshold;
 use opentelemetry::metrics::Histogram;
@@ -101,15 +102,33 @@ impl Batching {
         })
     }
 
-    /// Whether `open` reached a threshold.
-    fn reached(&self, open: &OpenBatch) -> bool {
+    /// The threshold `open` reached, if any: its pages or its age, which
+    /// the batch's plan seals it at, before its bytes, which seal it early.
+    fn reached(&self, open: &OpenBatch) -> Option<Sealed> {
         let at = |threshold: BatchThreshold, count: u64| matches!(threshold, BatchThreshold::At(at) if count >= at.get());
-        at(self.pages, open.pages)
-            || at(self.bytes, open.bytes)
-            || self
-                .interval
-                .is_some_and(|every| self.clock.now() >= open.began + every)
+        let aged = self
+            .interval
+            .is_some_and(|every| self.clock.now() >= open.began + every);
+        if at(self.pages, open.pages) || aged {
+            Some(Sealed::Planned)
+        } else if at(self.bytes, open.bytes) {
+            Some(Sealed::Early)
+        } else {
+            None
+        }
     }
+}
+
+/// Why the writer commits its open batch, which `F2.batches` counts by
+/// (ADR 0140's note on batching).
+#[derive(Clone, Copy)]
+enum Sealed {
+    /// At its plan: its pages reached `run_state.batch.pages`, its age
+    /// `run_state.batch.interval`, or a sync fell due at
+    /// `run_state.commit_interval`.
+    Planned,
+    /// Before it: a barrier, a seal, its bytes, or the writer's end.
+    Early,
 }
 
 /// How a write in the open batch is answered.
@@ -151,7 +170,12 @@ impl Writer {
         // connection that does not sync commits first, since a connection
         // switches to syncing outside a transaction only.
         if (sync_due || unsynced_stop) && self.open_batch().is_some_and(|open| !open.synced) {
-            self.commit_batch(false, false);
+            let sealed = if sync_due {
+                Sealed::Planned
+            } else {
+                Sealed::Early
+            };
+            self.commit_batch(sealed, false, false);
         }
         let synced_stop = self.synced_stop(last);
         let clean = self.marked && synced_stop;
@@ -160,7 +184,7 @@ impl Writer {
             BatchSync::Interval(_) => sync_due,
             BatchSync::Never | BatchSync::Off => synced_stop,
         };
-        let mut commit = sync_due || last;
+        let commit = sync_due || last;
         if group.is_empty() && !commit {
             self.commit_reached();
             return;
@@ -174,11 +198,13 @@ impl Writer {
             return;
         }
         // The open batch's writes ran: any barrier among them commits it.
-        commit |= self
+        let barrier = self
             .open_batch()
             .is_some_and(|open| !open.owed.is_empty() || open.declare);
-        if commit {
-            self.commit_batch(clean, last);
+        if sync_due && !last {
+            self.commit_batch(Sealed::Planned, clean, last);
+        } else if commit || barrier {
+            self.commit_batch(Sealed::Early, clean, last);
         } else {
             self.commit_reached();
         }
@@ -281,7 +307,7 @@ impl Writer {
         {
             Some(open) => {
                 open.owed.extend(completions);
-                self.commit_batch(false, false);
+                self.commit_batch(Sealed::Early, false, false);
             }
             None => {
                 for completion in completions {
@@ -293,20 +319,21 @@ impl Writer {
 
     /// Commits the open batch when it reached a threshold.
     fn commit_reached(&mut self) {
-        let reached = self.batching.as_ref().is_some_and(|batching| {
+        let reached = self.batching.as_ref().and_then(|batching| {
             batching
                 .open
                 .as_ref()
-                .is_some_and(|open| batching.reached(open))
+                .and_then(|open| batching.reached(open))
         });
-        if reached {
-            self.commit_batch(false, false);
+        if let Some(sealed) = reached {
+            self.commit_batch(sealed, false, false);
         }
     }
 
-    /// Commits the open batch, clearing the "unclean" mark when `clean`,
-    /// as the writer's `last` commit or not, then answers its barriers.
-    pub(super) fn commit_batch(&mut self, clean: bool, last: bool) {
+    /// Commits the open batch, `sealed` at its plan or before it, clearing
+    /// the "unclean" mark when `clean`, as the writer's `last` commit or
+    /// not, then answers its barriers.
+    fn commit_batch(&mut self, sealed: Sealed, clean: bool, last: bool) {
         let Some(batching) = &mut self.batching else {
             return;
         };
@@ -325,6 +352,9 @@ impl Writer {
                 batching.rows.record(open.rows, &[]);
                 self.deferral.declared(*declared);
                 self.signals.commits.send_modify(|count| *count += 1);
+                if matches!(sealed, Sealed::Early) {
+                    self.signals.work.count(Row::RunBatches);
+                }
                 Ok(())
             }
             Err(error) => {
@@ -411,6 +441,6 @@ fn batch_timer(
 impl Drop for Writer {
     /// A writer whose every handle is gone commits its open batch.
     fn drop(&mut self) {
-        self.commit_batch(false, true);
+        self.commit_batch(Sealed::Early, false, true);
     }
 }

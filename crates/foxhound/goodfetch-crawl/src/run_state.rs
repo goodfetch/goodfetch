@@ -347,6 +347,8 @@ impl RunState {
         drawing: &Drawing<'_>,
     ) -> Result<Vec<Drawn>, StateError> {
         let rows = (self.pool.changes(), self.learned.counted());
+        // Each page the lease claims waits for the writer's job.
+        self.stored.waited(ids.len());
         // Each of `ids` is kept, the ones the job leased and the ones it
         // found no longer pending alike: either change may be in a batch a
         // read does not see yet.

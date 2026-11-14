@@ -48,9 +48,19 @@
 //! without Valgrind too.
 //!
 //! The cells of the run file's own switches (`concurrency_1`,
-//! `concurrency_16`, `durability_fast`) and the handler's cell crawl without
-//! the Frontier's outcomes beyond a links batch: a hop's, a sitemap's and a
-//! Payload's rows say "no hops" there.
+//! `concurrency_16`, `durability_fast`, `durability_full`,
+//! `durability_off`) and the handler's cell crawl without the Frontier's
+//! outcomes beyond a links batch: a hop's, a sitemap's and a Payload's rows
+//! say "no hops" there.
+//!
+//! `F2.page_waits` divides by the pages of the cells at a level that batches
+//! attempts, the unit `batched_pages`, and `F2.page_waits.full` by those of
+//! the cell at `full`, `full_pages`: each counts nothing in the other's
+//! cells, nor at `fast`. The cells at `batch` (`default`), `off` and `full`
+//! are each made two calls once their crawl started that no page will make
+//! again, a `key_value_store.set` outside a handler and a `run.add_seed` of
+//! a duplicate: `F2.batches` is the batches the writer sealed before their
+//! pages or their interval, less one for each such call, per Run.
 //!
 //! `F3.hop_round_trips.end` divides by the redirected chains that ended on
 //! their document, the unit `chains`: the site's redirects are one hop
@@ -119,12 +129,15 @@ use std::sync::{Arc, OnceLock};
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
+use goodfetch_protocol::run::durability::{
+    DURABILITY_BATCH, DURABILITY_FAST, DURABILITY_FULL, DURABILITY_OFF, DURABILITY_PERIODIC,
+};
 use goodfetch_test_support::CountingVfs;
 use goodfetch_test_support::callgrind;
 use plants::{Counted as PlantOn, politeness_plant, run_state_plant};
 use scenarios::{
-    Frontier, Options, PAGES, Plant, body_bytes, crawl_with, entries, page_analysis_plant,
-    run_trace_plant,
+    BARRIER_CALLS, Frontier, Options, PAGES, Plant, body_bytes, crawl_with, entries,
+    page_analysis_plant, run_trace_plant,
 };
 use serde_json::{Map, Value, json};
 
@@ -280,6 +293,35 @@ const SHORTER: usize = PAGES.len() / 2;
 
 /// The row the counting VFS reads.
 const SYNCS: &str = "F2.syncs";
+
+/// A page's waits for the run file's writer, held at the levels that batch
+/// attempts (`batch` and `off`) and, with a limit of its own, at `full`:
+/// each row counts in its own cells alone, and none in the others (ADR
+/// 0140's note on batching).
+const PAGE_WAITS: &str = "F2.page_waits";
+const PAGE_WAITS_FULL: &str = "F2.page_waits.full";
+
+/// The batches the writer sealed before their plan, less the one each of
+/// the crawl's [`BARRIER_CALLS`] may write: what is left is the Run's own,
+/// at most its start's and its end's.
+const BATCHES: &str = "F2.batches";
+
+/// The cells whose crawl is made [`BARRIER_CALLS`], one at each level
+/// `F2.batches` and `F2.page_waits` are held at: their batches for calls
+/// that no page will make again are counted, and left out of the row.
+const BARRIER_CELLS: [&str; 3] = ["default", "durability_off", "durability_full"];
+
+/// The Durability level `cell` runs at, `batch` when it sets none.
+fn level(cell: &Cell) -> &'static str {
+    match cell.settings["run_state"]["durability"].as_str() {
+        None => DURABILITY_BATCH,
+        Some(DURABILITY_FULL) => DURABILITY_FULL,
+        Some(DURABILITY_FAST) => DURABILITY_FAST,
+        Some(DURABILITY_PERIODIC) => DURABILITY_PERIODIC,
+        Some(DURABILITY_OFF) => DURABILITY_OFF,
+        Some(other) => panic!("the cell {} sets the level {other}", cell.name),
+    }
+}
 
 /// The units the rows of no outcome of this fixture divide by: one Run, and
 /// no Effect until the Effect journal lands (#1550).
@@ -564,6 +606,27 @@ fn cells() -> Vec<Cell> {
             handler: false,
             limit: false,
         },
+        // The levels `F2.page_waits` and `F2.batches` are held at beside
+        // the default's `batch` (ADR 0142), on the same site as
+        // `durability_fast`.
+        Cell {
+            name: "durability_full",
+            settings: json!({ "run_state": { "durability": "full" } }),
+            frontier: None,
+            removes: &[],
+            removes_syncs: false,
+            handler: false,
+            limit: false,
+        },
+        Cell {
+            name: "durability_off",
+            settings: json!({ "run_state": { "durability": "off" } }),
+            frontier: None,
+            removes: &[],
+            removes_syncs: true,
+            handler: false,
+            limit: false,
+        },
         // robots.txt off reads and parses no robots.txt (#1919), and with
         // the fixture's delay of 0 waits out no Crawl-delay, so neither cell
         // paces its domains: admission consults no Politeness store and
@@ -641,6 +704,10 @@ struct Counted {
     frontier: bool,
     /// Whether a handler served its pages, following no links.
     handler: bool,
+    /// Its Durability level.
+    level: &'static str,
+    /// The calls no page will make again its crawl was made.
+    barrier_calls: u64,
 }
 
 impl Counted {
@@ -726,6 +793,7 @@ fn crawl(cell: &Cell, planted: Option<&str>, bypassed: Option<&str>, pages: Page
             limit: cell.limit.then_some(LIMIT),
             robots_txt: true,
             setup_vfs: Some(setup.name().to_owned()),
+            barrier_calls: BARRIER_CELLS.contains(&cell.name),
         },
     );
     Crawl {
@@ -850,6 +918,12 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
             prepare_calls: None,
             frontier: cell.frontier.is_some(),
             handler: cell.handler,
+            level: level(cell),
+            barrier_calls: if BARRIER_CELLS.contains(&cell.name) {
+                BARRIER_CALLS
+            } else {
+                0
+            },
         }
     });
     ran.prepare_calls = prepare_calls;
@@ -1188,6 +1262,22 @@ fn main() {
         let off = cell.name == OFF_CELL;
         let off_work: u64 = POLITENESS_ROWS.iter().map(|row| cell.count(*row)).sum();
         counts.insert(OFF_WORK.to_owned(), json!(if off { off_work } else { 0 }));
+        let batched = matches!(cell.level, DURABILITY_BATCH | DURABILITY_OFF);
+        let full = cell.level == DURABILITY_FULL;
+        let page_waits = cell.count(Row::RunPageWaits);
+        counts.insert(
+            PAGE_WAITS.to_owned(),
+            json!(if batched { page_waits } else { 0 }),
+        );
+        counts.insert(
+            PAGE_WAITS_FULL.to_owned(),
+            json!(if full { page_waits } else { 0 }),
+        );
+        let early = cell.count(Row::RunBatches);
+        counts.insert(
+            BATCHES.to_owned(),
+            json!(early.saturating_sub(cell.barrier_calls)),
+        );
         let units = json!({
             "pages": cell.pages,
             "added_pages": cell.added_pages,
@@ -1208,6 +1298,8 @@ fn main() {
             "requests": cell.requests,
             "origins": ORIGINS,
             "off_attempts": if off { cell.attempts } else { 0 },
+            "batched_pages": if batched { cell.pages } else { 0 },
+            "full_pages": if full { cell.pages } else { 0 },
         });
         println!(
             "{}",

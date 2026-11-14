@@ -1361,6 +1361,9 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `F2.syncs` | syncs per attempt at `full` | ≤ 1 | 2.385 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.prepares` | statement preparations per page added | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.writer_reads` | reads through the writer per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.page_waits` | a page's waits on the run file's writer per page at `batch` and `off`: a lease, an admission or a settled outcome its task or the delivery loop awaits | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.page_waits.full` | a page's waits on the run file's writer per page at `full` | ≤ 2 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.batches` | batches sealed early per Run, before their pages or their interval, beyond those of the calls no page makes again (0 at the per-attempt levels, where each write is its own batch) | ≤ 2 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.evidence_reads` | rows of the evidence the Frontier's learning reads per page (0 on a site whose URLs have no query, and with `frontier.learning` off) | no cap (ratchet) | 0.429 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.configuration_reads` | configuration reads per Run | 1 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.prunes` | prune passes per attempt | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |

@@ -253,6 +253,8 @@ impl Stored {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
+        // The asking page's task waits for the writer's answer.
+        self.waited(1);
         let queued: Queued<T> = match self.writer.reserve().await {
             Ok(place) => {
                 let written = place.write_with(syncing, job);
@@ -261,6 +263,13 @@ impl Stored {
             Err(error) => Box::pin(std::future::ready(Err(error.into()))),
         };
         drop(answer.send(queued));
+    }
+
+    /// Counts `pages` waits of a page for the run file's writer
+    /// (`F2.page_waits`).
+    pub(crate) fn waited(&self, pages: usize) {
+        self.work
+            .count_many(Row::RunPageWaits, u64::try_from(pages).unwrap_or(u64::MAX));
     }
 
     /// Stages `enqueue` with its attempt.

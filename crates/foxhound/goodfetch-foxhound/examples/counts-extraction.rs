@@ -350,6 +350,7 @@ fn crawl_on(cell: &Cell, planted: Option<&str>, metrics: Metrics) -> CountedWork
             run_state_vfs: None,
             handler: false,
             credits: u64::try_from(cell.pages()).expect("invariant: a few thousand pages"),
+            barrier_calls: false,
         },
     );
     assert_eq!(

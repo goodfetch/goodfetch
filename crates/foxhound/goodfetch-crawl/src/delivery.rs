@@ -1191,6 +1191,8 @@ async fn settled(
     let mut retried = Vec::with_capacity(queued.len());
     let mut keyed = Vec::new();
     let stored = state.stored();
+    // The loop waits for each ended page's outcome to be written.
+    stored.waited(queued.len());
     let finished = join_all(queued.into_iter().map(|queued| queued.finished(stored))).await;
     for (outcome, settling) in finished.into_iter().zip(&mut settlings) {
         settling.merged.extend(outcome.merged);

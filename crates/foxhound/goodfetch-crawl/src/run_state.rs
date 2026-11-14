@@ -11,12 +11,32 @@
 //! queues a job, a lease's or an outcome's, and once more when the crawl has
 //! nothing left to lease, so a draw adds no job of its own and the file
 //! follows memory by one job at most.
+//!
+//! It also owns ADR 0140's F3 whole (#2167): every admission, the writes
+//! that claim work items and those that end their attempts go through it.
+//! The visited set and the pending work items are still the run file's, so
+//! those operations are jobs of the Run's run-state writer, each queued by
+//! the loop in its own order ([`Stored`]); #2168 and #2169 move what they
+//! read into memory behind the same operations. Every other task reaches
+//! it over the loop's one mailbox ([`Asking`]) and queues none of these
+//! jobs with the writer itself. Its operations name no run file's type,
+//! and fail with [`StateError`]. One job of a running crawl is not its
+//! own yet and stays with the page's task that queues it: a handler
+//! attempt's lesson to the Frontier (#2169).
+//!
+//! It counts the crawl's requests by state ([`Tally`]): read once from
+//! the run file as the crawl opens, then counted from what each job
+//! answers that it changed, so a live crawl's progress is built from this
+//! state and reads no count from the run file (#2167).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::local_addresses::{SessionAddresses, Unavailable};
-use goodfetch_engine::run_state::{BatchRows, BatchWriter};
+use goodfetch_engine::run_state::{BatchRows, BatchWriter, RunStateError};
+use goodfetch_engine::runs::{ChargeError, Run, UnjournaledCharges};
 use goodfetch_fetch_tier::{Choosing, PooledSession, SetTier, TierChoice};
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
@@ -25,7 +45,41 @@ use goodfetch_session_pool::{PoolSettings, SessionPool};
 use crate::labels;
 use crate::tier_choice::{AttemptPlan, Sampled, TierChoices, Unit, Weighed};
 use crate::tier_race::Latencies;
-use crate::work_items::Leased;
+use crate::work_items::{Changed, Leased};
+
+pub(crate) mod admission;
+mod asks;
+mod stored;
+mod tally;
+
+pub(crate) use asks::{Ask, Asked, Asking, mailbox};
+pub(crate) use stored::{QueuedEnd, Stored, Unkeyed, Within};
+pub(crate) use tally::Tally;
+
+/// Why the crawl's Run state did not take an operation.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum StateError {
+    /// The crawl ended: no loop owns its Run state any more.
+    #[error("the crawl ended, so nothing takes its Run state's operations")]
+    Closed,
+    /// The run file did not take a write or give a read.
+    #[error(transparent)]
+    RunFile(#[from] RunStateError),
+    /// A claim's charges were refused or could not be journaled.
+    #[error(transparent)]
+    Charge(#[from] ChargeError),
+}
+
+impl StateError {
+    /// The same as the run file's own error, for a seam that speaks it:
+    /// what is no run file's error reads as its writer closed.
+    pub(crate) fn run_file(self) -> RunStateError {
+        match self {
+            Self::RunFile(error) | Self::Charge(ChargeError::State(error)) => error,
+            Self::Closed | Self::Charge(_) => RunStateError::Closed,
+        }
+    }
+}
 
 /// The local addresses a Session drawn from the pool holds: `None`
 /// without `egress.local_addresses` (ADR 0044).
@@ -150,16 +204,84 @@ pub(crate) struct RunState {
     pool: SessionPool,
     learned: Learned,
     latencies: Latencies,
+    /// Its requests by state. Each value of the Run's progress shares the
+    /// counts it was shown, so a change copies them once and no reader
+    /// waits for the loop.
+    tally: Arc<Tally>,
+    stored: Stored,
 }
 
 impl RunState {
-    /// The state of a crawl that draws from `pool` and learned `choices`.
-    pub(crate) fn new(pool: SessionPool, choices: TierChoices) -> Self {
+    /// The state of a crawl that draws from `pool`, learned `choices` and
+    /// counts its requests on from `tally`, what is still the run file's
+    /// read and written through `stored`.
+    pub(crate) fn new(
+        pool: SessionPool,
+        choices: TierChoices,
+        tally: Tally,
+        stored: Stored,
+    ) -> Self {
         Self {
             pool,
             learned: Learned::from(choices),
             latencies: Latencies::default(),
+            tally: Arc::new(tally),
+            stored,
         }
+    }
+
+    /// What is still the run file's, as the loop reads and writes it.
+    pub(crate) fn stored(&self) -> &Stored {
+        &self.stored
+    }
+
+    /// Counts what a job of the run file `changed` of the crawl's requests
+    /// by state.
+    pub(crate) fn changed(&mut self, changed: Changed) {
+        if !changed.is_empty() {
+            Arc::make_mut(&mut self.tally).change(changed);
+        }
+    }
+
+    /// The crawl's requests by state as counted now, for a value of its
+    /// Run's progress to share.
+    pub(crate) fn tally(&self) -> Arc<Tally> {
+        Arc::clone(&self.tally)
+    }
+
+    /// Answers `ask`, what another task asks of the crawl's Run state
+    /// ([`Stored::answer`]), and counts what its write changed: the work
+    /// items it added, each keyed, for the loop to offer their domains'
+    /// queues, when the loop waited for the write itself.
+    pub(crate) async fn answer(&mut self, ask: Box<Ask>) -> Option<Vec<Waiting>> {
+        let (added, changed) = self.stored.answer(ask).await?;
+        self.changed(changed);
+        Some(added)
+    }
+
+    /// Claims each pending work item of `ids`, in that order, in one job
+    /// of the run-state writer that also journals `charges`, what `run`
+    /// charged for them (ADR 0138), and writes the rows the draws before it
+    /// decided: what they changed in the pool, and each tier choice's
+    /// count of requests served. Then draws, in memory, the Session that
+    /// serves each and how its tier is chosen.
+    ///
+    /// # Errors
+    ///
+    /// The charges' refusal, or the run file's.
+    pub(crate) async fn lease(
+        &mut self,
+        run: &Run,
+        charges: UnjournaledCharges,
+        ids: Vec<String>,
+        drawing: &Drawing<'_>,
+    ) -> Result<Vec<Drawn>, StateError> {
+        let rows = (self.pool.changes(), self.learned.counted());
+        let leased = run.write_charged(charges, Stored::claim(ids, rows)).await?;
+        Ok(leased
+            .into_iter()
+            .map(|leased| self.draw(drawing, leased))
+            .collect())
     }
 
     /// The Session pool.
@@ -175,7 +297,7 @@ impl RunState {
     /// its Label on its domain learned. A choice whose count of requests
     /// served moved is kept for the run file, so a resumed crawl goes on
     /// counting toward its refresh.
-    pub(crate) fn draw(&mut self, drawing: &Drawing<'_>, leased: Leased) -> Drawn {
+    fn draw(&mut self, drawing: &Drawing<'_>, leased: Leased) -> Drawn {
         let request = &leased.crawl_request;
         let labels = drawing.labels;
         let key = labels.pools.pool(&request.label);

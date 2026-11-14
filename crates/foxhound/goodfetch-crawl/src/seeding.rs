@@ -10,35 +10,30 @@
 //! stream of seeds under credits it grants its Client, at most
 //! [`SEED_CREDITS`] seeds unanswered at a time, commits each batch in one
 //! write and answers its seeds in order, so a million seeds never sit in
-//! the engine's memory. Each seed added wakes the crawl's delivery, which
-//! keys it and queues it under its domain, an idle `crawl.keep_alive`
-//! crawl included. Once the crawl closed its intake to end its Run, a seed
+//! the engine's memory. Each is admitted through the crawl's Run state
+//! (ADR 0142): its call asks the delivery loop, which owns it, and no
+//! call queues a job with the run-state writer itself. A seed added with
+//! no attempt is keyed as it is added and queued under its domain as soon
+//! as it is written, an idle `crawl.keep_alive` crawl included, and its
+//! call is answered then. Once the crawl closed its intake to end its Run, a seed
 //! added is refused with `run_not_found`, as on an ended crawl, so it is
 //! never answered added and then left pending (#914). A seed whose Payload does not fit its Label's JSON
 //! Schema or `crawl.payload.max_size` fails `run.add_seed`, and a batch of
 //! `run.add_seeds` holding one fails the call, none of the batch admitted,
 //! with `payload_invalid` (ADR 0082).
 
-use std::sync::Arc;
-
-use goodfetch_counted_work::CountedWork;
-use goodfetch_engine::egress::Policy;
-use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_protocol::events::{CREDIT, CreditParams};
-use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, Seed};
+use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::frontier::{
     ENQUEUED, Enqueued, EnqueuedBatch, RUN_ADD_SEED, RUN_ADD_SEEDS, RunAddSeedParams,
-    RunAddSeedsParams, RunSeedsAdded, SEED_CREDITS, SEEDS, SeedAttempt, SeedBatch,
+    RunAddSeedsParams, RunSeedsAdded, SEED_CREDITS, SEEDS, SeedBatch,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::{RUN_NOT_FOUND, RUN_STATE_UNAVAILABLE, RunDetails, RunId};
-use rusqlite::Connection;
 
-use crate::intake::Intake;
-use crate::invariants::Invariants;
+use crate::run_state::StateError;
 use crate::serving::{Crawls, LiveCrawl};
-use crate::work_items::{self, Positions};
 
 /// The most `$/seeds` batches a `run.add_seeds` call leaves unread: a
 /// Client honouring its credits has at most [`SEED_CREDITS`] seeds
@@ -76,8 +71,12 @@ fn not_live(run_id: &RunId) -> CallError {
     )
 }
 
-/// `run_state_unavailable` for a write the Run's state did not take.
-fn unwritten(run_id: &RunId, error: &impl std::fmt::Display) -> CallError {
+/// What a call the crawl's Run state did not take fails with:
+/// `run_not_found` once the crawl ended, else `run_state_unavailable`.
+fn untaken(run_id: &RunId, error: &StateError) -> CallError {
+    if let StateError::Closed = error {
+        return not_live(run_id);
+    }
     CallError::new(
         &RUN_STATE_UNAVAILABLE,
         format!("The state of the Run `{run_id}` could not take the seeds: {error}"),
@@ -93,16 +92,7 @@ async fn add_seed(
     _context: CallContext,
     crawls: Crawls,
 ) -> Result<Enqueued, CallError> {
-    let Some(LiveCrawl {
-        run,
-        egress,
-        invariants,
-        seeded,
-        staging,
-        intake,
-        ..
-    }) = crawls.live(&params.run_id).await
-    else {
+    let Some(LiveCrawl { asking, .. }) = crawls.live(&params.run_id).await else {
         return Err(not_live(&params.run_id));
     };
     let RunAddSeedParams {
@@ -110,40 +100,12 @@ async fn add_seed(
         seed,
         attempt,
     } = params;
-    let bound = attempt.clone();
-    let work = run.metrics().counted_work().clone();
-    let answered = run
-        .state()
-        .write(move |connection| {
-            intake.admitting(|| match bound {
-                Some(attempt) => staging.admit(
-                    connection,
-                    &attempt.crawl_request_id,
-                    attempt.lease_epoch,
-                    |connection, positions| {
-                        admit_within(
-                            connection,
-                            positions,
-                            (&egress, &invariants, &work),
-                            &seed,
-                            Some(&attempt),
-                        )
-                    },
-                ),
-                None => admit_within(
-                    connection,
-                    &mut Positions::of(connection)?,
-                    (&egress, &invariants, &work),
-                    &seed,
-                    None,
-                ),
-            })
-        })
+    let answered = asking
+        .seed(seed, attempt.clone())
         .await
-        .map_err(|error| unwritten(&run_id, &error))?
+        .map_err(|error| untaken(&run_id, &error))?
         .ok_or_else(|| not_live(&run_id))?;
     if let Some(answer) = answered {
-        seeded.notify_one();
         return answer;
     }
     let attempt = attempt.expect("invariant: only an attempt ends");
@@ -157,55 +119,12 @@ async fn add_seed(
     ))
 }
 
-/// Admits `seed` within the Run's `invariants` and under its domain policy
-/// `egress`, at its position from `positions`, while `attempt`, when
-/// given, holds its lease, once its Payload fits its Label's schema and
-/// the cap, else `payload_invalid`; `None` once that attempt ended. It
-/// runs once: an attempt's commit applies what its staging decided
-/// (#2245).
-fn admit_within(
-    connection: &Connection,
-    positions: &mut Positions,
-    (egress, invariants, work): (&Policy, &Invariants, &CountedWork),
-    seed: &Seed,
-    attempt: Option<&SeedAttempt>,
-) -> rusqlite::Result<Option<Result<Enqueued, CallError>>> {
-    if let Some(attempt) = attempt
-        && work_items::attempt(connection, &attempt.crawl_request_id, attempt.lease_epoch)?
-            .is_none()
-    {
-        return Ok(None);
-    }
-    let checked = match work_items::check_seed(invariants, seed.clone(), work) {
-        Ok(checked) => checked,
-        Err(refused) => return Ok(Some(Err(refused))),
-    };
-    let mut answers = work_items::admit_seeds(
-        connection,
-        positions,
-        invariants,
-        egress,
-        std::slice::from_ref(&checked),
-    )?;
-    Ok(Some(Ok(answers
-        .pop()
-        .expect("invariant: the Frontier answers each seed"))))
-}
-
 async fn add_seeds(
     params: RunAddSeedsParams,
     context: CallContext,
     crawls: Crawls,
 ) -> Result<RunSeedsAdded, CallError> {
-    let Some(LiveCrawl {
-        run,
-        egress,
-        invariants,
-        seeded,
-        intake,
-        ..
-    }) = crawls.live(&params.run_id).await
-    else {
+    let Some(LiveCrawl { asking, .. }) = crawls.live(&params.run_id).await else {
         return Err(not_live(&params.run_id));
     };
     let input = context.input();
@@ -234,14 +153,17 @@ async fn add_seeds(
             ));
         }
         credits -= taken;
-        let answers = admit_batch(
-            &run,
-            (&egress, &invariants, &intake),
-            &params.run_id,
-            batch.seeds,
-        )
-        .await?;
-        seeded.notify_one();
+        // The batch is admitted in one job, none of it when one's Payload
+        // does not fit its Label's schema or the cap.
+        let answers = if batch.seeds.is_empty() {
+            Vec::new()
+        } else {
+            asking
+                .seeds(batch.seeds)
+                .await
+                .map_err(|error| untaken(&params.run_id, &error))?
+                .ok_or_else(|| not_live(&params.run_id))??
+        };
         for answer in &answers {
             match answer {
                 Enqueued::Added { .. } => added.added += 1,
@@ -282,44 +204,4 @@ async fn grant(context: &CallContext, credits: u32) -> bool {
             },
         )
         .await
-}
-
-/// Admits each of `seeds` within the Run's `invariants` and under its
-/// domain policy `egress` in one write of `run`'s state, and answers each one's answer in order; none
-/// is admitted, and the call fails with `payload_invalid`, when one's
-/// Payload does not fit its Label's schema or the cap, and with
-/// `run_not_found` once the crawl's `intake` closed.
-async fn admit_batch(
-    run: &Run,
-    (egress, invariants, intake): (&Arc<Policy>, &Invariants, &Intake),
-    run_id: &RunId,
-    seeds: Vec<Seed>,
-) -> Result<Vec<Enqueued>, CallError> {
-    if seeds.is_empty() {
-        return Ok(Vec::new());
-    }
-    let egress = Arc::clone(egress);
-    let invariants = invariants.clone();
-    let intake = intake.clone();
-    let work = run.metrics().counted_work().clone();
-    run.state()
-        .write(move |connection| {
-            intake.admitting(|| {
-                let checked = match work_items::check_seeds(&invariants, seeds, &work) {
-                    Ok(checked) => checked,
-                    Err(refused) => return Ok(Err(refused)),
-                };
-                work_items::admit_seeds(
-                    connection,
-                    &mut Positions::of(connection)?,
-                    &invariants,
-                    &egress,
-                    &checked,
-                )
-                .map(Ok)
-            })
-        })
-        .await
-        .map_err(|error| unwritten(run_id, &error))?
-        .ok_or_else(|| not_live(run_id))?
 }

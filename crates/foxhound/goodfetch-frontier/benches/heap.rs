@@ -23,13 +23,7 @@ fn url_key(links: Vec<Url>) -> usize {
     black_box(scenarios::key_all(black_box(&links)))
 }
 
-#[library_benchmark]
-#[bench::a_thousand_shop_links_in_a_transaction(scenarios::links(1_000))]
-fn admit_seeds(links: Vec<String>) -> usize {
-    black_box(scenarios::admit_seeds(black_box(&links)))
-}
-
-library_benchmark_group!(name = identity, benchmarks = [url_key, admit_seeds]);
+library_benchmark_group!(name = identity, benchmarks = url_key);
 
 // ADR 0134's heap bytes per URL: `xtask perf` takes the bytes at the global
 // maximum of the 100,000 URLs, less the same scenario with none, over

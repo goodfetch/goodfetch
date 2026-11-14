@@ -1,6 +1,8 @@
 //! What the crawl's Run state keeps for the run file of the tier choices it
 //! counts in memory (ADR 0142), on a real run file's table.
 
+mod model;
+
 use goodfetch_engine::run_state::{BatchRows, BatchWriter};
 use goodfetch_fetch_tier::TierChoice;
 use goodfetch_protocol::foxhound::fetch::FetchTier;

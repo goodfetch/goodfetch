@@ -24,13 +24,14 @@
 //! it, the page's own for a code-free page, with no run file: each link is
 //! read, judged as a trap, given its Payload, which is checked, and keyed
 //! by the Frontier under the Run's invariants and its domain policy. In
-//! the job that holds the attempt, where the Run's state is: its lease,
-//! the call's `limit`, and the Frontier's part that reads the visited set
-//! and the Bounds, and adds. A program's call is answered so in a write of
-//! its own, counted as `F3.transactions`, and its attempt's commit applies
-//! what that write decided, running neither part again (#2245). A code-free
-//! page's links are answered to nobody: they ride its attempt's outcome,
-//! whose one job runs the second part the first time.
+//! the crawl's Run state, which its delivery loop owns and the call asks
+//! (`run_state::admission`): its lease, the call's `limit`, and the
+//! Frontier's part that reads the visited set and the Bounds, and adds. A
+//! program's call is answered so in a write of its own, counted as
+//! `F3.transactions`, and its attempt's commit applies what that write
+//! decided, running neither part again (#2245). A code-free page's links
+//! are answered to nobody: they ride its attempt's outcome, whose one job
+//! runs the second part the first time.
 
 use std::sync::Arc;
 
@@ -41,26 +42,24 @@ use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_fetch_tier::{FetchTiers, LinksUnread, ServedLinks};
 use goodfetch_frontier::payload::Payload;
 use goodfetch_frontier::trap_links::{self, Mark, Sight, Trap, Verdict};
-use goodfetch_frontier::{
-    Entering, Keyed, Narrowing, Patterns, Url, document_base, key_link, resolve_link,
-};
+use goodfetch_frontier::{Narrowing, Patterns, Url, document_base, key_link, resolve_link};
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::frontier::{
     CRAWL_REQUEST_ENQUEUE_LINKS, CRAWL_REQUEST_LINKS, CrawlRequestEnqueueLinksParams,
-    CrawlRequestLinks, CrawlRequestLinksParams, Enqueued, EnqueuedLink, EnqueuedLinks, HttpMethod,
-    MatchedLink, NotAddedReason,
+    CrawlRequestLinks, CrawlRequestLinksParams, EnqueuedLinks, MatchedLink,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::Locator;
 use goodfetch_protocol::run::{RUN_STATE_UNAVAILABLE, RunDetails, RunId};
-use rusqlite::Connection;
 use serde_json::Value;
 
 use crate::invariants::Invariants;
+use crate::run_state::admission::{Link, LinksBatch, LinksRequest, Suspected};
+use crate::run_state::{Asking, StateError};
 use crate::serving::{Crawls, LiveCrawl};
-use crate::staging::{Answered, Marked, Staging};
-use crate::work_items::{self, Adding, Positions};
+use crate::staging::{Marked, Staging};
+use crate::work_items;
 
 /// The handlers of `crawl_request.links` and `crawl_request.enqueue_links`
 /// on the live crawls of `crawls`, whose pages `tiers` serve.
@@ -202,37 +201,11 @@ pub(crate) async fn enqueue_links(
         crawl_request_id: &params.crawl_request_id,
         lease_epoch: params.lease_epoch,
     };
-    let (run, staging, batch) = prepared(&params, &crawls, &tiers).await?;
-    // The write of its own a program's batch asks the writer for; a
-    // code-free page's batch rides its outcome's (#2245).
-    run.metrics().counted_work().count(Row::BatchTransactions);
-    // An enqueue's answers promise nothing (ADR 0138's note of #1926): the
-    // attempt's outcome syncs them with it.
-    let answered = run
-        .state()
-        .write_deferred(move |connection| {
-            let (crawl_request_id, lease_epoch) = (
-                batch.request.crawl_request_id.clone(),
-                batch.request.lease_epoch,
-            );
-            let answered = staging.admit(
-                connection,
-                &crawl_request_id,
-                lease_epoch,
-                move |connection, positions| batch.add(connection, positions),
-            )?;
-            note_suspected(
-                &staging,
-                (&crawl_request_id, lease_epoch),
-                answered.as_ref(),
-            );
-            Ok(answered)
-        })
-        .await;
-    match answered {
-        Ok(Some(Ok(admitted))) => Ok(admitted.links),
-        Ok(Some(Err(refused))) => Err(refused),
-        Ok(None) => Err(attempt.ended()),
+    let (asking, _, batch) = prepared(&params, &crawls, &tiers).await?;
+    match asking.links(batch).await {
+        Ok(Some(answered)) => answered,
+        // The crawl ended with its attempts.
+        Ok(None) | Err(StateError::Closed) => Err(attempt.ended()),
         Err(error) => Err(attempt.unavailable(error)),
     }
 }
@@ -259,31 +232,22 @@ pub(crate) async fn defer_links(
         lease_epoch: params.lease_epoch,
     };
     let (_, staging, batch) = prepared(params, crawls, tiers).await?;
-    let deferred = staging.defer(
-        &params.crawl_request_id,
-        params.lease_epoch,
-        move |connection, positions| {
-            Ok(match batch.add(connection, positions)? {
-                Some(Ok(admitted)) => admitted.suspected,
-                Some(Err(_)) | None => Vec::new(),
-            })
-        },
-    );
-    match deferred {
+    match batch.defer(&staging) {
         Some(deferred) => deferred,
         None => Err(attempt.ended()),
     }
 }
 
-/// The live crawl of `params`'s Run, its staging, and the batch of links
-/// its locator matches on the served page, owned for a write to admit,
-/// its Payloads fitted and checked, its patterns compiled and each link
-/// keyed, on the task that serves the call, with no run file (#2244).
+/// How the live crawl of `params`'s Run is asked, its staging, and the
+/// batch of links its locator matches on the served page, owned for the
+/// job that admits it, its Payloads fitted and checked, its patterns
+/// compiled and each link keyed, on the task that serves the call, with no
+/// run file (#2244).
 async fn prepared(
     params: &CrawlRequestEnqueueLinksParams,
     crawls: &Crawls,
     tiers: &FetchTiers,
-) -> Result<(Run, Staging, OwnedBatch), CallError> {
+) -> Result<(Asking, Staging, LinksBatch), CallError> {
     let attempt = Attempt {
         run_id: &params.run_id,
         crawl_request_id: &params.crawl_request_id,
@@ -299,6 +263,7 @@ async fn prepared(
         run,
         egress,
         invariants,
+        asking,
         staging,
         ..
     }) = crawls.live(&params.run_id).await
@@ -348,13 +313,13 @@ async fn prepared(
             reading.link(element.href, element.sight, payload, &mut refused_payload)
         })
         .collect();
-    let batch = OwnedBatch {
-        request: Request::of(params),
+    let batch = LinksBatch {
+        request: LinksRequest::of(params),
         invariants,
         links,
         refused_payload,
     };
-    Ok((run, staging, batch))
+    Ok((asking, staging, batch))
 }
 
 /// What the task that serves a links call reads each of its links with:
@@ -426,46 +391,6 @@ impl Reading<'_> {
     }
 }
 
-/// What a links call's admission reads of its params.
-struct Request {
-    crawl_request_id: String,
-    lease_epoch: u64,
-    label: String,
-    limit: Option<u64>,
-    priority: i64,
-}
-
-impl Request {
-    fn of(params: &CrawlRequestEnqueueLinksParams) -> Self {
-        Self {
-            crawl_request_id: params.crawl_request_id.clone(),
-            lease_epoch: params.lease_epoch,
-            label: params.label.clone(),
-            limit: params.limit,
-            priority: params.priority,
-        }
-    }
-}
-
-/// A batch of links as the task that serves its call read them, each keyed,
-/// and all it admits against, owned by the write that admits it: its
-/// call's own, or its attempt's outcome's for a code-free page.
-struct OwnedBatch {
-    request: Request,
-    invariants: Invariants,
-    links: Vec<Link>,
-    /// The refusal of the first of its Payloads that does not fit the
-    /// Label's schema or the cap.
-    refused_payload: Option<CallError>,
-}
-
-impl OwnedBatch {
-    /// Admits it at `positions`, as [`add`] does.
-    fn add(&self, connection: &Connection, positions: &mut Positions) -> Answered<Admitted> {
-        add(connection, positions, self)
-    }
-}
-
 /// `invalid_params` when `params`'s `payloads` do not give one Payload for each
 /// of the `elements` its locator matches.
 fn payloads_fit(params: &CrawlRequestEnqueueLinksParams, elements: usize) -> Result<(), CallError> {
@@ -488,29 +413,6 @@ enum Chosen {
     Payload(Option<Arc<Payload>>),
     /// Its Payload function skipped it.
     Skipped,
-}
-
-/// One matched element, as the task that serves its call read it.
-#[expect(
-    clippy::large_enum_variant,
-    reason = "nearly every link of a page is keyed, so the large variant is the common one, and a Box would add an allocation a link"
-)]
-enum Link {
-    /// It has no `href`.
-    NoHref,
-    /// Its browser page's layout hides it (ADR 0035): it is not added.
-    Trap { href: String, trap: Trap },
-    /// Its Payload function skipped it.
-    Skipped { href: String },
-    /// One the Frontier judges, keyed.
-    Keyed {
-        href: String,
-        keyed: Keyed,
-        /// Its Payload, if any.
-        payload: Option<Arc<Payload>>,
-        /// Why it is suspected a trap; none for one a person sees.
-        trap: Option<Suspected>,
-    },
 }
 
 /// What `trap_links` made of a link a person may not see.
@@ -542,35 +444,6 @@ impl Judged {
     }
 }
 
-/// Why a link that is added is suspected a trap.
-#[derive(Clone, Copy, Debug)]
-enum Suspected {
-    /// Its served document's markup hides it, which no layout confirms: its
-    /// request is marked as one a browser tier never follows.
-    Hidden(Trap),
-    /// A menu, a tab or a disclosure a person opens hides it, on either
-    /// tier: its request is marked as one every tier follows.
-    Revealable,
-}
-
-impl Suspected {
-    /// The mark of the request a link so suspected adds.
-    const fn mark(self) -> Mark {
-        match self {
-            Self::Hidden(_) => Mark::Hidden,
-            Self::Revealable => Mark::Revealable,
-        }
-    }
-
-    /// Why a person may not see the link, for traces.
-    fn name(self) -> &'static str {
-        match self {
-            Self::Hidden(trap) => trap.name(),
-            Self::Revealable => "revealable",
-        }
-    }
-}
-
 /// Marks in the Run's Provenance, `trap_link_suspected`, each request of
 /// `suspected`, with its URL, that the attempt of the request `from`
 /// committed as added through a link its served document's markup hides,
@@ -590,124 +463,4 @@ pub(crate) async fn mark_suspected(run: &Run, from: &str, suspected: &[Marked]) 
             tracing::warn!(%error, "a suspected trap link's Provenance entry cannot be written");
         }
     }
-}
-
-/// Notes with the staging of the attempt of `attempt`'s work item under its
-/// lease epoch the requests `answered` added through links suspected traps:
-/// their Provenance entries wait for the attempt's commit, which writes
-/// those of the marks it committed (ADR 0035).
-fn note_suspected(
-    staging: &Staging,
-    attempt: (&str, u64),
-    answered: Option<&Result<Admitted, CallError>>,
-) {
-    if let Some(Ok(admitted)) = answered {
-        staging.suspected(attempt.0, attempt.1, admitted.suspected.iter().cloned());
-    }
-}
-
-/// What one call admitted: its answer, and the work items it added through
-/// a link suspected a trap, each with its URL.
-struct Admitted {
-    links: EnqueuedLinks,
-    suspected: Vec<(String, String)>,
-}
-
-/// Admits each of `batch`'s links through the Frontier, each as its call's
-/// task keyed it and added at its position from `positions`, while the
-/// call's attempt holds its lease, once every Payload fits its Label, else
-/// `payload_invalid` and none admitted; `None` once the attempt ended. The
-/// part of the call's admission that needs the Run's state (#2244): the
-/// lease, the count against the call's `limit`, and the Frontier's, which
-/// marks a request a link suspected a trap adds and tells one a link
-/// reaches again how it was seen (ADR 0035). It runs once for a batch:
-/// when its call stages it, or at its attempt's commit for a code-free
-/// page's (#2245).
-fn add(
-    connection: &Connection,
-    positions: &mut Positions,
-    batch: &OwnedBatch,
-) -> Answered<Admitted> {
-    let params = &batch.request;
-    let Some((url, depth)) =
-        work_items::attempt(connection, &params.crawl_request_id, params.lease_epoch)?
-    else {
-        return Ok(None);
-    };
-    let Some(from) = document_base(&url, None) else {
-        return Ok(None);
-    };
-    if let Some(refused) = &batch.refused_payload {
-        return Ok(Some(Err(refused.clone())));
-    }
-    let method = HttpMethod::get();
-    let mut answers = Vec::with_capacity(batch.links.len());
-    let mut added: u64 = 0;
-    let mut suspected = Vec::new();
-    for link in &batch.links {
-        let answer = match link {
-            Link::NoHref => EnqueuedLink::NoLink,
-            Link::Trap { href, trap } => {
-                tracing::debug!(
-                    url = %href,
-                    trap = trap.name(),
-                    "a link a person cannot see was not added"
-                );
-                EnqueuedLink::NotAdded {
-                    reason: NotAddedReason::TrapLink,
-                    url: href.clone(),
-                }
-            }
-            Link::Skipped { href } => EnqueuedLink::SkippedByPayload { url: href.clone() },
-            Link::Keyed { href, .. } if params.limit.is_some_and(|limit| added >= limit) => {
-                EnqueuedLink::NotAdded {
-                    reason: NotAddedReason::LinkLimit,
-                    url: href.clone(),
-                }
-            }
-            Link::Keyed {
-                href,
-                keyed,
-                payload,
-                trap,
-            } => {
-                let adding = Adding {
-                    method: &method,
-                    body: None,
-                    label: &params.label,
-                    payload: payload.as_ref(),
-                    priority: params.priority,
-                    forefront: false,
-                    depth: depth + 1,
-                };
-                let enqueued = work_items::admit_keyed(
-                    connection,
-                    positions,
-                    &batch.invariants,
-                    (href, keyed),
-                    Entering {
-                        from: Some(&from),
-                        depth: depth + 1,
-                    },
-                    (adding, trap.map(Suspected::mark)),
-                )?;
-                match enqueued {
-                    Enqueued::Added { id, url } => {
-                        added += 1;
-                        if let Some(trap) = trap {
-                            tracing::debug!(%url, trap = trap.name(), "a link a person may not see was added, marked as a suspected trap");
-                            suspected.push((id.clone(), url.clone()));
-                        }
-                        EnqueuedLink::Added { id, url }
-                    }
-                    Enqueued::NotAdded { reason, url } => EnqueuedLink::NotAdded { reason, url },
-                }
-            }
-        };
-        answers.push(answer);
-    }
-    Ok(Some(Ok(Admitted {
-        links: EnqueuedLinks { links: answers },
-        suspected,
-    })))
 }

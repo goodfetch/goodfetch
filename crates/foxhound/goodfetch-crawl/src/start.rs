@@ -57,6 +57,7 @@ use crate::policy::domain_policy;
 use crate::push;
 use crate::redeclare::Redeclared;
 use crate::retry;
+use crate::run_state;
 use crate::seeding;
 use crate::servable;
 use crate::serving::Crawls;
@@ -243,11 +244,10 @@ async fn start(
                 labels::record(connection, &declared)?;
                 datasets.record(connection)?;
                 code_free::record(connection, recording.as_ref())?;
-                let answers = work_items::admit_seeds(
+                let answers = run_state::admission::admit_seeds(
                     connection,
                     &mut work_items::Positions::of(connection)?,
-                    &invariants,
-                    &seeding,
+                    (&seeding, &invariants),
                     &admitted,
                 )?;
                 goodfetch_frontier::seeds::answered(connection, &answers)

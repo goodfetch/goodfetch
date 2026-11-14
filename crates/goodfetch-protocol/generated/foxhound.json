@@ -3546,6 +3546,18 @@
           "arrived_in": "0.1",
           "description": "For the run layer, where the value came from."
         },
+        "preset": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingPreset"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When a level's preset gave the value, at `layer`, that level, which\n`config explain` shows as \"preset of `run_state.durability: full`\"\nin place of the layer (ADR 0142)."
+        },
         "products": {
           "arrived_in": "0.1",
           "description": "The Products that honour it, from its Product mark (ADR 0095).",
@@ -11603,6 +11615,25 @@
       ],
       "type": "object"
     },
+    "SettingPreset": {
+      "description": "The setting whose value names the preset that gave another setting its\nvalue: `run_state.durability` and its level unfold into the\n`run_state.batch.*` keys at the layer that set the level (ADR 0142).",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key that names the preset, such as `run_state.durability`.",
+          "type": "string"
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "Its value, the preset's name, such as `full`."
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
     "SettingsExplanation": {
       "description": "What `config.explain` answers and `config explain --json` prints:\nevery setting's effective value, the layer that set it and the layer\nthat locked it (ADR 0028), and the files read.",
       "properties": {
@@ -13562,6 +13593,18 @@
           "arrived_in": "0.1",
           "description": "For the run layer, where the value came from."
         },
+        "preset": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingPreset"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When a level's preset gave the value, at `layer`, that level, such\nas `run_state.durability: off` (ADR 0142)."
+        },
         "value": {
           "arrived_in": "0.1",
           "description": "Its value."
@@ -15482,6 +15525,7 @@
             "actor_round_trips",
             "analysis_handoffs",
             "answers",
+            "batches",
             "block_classifications",
             "builds",
             "calls",
@@ -15520,6 +15564,7 @@
             "messages_no_hook",
             "opening_commands",
             "opens",
+            "page_waits",
             "parses",
             "plugin_answer_parses",
             "plugin_serializations",
@@ -15703,6 +15748,16 @@
       "product": "collie",
       "stability": "stable",
       "unit": "{run}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The rows each Run-state batch of a run file wrote as its writer committed it, one a write, at a Durability level that batches attempts (`run_state.batch.per_attempt: false`, ADR 0142).",
+      "instrument": "histogram",
+      "labels": [],
+      "name": "goodfetch.run_state.batch_rows",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{row}"
     },
     {
       "arrived_in": "0.1",
@@ -20851,8 +20906,128 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": 8388608,
+      "description": "Write the Run's changes once they hold this many bytes of rows. This bounds the memory that changes not yet written take.",
+      "name": "run_state.batch.bytes",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "oneOf": [
+          {
+            "description": "Attempts, milliseconds or bytes, by the key, at which a batch is sealed.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "const": "none",
+            "description": "No batch is sealed by this threshold."
+          }
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 1000,
+      "description": "Write the Run's changes at least this often. A crash loses at most about this much work.",
+      "name": "run_state.batch.interval",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "oneOf": [
+          {
+            "description": "Attempts, milliseconds or bytes, by the key, at which a batch is sealed.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "const": "none",
+            "description": "No batch is sealed by this threshold."
+          }
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 1000,
+      "description": "Write the Run's changes once this many attempts have ended since the last batch. Lower loses less to a crash and writes more often.",
+      "name": "run_state.batch.pages",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "oneOf": [
+          {
+            "description": "Attempts, milliseconds or bytes, by the key, at which a batch is sealed.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "const": "none",
+            "description": "No batch is sealed by this threshold."
+          }
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "description": "Write each attempt's claim before its fetch and its outcome before anything is told outside, as its own batch. Slowest, and a crash then loses only the attempts in flight.",
+      "name": "run_state.batch.per_attempt",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "each",
+      "description": "Which batches reach the disk before the next one starts. `each` survives a power cut; `interval` syncs one batch per `run_state.commit_interval`; `never` survives a process crash only; `off` syncs nothing, so a crash discards the run file and the Run starts again.",
+      "name": "run_state.batch.sync",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "each",
+          "interval",
+          "never",
+          "off"
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": 5000,
-      "description": "At `run_state.durability = periodic`, how long a commit may wait for the next synced one: a power cut loses at most this much work. A writer with nothing to write syncs what it committed once the interval ends. Read at no other Durability level. 5 s.",
+      "description": "How often `run_state.batch.sync: interval` syncs a batch, and an idle Run's last changes.",
       "name": "run_state.commit_interval",
       "product": "collie",
       "products": [
@@ -20870,8 +21045,8 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
-      "default": "full",
-      "description": "How a Run's commits reach the disk, its Durability level: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state; `periodic` is `fast` with one synced commit every `run_state.commit_interval`, so a power cut loses at most that interval of work; `off` (`synchronous=OFF`) syncs nothing, and a run file a crash or a power cut left is discarded when the Run is next started or resumed, so the Run starts again from nothing. At every level a clean stop leaves a consistent run file and Checkpoint, so a paused Run resumes. A Run below `full` names it in its run report's `weakened`.",
+      "default": "batch",
+      "description": "How a Run's state reaches the disk, its Durability level, each value a preset of `run_state.batch.*` and `run_state.commit_interval`: `batch`, the default, writes the Run's changes in Run-state batches, of 1,000 attempts, 1 s or 8 MiB, whichever comes first, each synced, so a crash or a power cut loses at most the last batch; `full` writes each attempt's claim and outcome as a synced batch of its own (`synchronous=FULL`, with `fullfsync` on macOS), so only the attempts in flight are lost; `fast` is `full` unsynced (`synchronous=NORMAL`): it survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state; `periodic` is `fast` with one synced batch every `run_state.commit_interval`, so a power cut loses at most that interval of work; `off` writes as `batch` does and syncs nothing (`synchronous=OFF`), and a run file a crash or a power cut left is discarded when the Run is next started or resumed, so the Run starts again from nothing. A level unfolds into its preset's keys at the layer that set it: a key set at that layer or a higher one overrides the preset's value, and a lock on the level locks every key of its preset. At every level a clean stop writes and syncs everything, so a paused Run resumes. The run report's `weakened` names `off`, and each preset key whose value weakens the Run.",
       "name": "run_state.durability",
       "product": "collie",
       "products": [
@@ -20883,6 +21058,7 @@
           "full",
           "fast",
           "periodic",
+          "batch",
           "off"
         ]
       },

@@ -94,6 +94,28 @@ fn config_explain_names_a_flags_origin() {
     ");
 }
 
+/// A key a Durability level's preset gives names that level as its source
+/// (spec #2138).
+///
+/// Covers: command:config.explain, setting:run_state.batch.sync
+#[test]
+fn config_explain_names_the_preset_a_key_comes_from() {
+    let env = TestEnv::new();
+
+    let output = cli(&env, COLLIE)
+        .args(["config", "explain", "run_state.batch.sync"])
+        .args(["--set", "run_state.durability=fast"])
+        .run()
+        .unwrap();
+
+    assert_cli_snapshot!(output.without_dispatch_records(), @r#"
+    exit: 0
+    ----- stdout -----
+    run_state.batch.sync = "never"  (run from flag, preset of run_state.durability: fast, weakens a guarantee)
+    ----- stderr -----
+    "#);
+}
+
 /// Covers: story:11-203, command:run.start
 #[test]
 fn a_bad_duration_is_a_usage_error_before_any_engine_call() {

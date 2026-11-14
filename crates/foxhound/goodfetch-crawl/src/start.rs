@@ -216,6 +216,9 @@ async fn start(
     let egress = domain_policy(settings.resolved())?;
     let found = schema_unchanged(&context, run_id.as_ref(), &invariants, &datasets).await?;
     let seeding = egress.clone();
+    // Each seed is keyed in the write that adds it, as its gate will key
+    // it, so the crawl opens with no work item to key (#2168).
+    let keys = context.runs().keys(settings.resolved());
     let work = context.runs().metrics().counted_work().clone();
     let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
     let inputs = seed_inputs(&seeds);
@@ -245,9 +248,13 @@ async fn start(
                 labels::record(connection, &declared)?;
                 datasets.record(connection)?;
                 code_free::record(connection, recording.as_ref())?;
+                let mut positions = match keys {
+                    Some(keys) => work_items::Positions::keying(connection, keys)?,
+                    None => work_items::Positions::of(connection)?,
+                };
                 let answers = run_state::admission::admit_seeds(
                     connection,
-                    &mut work_items::Positions::of(connection)?,
+                    &mut positions,
                     (&seeding, &invariants),
                     &admitted,
                 )?;

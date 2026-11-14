@@ -62,6 +62,7 @@ use crate::invariants::Invariants;
 use crate::rules;
 use crate::scope::{Asked, Narrowing, Scope};
 use crate::staged::Admitting;
+use crate::unwritten::UnwrittenVisits;
 use crate::url::{parse, parse_link};
 
 /// What the Frontier is asked to admit.
@@ -440,7 +441,15 @@ fn admit_measured(
         return Ok(not_added(admitting, answered, reason, None));
     }
     let identities = under_rules(connection, key, fixed)?;
-    match seen(connection, &identities, admitting.earlier())? {
+    // Held from the duplicate check through the visit, so no reader's
+    // chain takes the identity between them (#2168).
+    let mut holding = invariants.unwritten().map(UnwrittenVisits::lock);
+    match seen(
+        connection,
+        &identities,
+        admitting.earlier(),
+        holding.as_ref(),
+    )? {
         Seen::New => {}
         Seen::Visited(visitor) => {
             let reason = NotAddedReason::Duplicate;
@@ -477,6 +486,11 @@ fn admit_measured(
     let id = add(url)?;
     count_admitted(connection, budget)?;
     visit_all(connection, &identities, &id)?;
+    if let Some(holding) = &mut holding
+        && admitting.writes()
+    {
+        holding.written(identities.plain(), identities.learned(), &id);
+    }
     admitting.admitted(
         &id,
         identities.plain(),
@@ -489,6 +503,9 @@ fn admit_measured(
     if asked.is_none() {
         Scope::widen(connection, url)?;
         admitting.widened(url);
+        if let Some(holding) = &mut holding {
+            holding.widened();
+        }
     }
     Ok(Enqueued::Added {
         id,

@@ -663,7 +663,9 @@ fn each_outcome_of_the_frontier_counts_on_its_own_row_a_plant_adds_one_a_page_an
         (built_once(&default), built_once(&no_globs)),
         ([0; 7], [0; 7])
     );
-    assert!(default.of(Row::HopTransactions) > 0);
+    // At batch a redirect hop is judged on a reader beside the visits not
+    // written yet, and opens no writer transaction (#2168).
+    assert_eq!(default.of(Row::HopTransactions), 0);
     // A code-free page's links ride its outcome's job (#2245), and a
     // sitemap's read keys its entries in its fetch's (#2167).
     assert_eq!(
@@ -803,7 +805,8 @@ fn the_crawl_does_the_writers_work_at_any_concurrency_and_fast_syncs_less() {
     let (one, sixteen, full, fast) = std::thread::scope(|scope| {
         let one = scope.spawn(|| run_state_counts(&at(1), None));
         let sixteen = scope.spawn(|| run_state_counts(&at(16), None));
-        let full = scope.spawn(|| run_state_counts(&json!({}), None));
+        let full = scope
+            .spawn(|| run_state_counts(&json!({ "run_state": { "durability": "full" } }), None));
         let fast = scope
             .spawn(|| run_state_counts(&json!({ "run_state": { "durability": "fast" } }), None));
         (

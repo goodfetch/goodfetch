@@ -21,9 +21,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_counted_work::CountedWork;
-use goodfetch_dataset::Datasets;
+use goodfetch_dataset::{Checked, Datasets};
 use goodfetch_engine::CallError;
-use goodfetch_engine::admission::{Keys, Waiting};
+use goodfetch_engine::admission::Keys;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::mask::Masks;
@@ -220,9 +220,11 @@ pub(crate) struct Committed {
     /// kept marked, each with its URL and mark, whose `trap_link_suspected`
     /// Provenance entries the caller writes (ADR 0035).
     pub(crate) suspected: Vec<crate::staging::Marked>,
-    /// Each work item it added, keyed as it was added, in order, for the
-    /// delivery to offer its domain's queue (ADR 0138).
-    pub(crate) keyed: Vec<Waiting>,
+    /// Each work item it added, keyed as it was added, in order, as its
+    /// first lease takes it, for the delivery to offer its domain's queue
+    /// (ADR 0138) and lease without reading the run file, whose readers do
+    /// not see it before its batch is in the file (ADR 0142).
+    pub(crate) keyed: Vec<work_items::Leased>,
 }
 
 /// What an attempt's commit writes, taken from its lease while it held
@@ -237,7 +239,9 @@ pub(crate) struct Commit {
     masks: Masks,
     clean_up_rules: CleanUpRules,
     folder: std::path::PathBuf,
-    records: Vec<PushedRecord>,
+    /// Its answer's Records, checked against their Datasets on the page's
+    /// task rather than on the writer's thread, or the first refusal.
+    records: Result<Checked, CallError>,
     ended_at: PointInTime,
 }
 
@@ -282,7 +286,7 @@ impl Commit {
         if work_items::attempt(connection, &work_item, epoch)?.is_none() {
             return Ok(None);
         }
-        let answered = match declared.check(records, &counted_work) {
+        let answered = match records {
             Ok(answered) => answered,
             Err(refused) => return Ok(Some(Err(refused))),
         };
@@ -306,15 +310,15 @@ impl Commit {
             keeps_records: declared.keeps_records(),
             clean_up_rules: &clean_up_rules,
         };
-        Ok(
-            work_items::commit(connection, &work_item, epoch, committed, changed)?.then_some(Ok(
-                Committed {
-                    files,
-                    suspected,
-                    keyed,
-                },
-            )),
-        )
+        if !work_items::commit(connection, &work_item, epoch, committed, changed)? {
+            return Ok(None);
+        }
+        let keyed = work_items::leasable_added(connection, &keyed)?;
+        Ok(Some(Ok(Committed {
+            files,
+            suspected,
+            keyed,
+        })))
     }
 }
 
@@ -548,6 +552,9 @@ impl WorkItemLease {
             return Err(CommitError::LeaseLost);
         }
         let leases = &self.0.leases;
+        // A Record is checked here, on the page's task: no Record is
+        // validated on the run file's writer thread.
+        let records = leases.datasets.check(records, &leases.work);
         Ok(Commit {
             work_item: self.0.work_item.to_string(),
             epoch: lease.epoch(),

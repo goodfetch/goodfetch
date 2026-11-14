@@ -252,6 +252,11 @@ pub trait Gate: Send {
 
 /// What a Product's composition passes in: opens a Run's gate.
 pub trait Gates: Send + Sync {
+    /// How the gate of a Run with the settings `settings` keys a request's
+    /// URL, as its [`Gate::keys`] does, before the gate is open: a start
+    /// keys its seeds in the write that adds them.
+    fn keys(&self, settings: &Resolved) -> Keys;
+
     /// The gate of a Run with the settings `settings`, from what its run
     /// file `journal` holds, read at `wall` when the monotonic clock read
     /// `now`, drawing its random choices, such as a backoff's jitter, from

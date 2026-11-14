@@ -964,9 +964,14 @@ fn a_handler_that_never_answers_any_attempt_fails_its_work_item_with_handler_los
     );
 }
 
-/// Covers: operation:run.abort
-#[test]
-fn an_aborted_crawl_stops_incomplete_and_its_work_items_return_to_pending() {
+/// At each Durability level (ADR 0142), the file an abort leaves holds its
+/// work items pending, as a resume reads them.
+///
+/// Covers: operation:run.abort, setting:run_state.durability
+#[rstest::rstest]
+fn an_aborted_crawl_stops_incomplete_and_its_work_items_return_to_pending(
+    #[values("batch", "full", "fast", "periodic", "off")] level: &str,
+) {
     let env = TestEnv::new();
 
     let report = crawl(
@@ -975,7 +980,11 @@ fn an_aborted_crawl_stops_incomplete_and_its_work_items_return_to_pending() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "aborted", "seeds": seeds(2) }),
+                    json!({
+                        "run_id": "aborted",
+                        "seeds": seeds(2),
+                        "settings": { "run_state": { "durability": level } },
+                    }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -1008,6 +1017,62 @@ fn an_aborted_crawl_stops_incomplete_and_its_work_items_return_to_pending() {
                 ("2".to_owned(), "pending".to_owned(), 0, None),
             ],
         )
+    );
+}
+
+/// ADR 0142's "Nothing removed" row of a crawl that writes nothing to its
+/// run file until it stops: at `off` with no threshold, an answered page's
+/// Records are not in the file while the crawl runs, and its clean stop
+/// writes every one.
+///
+/// Covers: setting:run_state.durability, setting:run_state.batch.pages,
+/// setting:run_state.batch.interval, setting:run_state.batch.bytes
+#[test]
+fn a_crawl_at_off_with_no_threshold_writes_its_records_only_as_it_stops() {
+    let env = TestEnv::new();
+    let mut while_running = None;
+
+    let report = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "unwritten",
+                        "seeds": seeds(2),
+                        "settings": {
+                            "crawl": { "handler": { "concurrency": 1 } },
+                            "run_state": {
+                                "durability": "off",
+                                "batch": { "pages": "none", "interval": "none", "bytes": "none" },
+                            },
+                        },
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |params: &Value| {
+                // One page at a time: the second's request comes once the
+                // first's outcome was answered.
+                if page_of(params).ends_with("/2") {
+                    while_running = Some(records(&run_file(&env, "unwritten")).len());
+                }
+                answer_all(params)
+            };
+            client
+                .call("run.finish", json!({ "run_id": "unwritten" }), &mut handler)
+                .await
+        },
+    );
+
+    assert_eq!(
+        (
+            while_running,
+            &report["result"]["lifecycle"],
+            records(&run_file(&env, "unwritten")).len(),
+        ),
+        (Some(0), &json!("finished"), 2)
     );
 }
 

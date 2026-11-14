@@ -329,22 +329,31 @@ fn a_run_with_every_control_on_reports_no_switch_and_chains_its_entries() {
 #[test]
 fn a_control_another_composition_registers_is_reported_as_the_engines_own() {
     let (registered, unregistered) = (TestEnv::new(), TestEnv::new());
-    let fast = json!({ "run_state": { "durability": "fast" } });
+    let off = json!({ "run_state": { "durability": "off" } });
     let registering = Contribution::new("test-controls").with_control(&RUN_STATE_DURABILITY);
 
     let reported = started_twice(
         &engine_with(Product::Collie, Some(registering)),
         &registered,
-        &fast,
+        &off,
     );
-    let only_weakened = started_twice(&engine_with(Product::Collie, None), &unregistered, &fast);
+    let only_weakened = started_twice(&engine_with(Product::Collie, None), &unregistered, &off);
 
-    let weakened = json!([{
-        "key": "run_state.durability",
-        "value": "fast",
-        "layer": "run",
-        "origin": "settings",
-    }]);
+    let weakened = json!([
+        {
+            "key": "run_state.batch.sync",
+            "value": "off",
+            "layer": "run",
+            "origin": "settings",
+            "preset": { "key": "run_state.durability", "value": "off" },
+        },
+        {
+            "key": "run_state.durability",
+            "value": "off",
+            "layer": "run",
+            "origin": "settings",
+        },
+    ]);
     assert_eq!(
         (
             (&reported.0["weakened"], reported.1, reported.2),

@@ -19,7 +19,9 @@
 //!
 //! The human output is one line per key, as `git config --show-origin`
 //! shows each value's origin: `key = value  (layer, locked by layer)`, a
-//! run value's layer with its origin, `run from flag`.
+//! run value's layer with its origin, `run from flag`, and a value a
+//! Durability level's preset gives with that level,
+//! `preset of run_state.durability: fast` (ADR 0142).
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -162,6 +164,13 @@ fn describe(setting: &ExplainedSetting) -> String {
         Some(run_origin) => format!("{} from {}", setting.layer.as_str(), run_origin.as_str()),
         None => setting.layer.as_str().to_owned(),
     }];
+    if let Some(preset) = &setting.preset {
+        let level = preset
+            .value
+            .as_str()
+            .map_or_else(|| preset.value.to_string(), str::to_owned);
+        origin.push(format!("preset of {}: {level}", preset.key));
+    }
     if let Some(locked_by) = setting.locked_by {
         origin.push(format!("locked by {}", locked_by.as_str()));
     }

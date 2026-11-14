@@ -956,6 +956,7 @@ fn a_setting_that_weakens_a_guarantee_is_marked_on_the_results() {
             value: json!({ "intranet.example": null }),
             layer: SettingsLayer::Run,
             origin: None,
+            preset: None,
         }]
     );
 }
@@ -1441,6 +1442,7 @@ proptest! {
 }
 
 mod operator_policy;
+mod presets;
 mod unbuilt;
 mod versions;
 

@@ -37,11 +37,30 @@ pub(crate) struct RunStateReaders {
     idle: Mutex<Idle>,
 }
 
-/// The connections no read holds now, and whether the writer has stopped.
+/// The connections no read holds now, whether the writer has stopped, and
+/// the statements each connection prepares before its next read.
 #[derive(Debug, Default)]
 struct Idle {
-    connections: Vec<Connection>,
+    connections: Vec<Kept>,
     closed: bool,
+    prepared: Prepared,
+}
+
+/// The statements the Run named for its readers to prepare (ADR 0140), and
+/// how many times it named them, which a connection's own count lags until
+/// it prepares them.
+#[derive(Clone, Debug, Default)]
+struct Prepared {
+    statements: Arc<Vec<&'static str>>,
+    named: u64,
+}
+
+/// A connection kept for the next read, with the [`Prepared::named`] count
+/// whose statements it prepared.
+#[derive(Debug)]
+struct Kept {
+    connection: Connection,
+    prepared: u64,
 }
 
 impl RunStateReaders {
@@ -78,21 +97,34 @@ impl RunStateReaders {
             .acquire_owned()
             .await
             .expect("invariant: a run file's readers' permits are never closed");
-        let kept = self.idle.lock().await.connections.pop();
+        let (kept, prepared) = {
+            let mut idle = self.idle.lock().await;
+            (idle.connections.pop(), idle.prepared.clone())
+        };
         let (path, vfs) = (self.path.clone(), self.vfs.clone());
         let (kept, answer) = self
             .threads
             .run(move || {
-                let connection = match kept {
-                    Some(connection) => connection,
+                let (connection, named) = match kept {
+                    Some(Kept {
+                        connection,
+                        prepared,
+                    }) => (connection, prepared),
                     None => match open(&path, vfs.as_deref()) {
-                        Ok(connection) => connection,
+                        Ok(connection) => (connection, 0),
                         Err(error) => return (None, Err(error)),
                     },
                 };
+                if named != prepared.named {
+                    prepare(&connection, &prepared.statements);
+                }
                 let answer = work(&connection);
                 // A connection whose transaction did not end is not reused.
-                (connection.is_autocommit().then_some(connection), answer)
+                let kept = connection.is_autocommit().then_some(Kept {
+                    connection,
+                    prepared: prepared.named,
+                });
+                (kept, answer)
             })
             .await;
         if let Some(connection) = kept {
@@ -103,6 +135,17 @@ impl RunStateReaders {
         }
         drop(permit);
         answer
+    }
+
+    /// Has each connection prepare `statements` before its next read, once,
+    /// so that no read of a unit's prepares one (ADR 0140): what a Run names
+    /// as it starts or resumes, as its writer prepares them.
+    pub(super) async fn prepare(&self, statements: Vec<&'static str>) {
+        let mut idle = self.idle.lock().await;
+        idle.prepared = Prepared {
+            statements: Arc::new(statements),
+            named: idle.prepared.named + 1,
+        };
     }
 
     /// Closes every connection no read holds, and keeps none from now on:
@@ -127,6 +170,17 @@ fn open(path: &Path, vfs: Option<&str>) -> rusqlite::Result<Connection> {
     connection.set_prepared_statement_cache_capacity(STATEMENTS);
     connection.busy_timeout(SWITCH_TIMEOUT)?;
     Ok(connection)
+}
+
+/// Prepares each of `statements` on `connection`, into its cache, in no
+/// transaction. One that does not prepare is prepared at its first use.
+fn prepare(connection: &Connection, statements: &[&'static str]) {
+    if let Err(error) = statements
+        .iter()
+        .try_for_each(|statement| connection.prepare_cached(statement).map(drop))
+    {
+        tracing::warn!(%error, "a run file's reader did not prepare the statements its Run named");
+    }
 }
 
 /// Runs `work` in one read transaction, so all its statements see the file

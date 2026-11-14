@@ -57,6 +57,17 @@ pub(crate) fn book(page: u64) -> Value {
 /// Starts a crawl `run_id` of `pages` seeds, one request at a time,
 /// declaring `books`.
 pub(crate) fn crawl((engine, site): (&mut Attached, &Site), run_id: &str, pages: u64) {
+    crawl_with((engine, site), run_id, pages, json!({}));
+}
+
+/// [`crawl`] with `settings`, its handler's concurrency set to 1.
+fn crawl_with(
+    (engine, site): (&mut Attached, &Site),
+    run_id: &str,
+    pages: u64,
+    mut settings: Value,
+) {
+    settings["crawl"]["handler"] = json!({ "concurrency": 1 });
     let seeds: Vec<Value> = (1..=pages)
         .map(|page| json!({ "url": site.page(&format!("/{page}")), "label": "page" }))
         .collect();
@@ -67,7 +78,7 @@ pub(crate) fn crawl((engine, site): (&mut Attached, &Site), run_id: &str, pages:
             "run_id": run_id,
             "seeds": seeds,
             "datasets": [{ "name": "books" }],
-            "settings": { "crawl": { "handler": { "concurrency": 1 } } },
+            "settings": settings,
         }),
         &mut |_| None,
     );
@@ -316,7 +327,14 @@ fn an_export_holds_the_records_committed_when_the_call_is_made_in_number_order()
     let env = TestEnv::new();
     let site = Site::start(&env);
     let mut engine = site.engine(&env);
-    crawl((&mut engine, &site), "live", 3);
+    // At `full` each answered request's Record is committed as it ends: at
+    // `batch` a reader sees it only once its batch is written (ADR 0142).
+    crawl_with(
+        (&mut engine, &site),
+        "live",
+        3,
+        json!({ "run_state": { "durability": "full" } }),
+    );
     for _ in 0..2 {
         let request = next_request(&mut engine);
         answer(&mut engine, &request);

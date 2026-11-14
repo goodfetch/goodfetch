@@ -27,7 +27,12 @@
 //! next process opens passes `PRAGMA integrity_check` (in `after_crash`)
 //! and holds the model as one of its writes left it, from the last synced
 //! one on, and the resumed crawl, given every page again, adds each page
-//! it does not hold once. 16 cases in the Quick suite and 256 in the
+//! it does not hold once. Each case runs at a level it draws: `full`, each
+//! write in the file as it is answered, or `batch` with no threshold, where
+//! a claim, a key, an attempt's enqueue and its end ride the open batch, which a reader
+//! sees only once a barrier, a seal or the writer's end writes it, and
+//! which a crash takes whole; the loop's reads leave out what it claimed
+//! in a batch they do not see. 16 cases in the Quick suite and 256 in the
 //! Pre-merge suite (`proptest_config`).
 #![expect(
     clippy::disallowed_methods,
@@ -45,13 +50,14 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::mask::Masks;
-use goodfetch_engine::run_state::{RunStateOptions, RunStateTables, Syncing};
+use goodfetch_engine::run_state::{Durability, RunStateOptions, RunStateTables, Syncing};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{RequestSeed, Seed};
 use goodfetch_protocol::foxhound::frontier::{
     CrawlRequestEnqueueParams, Enqueued, HttpMethod, NotAddedReason,
 };
 use goodfetch_protocol::foxhound::outcomes::OutcomeKind;
+use goodfetch_protocol::run::durability::BatchThreshold;
 use goodfetch_protocol::run::{PointInTime, RunId};
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
@@ -255,6 +261,14 @@ struct Model {
     /// that one's first: what a power cut may leave.
     unsynced: Vec<Vec<Item>>,
     crashed: bool,
+    /// Whether the Run state batches attempts (`batch`), or writes each
+    /// write as it is answered (`full`).
+    batching: bool,
+    /// The work items as the last commit left them: what a reader sees.
+    written: Vec<Item>,
+    /// The pages claimed since the last commit, which the loop's reads
+    /// leave out.
+    claimed: Vec<usize>,
 }
 
 /// The work items as a crawl resumed after a crash finds them: each one
@@ -349,21 +363,41 @@ impl Model {
     }
 
     /// A write left the work items as they are now: `synced`, it is the
-    /// oldest a power cut may leave.
+    /// oldest a power cut may leave. At `full` it commits as it is
+    /// answered; at `batch` it rides the open batch, which a barrier
+    /// ([`committed`](Self::committed)) commits.
     fn wrote(&mut self, synced: bool) {
+        if self.batching {
+            return;
+        }
         if synced {
             self.unsynced.clear();
         }
         self.unsynced.push(self.items.clone());
+        self.written.clone_from(&self.items);
+        self.claimed.clear();
     }
 
-    /// The first `count` work items that are pending and keyed, by page.
+    /// At `batch`, a barrier commits the open batch with its own write,
+    /// synced: the file holds the work items as they are now.
+    fn committed(&mut self) {
+        if self.batching {
+            self.unsynced = vec![self.items.clone()];
+            self.written.clone_from(&self.items);
+            self.claimed.clear();
+        }
+    }
+
+    /// The loop's read of the next `count` work items that are pending and
+    /// keyed, by page: the run file's, less each claimed since the last
+    /// commit.
     fn waiting(&self, count: usize) -> Vec<usize> {
-        self.items
+        self.written
             .iter()
             .filter(|item| item.status == Status::Pending && item.keyed)
             .take(count)
             .map(|item| item.page)
+            .filter(|page| !self.claimed.contains(page))
             .collect()
     }
 
@@ -377,15 +411,18 @@ impl Model {
 
     fn seed(&mut self, pages: &[usize]) -> Answer {
         if self.closed {
+            self.committed();
             return Answer::Admitted(None);
         }
         let added: Vec<bool> = pages.iter().map(|page| self.add(*page)).collect();
         self.wrote(added.contains(&true));
+        self.committed();
         Answer::Admitted(Some(added))
     }
 
     /// Keys the next unkeyed work items, a sealed batch of them, in a
-    /// write that needs no sync of its own; answers their pages.
+    /// write that needs no sync of its own, which the loop seals when it
+    /// keyed any; answers their pages.
     fn seal(&mut self) -> Vec<usize> {
         let pages = self
             .items
@@ -396,8 +433,11 @@ impl Model {
                 item.keyed = true;
                 item.page
             })
-            .collect();
+            .collect::<Vec<usize>>();
         self.wrote(false);
+        if !pages.is_empty() {
+            self.committed();
+        }
         pages
     }
 
@@ -412,9 +452,11 @@ impl Model {
             });
         }
         self.wrote(false);
+        self.claimed.extend(&pages);
         Answer::Leased(pages)
     }
 
+    /// An attempt's enqueue, which rides its attempt's batch at `batch`.
     fn enqueue(&mut self, index: usize, page: usize) -> Answer {
         let attempt = &self.attempts[index];
         if attempt.over {
@@ -423,7 +465,7 @@ impl Model {
         if self.holds(page) || attempt.staged.iter().any(|(staged, _)| *staged == page) {
             return Answer::Admitted(Some(vec![false]));
         }
-        // Its place is reserved at once, in a synced write.
+        // Its place is reserved at once, in a write synced at `full`.
         self.attempts[index].staged.push((page, self.next_place));
         self.next_place += 1;
         self.wrote(true);
@@ -464,6 +506,7 @@ impl Model {
 
     fn readmit(&mut self) -> Answer {
         if self.closed {
+            self.committed();
             return Answer::Readmitted(None);
         }
         let mut readmitted = 0;
@@ -475,6 +518,7 @@ impl Model {
             }
         }
         self.wrote(readmitted > 0);
+        self.committed();
         Answer::Readmitted(Some(readmitted))
     }
 
@@ -485,6 +529,7 @@ impl Model {
             self.item(*page).status = Status::Failed(SITE_REFUSED);
             self.wrote(true);
         }
+        self.claimed.extend(&refused);
         Answer::Refused(!refused.is_empty())
     }
 
@@ -508,13 +553,21 @@ impl Model {
             }
         }
         self.wrote(false);
+        self.committed();
     }
 
-    /// The crawl's process crashes: the OS still writes what it was given.
+    /// The crawl's process crashes: the OS still writes what it was given,
+    /// every commit, and at `batch` the open batch is lost. The resumed
+    /// crawl recovers its leases in a write of its own.
     fn crash(&mut self) {
-        self.wrote(true);
+        if self.batching {
+            self.items.clone_from(&self.written);
+        } else {
+            self.wrote(true);
+        }
         self.items = recovered(std::mem::take(&mut self.items));
         self.wrote(false);
+        self.committed();
         self.resume();
     }
 
@@ -531,6 +584,7 @@ impl Model {
     /// items, which it keys, a sealed batch at a time.
     fn resume(&mut self) {
         self.attempts.clear();
+        self.claimed.clear();
         self.closed = false;
         while !self.seal().is_empty() {}
     }
@@ -541,20 +595,23 @@ impl ReferenceStateMachine for Model {
     type Transition = Transition;
 
     fn init_state() -> BoxedStrategy<Self> {
-        (1_usize..4)
-            .prop_map(|count| {
+        (1_usize..4, any::<bool>())
+            .prop_map(|(count, batching)| {
                 // The seeds the start wrote, which no gate had keyed.
                 let items: Vec<Item> = (0..count)
                     .map(|page| Item::added(page, u64::try_from(page).unwrap(), false))
                     .collect();
                 Self {
                     unsynced: vec![items.clone()],
+                    written: items.clone(),
                     items,
                     next_place: u64::try_from(count).unwrap(),
                     attempts: Vec::new(),
                     closed: false,
                     answered: Answer::Nothing,
                     crashed: false,
+                    batching,
+                    claimed: Vec::new(),
                 }
             })
             .boxed()
@@ -661,8 +718,25 @@ struct Subject {
     env: TestEnv,
     vfs: CrashVfs,
     path: PathBuf,
+    /// The Run state's level: `full`, or `batch` with no threshold, so
+    /// only a barrier, a seal or the writer's end writes the open batch.
+    durability: Durability,
     crawl: Option<Crawl>,
     finished: bool,
+}
+
+/// The level of a model that batches attempts or not.
+fn durability(batching: bool) -> Durability {
+    if batching {
+        Durability {
+            pages: BatchThreshold::Never,
+            interval: BatchThreshold::Never,
+            bytes: BatchThreshold::Never,
+            ..Durability::BATCH
+        }
+    } else {
+        Durability::FULL
+    }
 }
 
 /// The seed of the page `page`.
@@ -801,6 +875,7 @@ impl Subject {
         let (path, seed) = (self.path.clone(), self.env.seed());
         let options = RunStateOptions {
             vfs: Some(self.vfs.name().to_owned()),
+            durability: self.durability,
             ..RunStateOptions::default()
         };
         let start_time = self.env.start_time();
@@ -868,6 +943,7 @@ impl Subject {
                         .map(|(_, waiting)| (waiting.id, KEY.to_owned()))
                         .collect();
                     stored.key(keys, Unkeyed::Opening).await.unwrap();
+                    stored.seal().await.unwrap();
                 }
             }
             let (pool, tally) = stored.open(Entropy::seeded(seed)).await.unwrap();
@@ -941,22 +1017,31 @@ impl Subject {
             .crawl
             .as_mut()
             .expect("invariant: the crawl runs until the case ends");
-        let stored = crawl.stored();
-        let ids: Vec<String> = self
+        let asked: Vec<(String, String)> = self
             .runtime
-            .block_on(stored.waiting(None, count))
+            .block_on(crawl.state.waiting(None, count))
             .unwrap()
             .into_iter()
-            .map(|waiting| waiting.id)
+            .map(|waiting| (waiting.id, waiting.key))
             .collect();
-        if ids.is_empty() {
+        if asked.is_empty() {
             return Vec::new();
         }
-        let rows = (crawl.state.pool().changes(), crawl.state.counted());
+        let leased = self.runtime.block_on(crawl.state.leasable(asked)).unwrap();
         let claim = crawl
             .writer
-            .write_with(Syncing::Deferred { charged: 0 }, Stored::claim(ids, rows));
-        let leased = self.runtime.block_on(claim).unwrap();
+            .write_with(Syncing::Deferred { charged: 0 }, crawl.state.claim(&leased));
+        // The loop does not wait for its claim; the model does, so that
+        // every step's file is the one it checks, and the Run state hears
+        // the answer at its next operation as the loop's does.
+        let unclaimed = self.runtime.block_on(claim).unwrap();
+        assert!(
+            unclaimed.is_empty(),
+            "a claim found its rows changed: {unclaimed:?}"
+        );
+        crawl
+            .state
+            .claiming(Box::pin(std::future::ready(Ok(unclaimed))), &leased);
         let _clock = self.runtime.enter();
         leased
             .into_iter()
@@ -998,7 +1083,10 @@ impl Subject {
                                 panic!("the model pushes no Record: {refused:?}")
                             }),
                         },
-                        Err(CommitError::LeaseLost) => return false,
+                        Err(CommitError::LeaseLost) => {
+                            crawl.state.settled(leased, false);
+                            return false;
+                        }
                         Err(error) => panic!("the commit failed: {error:?}"),
                     }
                 }
@@ -1034,16 +1122,19 @@ impl Subject {
             .block_on(async { stored.end(outcome).await.await })
             .unwrap();
         crawl.state.changed(written.changed);
-        let ended = match written.ended {
+        let (ended, retried) = match written.ended {
             Ended::Committed(committed) => {
                 let _clock = self.runtime.enter();
-                lease.committed(Ok(Some(Ok(committed)))).unwrap();
-                true
+                let committed = lease.committed(Ok(Some(Ok(committed)))).unwrap();
+                // The model reads every page it leases back from the file.
+                crawl.state.added(committed.keyed);
+                (true, false)
             }
-            Ended::LeaseLost => false,
-            Ended::Unsuccessful { ended, .. } => ended,
+            Ended::LeaseLost => (false, false),
+            Ended::Unsuccessful { ended, retried, .. } => (ended, ended && retried),
             Ended::SitemapRead(_) => panic!("the model reads no sitemap"),
         };
+        crawl.state.settled(leased, retried);
         if ended {
             crawl.in_flight -= 1;
         }
@@ -1051,7 +1142,8 @@ impl Subject {
     }
 
     /// The loop keys the next unkeyed work items, in a sealed batch that
-    /// needs no sync of its own; answers their pages.
+    /// needs no sync of its own, and seals it when it keyed any, as
+    /// `key_new` does; answers their pages.
     fn seal(&mut self) -> Vec<usize> {
         let stored = self.crawl().stored();
         let unkeyed = self
@@ -1067,6 +1159,11 @@ impl Subject {
             self.runtime
                 .block_on(stored.key(keys, Unkeyed::Opening))
                 .unwrap();
+            let crawl = self
+                .crawl
+                .as_mut()
+                .expect("invariant: the crawl runs until the case ends");
+            self.runtime.block_on(crawl.state.seal()).unwrap();
         }
         pages
     }
@@ -1085,21 +1182,26 @@ impl Subject {
     /// The next pending work item fails with no attempt: its site asked
     /// not to send it. Answers whether there was one.
     fn refuse(&mut self) -> bool {
-        let stored = self.crawl().stored();
+        let crawl = self
+            .crawl
+            .as_mut()
+            .expect("invariant: the crawl runs until the case ends");
         let Some(waiting) = self
             .runtime
-            .block_on(stored.waiting(None, 1))
+            .block_on(crawl.state.waiting(None, 1))
             .unwrap()
             .pop()
         else {
             return false;
         };
-        let unsent = vec![(waiting.id, failure(SITE_REFUSED))];
+        let stored = crawl.stored();
+        let unsent = vec![(waiting.id.clone(), failure(SITE_REFUSED))];
         let changed = self
             .runtime
             .block_on(stored.end_unsent(unsent, ended_at()))
             .unwrap();
-        self.crawl().state.changed(changed);
+        crawl.state.changed(changed);
+        crawl.state.gone([waiting.id]);
         true
     }
 
@@ -1113,12 +1215,12 @@ impl Subject {
         let stored = self.crawl().stored();
         let counted = self.crawl().state.counted();
         let unwritten = (failure("outcome_unwritten"), POLICY.retry_max);
-        let (closed, changed) = self
+        let (short, changed) = self
             .runtime
             .block_on(stored.close_if_drained(counted, unwritten, ended_at()))
             .unwrap();
         self.crawl().state.changed(changed);
-        Some(closed)
+        Some(short.is_some())
     }
 
     /// The crawl stops cleanly: its last write releases its leases.
@@ -1174,7 +1276,7 @@ impl Subject {
             });
         self.open(None);
         let resumed = keyed(recovered(survived.clone()));
-        self.holds(&resumed);
+        self.holds(&resumed, &resumed);
         let pages: Vec<usize> = (0..PAGES).collect();
         let new = pages
             .iter()
@@ -1189,24 +1291,25 @@ impl Subject {
         assert_eq!((again, all), (Some(new), pages));
     }
 
-    /// Checks that the run file holds the work items `items`, and that
-    /// the requests by state the Run state counts are the run file's and
-    /// theirs.
-    fn holds(&self, items: &[Item]) {
+    /// Checks that the run file holds the work items `written`, the last
+    /// commit's, that the requests by state the Run state counts in memory
+    /// are those of `items`, every write's, and the run file's those of
+    /// `written`; with nothing left to commit, the two counts are one.
+    fn holds(&self, items: &[Item], written: &[Item]) {
         let connection = self.reader();
         let crawl = self
             .crawl
             .as_ref()
             .expect("invariant: the crawl runs until the case ends");
         let tally = crawl.state.tally();
+        let read = Tally::read(&connection).unwrap();
         assert_eq!(
-            (view(&connection), counts(&tally), &*tally),
-            (
-                view_of(items),
-                counts_of(items),
-                &Tally::read(&connection).unwrap()
-            )
+            (view(&connection), counts(&tally), counts(&read)),
+            (view_of(written), counts_of(items), counts_of(written))
         );
+        if view_of(items) == view_of(written) {
+            assert_eq!(*tally, read);
+        }
     }
 }
 
@@ -1229,6 +1332,7 @@ impl StateMachineTest for Subject {
             env,
             vfs,
             path,
+            durability: durability(model.batching),
             crawl: None,
             finished: false,
         };
@@ -1276,7 +1380,7 @@ impl StateMachineTest for Subject {
 
     fn check_invariants(subject: &Self, model: &Model) {
         if !subject.finished {
-            subject.holds(&model.items);
+            subject.holds(&model.items, &model.written);
         }
     }
 

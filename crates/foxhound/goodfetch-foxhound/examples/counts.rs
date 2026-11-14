@@ -136,7 +136,7 @@ use goodfetch_test_support::CountingVfs;
 use goodfetch_test_support::callgrind;
 use plants::{Counted as PlantOn, politeness_plant, run_state_plant};
 use scenarios::{
-    BARRIER_CALLS, Frontier, Options, PAGES, Plant, body_bytes, crawl_with, entries,
+    AfterStart, BARRIER_CALLS, Frontier, Options, PAGES, Plant, body_bytes, crawl_with, entries,
     page_analysis_plant, run_trace_plant,
 };
 use serde_json::{Map, Value, json};
@@ -457,6 +457,20 @@ fn scoped(mut settings: Value) -> Value {
 /// streaming pass and parsed none (#1911). It compiles no selector a page,
 /// as no page of the default cell does since the engine keeps its
 /// compilations (#1912).
+/// The cell `name` of the Durability level `level`, on the fixture's own
+/// site, which syncs less than the default cell when `removes_syncs`.
+fn durability(name: &'static str, level: &str, removes_syncs: bool) -> Cell {
+    Cell {
+        name,
+        settings: json!({ "run_state": { "durability": level } }),
+        frontier: None,
+        removes: &[],
+        removes_syncs,
+        handler: false,
+        limit: false,
+    }
+}
+
 fn learning_off() -> Cell {
     Cell {
         name: "learning_off",
@@ -597,36 +611,12 @@ fn cells() -> Vec<Cell> {
             handler: false,
             limit: false,
         },
-        Cell {
-            name: "durability_fast",
-            settings: json!({ "run_state": { "durability": "fast" } }),
-            frontier: None,
-            removes: &[],
-            removes_syncs: true,
-            handler: false,
-            limit: false,
-        },
+        durability("durability_fast", "fast", true),
         // The levels `F2.page_waits` and `F2.batches` are held at beside
         // the default's `batch` (ADR 0142), on the same site as
         // `durability_fast`.
-        Cell {
-            name: "durability_full",
-            settings: json!({ "run_state": { "durability": "full" } }),
-            frontier: None,
-            removes: &[],
-            removes_syncs: false,
-            handler: false,
-            limit: false,
-        },
-        Cell {
-            name: "durability_off",
-            settings: json!({ "run_state": { "durability": "off" } }),
-            frontier: None,
-            removes: &[],
-            removes_syncs: true,
-            handler: false,
-            limit: false,
-        },
+        durability("durability_full", "full", false),
+        durability("durability_off", "off", true),
         // robots.txt off reads and parses no robots.txt (#1919), and with
         // the fixture's delay of 0 waits out no Crawl-delay, so neither cell
         // paces its domains: admission consults no Politeness store and
@@ -793,7 +783,11 @@ fn crawl(cell: &Cell, planted: Option<&str>, bypassed: Option<&str>, pages: Page
             limit: cell.limit.then_some(LIMIT),
             robots_txt: true,
             setup_vfs: Some(setup.name().to_owned()),
-            barrier_calls: BARRIER_CELLS.contains(&cell.name),
+            after_start: if BARRIER_CELLS.contains(&cell.name) {
+                AfterStart::BarrierCalls
+            } else {
+                AfterStart::Finish
+            },
         },
     );
     Crawl {
@@ -1240,44 +1234,10 @@ fn main() {
             "the cell {} leaves {SYNCS} as it is",
             cell.name
         );
-        let mut counts: Map<String, Value> = Row::ALL
-            .iter()
-            .map(|row| (row.name().to_owned(), json!(cell.count(*row))))
-            .collect();
-        for (row, count) in &cell.prepares {
-            counts.insert((*row).to_owned(), json!(count));
-        }
-        counts.insert(SYNCS.to_owned(), json!(cell.syncs));
-        match cell.prepare_calls {
-            Some(calls) => {
-                counts.insert(RUN_STATE_PREPARES.to_owned(), json!(calls.per_added_pages));
-                counts.insert(CONSTRUCTIONS.to_owned(), json!(calls.constructions));
-                let opens = cell.count(Row::PolitenessOpens) + calls.politeness;
-                counts.insert(POLITENESS_OPENS.to_owned(), json!(opens));
-            }
-            None => {
-                counts.remove(POLITENESS_OPENS);
-            }
-        }
+        let counts = counts_of(cell);
         let off = cell.name == OFF_CELL;
-        let off_work: u64 = POLITENESS_ROWS.iter().map(|row| cell.count(*row)).sum();
-        counts.insert(OFF_WORK.to_owned(), json!(if off { off_work } else { 0 }));
         let batched = matches!(cell.level, DURABILITY_BATCH | DURABILITY_OFF);
         let full = cell.level == DURABILITY_FULL;
-        let page_waits = cell.count(Row::RunPageWaits);
-        counts.insert(
-            PAGE_WAITS.to_owned(),
-            json!(if batched { page_waits } else { 0 }),
-        );
-        counts.insert(
-            PAGE_WAITS_FULL.to_owned(),
-            json!(if full { page_waits } else { 0 }),
-        );
-        let early = cell.count(Row::RunBatches);
-        counts.insert(
-            BATCHES.to_owned(),
-            json!(early.saturating_sub(cell.barrier_calls)),
-        );
         let units = json!({
             "pages": cell.pages,
             "added_pages": cell.added_pages,
@@ -1312,4 +1272,47 @@ fn main() {
             })
         );
     }
+}
+
+/// The counts `cell` prints, each row's beside the ones read only in it.
+fn counts_of(cell: &Counted) -> Map<String, Value> {
+    let mut counts: Map<String, Value> = Row::ALL
+        .iter()
+        .map(|row| (row.name().to_owned(), json!(cell.count(*row))))
+        .collect();
+    for (row, count) in &cell.prepares {
+        counts.insert((*row).to_owned(), json!(count));
+    }
+    counts.insert(SYNCS.to_owned(), json!(cell.syncs));
+    match cell.prepare_calls {
+        Some(calls) => {
+            counts.insert(RUN_STATE_PREPARES.to_owned(), json!(calls.per_added_pages));
+            counts.insert(CONSTRUCTIONS.to_owned(), json!(calls.constructions));
+            let opens = cell.count(Row::PolitenessOpens) + calls.politeness;
+            counts.insert(POLITENESS_OPENS.to_owned(), json!(opens));
+        }
+        None => {
+            counts.remove(POLITENESS_OPENS);
+        }
+    }
+    let off = cell.name == OFF_CELL;
+    let off_work: u64 = POLITENESS_ROWS.iter().map(|row| cell.count(*row)).sum();
+    counts.insert(OFF_WORK.to_owned(), json!(if off { off_work } else { 0 }));
+    let batched = matches!(cell.level, DURABILITY_BATCH | DURABILITY_OFF);
+    let full = cell.level == DURABILITY_FULL;
+    let page_waits = cell.count(Row::RunPageWaits);
+    counts.insert(
+        PAGE_WAITS.to_owned(),
+        json!(if batched { page_waits } else { 0 }),
+    );
+    counts.insert(
+        PAGE_WAITS_FULL.to_owned(),
+        json!(if full { page_waits } else { 0 }),
+    );
+    let early = cell.count(Row::RunBatches);
+    counts.insert(
+        BATCHES.to_owned(),
+        json!(early.saturating_sub(cell.barrier_calls)),
+    );
+    counts
 }

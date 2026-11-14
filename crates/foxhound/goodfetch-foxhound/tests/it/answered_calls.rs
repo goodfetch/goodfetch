@@ -2,6 +2,10 @@
 //! (spec #2138's Seam 1, ADR 0142): at `batch`, the default, an answer
 //! comes once the call's change is in a written batch, so a `SIGKILL` that
 //! follows it takes none of them.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::cell::{Cell, RefCell};
 
@@ -30,6 +34,32 @@ fn start(engine: &mut Attached, failing: &str) -> Value {
     )
 }
 
+/// `run.retry_failed` on `engine`, asked until it re-admits the request
+/// the crawl's first attempt failed for good, and its last answer: every
+/// later request stays unanswered, so a kill finds it in flight.
+fn retry_the_failed_request(engine: &mut Attached) -> Value {
+    let failed = Cell::new(false);
+    let mut fail_once = |_: &Value| {
+        (!failed.replace(true)).then(|| {
+            json!({ "error": { "code": -32003, "message": "handler_failed",
+                "data": { "code": "handler_failed", "retryable": false } } })
+        })
+    };
+    let mut retried = json!(null);
+    for _ in 0..600 {
+        retried = engine.call(
+            "retry",
+            "run.retry_failed",
+            &json!({ "run_id": RUN_ID }),
+            &mut fail_once,
+        );
+        if retried["result"]["readmitted"] == 1 {
+            break;
+        }
+    }
+    retried
+}
+
 /// At `batch`, a `SIGKILL` right after the answers of `run.retry_failed`,
 /// `key_value_store.set` made outside a handler and `run.add_seeds` loses
 /// none of them: the resumed Run holds the streamed seed and the value
@@ -45,27 +75,7 @@ fn at_batch_a_kill_right_after_an_answer_loses_no_call_that_no_page_will_make_ag
 
     let mut killed = site.engine(&env);
     start(&mut killed, &failing);
-    // The first attempt fails for good; every later request stays
-    // unanswered, so the kill finds it in flight.
-    let failed = Cell::new(false);
-    let mut fail_once = |_: &Value| {
-        (!failed.replace(true)).then(|| {
-            json!({ "error": { "code": -32003, "message": "handler_failed",
-                "data": { "code": "handler_failed", "retryable": false } } })
-        })
-    };
-    let mut retried = json!(null);
-    for _ in 0..600 {
-        retried = killed.call(
-            "retry",
-            "run.retry_failed",
-            &json!({ "run_id": RUN_ID }),
-            &mut fail_once,
-        );
-        if retried["result"]["readmitted"] == 1 {
-            break;
-        }
-    }
+    let retried = retry_the_failed_request(&mut killed);
     let set = killed.call(
         "set",
         "key_value_store.set",

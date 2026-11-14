@@ -543,15 +543,25 @@ pub(crate) struct Options {
     /// `None`: a shorter crawl of the same pages, whose difference from the
     /// whole one is what each page more costs (ADR 0140's `F2.prepares`).
     pub(crate) linked_pages: Option<usize>,
-    /// The crawl is made [`BARRIER_CALLS`] calls that no page will make
-    /// again once it started, each a barrier at a level that batches (ADR
-    /// 0142): a `key_value_store.set` outside a handler and a `run.add_seed`
-    /// of its index, a duplicate. Its crawl is `crawl.keep_alive`, so it
-    /// is still running when they come, and `run.finish` ends it.
-    pub(crate) barrier_calls: bool,
+    /// What the crawl is sent once it started.
+    pub(crate) after_start: AfterStart,
 }
 
-/// The calls a crawl with [`Options::barrier_calls`] is made: the batches
+/// What a crawl is sent once it started.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum AfterStart {
+    /// `run.finish` at once.
+    #[default]
+    Finish,
+    /// [`BARRIER_CALLS`] calls that no page will make again, each a barrier
+    /// at a level that batches (ADR 0142): a `key_value_store.set` outside a
+    /// handler and a `run.add_seed` of its index, a duplicate. Its crawl is
+    /// `crawl.keep_alive`, so it is still running when they come, and
+    /// `run.finish` ends it once both are answered.
+    BarrierCalls,
+}
+
+/// The calls a crawl sent [`AfterStart::BarrierCalls`] is made: the batches
 /// they may each write are `F2.batches`' own term.
 pub(crate) const BARRIER_CALLS: u64 = 2;
 
@@ -632,10 +642,10 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         robots_txt,
         setup_vfs,
         linked_pages,
-        barrier_calls,
+        after_start,
     } = options;
     let mut settings = settings;
-    if barrier_calls {
+    if after_start == AfterStart::BarrierCalls {
         let crawl = settings.entry("crawl").or_insert_with(|| json!({}));
         crawl["keep_alive"] = json!(true);
     }
@@ -671,7 +681,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
             run_state_vfs,
             handler,
             credits: CREDITS,
-            barrier_calls,
+            after_start,
         },
     );
     Crawled {
@@ -699,9 +709,8 @@ pub(crate) struct Driven<'a> {
     pub(crate) run_state_vfs: Option<String>,
     pub(crate) handler: bool,
     pub(crate) credits: u64,
-    /// Whether the crawl is made [`BARRIER_CALLS`] calls once it started,
-    /// as [`Options::barrier_calls`] says.
-    pub(crate) barrier_calls: bool,
+    /// What the crawl is sent once it started.
+    pub(crate) after_start: AfterStart,
 }
 
 /// Runs the crawl `crawl_start` starts as the Run `pages`, on a Foxhound
@@ -722,7 +731,7 @@ pub(crate) fn drive(
         run_state_vfs,
         handler,
         credits,
-        barrier_calls,
+        after_start,
     } = on;
     let engine = foxhound(FetchTiers::serving(site), metrics);
     let credits = json!({
@@ -750,7 +759,7 @@ pub(crate) fn drive(
                 if waits.read(&message, &mut writer).await {
                     continue;
                 }
-                if message["id"] == "start" && barrier_calls {
+                if message["id"] == "start" && after_start == AfterStart::BarrierCalls {
                     assert!(message.get("result").is_some(), "{message}");
                     send(&mut writer, SET).await;
                     send(&mut writer, &add_seed()).await;

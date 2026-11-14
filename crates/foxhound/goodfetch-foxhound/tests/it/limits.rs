@@ -17,6 +17,10 @@
     clippy::disallowed_methods,
     reason = "each Client is a thread of the test's own, and the test reads the files the engines wrote"
 )]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::io::Write as _;
 use std::path::Path;

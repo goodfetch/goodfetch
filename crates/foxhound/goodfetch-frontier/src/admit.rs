@@ -62,7 +62,7 @@ use crate::invariants::Invariants;
 use crate::rules;
 use crate::scope::{Asked, Narrowing, Scope};
 use crate::staged::Admitting;
-use crate::unwritten::UnwrittenVisits;
+use crate::unwritten::{Holding, UnwrittenVisits};
 use crate::url::{parse, parse_link};
 
 /// What the Frontier is asked to admit.
@@ -385,7 +385,15 @@ pub fn admit_keyed(
         )),
         Err(Unkeyed::Policed { url, asked }) => {
             let reason = match asked {
-                Some(asked) if !scope.reached(connection, url, asked, admitting.earlier())? => {
+                Some(asked)
+                    if !scope.reached(
+                        connection,
+                        url,
+                        asked,
+                        admitting.earlier(),
+                        invariants.unwritten(),
+                    )? =>
+                {
                     NotAddedReason::OutOfScope
                 }
                 _ => NotAddedReason::DomainPolicy,
@@ -433,9 +441,13 @@ fn admit_measured(
     } = measured;
     let answered = (given, url);
     if let Some(asked) = asked
-        && !invariants
-            .scope()
-            .reached(connection, url, asked, admitting.earlier())?
+        && !invariants.scope().reached(
+            connection,
+            url,
+            asked,
+            admitting.earlier(),
+            invariants.unwritten(),
+        )?
     {
         let reason = NotAddedReason::OutOfScope;
         return Ok(not_added(admitting, answered, reason, None));
@@ -513,16 +525,39 @@ fn admit_measured(
         )?;
     }
     if asked.is_none() {
-        Scope::widen(connection, url)?;
-        admitting.widened(url);
-        if let Some(holding) = &mut holding {
-            holding.widened();
-        }
+        widen(connection, invariants, url, admitting, holding.as_mut())?;
     }
     Ok(Enqueued::Added {
         id,
         url: url.as_str().to_owned(),
     })
+}
+
+/// Widens the scope of the run file `connection` holds by the seed
+/// `seed`, noted in `admitting` and in `holding`, the Frontier's memory
+/// under its lock when the Run keeps one, which holds the seed's measure
+/// when `admitting` writes it to the file (#2169).
+///
+/// # Errors
+///
+/// When the run file cannot be written.
+pub(crate) fn widen(
+    connection: &Connection,
+    invariants: &Invariants,
+    seed: &Url,
+    admitting: &mut Admitting,
+    holding: Option<&mut Holding<'_>>,
+) -> rusqlite::Result<()> {
+    Scope::widen(connection, seed)?;
+    admitting.widened(seed);
+    if let Some(holding) = holding {
+        let measure = admitting
+            .writes()
+            .then(|| invariants.scope().seed_key(seed))
+            .flatten();
+        holding.widened(measure.as_deref());
+    }
+    Ok(())
 }
 
 /// What a candidate gives the admission: its URL as given and as parsed,

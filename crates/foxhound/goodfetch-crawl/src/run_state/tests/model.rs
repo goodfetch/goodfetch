@@ -972,7 +972,7 @@ impl Subject {
                 keys.clone(),
                 &Metrics::none(),
             );
-            stored.read_visits().await.unwrap();
+            stored.fill_memory().await.unwrap();
             if resumed {
                 loop {
                     let unkeyed = stored.unkeyed(KEYED_AT_ONCE).await.unwrap();

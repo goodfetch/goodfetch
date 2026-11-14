@@ -370,7 +370,8 @@ fn a_charge_is_made_without_the_ledger_only_while_the_held_slices_cover_it() {
 /// charges and reservations the Slices the run holds cover, while its
 /// Limits are current, and their settling, reach neither SQL nor the
 /// file. One that needs the ledger is not made in memory, and leaves
-/// nothing changed once it gave back what it took on the way.
+/// nothing changed once it gave back what it took on the way: no Slice
+/// used, and the run not marked *uncapped* by a price it did not pay.
 ///
 /// Covers: story:3-67
 #[test]
@@ -414,24 +415,55 @@ fn a_change_the_held_slices_cover_is_made_in_memory_and_one_they_do_not_changes_
     let left = run
         .change_held(now(), |change| change.charge("requests", 3))
         .map(|charged| charged.used);
+    // A price no Limit caps, then a charge the full Slice does not cover.
+    let unpaid = run
+        .change_held(now(), |change| {
+            let (reservation, _) = change.reserve("paid_solves", Some("USD"), 1_000)?;
+            match change.charge("requests", 1) {
+                Ok(charged) => Ok(charged),
+                Err(unmade) => {
+                    let _ = change.settle(reservation, 0);
+                    Err(unmade)
+                }
+            }
+        })
+        .is_some();
+    let still_capped = !run.uncapped();
     let uncapped = run
         .change_held(now(), |change| {
             let (reservation, _) = change.reserve("paid_solves", Some("USD"), 1_000)?;
             Ok(change.settle(reservation, 0))
         })
-        .is_some();
+        .is_some()
+        && run.uncapped();
     let asked = run
         .change_held(now(), |change| change.allowed_by("paid_solves", "USD"))
         .is_some();
 
     assert_eq!(
         (
-            (unread, covered, short, left, uncapped, asked),
+            (
+                unread,
+                covered,
+                short,
+                left,
+                (unpaid, still_capped),
+                uncapped,
+                asked
+            ),
             work.read(CountedRow::ChargeStatements) - before.0,
             vfs.operations() - before.1
         ),
         (
-            (false, vec![(1, 5)], false, Some(vec![(1, 10)]), true, false),
+            (
+                false,
+                vec![(1, 5)],
+                false,
+                Some(vec![(1, 10)]),
+                (false, true),
+                true,
+                false
+            ),
             0,
             0
         )

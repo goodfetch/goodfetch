@@ -731,18 +731,27 @@ impl Charging {
     /// file, so a Run makes it where it asks for it, with no blocking
     /// call (E3-3 of the audit #1882, issue 2603). None when it needs the
     /// ledger, with nothing changed once `change` gave back what it had
-    /// taken on the way: [`Charging::change`] then makes it.
+    /// taken on the way, the run no more *uncapped* than it was:
+    /// [`Charging::change`] then makes it.
     pub fn change_held<T>(
         &mut self,
         now: Timestamp,
         change: impl FnOnce(&mut Change<'_>) -> Result<T, Unmade>,
     ) -> Option<T> {
-        change(&mut Change {
+        let uncapped = self.uncapped;
+        let made = change(&mut Change {
             charging: self,
             now,
             reach: Reach::Held,
         })
-        .ok()
+        .ok();
+        if made.is_none() {
+            // A price reserved in a currency no Limit caps, then given
+            // back, was not paid: the ledger says whether one caps it by
+            // the time the change is made.
+            self.uncapped = uncapped;
+        }
+        made
     }
 
     /// Makes `change` at `now`, reaching the ledger for what it needs: a
@@ -751,8 +760,8 @@ impl Charging {
     ///
     /// # Errors
     ///
-    /// As [`Charging::charge`]'s, with nothing changed once `change` gave
-    /// back what it had taken on the way.
+    /// As [`Charging::charge`]'s: `change` then gives back what it had
+    /// taken on the way.
     pub fn change<T>(
         &mut self,
         now: Timestamp,

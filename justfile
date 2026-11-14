@@ -1190,7 +1190,11 @@ rss-propose *scenarios:
 # the side's profile folder), crawlberg's and chromiumoxide's go to target/compare-spider/, or to the folder GOODFETCH_COMPARE_SPIDER_BUILDS
 # names: one outside every checkout keeps them from one measurement to the
 # next, whichever worktree measures and whatever sweeps its target/ (Cargo
-# still rebuilds what a changed side needs).
+# still rebuilds what a changed side needs). Each build's executables are
+# read from the folder Cargo writes the profile to: `debug/` for `dev` and
+# `test`, `release/` for `release` and `bench`, the profile's own name for
+# every other. fastCRW's server is installed into the same one, and xtask
+# takes the profile and maps it to that folder the same way.
 # xtask is built once and runs from its copy in the target folder's
 # compare/xtask: a build in the checkout while the matrix runs, for hours,
 # relinks or sweeps its debug executable, never the one measuring.
@@ -1199,6 +1203,7 @@ rss-propose *scenarios:
 compare profile="release" *args:
     #!/usr/bin/env bash
     set -euo pipefail
+    folder={{ if profile == "dev" { "debug" } else if profile == "test" { "debug" } else if profile == "bench" { "release" } else { profile } }}
     {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
     cargo build --quiet --locked --bin xtask
     target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
@@ -1216,7 +1221,7 @@ compare profile="release" *args:
     cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/crawlee-rs
     cargo build --quiet --locked --manifest-path xtask/compare-pagesift/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/pagesift
     cargo build --quiet --locked --manifest-path xtask/compare-openspider/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/openspider
-    cargo --config xtask/compare-fastcrw/server-profile.toml install --quiet --locked --force crw-server --version =0.44.2 --features cdp --profile {{ profile }} --target-dir {{ compare_spider_builds }}/fastcrw-server --root {{ compare_spider_builds }}/fastcrw/{{ profile }}
+    cargo --config xtask/compare-fastcrw/server-profile.toml install --quiet --locked --force crw-server --version =0.44.2 --features cdp --profile {{ profile }} --target-dir {{ compare_spider_builds }}/fastcrw-server --root {{ compare_spider_builds }}/fastcrw/"$folder"
     cargo build --quiet --locked --manifest-path xtask/compare-fastcrw/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/fastcrw
     cargo build --quiet --locked --manifest-path xtask/compare-crawlberg/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/crawlberg
     cargo build --quiet --locked --manifest-path xtask/compare-chromiumoxide/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/chromiumoxide

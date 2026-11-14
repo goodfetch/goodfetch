@@ -433,6 +433,25 @@ impl Workspace {
         command
     }
 
+    /// `just`, run in the workspace on the repository's justfile, with the
+    /// programs in `shims` found first on the path: stand-ins for those the
+    /// recipe under test calls.
+    pub(crate) fn just(&self, shims: &Path) -> Command {
+        let path = std::env::join_paths(
+            std::iter::once(shims.to_owned())
+                .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+        )
+        .unwrap();
+        let mut command = self.command("just");
+        command
+            .arg("--justfile")
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../justfile"))
+            .arg("--working-directory")
+            .arg(self.path())
+            .env("PATH", path);
+        command
+    }
+
     /// Runs `xtask <args>` in the workspace. Cargo builds offline, into a
     /// target folder the workspace holds alone while it lives and later
     /// workspaces reuse, so a fixture's dependencies build once per folder

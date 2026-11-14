@@ -248,6 +248,7 @@ impl Site {
                 authority: host,
                 path: request.path,
                 query: request.query,
+                cookies: request.cookies,
                 peer: request.peer,
                 tls: request.tls,
             };

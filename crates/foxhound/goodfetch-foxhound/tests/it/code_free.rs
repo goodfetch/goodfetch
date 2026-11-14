@@ -774,14 +774,27 @@ const RUNGS: [&str; 3] = ["identity", "static", "scripted"];
 /// The pages of each kind of the rung site.
 const RUNG_PAGES: u32 = 6;
 
+/// The samples each Label of the rung site takes, `fetch.sample.count`'s
+/// default: its first pages.
+const RUNG_SAMPLES: u32 = 3;
+
+/// What a code-free Run of the rung site gave.
+struct RungRun {
+    /// Each Record's path, with its `id` and `name`, sorted by path.
+    read: Vec<(String, Value)>,
+    /// The tier each Record's Provenance names, by its path.
+    served_on: BTreeMap<String, String>,
+    /// What `run.finish` reported.
+    report: Value,
+}
+
 /// Crawls, code-free under `auto` with `http_from`, every page of the rung
-/// site, one request at a time, each Label its kind; answers each Record's
-/// path with its `id` and `name`, and the Run's Usage of `requests`.
+/// site, one request at a time, each Label its kind.
 fn rungs_run(
     (engine, proving_ground): (&mut Attached, &ProvingGround),
     run_id: &str,
     http_from: &str,
-) -> (Vec<(String, Value)>, Value) {
+) -> RungRun {
     let kinds = RUNGS.map(|kind| (kind, RUNG_PAGES));
     rung_pages_run((engine, proving_ground), run_id, http_from, &kinds)
 }
@@ -792,7 +805,7 @@ fn rung_pages_run(
     run_id: &str,
     http_from: &str,
     kinds: &[(&str, u32)],
-) -> (Vec<(String, Value)>, Value) {
+) -> RungRun {
     let origin = format!("https://{RUNGS_HOST}:{}", proving_ground.address().port());
     let seeds: Vec<Value> = kinds
         .iter()
@@ -802,7 +815,7 @@ fn rung_pages_run(
                 .map(move |page| json!({ "url": format!("{origin}/{kind}/{page}"), "label": kind }))
         })
         .collect();
-    let (started, records) = crawl(
+    let (started, records) = crawl_read(
         engine,
         proving_ground,
         (run_id, &seeds),
@@ -827,17 +840,30 @@ fn rung_pages_run(
         &json!({ "run_id": run_id }),
         &mut |_| None,
     );
+    let path = |record: &Value| path_of(record["value"]["url"].as_str().unwrap_or_default());
     let mut read: Vec<(String, Value)> = records
         .iter()
         .map(|record| {
+            let value = &record["value"];
             (
-                path_of(record["url"].as_str().unwrap_or_default()),
-                json!({ "id": record["id"], "name": record["name"] }),
+                path(record),
+                json!({ "id": value["id"], "name": value["name"] }),
             )
         })
         .collect();
     read.sort_by(|left, right| left.0.cmp(&right.0));
-    (read, report["result"]["usage"]["requests"].clone())
+    let served_on = records
+        .iter()
+        .map(|record| {
+            let tier = &record["provenance"]["tier"]["tier"];
+            (path(record), tier.as_str().unwrap_or_default().to_owned())
+        })
+        .collect();
+    RungRun {
+        read,
+        served_on,
+        report: report["result"].clone(),
+    }
 }
 
 /// The tiers `run_id`'s requests past their Label's samples were served
@@ -911,6 +937,34 @@ fn rung_records(proving_ground: &ProvingGround, kinds: &[&str]) -> Vec<(String, 
     expected
 }
 
+/// The kind of each page of the rung site's manifest, by its path.
+fn rung_kinds(proving_ground: &ProvingGround) -> BTreeMap<String, String> {
+    let manifest: Value = serde_json::from_str(
+        &crate::frontier::fetch(
+            proving_ground,
+            &format!("http://{RUNGS_HOST}/manifest.json"),
+        )
+        .body,
+    )
+    .unwrap();
+    manifest["pages"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{manifest}"))
+        .iter()
+        .map(|page| {
+            (
+                page["path"].as_str().unwrap_or_default().to_owned(),
+                page["kind"].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .filter(|(path, _)| {
+            RUNGS
+                .iter()
+                .any(|kind| path.starts_with(&format!("/{kind}/")))
+        })
+        .collect()
+}
+
 /// The proxy tier each domain's pool of `run_id` stands at, as its run
 /// file keeps it.
 fn proxy_tiers(env: &TestEnv, run_id: &str) -> BTreeMap<String, String> {
@@ -947,13 +1001,13 @@ fn under_learned_a_refusal_of_the_transport_resamples_its_label_before_moving_th
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = rungs_engine(&env, &proving_ground);
 
-    let (refused, _) = rung_pages_run(
+    let refused = rung_pages_run(
         (&mut engine, &proving_ground),
         "transport-refused",
         "learned",
         &[("refused", 9)],
     );
-    let (blocked, _) = rung_pages_run(
+    let blocked = rung_pages_run(
         (&mut engine, &proving_ground),
         "every-client-refused",
         "learned",
@@ -982,11 +1036,11 @@ fn under_learned_a_refusal_of_the_transport_resamples_its_label_before_moving_th
     };
     assert_eq!(
         (
-            &refused,
+            &refused.read,
             learned_onto(&env, "transport-refused"),
             raised("transport-refused"),
             raised("every-client-refused"),
-            blocked.len(),
+            blocked.read.len(),
             outcomes
                 .iter()
                 .map(|(_, kind, _)| kind.as_str().unwrap_or_default())
@@ -1003,24 +1057,167 @@ fn under_learned_a_refusal_of_the_transport_resamples_its_label_before_moving_th
             3,
             vec!["succeeded", "succeeded", "succeeded", "blocked"],
         ),
-        "{:?}\n{:?}\n{blocked:?}\n{outcomes:?}",
+        "{:?}\n{:?}\n{:?}\n{outcomes:?}",
         chosen("transport-refused"),
         chosen("every-client-refused"),
+        blocked.read,
     );
 }
 
-/// Under `auto` and `fetch.http_from: learned` (#2417), a sample whose
-/// `http` run differed from its browser's runs once more, on
-/// `browser_fetch` from its browser Session's hop page, and a Label whose
-/// samples all matched there is served on `browser_fetch`: the rung
-/// site's page that answers only the pinned browser's fingerprint, refused
-/// to the transport, ends on `browser_fetch` with the browser's Records,
-/// its later pages each fetched once with the browser's fingerprint, while
-/// its static page ends on `http` and its script-rendered one on
-/// `browser`. The further runs add nothing to Usage, which charges each
-/// work item once as it is admitted, so both Runs report the same
-/// `requests`. Under `transport` no sample runs on `browser_fetch`, and
-/// the page refused to the transport ends on `browser`.
+/// A request the rung site received: its path, its connection's TLS
+/// fingerprint (its JA4 without what a resumed handshake adds) and the
+/// `visitor` cookie it sent, which the site gives each new cookie jar.
+type RungRequest = (String, Option<String>, Option<String>);
+
+/// Every request the rung site received, in order.
+fn rung_requests(proving_ground: &ProvingGround) -> Vec<RungRequest> {
+    let observations = proving_ground.observations().unwrap();
+    ReceivedRequests::of(&observations)
+        .every()
+        .filter(|request| request.host.split(':').next() == Some(RUNGS_HOST))
+        .map(|request| {
+            let ja4 = request
+                .tls
+                .as_ref()
+                .and_then(|hello| hello["ja4_base"].as_str().map(str::to_owned));
+            let visitor = request
+                .cookies
+                .iter()
+                .find(|(name, _)| name == "visitor")
+                .map(|(_, value)| value.clone());
+            (request.target.clone(), ja4, visitor)
+        })
+        .collect()
+}
+
+/// The pool Sessions `run_id`'s run file holds, by where each sends from.
+fn sessions_by_client(env: &TestEnv, run_id: &str) -> BTreeMap<String, i64> {
+    let connection = Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap();
+    let mut statement = connection
+        .prepare("SELECT sends_from, COUNT(*) FROM pool_sessions GROUP BY sends_from")
+        .unwrap();
+    statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+/// The tier the manifest's kind of page `kind` needs: the cheapest that
+/// reads its Record.
+fn tier_of_kind(kind: &str) -> &'static str {
+    match kind {
+        "static" => "http",
+        "browser_identity" => "browser_fetch",
+        "script_rendered" => "browser",
+        other => panic!("the rung site has no ladder kind {other}"),
+    }
+}
+
+/// The fingerprints the rung site saw: the transport's, which every
+/// robots.txt request carries (#2422), and the browser's, every other one.
+struct Fingerprints {
+    transport: BTreeSet<Option<String>>,
+    browser: BTreeSet<Option<String>>,
+}
+
+impl Fingerprints {
+    fn of(every: &[RungRequest]) -> Self {
+        let transport: BTreeSet<_> = every
+            .iter()
+            .filter(|(path, _, _)| path == "/robots.txt")
+            .map(|(_, ja4, _)| ja4.clone())
+            .collect();
+        let browser = every
+            .iter()
+            .map(|(_, ja4, _)| ja4.clone())
+            .filter(|ja4| !transport.contains(ja4))
+            .collect();
+        Self { transport, browser }
+    }
+
+    /// The fingerprints of the client a page served on `tier` is sent by.
+    fn of_tier(&self, tier: &str) -> BTreeSet<Option<String>> {
+        if tier == "http" {
+            self.transport.clone()
+        } else {
+            self.browser.clone()
+        }
+    }
+}
+
+/// The entries of `by_path` whose page is past its Label's samples.
+fn past_samples<T: Clone>(by_path: &BTreeMap<String, T>) -> BTreeMap<String, T> {
+    by_path
+        .iter()
+        .filter(|(path, _)| {
+            path.rsplit('/')
+                .next()
+                .and_then(|page| page.parse::<u32>().ok())
+                .is_some_and(|page| page > RUNG_SAMPLES)
+        })
+        .map(|(path, value)| (path.clone(), value.clone()))
+        .collect()
+}
+
+/// The fingerprint of each request of `seen` for `path`.
+fn seen_with(seen: &[RungRequest], path: &str) -> Vec<Option<String>> {
+    seen.iter()
+        .filter(|(target, _, _)| target == path)
+        .map(|(_, ja4, _)| ja4.clone())
+        .collect()
+}
+
+/// The fingerprints each `visitor` cookie came back with, by its value.
+fn jars(every: &[RungRequest]) -> BTreeMap<String, BTreeSet<Option<String>>> {
+    let mut jars: BTreeMap<String, BTreeSet<Option<String>>> = BTreeMap::new();
+    for (_, ja4, visitor) in every {
+        if let Some(visitor) = visitor {
+            jars.entry(visitor.clone()).or_default().insert(ja4.clone());
+        }
+    }
+    jars
+}
+
+/// The rung site's code-free Runs under `fetch.http_from` `learned`,
+/// `transport` and `browser`, in that order, each with the requests the
+/// site received during it.
+fn rung_runs_by_http_from(
+    (engine, proving_ground): (&mut Attached, &ProvingGround),
+) -> Vec<(RungRun, Vec<RungRequest>)> {
+    let mut runs = Vec::new();
+    let mut received = 0;
+    for (run_id, http_from) in [
+        ("rungs-learned", "learned"),
+        ("rungs-transport", "transport"),
+        ("rungs-browser", "browser"),
+    ] {
+        let run = rungs_run((&mut *engine, proving_ground), run_id, http_from);
+        let requests = rung_requests(proving_ground);
+        runs.push((run, requests[received..].to_vec()));
+        received = requests.len();
+    }
+    runs
+}
+
+/// The ladder's acceptance (#2423), read from outside on the rung site.
+/// Under `auto` and `fetch.http_from: learned`, each page past its Label's
+/// samples is served on the tier its kind in the site's manifest needs:
+/// a static page on `http`, a page answered only to the pinned browser's
+/// fingerprint on `browser_fetch` (#2417), a script-rendered page on
+/// `browser`, and every Record equals the manifest's. The site saw each of
+/// those pages sent by the client its tier implies, the transport's
+/// fingerprint for `http` and the browser's otherwise, so a static page
+/// past its samples sends no browser-fetch hop (`C7.hop_*` until #2294's
+/// counters run), and each later identity page arrives once. Under
+/// `transport` the identity pages end on `browser` and nothing runs on
+/// `browser_fetch`; under `browser` no page arrives with the transport's
+/// fingerprint. Across the three Runs each cookie the site gave a
+/// transport's jar, one Session's, came back with that fingerprint only
+/// and never from a browser, and the Run file holds Sessions of both
+/// clients under `learned`. The Run report lists
+/// `fetch.http_from` in `weakened` under `learned` and `transport` only,
+/// and the further runs of a sample add nothing to Usage.
 ///
 /// Covers: setting:fetch.http_from, setting:fetch.tier, story:5-116
 #[test]
@@ -1028,79 +1225,104 @@ fn under_learned_a_refusal_of_the_transport_resamples_its_label_before_moving_th
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
-fn under_learned_a_label_whose_http_differs_but_browser_fetch_matches_is_served_on_browser_fetch() {
+fn under_auto_each_kind_of_rung_page_is_served_on_the_cheapest_tier_that_reads_it() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = rungs_engine(&env, &proving_ground);
 
-    let (learned, learned_requests) =
-        rungs_run((&mut engine, &proving_ground), "rungs-learned", "learned");
-    let observations = proving_ground.observations().unwrap();
-    let (transported, transported_requests) = rungs_run(
-        (&mut engine, &proving_ground),
-        "rungs-transport",
-        "transport",
-    );
+    let runs = rung_runs_by_http_from((&mut engine, &proving_ground));
     assert!(engine.finished());
-
-    let expected = rung_records(&proving_ground, &RUNGS);
-    // Each request the site received for `path` in the learned Run, by its
-    // TLS fingerprint.
-    let fingerprints = |path: &str| -> Vec<Option<String>> {
-        ReceivedRequests::of(&observations)
-            .every()
-            .filter(|request| {
-                request.host.split(':').next() == Some(RUNGS_HOST) && request.target == path
-            })
-            .map(|request| {
-                request
-                    .tls
-                    .as_ref()
-                    .and_then(|hello| hello["ja4_base"].as_str().map(str::to_owned))
-            })
-            .collect()
+    let [
+        (learned, learned_seen),
+        (transported, _),
+        (browser, browser_seen),
+    ] = &runs[..]
+    else {
+        unreachable!("three Runs");
     };
-    let transport: BTreeSet<_> = (4..=RUNG_PAGES)
-        .flat_map(|page| fingerprints(&format!("/static/{page}")))
-        .collect();
-    let browser: BTreeSet<_> = (1..=3)
-        .flat_map(|page| fingerprints(&format!("/identity/{page}")))
-        .filter(|ja4| !transport.contains(ja4))
-        .collect();
-    let later: Vec<_> = (4..=RUNG_PAGES)
-        .map(|page| fingerprints(&format!("/identity/{page}")))
-        .collect();
 
+    let every = rung_requests(&proving_ground);
+    let fingerprints = Fingerprints::of(&every);
+    let manifest = rung_records(&proving_ground, &RUNGS);
+    let kinds = rung_kinds(&proving_ground);
+    // Each page past its samples: the tier its kind needs, and the
+    // fingerprints the site saw its requests with.
+    let needed: BTreeMap<String, String> = past_samples(&kinds)
+        .into_iter()
+        .map(|(path, kind)| (path, tier_of_kind(&kind).to_owned()))
+        .collect();
+    let clients_seen: BTreeMap<String, BTreeSet<Option<String>>> = needed
+        .keys()
+        .map(|path| {
+            (
+                path.clone(),
+                seen_with(learned_seen, path).into_iter().collect(),
+            )
+        })
+        .collect();
+    let clients_implied: BTreeMap<String, BTreeSet<Option<String>>> = needed
+        .iter()
+        .map(|(path, tier)| (path.clone(), fingerprints.of_tier(tier)))
+        .collect();
+    let identity_requests: Vec<usize> = needed
+        .keys()
+        .filter(|path| path.starts_with("/identity/"))
+        .map(|path| seen_with(learned_seen, path).len())
+        .collect();
+    let jars = jars(&every);
+    let cookies_in_a_browser = every
+        .iter()
+        .filter(|(_, ja4, visitor)| visitor.is_some() && !fingerprints.transport.contains(ja4))
+        .count();
+    let documents_from_the_transport = browser_seen
+        .iter()
+        .filter(|(path, ja4, _)| kinds.contains_key(path) && fingerprints.transport.contains(ja4))
+        .count();
+    let weakened: Vec<bool> = runs
+        .iter()
+        .map(|(run, _)| strings(&run.report["weakened"], "key").contains("fetch.http_from"))
+        .collect();
     assert_eq!(
         (
-            learned_onto(&env, "rungs-learned"),
-            &learned,
-            transport.len(),
-            browser.len(),
-            later
-                .iter()
-                .all(|requests| requests.len() == 1 && browser.contains(&requests[0])),
-            learned_requests == transported_requests,
-            learned_onto(&env, "rungs-transport"),
-            tiers(&env, "rungs-transport")
-                .iter()
-                .any(|entry| entry[1] == "browser_fetch"),
-            &transported,
+            (fingerprints.transport.len(), fingerprints.browser.len()),
+            (
+                past_samples(&learned.served_on),
+                &learned.read,
+                &clients_seen,
+                identity_requests,
+            ),
+            (
+                jars.values().all(|ja4s| ja4s.len() == 1),
+                cookies_in_a_browser,
+                sessions_by_client(&env, "rungs-learned").len(),
+            ),
+            learned.report["usage"]["requests"] == transported.report["usage"]["requests"],
+            (
+                learned_onto(&env, "rungs-transport"),
+                tiers(&env, "rungs-transport")
+                    .iter()
+                    .any(|entry| entry[1] == "browser_fetch"),
+                &transported.read,
+            ),
+            (documents_from_the_transport, &browser.read),
+            weakened,
         ),
         (
-            rungs_learned("browser_fetch"),
-            &expected,
-            1,
-            1,
+            (1, 1),
+            (needed, &manifest, &clients_implied, vec![1; 3]),
+            (true, 0, 2),
             true,
-            true,
-            rungs_learned("browser"),
-            false,
-            &expected,
+            (rungs_learned("browser"), false, &manifest),
+            (0, &manifest),
+            vec![true, true, false],
         ),
-        "{later:?}\n{:?}\n{:?}",
+        "{jars:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}\n{:?}",
+        learned.served_on,
+        browser.served_on,
+        sessions_by_client(&env, "rungs-learned"),
+        sessions_by_client(&env, "rungs-transport"),
+        sessions_by_client(&env, "rungs-browser"),
         tiers(&env, "rungs-learned"),
-        tiers(&env, "rungs-transport"),
     );
 }
 

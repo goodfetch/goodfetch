@@ -642,6 +642,19 @@ pub struct Setting {
     pub arrived_in: ProtocolVersion,
 }
 
+/// A setting whose value yields to another setting's: where `to` is set,
+/// a value of `key` that `when` matches does not take effect, and
+/// `config explain` names `to`, its value and its layer in the setting's
+/// `yields_to` (#2418).
+pub struct Yielding {
+    /// The setting that yields.
+    pub key: &'static Setting,
+    /// The values of `key` that yield.
+    pub when: fn(&serde_json::Value) -> bool,
+    /// The setting it yields to, whenever its value is not `null`.
+    pub to: &'static Setting,
+}
+
 /// A Hook stage: a fixed stage of a request, a navigation, a page, a Record
 /// or a run's lifecycle where Hooks run (ADR 0033).
 pub struct HookStage {

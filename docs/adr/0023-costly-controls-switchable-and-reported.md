@@ -14,7 +14,7 @@ ADR 0016 made the costly security controls switchable. At the owner's request th
 | Actionability guard (ADR 0019) | actions are marked unguarded in Provenance |
 | Page check (ADR 0006) | pages are reported as unchecked |
 | Sample comparison of fetch tiers (ADR 0020) | Provenance records the forced tier |
-| Browser-fetch for identity consistency (ADR 0020) | the Session's HTTP goes through reqwest or wreq, and Provenance records the identity change |
+| Browser-fetch for identity consistency (ADR 0020), switched by `fetch.http_from` | a Session's own HTTP transport (reqwest or wreq) sends a Label's HTTP, under `learned` where its samples matched from there and under `transport` always, Provenance records `http` where it did, and the Run report's `weakened` names the setting |
 | Backoff on 429, 503 and `Retry-After` (ADR 0021) | the run records that it ignored them |
 | Target fingerprint check before the first Effect (ADR 0009) | Effects are marked unverified in the Effect journal |
 | Success checks (ADR 0013) | results are `needs-review`, never a success |
@@ -24,6 +24,8 @@ ADR 0016 made the costly security controls switchable. At the owner's request th
 > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): the sample comparison row's switch is the setting `fetch.tier`, which forces a tier at any scope down to a crawl's Label, besides per run.
 
 > Note (agent decision, on a default, not read by the owner), 2026-11-14, [#2415](https://github.com/goodfetch/goodfetch/issues/2415): the browser-fetch row's switch is the setting `fetch.http_from`, set for the Run or a Label. `browser`, its default, keeps the control on; `learned` and `transport` switch it off, so a Session's own transport sends the Label's HTTP, Provenance records `http` where it did, and the Run report's `weakened` and `config explain` name the setting with the layer that set it. Under a forced `fetch.tier` the setting has no effect.
+
+> Note (agent decision, on a default, not read by the owner), 2026-11-14, [#2423](https://github.com/goodfetch/goodfetch/issues/2423): the browser-fetch row reads as spec #2413 built it. Under `learned`, a Label whose samples matched from a Session's own transport is served from there, one whose samples matched only from the browser Session's hop page on `browser_fetch`, and one that needs scripts on `browser`; under `transport`, a Label the transport's fingerprint does not serve ends on `browser`. `browser` stays the default, which changes on a measurement in a pull request of its own (ADR 0020's rule of 2026-11-10).
 
 > Note (agent decision, on a guarantee, not read by the owner but for what lowers the Verdict, decided by the owner on 2026-11-10 below (grilling of G-06, Q3)), 2026-11-06, [#1577](https://github.com/goodfetch/goodfetch/issues/1577) ([ADR 0138](0138-a-page-is-analysed-once-costly-features-are-settings-and-run-state-commits-in-groups-at-a-chosen-durability-level.md)): switching a control off removes its work as well as its effect. As built, the table gains these rows:
 >

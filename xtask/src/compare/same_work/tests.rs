@@ -207,6 +207,7 @@ fn a_raw_trial_that_fetched_a_page_twice_did_other_work() {
             "crawlee-rs",
             "pagesift",
             "openspider",
+            "fastcrw",
             "spider capacity 4096",
             "spider default features",
             "spider bloom",
@@ -339,7 +340,8 @@ fn a_browser_trial_that_never_rendered_the_links_misses_the_script_rendered_page
             "crawlee",
             "scrapy",
             "pagesift",
-            "openspider"
+            "openspider",
+            "fastcrw"
         ]
         .map(|cell| (
             "unrendered_pages",

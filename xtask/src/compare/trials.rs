@@ -69,6 +69,9 @@ pub(crate) const PAGESIFT_VERSION: &str = "1.3.0";
 /// `xtask/compare-openspider/Cargo.toml` takes (a unit test holds them
 /// equal).
 pub(crate) const OPENSPIDER_COMMIT: &str = "2d25a7d627df4cedeb5ec657243765c0e09b4239";
+/// fastCRW's pinned release, the `crw-server` version `just compare`
+/// installs locked beside its side (a unit test holds them equal).
+pub(crate) const FASTCRW_VERSION: &str = "0.44.2";
 /// Playwright's pinned version, which both sides' headless browser crawls
 /// drive Chrome with (`playwright` in `xtask/compare-crawlee/package.json`
 /// and `xtask/compare-scrapy/pyproject.toml`), and `scrapy-playwright`'s,
@@ -119,6 +122,8 @@ pub(crate) struct Declared {
     pub(crate) pagesift: String,
     /// OpenSpider's commit.
     pub(crate) openspider: String,
+    /// fastCRW's release.
+    pub(crate) fastcrw: String,
     pub(crate) playwright: String,
     pub(crate) scrapy_playwright: String,
     /// The Chrome for Testing build every tool of the headless browser

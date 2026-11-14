@@ -21,7 +21,7 @@ use std::time::Duration;
 use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use super::{Mode, Plan, browser_cache, kill, now, observations, request_count};
+use super::{Mode, Plan, Route, browser_cache, kill, now, observations, request_count};
 use crate::compare::hostile::{self, Broken, Task};
 use crate::compare::matrix::{Config, Scenario};
 use crate::compare::sampler;
@@ -56,6 +56,21 @@ pub(crate) fn bound(seconds: u64, requests: u64) -> Option<String> {
     })
 }
 
+/// The address of the open forward proxy among the network fixtures of the
+/// Proving ground at `address`.
+fn open_proxy(address: &str) -> Result<String> {
+    let fixtures: serde_json::Value = ureq::get(&format!("http://{address}/network-fixtures"))
+        .call()
+        .context("reading the Proving ground's network fixtures")?
+        .body_mut()
+        .read_json()
+        .context("parsing the Proving ground's network fixtures")?;
+    fixtures["proxies"]["open"]
+        .as_str()
+        .map(str::to_owned)
+        .context("the Proving ground's network fixtures name no open proxy")
+}
+
 /// Reads a tool's output to its end, whatever it printed: a hostile pages'
 /// crawl is read from what the Proving ground saw.
 fn drained(child: &mut Child) -> Result<()> {
@@ -76,10 +91,22 @@ impl Plan<'_> {
             }
             _ => None,
         };
+        // fastCRW reads robots.txt on a client of its own, which sends none
+        // of the headers its pages carry, and resolves no host name to the
+        // Proving ground: it reaches each task's host by name through the
+        // Proving ground's open forward proxy.
+        let proxy = match self.config {
+            Config::FastCrw => Some(open_proxy(self.site.address)?),
+            _ => None,
+        };
         let tasks = self.cell.scenario.hostile_tasks();
         let mut stopped = Vec::new();
         for task in tasks {
-            stopped.push(self.crawl_task(task, cache.as_ref().map(tempfile::TempDir::path))?);
+            stopped.push(self.crawl_task(
+                task,
+                cache.as_ref().map(tempfile::TempDir::path),
+                proxy.as_deref(),
+            )?);
         }
         let seen = observations(self.site.address)?;
         let tasks = tasks
@@ -96,19 +123,24 @@ impl Plan<'_> {
     }
 
     /// Crawls `task` to its end, or until [`bound`] stops it: why it was
-    /// stopped, if it was.
-    fn crawl_task(&self, task: &Task, cache: Option<&Path>) -> Result<Option<String>> {
+    /// stopped, if it was. A tool given `proxy` crawls the task's host by
+    /// name through it; another, from the Proving ground's address with
+    /// the host as its `Host`.
+    fn crawl_task(
+        &self,
+        task: &Task,
+        cache: Option<&Path>,
+        proxy: Option<&str>,
+    ) -> Result<Option<String>> {
         let home = tempfile::tempdir().context("creating the tool's data folder")?;
         let address = self.site.address;
         let host = format!("{}:{}", task.host, self.site.port());
+        let (url, route) = match proxy {
+            Some(proxy) => (format!("http://{host}/"), Route::Proxy(proxy)),
+            None => (format!("http://{address}/"), Route::Host(&host)),
+        };
         let baseline = request_count(address)?;
-        let mut driven = self.spawn_at(
-            home.path(),
-            (1, &Mode::Rules),
-            cache,
-            &format!("http://{address}/"),
-            Some(&host),
-        )?;
+        let mut driven = self.spawn_at(home.path(), (1, &Mode::Rules), cache, &url, route)?;
         let pid = driven.child.id();
         let done = AtomicBool::new(false);
         let started = now();

@@ -56,7 +56,7 @@ use url::Url;
 
 use crate::bounds::{count_admitted, count_refused};
 use crate::identity::{
-    Declared, Fixed, Key, Seen, keyed as keyed_url, seen, under_rules, visit_all,
+    Declared, Fixed, Key, Seen, fixed_only, keyed as keyed_url, seen, under_rules, visit_all,
 };
 use crate::invariants::Invariants;
 use crate::rules;
@@ -440,7 +440,12 @@ fn admit_measured(
         let reason = NotAddedReason::OutOfScope;
         return Ok(not_added(admitting, answered, reason, None));
     }
-    let identities = under_rules(connection, key, fixed)?;
+    let bounds = invariants.bounds();
+    let identities = if bounds.learning {
+        under_rules(connection, key, fixed)?
+    } else {
+        fixed_only(fixed)
+    };
     // Held from the duplicate check through the visit, so no reader's
     // chain takes the identity between them (#2168).
     let mut holding = invariants.unwritten().map(UnwrittenVisits::lock);
@@ -467,7 +472,6 @@ fn admit_measured(
             return Ok(not_added(admitting, answered, reason, Some(&crawl_request)));
         }
     }
-    let bounds = invariants.bounds();
     if let Some((reason, rule)) = rules::refuses(connection, key.url(), bounds.learning)? {
         rules::merged(connection, rule, url.as_str(), None)?;
         admitting.leaves();
@@ -498,7 +502,12 @@ fn admit_measured(
         budget.map(|budget| budget.pattern.as_str()),
     );
     if bounds.learning {
-        rules::admitted(connection, key.url(), entering.from.map(keyed_url).as_ref())?;
+        rules::admitted(
+            connection,
+            key.url(),
+            entering.from.map(keyed_url).as_ref(),
+            invariants.work(),
+        )?;
     }
     if asked.is_none() {
         Scope::widen(connection, url)?;

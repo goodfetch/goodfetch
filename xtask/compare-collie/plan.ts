@@ -14,8 +14,9 @@
 //
 // Around the measured part it asks `--marks` for `/start` and `/end`, which
 // xtask answers once it has read the relay's command count and the
-// process tree's CPU time. Setting up and tearing down stay outside the
-// marks. It imports only Node.js's own modules, so both sides' packages
+// process tree's CPU time; a Collie row's driver counts the JSON-RPC
+// messages it sent its engine between them. Setting up and tearing down
+// stay outside the marks. It imports only Node.js's own modules, so both sides' packages
 // can import it.
 import { readFileSync } from "node:fs";
 import process from "node:process";
@@ -78,6 +79,8 @@ export interface DriverSession {
 export interface Driver {
   newSession(): Promise<DriverSession>;
   close(): Promise<void>;
+  /** The JSON-RPC messages it has sent its engine, a Collie row's alone (issue 2406). */
+  sent?(): number;
 }
 
 // An expression, which every tool evaluates as it is: Playwright calls only
@@ -204,18 +207,30 @@ export async function main(drivers: Drivers): Promise<void> {
   let pages: PageResult[] = [];
   let sessions = 0;
   let opened = 0;
+  // The messages sent at each mark, read just after the start mark's answer
+  // and just before the end mark's request.
+  let sentAtStart = 0;
+  let sentAtEnd = 0;
+  const startMark = async (marks: string): Promise<void> => {
+    await mark(marks, "start");
+    sentAtStart = driver.sent?.() ?? 0;
+  };
+  const endMark = async (marks: string): Promise<void> => {
+    sentAtEnd = driver.sent?.() ?? 0;
+    await mark(marks, "end");
+  };
   if (plan.openings > 0) {
     // One page first, outside the marks, as the Sessions cell's first
     // Session; the measured pages stay open until the end mark.
     const session = await driver.newSession();
     const first = await session.newPage();
-    await mark(values.marks, "start");
+    await startMark(values.marks);
     const kept: DriverPage[] = [];
     while (opened < plan.openings) {
       kept.push(await session.newPage());
       opened += 1;
     }
-    await mark(values.marks, "end");
+    await endMark(values.marks);
     for (const page of kept) await page.close();
     await first.close();
     await session.close();
@@ -223,7 +238,7 @@ export async function main(drivers: Drivers): Promise<void> {
     // One Session first, outside the marks, so each tool is attached to the
     // browser before the openings it measures.
     const first = await driver.newSession();
-    await mark(values.marks, "start");
+    await startMark(values.marks);
     for (let started = 0; started < plan.sessions; started += 1) {
       const session = await driver.newSession();
       const page = await session.newPage();
@@ -231,19 +246,20 @@ export async function main(drivers: Drivers): Promise<void> {
       await session.close();
       sessions += 1;
     }
-    await mark(values.marks, "end");
+    await endMark(values.marks);
     await first.close();
   } else {
     const session = await driver.newSession();
-    await mark(values.marks, "start");
+    await startMark(values.marks);
     if (plan.at_once) {
       pages = await Promise.all(plan.pages.map((planned) => onPage(session, planned)));
     } else {
       for (const planned of plan.pages) pages.push(await onPage(session, planned));
     }
-    await mark(values.marks, "end");
+    await endMark(values.marks);
     await session.close();
   }
   await driver.close();
-  process.stdout.write(`${JSON.stringify({ pages, sessions, opened })}\n`);
+  const messages = driver.sent === undefined ? null : sentAtEnd - sentAtStart;
+  process.stdout.write(`${JSON.stringify({ pages, sessions, opened, messages })}\n`);
 }

@@ -321,7 +321,8 @@ pub(crate) fn trial(
                 command.arg("--routed");
             }
         }
-        Contender::PuppeteerLocator
+        Contender::CollieProgram
+        | Contender::PuppeteerLocator
         | Contender::PuppeteerPage
         | Contender::Stagehand
         | Contender::AgentBrowser
@@ -602,7 +603,8 @@ pub(crate) fn markdown(text: &mut String, section: &LoadSection) {
     for figures in &section.rows {
         let counters = match figures.row.tool() {
             Contender::Collie => format!("missing ({COUNTERS_ISSUE})"),
-            Contender::Playwright
+            Contender::CollieProgram
+            | Contender::Playwright
             | Contender::PuppeteerLocator
             | Contender::PuppeteerPage
             | Contender::Stagehand

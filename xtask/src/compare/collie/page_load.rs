@@ -321,6 +321,9 @@ pub(crate) fn trial(
                 command.arg("--routed");
             }
         }
+        Contender::PuppeteerLocator | Contender::PuppeteerPage | Contender::Stagehand => {
+            bail!("the page-load cell has no row of {}", tool.name())
+        }
     }
     let subject = subject(page, row, number);
     let driven = match super::drive(command, folder.path(), &relay, &subject)? {
@@ -595,7 +598,10 @@ pub(crate) fn markdown(text: &mut String, section: &LoadSection) {
     for figures in &section.rows {
         let counters = match figures.row.tool() {
             Contender::Collie => format!("missing ({COUNTERS_ISSUE})"),
-            Contender::Playwright => "n/a".to_owned(),
+            Contender::Playwright
+            | Contender::PuppeteerLocator
+            | Contender::PuppeteerPage
+            | Contender::Stagehand => "n/a".to_owned(),
         };
         let _ = writeln!(
             text,

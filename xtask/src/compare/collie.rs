@@ -2,14 +2,20 @@
 //! Playwright on the Proving ground's `actionability.test` and
 //! `portal.test` pages, in six cells (click, form, navigation, Sessions
 //! opened, pages at once, pages opened), each tool carrying out the same
-//! plan through `xtask/compare-collie/act.ts`; and the page-load cell
-//! ([`page_load`], issue 2319), in which each tool launches its own browser.
+//! plan through `xtask/compare-collie/act.ts`; beside them the arms,
+//! Puppeteer's two rows and Stagehand with no model, through
+//! `xtask/compare-collie-arms/act.ts` (issues 2443 and 2441), each read
+//! against the Collie row the pages it got right place it at; and the
+//! page-load cell ([`page_load`], issue 2319), in which each tool launches
+//! its own browser.
 //!
-//! In the six cells both tools attach over CDP to one Chrome for Testing
-//! that xtask launched, which neither tool launched: through the counting
-//! relay ([`super::relay`]), each tool's CDP commands, and the rounds it
-//! waited on the browser, are counted the same way, from outside it, and
-//! the browser's own processes are left out of each tool's CPU and memory.
+//! In the six cells every tool attaches over CDP to one Chrome for Testing
+//! that xtask launched, which no tool launched: through the counting relay
+//! ([`super::relay`]), each tool's CDP commands, and the rounds it waited
+//! on the browser, are counted the same way, from outside it, and the
+//! browser's own processes are left out of each tool's CPU and memory.
+//! Stagehand's extension runs in the browser's processes, so its CPU and
+//! memory are not Stagehand's, while its CDP commands pass the relay.
 //! What that leaves out of the Sessions cell is the browser's launch, which
 //! `just counts` times for Collie at its defaults.
 //!
@@ -338,12 +344,51 @@ pub(crate) struct Tools<'a> {
     pub(crate) proving_ground: &'a Path,
     /// Collie's Attached engine.
     pub(crate) engine: &'a Path,
-    /// `xtask/compare-collie/act.ts`, which Node.js runs, as an absolute path.
+    /// `xtask/compare-collie/act.ts`, which Node.js runs for Collie and
+    /// Playwright, as an absolute path.
     pub(crate) driver: PathBuf,
+    /// `xtask/compare-collie-arms/act.ts`, which it runs for the arms
+    /// (issues 2441 and 2443), as an absolute path.
+    pub(crate) arms_driver: PathBuf,
     /// Chrome for Testing's folder.
     pub(crate) browser: &'a Path,
     /// xtask's own `GOODFETCH_*` variables, which the tool runs without.
     pub(crate) goodfetch_variables: &'a [OsString],
+}
+
+impl Tools<'_> {
+    /// The driver that runs `tool`.
+    pub(crate) fn script(&self, tool: Contender) -> &Path {
+        match tool {
+            Contender::Collie | Contender::Playwright => &self.driver,
+            Contender::PuppeteerLocator | Contender::PuppeteerPage | Contender::Stagehand => {
+                &self.arms_driver
+            }
+        }
+    }
+}
+
+/// The flags `tool`'s browser is launched with past every tool's: Stagehand
+/// drives it through an extension that speaks CDP over a WebSocket of its
+/// own, which Chrome opens to it only with these (issue 2441).
+pub(crate) fn browser_flags(tool: Contender) -> &'static [&'static str] {
+    match tool {
+        Contender::Stagehand => &[
+            "--enable-unsafe-extension-debugging",
+            "--remote-allow-origins=*",
+        ],
+        Contender::Collie
+        | Contender::Playwright
+        | Contender::PuppeteerLocator
+        | Contender::PuppeteerPage => &[],
+    }
+}
+
+/// Why `tool` runs no trial of `exercise`, when it runs none: Stagehand
+/// opens no Session of its own (issue 2441).
+pub(crate) fn skipped(tool: Contender, exercise: Exercise) -> Option<&'static str> {
+    (tool == Contender::Stagehand && exercise == Exercise::Sessions)
+        .then_some("Stagehand drives the browser's one context, so it opens no Session")
 }
 
 /// A browser xtask launched, its whole tree stopped when dropped.
@@ -359,9 +404,10 @@ impl Drop for Browser {
 }
 
 /// Launches Chrome for Testing from `folder`, headless, with its profile
-/// in `profile` and every `.test` host resolved to loopback; returns it with
-/// its remote-debugging port and the browser endpoint's path.
-fn launch(folder: &Path, profile: &Path) -> Result<(Browser, u16, String)> {
+/// in `profile`, every `.test` host resolved to loopback and `flags`
+/// besides; returns it with its remote-debugging port and the browser
+/// endpoint's path.
+fn launch(folder: &Path, profile: &Path, flags: &[&str]) -> Result<(Browser, u16, String)> {
     let child = Command::new(folder.join(trial::CHROME))
         .args([
             "--headless",
@@ -370,6 +416,7 @@ fn launch(folder: &Path, profile: &Path) -> Result<(Browser, u16, String)> {
             "--remote-debugging-port=0",
             "--host-resolver-rules=MAP *.test 127.0.0.1",
         ])
+        .args(flags)
         .arg(format!("--user-data-dir={}", profile.display()))
         .arg("about:blank")
         .stdin(Stdio::null())
@@ -601,10 +648,14 @@ pub(crate) fn trial(
     let folder = tempfile::tempdir().context("creating the trial's folder")?;
     let plan_file = folder.path().join("plan.json");
     std::fs::write(&plan_file, serde_json::to_vec(&plan)?).context("writing the plan")?;
-    let (browser, port, path) = launch(tools.browser, &folder.path().join("profile"))?;
+    let (browser, port, path) = launch(
+        tools.browser,
+        &folder.path().join("profile"),
+        browser_flags(tool),
+    )?;
     let relay = Relay::start(port)?;
     let relayed = relay.address();
-    let mut command = node(tools, &tools.driver);
+    let mut command = node(tools, tools.script(tool));
     command
         .args(["--tool", tool.name(), "--plan"])
         .arg(&plan_file)
@@ -721,8 +772,9 @@ fn other_actions(trial: &CollieTrial, planned: &Cell) -> Option<String> {
 }
 
 /// Each finding that keeps the Collie scenario's figures from counting: a
-/// cell short of or past its declared trials of a tool, unless a trial of
-/// it was stopped twice; a trial whose pages or Sessions are not its
+/// cell short of or past its declared trials of a tool the run ran, unless
+/// a trial of it was stopped twice or the tool runs none there
+/// ([`skipped`]); a trial whose pages or Sessions are not its
 /// cell's, whose page took other steps than its plan's (more, or fewer
 /// though they all succeeded), or that counted no command; and a trial
 /// whose page saw another status or text than most trials of both tools
@@ -731,6 +783,7 @@ fn other_actions(trial: &CollieTrial, planned: &Cell) -> Option<String> {
 pub(crate) fn check(scenario: &CollieScenario) -> Vec<Finding> {
     let CollieScenario::Measured {
         trials,
+        tools,
         trials_run,
         stopped,
         loads,
@@ -752,12 +805,17 @@ pub(crate) fn check(scenario: &CollieScenario) -> Vec<Finding> {
             .filter(|trial| trial.exercise == exercise)
             .collect();
         ran.sort_by_key(|trial| (trial.tool, trial.number));
-        for tool in Contender::ALL {
+        for &tool in tools {
             let count = ran.iter().filter(|trial| trial.tool == tool).count();
             let was_stopped = stopped
                 .iter()
                 .any(|run| run.exercise == exercise && run.tool == tool);
-            if !was_stopped && u32::try_from(count).ok() != Some(*trials) {
+            let declared = if skipped(tool, exercise).is_some() {
+                0
+            } else {
+                *trials
+            };
+            if !was_stopped && u32::try_from(count).ok() != Some(declared) {
                 findings.push(Finding::new(
                     "trial_count",
                     format!("collie {} {}", exercise.name(), tool.name()),
@@ -849,9 +907,11 @@ fn other_work(trials: &[&CollieTrial]) -> Vec<Finding> {
         .collect()
 }
 
-/// Every trial of the Collie scenario, `trials` of each tool in each cell,
-/// in one random order drawn from `state` by `next`.
+/// Every trial of the Collie scenario, `trials` of each of `tools` in each
+/// cell it runs ([`skipped`]), in one random order drawn from `state` by
+/// `next`.
 pub(crate) fn order(
+    tools: &[Contender],
     trials: u32,
     state: &mut u64,
     next: fn(&mut u64) -> u64,
@@ -859,8 +919,10 @@ pub(crate) fn order(
     let order: Vec<_> = EXERCISES
         .into_iter()
         .flat_map(|exercise| {
-            Contender::ALL
-                .into_iter()
+            tools
+                .iter()
+                .copied()
+                .filter(move |&tool| skipped(tool, exercise).is_none())
                 .flat_map(move |tool| (1..=trials).map(move |number| (exercise, tool, number)))
         })
         .collect();

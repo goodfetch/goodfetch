@@ -1,0 +1,7 @@
+# The Collie scenario's arms of `just compare` (issues 2443 and 2441):
+# Puppeteer and Stagehand, a pnpm workspace of its own, like
+# `xtask/compare-crawlee`'s, so their dependencies stay out of the Products'
+# `pnpm-lock.yaml`. Its own lock pins them; `just fetch` and `just compare`
+# install them with `--frozen-lockfile`, and `just audit` and `just lint`
+# read them.
+packages: []

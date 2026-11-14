@@ -101,22 +101,28 @@ pub fn calls(symbol: &str, program: &Path, arguments: &[&str]) -> Result<u64, Ca
 /// ran in each of `functions` and in whatever it called: Callgrind collects
 /// only while one of them, each named as Callgrind names a function, is on
 /// the stack. None when the program never entered one: a function renamed
-/// would otherwise read as free.
+/// would otherwise read as free. What ran before the program entered the
+/// function `from`, when one is named, is left out: Callgrind zeroes its
+/// costs there, so a program can do first what its figure must not hold,
+/// such as work done once however many units follow. A `from` the program
+/// never enters leaves that work in, and the figure above its limit.
 ///
 /// # Errors
 ///
 /// As [`calls`].
 pub fn instructions_beneath(
     functions: &[&str],
+    from: Option<&str>,
     program: &Path,
     arguments: &[&str],
 ) -> Result<Option<u64>, CallgrindError> {
-    let toggles: Vec<String> = functions
+    let mut named: Vec<String> = functions
         .iter()
         .map(|function| format!("--toggle-collect={function}"))
         .collect();
+    named.extend(from.map(|function| format!("--zero-before={function}")));
     let mut options = vec!["--collect-atstart=no"];
-    options.extend(toggles.iter().map(String::as_str));
+    options.extend(named.iter().map(String::as_str));
     let text = output(&options, program, arguments)?;
     Ok(total_in(&text).filter(|total| *total > 0))
 }

@@ -37,7 +37,10 @@
 //! `F1.clean_up_instructions` is the instructions Callgrind counts in the
 //! clean-up's removal and whatever it calls, on the `default` cell, for
 //! which this example runs again as `--callgrind default` under Callgrind:
-//! the base of spec #2164's 40 % criterion. It is the figure of this
+//! the base of spec #2164's 40 % criterion. That run crawls the site twice,
+//! on engines sharing one cache of compilations, and Callgrind counts the
+//! second crawl alone, so the rules' selectors, compiled once per engine,
+//! are no page's instructions. It is the figure of this
 //! example's build, the `dev` profile, whose parsing, selector matching and
 //! Filter-list engine are optimized (`Cargo.toml`); `just compare`'s
 //! Callgrind cell reads the release build's whole page. Without Valgrind
@@ -313,8 +316,24 @@ fn plant(name: &str, work: &CountedWork) -> Plant {
 /// The crawl of `cell`, on an engine and in a home of its own, with the
 /// row `planted` planted: what it counted, having read each page right.
 fn crawl(cell: &Cell, planted: Option<&str>) -> CountedWork {
+    crawl_on(cell, planted, Metrics::none())
+}
+
+/// Where the run under Callgrind starts to count: Callgrind zeroes its
+/// costs as this is entered, named as Callgrind names it.
+const COUNTED_FROM: &str = "counts_extraction::counted_from_here";
+
+/// Entered once the engine's cache holds the Clean-up rules' selectors
+/// compiled ([`COUNTED_FROM`]).
+#[inline(never)]
+fn counted_from_here() {
+    std::hint::black_box(());
+}
+
+/// The crawl of `cell` as [`crawl`] runs it, on an engine that counts on
+/// `metrics` and compiles into its Counted work's cache.
+fn crawl_on(cell: &Cell, planted: Option<&str>, metrics: Metrics) -> CountedWork {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
-    let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
     let site = Arc::new(Site {
         pages: pages(),
@@ -372,7 +391,7 @@ fn clean_up_instructions(planted: Option<&str>) -> Option<u64> {
     if let Some(planted) = planted {
         arguments.extend(["--plant", planted]);
     }
-    match callgrind::instructions_beneath(&[REMOVAL], &program, &arguments) {
+    match callgrind::instructions_beneath(&[REMOVAL], Some(COUNTED_FROM), &program, &arguments) {
         Ok(Some(instructions)) => Some(instructions),
         // A function renamed would otherwise read as free, and pass.
         Ok(None) => panic!("Callgrind never entered {REMOVAL}: the clean-up's removal has moved"),
@@ -398,7 +417,17 @@ fn main() {
             .into_iter()
             .find(|cell| cell.name == name)
             .expect("invariant: its parent named a cell");
-        crawl(&cell, planted);
+        // The crawl runs twice on engines that share one cache of
+        // compilations, as an engine's later Runs do, and only the second
+        // is counted. The first compiles the rules' selectors, once for the
+        // engine and their version whatever the pages that follow (ADR
+        // 0138): no page's work, and what the cache's table costs to fill
+        // differs from run to run with its hasher's seed, by more than the
+        // row's tolerance on a site this short.
+        let metrics = Metrics::none();
+        crawl_on(&cell, None, metrics.clone());
+        counted_from_here();
+        crawl_on(&cell, planted, metrics);
         return;
     }
     // Side by side, each on its own paused runtime, the run under Callgrind

@@ -7,7 +7,6 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::admission::{Admission, Admitted, Ended};
 use goodfetch_engine::retry_after::{self, RetryAfter};
-use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::Run;
 use goodfetch_frontier::backoff_classes::{Class, Met, class};
 use goodfetch_protocol::block::BlockCause;
@@ -18,7 +17,8 @@ use tokio::time::Instant;
 
 use super::attempt::Answer;
 use super::failure::{RETRY_AFTER, Why};
-use crate::work_items::{self, Failure, Unsuccessful};
+use crate::run_state::{StateError, Stored};
+use crate::work_items::Failure;
 
 /// The `fix` of a request a site's `Retry-After` holds further away than
 /// the Run waits (ADR 0118).
@@ -164,42 +164,29 @@ pub(super) fn held_past_bound(
 /// re-admits it.
 pub(super) async fn end_unsent(
     run: &Run,
+    stored: &Stored,
     admission: &mut Admission,
     refused: Vec<(Admitted, SystemTime)>,
-) -> Result<(), RunStateError> {
-    let ended_at = run.point_in_time();
-    let ending: Vec<(String, SystemTime)> = refused
+) -> Result<(), StateError> {
+    let unsent = refused
         .iter()
-        .map(|(admitted, until)| (admitted.id.clone(), *until))
-        .collect();
-    run.state()
-        .write(move |connection| {
-            for (id, until) in ending {
-                for leased in work_items::lease(connection, std::slice::from_ref(&id))? {
-                    let mut details = Map::new();
-                    details.insert("status".to_owned(), Value::Null);
-                    details.insert(
-                        RETRY_AFTER.to_owned(),
-                        Value::from(retry_after::detail(until)),
-                    );
-                    details.insert("fix".to_owned(), Value::from(RETRY_AFTER_FIX));
-                    let failure = Failure {
-                        code: RESPONSE_UNAVAILABLE.name.to_owned(),
-                        message: "The site asked for no request to its domain before a time further away than `politeness.retry_after.max`; nothing was sent.".to_owned(),
-                        details,
-                    };
-                    work_items::end(
-                        connection,
-                        &id,
-                        leased.lease_epoch,
-                        Unsuccessful::Failed(failure),
-                        &ended_at,
-                    )?;
-                }
-            }
-            Ok(())
+        .map(|(admitted, until)| {
+            let mut details = Map::new();
+            details.insert("status".to_owned(), Value::Null);
+            details.insert(
+                RETRY_AFTER.to_owned(),
+                Value::from(retry_after::detail(*until)),
+            );
+            details.insert("fix".to_owned(), Value::from(RETRY_AFTER_FIX));
+            let failure = Failure {
+                code: RESPONSE_UNAVAILABLE.name.to_owned(),
+                message: "The site asked for no request to its domain before a time further away than `politeness.retry_after.max`; nothing was sent.".to_owned(),
+                details,
+            };
+            (admitted.id.clone(), failure)
         })
-        .await?;
+        .collect();
+    stored.end_unsent(unsent, run.point_in_time()).await?;
     let now = run.clock().now();
     for (admitted, _) in refused {
         run.record_outcome(RESPONSE_UNAVAILABLE.name);

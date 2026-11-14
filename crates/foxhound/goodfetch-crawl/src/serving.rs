@@ -4,9 +4,10 @@
 //! engine's private endpoint or a Daemon. A crawl's delivery takes each
 //! Connection that joins its live Run, and leases work items to it until
 //! it leaves, when its `crawl.serve` call ends, or its Connection ends. A
-//! handler's enqueue and a seed added to the running crawl reach the live
-//! crawl's Run through it too, and a seed added wakes its delivery, while
-//! its intake is open: a crawl about to end closes it ([`Intake`]). Each
+//! handler's enqueue, a seed added to the running crawl and a re-admission
+//! reach the live crawl's Run state through it too, over the mailbox of
+//! the delivery loop that owns it (ADR 0142), while its intake is open: a
+//! crawl about to end closes it ([`Intake`]). Each
 //! live crawl's attempts stage their outputs in its staging, which its Run
 //! also takes the Key-value store writes made through an attempt in, and
 //! check each Record they push or commit against its Datasets, read and
@@ -23,10 +24,11 @@ use goodfetch_engine::settings::{RunSettings, get_or_default};
 use goodfetch_protocol::foxhound::crawl::CRAWL_MAX_STAGED_ENQUEUES;
 use goodfetch_protocol::foxhound::settings::DATASET_RECORDS;
 use goodfetch_protocol::run::RunId;
-use tokio::sync::{Mutex, Notify, mpsc, oneshot};
+use tokio::sync::{Mutex, mpsc, oneshot};
 
 use crate::intake::Intake;
 use crate::invariants::Invariants;
+use crate::run_state::{self, Asked, Asking};
 use crate::staging::Staging;
 
 /// A Connection that joined a crawl, and the sign that it left: the
@@ -40,21 +42,20 @@ pub(crate) struct Server {
 }
 
 /// A live crawl: its Run, the way in for Connections that join it, and
-/// the sign that a seed was added to it.
+/// how other tasks ask its Run state.
 struct Live {
     run: Run,
     egress: Arc<Policy>,
     invariants: Invariants,
     joining: mpsc::Sender<Server>,
-    seeded: Arc<Notify>,
+    asking: Asking,
     staging: Staging,
-    intake: Intake,
     datasets: Datasets,
 }
 
 /// What a seed added to a live crawl, or a handler's enqueue, reaches:
-/// its Run, the domain policy its Frontier judges each URL by, and what
-/// tells its delivery that seeds were added.
+/// its Run, the domain policy its Frontier judges each URL by, and how it
+/// asks the crawl's Run state.
 pub(crate) struct LiveCrawl {
     /// The crawl's Run.
     pub(crate) run: Run,
@@ -62,13 +63,11 @@ pub(crate) struct LiveCrawl {
     pub(crate) egress: Arc<Policy>,
     /// What each of its admissions reads, built once.
     pub(crate) invariants: Invariants,
-    /// Notified once seeds were added.
-    pub(crate) seeded: Arc<Notify>,
+    /// How a call asks the crawl's Run state, which its delivery loop
+    /// owns.
+    pub(crate) asking: Asking,
     /// Where its attempts stage their outputs.
     pub(crate) staging: Staging,
-    /// Whether it still takes new work, which a write giving it work
-    /// checks in its own job.
-    pub(crate) intake: Intake,
     /// The Datasets it declares, which each pushed Record is checked
     /// against.
     pub(crate) datasets: Datasets,
@@ -78,16 +77,19 @@ pub(crate) struct LiveCrawl {
 pub(crate) struct Opened {
     /// Where joining Connections arrive.
     pub(crate) joined: mpsc::Receiver<Server>,
-    /// Notified once seeds were added since its last notification.
-    pub(crate) seeded: Arc<Notify>,
+    /// What other tasks ask of its Run state, for its delivery loop to
+    /// answer.
+    pub(crate) asked: Asked,
+    /// How its pages' redirect chains ask the same.
+    pub(crate) asking: Asking,
     /// Where its attempts stage their outputs until they commit.
     pub(crate) staging: Staging,
     /// The Run's domain policy, which judges each redirect hop.
     pub(crate) egress: Arc<Policy>,
     /// What each of its admissions reads, built once.
     pub(crate) invariants: Invariants,
-    /// Whether it still takes new work, which its delivery closes before
-    /// it ends the Run.
+    /// Whether it still takes new work, which each job that gives it
+    /// work checks, and its delivery closes before it ends the Run.
     pub(crate) intake: Intake,
     /// The Datasets it declares, which each committed Record is checked
     /// against.
@@ -123,7 +125,7 @@ impl Crawls {
     ) -> Opened {
         let datasets = datasets.keeping_records(keeps_records(run));
         let (joining, joined) = mpsc::channel(JOINING);
-        let seeded = Arc::new(Notify::new());
+        let (asking, asked) = run_state::mailbox(run.metrics().counted_work().clone());
         let staging = Staging::bounded(get_or_default(
             run.settings().map(RunSettings::resolved),
             &CRAWL_MAX_STAGED_ENQUEUES,
@@ -138,15 +140,15 @@ impl Crawls {
                 egress: Arc::clone(&egress),
                 invariants: invariants.clone(),
                 joining,
-                seeded: Arc::clone(&seeded),
+                asking: asking.clone(),
                 staging: staging.clone(),
-                intake: intake.clone(),
                 datasets: datasets.clone(),
             },
         );
         Opened {
             joined,
-            seeded,
+            asked,
+            asking,
             staging,
             egress,
             invariants,
@@ -161,9 +163,8 @@ impl Crawls {
             run: live.run.clone(),
             egress: Arc::clone(&live.egress),
             invariants: live.invariants.clone(),
-            seeded: Arc::clone(&live.seeded),
+            asking: live.asking.clone(),
             staging: live.staging.clone(),
-            intake: live.intake.clone(),
             datasets: live.datasets.clone(),
         })
     }

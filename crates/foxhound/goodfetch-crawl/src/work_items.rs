@@ -774,6 +774,15 @@ impl Positions {
         })
     }
 
+    /// The same, keying each work item it adds under `keys` as it adds
+    /// it: an admission with no attempt, which nothing keys later.
+    pub(crate) fn keying(connection: &Connection, keys: Keys) -> rusqlite::Result<Self> {
+        Ok(Self {
+            keyed: Some((keys, Vec::new())),
+            ..Self::of(connection)?
+        })
+    }
+
     /// The same, admitting while an attempt stages, against what its
     /// earlier staged admissions did, `earlier`.
     pub(crate) fn staging(

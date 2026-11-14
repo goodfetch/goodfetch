@@ -23,6 +23,7 @@ use std::process::Command;
 use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, CleanUp};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
 use goodfetch_protocol::page::{Navigated, PageOpened};
 use goodfetch_test_client::HomeLayout;
@@ -33,7 +34,7 @@ use goodfetch_test_support::{
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use goodfetch_test_client::{Attached, hello};
+use goodfetch_test_client::{Attached, Hello, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -70,6 +71,30 @@ pub(crate) fn started_with(
     started_after(env, cache, proving_ground, run_id, settings, change, &[])
 }
 
+/// As [`started_with`], its Client a person's, the CLI: the engine admits
+/// from it the operations only a person may call, such as
+/// `config.user_write`.
+pub(crate) fn started_by_a_person(
+    env: &TestEnv,
+    cache: &Path,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    settings: &Map<String, Value>,
+) -> Attached {
+    begun(
+        env,
+        cache,
+        proving_ground,
+        Beginning {
+            hello: Hello::needing(Product::Collie).surface(Surface::Cli),
+            ..Beginning::by("run.start", run_id)
+        },
+        settings,
+        |_| {},
+        &[],
+    )
+}
+
 /// As [`started_with`], once the engine answered `before`, calls such as
 /// `usage.set` the Run's start depends on, each with an ID from 100.
 pub(crate) fn started_after(
@@ -85,7 +110,7 @@ pub(crate) fn started_after(
         env,
         cache,
         proving_ground,
-        ("run.start", run_id),
+        Beginning::by("run.start", run_id),
         settings,
         change,
         before,
@@ -106,20 +131,44 @@ pub(crate) fn resumed_with(
         env,
         cache,
         proving_ground,
-        ("run.resume", run_id),
+        Beginning::by("run.resume", run_id),
         settings,
         change,
         &[],
     )
 }
 
-/// An engine started as [`started_after`] says, once `method` began the
-/// Run `run_id`.
+/// How a test's Run begins: its Client's `hello`, and the call that begins
+/// the Run `run_id`.
+struct Beginning<'a> {
+    hello: Hello,
+    method: &'a str,
+    run_id: &'a str,
+}
+
+impl<'a> Beginning<'a> {
+    /// `method` beginning `run_id`, asked by a Client that says
+    /// [`hello`]'s `hello`.
+    fn by(method: &'a str, run_id: &'a str) -> Self {
+        Self {
+            hello: Hello::needing(Product::Collie),
+            method,
+            run_id,
+        }
+    }
+}
+
+/// An engine started as [`started_after`] says, once `beginning`'s call
+/// began its Run.
 fn begun(
     env: &TestEnv,
     cache: &Path,
     proving_ground: &ProvingGround,
-    (method, run_id): (&str, &str),
+    Beginning {
+        hello,
+        method,
+        run_id,
+    }: Beginning<'_>,
     settings: &Map<String, Value>,
     change: impl FnOnce(&mut Command),
     before: &[(&str, Value)],
@@ -128,7 +177,7 @@ fn begun(
         command.env(BROWSERS_PATH_VARIABLE, cache);
         change(command);
     });
-    engine.send(&hello(Product::Collie));
+    engine.send(&hello.message());
     let _ = engine.next();
     for ((method, params), id) in before.iter().zip(100..) {
         let answered = engine.ask(id, method, params);

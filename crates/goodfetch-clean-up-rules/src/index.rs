@@ -17,7 +17,7 @@ use dom_query::NodeRef;
 
 /// What a rule is filed under.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Key {
+pub(crate) enum Key {
     Id(String),
     Class(String),
     Attribute(String),
@@ -28,7 +28,7 @@ pub(super) enum Key {
 
 /// The rules of one page, by position in rule order, under their keys.
 #[derive(Default)]
-pub(super) struct Index {
+pub(crate) struct Index {
     ids: BTreeMap<String, Vec<usize>>,
     classes: BTreeMap<String, Vec<usize>>,
     attributes: BTreeMap<String, Vec<usize>>,
@@ -39,7 +39,7 @@ pub(super) struct Index {
 impl Index {
     /// The index of the rules whose selectors are `selectors`, in rule
     /// order.
-    pub(super) fn of<'a>(selectors: impl Iterator<Item = &'a str>) -> Self {
+    pub(crate) fn of<'a>(selectors: impl Iterator<Item = &'a str>) -> Self {
         let mut index = Self::default();
         for (position, selector) in selectors.enumerate() {
             for key in keys(selector) {
@@ -59,10 +59,25 @@ impl Index {
         index
     }
 
+    /// About how many bytes it holds.
+    pub(crate) fn bytes(&self) -> usize {
+        let buckets = [&self.ids, &self.classes, &self.attributes, &self.tags];
+        let filed: usize = buckets
+            .into_iter()
+            .flat_map(BTreeMap::iter)
+            .map(|(key, rules)| {
+                size_of::<(String, Vec<usize>)>()
+                    + key.capacity()
+                    + rules.capacity() * size_of::<usize>()
+            })
+            .sum();
+        size_of::<Self>() + filed + self.universal.capacity() * size_of::<usize>()
+    }
+
     /// Into `candidates`, the positions of the rules `node` could match, in
     /// rule order, each once: those filed under its ID, its classes, its
     /// attributes' names and its tag, and those under no key.
-    pub(super) fn candidates(&self, node: &NodeRef<'_>, candidates: &mut Vec<usize>) {
+    pub(crate) fn candidates(&self, node: &NodeRef<'_>, candidates: &mut Vec<usize>) {
         candidates.clear();
         candidates.extend_from_slice(&self.universal);
         node.query(|node| {
@@ -133,7 +148,7 @@ impl Compound {
 /// [`Key::Universal`] for a member holding anything this does not read
 /// exactly: a namespace, a pseudo-element, which moves the subject, or a
 /// token no selector holds.
-pub(super) fn keys(selector: &str) -> Vec<Key> {
+pub(crate) fn keys(selector: &str) -> Vec<Key> {
     let mut input = ParserInput::new(selector);
     let mut parser = Parser::new(&mut input);
     let mut keys = Vec::new();

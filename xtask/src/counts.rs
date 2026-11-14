@@ -260,10 +260,9 @@ const ROWS: [Row; 110] = [
     b4("F1.analysis_handoffs", "pages", true),
     b4("F1.rule_list_builds", "pages", true),
     b4("F1.rule_tests", "pages", true),
-    // Read as each cell's crawl ended. No Run keeps a host cache until
-    // #2186, so no cell does their work yet.
-    b4("F1.host_cache_entries", CRAWLS, false),
-    b4("F1.host_cache_bytes", CRAWLS, false),
+    // Read as each cell's crawl ended.
+    b4("F1.host_cache_entries", CRAWLS, true),
+    b4("F1.host_cache_bytes", CRAWLS, true),
     // Callgrind's count beneath the clean-up's removal, which B4's own run
     // reads on its default cell alone: the other cells print none of its
     // unit.

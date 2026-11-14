@@ -10,8 +10,9 @@
 
 use std::sync::LazyLock;
 
-use goodfetch_clean_up_rules::matching::{Choices, List};
-use goodfetch_clean_up_rules::removal::{self, Removal, Rules, Share};
+use goodfetch_clean_up_rules::list::List;
+use goodfetch_clean_up_rules::matching::Choices;
+use goodfetch_clean_up_rules::removal::{self, HostCache, Removal, Rules, Share};
 use goodfetch_clean_up_rules::rules::{FilterLists, ListTexts};
 use goodfetch_counted_work::{CountedWork, Row};
 
@@ -33,6 +34,7 @@ fn removed(html: &str, url: &str, choices: &Choices, work: &CountedWork) -> (Rem
             lists: &LISTS,
             version: VERSION,
             choices,
+            hosts: &HostCache::new(0),
         },
         work,
     );
@@ -128,11 +130,12 @@ const PLAIN: &str = "<!DOCTYPE html>
 </body></html>";
 
 /// The pages that share the engine's cache of compilations, as its Runs'
-/// do, compile each of a rule set's selectors once: a page whose rules the
-/// earlier pages held compiles none, and one that holds a class a generic
-/// rule keys compiles that rule's selector alone (#1765, #1912). Each
-/// removes what a page with a cache of its own does. Rules of another
-/// version compile their selectors again.
+/// do, compile each selector they test once: a page that tests no rule
+/// beyond what the earlier pages tested compiles none, and one whose
+/// elements a rule is filed under compiles that rule's selector the first
+/// time it is tested (#1765, #1912, #2186). Each removes what a page with a
+/// cache of its own does. Rules of another version compile their selectors
+/// again.
 /// Covers: story:5-98
 #[test]
 fn pages_that_share_the_engines_cache_compile_each_selector_of_their_rules_once() {
@@ -150,30 +153,38 @@ fn pages_that_share_the_engines_cache_compile_each_selector_of_their_rules_once(
     };
 
     let (first, _) = remove(PLAIN, "first");
-    let [second, with_ads, again] = [
+    let [second, (with_ads, removed), again] = [
         remove(PLAIN, "second"),
         remove(PAGE, "third"),
         remove(PAGE, "fourth"),
     ];
-    let document = shared.parse_html(Row::PageParses, PLAIN);
+    let another = FilterLists::embedded().expect("the embedded Filter lists load");
+    let document = shared.parse_html(Row::PageParses, PAGE);
     let _ = removal::remove(
         &document,
         "https://news.example/fifth",
         Rules {
-            lists: &LISTS,
+            lists: &another,
             version: "another",
             choices: &defaults(),
+            hosts: &HostCache::new(0),
         },
         &shared,
     );
 
     assert!(first > 0, "the first page compiled no selector");
-    // `.ad-slot`, EasyList's generic rule the class `ad-slot` keys, is the
-    // one selector the third page's rules hold that the first's did not.
-    // The shadow roots' selector is the engine's own, of no version.
+    assert!(
+        with_ads > first,
+        "the page with ads compiled no selector of the rules it tested"
+    );
+    // The shadow roots' selector is the engine's own, of no version: the
+    // page of the other version compiles every other the third page did.
     assert_eq!(
-        ([second, with_ads, again], compiled()),
-        ([(first, 0), (first + 1, 3), (first + 1, 3)], 2 * first)
+        ([second, (with_ads, removed), again], compiled()),
+        (
+            [(first, 0), (with_ads, 3), (with_ads, 3)],
+            2 * with_ads - first
+        )
     );
 }
 
@@ -216,6 +227,7 @@ fn removal_counts_its_pages_rule_list_and_each_rule_it_tests() {
                 lists: &lists,
                 version: VERSION,
                 choices,
+                hosts: &HostCache::new(0),
             },
             work,
         );
@@ -302,6 +314,7 @@ fn the_prompts_the_runner_hid_go_from_extracted_content_with_no_list() {
             lists: &LISTS,
             version: VERSION,
             choices: &defaults(),
+            hosts: &HostCache::new(0),
         },
         &work,
     );

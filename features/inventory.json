@@ -8537,6 +8537,17 @@
       ]
     },
     {
+      "id": "setting:filter_lists.host_cache",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:filter_lists.page_scriptlets",
       "kind": "setting",
       "area": 5,

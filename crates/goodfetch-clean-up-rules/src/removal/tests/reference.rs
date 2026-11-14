@@ -13,8 +13,8 @@ use super::super::{
     Procedural, Removal, Removed, Rule, Rules, classes_and_ids, gone_with_an_ancestor, links,
     matches, procedural, roots, visible_length,
 };
-use crate::cosmetic::{HIDDEN, PageRules};
-use crate::matching::List;
+use crate::cosmetic::{self, HIDDEN, PageRules};
+use crate::list::List;
 
 /// [`super::super::remove`], before the index.
 pub(super) fn remove(
@@ -47,11 +47,21 @@ pub(super) fn remove(
             })
         })
         .collect();
-    let procedural: Vec<Rule<Procedural>> = page
-        .procedural()
-        .into_iter()
-        .filter_map(|(filter, list)| procedural(&filter, list, &selector))
-        .collect();
+    let procedural: Vec<Rule<Procedural>> = [
+        (List::Ads, rules.choices.ads),
+        (List::Trackers, rules.choices.trackers),
+        (List::Annoyances, rules.choices.annoyances),
+    ]
+    .into_iter()
+    .filter(|(_, on)| *on)
+    .flat_map(|(list, _)| {
+        cosmetic::procedural(&rules.lists.engine(list).url_cosmetic_resources(url))
+            .filter(|filter| filter.as_css().is_none())
+            .map(move |filter| (filter, list))
+            .collect::<Vec<_>>()
+    })
+    .filter_map(|(filter, list)| procedural(&filter, list, &selector))
+    .collect();
     let mut removed = Vec::new();
     if css.is_empty() && procedural.is_empty() {
         return Removal::default();

@@ -8,6 +8,7 @@
     reason = "ADR 0138: a test's own parse, on no page's path"
 )]
 
+mod hosts;
 mod reference;
 
 use std::path::PathBuf;
@@ -18,8 +19,9 @@ use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use proptest::prelude::*;
 use rstest::rstest;
 
-use super::{Removal, Removed, Rules};
-use crate::matching::{Choices, List};
+use super::{HostCache, Removal, Removed, Rules};
+use crate::list::List;
+use crate::matching::Choices;
 use crate::rules::{FilterLists, ListTexts};
 
 /// The page every test's rules are read for.
@@ -67,17 +69,21 @@ type Remove = fn(&ParsedHtml, &str, Rules<'_>, &CountedWork) -> Removal;
 /// counted.
 fn cleaned(remove: Remove, html: &str, lists: &FilterLists) -> (Cleaned, u64) {
     let work = CountedWork::default();
+    let rules = Rules {
+        lists,
+        version: "a test's",
+        choices: &every_list(),
+        hosts: &HostCache::new(0),
+    };
+    let cleaned = clean(remove, html, URL, rules, &work);
+    (cleaned, work.read(Row::PageRuleTests))
+}
+
+/// What `remove` makes of `html`, the page at `url`, with `rules`, parsed
+/// and counted on `work`.
+fn clean(remove: Remove, html: &str, url: &str, rules: Rules<'_>, work: &CountedWork) -> Cleaned {
     let document = work.parse_html(Row::PageParses, html);
-    let removal = remove(
-        &document,
-        URL,
-        Rules {
-            lists,
-            version: "a test's",
-            choices: &every_list(),
-        },
-        &work,
-    );
+    let removal = remove(&document, url, rules, work);
     let kept = document
         .root()
         .descendants_it()
@@ -90,15 +96,12 @@ fn cleaned(remove: Remove, html: &str, lists: &FilterLists) -> (Cleaned, u64) {
         })
         .collect::<Vec<_>>()
         .join(" ");
-    (
-        Cleaned {
-            removed: removal.removed,
-            removed_text: removal.removed_text,
-            html: document.html().to_string(),
-            kept,
-        },
-        work.read(Row::PageRuleTests),
-    )
+    Cleaned {
+        removed: removal.removed,
+        removed_text: removal.removed_text,
+        html: document.html().to_string(),
+        kept,
+    }
 }
 
 /// `html` as the index cleans it and as the reference does, each with the

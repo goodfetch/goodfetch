@@ -2288,6 +2288,7 @@ dependencies = [
  "goodfetch-counted-work",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
+ "moka",
  "proptest",
  "rstest",
  "selectors 0.38.0",

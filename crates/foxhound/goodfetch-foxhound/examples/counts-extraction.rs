@@ -19,10 +19,11 @@
 //!   every link followed, on one host;
 //! - `filter_lists_off`: `filter_lists.ads`, `.trackers` and `.annoyances`
 //!   off, so no rule list is built and no rule tested, and the ad stays;
-//! - `host_cache_off` and `single_attempt`: the settings
-//!   `filter_lists.host_cache: 0` and `extraction.readability:
-//!   single_attempt` do not exist yet, so each runs as `default` does until
-//!   its setting's ticket switches it on (#2186, #2190);
+//! - `host_cache_off`: `filter_lists.host_cache: 0`, so each page builds
+//!   its own rule list;
+//! - `single_attempt`: the setting `extraction.readability:
+//!   single_attempt` does not exist yet, so it runs as `default` does until
+//!   its ticket switches it on (#2190);
 //! - `many_hosts`: the same pages, one on each of [`HOSTS`] hosts, each a
 //!   seed and no link followed, since a host enters the host cache only
 //!   through a page: more hosts than the cache's default bound.
@@ -85,7 +86,7 @@ use std::sync::{Arc, LazyLock};
 
 use bytes::Bytes;
 use goodfetch_clean_up_rules::matching::Choices;
-use goodfetch_clean_up_rules::removal::{self, Rules};
+use goodfetch_clean_up_rules::removal::{self, HostCache, Rules};
 use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
@@ -105,6 +106,8 @@ const HOST: &str = "article.test";
 
 /// The hosts of the `many_hosts` cell, one page each: twice the host
 /// cache's default bound of 1,024 (spec #2164), so the cell reaches it.
+/// Their names are of one length, so whichever the cache keeps, it holds
+/// the same bytes.
 const HOSTS: usize = 2_048;
 
 /// The ad's marker, which the right answer of a page cleaned at the
@@ -193,13 +196,15 @@ impl Body for Whole {
 }
 
 /// One cell: its name, the settings it runs with beside the crawl's own,
-/// whether its pages are spread one a host, and whether its Filter lists
-/// are off, so it builds no rule list and keeps the ad.
+/// whether its pages are spread one a host, whether its Filter lists are
+/// off, so it builds no rule list and keeps the ad, and whether its host
+/// cache is, so each page builds its own.
 struct Cell {
     name: &'static str,
     settings: Value,
     many_hosts: bool,
     filter_lists_off: bool,
+    host_cache_off: bool,
 }
 
 fn cells() -> [Cell; 5] {
@@ -208,6 +213,7 @@ fn cells() -> [Cell; 5] {
         settings,
         many_hosts: false,
         filter_lists_off: false,
+        host_cache_off: false,
     };
     [
         cell(DEFAULT, json!({})),
@@ -218,8 +224,13 @@ fn cells() -> [Cell; 5] {
                 json!({ "filter_lists": { "ads": false, "trackers": false, "annoyances": false } }),
             )
         },
-        // `filter_lists.host_cache: 0`, once #2186 brings the setting.
-        cell("host_cache_off", json!({})),
+        Cell {
+            host_cache_off: true,
+            ..cell(
+                "host_cache_off",
+                json!({ "filter_lists": { "host_cache": 0 } }),
+            )
+        },
         // `extraction.readability: single_attempt`, once #2190 brings it.
         cell("single_attempt", json!({})),
         Cell {
@@ -235,7 +246,7 @@ impl Cell {
     fn seeds(&self) -> Vec<String> {
         if self.many_hosts {
             (0..HOSTS)
-                .map(|host| format!("http://h{host}.{HOST}/sites/16/{}", host % 16 + 1))
+                .map(|host| format!("http://h{host:04}.{HOST}/sites/16/{}", host % 16 + 1))
                 .collect()
         } else {
             vec![format!("http://{HOST}/sites/16/1")]
@@ -331,6 +342,7 @@ fn plant(name: &str, work: &CountedWork) -> Plant {
                 lists: &LISTS,
                 version: "planted",
                 choices: &choices,
+                hosts: &HostCache::new(0),
             };
             let url = format!("http://{HOST}/planted");
             std::hint::black_box(removal::remove(&document, &url, rules, &apart));
@@ -369,6 +381,8 @@ fn counted_from_here() {
 fn crawl_on(cell: &Cell, planted: Option<&str>, metrics: Metrics) -> CountedWork {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let work = metrics.counted_work().clone();
+    // An earlier crawl on the same metrics counted its own builds.
+    let built_before = work.read(Row::PageRuleListBuilds);
     let site = Arc::new(Site {
         pages: pages(),
         plant: planted.map(|name| plant(name, &work)),
@@ -406,7 +420,23 @@ fn crawl_on(cell: &Cell, planted: Option<&str>, metrics: Metrics) -> CountedWork
             cell.name
         );
     }
-    let cleaned = work.read(Row::PageRuleListBuilds) > 0 && work.read(Row::PageRuleTests) > 0;
+    let builds = work.read(Row::PageRuleListBuilds) - built_before;
+    if planted.is_none() && !cell.filter_lists_off {
+        // One rule list per host the host cache misses: each page's at
+        // `host_cache_off` and on `many_hosts`, the crawl's one otherwise.
+        let hosts = if cell.many_hosts || cell.host_cache_off {
+            cell.pages()
+        } else {
+            1
+        };
+        assert_eq!(
+            builds,
+            u64::try_from(hosts).expect("invariant: a few thousand pages"),
+            "the cell {} built a rule list for a host its host cache holds",
+            cell.name
+        );
+    }
+    let cleaned = builds > 0 && work.read(Row::PageRuleTests) > 0;
     assert_eq!(
         cleaned || planted.is_some(),
         !cell.filter_lists_off || planted.is_some(),

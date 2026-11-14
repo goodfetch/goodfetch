@@ -17107,6 +17107,17 @@
                 },
                 "type": "object"
               },
+              "filter_lists": {
+                "additionalProperties": false,
+                "properties": {
+                  "host_cache": {
+                    "description": "How many hosts' Clean-up rules this Run keeps built: 1,024, the least used dropped first, and none once the Resource governor finds memory critical. A page on a host it keeps builds no rule list. 0 builds each page's rule list, as before.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "governor": {
                 "additionalProperties": false,
                 "properties": {
@@ -18401,6 +18412,11 @@
                   "first_party_scripts": {
                     "description": "Whether a site's own scripts load whatever the Filter lists say: off by default.",
                     "type": "boolean"
+                  },
+                  "host_cache": {
+                    "description": "How many hosts' Clean-up rules this Run keeps built: 1,024, the least used dropped first, and none once the Resource governor finds memory critical. A page on a host it keeps builds no rule list. 0 builds each page's rule list, as before.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "page_scriptlets": {
                     "description": "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",
@@ -21043,6 +21059,11 @@
                   "first_party_scripts": {
                     "description": "Whether a site's own scripts load whatever the Filter lists say: off by default.",
                     "type": "boolean"
+                  },
+                  "host_cache": {
+                    "description": "How many hosts' Clean-up rules this Run keeps built: 1,024, the least used dropped first, and none once the Resource governor finds memory critical. A page on a host it keeps builds no rule list. 0 builds each page's rule list, as before.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "page_scriptlets": {
                     "description": "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",
@@ -23701,6 +23722,11 @@
                   "first_party_scripts": {
                     "description": "Whether a site's own scripts load whatever the Filter lists say: off by default.",
                     "type": "boolean"
+                  },
+                  "host_cache": {
+                    "description": "How many hosts' Clean-up rules this Run keeps built: 1,024, the least used dropped first, and none once the Resource governor finds memory critical. A page on a host it keeps builds no rule list. 0 builds each page's rule list, as before.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "page_scriptlets": {
                     "description": "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",

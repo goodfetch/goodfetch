@@ -189,6 +189,7 @@ trackers = true
 annoyances = true
 first_party_scripts = true
 page_scriptlets = true
+host_cache = 4
 extra = ["example"]
 
 [settings.clean_up]
@@ -539,6 +540,7 @@ trackers = true
 annoyances = true
 first_party_scripts = true
 page_scriptlets = true
+host_cache = 4
 extra = ["example"]
 
 [lock.clean_up]
@@ -777,6 +779,9 @@ dataset_query = 30000
 
 [cap.sample]
 echo_repeats = 4
+
+[cap.filter_lists]
+host_cache = 4
 
 [cap.clean_up]
 fetch_timeout = 30000

@@ -75,6 +75,7 @@ mod answers;
 pub(crate) mod authentication;
 mod clean_up;
 mod hops;
+mod hosts;
 mod lookups;
 mod navigations;
 mod pipeline;
@@ -90,6 +91,7 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use goodfetch_cdp::NetError;
 use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
+use goodfetch_clean_up_rules::removal::HostCache;
 use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
@@ -113,6 +115,7 @@ use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
 use self::clean_up::CleanUp;
 pub(crate) use self::clean_up::SESSION_KEYS;
+use self::hosts::HostCaches;
 pub(crate) use self::lookups::{HeldBrowser, Lookups};
 use self::navigations::{NavigatingPage, Pending};
 use self::pipeline::{PageContext, Sender};
@@ -167,6 +170,8 @@ struct Shared {
     /// hold no Session that keeps its Filter lists loaded, and without
     /// this each served document would compile them again.
     served: Mutex<BTreeMap<RunId, ServedCosmetic>>,
+    /// The host cache each live Run's pages share, held until it ends.
+    hosts: HostCaches,
 }
 
 /// The cosmetic rules of one live Run's served documents, made once.
@@ -376,12 +381,19 @@ pub(crate) struct Cosmetic {
     pub(crate) version: String,
     /// What the Session's settings choose of them.
     pub(crate) choices: Choices,
+    /// The rule lists its Run's pages built, by host.
+    pub(crate) hosts: Arc<HostCache>,
 }
 
 impl Cosmetic {
     /// The cosmetic rules of step 4's `blocking`, its Filter lists of the
-    /// version `version`, when any list is on.
-    fn of(blocking: &steps::Blocking, version: Option<String>) -> Option<Self> {
+    /// version `version`, when any list is on, read through the host cache
+    /// `hosts` gives.
+    fn of(
+        blocking: &steps::Blocking,
+        version: Option<String>,
+        hosts: impl FnOnce() -> Arc<HostCache>,
+    ) -> Option<Self> {
         blocking
             .lists
             .as_ref()
@@ -390,6 +402,7 @@ impl Cosmetic {
                 lists: Arc::clone(lists),
                 version,
                 choices: blocking.choices.clone(),
+                hosts: hosts(),
             })
     }
 }
@@ -514,7 +527,7 @@ impl Interception {
             .then(|| clean_up::effective(resolved, own, &BROWSER_BLOCK_RESOURCES).to_string());
         let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
         let clean_up = PageCleanUp {
-            cosmetic: Cosmetic::of(&blocking, version),
+            cosmetic: Cosmetic::of(&blocking, version, || self.shared.hosts.of(run)),
             live_hiding: clean_up::live_hiding(resolved, own),
         };
         if let Some(blocked) = blocked {
@@ -860,7 +873,7 @@ impl Interception {
                 &Values::default(),
             );
             let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
-            Cosmetic::of(&blocking, version)
+            Cosmetic::of(&blocking, version, || self.shared.hosts.of(run))
         })
         .await
         .clone()

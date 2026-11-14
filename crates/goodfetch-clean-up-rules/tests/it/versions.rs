@@ -3,7 +3,8 @@
 //! are; and the cookie sections of a list Goodfetch did not build, dropped
 //! by either marker form before it is compiled.
 
-use goodfetch_clean_up_rules::matching::{Choices, List, Request, ResourceKind, Verdict, judge};
+use goodfetch_clean_up_rules::list::List;
+use goodfetch_clean_up_rules::matching::{Choices, Request, ResourceKind, Verdict, judge};
 use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_clean_up_rules::rules::{FilterLists, ListTexts, without_cookie_sections};
 use rstest::rstest;

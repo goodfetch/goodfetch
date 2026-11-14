@@ -1488,6 +1488,7 @@ dependencies = [
  "dom_query",
  "goodfetch-counted-work",
  "goodfetch-workspace-hack",
+ "moka",
  "selectors 0.38.0",
  "serde",
  "serde_json",

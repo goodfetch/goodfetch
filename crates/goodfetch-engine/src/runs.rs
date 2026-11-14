@@ -5886,11 +5886,12 @@ impl Registry {
         answer: oneshot::Sender<Result<Checkpoint, RunError>>,
     ) {
         let folder = self.folder(&run_id);
-        let live_epoch = self
+        let live_state = self
             .live
             .get(&run_id)
             .and_then(|live| live.run.as_ref())
-            .map(|run| run.state.epoch());
+            .map(|run| run.state.clone());
+        let live_epoch = live_state.as_ref().map(RunState::epoch);
         let state = match self.live.get(&run_id) {
             Some(live) => live.lifecycle,
             None => match self.existing(&run_id).await {
@@ -5923,6 +5924,7 @@ impl Registry {
             events: self.setup.events.clone(),
             tasks: Arc::new(self.ending_owner.child()),
             governor: self.setup.governor.clone(),
+            sealing: live_state,
         };
         let registry = self.runs.clone();
         self.ending_owner.spawn(async move {
@@ -6387,6 +6389,10 @@ struct Taking {
     tasks: Arc<TaskOwner>,
     /// What tells whether its destination's filesystem is at `critical`.
     governor: Governor,
+    /// A live Run's writer, whose open batch it seals before it copies the
+    /// run file, so the copy holds every write answered before it (ADR
+    /// 0142); none once the Run's end was written.
+    sealing: Option<RunState>,
 }
 
 impl Taking {
@@ -6425,6 +6431,11 @@ impl Taking {
                     &checkpointing,
                 )
                 .await;
+        }
+        if let Some(state) = &self.sealing {
+            state.seal().await.map_err(|error| {
+                RunError::of_write(&self.run_id, &self.folder, WriteError::Source(error))
+            })?;
         }
         let (folder, destination, vfs, nonce) = (
             self.folder.clone(),
@@ -6806,6 +6817,7 @@ impl Closing {
                 tasks: Arc::clone(&writer),
                 folder,
                 governor: to.governor,
+                sealing: None,
             };
             match taking.take(Some(state.epoch())).await {
                 Ok(checkpoint) => report.checkpoint = Some(checkpoint),

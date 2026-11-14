@@ -16,6 +16,7 @@ mod extra_loopback;
 mod fetch_edge;
 mod fingerprint;
 mod light_browser;
+mod lookups;
 mod transport_failures;
 mod tunnels;
 

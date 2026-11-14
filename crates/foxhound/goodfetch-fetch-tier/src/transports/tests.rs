@@ -128,7 +128,7 @@ fn a_sessions_lookups_take_the_engines_resolver_when_it_holds_a_local_address(
     #[case] local: Option<LocalSource>,
     #[case] route: Route,
 ) {
-    let resolver = Resolver::new(&holding(local), None);
+    let resolver = Resolver::new(&holding(local));
 
     assert_eq!(resolver.route, route);
 }

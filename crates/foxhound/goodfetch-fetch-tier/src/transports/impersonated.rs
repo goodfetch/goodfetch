@@ -170,7 +170,7 @@ impl Wreq {
         config: TransportConfig,
         profile: HttpProfile,
     ) -> Result<Self, TransportUnavailable> {
-        let resolver = Arc::new(Resolver::new(&config, None));
+        let resolver = Arc::new(Resolver::new(&config));
         let refused = |error: wreq::Error| TransportUnavailable::Client(error.to_string());
         let proxy = config
             .proxy
@@ -434,7 +434,7 @@ impl Transport for Wreq {
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             self.resolver.before_sending(&hop.url).await?;
-            match hop.url.host_str() {
+            let sent = match hop.url.host_str() {
                 Some(host) if hop.url.scheme() == "https" => {
                     self.send_to(&tls_host(host), hop, reuse).await
                 }
@@ -442,7 +442,11 @@ impl Transport for Wreq {
                     .send_once(hop, reuse)
                     .await
                     .map_err(|(failure, _)| failure),
+            };
+            if let Err(failure) = &sent {
+                self.resolver.forget_unreached(&hop.url, failure).await;
             }
+            sent
         })
     }
 }

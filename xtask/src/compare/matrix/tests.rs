@@ -3,7 +3,9 @@ use super::{CELLS, Config, Network, OutputCheck, Row, Scenario, Site, SpiderBuil
 /// #2316's scenarios: the realistic-page site, the long site and scenario
 /// 1 at 64 and 256 in flight. Each gives every tool a main cell with its
 /// mapping, but OpenSpider at 64 and 256, beyond the 6 it keeps in flight
-/// on a host (#2216), and the cell at the catalog's defaults (#2175) stands at each
+/// on a host (#2216), and fastCRW on the long site, past its 1,000 pages a
+/// crawl, and at 64 and 256, beyond the one page a crawl job of its fetches
+/// at a time (#2217), and the cell at the catalog's defaults (#2175) stands at each
 /// of the sweep's three points, 16, 64 and 256 in flight, pending until
 /// #2175 brings it.
 #[test]
@@ -39,11 +41,13 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
             )
         })
         .collect();
-    let within_six: Vec<Tool> = Tool::ALL
-        .iter()
-        .copied()
-        .filter(|tool| *tool != Tool::OpenSpider)
-        .collect();
+    let all_but = |left_out: &[Tool]| -> Vec<Tool> {
+        Tool::ALL
+            .iter()
+            .copied()
+            .filter(|tool| !left_out.contains(tool))
+            .collect()
+    };
 
     assert_eq!(
         (
@@ -55,9 +59,9 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
         (
             [
                 Tool::ALL.to_vec(),
-                Tool::ALL.to_vec(),
-                within_six.clone(),
-                within_six
+                all_but(&[Tool::FastCrw]),
+                all_but(&[Tool::OpenSpider, Tool::FastCrw]),
+                all_but(&[Tool::OpenSpider, Tool::FastCrw]),
             ],
             [Site::Realistic, Site::Scale, Site::Scale, Site::Scale],
             [(16, 1000), (16, 100_000), (64, 1000), (256, 1000)],
@@ -320,7 +324,7 @@ fn the_extraction_scenario_crawls_the_article_site_and_names_each_extractor() {
             pinned("spider_transformations")
         ),
     ];
-    let extractors: [(&str, &[&str]); 9] = [
+    let extractors: [(&str, &[&str]); 10] = [
         ("foxhound", &["Clean-up rules", "dom_smoothie"]),
         (
             "foxhound filter lists off",
@@ -332,6 +336,7 @@ fn the_extraction_scenario_crawls_the_article_site_and_names_each_extractor() {
         ("crawlee-rs", &["the text of its `main`"]),
         ("pagesift", &["`onlyMainContent`"]),
         ("openspider", &["the text of its `main`"]),
+        ("fastcrw", &["`onlyMainContent: true`"]),
         ("spider mimalloc", &["the spider row's settings"]),
     ];
     let unnamed: Vec<(&str, &str)> = extractors
@@ -407,6 +412,7 @@ fn foxhounds_filter_lists_off_row_is_checked_with_the_ad_allowed() {
                 ("crawlee-rs", false, whole),
                 ("pagesift", false, whole),
                 ("openspider", false, whole),
+                ("fastcrw", false, whole),
                 ("spider mimalloc", false, whole),
             ],
             Row::Main,
@@ -563,6 +569,73 @@ fn just_compare_builds_openspiders_side_into_its_folder() {
          --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
         super::OPENSPIDER_FOLDER
     )));
+}
+
+/// fastCRW runs on its side, which starts its server, in every scenario
+/// but five, each its main row (#2217): its durable cell is not supported,
+/// since its crawl jobs live in its server's memory; nor its polite cell,
+/// since it follows links on its first page's origin alone; nor its long
+/// one, past its 1,000 pages a crawl; nor those of 64 and 256 requests in
+/// flight, since a crawl job fetches one page at a time.
+#[test]
+fn fastcrw_runs_every_scenario_on_its_side_but_durable_polite_long_raw_64_and_raw_256() {
+    let cells: Vec<(Scenario, &str, Row, Result<Config, &str>)> = CELLS
+        .iter()
+        .filter(|cell| cell.tool == Tool::FastCrw)
+        .map(|cell| {
+            let status = match cell.status {
+                Status::Measured(config) => Ok(config),
+                Status::NotSupported(reason) | Status::Pending(reason) => Err(reason),
+            };
+            (cell.scenario, cell.name, cell.row, status)
+        })
+        .collect();
+
+    assert_eq!(
+        cells,
+        Scenario::ALL
+            .map(|scenario| (
+                scenario,
+                "fastcrw",
+                Row::Main,
+                match scenario {
+                    Scenario::Durable => Err(super::FASTCRW_IN_MEMORY),
+                    Scenario::Polite => Err(super::FASTCRW_ONE_ORIGIN),
+                    Scenario::Long => Err(super::FASTCRW_THOUSAND_PAGES),
+                    Scenario::Raw64 | Scenario::Raw256 => Err(super::FASTCRW_ONE_IN_FLIGHT),
+                    _ => Ok(Config::FastCrw),
+                }
+            ))
+            .to_vec()
+    );
+}
+
+/// `just compare` builds fastCRW's server, locked at its pinned version
+/// with its `cdp` feature, at the run's profile, and installs it beside its
+/// side's executable, which it builds, locked, into the folder the run reads
+/// that executable from.
+#[test]
+fn just_compare_builds_fastcrws_server_and_side_into_its_folder() {
+    let recipes = include_str!("../../../../justfile");
+    let folder = super::FASTCRW_FOLDER;
+
+    assert_eq!(
+        [
+            format!(
+                "cargo --config xtask/compare-fastcrw/server-profile.toml install --quiet \
+                 --locked --force crw-server --version ={} --features cdp --profile \
+                 {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{folder}-server \
+                 --root {{{{ compare_spider_builds }}}}/{folder}/{{{{ profile }}}}\n",
+                crate::compare::trials::FASTCRW_VERSION
+            ),
+            format!(
+                "cargo build --quiet --locked --manifest-path xtask/compare-fastcrw/Cargo.toml \
+                 --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{folder}\n"
+            ),
+        ]
+        .map(|line| recipes.contains(&line)),
+        [true, true]
+    );
 }
 
 /// The polite scenario crawls 10,000 pages on 1,000 domains, 10 on each,

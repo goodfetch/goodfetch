@@ -46,10 +46,13 @@ pub(crate) enum Tool {
     /// OpenSpider's spider crawl through its engine's library (#2216).
     #[value(name = "openspider")]
     OpenSpider,
+    /// fastCRW's server, `crw-server`, a crawl job on its HTTP API (#2217).
+    #[value(name = "fastcrw")]
+    FastCrw,
 }
 
 impl Tool {
-    pub(crate) const ALL: [Self; 7] = [
+    pub(crate) const ALL: [Self; 8] = [
         Self::Foxhound,
         Self::Spider,
         Self::Crawlee,
@@ -57,6 +60,7 @@ impl Tool {
         Self::CrawleeRs,
         Self::Pagesift,
         Self::OpenSpider,
+        Self::FastCrw,
     ];
 
     pub(crate) fn name(self) -> &'static str {
@@ -68,6 +72,7 @@ impl Tool {
             Self::CrawleeRs => "crawlee-rs",
             Self::Pagesift => "pagesift",
             Self::OpenSpider => "openspider",
+            Self::FastCrw => "fastcrw",
         }
     }
 }
@@ -555,6 +560,11 @@ pub(crate) const PAGESIFT_FOLDER: &str = "pagesift";
 /// The folder of OpenSpider's side's build among the Rust sides' builds.
 pub(crate) const OPENSPIDER_FOLDER: &str = "openspider";
 
+/// The folder of fastCRW's side's build among the Rust sides' builds, where
+/// `just compare` also installs the server it starts, under the profile's
+/// folder, and `{FASTCRW_FOLDER}-server` holds that server's build.
+pub(crate) const FASTCRW_FOLDER: &str = "fastcrw";
+
 /// The folder of chromiumoxide's side's build among the Rust sides' builds,
 /// for the Collie scenario's chromiumoxide arm (issue 2444).
 pub(crate) const CHROMIUMOXIDE_FOLDER: &str = "chromiumoxide";
@@ -604,6 +614,9 @@ pub(crate) enum Config {
     /// OpenSpider's side at the scenario's settings: its engine's spider
     /// crawl.
     OpenSpider,
+    /// fastCRW's side at the scenario's settings: a crawl job on the server
+    /// it starts.
+    FastCrw,
 }
 
 impl Config {
@@ -617,6 +630,7 @@ impl Config {
             Self::CrawleeRs => Tool::CrawleeRs,
             Self::Pagesift => Tool::Pagesift,
             Self::OpenSpider => Tool::OpenSpider,
+            Self::FastCrw => Tool::FastCrw,
         }
     }
 
@@ -656,7 +670,7 @@ pub(crate) struct Cell {
 }
 
 /// Every cell, in the report's order.
-pub(crate) const CELLS: [Cell; 96] = [
+pub(crate) const CELLS: [Cell; 108] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
@@ -768,6 +782,28 @@ pub(crate) const CELLS: [Cell; 96] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::OpenSpider),
+    },
+    Cell {
+        scenario: Scenario::Raw,
+        tool: Tool::FastCrw,
+        name: "fastcrw",
+        mapping: "its server, `crw-server`, run as its own process by its side and driven over \
+                  its HTTP API as its users drive it: one crawl job (`POST /v1/crawl`), polled \
+                  every 25 ms until it ends (`GET /v1/crawl/{id}`), from the first page with \
+                  `limit: 1000` and `maxDepth: 10`, its highest, and links its one format \
+                  (`formats: [\"links\"]`); one page fetched at a time, since a crawl job awaits \
+                  each fetch before the next (`run_crawl_inner`, `crw-crawl/src/crawl.rs`), \
+                  whatever its `max_concurrency` and `per_host_max_concurrent`, both set to the \
+                  scenario's 16; no rate (`crawler.requests_per_second: 0`) and its API's rate \
+                  limit off (`server.rate_limit_rps: 0`), which would count the side's polls \
+                  alone; robots.txt not obeyed (`respect_robots_txt: false`); no browser \
+                  (`renderer.mode: none`); the site's host sent as each page's `Host` (the crawl \
+                  request's `headers`, which its crawl applies to every page it fetches) and the \
+                  loopback address allowed (`CRW_ALLOW_LOOPBACK_FOR_TESTS`), which its server \
+                  refuses otherwise",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::FastCrw),
     },
     Cell {
         scenario: Scenario::Raw,
@@ -936,6 +972,15 @@ pub(crate) const CELLS: [Cell; 96] = [
         status: Status::Measured(Config::OpenSpider),
     },
     Cell {
+        scenario: Scenario::Durable,
+        tool: Tool::FastCrw,
+        name: "fastcrw",
+        mapping: "none: fastCRW keeps its crawl jobs in its server's memory",
+        pending: &[],
+        row: Row::Main,
+        status: Status::NotSupported(FASTCRW_IN_MEMORY),
+    },
+    Cell {
         scenario: Scenario::Polite,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -1054,6 +1099,15 @@ pub(crate) const CELLS: [Cell; 96] = [
         status: Status::NotSupported(OPENSPIDER_NOT_POLITE),
     },
     Cell {
+        scenario: Scenario::Polite,
+        tool: Tool::FastCrw,
+        name: "fastcrw",
+        mapping: "none: fastCRW follows links on its first page's origin alone",
+        pending: &[],
+        row: Row::Main,
+        status: Status::NotSupported(FASTCRW_ONE_ORIGIN),
+    },
+    Cell {
         scenario: Scenario::Extraction,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -1168,6 +1222,18 @@ pub(crate) const CELLS: [Cell; 96] = [
     },
     Cell {
         scenario: Scenario::Extraction,
+        tool: Tool::FastCrw,
+        name: "fastcrw",
+        mapping: "scenario 1's crawl job with each page's main content in Markdown, its one \
+                  format (`formats: [\"markdown\"]`, `onlyMainContent: true`), each crawled page's URL \
+                  (`metadata.sourceURL`), title (`metadata.title`) and that Markdown written as a \
+                  line of `pages.jsonl`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::FastCrw),
+    },
+    Cell {
+        scenario: Scenario::Extraction,
         tool: Tool::Spider,
         name: "spider mimalloc",
         mapping: "the spider row's settings (`subscribe(64)`), with `mimalloc` as its global \
@@ -1268,6 +1334,21 @@ pub(crate) const CELLS: [Cell; 96] = [
     },
     Cell {
         scenario: Scenario::Browser,
+        tool: Tool::FastCrw,
+        name: "fastcrw",
+        mapping: "scenario 1's crawl job with each page rendered in the same headless Chrome for \
+                  Testing, which its side starts and its server drives over CDP (`renderer.mode: \
+                  chrome` with `renderer.chrome.ws_url`, its `cdp` feature; `renderJs: true` and \
+                  `renderer: \"chrome\"` in the request), each page fetched over HTTP first \
+                  and then in Chrome, as its `renderJs` does; its anti-bot classifier's \
+                  escalation off (`renderer.antibot.escalate_in_failover: false`), which at its \
+                  default reads the site's short rendered pages as blocks and fails them",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::FastCrw),
+    },
+    Cell {
+        scenario: Scenario::Browser,
         tool: Tool::Spider,
         name: "spider smart",
         mapping: "none: Spider's `smart` feature, `crawl_smart()`, which fetches each page over \
@@ -1356,6 +1437,16 @@ pub(crate) const CELLS: [Cell; 96] = [
         status: Status::Measured(Config::OpenSpider),
     },
     Cell {
+        scenario: Scenario::Realistic,
+        tool: Tool::FastCrw,
+        name: "fastcrw",
+        mapping: "scenario 1's crawl job (one page at a time, robots.txt not obeyed, no rate) on \
+                  the realistic-page site",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::FastCrw),
+    },
+    Cell {
         scenario: Scenario::Long,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -1434,6 +1525,15 @@ pub(crate) const CELLS: [Cell; 96] = [
         status: Status::Measured(Config::OpenSpider),
     },
     Cell {
+        scenario: Scenario::Long,
+        tool: Tool::FastCrw,
+        name: "fastcrw",
+        mapping: "none: fastCRW crawls at most 1,000 pages a job",
+        pending: &[],
+        row: Row::Main,
+        status: Status::NotSupported(FASTCRW_THOUSAND_PAGES),
+    },
+    Cell {
         scenario: Scenario::Raw64,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -1509,6 +1609,15 @@ pub(crate) const CELLS: [Cell; 96] = [
         pending: &[],
         row: Row::Main,
         status: Status::NotSupported(OPENSPIDER_SIX_IN_FLIGHT),
+    },
+    Cell {
+        scenario: Scenario::Raw64,
+        tool: Tool::FastCrw,
+        name: "fastcrw",
+        mapping: "none: a fastCRW crawl job fetches one page at a time",
+        pending: &[],
+        row: Row::Main,
+        status: Status::NotSupported(FASTCRW_ONE_IN_FLIGHT),
     },
     defaults(Scenario::Raw64),
     Cell {
@@ -1587,6 +1696,15 @@ pub(crate) const CELLS: [Cell; 96] = [
         pending: &[],
         row: Row::Main,
         status: Status::NotSupported(OPENSPIDER_SIX_IN_FLIGHT),
+    },
+    Cell {
+        scenario: Scenario::Raw256,
+        tool: Tool::FastCrw,
+        name: "fastcrw",
+        mapping: "none: a fastCRW crawl job fetches one page at a time",
+        pending: &[],
+        row: Row::Main,
+        status: Status::NotSupported(FASTCRW_ONE_IN_FLIGHT),
     },
     defaults(Scenario::Raw256),
     Cell {
@@ -1689,6 +1807,20 @@ pub(crate) const CELLS: [Cell; 96] = [
         status: Status::Measured(Config::OpenSpider),
     },
     Cell {
+        scenario: Scenario::Hostile,
+        tool: Tool::FastCrw,
+        name: "fastcrw",
+        mapping: "its crawl job at fastCRW's defaults, setting nothing but the Proving ground's \
+                  open forward proxy (`crawler.proxy`), through which it reaches the task's host \
+                  by name: robots.txt obeyed (`respect_robots_txt`), 10 requests a second and one \
+                  in flight on a host (`requests_per_second`, `per_host_max_concurrent`), depth \
+                  2 and 100 pages a job (`default_max_depth`, `default_max_pages`), and its \
+                  `auto` renderer with no browser configured",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::FastCrw),
+    },
+    Cell {
         scenario: Scenario::Hostile16,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -1765,6 +1897,18 @@ pub(crate) const CELLS: [Cell; 96] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::OpenSpider),
+    },
+    Cell {
+        scenario: Scenario::Hostile16,
+        tool: Tool::FastCrw,
+        name: "fastcrw",
+        mapping: "scenario 1's crawl job (one page at a time, robots.txt not obeyed, no rate, at \
+                  most 1,000 pages and depth 10, the API's ceilings, which end a trap) on the \
+                  `traps` family, reached by name through the Proving ground's open forward proxy \
+                  (`crawler.proxy`)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::FastCrw),
     },
     Cell {
         scenario: Scenario::CrawlLike,
@@ -1859,6 +2003,17 @@ pub(crate) const CELLS: [Cell; 96] = [
         row: Row::Main,
         status: Status::Measured(Config::OpenSpider),
     },
+    Cell {
+        scenario: Scenario::CrawlLike,
+        tool: Tool::FastCrw,
+        name: "fastcrw",
+        mapping: "scenario 1's crawl job (one page at a time, robots.txt not obeyed) on the \
+                  article site over `https`, the certificate authority `SSL_CERT_FILE` names \
+                  trusted and certificates verified (its default)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::FastCrw),
+    },
 ];
 
 /// The cell at the catalog's defaults (#2175) in `scenario`, one of
@@ -1922,6 +2077,34 @@ const OPENSPIDER_SIX_IN_FLIGHT: &str = "OpenSpider keeps at most 6 requests in f
      further request waiting for one rather than opening another \
      (`crates/os-fetch/src/client/lanes.rs`); a cell of 64 or 256 would measure scenario 1's 6 \
      again";
+
+/// Why fastCRW has no durable cell: what its server at the pinned version
+/// does.
+const FASTCRW_IN_MEMORY: &str = "fastCRW keeps its crawl jobs in its server's memory: at its pinned \
+     version, a map from each job's id to its state (`AppState::crawl_jobs`, \
+     `crw-server/src/state.rs`), which no file backs, so a crawl killed with its server is lost and \
+     a new server has no job to resume";
+
+/// Why fastCRW has no polite cell: what its crawl at the pinned version
+/// does.
+const FASTCRW_ONE_ORIGIN: &str = "fastCRW follows a link only on its first page's origin, port \
+     included: at its pinned version, a crawl job drops every link to another origin \
+     (`enqueue_discovered_links`, `crw-crawl/src/crawl.rs`) and has no setting to follow one, so \
+     it would crawl one of the site's 1,000 domains";
+
+/// Why fastCRW has no long cell: what its crawl at the pinned version
+/// does.
+const FASTCRW_THOUSAND_PAGES: &str = "fastCRW crawls at most 1,000 pages a job, a hundredth of \
+     the site's 100,000 pages: at its pinned version, a crawl job's `limit` is held to 1,000 \
+     whatever the request asks (`max_pages.min(1000)` in `run_crawl_inner`, \
+     `crw-crawl/src/crawl.rs`), and its depth to 10";
+
+/// Why fastCRW has no cell of 64 or 256 requests in flight: what its crawl
+/// at the pinned version does.
+const FASTCRW_ONE_IN_FLIGHT: &str = "a fastCRW crawl job fetches one page at a time: at its pinned \
+     version, it takes the next page from its queue only once the fetch before it ends \
+     (`run_crawl_inner`, `crw-crawl/src/crawl.rs`), whatever its `max_concurrency` and \
+     `per_host_max_concurrent`, so a cell of 64 or 256 would measure scenario 1's one again";
 
 /// The name of Foxhound's row of the extraction scenario with its Filter
 /// lists off (#2136).

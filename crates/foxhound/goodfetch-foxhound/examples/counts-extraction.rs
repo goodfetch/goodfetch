@@ -46,9 +46,22 @@
 //! Callgrind cell reads the release build's whole page. Without Valgrind
 //! it goes unprinted, which `xtask counts` fails as a row not counted.
 //!
+//! `F1.selector_compilation_instructions` is what that first crawl left
+//! out: the instructions Callgrind counts in the compilation of each
+//! selector, the one counted function every compilation goes through
+//! (`CountedWork::compile_selector`), over one crawl of the `default` cell
+//! on an engine whose cache of compilations starts empty, for which this
+//! example runs again as `--callgrind-compilations default`. It is paid
+//! once per engine and rules version whatever the pages that follow (ADR
+//! 0138), so it is read per crawl: the Clean-up rules' selectors and the
+//! engine's own, compiled as the crawl starts. The cache's insert of each
+//! is not in it, its cost varying from run to run with its hasher's seed.
+//!
 //! `--plant <row>` does one extra unit of that row's work per page served,
-//! in every cell: a count more, or for `F1.clean_up_instructions` one more
-//! removal of the page served. The crawl fails here if it read a page's
+//! in every cell: a count more, for `F1.clean_up_instructions` one more
+//! removal of the page served, and for
+//! `F1.selector_compilation_instructions` [`PLANTED_SELECTORS`] selectors
+//! more compiled. The crawl fails here if it read a page's
 //! text wrong, if the work it counts did not happen, or if the Filter lists
 //! off did not take their work away.
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
@@ -112,6 +125,15 @@ const PER_CRAWL: [Row; 2] = [Row::PageHostCacheEntries, Row::PageHostCacheBytes]
 /// beneath, named as Callgrind names it.
 const INSTRUCTIONS: &str = "F1.clean_up_instructions";
 const REMOVAL: &str = "goodfetch_clean_up_rules::removal::remove";
+
+/// The selectors' compilations' instructions, and the function Callgrind
+/// counts them beneath, named as Callgrind names it.
+const COMPILATIONS: &str = "F1.selector_compilation_instructions";
+const COMPILE: &str = "<goodfetch_counted_work::CountedWork>::compile_selector";
+
+/// How many selectors the plant of [`COMPILATIONS`] compiles per page:
+/// enough for its instructions to clear the row's tolerance.
+const PLANTED_SELECTORS: usize = 64;
 
 /// The cell whose crawl runs again under Callgrind.
 const DEFAULT: &str = "default";
@@ -280,9 +302,21 @@ static LISTS: LazyLock<FilterLists> =
     LazyLock::new(|| FilterLists::embedded().expect("invariant: the embedded Filter lists load"));
 
 /// The plant of the row named `name`: one more count on `work`, the
-/// crawl's, or for [`INSTRUCTIONS`] one more removal of the page served,
+/// crawl's, for [`INSTRUCTIONS`] one more removal of the page served, and
+/// for [`COMPILATIONS`] [`PLANTED_SELECTORS`] selectors more compiled,
 /// counted nowhere but by Callgrind.
 fn plant(name: &str, work: &CountedWork) -> Plant {
+    if name == COMPILATIONS {
+        return Arc::new(|_: &str| {
+            let apart = CountedWork::default();
+            for at in 0..PLANTED_SELECTORS {
+                let selector = format!("div.planted-{at} > p:nth-child(2n+1)");
+                std::hint::black_box(
+                    apart.compile_selector(Row::PageSelectorCompilations, &selector),
+                );
+            }
+        });
+    }
     if name == INSTRUCTIONS {
         return Arc::new(|page: &str| {
             let apart = CountedWork::default();
@@ -402,6 +436,37 @@ fn clean_up_instructions(planted: Option<&str>) -> Option<u64> {
     }
 }
 
+/// The instructions the `default` cell's one crawl on an engine whose
+/// cache starts empty runs compiling selectors, with the row `planted`
+/// planted, from a run of this example under Callgrind; none without
+/// Valgrind, said on stderr.
+fn compilation_instructions(planted: Option<&str>) -> Option<u64> {
+    let program = std::env::current_exe().expect("invariant: this executable has a path");
+    let mut arguments = vec!["--callgrind-compilations", DEFAULT];
+    if let Some(planted) = planted {
+        arguments.extend(["--plant", planted]);
+    }
+    match callgrind::instructions_beneath(&[COMPILE], None, &program, &arguments) {
+        Ok(Some(instructions)) => Some(instructions),
+        // A function renamed would otherwise read as free, and pass.
+        Ok(None) => {
+            panic!("Callgrind never entered {COMPILE}: the selectors' compilation has moved")
+        }
+        Err(error) => {
+            eprintln!("{COMPILATIONS} is not read: {error}");
+            None
+        }
+    }
+}
+
+/// The cell named `name`, which a parent names for its run under Callgrind.
+fn cell_named(name: &str) -> Cell {
+    cells()
+        .into_iter()
+        .find(|cell| cell.name == name)
+        .expect("invariant: its parent named a cell")
+}
+
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let value_of = |flag: &str| {
@@ -412,11 +477,14 @@ fn main() {
             .map(String::as_str)
     };
     let planted = value_of("--plant");
+    if let Some(name) = value_of("--callgrind-compilations") {
+        // One crawl, its engine's cache empty as it starts: each selector
+        // it meets is compiled once.
+        crawl_on(&cell_named(name), planted, Metrics::none());
+        return;
+    }
     if let Some(name) = value_of("--callgrind") {
-        let cell = cells()
-            .into_iter()
-            .find(|cell| cell.name == name)
-            .expect("invariant: its parent named a cell");
+        let cell = cell_named(name);
         // The crawl runs twice on engines that share one cache of
         // compilations, as an engine's later Runs do, and only the second
         // is counted. The first compiles the rules' selectors, once for the
@@ -434,10 +502,12 @@ fn main() {
     // beside them: no cell waits on another, so the family's rows stay
     // within their minute. A plant of another row has no use for the
     // instructions and would wait for them.
-    let reads_instructions = planted.is_none_or(|planted| planted == INSTRUCTIONS);
-    let (counted, instructions) = std::thread::scope(|scope| {
+    let reads = |row: &str| planted.is_none_or(|planted| planted == row);
+    let (counted, instructions, compilations) = std::thread::scope(|scope| {
         let instructions =
-            reads_instructions.then(|| scope.spawn(move || clean_up_instructions(planted)));
+            reads(INSTRUCTIONS).then(|| scope.spawn(move || clean_up_instructions(planted)));
+        let compilations =
+            reads(COMPILATIONS).then(|| scope.spawn(move || compilation_instructions(planted)));
         let cells: Vec<_> = cells()
             .into_iter()
             .map(|cell| scope.spawn(move || (crawl(&cell, planted), cell)))
@@ -450,7 +520,11 @@ fn main() {
             run.join()
                 .expect("invariant: the run under Callgrind passed")
         });
-        (counted, instructions)
+        let compilations = compilations.and_then(|run| {
+            run.join()
+                .expect("invariant: the run under Callgrind passed")
+        });
+        (counted, instructions, compilations)
     });
     for (work, cell) in &counted {
         let mut counts: Map<String, Value> = PER_PAGE
@@ -461,10 +535,12 @@ fn main() {
         // The other cells run under no Callgrind: they print the row with
         // none of its unit, which `xtask counts` reads as no figure.
         let read = cell.name == DEFAULT;
-        if let Some(instructions) = instructions.filter(|_| read) {
-            counts.insert(INSTRUCTIONS.to_owned(), json!(instructions));
-        } else if !read {
-            counts.insert(INSTRUCTIONS.to_owned(), json!(0));
+        for (row, figure) in [(INSTRUCTIONS, instructions), (COMPILATIONS, compilations)] {
+            if let Some(figure) = figure.filter(|_| read) {
+                counts.insert(row.to_owned(), json!(figure));
+            } else if !read {
+                counts.insert(row.to_owned(), json!(0));
+            }
         }
         println!(
             "{}",
@@ -474,6 +550,7 @@ fn main() {
                     "pages": cell.pages(),
                     "crawls": 1,
                     "callgrind_pages": if read { cell.pages() } else { 0 },
+                    "callgrind_crawls": usize::from(read),
                 },
                 "counts": counts,
             })

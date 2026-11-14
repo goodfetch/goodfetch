@@ -1374,15 +1374,17 @@ fn each_action_kind_is_held_to_its_own_figure(
 }
 
 /// The rows of the extraction path (spec #2164): its hand-offs, which the
-/// register puts on two families with a figure for each, and its clean-up's
-/// instructions.
+/// register puts on two families with a figure for each, its clean-up's
+/// instructions and its selectors' compilations' instructions.
 const EXTRACTION_ROWS: &str = "\
 | `F1.analysis_handoffs` | hand-offs to the analysis pool per page | at most 1, and 0 when no reader needs a tree | B1 2, B4 3; until #2189 | B1, B4 | must not grow | `just counts` | implementer done |
 | `F1.clean_up_instructions` | instructions in the clean-up's removal per page | no cap (ratchet) | 1000 | B4 | must not grow | `just counts --family B4` | implementer done |
+| `F1.selector_compilation_instructions` | instructions in a crawl's selector compilations per crawl | no cap (ratchet) | 1000 | B4 | must not grow | `just counts --family B4` | implementer done |
 ";
 
 /// A benchmark of `family` whose default cell counts `handoffs` hand-offs
-/// over 13 pages and `instructions` in the clean-up over one.
+/// over 13 pages, and `instructions` in the clean-up over one page and in
+/// the selectors' compilations over one crawl.
 fn extraction_benchmark(
     workspace: &Workspace,
     family: &str,
@@ -1393,7 +1395,7 @@ fn extraction_benchmark(
         workspace,
         &format!("{family}.sh"),
         &format!(
-            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"callgrind_pages\":1}},\"counts\":{{\"F1.analysis_handoffs\":{handoffs},\"F1.clean_up_instructions\":{instructions}}}}}'\n"
+            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"callgrind_pages\":1,\"callgrind_crawls\":1}},\"counts\":{{\"F1.analysis_handoffs\":{handoffs},\"F1.clean_up_instructions\":{instructions},\"F1.selector_compilation_instructions\":{instructions}}}}}'\n"
         ),
     );
     format!("{family}={}", path.display())
@@ -1453,16 +1455,18 @@ fn a_row_two_families_count_is_held_on_each_to_its_own_figure(
     );
 }
 
-/// The clean-up's instructions are read under Callgrind by B4's own run,
-/// and vary a little from run to run: the row is held within the 0.5 % of a
-/// figure read under Valgrind (the register's ratchet), and fails past it.
+/// The clean-up's instructions and the selectors' compilations' are read
+/// under Callgrind by B4's own run, and vary a little from run to run: each
+/// row is held within the 0.5 % of a figure read under Valgrind (the
+/// register's ratchet), and fails past it.
 #[rstest]
-#[case::within_the_tolerance(1005, 0, &[])]
-#[case::past_it(1006, 1, &["F1.clean_up_instructions"])]
-fn the_clean_ups_instructions_are_held_within_the_valgrind_tolerance(
+#[case::within_the_tolerance(1005, 0, false)]
+#[case::past_it(1006, 1, true)]
+fn b4s_instructions_are_held_within_the_valgrind_tolerance(
     #[case] instructions: u64,
     #[case] code: i32,
-    #[case] over: &[&str],
+    #[case] past: bool,
+    #[values("F1.clean_up_instructions", "F1.selector_compilation_instructions")] row: &str,
 ) {
     let workspace = Workspace::from_fixture("empty");
     workspace.write(
@@ -1471,20 +1475,16 @@ fn the_clean_ups_instructions_are_held_within_the_valgrind_tolerance(
     );
     let executable = extraction_benchmark(&workspace, "B4", 39, instructions);
 
-    let outcome = workspace.xtask(&[
-        "counts",
-        "--row",
-        "F1.clean_up_instructions",
-        "--executable",
-        &executable,
-    ]);
+    let outcome = workspace.xtask(&["counts", "--row", row, "--executable", &executable]);
 
     assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
     assert_eq!(
         outcome.findings(),
-        over.iter()
-            .map(|row| finding("over-limit", row))
-            .collect::<Vec<_>>()
+        if past {
+            vec![finding("over-limit", row)]
+        } else {
+            Vec::new()
+        }
     );
 }
 

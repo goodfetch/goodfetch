@@ -1,7 +1,8 @@
 //! What a tool left once it exited, which a trial reads afterwards:
 //! Foxhound's Records, for their commit times and their pages, and on the
 //! article site each tool's pages, held to the right answers the Proving
-//! ground serves (#2136; see `extracted`).
+//! ground serves (#2136; see `extracted`); and what a counted run on that
+//! site changes so that every page is left ([`traced`]).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -11,7 +12,29 @@ use anyhow::{Context as _, Result};
 use super::{Mode, Plan};
 use crate::compare::extracted::{self, Extracted, Written};
 use crate::compare::foxhound::Record;
-use crate::compare::matrix::Config;
+use crate::compare::matrix::{Cell, Config};
+
+/// `cell`'s configuration as a run in `mode` on the site of `pages` pages
+/// gives it to its tool. On the article site Spider's side reads each page
+/// in a task of its own, and strace and Callgrind slow those tasks
+/// unevenly: at the row's capacity, 5 of 20 crawls of the 1,000-page site
+/// lost pages under strace, on the gate host on 2026-11-14, and a crawl
+/// that loses one fails its run. A counted run there gives Spider's page
+/// channel the whole site, where no page can be lost: it reads counts, not
+/// the memory the channel holds.
+pub(super) fn traced(cell: &Cell, config: Config, mode: &Mode, pages: u64) -> Config {
+    match (config, mode) {
+        (Config::Spider { build, capacity }, Mode::Syscalls(_) | Mode::Callgrind(_))
+            if cell.output_check().is_some() =>
+        {
+            Config::Spider {
+                build,
+                capacity: capacity.max(usize::try_from(pages).unwrap_or(usize::MAX)),
+            }
+        }
+        (config, Mode::Timed | Mode::Syscalls(_) | Mode::Callgrind(_) | Mode::Rules) => config,
+    }
+}
 
 /// The files Spider's and Scrapy's sides write the extraction scenario's
 /// pages to, in the folder they run in.

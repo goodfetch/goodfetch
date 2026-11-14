@@ -527,7 +527,8 @@ impl Plan<'_> {
         url: &str,
         host: Option<&str>,
     ) -> Result<Driven> {
-        let mut command = command(&invocation(self.config, self.executable), mode, process);
+        let config = output::traced(self.cell, self.config, mode, self.site.pages);
+        let mut command = command(&invocation(config, self.executable), mode, process);
         command.stderr(Stdio::inherit());
         // No tool reads Goodfetch's variables a shell may hold, such as a
         // test's: Foxhound refuses one it does not deploy with.

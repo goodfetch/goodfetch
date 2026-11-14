@@ -373,7 +373,8 @@ pub(crate) const SPIDER_CAPACITY: usize = 64;
 /// 16 of 30 crawls lost pages at 32, and none of 40 at 64. With
 /// `llm_readability` run in the reader itself, 7 or 8 of 8 crawls lost
 /// pages at each capacity from 256 to 4,096: the reader, not the channel,
-/// was what fell behind.
+/// was what fell behind. A counted run takes a channel that holds the
+/// whole site instead (`trial::output::traced`).
 pub(crate) const SPIDER_EXTRACTION_CAPACITY: usize = 64;
 
 /// The capacity Spider's rows had before #2213, kept as a sensitivity row.
@@ -851,7 +852,9 @@ pub(crate) const CELLS: [Cell; 66] = [
                   ad; its title is its page metadata's, character references decoded and white \
                   space collapsed in its own process; each page read in a task of its own, as \
                   `Website::subscribe`'s example does, from `subscribe(64)`, the smallest \
-                  capacity at which this scenario's 10,000-page crawl lost no page",
+                  capacity at which this scenario's 10,000-page crawl lost no page; under \
+                  strace and Callgrind, which slow those tasks unevenly, from a channel that \
+                  holds the whole site",
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Spider {

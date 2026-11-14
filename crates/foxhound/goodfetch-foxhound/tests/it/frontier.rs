@@ -218,13 +218,7 @@ impl Inside<'_> {
         label: &str,
         document: Option<Value>,
     ) -> Value {
-        let mut params = json!({
-            "run_id": handle["run_id"],
-            "crawl_request_id": handle["crawl_request"]["id"],
-            "lease_epoch": handle["lease_epoch"],
-            "url": url,
-            "label": label,
-        });
+        let mut params = enqueue_params(handle, url, label);
         if let Some(document) = document {
             params["document"] = document;
         }
@@ -234,6 +228,18 @@ impl Inside<'_> {
             .unwrap_or_else(|| &reply["error"]["data"]["code"])
             .clone()
     }
+}
+
+/// The params of `crawl_request.enqueue` for `url` under `label`, from the
+/// attempt `handle` gave.
+pub(crate) fn enqueue_params(handle: &Value, url: &str, label: &str) -> Value {
+    json!({
+        "run_id": handle["run_id"],
+        "crawl_request_id": handle["crawl_request"]["id"],
+        "lease_epoch": handle["lease_epoch"],
+        "url": url,
+        "label": label,
+    })
 }
 
 pub(crate) fn added(id: &str, url: &str) -> Value {

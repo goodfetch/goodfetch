@@ -26,7 +26,7 @@ use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
 use crate::fetch_tiers::{engine, expecting, outcomes, provenance, settings, tiers};
-use crate::frontier::{Inside, added, crawl_declaring};
+use crate::frontier::{Inside, added, crawl_declaring, enqueue_params};
 use crate::run_file;
 use crate::staging::{keys, work_items};
 
@@ -537,13 +537,7 @@ fn an_attempt_aborted_while_its_races_browser_fetch_page_is_handled_leaves_no_pa
         let _ = engine.call(
             "enqueue",
             "crawl_request.enqueue",
-            &json!({
-                "run_id": handle["run_id"],
-                "crawl_request_id": handle["crawl_request"]["id"],
-                "lease_epoch": handle["lease_epoch"],
-                "url": raced,
-                "label": "list",
-            }),
+            &enqueue_params(handle, &raced, "list"),
             &mut |_| None,
         );
         engine.send(&json!({

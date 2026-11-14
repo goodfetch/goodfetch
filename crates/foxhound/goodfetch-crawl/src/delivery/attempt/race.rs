@@ -152,8 +152,8 @@ impl On<'_> {
                 // its handler runs, as an abort abandons it, closes its
                 // page as it drops, so the page never holds the Run's
                 // handles past the Run.
-                let page_id = served.page_id().clone();
-                let merged = learn(run, tiers, &page_id, leased, self.code_free.is_some()).await;
+                let page_id = served.page_id();
+                let merged = learn(run, tiers, page_id, leased, self.code_free.is_some()).await;
                 record_tier(
                     run,
                     leased,
@@ -164,8 +164,8 @@ impl On<'_> {
                     facts.certificate_exception,
                 )
                 .await;
-                let answer = self.handle(&page_id, FetchTier::Http, facts.response).await;
-                let escalated = self.escalated(tiers.close(&served.keep()));
+                let answer = self.handle(page_id, FetchTier::Http, facts.response).await;
+                let escalated = self.escalated(served.close());
                 let answer = match escalated {
                     Some(call) if !matches!(answer, Answer::LeaseEnded | Answer::ClientGone) => {
                         // The browser's run takes a whole lease of its own, and

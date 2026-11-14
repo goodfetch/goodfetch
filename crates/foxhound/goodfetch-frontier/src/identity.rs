@@ -29,7 +29,7 @@ use crate::invariants::Invariants;
 use crate::rules;
 use crate::scope::{Narrowing, Scope};
 use crate::staged::Staged;
-use crate::unwritten::{self, Holding};
+use crate::unwritten::{Holding, UnwrittenVisits};
 
 /// The Frontier's visited set: each identity admitted, with the ID of the
 /// crawl request it was admitted for, or that reached it by a redirect;
@@ -658,7 +658,7 @@ pub fn admit_hop(
     hop: (&Url, &HttpMethod, Option<&[u8]>),
 ) -> rusqlite::Result<Hop> {
     let (url, method, body) = hop;
-    let holding = invariants.unwritten().map(unwritten::UnwrittenVisits::lock);
+    let holding = invariants.unwritten().map(UnwrittenVisits::lock);
     judge_hop(
         connection,
         (invariants.scope(), policy),
@@ -711,12 +711,9 @@ fn judge_hop(
         Some(_) => return Ok(Hop::DomainPolicy),
         None => {}
     }
-    let hop = unwritten::reached_identities(connection, url, method, body)?;
+    let hop = reached_identities(connection, url, method, body)?;
     let seen = seen(connection, &hop, None, held)?;
-    Ok(unwritten::reached_hop(unwritten::duplicate(
-        &seen,
-        crawl_request,
-    )))
+    Ok(reached_hop(duplicate(&seen, crawl_request)))
 }
 
 /// Why a crawl request sent on to `url`, by a Hook's rewrite or a redirect
@@ -788,21 +785,30 @@ pub fn admit_reached(
 /// keeps them.
 fn reach(
     connection: &Connection,
-    overlay: Option<&unwritten::UnwrittenVisits>,
+    overlay: Option<&UnwrittenVisits>,
     crawl_request: &str,
     (url, method, body): (&Url, &HttpMethod, Option<&[u8]>),
 ) -> rusqlite::Result<Hop> {
-    let mut holding = overlay.map(unwritten::UnwrittenVisits::lock);
-    let reached = unwritten::reached_identities(connection, url, method, body)?;
+    let mut holding = overlay.map(UnwrittenVisits::lock);
+    let reached = reached_identities(connection, url, method, body)?;
     let seen = seen(connection, &reached, None, holding.as_ref())?;
-    if unwritten::duplicate(&seen, crawl_request) {
+    if duplicate(&seen, crawl_request) {
         return Ok(Hop::Duplicate);
     }
     visit_all(connection, &reached, crawl_request)?;
     if let Some(holding) = &mut holding {
-        holding.written(&reached, crawl_request);
+        holding.written(reached.plain(), reached.learned(), crawl_request);
     }
     Ok(Hop::Follow)
+}
+
+/// The hop answer of a chain's end that `duplicate` says.
+const fn reached_hop(duplicate: bool) -> Hop {
+    if duplicate {
+        Hop::Duplicate
+    } else {
+        Hop::Follow
+    }
 }
 
 /// The query parameters a key drops by name: `Crawl4AI`'s click IDs.
@@ -959,6 +965,11 @@ fn hex(digit: u8) -> Option<u8> {
         .to_digit(16)
         .and_then(|value| u8::try_from(value).ok())
 }
+
+mod chain_end;
+
+pub use chain_end::{PendingVisit, Reached, hold_reached, visit_pending};
+use chain_end::{duplicate, reached_identities};
 
 #[cfg(test)]
 mod tests;

@@ -489,7 +489,7 @@ fn admit_measured(
     if let Some(holding) = &mut holding
         && admitting.writes()
     {
-        holding.written(&identities, &id);
+        holding.written(identities.plain(), identities.learned(), &id);
     }
     admitting.admitted(
         &id,

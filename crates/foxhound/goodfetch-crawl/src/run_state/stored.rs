@@ -414,7 +414,8 @@ impl Stored {
                             let unwritten = invariants.frontier().unwritten().expect(
                                 "invariant: a hop is read only beside the unwritten visits",
                             );
-                            unwritten.hold_reached(
+                            goodfetch_frontier::hold_reached(
+                                unwritten,
                                 connection,
                                 &hop.crawl_request,
                                 (&hop.url, &hop.method, hop.body.as_deref()),

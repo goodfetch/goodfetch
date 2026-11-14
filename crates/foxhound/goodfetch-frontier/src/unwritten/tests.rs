@@ -12,10 +12,12 @@ use rusqlite::Connection;
 use tempfile::TempDir;
 use url::Url;
 
-use super::Reached;
 use crate::admit::{Candidate, admit};
 use crate::bounds::{self, Bounds};
-use crate::identity::{self, Declared, Hop, admit_hop, admit_reached, redirect_hop};
+use crate::identity::{
+    self, Declared, Hop, Reached, admit_hop, admit_reached, hold_reached, redirect_hop,
+    visit_pending,
+};
 use crate::invariants::Invariants;
 use crate::scope::{self, Scope};
 
@@ -107,15 +109,13 @@ fn reached(
     url: &str,
 ) -> Reached {
     let get = HttpMethod::get();
-    invariants
-        .unwritten()
-        .unwrap()
-        .hold_reached(
-            connection,
-            crawl_request,
-            (&Url::parse(url).unwrap(), &get, None),
-        )
-        .unwrap()
+    hold_reached(
+        invariants.unwritten().unwrap(),
+        connection,
+        crawl_request,
+        (&Url::parse(url).unwrap(), &get, None),
+    )
+    .unwrap()
 }
 
 /// A seed the writer admitted in a batch not committed yet makes a
@@ -207,7 +207,7 @@ fn a_visited_chain_end_is_held_until_its_batch_commits() {
         panic!("a key no request holds is followed");
     };
     file.writer.execute_batch("BEGIN").unwrap();
-    super::visit_pending(&file.writer, &invariants, pending).unwrap();
+    visit_pending(&file.writer, &invariants, pending).unwrap();
     let on_the_writer = admit_reached(
         &file.writer,
         &invariants,

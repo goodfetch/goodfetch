@@ -15,6 +15,8 @@
 //!
 //! Nothing here is held at `full`, `fast` or `periodic`, where each
 //! attempt's writes are a batch of their own and a hop asks the writer.
+//! The identities themselves, and the checks that read them, are
+//! `identity`'s: this module only holds what they decided.
 
 #![expect(
     clippy::disallowed_types,
@@ -24,13 +26,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-
-use goodfetch_protocol::foxhound::frontier::HttpMethod;
-use rusqlite::Connection;
-use url::Url;
-
-use crate::identity::{self, Declared, Hop, Identities, Key, Seen};
-use crate::invariants::Invariants;
 
 /// The visits the run file does not hold yet, and how many commits the
 /// writer acknowledged, which says which of them it holds by now.
@@ -113,6 +108,7 @@ impl Held {
 /// The visits the run file does not hold yet, locked for one duplicate
 /// check and the visit it decides.
 pub(crate) struct Holding<'a> {
+    shared: &'a Arc<Mutex<Held>>,
     held: MutexGuard<'a, Held>,
     committed: u64,
 }
@@ -136,22 +132,28 @@ impl Holding<'_> {
             .map(|(rule, visit)| (*rule, visit.crawl_request.as_str()))
     }
 
-    /// Notes that a writer job visited `identities` for `crawl_request`
-    /// in the batch it runs in, which the file holds once one more commit
-    /// is acknowledged.
-    pub(crate) fn written(&mut self, identities: &Identities<'_>, crawl_request: &str) {
+    /// Notes that a writer job visited `plain` and, when the learned
+    /// rules changed it, `learned` with the rule that took its last
+    /// parameter away, for `crawl_request` in the batch it runs in, which
+    /// the file holds once one more commit is acknowledged.
+    pub(crate) fn written(
+        &mut self,
+        plain: &str,
+        learned: Option<(&str, i64)>,
+        crawl_request: &str,
+    ) {
         let tag = self.committed;
         let held = &mut *self.held;
         let visit = held
             .visited
-            .entry(identities.plain().to_owned())
+            .entry(plain.to_owned())
             .or_insert_with(|| Visit::pending(crawl_request.to_owned()));
         if visit.crawl_request == crawl_request {
             visit.written = Some(tag);
             held.written
-                .push_back((tag, Space::Visited, identities.plain().to_owned()));
+                .push_back((tag, Space::Visited, plain.to_owned()));
         }
-        if let Some((learned, rule)) = identities.learned() {
+        if let Some((learned, rule)) = learned {
             let (_, visit) = held
                 .learned
                 .entry(learned.to_owned())
@@ -164,44 +166,62 @@ impl Holding<'_> {
         }
     }
 
+    /// Holds `plain` and, when the learned rules changed it, `learned`
+    /// with its rule, as visited for `crawl_request` by a chain's end
+    /// whose visit job is queued, until the [`Pending`] it answers is
+    /// done or dropped.
+    pub(crate) fn hold(
+        &mut self,
+        plain: &str,
+        learned: Option<(&str, i64)>,
+        crawl_request: &str,
+    ) -> Pending {
+        let mut inserted = Vec::new();
+        let held = &mut *self.held;
+        if !held.visited.contains_key(plain) {
+            held.visited
+                .insert(plain.to_owned(), Visit::pending(crawl_request.to_owned()));
+            inserted.push((Space::Visited, plain.to_owned()));
+        }
+        if let Some((learned, rule)) = learned
+            && !held.learned.contains_key(learned)
+        {
+            held.learned.insert(
+                learned.to_owned(),
+                (rule, Visit::pending(crawl_request.to_owned())),
+            );
+            inserted.push((Space::Learned, learned.to_owned()));
+        }
+        Pending {
+            held: Arc::clone(self.shared),
+            inserted,
+            done: false,
+        }
+    }
+
     /// Notes that a writer job widened the scope in the batch it runs in.
     pub(crate) fn widened(&mut self) {
         self.held.widened = Some(self.committed);
     }
 }
 
-/// What a redirect chain's end found, judged on a reader.
-#[derive(Debug)]
-pub enum Reached {
-    /// Another request was admitted for, or reached, its key: the request
-    /// ends `skipped` with `duplicate`.
-    Duplicate,
-    /// The request goes on: its key is held as pending, until the visit
-    /// job made of it ([`visit_pending`]) runs.
-    Follow(PendingVisit),
-}
-
-/// A chain's end, held as visited until its visit job runs or is dropped
-/// unrun.
-pub struct PendingVisit {
+/// A chain's end held as visited until its visit job runs, which marks it
+/// done, or is dropped unrun, which takes what it added away.
+pub(crate) struct Pending {
     held: Arc<Mutex<Held>>,
-    crawl_request: String,
-    identities: Identities<'static>,
-    /// What this chain's end added, which a drop unrun takes away.
+    /// What this chain's end added.
     inserted: Vec<(Space, String)>,
     done: bool,
 }
 
-impl fmt::Debug for PendingVisit {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("PendingVisit")
-            .field("crawl_request", &self.crawl_request)
-            .finish_non_exhaustive()
+impl Pending {
+    /// Its visit job ran: what it held stays, as a writer job's visit.
+    pub(crate) fn done(mut self) {
+        self.done = true;
     }
 }
 
-impl Drop for PendingVisit {
+impl Drop for Pending {
     fn drop(&mut self) {
         if self.done || self.inserted.is_empty() {
             return;
@@ -240,7 +260,11 @@ impl UnwrittenVisits {
         let committed = (self.committed)();
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         held.prune(committed);
-        Holding { held, committed }
+        Holding {
+            shared: &self.held,
+            held,
+            committed,
+        }
     }
 
     /// Whether a seed widened the scope in a batch not committed before
@@ -253,122 +277,6 @@ impl UnwrittenVisits {
             .unwrap_or_else(PoisonError::into_inner)
             .widened
             .is_some_and(|widened| widened >= committed)
-    }
-
-    /// Where the redirect chain of the crawl request `crawl_request` ends,
-    /// at `url`, sent with `method` and `body`, judged on the reader
-    /// `connection` as [`identity::redirect_reached`] judges it: on
-    /// `Follow`, its identities are held as pending, so no admission or
-    /// other chain takes them before its visit job runs.
-    ///
-    /// # Errors
-    ///
-    /// When the run file cannot be read.
-    pub fn hold_reached(
-        &self,
-        connection: &Connection,
-        crawl_request: &str,
-        (url, method, body): (&Url, &HttpMethod, Option<&[u8]>),
-    ) -> rusqlite::Result<Reached> {
-        let mut holding = self.lock();
-        let reached = reached_identities(connection, url, method, body)?;
-        if duplicate(
-            &identity::seen(connection, &reached, None, Some(&holding))?,
-            crawl_request,
-        ) {
-            return Ok(Reached::Duplicate);
-        }
-        let mut inserted = Vec::new();
-        let held = &mut *holding.held;
-        if !held.visited.contains_key(reached.plain()) {
-            held.visited.insert(
-                reached.plain().to_owned(),
-                Visit::pending(crawl_request.to_owned()),
-            );
-            inserted.push((Space::Visited, reached.plain().to_owned()));
-        }
-        if let Some((learned, rule)) = reached.learned()
-            && !held.learned.contains_key(learned)
-        {
-            held.learned.insert(
-                learned.to_owned(),
-                (rule, Visit::pending(crawl_request.to_owned())),
-            );
-            inserted.push((Space::Learned, learned.to_owned()));
-        }
-        Ok(Reached::Follow(PendingVisit {
-            held: Arc::clone(&self.held),
-            crawl_request: crawl_request.to_owned(),
-            identities: reached,
-            inserted,
-            done: false,
-        }))
-    }
-}
-
-/// Visits `pending`, a chain's end held as pending, on the writer's
-/// `connection`, as [`identity::redirect_reached`] visits it.
-///
-/// # Errors
-///
-/// When the run file cannot be written.
-pub fn visit_pending(
-    connection: &Connection,
-    invariants: &Invariants,
-    mut pending: PendingVisit,
-) -> rusqlite::Result<()> {
-    if let Some(unwritten) = invariants.unwritten() {
-        let mut holding = unwritten.lock();
-        identity::visit_all(connection, &pending.identities, &pending.crawl_request)?;
-        holding.written(&pending.identities, &pending.crawl_request);
-        pending.done = true;
-        drop(holding);
-    } else {
-        identity::visit_all(connection, &pending.identities, &pending.crawl_request)?;
-        pending.done = true;
-    }
-    Ok(())
-}
-
-/// The identities of a redirect chain's end at `url`, sent with `method`
-/// and `body`.
-pub(crate) fn reached_identities(
-    connection: &Connection,
-    url: &Url,
-    method: &HttpMethod,
-    body: Option<&[u8]>,
-) -> rusqlite::Result<Identities<'static>> {
-    identity::identities(
-        connection,
-        &Key::of(url, false),
-        Declared {
-            method,
-            body,
-            key: None,
-            keeps_fragment: false,
-        },
-    )
-}
-
-/// Whether `seen` makes a hop of `crawl_request` a `duplicate`: another
-/// request was admitted for, or reached, its key.
-pub(crate) fn duplicate(seen: &Seen, crawl_request: &str) -> bool {
-    match seen {
-        Seen::Visited(visitor)
-        | Seen::Merged {
-            crawl_request: visitor,
-            ..
-        } => visitor != crawl_request,
-        Seen::New => false,
-    }
-}
-
-/// The hop answer of a chain's end that `duplicate` says.
-pub(crate) const fn reached_hop(duplicate: bool) -> Hop {
-    if duplicate {
-        Hop::Duplicate
-    } else {
-        Hop::Follow
     }
 }
 

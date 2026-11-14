@@ -107,7 +107,7 @@ use goodfetch_protocol::page::{NAVIGATION_FAILED, PageId, PageResponse};
 use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_session_pool::escalation::{self, Action, Met};
-use goodfetch_session_pool::{Effect, SendsFrom};
+use goodfetch_session_pool::{Effect, PoolKey, PoolSettings, SendsFrom};
 use tokio::sync::{Mutex, oneshot};
 
 use super::failure::{AttemptFailure, Why};
@@ -115,6 +115,7 @@ use super::watch::{self, Watch};
 use crate::code_free::CodeFree;
 use crate::lease::{CommitError, SoFar, WorkItemLease};
 use crate::progress::SharedInFlight;
+use crate::run_state::{Asking, Escalated};
 use crate::tier_choice::weighing::{self, StagedRun};
 use crate::tier_choice::{AttemptPlan, Sampled, Weighed};
 use crate::tier_race::Raced;
@@ -213,6 +214,20 @@ pub(super) struct Tiering {
     /// own transport, when neither the attempt's Session nor `transport`
     /// sends from one (#2422).
     site_files: Option<ServingSession>,
+    /// Where an escalation draws the Session it runs again in, when the
+    /// attempt's Session sends from its own transport (#2416).
+    escalating: Option<Escalating>,
+}
+
+/// What an attempt whose Session sends from its own transport asks the
+/// crawl's Run state through, as it escalates to the browser, for a
+/// Session whose client is its browser (#2416): the pool its Label draws
+/// from among the crawl's `labels`, under the Run's pool `settings`.
+pub(super) struct Escalating {
+    pub(super) asking: Asking,
+    pub(super) labels: std::sync::Arc<crate::labels::Declared>,
+    pub(super) pool: PoolKey,
+    pub(super) settings: PoolSettings,
 }
 
 /// The Session a sample's `http` run is sent from, from its own transport,
@@ -246,6 +261,7 @@ impl Tiering {
             sends_from: SendsFrom::Browser,
             transport: None,
             site_files: None,
+            escalating: None,
         }
     }
 
@@ -265,6 +281,13 @@ impl Tiering {
     /// given.
     pub(super) fn reading_site_files(mut self, site_files: Option<ServingSession>) -> Self {
         self.site_files = site_files;
+        self
+    }
+
+    /// The same, an escalation drawing through `escalating` the Session it
+    /// runs again in, when given.
+    pub(super) fn escalating(mut self, escalating: Option<Escalating>) -> Self {
+        self.escalating = escalating;
         self
     }
 
@@ -445,6 +468,10 @@ pub(super) struct Attempt {
     pub(super) transport: Option<ServingSession>,
     /// The Session drawn only to read its site files, when one was.
     pub(super) site_files: Option<ServingSession>,
+    /// The Session whose client is its browser that it ran again in, when
+    /// it escalated from its Session's own transport (#2416): its answer
+    /// is this Session's.
+    pub(super) escalated: Option<ServingSession>,
     pub(super) lease: WorkItemLease,
     pub(super) answer: Answer,
     /// What its page taught the Frontier, or teaches it with its outcome.
@@ -502,8 +529,10 @@ pub(super) async fn attempt(
 ) -> Attempt {
     let (document, sent_at) = (Mutex::new(None), Mutex::new(None));
     let moved = OnceLock::new();
+    let escalated = OnceLock::new();
     let on = On {
         document: &document,
+        escalated_to: &escalated,
         sent_at: &sent_at,
         moved: &moved,
         run: &run,
@@ -587,6 +616,7 @@ pub(super) async fn attempt(
         session,
         transport: tiering.transport.map(|sample| sample.session),
         site_files: tiering.site_files,
+        escalated: escalated.into_inner().map(|(session, _)| session),
         lease,
         answer,
         taught,
@@ -706,6 +736,10 @@ struct On<'a> {
     /// Whether a Challenge met on a tier short of the browser moved the
     /// request to the browser, set once it did.
     moved: &'a OnceLock<()>,
+    /// The Session whose client is its browser that the request ran again
+    /// in, as that Session runs in the browser, set once its attempt
+    /// escalated from a Session's own transport (#2416).
+    escalated_to: &'a OnceLock<(ServingSession, PooledSession)>,
 }
 
 impl On<'_> {
@@ -775,7 +809,8 @@ impl On<'_> {
 
     /// The attempt on the `http` tier: its run there ([`On::on_http`]),
     /// escalated to the browser at the first call the tier cannot serve
-    /// under `auto`, in the same attempt, the first answer discarded.
+    /// under `auto`, in the same attempt, the first answer discarded
+    /// ([`On::escalate`]).
     /// Answers how it ended and the pending requests the page's rules
     /// merged. On `discovered_api`, its page replays `plan`'s calls.
     async fn http(
@@ -799,20 +834,64 @@ impl On<'_> {
                 // stages anew: what the first run staged goes with it.
                 self.lease.renew(self.lease.length());
                 drop(self.lease.restage());
-                self.browser(&tiering.tiers, choice, Chosen::Escalated(call))
-                    .await
+                self.escalate(tiering, choice, call).await
             }
             // A Challenge the program's code named moves as one the rules
             // found does.
             None if self.moves(&run.answer, choice) => {
                 self.lease.renew(self.lease.length());
                 drop(self.lease.restage());
-                self.browser(&tiering.tiers, choice, Chosen::Escalated(BLOCKED))
-                    .await
+                self.escalate(tiering, choice, BLOCKED).await
             }
             _ => run.answer,
         };
         (answer, merged)
+    }
+
+    /// The request run again on the browser, escalated at `call` from a
+    /// run as `choice` says: in the attempt's Session when it sends from
+    /// its browser (`fetch.http_from: browser`), else in a Session whose
+    /// client is its browser, drawn for it from its Label's pool, which
+    /// carries nothing of the first (#2416). A failed answer, retried, when
+    /// the crawl ended before that Session was drawn.
+    async fn escalate(&self, tiering: &Tiering, choice: &TierChoice, call: &'static str) -> Answer {
+        let how = Chosen::Escalated(call);
+        let escalating = match &tiering.escalating {
+            Some(escalating) if self.sends_from == SendsFrom::Transport => escalating,
+            _ => return self.browser(&tiering.tiers, choice, how).await,
+        };
+        // The loop answers from memory, at once: the attempt waits for it
+        // whatever its lease, so the Session it draws is always settled.
+        let drawn = escalating
+            .asking
+            .escalated(Escalated {
+                labels: std::sync::Arc::clone(&escalating.labels),
+                pool: escalating.pool.clone(),
+                domain_key: self.leased.waiting.key.clone(),
+                settings: escalating.settings,
+                now: self.run.clock().wall(),
+            })
+            .await;
+        let Ok(drawn) = drawn else {
+            return Answer::failed(AttemptFailure::named(
+                NAVIGATION_FAILED.name,
+                true,
+                "The crawl ended before a browser Session was drawn for the escalated request, so it was not fetched again."
+                    .to_owned(),
+            ));
+        };
+        // An attempt escalates once, so nothing was set before.
+        let (session, in_browser) = self
+            .escalated_to
+            .get_or_init(|| (drawn.session, drawn.in_browser));
+        On {
+            session,
+            in_browser,
+            sends_from: SendsFrom::Browser,
+            ..*self
+        }
+        .browser(&tiering.tiers, choice, how)
+        .await
     }
 
     /// Where a sample's `http` run is sent from, on the Run's HTTP tier as

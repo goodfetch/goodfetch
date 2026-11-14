@@ -3,10 +3,12 @@
 //! where its Session met it, whether the request moves to the browser tier
 //! or ends `blocked`. A Challenge met on a tier short of the browser
 //! (`http`, `discovered_api`, `browser_fetch`, `light_browser`) moves the
-//! request to the browser, in the same Session, and its domain learns the
-//! move ([`crate::SessionPool::moved_to_browser`]), so a Challenge is met
-//! where it can be passed; under a `fetch.tier` forced to that tier, it
-//! ends `blocked` instead, since a forced tier is never left (ADR 0093).
+//! request to the browser, in the same Session when it sends from its
+//! browser, else in one whose client is its browser (#2416), and its
+//! domain learns the move ([`crate::SessionPool::moved_to_browser`]), so a
+//! Challenge is met where it can be passed; under a `fetch.tier` forced to
+//! that tier, it ends `blocked` instead, since a forced tier is never left
+//! (ADR 0093).
 //! A block the program's own code names (a handler's `blocked`, as an
 //! after-response Hook's `block(cause)` will, ADR 0104) is decided the
 //! same way as one the Block classification rules detected. Every other

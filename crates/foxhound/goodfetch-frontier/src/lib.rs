@@ -43,7 +43,6 @@ use std::sync::Arc;
 use goodfetch_engine::Contribution;
 use goodfetch_protocol::foxhound::frontier::{FRONTIER_LEARNING, LEARNING_SWITCHED_OFF};
 use goodfetch_protocol::foxhound::settings::{POLITENESS_WEAKENED, PRESSING_HARDER};
-use rusqlite::Connection;
 
 pub use admit::{
     Candidate, Entering, Keyed, Link, admit, admit_in, admit_keyed, key_candidate, key_link,
@@ -113,19 +112,20 @@ pub fn contribution() -> Contribution {
         })
 }
 
-/// Prepares, on the run file's writer `connection`, the statements an
-/// admission under `invariants` runs that the Run's start runs none of, so
-/// no page's admission prepares one (ADR 0140, `F3.prepares`): the
+/// The statements a Run under `invariants` prepares once, as it starts or
+/// resumes, on each connection of its run file's writer, so that no
+/// page's admission prepares one, whichever connection it commits on
+/// (ADR 0140, `F3.prepares`). Those the Run's start runs none of: the
 /// Scope's lookup of a URL's measures, the learned rules' end of a streak,
 /// their read of a parameter's offset and of a path's paged offsets, a
-/// link seen again and a sitemap's read. A Run calls it once as it starts
-/// or resumes.
-///
-/// # Errors
-///
-/// When a statement cannot be prepared.
-pub fn prepare_admission(connection: &Connection, invariants: &Invariants) -> rusqlite::Result<()> {
-    let statements = invariants
+/// link seen again and a sitemap's read. And those a redirect hop's check
+/// runs beside the Scope's lookup, which the start prepares only on the
+/// connection its own write commits on, where a hop's check does not
+/// (#2246): the rule that holds, the visited set's read and a learned
+/// identity's.
+#[must_use]
+pub fn admission_statements(invariants: &Invariants) -> Vec<&'static str> {
+    invariants
         .scope()
         .strategy()
         .query()
@@ -136,9 +136,7 @@ pub fn prepare_admission(connection: &Connection, invariants: &Invariants) -> ru
             rules::PAGED_OFFSETS,
         ])
         .chain(trap_links::SEEN_AGAIN)
-        .chain(sitemap::READ);
-    for statement in statements {
-        connection.prepare_cached(statement)?;
-    }
-    Ok(())
+        .chain(sitemap::READ)
+        .chain([rules::HOLDING, identity::VISITOR, identity::LEARNED])
+        .collect()
 }

@@ -140,6 +140,7 @@ mod attempt;
 mod failure;
 
 use failure::{AttemptFailure, Why};
+mod hops;
 mod pages;
 mod politeness;
 mod watch;
@@ -147,6 +148,7 @@ mod watch;
 use attempt::{
     Answer, Attempt, Taught, Tiering, effect, handler_lease, leased_count, run_hand_over,
 };
+use hops::Hops;
 use pages::{Pages, Start};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
 use watch::Watch;
@@ -264,12 +266,19 @@ pub(crate) async fn drive(
             warn_switched_off(&run, code, message).await;
         }
     }
-    // What every attempt hands over alike, built once (ADR 0138).
+    arrivals.invariants.prepare(&run).await;
+    // What every attempt hands over alike, built once (ADR 0138), with
+    // how its redirect hops ask the loop (ADR 0142).
+    let (hops, asking) = Hops::of(
+        &run,
+        &arrivals.egress,
+        arrivals.invariants.shared_frontier(),
+    );
     let handing = run_hand_over(
         &run,
         settings.resolved(),
         fetching.http,
-        (&arrivals.egress, arrivals.invariants.shared_frontier()),
+        (&arrivals.egress, asking),
     )
     .await;
     let fetching = (&fetching, &handing);
@@ -280,6 +289,7 @@ pub(crate) async fn drive(
         &mut arrivals,
         (&settings, choices),
         fetching,
+        hops,
     )
     .await;
     crawls.close(run.id()).await;
@@ -396,6 +406,7 @@ async fn deliver(
     arrivals: &mut Opened,
     (settings, choices): (&RunSettings, TierChoices),
     (fetching, handing): (&Fetching<'_>, &std::sync::Arc<RunHandOver>),
+    mut hops: Hops,
 ) {
     let Some((mut admission, mut state)) = opened(run, settings, choices).await else {
         return;
@@ -406,8 +417,7 @@ async fn deliver(
     let mut stop: Option<StopReason> = None;
     // Resolved once, as the Run opened: no turn reads the settings again
     // (ADR 0138).
-    let resolved = settings.resolved();
-    let read = Read::of(resolved);
+    let (resolved, read) = (settings.resolved(), Read::of(settings.resolved()));
     loop {
         if stop.is_none()
             && let Err(error) = lease_to_servers(
@@ -492,6 +502,7 @@ async fn deliver(
                 let state = (&mut state, fetching);
                 settled(run, read, &mut admission, state, servers, ended).await;
             }
+            Some(asked) = hops.asked() => hops.answer(run, asked).await,
             () = sleep_until(run.clock(), wake), if wake.is_some() => {}
             () = run.governor().turn(WorkKind::Http), if free && starved => {}
             key = next_wake(wakes.as_mut()) => admission.wake(key.as_deref()),
@@ -585,7 +596,6 @@ pub(crate) async fn resume(
             work_items::recover_leases(connection, &lost, retry_max, &resumed_at)?;
             let fragments = labels::Fragments::read(connection)?;
             let invariants = Invariants::read(connection, fragments.clone())?;
-            goodfetch_frontier::prepare_admission(connection, invariants.frontier())?;
             Ok((
                 work_items::left(connection)?,
                 labels::read(connection)?,

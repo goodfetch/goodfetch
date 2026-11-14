@@ -246,7 +246,7 @@ pub(crate) fn seen(
         None => (&*identities.plain, None),
     };
     let learned = match connection
-        .prepare_cached("SELECT rule, crawl_request FROM learned_identities WHERE identity = ?1")?
+        .prepare_cached(LEARNED)?
         .query_row([probe], |row| Ok((row.get::<_, i64>(0)?, row.get(1)?)))
         .optional()?
     {
@@ -602,11 +602,20 @@ fn identity_of_key(key: &str, declared: Declared<'_>) -> (String, Option<Range<u
     (identity, Some(at))
 }
 
+/// The statement [`seen`] reads a learned identity with, which
+/// [`crate::admission_statements`] names for a Run to prepare as it starts.
+pub(crate) const LEARNED: &str =
+    "SELECT rule, crawl_request FROM learned_identities WHERE identity = ?1";
+
+/// The statement [`visitor`] runs, which [`crate::admission_statements`]
+/// names for a Run to prepare as it starts.
+pub(crate) const VISITOR: &str = "SELECT crawl_request FROM visited WHERE identity = ?1";
+
 /// The crawl request `identity` was admitted for, or reached by a
 /// redirect; `None` while the visited set lacks it.
 pub(crate) fn visitor(connection: &Connection, identity: &str) -> rusqlite::Result<Option<String>> {
     connection
-        .prepare_cached("SELECT crawl_request FROM visited WHERE identity = ?1")?
+        .prepare_cached(VISITOR)?
         .query_row([identity], |row| row.get(0))
         .optional()
 }

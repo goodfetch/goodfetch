@@ -512,6 +512,12 @@ fn without_learned_by(rules: &mut impl Lookup, key: &Url) -> rusqlite::Result<(U
     Ok((merged, applied))
 }
 
+/// The statement [`holding`] runs, which [`crate::admission_statements`]
+/// names for a Run to prepare as it starts.
+pub(crate) const HOLDING: &str =
+    "SELECT id FROM learned_rules WHERE kind = ?1 AND host = ?2 AND path = ''
+             AND parameter = ?3 AND form = ?4 AND contradiction IS NULL";
+
 /// The ID of the rule about `subject` on `host`, while it holds: learned
 /// and never contradicted.
 fn holding(
@@ -521,10 +527,7 @@ fn holding(
 ) -> rusqlite::Result<Option<i64>> {
     let (kind, parameter, form) = subject.columns();
     connection
-        .prepare_cached(
-            "SELECT id FROM learned_rules WHERE kind = ?1 AND host = ?2 AND path = ''
-             AND parameter = ?3 AND form = ?4 AND contradiction IS NULL",
-        )?
+        .prepare_cached(HOLDING)?
         .query_row((kind, host, parameter, form), |row| row.get(0))
         .optional()
 }
@@ -707,19 +710,19 @@ pub(crate) fn given_back(connection: &Connection, crawl_request: &str) -> rusqli
 }
 
 /// The statement [`admitted`] ends a path pattern's streak with, which
-/// [`crate::prepare_admission`] prepares as the Run starts.
+/// [`crate::admission_statements`] has the Run prepare as it starts.
 pub(crate) const STREAK_ENDED: &str =
     "UPDATE rules_patterns SET streak = 0, first = NULL WHERE host = ?1 AND pattern = ?2";
 
 /// The statement [`offset_value`] reads what a parameter's values on a
-/// path showed with, which [`crate::prepare_admission`] prepares as the
-/// Run starts.
+/// path showed with, which [`crate::admission_statements`] has the Run prepare as
+/// it starts.
 pub(crate) const OFFSET_SEEN: &str =
     "SELECT anchor, step, low, high, count, paged FROM rules_offsets
      WHERE host = ?1 AND path = ?2 AND parameter = ?3";
 
 /// The statement [`cursor`] reads a path's offset parameters with, which
-/// [`crate::prepare_admission`] prepares as the Run starts.
+/// [`crate::admission_statements`] has the Run prepare as it starts.
 pub(crate) const PAGED_OFFSETS: &str = "SELECT parameter, step FROM rules_offsets
      WHERE host = ?1 AND path = ?2 AND paged = 1 ORDER BY parameter";
 

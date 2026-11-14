@@ -63,7 +63,9 @@
 //! scope ends the request `skipped` with `out_of_scope`, one to a host the
 //! Run's domain policy refuses with `domain_policy`, and one to a key the
 //! Frontier admitted for another request with `duplicate` (ADRs 0093, 0118
-//! and 0120). A hop whose URL names an address a page may not reach in
+//! and 0120). The gate asks them of the actor that owns its crawl's Run
+//! state, through the [`HopChecks`] the crawl hands down (ADR 0142): this
+//! crate does not depend on the crawl. A hop whose URL names an address a page may not reach in
 //! place of a host, or whose name resolves to one, ends it `skipped` with
 //! `domain_policy` too, before the gate reads its robots.txt (ADR 0017); a
 //! refusal of the gate's ends it `skipped` with its reason, but for a
@@ -82,7 +84,6 @@ use std::time::{Duration, SystemTime};
 use tokio::time::Instant;
 
 use bytes::Bytes;
-use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Room, SecondCopies, SecondCopy};
 use goodfetch_engine::egress::{Policy, Refused};
@@ -90,6 +91,7 @@ use goodfetch_engine::governor::Permit as HttpAdmission;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::politeness::{Politeness, PolitenessError};
 use goodfetch_engine::robots_txt::{self, Fetch};
+use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::runs::Run;
 use goodfetch_frontier::DomainKeys;
 use goodfetch_page::page_value::{
@@ -181,6 +183,43 @@ pub struct HandOver {
     pub capture: Option<Capture>,
 }
 
+/// A redirect hop of a crawl request, as the actor that owns its crawl's
+/// Run state is asked of it: the request it is a hop of, and what it is
+/// sent with.
+#[derive(Clone, Debug)]
+pub struct ChainHop {
+    /// The crawl request's ID.
+    pub crawl_request: String,
+    /// Where the hop is sent.
+    pub url: Url,
+    /// The method it is sent with.
+    pub method: HttpMethod,
+    /// The body it is sent with, if any.
+    pub body: Option<Bytes>,
+}
+
+/// The boxed future a [`HopChecks`] answers: where the hop leads its
+/// request, or why the Run state could not say.
+pub type HopAnswer<'a> = Gating<'a, Result<goodfetch_frontier::Hop, RunStateError>>;
+
+/// How a crawl request's redirect chain reaches the actor that owns its
+/// crawl's Run state (ADR 0142): each call is one message to the actor and
+/// its answer, which the chain waits for. The crawl hands one down, once a
+/// Run, in its [`RunHandOver`].
+pub trait HopChecks: Send + Sync {
+    /// Where `hop` leads its request, as the Frontier judges a redirect
+    /// hop (`goodfetch_frontier::redirect_hop`): out of the scope, to a
+    /// host the domain policy refuses, to a key another request holds, or
+    /// on.
+    fn check(&self, hop: ChainHop) -> HopAnswer<'_>;
+
+    /// Records `hop`'s URL, its chain's final one, under its key as
+    /// visited, as the Frontier does (`goodfetch_frontier::redirect_reached`):
+    /// `Duplicate` when another request holds the key by now, else
+    /// `Follow`.
+    fn reached(&self, hop: ChainHop) -> HopAnswer<'_>;
+}
+
 /// What every attempt of a Run hands over alike with its pages: the Run,
 /// its settings as its navigation gate reads them, the Politeness it
 /// shares and the files it fetched once. Built once as the Run's crawl
@@ -214,11 +253,12 @@ pub struct RunHandOver {
     /// request's own document, its redirect hops and its handler's pages
     /// alike, and the AI-use signal files the Run fetched for them.
     pub site_preferences: SitePreferences,
-    /// The Run's domain policy, which judges each redirect hop.
+    /// The Run's domain policy, which judges each redirect hop's address.
     pub egress: Arc<Policy>,
-    /// The Run's admission invariants, built once, which each redirect hop
-    /// is admitted within (#1896).
-    pub invariants: Arc<goodfetch_frontier::Invariants>,
+    /// How each redirect hop is checked against the visited set, and each
+    /// redirected chain's final URL recorded in it: through the actor that
+    /// owns the crawl's Run state (ADR 0142).
+    pub hops: Arc<dyn HopChecks>,
     /// The address check of the Run's HTTP tier, which judges each
     /// redirect hop's URL and the addresses its name resolves to before
     /// its robots.txt is read; `None` without the tier, the URL alone then
@@ -700,22 +740,10 @@ impl ChainGate {
     /// navigation gate, and the transport's own judgment of it.
     async fn frontier(&self, hop: &Hop) -> goodfetch_frontier::Hop {
         let run = self.hand_over.run();
-        let (id, url, method, body) = frontier_hop(&self.crawl_request, hop);
-        let egress = Arc::clone(&self.hand_over.of_run.egress);
-        let invariants = Arc::clone(&self.hand_over.of_run.invariants);
-        run.metrics().counted_work().count(Row::HopTransactions);
-        // A hop's check-and-set answers the chain, not the outside: the
-        // attempt's outcome syncs it (ADR 0138's note of #1926).
-        run.state()
-            .write_deferred(move |connection| {
-                goodfetch_frontier::admit_hop(
-                    connection,
-                    &invariants,
-                    &egress,
-                    &id,
-                    (&url, &method, body.as_deref()),
-                )
-            })
+        self.hand_over
+            .of_run
+            .hops
+            .check(chain_hop(&self.crawl_request, hop))
             .await
             .unwrap_or_else(|error| {
                 tracing::warn!(%error, run_id = %run.id(), "a redirect hop was not checked by the Frontier");
@@ -724,14 +752,14 @@ impl ChainGate {
     }
 }
 
-/// What the Frontier takes of `hop` of `crawl_request`.
-fn frontier_hop(crawl_request: &str, hop: &Hop) -> (String, Url, HttpMethod, Option<Bytes>) {
-    (
-        crawl_request.to_owned(),
-        hop.url.clone(),
-        HttpMethod::parse(hop.method.as_str()).unwrap_or_else(|_| HttpMethod::get()),
-        hop.body.clone(),
-    )
+/// What the Run state's actor is asked of `hop` of `crawl_request`.
+fn chain_hop(crawl_request: &str, hop: &Hop) -> ChainHop {
+    ChainHop {
+        crawl_request: crawl_request.to_owned(),
+        url: hop.url.clone(),
+        method: HttpMethod::parse(hop.method.as_str()).unwrap_or_else(|_| HttpMethod::get()),
+        body: hop.body.clone(),
+    }
 }
 
 impl HopGate for ChainGate {
@@ -836,18 +864,11 @@ impl HopGate for ChainGate {
     fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, Result<(), Stop>> {
         Box::pin(async move {
             let run = self.hand_over.run();
-            let (id, url, method, body) = frontier_hop(&self.crawl_request, hop);
-            let recorded = run
-                .state()
-                .write_deferred(move |connection| {
-                    goodfetch_frontier::redirect_reached(
-                        connection,
-                        &id,
-                        &url,
-                        &method,
-                        body.as_deref(),
-                    )
-                })
+            let recorded = self
+                .hand_over
+                .of_run
+                .hops
+                .reached(chain_hop(&self.crawl_request, hop))
                 .await;
             match recorded {
                 Ok(goodfetch_frontier::Hop::Duplicate) => Err(Stop::Skipped(Skip {

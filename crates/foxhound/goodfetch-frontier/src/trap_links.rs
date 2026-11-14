@@ -259,8 +259,8 @@ pub fn suspect(connection: &Connection, id: &str, mark: Mark) -> rusqlite::Resul
     Ok(())
 }
 
-/// The statements [`seen_again`] runs, which [`crate::prepare_admission`]
-/// prepares as the Run starts: whether any request is marked, then a
+/// The statements [`seen_again`] runs, which [`crate::admission_statements`]
+/// has the Run prepare as it starts: whether any request is marked, then a
 /// mark's update to revealable or its removal.
 pub(crate) const SEEN_AGAIN: [&str; 3] = [
     "SELECT 1 FROM trap_link_suspected LIMIT 1",

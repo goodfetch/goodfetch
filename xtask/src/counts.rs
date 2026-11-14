@@ -172,7 +172,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 98] = [
+const ROWS: [Row; 100] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -322,6 +322,8 @@ const ROWS: [Row; 98] = [
     b1("F3.payload_serializations", PAYLOADS, true),
     b1("F3.validations", PAYLOADS, true),
     b1("F3.actor_round_trips", ATTEMPTS_ENDED, true),
+    b1("F3.hop_round_trips", HOPS, true),
+    b1("F3.hop_round_trips.end", CHAINS, true),
     Row {
         name: "C1.encodes",
         family: "B2",
@@ -916,6 +918,8 @@ const NOT_RUN_YET: [NotRunYet; 26] = [
 const LINKS_BATCHES: &str = "links_batches";
 /// The redirect hops it took through the Frontier.
 const HOPS: &str = "hops";
+/// The redirected chains that ended on their document.
+const CHAINS: &str = "chains";
 /// The sitemaps it read.
 const SITEMAPS: &str = "sitemaps";
 /// The URLs it enqueued with a Payload.

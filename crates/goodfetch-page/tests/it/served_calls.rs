@@ -21,7 +21,7 @@ use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
     Answered, CallContext, Channel, Composition, Dependencies, Engine, GuardAnswer, Identity,
-    Params,
+    ReadParams,
 };
 use goodfetch_page::Launcher;
 use goodfetch_page::blocks::NoBlocks;
@@ -54,7 +54,7 @@ impl HandlerPages for Served {
         &self,
         page_id: &PageId,
         operation: &'static str,
-        _params: Params<'_>,
+        _params: ReadParams<'_>,
         context: &CallContext,
     ) -> Option<GuardAnswer> {
         (page_id.0 == SERVED)

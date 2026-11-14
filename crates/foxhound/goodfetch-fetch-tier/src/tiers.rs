@@ -48,7 +48,7 @@ use goodfetch_engine::settings::{Effective, Resolved, RunSettings, get_or_defaul
 use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, Trust,
 };
-use goodfetch_engine::{Answered, CallContext, CallError, GuardAnswer, Params};
+use goodfetch_engine::{Answered, CallContext, CallError, GuardAnswer, ReadParams};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::document_request::{DocumentRequest, Unread};
@@ -2089,7 +2089,7 @@ impl HandlerPages for FetchTiers {
         &self,
         page_id: &PageId,
         operation: &'static str,
-        params: Params<'_>,
+        params: ReadParams<'_>,
         context: &CallContext,
     ) -> Option<GuardAnswer> {
         let served = calls::on_browser(self, page_id, operation, params)

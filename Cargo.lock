@@ -2631,6 +2631,7 @@ dependencies = [
  "csv",
  "data-encoding",
  "flate2",
+ "goodfetch-clean-up-rules",
  "goodfetch-collie",
  "goodfetch-counted-work",
  "goodfetch-crawl",

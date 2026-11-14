@@ -157,6 +157,7 @@ fn a_raw_trial_that_fetched_a_page_twice_did_other_work() {
             "crawlee",
             "scrapy",
             "crawlee-rs",
+            "pagesift",
             "spider capacity 4096",
             "spider default features",
             "spider bloom",
@@ -221,6 +222,7 @@ fn a_resumed_trial_whose_pages_were_first_served_other_bytes_did_other_work() {
                 "durable foxhound periodic trial 3".to_owned()
             ),
             ("different_bytes", "durable crawlee-rs trial 3".to_owned()),
+            ("different_bytes", "durable pagesift trial 3".to_owned()),
         ]
     );
 }
@@ -280,7 +282,7 @@ fn a_browser_trial_that_never_rendered_the_links_misses_the_script_rendered_page
                 finding.message.as_str()
             ))
             .collect::<Vec<_>>(),
-        ["foxhound", "spider", "crawlee", "scrapy"]
+        ["foxhound", "spider", "crawlee", "scrapy", "pagesift"]
             .map(|cell| (
                 "unrendered_pages",
                 format!("browser {cell} trial 2"),
@@ -464,6 +466,7 @@ fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
             ("different_pages", "polite crawlee trial 1".to_owned()),
             ("different_pages", "polite scrapy trial 1".to_owned()),
             ("different_pages", "polite crawlee-rs trial 1".to_owned()),
+            ("different_pages", "polite pagesift trial 1".to_owned()),
             ("different_pages", "raw spider callgrind trial 3".to_owned()),
         ]
     );

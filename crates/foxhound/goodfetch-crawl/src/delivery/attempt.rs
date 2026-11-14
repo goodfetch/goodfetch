@@ -548,13 +548,14 @@ enum Found {
     Readable,
 }
 
-/// A page a tier served for an attempt, held until it is handed out
-/// ([`Served::keep`]): dropped before, as the future that holds it is when
-/// a race's navigation wins, it closes on its tiers, so no served page
-/// outlives its attempt, nor holds its Run's handles past the Run's end.
+/// A page a tier served for an attempt, held until its attempt closes it
+/// ([`Served::close`]): dropped before, as the future that holds it is when
+/// a race's navigation wins or its attempt is abandoned, it closes on its
+/// tiers, so no served page outlives its attempt, nor holds its Run's
+/// handles past the Run's end.
 struct Served<'t> {
     tiers: &'t FetchTiers,
-    /// The page, until it is handed out.
+    /// The page, until it is closed.
     page_id: Option<PageId>,
 }
 
@@ -563,14 +564,17 @@ impl Served<'_> {
     fn page_id(&self) -> &PageId {
         self.page_id
             .as_ref()
-            .expect("invariant: a served page is held until it is handed out")
+            .expect("invariant: a served page is held until it is closed")
     }
 
-    /// Hands the page out: its holder closes it from now on.
-    fn keep(mut self) -> PageId {
-        self.page_id
+    /// Closes the page once its handler answered, as [`FetchTiers::close`]
+    /// does, and answers what it held as it closed.
+    fn close(mut self) -> Option<PageFacts> {
+        let page_id = self
+            .page_id
             .take()
-            .expect("invariant: a served page is handed out once")
+            .expect("invariant: a served page is closed once");
+        self.tiers.close(&page_id)
     }
 }
 
@@ -984,7 +988,7 @@ impl On<'_> {
         )
         .await;
         drop(handed_over);
-        let escalated = self.escalated(tiers.close(&served.keep()));
+        let escalated = self.escalated(served.close());
         Ok((
             HttpRun {
                 answer,

@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use super::{
-    Executables, Options, counted_output, crawlee_rs_executable, order, run, set_aside,
-    size_points, spider_executable,
+    Executables, Options, counted_output, crawlee_rs_executable, order, pagesift_executable, run,
+    set_aside, size_points, spider_executable,
 };
 use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
 use crate::compare::trials::{
@@ -64,6 +64,16 @@ fn crawlee_rs_runs_the_executable_built_in_its_folder() {
     assert_eq!(
         crawlee_rs_executable(Path::new("/t/compare-spider"), "release"),
         Path::new("/t/compare-spider/crawlee-rs/release/goodfetch-compare-crawlee-rs")
+    );
+}
+
+/// pagesift's side runs the executable Cargo left in its own folder among
+/// the Rust sides' builds, under the profile's.
+#[test]
+fn pagesift_runs_the_executable_built_in_its_folder() {
+    assert_eq!(
+        pagesift_executable(Path::new("/t/compare-spider"), "release"),
+        Path::new("/t/compare-spider/pagesift/release/goodfetch-compare-pagesift")
     );
 }
 
@@ -440,9 +450,11 @@ fn the_sizes_cell_runs_spider_at_16_and_at_64_on_a_wider_channel() {
         .map(|(_, config, crawl)| {
             let capacity = match config {
                 Config::Spider { capacity, .. } => Some(capacity),
-                Config::Foxhound { .. } | Config::Crawlee | Config::Scrapy | Config::CrawleeRs => {
-                    None
-                }
+                Config::Foxhound { .. }
+                | Config::Crawlee
+                | Config::Scrapy
+                | Config::CrawleeRs
+                | Config::Pagesift => None,
             };
             (config.tool(), crawl.concurrency, capacity)
         })

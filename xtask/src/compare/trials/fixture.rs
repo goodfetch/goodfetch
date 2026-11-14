@@ -46,6 +46,7 @@ pub(crate) fn comparison(site_pages: u64, measured: impl Fn(&Cell, u32) -> Measu
             crawlee: "3.18.2".to_owned(),
             scrapy: "2.19.0".to_owned(),
             crawlee_rs: "2a3ed90b8391c86005ce6ed8dd3e3248d0d34579".to_owned(),
+            pagesift: "1.3.0".to_owned(),
             playwright: "1.64.1".to_owned(),
             scrapy_playwright: "0.0.48".to_owned(),
             browser: "156.0.8078.4".to_owned(),

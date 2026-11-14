@@ -1,4 +1,4 @@
-use super::{Calls, MOST_AT_ONCE, bounded, calls_beneath_in, calls_in, most_at_once};
+use super::{Calls, MOST_AT_ONCE, bounded, calls_beneath_in, calls_in, most_at_once, total_in};
 
 /// A piece of what Callgrind writes: two callers of the symbol, a call of
 /// another symbol between them, and the symbol's own cost line.
@@ -118,4 +118,26 @@ fn bounded_runs_at_most_half_the_cores_at_once_and_answers_each() {
         (1..=most).contains(&highest),
         "{highest} ran at once, at most {most}"
     );
+}
+
+/// The end of what Callgrind writes: the instructions it collected, in all.
+const COLLECTED: &str = "\
+events: Ir
+fn=goodfetch_clean_up_rules::removal::remove
+16 4
+cfn=dom_query::node::NodeRef::is_match
+calls=135 0
+16 90000
+
+totals: 90004
+";
+
+#[test]
+fn the_instructions_collected_are_the_outputs_total() {
+    assert_eq!(total_in(COLLECTED), Some(90_004));
+}
+
+#[test]
+fn an_output_with_no_total_holds_no_instruction_count() {
+    assert_eq!(total_in(OUTPUT), None);
 }

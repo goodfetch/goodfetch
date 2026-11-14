@@ -1,5 +1,5 @@
 //! `xtask compare` (ADRs 0134 and 0138): the comparison matrix, Foxhound
-//! against the crawlers nearest it (Spider, Crawlee, Scrapy and crawlee-rs), on one machine with nothing else
+//! against the crawlers nearest it (Spider, Crawlee, Scrapy, crawlee-rs and pagesift), on one machine with nothing else
 //! running. Each scenario sets every tool to the closest equivalent
 //! configuration and the report writes that mapping; a tool that cannot do
 //! a scenario has a cell saying so, and a Foxhound value that does not
@@ -112,8 +112,8 @@ pub(crate) struct RunArguments {
     /// The folder of the Rust sides' builds: `xtask/compare-spider` built
     /// once for each build the matrix's Spider rows run, each into the
     /// target folder of its name under this one (`spider`, `spider-chrome`,
-    /// `spider-bloom` and so on), and `xtask/compare-crawlee-rs` built into
-    /// `crawlee-rs`.
+    /// `spider-bloom` and so on), `xtask/compare-crawlee-rs` built into
+    /// `crawlee-rs` and `xtask/compare-pagesift` into `pagesift`.
     #[arg(long)]
     spider_builds: PathBuf,
     /// The folder Cargo names after the profile those builds were made

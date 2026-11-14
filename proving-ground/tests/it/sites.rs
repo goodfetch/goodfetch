@@ -408,3 +408,33 @@ fn the_comparisons_sites_are_observed() {
         ])
     );
 }
+
+/// The pages of benchmark B4's site (ADR 0140, #2184), which
+/// `goodfetch-foxhound`'s counts example serves from memory: the fixture
+/// holds the documents of the article site of 16 pages, in page order, as
+/// the Proving ground serves them at this seed, so the benchmark counts
+/// the work of the pages the comparison's extraction scenario crawls.
+const BENCHMARK_FIXTURE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../crates/foxhound/goodfetch-foxhound/benches/fixtures/article-site-16.html"
+);
+
+#[test]
+fn the_extraction_benchmarks_fixture_is_the_article_site_of_16_pages() {
+    let proving_ground = ProvingGround::start(SEED);
+    let origin = format!("http://article.localhost:{}", proving_ground.port());
+
+    let served: String = (1..=16)
+        .map(|page| {
+            proving_ground
+                .get(&format!("{origin}/sites/16/{page}"))
+                .body
+        })
+        .collect();
+
+    let fixture = std::fs::read_to_string(BENCHMARK_FIXTURE).expect("the benchmark's fixture");
+    assert!(
+        served == fixture,
+        "{BENCHMARK_FIXTURE} is no longer the article site of 16 pages at the seed {SEED}"
+    );
+}

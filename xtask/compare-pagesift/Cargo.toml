@@ -1,0 +1,69 @@
+# pagesift's side of `just compare` (#2215, spec #2212): one crawl of a
+# Proving ground site with pagesift (Apache-2.0 at the pinned release, its
+# history before it AGPL-3.0), through its library's `Scraper::crawl`, the
+# entry point its own crawl benchmark uses
+# (`crates/pagesift/examples/crawl_bench.rs`), with each scenario's settings,
+# and, for the durable scenario, through its HTTP API's job store, which is
+# where pagesift keeps a crawl it can resume. It is fetched and run by the
+# comparison alone, never linked into a Product.
+#
+# The pin: pagesift's release 1.3.0 on crates.io, the newest on 2026-11-13,
+# which crates.io records as published from commit
+# 2d356163332636b3c7df4a54b27880814c012a28 of its repository; the four
+# crates below are held to that exact version, and the Cargo.lock beside
+# this file pins every crate under them, resolved as pagesift's own lock
+# is. It is taken from crates.io, not from the repository at that commit:
+# Cargo cannot fetch the repository, whose submodule fails. Move the pin by
+# changing the four versions below and the version
+# `xtask/src/compare/trials.rs` declares (`PAGESIFT_VERSION`, which a test
+# holds equal to them), then `cargo update --manifest-path
+# xtask/compare-pagesift/Cargo.toml`.
+#
+# The build: the repository's pinned toolchain (`rust-toolchain.toml`,
+# found above this folder) and the workspace's release profile below, as
+# Spider's side is built, so no Rust tool has more optimization than
+# Foxhound (pagesift's own release profile is the same, `lto = "fat"` and
+# one codegen unit). `just compare` runs
+#
+#   cargo build --locked --manifest-path xtask/compare-pagesift/Cargo.toml \
+#     --profile release --target-dir target/compare-spider/pagesift
+#
+# and the comparison runs
+# `target/compare-spider/pagesift/release/goodfetch-compare-pagesift`
+# (`GOODFETCH_COMPARE_SPIDER_BUILDS` moves the folder, as for Spider's).
+[package]
+name = "goodfetch-compare-pagesift"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+pagesift = "=1.3.0"
+pagesift-sys = "=1.3.0"
+pagesift-cdp = "=1.3.0"
+pagesift-net = "=1.3.0"
+# The durable scenario calls pagesift's API router in process, as its own
+# tests do.
+axum = "0.8"
+tower = { version = "0.5", features = ["util"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+serde_json = "1"
+
+[workspace]
+
+# The workspace's release profile, so no tool is built with more
+# optimization than another.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+panic = "unwind"
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "debuginfo"
+
+# The workspace's `ci` profile, for `just compare ci`'s quicker try.
+[profile.ci]
+inherits = "release"
+lto = "thin"

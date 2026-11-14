@@ -9,7 +9,7 @@ use serde_json::json;
 
 use super::URL;
 use crate::{
-    BuiltIn, CleanUp, Context, Document, Extractor, Found, Serialization, measured_formats,
+    BuiltIn, Chosen, CleanUp, Context, Document, Extractor, Found, Serialization, measured_formats,
     page_signature,
 };
 
@@ -71,7 +71,11 @@ fn a_read_of_the_main_content_parses_the_page_once_and_copies_its_tree_once(
     let work = CountedWork::default();
     let context = Context {
         clean_up: Some(&Keeps),
-        extractor: built_in.extractor(),
+        extractor: Chosen {
+            built_in,
+            ..Chosen::default()
+        }
+        .extractor(),
         work: work.clone(),
     };
 
@@ -155,11 +159,7 @@ fn every_format_asked_reads_one_tree_of_the_page(#[case] clean_up: &dyn CleanUp)
 fn a_page_signature_runs_the_step_once_on_one_parse_and_copies_nothing() {
     let work = CountedWork::default();
 
-    let _ = page_signature(
-        &document(PAGE),
-        crate::BuiltIn::default().extractor(),
-        &work,
-    );
+    let _ = page_signature(&document(PAGE), crate::Chosen::default().extractor(), &work);
 
     assert_eq!(counted(&work), (1, 0, 1));
 }

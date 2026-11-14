@@ -361,6 +361,92 @@ fn an_unknown_extractor_is_an_invalid_setting_value() {
     );
 }
 
+/// `extraction.readability` is `retry` by default, and `config explain`
+/// names the layer that set it, the Operator policy's lock included; a
+/// value it does not take is refused, naming it (spec #2164).
+///
+/// Covers: command:config.explain, setting:extraction.readability, error:setting_invalid
+#[test]
+fn config_explain_shows_the_readability_attempts_and_the_layer_that_set_or_locked_them() {
+    let readability = |env: &TestEnv, arguments: &[&str]| {
+        let (stdout, stderr, succeeded) = explain(
+            env,
+            Mode::Attached,
+            &[&["extraction.readability", "--json"], arguments].concat(),
+        );
+        assert!(succeeded, "{stderr}");
+        let output: Value = serde_json::from_str(&stdout).unwrap();
+        output["settings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|setting| {
+                json!([
+                    setting["key"],
+                    setting["value"],
+                    setting["layer"],
+                    setting["locked_by"]
+                ])
+            })
+            .collect::<Vec<_>>()
+    };
+    let by_default = TestEnv::new();
+    let projected = TestEnv::new();
+    fs::write(
+        projected.folder().join("goodfetch.toml"),
+        "version = \"0.1\"\n\n[settings.extraction]\nreadability = \"single_attempt\"\n",
+    )
+    .unwrap();
+    let locked = TestEnv::new();
+    let layout = HomeLayout::of(locked.home());
+    fs::create_dir_all(layout.per_major()).unwrap();
+    fs::write(
+        layout.operator_policy(),
+        "version = \"0.1\"\n\n[lock.extraction]\nreadability = \"single_attempt\"\n",
+    )
+    .unwrap();
+
+    let (refused, stderr, succeeded) = explain(
+        &by_default,
+        Mode::Attached,
+        &["--set", "extraction.readability=once"],
+    );
+
+    assert_eq!(
+        (
+            readability(&by_default, &[]),
+            readability(&projected, &[]),
+            readability(&projected, &["--set", "extraction.readability=retry"]),
+            readability(&locked, &[]),
+        ),
+        (
+            vec![json!(["extraction.readability", "retry", "default", null])],
+            vec![json!([
+                "extraction.readability",
+                "single_attempt",
+                "project_configuration",
+                null
+            ])],
+            vec![json!(["extraction.readability", "retry", "run", null])],
+            vec![json!([
+                "extraction.readability",
+                "single_attempt",
+                "operator_policy",
+                "operator_policy"
+            ])],
+        )
+    );
+    assert_eq!(
+        (
+            refused.as_str(),
+            stderr.contains("setting_invalid") && stderr.contains("extraction.readability"),
+            succeeded
+        ),
+        ("", true, false),
+        "{stderr}"
+    );
+}
+
 /// `browser.headless` is Collie's, `true` by default, and `config explain`
 /// names the layer that set it: the default, then user configuration's
 /// `false` (spec #577).

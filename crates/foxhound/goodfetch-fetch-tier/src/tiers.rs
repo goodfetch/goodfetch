@@ -81,8 +81,8 @@ use goodfetch_protocol::foxhound::settings::FETCH_BLOCK_CLASSIFICATION;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::proxy::{PROXY_KIND, PROXY_PROVIDER, PROXY_SERVER};
 use goodfetch_protocol::page::{
-    BLOCKED, BlockedDetails, BodyHandle, CONTENT_EXTRACTOR, FormatsRequest, Navigated, PageFormats,
-    PageId, PageResponse, SessionId,
+    BLOCKED, BlockedDetails, BodyHandle, FormatsRequest, Navigated, PageFormats, PageId,
+    PageResponse, SessionId,
 };
 use goodfetch_protocol::run::{RunId, RunWarning};
 use goodfetch_protocol::settings::page_check::PageCheck;
@@ -112,7 +112,7 @@ use crate::light_browser::LightBrowser;
 use crate::proxied::SessionProxies;
 use crate::redundant::{Redundant, Requester};
 use crate::transports::{AddressCheck, BrowserFetch, LocalSource, Reqwest, TransportConfig};
-use crate::untouched::{self, UntouchedReaders};
+use crate::untouched::{self, Passed, UntouchedReaders};
 use crate::use_signals::UseSignals;
 
 pub(crate) mod calls;
@@ -389,7 +389,9 @@ impl Decoded {
     /// response with no `Content-Type` is typed as Chromium's MIME sniffer
     /// types it, and one of a type that is no HTML or XHTML holds no
     /// document. `readers` read it in one streaming pass when they can,
-    /// else on its tree.
+    /// else on its tree: `passed`, the pass the fetch read its text in as
+    /// it arrived, when that text is the one read here and `readers` read
+    /// it (issue 2188), else a pass over the whole text.
     #[expect(
         clippy::disallowed_methods,
         reason = "ADR 0138: a fetched document's one parse, for its untouched readers, when their streaming pass cannot vouch for it"
@@ -397,7 +399,7 @@ impl Decoded {
     fn of(
         run: &Run,
         fetched: &crate::driver::Fetched,
-        (forced, readers): (Option<&'static Encoding>, &UntouchedReaders),
+        (forced, readers, passed): (Option<&'static Encoding>, &UntouchedReaders, Option<Passed>),
     ) -> Self {
         let url = fetched.url.as_str();
         let header = fetched
@@ -412,19 +414,28 @@ impl Decoded {
         // coalesced fetch read it for another request.
         let text = not_document.is_none().then(|| match &fetched.text {
             Some(streamed) if streamed.read_under(forced) => streamed.text(&fetched.body),
-            _ => Text::of(
-                &fetched.body,
-                Kind::of(&essence),
-                charset.as_deref(),
-                forced,
+            _ => (
+                Text::of(
+                    &fetched.body,
+                    Kind::of(&essence),
+                    charset.as_deref(),
+                    forced,
+                ),
+                false,
             ),
         });
-        let (html, read) = text.map_or_else(Default::default, |text| (text.html, text.read));
+        // The pass read the text as it was handed out: it reads this text
+        // only when this is the text handed out.
+        let passed = passed
+            .filter(|_| text.as_ref().is_some_and(|(_, as_handed)| *as_handed))
+            .and_then(|passed| passed.by(readers));
+        let (html, read) = text.map_or_else(Default::default, |(text, _)| (text.html, text.read));
         let encoding = read.map_or(encoding_rs::UTF_8, |read| {
             tracing::debug!(run_id = %run.id(), url, encoding = read.encoding.name(), source = read.source.as_str(), "a document's encoding was found");
             read.encoding
         });
-        let untouched = match readers.stream(&html) {
+        let streamed = passed.map_or_else(|| readers.stream(&html), Passed::read);
+        let untouched = match streamed {
             Some(streamed) => Untouched::Streamed(streamed),
             None => Untouched::Tree(
                 run.metrics()
@@ -550,15 +561,20 @@ impl Decoded {
 
 impl Opened {
     /// The document `fetched` answered for `run`, as [`Decoded::of`] reads
-    /// it with `forced` and [`Decoded::opened`] with `extractor`, `readers`
-    /// and `own`.
+    /// it with `forced` and the pass it holds, and [`Decoded::opened`] with
+    /// `extractor`, `readers` and `own`.
     fn of(
         run: &Run,
-        fetched: &crate::driver::Fetched,
+        mut fetched: crate::driver::Fetched,
         (forced, extractor): (Option<&'static Encoding>, Option<BuiltIn>),
         (readers, own): (&UntouchedReaders, bool),
     ) -> Self {
-        Decoded::of(run, fetched, (forced, readers)).opened(run, fetched, (extractor, readers, own))
+        let passed = fetched.pass.take();
+        Decoded::of(run, &fetched, (forced, readers, passed)).opened(
+            run,
+            &fetched,
+            (extractor, readers, own),
+        )
     }
 }
 
@@ -577,18 +593,23 @@ impl Reading for OpenedReading {
 
     fn read(
         &self,
-        fetched: &crate::driver::Fetched,
+        mut fetched: crate::driver::Fetched,
         follows: &dyn Fn(&crate::refresh::Refresh) -> bool,
     ) -> HopRead<Opened> {
-        let decoded = Decoded::of(&self.run, fetched, (self.forced, &self.readers));
+        let passed = fetched.pass.take();
+        let decoded = Decoded::of(&self.run, &fetched, (self.forced, &self.readers, passed));
         let work = self.run.metrics().counted_work();
         if let Some(refresh) = decoded
-            .refresh(fetched, &self.readers, work)
+            .refresh(&fetched, &self.readers, work)
             .filter(|refresh| follows(refresh))
         {
             return HopRead::Refresh(refresh);
         }
-        HopRead::Document(decoded.opened(&self.run, fetched, (self.extractor, &self.readers, true)))
+        HopRead::Document(decoded.opened(
+            &self.run,
+            &fetched,
+            (self.extractor, &self.readers, true),
+        ))
     }
 
     fn work(&self) -> &CountedWork {
@@ -1077,6 +1098,7 @@ impl FetchTiers {
         let own = OwnDocument {
             accepts: &accepts,
             encoding: hand_over.encoding,
+            readers: Some(&hand_over.untouched),
         };
         let fetched = follow_reading(hop, &tier.following, &gate, on, |hop| {
             let lead = std::mem::replace(&mut first, false);
@@ -1172,7 +1194,7 @@ impl FetchTiers {
             let readers = Arc::clone(&hand_over.untouched);
             run.owner()
                 .analysis(run.metrics().counted_work(), move || {
-                    Opened::of(&reading, &fetched, (forced, extractor), (&readers, true))
+                    Opened::of(&reading, fetched, (forced, extractor), (&readers, true))
                 })
                 .await
         };
@@ -1308,6 +1330,7 @@ impl FetchTiers {
             // exception is taken on this tier.
             certificate_exception: None,
             text: None,
+            pass: None,
         };
         // Lightpanda follows its redirects itself: the chain records none.
         let followed = Followed {
@@ -2714,14 +2737,9 @@ fn blocked(block: Block, response: &PageResponse, received: std::time::SystemTim
     )
 }
 
-/// The Extractor a page of `run` is signed with, as its formats read its
-/// main content: its Label's `content.extractor`, `label`, else the Run's;
-/// dom-smoothie without either (ADR 0138).
-fn chosen_extractor(run: &Run, label: Option<BuiltIn>) -> BuiltIn {
-    label
-        .or_else(|| {
-            run.settings()
-                .and_then(|settings| BuiltIn::named(settings.resolved().get(&CONTENT_EXTRACTOR)))
-        })
-        .unwrap_or_default()
+/// The main-content step a page of `run` is signed with, the one its
+/// formats read its main content with: the page crate's one resolver, given
+/// its Label's `content.extractor`, `label` (ADR 0138; spec #2164).
+fn chosen_extractor(run: &Run, label: Option<BuiltIn>) -> goodfetch_extractor::Chosen {
+    goodfetch_page::extractor::served(run.settings().map(RunSettings::resolved), label)
 }

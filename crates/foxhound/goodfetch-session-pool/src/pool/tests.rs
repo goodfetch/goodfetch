@@ -216,6 +216,69 @@ fn requests_rotate_across_the_sessions_open_once_the_pool_is_full() {
     );
 }
 
+/// A Session drawn only to read a site's files is one already open for
+/// its client while there is one, though the pool has room; a Session of
+/// the other client never serves it, and a plain draw still opens a new
+/// one while there is room (#2422).
+#[test]
+fn a_draw_reusing_takes_an_open_session_of_its_client_while_one_is_open() {
+    let settings = PoolSettings { max_size: 3, ..ONE };
+    let mut pool = pool(5);
+    let mut draw = |reusing: bool, sends_from: SendsFrom| {
+        let drawn = if reusing {
+            pool.draw_reusing(&PoolKey::Run, "shop.test", sends_from, &settings, start())
+        } else {
+            Some(pool.draw(&PoolKey::Run, "shop.test", sends_from, &settings, start()))
+        };
+        drawn.map(|drawn| drawn.id.0)
+    };
+
+    let served = [
+        draw(false, SendsFrom::Browser),
+        draw(true, SendsFrom::Transport),
+        draw(true, SendsFrom::Transport),
+        draw(false, SendsFrom::Transport),
+    ];
+
+    assert_eq!(
+        served,
+        ["session-1", "session-2", "session-2", "session-3"].map(|id| Some(id.to_owned()))
+    );
+}
+
+/// A pool with no room and no Session of the reading client open draws
+/// none to read a site's files, rather than retire the Session an attempt
+/// was just given, which keeps serving the next (#2422).
+#[test]
+fn a_draw_reusing_retires_no_session_to_make_room() {
+    let settings = PoolSettings { max_size: 1, ..ONE };
+    let mut pool = pool(5);
+    let browser = pool.draw(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &settings,
+        start(),
+    );
+
+    let reader = pool.draw_reusing(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Transport,
+        &settings,
+        start(),
+    );
+    let next = pool.draw(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &settings,
+        start(),
+    );
+
+    assert_eq!((reader, next.id), (None, browser.id));
+}
+
 /// Covers: story:6-250
 #[rstest]
 #[case::the_same_seed(7, true)]

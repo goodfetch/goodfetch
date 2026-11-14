@@ -4,8 +4,9 @@
 //! Session shares (ADR 0129), and the page API's operation handlers, which
 //! the composition value [`contribution`] hands to the engine (ADR 0087),
 //! and the pure functions both Products' code calls: the engine's one URL
-//! matcher ([`url_pattern`]) and robots.txt's group selection
-//! ([`robots_txt`]), and the interfaces Foxhound fills on the pages it
+//! matcher ([`url_pattern`]), robots.txt's group selection
+//! ([`robots_txt`]) and the resolver of a page's main-content step
+//! ([`extractor`]), and the interfaces Foxhound fills on the pages it
 //! hands to handlers ([`page_value`]), and the seam its Product's Block
 //! classification fills ([`blocks`]), and the Run trace's Provenance log
 //! ([`provenance`]), which Foxhound's fetch tiers also write. Its own crate so that Foxhound's crates fill its
@@ -22,6 +23,7 @@ pub mod document_request;
 mod driver;
 mod egress_relay;
 mod errors;
+pub mod extractor;
 mod guard;
 mod hiding;
 mod interception;

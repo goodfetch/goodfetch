@@ -798,6 +798,160 @@ fn config_explain_lists_where_a_labels_http_leaves_from(
     assert_eq!(listed, vec![explained], "{document}");
 }
 
+/// The headers of each request `host` received for `target`, their names
+/// in lowercase, in order, without `host`, which each client places
+/// itself.
+fn received(
+    proving_ground: &ProvingGround,
+    host: &str,
+    target: &str,
+) -> Vec<Vec<(String, String)>> {
+    proving_ground
+        .received_requests()
+        .unwrap()
+        .every()
+        .filter(|request| request.host.split(':').next() == Some(host) && request.target == target)
+        .map(|request| {
+            request
+                .headers
+                .iter()
+                .map(|(name, value)| (name.to_ascii_lowercase(), value.clone()))
+                .filter(|(name, _)| name != "host")
+                .collect()
+        })
+        .collect()
+}
+
+/// A seed of `fetch-edge.test`'s page, which declares no AI-use signal.
+fn edge_page(proving_ground: &ProvingGround) -> Value {
+    json!({ "url": proving_ground.url("fetch-edge.test", "/target"), "label": "page" })
+}
+
+/// A sitemap seed of `sitemap-seed.test`'s index.
+fn sitemap_index(proving_ground: &ProvingGround) -> Value {
+    json!({
+        "sitemap": proving_ground.url(SITEMAP_SITE, "/sitemap-index.xml"),
+        "rules": [{ "pattern": "**", "label": "page" }],
+    })
+}
+
+/// Every site file a code-free crawl reads, a robots.txt, an AI-use
+/// signal file or a sitemap seed's sitemap, leaves from a Session's own
+/// HTTP transport, at the default, `auto` sending its HTTP from the
+/// browser, and on a forced `browser` alike: the site receives it once,
+/// with the header set of a document a crawl forced onto `http` fetches,
+/// never with a browser page's.
+///
+/// Covers: setting:fetch.http_from, setting:fetch.tier, setting:site_preferences.respect_robots_txt, setting:site_preferences.respect_use_signals
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+#[rstest]
+#[case::robots_txt_at_the_default(json!({}), edge_page, ("fetch-edge.test", "/robots.txt"))]
+#[case::robots_txt_on_a_forced_browser(
+    json!({ "fetch": { "tier": "browser" } }),
+    edge_page,
+    ("fetch-edge.test", "/robots.txt")
+)]
+#[case::an_ai_use_signal_file_at_the_default(
+    json!({ "site_preferences": { "respect_use_signals": true, "purpose": "ai-train" } }),
+    edge_page,
+    ("fetch-edge.test", "/.well-known/tdmrep.json")
+)]
+#[case::a_sitemap_seeds_sitemap_at_the_default(
+    json!({}),
+    sitemap_index,
+    (SITEMAP_SITE, "/sitemap-index.xml")
+)]
+fn every_site_file_leaves_from_a_sessions_own_transport(
+    #[case] more: Value,
+    #[case] seed: fn(&ProvingGround) -> Value,
+    #[case] (host, file): (&str, &str),
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let extraction = json!({ "formats": {}, "follow": "none" });
+
+    let (started, _) = crawl(
+        &mut engine,
+        &proving_ground,
+        ("site-files", &[seed(&proving_ground)]),
+        &extraction,
+        &more,
+    );
+    assert!(started.get("result").is_some(), "{started}");
+    let document = proving_ground.url("access.test", "/identity?tier=http");
+    let (started, _) = crawl(
+        &mut engine,
+        &proving_ground,
+        (
+            "forced-http",
+            &[json!({ "url": document, "label": "page" })],
+        ),
+        &extraction,
+        &json!({ "fetch": { "tier": "http" } }),
+    );
+    assert!(started.get("result").is_some(), "{started}");
+    assert!(engine.finished());
+
+    let transport = received(&proving_ground, "access.test", "/identity?tier=http");
+    assert_eq!(transport.len(), 1, "{transport:?}");
+    assert_eq!(received(&proving_ground, host, file), transport);
+}
+
+/// A site file a code-free crawl reads after a document, the RSL license
+/// the document's `Link` header names, leaves from a Session of its own,
+/// at the default as on a forced `browser`: the site receives it once,
+/// without the cookie the document set in the browser's Session.
+///
+/// Covers: setting:fetch.http_from, setting:fetch.tier, setting:site_preferences.respect_use_signals
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+#[rstest]
+#[case::at_the_default(json!({}))]
+#[case::on_a_forced_browser(json!({ "tier": "browser" }))]
+fn a_site_file_read_after_a_document_carries_no_cookie_of_the_browsers(#[case] fetch: Value) {
+    const MARKUP_HOST: &str = "markup.access-policy.test";
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let document = proving_ground.url(MARKUP_HOST, "/catalog/5");
+
+    let (started, _) = crawl(
+        &mut engine,
+        &proving_ground,
+        ("license", &[json!({ "url": document, "label": "page" })]),
+        &json!({ "formats": {}, "follow": "none" }),
+        &json!({
+            "fetch": fetch,
+            "site_preferences": { "respect_use_signals": true, "purpose": "ai-train" },
+        }),
+    );
+    assert!(started.get("result").is_some(), "{started}");
+    assert!(engine.finished());
+
+    let cookies: Vec<Vec<(String, String)>> = proving_ground
+        .received_requests()
+        .unwrap()
+        .every()
+        .filter(|request| {
+            request.host.split(':').next() == Some(MARKUP_HOST) && request.target == "/license.xml"
+        })
+        .map(|request| request.cookies.clone())
+        .collect();
+    assert_eq!(cookies, vec![Vec::new()]);
+}
+
 /// Each attempt's browser page carries that attempt's own lease, however
 /// many attempts run at once: of 16 seeds on the `browser` tier at a
 /// concurrency of 16, one page answers 3 s late and 15 at once, and each

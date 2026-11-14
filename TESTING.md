@@ -1393,7 +1393,7 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `F4.transactions` | transactions of its own per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `C1.encodes` | encodes per CDP command | 1 | 2 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C1.sends` | sends per CDP command | 1 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
-| `C1.file_opens` | directories created and files opened per CDP command | 0 | 1.88 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C1.file_opens` | directories created and files opened per CDP command | 0 | 1.929 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C1.log_sends_off` | sends to the CDP command log's writer per command, log off | 0 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C2.commands` | CDP commands per page read | 1 | 2 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C2.world_creations` | `Page.createIsolatedWorld` per page read, past a document's first | 0 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |

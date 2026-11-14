@@ -1,8 +1,9 @@
 //! One crawl with pagesift, for `just compare` (#2215): its `Scraper`'s
 //! breadth-first crawl from `--url`, at most `--concurrency` requests at
-//! once, every page of the site, as its own crawl benchmark drives it
-//! (`crates/pagesift/examples/crawl_bench.rs`), with its own allocator
-//! (`SmallCache`, tuned at start) as its executable has. pagesift sends no
+//! once, every page of the site, through `Scraper::crawl`, the entry point
+//! its own crawl benchmark uses (`crates/pagesift/examples/crawl_bench.rs`),
+//! with its own allocator (`SmallCache`, tuned at start) as its executable
+//! has. pagesift sends no
 //! caller's `Host` header (it refuses one), so with `--host`, when given,
 //! the crawl starts on that host's name, which a resolver of its own
 //! (`FetcherConfig::dns`) answers with `--url`'s address, as `curl
@@ -71,8 +72,9 @@ use tower::ServiceExt as _;
 #[global_allocator]
 static ALLOCATOR: pagesift_sys::SmallCache = pagesift_sys::SmallCache;
 
-/// More pages than any site of the comparison, at the API's own maximum
-/// (`MAX_CRAWL_LIMIT`), so the site, not the limit, ends a crawl.
+/// As many pages as the comparison's largest site, the long scenario's:
+/// the API's own maximum (`MAX_CRAWL_LIMIT`), so the site, not the limit,
+/// ends a crawl.
 const LIMIT: usize = 100_000;
 
 /// The file in the trial's home that names the durable scenario's job.
@@ -230,12 +232,12 @@ fn request(arguments: &Arguments, start: &str) -> serde_json::Value {
 
 /// Counts the crawl's pages, prints its failures, and in the extraction
 /// scenario writes each page's URL, title and Markdown.
-struct Count {
+struct Crawled {
     pages: AtomicU64,
     output: Option<Mutex<io::BufWriter<std::fs::File>>>,
 }
 
-impl CrawlSink for Count {
+impl CrawlSink for Crawled {
     fn page(&self, document: Document) -> BoxFuture<'_, ()> {
         self.pages.fetch_add(1, Ordering::Relaxed);
         if let Some(output) = &self.output {
@@ -286,7 +288,7 @@ async fn crawl(arguments: Arguments) -> Result<u64, String> {
     } else {
         None
     };
-    let count = Arc::new(Count {
+    let count = Arc::new(Crawled {
         pages: AtomicU64::new(0),
         output,
     });

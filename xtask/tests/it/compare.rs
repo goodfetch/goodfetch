@@ -654,9 +654,8 @@ fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
 }
 
 /// pagesift joins the matrix's five scenarios (#2215): each of its cells
-/// is measured with every metric, the report names its pinned version and
-/// its settings, and its cell says which buffer its own benchmark reads
-/// Spider's pages with, beside the spider row's.
+/// is measured with every metric, and the report names its pinned version
+/// and its settings.
 #[test]
 fn pagesifts_cells_report_every_metric_with_their_mapping_and_its_pin() {
     let workspace = Workspace::from_fixture("empty");
@@ -682,13 +681,9 @@ fn pagesifts_cells_report_every_metric_with_their_mapping_and_its_pin() {
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
         "crawlee-rs at commit `2a3ed90b8391c86005ce6ed8dd3e3248d0d34579` and pagesift 1.3.0, every",
-        "- **pagesift**: its library's `Scraper::crawl`, as its own crawl benchmark drives it",
+        "- **pagesift**: its library's `Scraper::crawl`, the entry point its own crawl benchmark uses",
         "- **pagesift**: scenario 1's crawl as a job of its HTTP API (`POST /v1/crawl`)",
         "- **pagesift**: scenario 1's crawl on its browser engine (`engine: browser`)",
-        "  - Spider beside it: pagesift's own crawl benchmark reads Spider's pages with \
-         `subscribe(256)` on each site (`benchmarks/crawl/src/bin/spider_crawl.rs` at its release \
-         1.3.0); the spider row here reads them with `subscribe(64)`, the smallest capacity that \
-         lost no page here (#2213).",
     ] {
         assert!(
             markdown.contains(expected),

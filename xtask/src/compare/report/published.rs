@@ -2,7 +2,8 @@
 //! cells beside what is measured here, never compared with it: the CPU per
 //! page crawlee-rs publishes (#2214), a figure from another machine and
 //! another site, and the buffer pagesift's benchmark reads Spider's pages
-//! with (#2215), which is not the one the spider row here reads them with.
+//! with (#2215), beside the capacity the scenario's spider row reads them
+//! at, which that row's mapping accounts for.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -60,8 +61,7 @@ pub(super) fn spider_buffer(text: &mut String, tool: &str, scenario: Scenario) {
         "  - Spider beside it: pagesift's own crawl benchmark reads Spider's pages with \
          `subscribe({PAGESIFT_SPIDER_CAPACITY})` on each site \
          (`benchmarks/crawl/src/bin/spider_crawl.rs` at its release {PAGESIFT_VERSION}); the \
-         spider row here reads them with `subscribe({capacity})`, the smallest capacity that \
-         lost no page here (#2213). Its published figures against Spider are that benchmark's, \
-         never compared with these."
+         spider row here reads them with `subscribe({capacity})`, as its mapping says. Its \
+         published figures against Spider are that benchmark's, never compared with these."
     );
 }

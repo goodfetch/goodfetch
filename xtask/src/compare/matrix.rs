@@ -604,7 +604,7 @@ pub(crate) const CELLS: [Cell; 76] = [
         scenario: Scenario::Raw,
         tool: Tool::Pagesift,
         name: "pagesift",
-        mapping: "its library's `Scraper::crawl`, as its own crawl benchmark drives it: breadth-first \
+        mapping: "its library's `Scraper::crawl`, the entry point its own crawl benchmark uses: breadth-first \
                   from the first page over its whole host (`crawlEntireDomain`), on its HTTP engine \
                   with each page's links its only format, a limit of 100,000 pages (its API's \
                   maximum) and its sitemap not read (`sitemap: skip`); `maxConcurrency: 16`, its \

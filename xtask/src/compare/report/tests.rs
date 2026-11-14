@@ -474,9 +474,9 @@ fn pagesifts_cells_note_the_buffer_its_own_spider_benchmark_reads_with() {
         format!(
             "  - Spider beside it: pagesift's own crawl benchmark reads Spider's pages with \
              `subscribe(256)` on each site (`benchmarks/crawl/src/bin/spider_crawl.rs` at its \
-             release 1.3.0); the spider row here reads them with `subscribe({capacity})`, the \
-             smallest capacity that lost no page here (#2213). Its published figures against \
-             Spider are that benchmark's, never compared with these."
+             release 1.3.0); the spider row here reads them with `subscribe({capacity})`, as \
+             its mapping says. Its published figures against Spider are that benchmark's, \
+             never compared with these."
         )
     };
     assert_eq!(

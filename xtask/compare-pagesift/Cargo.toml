@@ -1,7 +1,8 @@
 # pagesift's side of `just compare` (#2215, spec #2212): one crawl of a
 # Proving ground site with pagesift (Apache-2.0 at the pinned release, its
-# history before it AGPL-3.0), through its library's `Scraper::crawl`, as its
-# own crawl benchmark drives it (`crates/pagesift/examples/crawl_bench.rs`),
+# history before it AGPL-3.0), through its library's `Scraper::crawl`, the
+# entry point its own crawl benchmark uses
+# (`crates/pagesift/examples/crawl_bench.rs`), with each scenario's settings,
 # and, for the durable scenario, through its HTTP API's job store, which is
 # where pagesift keeps a crawl it can resume. It is fetched and run by the
 # comparison alone, never linked into a Product.

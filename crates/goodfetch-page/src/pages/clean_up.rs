@@ -126,6 +126,7 @@ impl CleanUp for Matcher<'_> {
                         lists: &cosmetic.lists,
                         version: &cosmetic.version,
                         choices: &cosmetic.choices,
+                        hosts: &cosmetic.hosts,
                     },
                     self.work,
                 )

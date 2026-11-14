@@ -192,6 +192,49 @@ fn a_name_answering_only_the_family_a_session_lacks_fails_with_the_family_held(
     );
 }
 
+/// A Session holding only an IPv6 address fails a URL naming an IPv4
+/// address as it fails a name answering only IPv4, rather than opening a
+/// connection from an address the OS chose.
+///
+/// Covers: story:4-108, error:address_family_unavailable
+#[rstest]
+fn an_address_of_the_family_a_session_lacks_fails_with_the_family_held(
+    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = bound(
+        stack,
+        &proving_ground,
+        LocalSource {
+            ipv6: Some(Ipv6Addr::LOCALHOST),
+            ..LocalSource::default()
+        },
+        Vec::new(),
+    );
+    let address = proving_ground.address();
+    let hop = Hop::get(Url::parse(&format!("http://{address}/catalog/3")).unwrap());
+
+    let failure = running_clock_runtime().block_on(async {
+        transport
+            .send(&hop, Reuse::Allowed)
+            .await
+            .map(|sent| sent.status)
+    });
+    let observations = proving_ground.observations().unwrap();
+
+    assert_eq!(
+        (failure, sources_of(&observations, "/catalog/3")),
+        (
+            Err(TransportFailure::AddressFamily {
+                name: address.ip().to_string(),
+                held: IpFamily::Ipv6,
+            }),
+            Vec::new(),
+        )
+    );
+}
+
 /// The first network interface of this host that is not loopback.
 #[cfg(target_os = "linux")]
 fn other_interface() -> String {

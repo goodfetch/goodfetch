@@ -2282,11 +2282,16 @@ name = "goodfetch-clean-up-rules"
 version = "0.0.0"
 dependencies = [
  "adblock",
+ "cssparser 0.37.0",
  "data-encoding",
  "dom_query",
  "goodfetch-counted-work",
+ "goodfetch-test-support",
  "goodfetch-workspace-hack",
+ "moka",
+ "proptest",
  "rstest",
+ "selectors 0.38.0",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2425,6 +2430,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_json_canonicalizer",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2591,6 +2597,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jiff",
+ "netdev",
  "proptest",
  "psl",
  "quick-xml 0.41.0",
@@ -2601,6 +2608,7 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "socket2",
  "thiserror 2.0.21",
  "tokio",
  "tokio-rustls",
@@ -2630,6 +2638,7 @@ dependencies = [
  "csv",
  "data-encoding",
  "flate2",
+ "goodfetch-clean-up-rules",
  "goodfetch-collie",
  "goodfetch-counted-work",
  "goodfetch-crawl",
@@ -5796,9 +5805,7 @@ checksum = "ba39f3699c378cd8970968dcbff9c43159ea4cfbd88d43c00b22f2ef10a435d2"
 
 [[package]]
 name = "reqwest"
-version = "0.13.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029"
+version = "0.13.5+goodfetch.1"
 dependencies = [
  "base64 0.23.1",
  "bytes",

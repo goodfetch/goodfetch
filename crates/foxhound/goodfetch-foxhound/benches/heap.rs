@@ -10,6 +10,9 @@
 //! default entry point would leave it out. The benchmark takes no
 //! argument, so its ID is the one the ceiling reads, and its site's bodies
 //! are borrowed from a static fixture, so serving them allocates nothing.
+//!
+//! `admit_seeds`: the allocations of a crawl's seed admission, a thousand
+//! seeds the Run's start admits through the crawl's Run state (#2167).
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
 
 #[expect(
@@ -45,6 +48,27 @@ fn in_memory_pages() -> usize {
 
 library_benchmark_group!(name = crawl, benchmarks = in_memory_pages);
 
+// `admit_seeds`: a crawl started with a thousand seeds, its allocations
+// bounded to the seed admission of the crawl's Run state, as
+// `instructions.rs` bounds its count (#2167).
+#[library_benchmark(
+    config = LibraryBenchmarkConfig::default().tool(Dhat::default().entry_point(
+        EntryPoint::Custom("goodfetch_crawl::run_state::admission::admit_seeds".to_owned())
+    ))
+)]
+#[bench::a_thousand_shop_links(scenarios::shop_links(1_000))]
+fn admit_seeds(links: Vec<String>) -> usize {
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    black_box(scenarios::start_with_seeds(
+        home.path(),
+        std::time::UNIX_EPOCH,
+        0,
+        black_box(&links),
+    ))
+}
+
+library_benchmark_group!(name = seeds, benchmarks = admit_seeds);
+
 // BoringSSL, which goodfetch-page's egress relay links, brings libstdc++,
 // whose emergency exception pool is allocated while the loader starts the
 // process, on a stack DHAT unwinds into frames with no location, which
@@ -54,5 +78,5 @@ main!(
     config = LibraryBenchmarkConfig::default()
         .default_tool(Tool::DHAT)
         .env("GLIBCXX_TUNABLES", "glibcxx.eh_pool.obj_count=0"),
-    library_benchmark_groups = crawl
+    library_benchmark_groups = [crawl, seeds]
 );

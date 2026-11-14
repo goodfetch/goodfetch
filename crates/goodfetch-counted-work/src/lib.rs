@@ -114,6 +114,21 @@ rows! {
     /// `F1.block_classifications`: a fetched page's document read by the
     /// Block classification rules.
     PageBlockClassifications => "F1.block_classifications", "page_analysis", "block_classifications";
+    /// `F1.rule_list_builds`: a page's list of cosmetic Clean-up rules built,
+    /// from its URL and from the classes and IDs it holds.
+    PageRuleListBuilds => "F1.rule_list_builds", "page_analysis", "rule_list_builds";
+    /// `F1.rule_tests`: one Clean-up rule tested against one element of a
+    /// fetched page, or one procedural rule run over one of its roots.
+    PageRuleTests => "F1.rule_tests", "page_analysis", "rule_tests";
+    /// `F1.analysis_handoffs`: a page's parsing or reading handed to the
+    /// analysis pool (`TaskOwner::analysis`).
+    PageAnalysisHandoffs => "F1.analysis_handoffs", "page_analysis", "analysis_handoffs";
+    /// `F1.host_cache_entries`: a host whose Clean-up rules a Run's host
+    /// cache holds as the Run ends.
+    PageHostCacheEntries => "F1.host_cache_entries", "page_analysis", "host_cache_entries";
+    /// `F1.host_cache_bytes`: a heap byte a Run's host cache holds as the
+    /// Run ends.
+    PageHostCacheBytes => "F1.host_cache_bytes", "page_analysis", "host_cache_bytes";
     /// `E1.deep_copies`: a whole copy of what a Client's message carries.
     MessageDeepCopies => "E1.deep_copies", "json_rpc_message", "deep_copies";
     /// `E1.encodes`: an encode of what the engine sends, into bytes or into

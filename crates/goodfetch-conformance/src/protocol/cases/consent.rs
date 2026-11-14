@@ -9,18 +9,22 @@
 //! `HTMLElement.prototype.click` hook never sees the runner's clicks, and no
 //! `autoconsent-*` element is ever put in a page; `Runtime` is never
 //! enabled, a vendor's own API is called in the main world and an isolated
-//! snippet never touches it; and `consent.handling: false` leaves prompts
-//! alone. Each is judged by the requests the pages report to the Proving
+//! snippet never touches it; `consent.handling: detect` leaves prompts
+//! alone; and under `consent.handling: off` nothing of the runner is
+//! registered or started and no cosmetic rule acts, while the Filter lists
+//! still block (#2434). Each is judged by the requests the pages report to the Proving
 //! ground and by the Run trace the engine writes, its Provenance log
 //! among it. The consent wall cases (tickets #718 and #859) are `walls`'.
 
 use std::time::Duration;
 
 use goodfetch_protocol::home::{RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PROVENANCE};
+use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::{PAGE_FORMATS, PAGE_GOTO, PageOpened};
 use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
 
+use super::clean_up::{self, AD, ANNOYANCE, TRACKER};
 use super::navigation::call;
 use super::{Checks, Site, new_page, poll, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone};
@@ -65,10 +69,11 @@ pub(crate) enum Case {
     Notice,
     Overrides,
     Worlds,
+    Detect,
     Off,
     Walls,
     WallsAtOnce,
-    WallsOff,
+    WallsDetect,
     Accepted,
     WallSettings,
     Offered,
@@ -92,11 +97,12 @@ impl Case {
             "runtime-is-never-enabled-and-a-snippets-world-is-as-the-snippet-table-says" => {
                 Self::Worlds
             }
-            "consent-handling-off-leaves-prompts-alone" => Self::Off,
+            "consent-handling-detect-leaves-prompts-alone" => Self::Detect,
+            "consent-handling-off-registers-no-runner-and-no-cosmetic-rule-acts" => Self::Off,
             "a-notice-is-hidden-and-a-wall-raises-blocked-with-consent-required-and-is-never-answered" => {
                 Self::Walls
             }
-            "with-consent-handling-off-the-wall-test-still-raises-blocked" => Self::WallsOff,
+            "with-consent-handling-detect-the-wall-test-still-raises-blocked" => Self::WallsDetect,
             "a-walls-navigation-raises-it-before-any-call-reads-the-page-even-one-a-filter-list-would-hide" => {
                 Self::WallsAtOnce
             }
@@ -129,10 +135,11 @@ impl Case {
             Self::Notice => notice(connection, home, site, checks),
             Self::Overrides => overrides(connection, site, checks),
             Self::Worlds => worlds(connection, home, site, checks),
+            Self::Detect => detect(connection, home, site, checks),
             Self::Off => off(connection, home, site, checks),
             Self::Walls => walls::walls(connection, home, site, checks),
             Self::WallsAtOnce => walls::walls_at_once(connection, site, checks),
-            Self::WallsOff => walls::walls_off(connection, home, site, checks),
+            Self::WallsDetect => walls::walls_detect(connection, home, site, checks),
             Self::Accepted => walls::accepted(connection, home, site, checks),
             Self::WallSettings => walls::settings(connection, site, checks),
             Self::Offered => walls::offered(connection, site, checks),
@@ -478,18 +485,18 @@ fn worlds(
     Ok(())
 }
 
-/// With `consent.handling: false`, the runner only looks: Provenance
+/// With `consent.handling: detect`, the runner only looks: Provenance
 /// records OneTrust's prompt left, a state the engine names, and no answer
 /// came, read once the Run finished, which ends its pages, never after a
 /// fixed wait. The wall test, which still runs, is `walls`'.
-fn off(
+fn detect(
     connection: &mut Connection,
     home: Option<&str>,
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let run_id = "conformance-consent-off";
-    let settings = json!({ "consent": { "handling": false } });
+    let run_id = "conformance-consent-detect";
+    let settings = json!({ "consent": { "handling": "detect" } });
     let Some(page) = open(connection, site, run_id, &settings, checks)? else {
         return finish(connection, run_id);
     };
@@ -503,12 +510,185 @@ fn off(
     ));
     finish(connection, run_id)?;
     checks.check(
-        "with `consent.handling` off, Provenance records OneTrust's prompt left",
+        "with `consent.handling: detect`, Provenance records OneTrust's prompt left",
         left.is_some(),
     );
     checks.check(
-        "with `consent.handling` off, nothing answered the prompt",
+        "with `consent.handling: detect`, nothing answered the prompt",
         count(site, "/consent/answered", &[("vendor", "onetrust")]) == before,
+    );
+    Ok(())
+}
+
+/// The CDP methods the `off` case counts in a Run's command log: the
+/// page's new-document scripts, where the runner's bundle is registered;
+/// the runner's start in each new document, its world, its binding and its
+/// call; and the `DOM` and `CSS` domains, which live hiding and the
+/// runner's hiding enable.
+const OFF_METHODS: [&str; 6] = [
+    "Page.addScriptToEvaluateOnNewDocument",
+    "Page.createIsolatedWorld",
+    "Runtime.addBinding",
+    "Runtime.callFunctionOn",
+    "DOM.enable",
+    "CSS.enable",
+];
+
+/// With `consent.handling: off`, nothing of the runner is registered or
+/// started, no cosmetic rule acts and the Filter lists still block (#2434):
+/// what the browser is sent ([`off_sends`]), and what a wall then shows
+/// ([`off_wall`]).
+fn off(
+    connection: &mut Connection,
+    home: Option<&str>,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    off_sends(connection, home, site, checks)?;
+    off_wall(connection, home, site, checks)
+}
+
+/// Two Runs open the Clean-up `/ads` page alike, the first under `detect`
+/// as the control: under `off` the page's opening registers one
+/// new-document script fewer, the runner's, no document adds the runner's
+/// binding, makes its world or calls its start, neither `DOM` nor `CSS` is enabled, and the
+/// ad, the tracker and the annoyance still never reach the Proving ground.
+fn off_sends(
+    connection: &mut Connection,
+    home: Option<&str>,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let mut sent = [[0; OFF_METHODS.len()]; 2];
+    for (handling, counted) in ["detect", "off"].into_iter().zip(&mut sent) {
+        let run_id = format!("conformance-consent-off-{handling}");
+        let settings = json!({ "consent": { "handling": handling } });
+        let Some(page) = open(connection, site, &run_id, &settings, checks)? else {
+            return finish(connection, &run_id);
+        };
+        let before = clean_up::counts(site, [AD, TRACKER, ANNOYANCE]);
+        let (_, answer) = clean_up::visit(connection, site, &page, "/ads")?;
+        checks.check(
+            format!("under `{handling}`, the `goto` to the ads page answers its response"),
+            answer["result"]["response"]["status"] == json!(200),
+        );
+        checks.check(
+            format!(
+                "under `{handling}`, neither the ad, the tracker nor the annoyance reached the Proving ground"
+            ),
+            clean_up::counts(site, [AD, TRACKER, ANNOYANCE]) == before,
+        );
+        finish(connection, &run_id)?;
+        let commands = checks.run_trace(run_trace::lines(home, &run_id, RUN_TRACE_CDP_COMMANDS));
+        *counted = OFF_METHODS.map(|method| {
+            commands
+                .iter()
+                .filter(|line| line["method"] == json!(method))
+                .count()
+        });
+    }
+    let [
+        [scripts, worlds, bindings, calls, dom, _],
+        [
+            off_scripts,
+            off_worlds,
+            off_bindings,
+            off_calls,
+            off_dom,
+            off_css,
+        ],
+    ] = sent;
+    checks.check(
+        format!(
+            "under `detect`, the runner started in a document and live hiding enabled `DOM` (control: {bindings} bindings, {dom} enables)"
+        ),
+        bindings > 0 && dom > 0,
+    );
+    checks.check(
+        format!(
+            "under `off`, the page's opening registers one new-document script fewer than under `detect`, the runner's ({off_scripts} against {scripts})"
+        ),
+        off_scripts + 1 == scripts,
+    );
+    checks.check(
+        format!(
+            "under `off`, no document adds the runner's binding, makes its world or calls its start ({off_bindings} bindings; {off_worlds} worlds and {off_calls} calls against {worlds} and {calls} under `detect`, {bindings} of each the runner's starts)"
+        ),
+        off_bindings == 0 && off_worlds + bindings <= worlds && off_calls + bindings <= calls,
+    );
+    checks.check(
+        format!("under `off`, neither `DOM` nor `CSS` is enabled ({off_dom} and {off_css})"),
+        off_dom == 0 && off_css == 0,
+    );
+    Ok(())
+}
+
+/// A Run under `off` visits the wall a Filter list's cosmetic rule
+/// matches: its `goto` answers, the wall stays shown on the live page and
+/// stays in the Markdown with the article behind it, no Provenance entry
+/// records a Consent prompt, and the Run report lists `consent.handling`
+/// in `weakened`.
+fn off_wall(
+    connection: &mut Connection,
+    home: Option<&str>,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-consent-off-wall";
+    let settings = json!({ "consent": { "handling": "off" } });
+    let Some(page) = open(connection, site, run_id, &settings, checks)? else {
+        return finish(connection, run_id);
+    };
+    visit(connection, site, &page, "/hidden-wall", checks)?;
+    let shown = call(
+        connection,
+        PAGE_EVALUATE.name,
+        &json!(page.page_id),
+        &json!({ "function": "() => document.getElementById('grow-consent-modal')?.checkVisibility() ?? false" }),
+    )?;
+    checks.check(
+        "under `off`, the wall a cosmetic rule matches stays shown on the live page, and the page's next call answers",
+        shown["result"]["value"] == json!(true),
+    );
+    let formats = call(
+        connection,
+        PAGE_FORMATS.name,
+        &json!(page.page_id),
+        &json!({ "formats": { "markdown": true, "html": { "kind": "cleaned" } } }),
+    )?;
+    // The extractor's own boilerplate pass drops a dialog from the main
+    // content whatever the setting, so the wall is looked for in the
+    // document after the cosmetic rules, which no rule acted on.
+    let cleaned = formats["result"]["html"].as_str().unwrap_or_default();
+    checks.check(
+        "under `off`, no cosmetic rule removes the wall from the document after the Clean-up rules",
+        cleaned.contains("grow-consent-modal")
+            && cleaned.contains("We use cookies and similar technologies"),
+    );
+    let markdown = formats["result"]["markdown"].as_str().unwrap_or_default();
+    checks.check(
+        "under `off`, the article the wall covers is in the page's Markdown",
+        markdown.contains("The article's text, which a reader came for"),
+    );
+    let report = clean_up::finish(connection, run_id)?;
+    checks.check(
+        "under `off`, the Run report lists `consent.handling` in `weakened`",
+        report["result"]["weakened"]
+            .as_array()
+            .is_some_and(|weakened| {
+                weakened.iter().any(|entry| {
+                    entry["key"] == json!("consent.handling") && entry["value"] == json!("off")
+                })
+            }),
+    );
+    let prompts = checks
+        .run_trace(run_trace::lines(home, run_id, RUN_TRACE_PROVENANCE))
+        .iter()
+        .filter(|line| line["action"] == json!("consent"))
+        .count();
+    checks.check(
+        format!("under `off`, no Provenance entry records a Consent prompt ({prompts})"),
+        prompts == 0,
     );
     Ok(())
 }

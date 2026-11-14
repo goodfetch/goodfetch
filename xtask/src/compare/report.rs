@@ -121,6 +121,10 @@ pub(crate) struct CellReport {
     pub(crate) row: Row,
     pub(crate) mapping: &'static str,
     pub(crate) pending: &'static [&'static str],
+    /// Why the cell ran one trial of each pass, where the run asked for
+    /// more ([`crate::compare::matrix::Cell::one_trial`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) one_trial: Option<&'static str>,
     /// What the output check found of the pages its trials wrote, on the
     /// article site: under each check, its worst trial's.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -828,6 +832,7 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
                 row: cell.row,
                 mapping: cell.mapping,
                 pending: cell.pending,
+                one_trial: cell.one_trial(),
                 output,
                 status,
             });
@@ -939,11 +944,15 @@ fn output_line(text: &mut String, scenario: Scenario, cell: &CellReport) {
 }
 
 /// A cell's column heading in a scenario's tables: its name, labelled when
-/// it is a sensitivity row.
+/// it is a sensitivity row and when it ran one trial.
 fn column(cell: &CellReport) -> String {
-    match cell.row {
+    let name = match cell.row {
         Row::Main => cell.cell.to_owned(),
         Row::Sensitivity => format!("{} (sensitivity)", cell.cell),
+    };
+    match cell.one_trial {
+        Some(_) => format!("{name} (one trial)"),
+        None => name,
     }
 }
 
@@ -1036,9 +1045,9 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
          (seed {}), each tool started in a fresh process against a fresh Proving ground, {} requests at \
          once, from `{}`, unless a scenario's title names other requests in flight or another \
          site; Spider {}, Crawlee {} (`@crawlee/cheerio`, and `@crawlee/playwright` on Playwright \
-         {}) on Node.js, Scrapy {} (and scrapy-playwright {} on Playwright {}) on CPython and \
-         crawlee-rs at commit `{}`, every tool of the headless browser scenario running Chrome \
-         for Testing {}; each \
+         {}) on Node.js, Scrapy {} (and scrapy-playwright {} on Playwright {}) on CPython, \
+         crawlee-rs at commit `{}` and pagesift {}, every tool of the headless browser scenario \
+         running Chrome for Testing {}; each \
          figure the {}. Every figure is measured from outside the tools: \
          the OS's accounting of the waited-for children (CPU, peak RSS, bytes read and written), `/proc` \
          samples of the process tree every 50 ms, strace's counts, the Proving ground's observations and \
@@ -1061,6 +1070,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
         declared.scrapy_playwright,
         declared.playwright,
         declared.crawlee_rs,
+        declared.pagesift,
         declared.browser,
         declared.statistic,
     );
@@ -1086,6 +1096,9 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             );
             for pending in cell.pending {
                 let _ = writeln!(text, "  - pending: {pending}.");
+            }
+            if let Some(why) = cell.one_trial {
+                let _ = writeln!(text, "  - one trial: {why}.");
             }
             if scenario.scenario.carries_no_bar() {
                 let _ = writeln!(
@@ -1115,9 +1128,11 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                 } => {
                     let _ = writeln!(
                         text,
-                        "  - same work: {trials} trials, each {pages} pages served in {bytes} bytes."
+                        "  - same work: {trials} trial{}, each {pages} pages served in {bytes} bytes.",
+                        if *trials == 1 { "" } else { "s" }
                     );
                     published::cpu(&mut text, cell.tool, metrics);
+                    published::spider_buffer(&mut text, cell.tool, scenario.scenario);
                 }
                 CellStatus::Ruled { runs, tasks } => rules::markdown(&mut text, *runs, tasks),
             }

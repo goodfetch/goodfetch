@@ -16,6 +16,8 @@ mod extra_loopback;
 mod fetch_edge;
 mod fingerprint;
 mod light_browser;
+mod lookups;
+mod race;
 mod transport_failures;
 mod tunnels;
 
@@ -105,6 +107,7 @@ fn config(proving_ground: &ProvingGround, proxy: Option<Url>, trusted: &[&str]) 
         clock: Clock::system(),
         resolver: ResolverConfiguration::system().unwrap(),
         local: None,
+        delays: goodfetch_engine::happy_eyeballs::Delays::default(),
     }
 }
 

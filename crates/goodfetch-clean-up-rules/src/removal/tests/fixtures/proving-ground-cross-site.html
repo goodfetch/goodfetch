@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>An article with another site's frame</title>
+</head>
+<body>
+<main>
+<h1>An article with another site's frame</h1>
+<p>The article's text, above another site's frame.</p>
+<iframe title="Another site's frame" width="300" height="100"></iframe>
+<script>
+document.querySelector("iframe").src = `http://clean-up-frame.test:${location.port}/framed`;
+</script>
+</main>
+</body>
+</html>

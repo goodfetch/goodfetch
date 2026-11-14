@@ -38,6 +38,7 @@ use encoding_rs::Encoding;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
+use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::retry_after::{self, RetryAfter};
@@ -591,6 +592,10 @@ impl Reading for OpenedReading {
         }
         HopRead::Document(decoded.opened(&self.run, fetched, (self.extractor, &self.readers, true)))
     }
+
+    fn work(&self) -> &CountedWork {
+        self.run.metrics().counted_work()
+    }
 }
 
 impl Pages {
@@ -925,6 +930,7 @@ impl FetchTiers {
             clock: run.clock(),
             resolver: ResolverConfiguration::system().map_err(|error| error.to_string())?,
             local,
+            delays: Delays::of(settings),
         };
         // Every Session of the Run launches one build, so the document
         // request its own transport presents is read once, here.
@@ -1148,7 +1154,7 @@ impl FetchTiers {
             let (reading, extractor) = (run.clone(), hand_over.extractor);
             let readers = Arc::clone(&hand_over.untouched);
             run.owner()
-                .analysis(move || {
+                .analysis(run.metrics().counted_work(), move || {
                     Opened::of(&reading, &fetched, (forced, extractor), (&readers, true))
                 })
                 .await
@@ -1349,7 +1355,7 @@ impl FetchTiers {
         let extractor = chosen_extractor(&run, served.extractor);
         let signed = run
             .owner()
-            .analysis(move || {
+            .analysis(run.metrics().counted_work(), move || {
                 let signature = goodfetch_extractor::page_signature(
                     &goodfetch_extractor::Document {
                         html: &served.html,
@@ -1619,7 +1625,7 @@ impl FetchTiers {
             let check = check.clone();
             let work = run.metrics().counted_work().clone();
             run.owner()
-                .analysis(move || {
+                .analysis(run.metrics().counted_work(), move || {
                     expected_page::judge(&check, &document.url, &document.html, &headers, &work)
                 })
                 .await
@@ -1683,7 +1689,7 @@ impl FetchTiers {
         let received = run.clock().wall();
         let (block, response) = run
             .owner()
-            .analysis(move || {
+            .analysis(run.metrics().counted_work(), move || {
                 let block = pages.classify(&response, &document.html);
                 block.map(|block| (block, response))
             })

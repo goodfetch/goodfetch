@@ -105,7 +105,17 @@ const B2: Family = Family {
     bypasses: &[strace::OPEN, strace::DIRECTORY],
 };
 
-const FAMILIES: [Family; 3] = [B1, B2, B3];
+/// The extraction path's benchmark (ADR 0140's note of 2026-11-14): the
+/// in-memory crawl, as B1's, over the Proving ground's article site.
+const B4: Family = Family {
+    name: "B4",
+    package: products::FOXHOUND.package,
+    target: "counts-extraction",
+    valgrind: None,
+    bypasses: &[],
+};
+
+const FAMILIES: [Family; 4] = [B1, B2, B3, B4];
 
 /// The variable a Valgrind target reads its plant from: gungraun takes no
 /// argument for it.
@@ -123,7 +133,10 @@ struct Row {
     /// Its name in the register, `<path>.<work>`, and the name its
     /// benchmark prints its count under.
     name: &'static str,
-    /// The family that counts it.
+    /// The family that counts it. A row the register puts on two
+    /// families is counted on the one its entry names (`E5.file_opens`, on
+    /// B1), or has an entry for each, which holds each family's count to
+    /// that family's own figure (`F1.analysis_handoffs`, on B1 and B4).
     family: &'static str,
     /// The key of the units of the outcome that does the work, in its
     /// benchmark's line.
@@ -172,7 +185,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 103] = [
+const ROWS: [Row; 111] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -243,6 +256,21 @@ const ROWS: [Row; 103] = [
         happens: true,
         valgrind: None,
     },
+    b1("F1.analysis_handoffs", "pages", true),
+    b4("F1.analysis_handoffs", "pages", true),
+    b4("F1.rule_list_builds", "pages", true),
+    b4("F1.rule_tests", "pages", true),
+    // Read as each cell's crawl ended.
+    b4("F1.host_cache_entries", CRAWLS, true),
+    b4("F1.host_cache_bytes", CRAWLS, true),
+    // Callgrind's count beneath the clean-up's removal, which B4's own run
+    // reads on its default cell alone: the other cells print none of its
+    // unit.
+    b4(CLEAN_UP_INSTRUCTIONS, CALLGRIND_PAGES, true),
+    // Callgrind's count beneath each selector's compilation over the
+    // default cell's one crawl on an empty cache, read per crawl as
+    // `F1.clean_up_instructions` is: work once per engine and rules version.
+    b4(SELECTOR_COMPILATION_INSTRUCTIONS, CALLGRIND_CRAWLS, true),
     Row {
         name: "F2.transactions",
         family: "B1",
@@ -952,9 +980,36 @@ const fn b1(name: &'static str, unit: &'static str, happens: bool) -> Row {
     }
 }
 
+/// A cell's one crawl, the unit of what is read as the crawl ended.
+const CRAWLS: &str = "crawls";
+/// The pages of the cell that B4's benchmark runs again under Callgrind.
+const CALLGRIND_PAGES: &str = "callgrind_pages";
+/// The one crawl of that cell its run under Callgrind counts.
+const CALLGRIND_CRAWLS: &str = "callgrind_crawls";
+
+/// The clean-up's instructions per page, which B4's benchmark reads under
+/// Callgrind in its own run: a figure that varies, so held within the
+/// tolerance of a figure read under Valgrind (the register's ratchet).
+const CLEAN_UP_INSTRUCTIONS: &str = "F1.clean_up_instructions";
+
+/// The instructions of a crawl's selector compilations on an empty cache,
+/// which B4's benchmark reads under Callgrind as it reads
+/// [`CLEAN_UP_INSTRUCTIONS`], and holds within the same tolerance.
+const SELECTOR_COMPILATION_INSTRUCTIONS: &str = "F1.selector_compilation_instructions";
+
+const fn b4(name: &'static str, unit: &'static str, happens: bool) -> Row {
+    Row {
+        name,
+        family: "B4",
+        unit,
+        happens,
+        valgrind: None,
+    }
+}
+
 #[derive(clap::Args)]
 pub(crate) struct Arguments {
-    /// Only this family's rows (B1, B2, B3).
+    /// Only this family's rows (B1, B2, B3, B4).
     #[arg(long)]
     family: Option<String>,
     /// Only this path's rows (F1 to F4, C1 to C6, E1 to E7).
@@ -1455,6 +1510,8 @@ fn one_of(unit: &str) -> &str {
         "entries" => "entry",
         ADDED_PAGES => "page added",
         ATTEMPTS_ENDED => "attempt",
+        CALLGRIND_PAGES => "page",
+        CALLGRIND_CRAWLS => "crawl",
         unit => unit.trim_end_matches('s'),
     }
 }
@@ -1467,8 +1524,7 @@ fn verdict(
 ) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
     for row in rows {
-        let limit = limits
-            .get(row.name)
+        let limit = register::limit(limits, row.name, row.family)
             .with_context(|| format!("the Quality register has no row {}", row.name))?;
         for cell in cells {
             let (Some(count), Some(units)) = (cell.counts.get(row.name), cell.units.get(row.unit))
@@ -1525,7 +1581,9 @@ fn verdict(
                 cell.name,
                 one_of(row.unit),
             ));
-            let limit_held = if row.valgrind.is_some() {
+            let limit_held = if row.valgrind.is_some()
+                || [CLEAN_UP_INSTRUCTIONS, SELECTOR_COMPILATION_INSTRUCTIONS].contains(&row.name)
+            {
                 limit.with_valgrind_tolerance()
             } else {
                 *limit

@@ -17107,6 +17107,17 @@
                 },
                 "type": "object"
               },
+              "filter_lists": {
+                "additionalProperties": false,
+                "properties": {
+                  "host_cache": {
+                    "description": "How many hosts' Clean-up rules this Run keeps built: 1,024, the least used dropped first, and none once the Resource governor finds memory critical. A page on a host it keeps builds no rule list. 0 builds each page's rule list, as before.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "governor": {
                 "additionalProperties": false,
                 "properties": {
@@ -17748,8 +17759,12 @@
                     "type": "array"
                   },
                   "handling": {
-                    "description": "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering: the wall test still runs, and a consent wall is still `consent_required`.",
-                    "type": "boolean"
+                    "description": "What a browser Session does with Consent prompts: `answer` (the default, in every Access mode) refuses each prompt in every frame and hides one with no refusal that leaves the content readable; `detect` only looks: nothing is clicked or hidden, the wall test still runs, and a consent wall is still `consent_required`; `off` registers and starts no Consent prompt runner and lets no cosmetic rule act on the live page or in extracted content, so no consent wall is reported and the page's text is returned as served, while the Filter lists still block requests; the Run report lists `off` in `weakened`. A Recipe, and a Client acting for a model, never set `off` unless the layers below already give it: `setting_locked`; set it in the program's own code, in configuration or in an Operator policy.",
+                    "enum": [
+                      "answer",
+                      "detect",
+                      "off"
+                    ]
                   },
                   "on_wall": {
                     "description": "What a consent wall on a domain outside `consent.domains` does: `report` (the default) leaves the page at `consent_required`, raised as `blocked`; `ask` raises a Human pause for a person's answer, for this run or always for the domain. Until the Human pause takes a person's answer, `ask` opens no page: `capability_unavailable`.",
@@ -18401,6 +18416,11 @@
                   "first_party_scripts": {
                     "description": "Whether a site's own scripts load whatever the Filter lists say: off by default.",
                     "type": "boolean"
+                  },
+                  "host_cache": {
+                    "description": "How many hosts' Clean-up rules this Run keeps built: 1,024, the least used dropped first, and none once the Resource governor finds memory critical. A page on a host it keeps builds no rule list. 0 builds each page's rule list, as before.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "page_scriptlets": {
                     "description": "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",
@@ -20390,8 +20410,12 @@
                     "type": "array"
                   },
                   "handling": {
-                    "description": "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering: the wall test still runs, and a consent wall is still `consent_required`.",
-                    "type": "boolean"
+                    "description": "What a browser Session does with Consent prompts: `answer` (the default, in every Access mode) refuses each prompt in every frame and hides one with no refusal that leaves the content readable; `detect` only looks: nothing is clicked or hidden, the wall test still runs, and a consent wall is still `consent_required`; `off` registers and starts no Consent prompt runner and lets no cosmetic rule act on the live page or in extracted content, so no consent wall is reported and the page's text is returned as served, while the Filter lists still block requests; the Run report lists `off` in `weakened`. A Recipe, and a Client acting for a model, never set `off` unless the layers below already give it: `setting_locked`; set it in the program's own code, in configuration or in an Operator policy.",
+                    "enum": [
+                      "answer",
+                      "detect",
+                      "off"
+                    ]
                   },
                   "on_wall": {
                     "description": "What a consent wall on a domain outside `consent.domains` does: `report` (the default) leaves the page at `consent_required`, raised as `blocked`; `ask` raises a Human pause for a person's answer, for this run or always for the domain. Until the Human pause takes a person's answer, `ask` opens no page: `capability_unavailable`.",
@@ -21043,6 +21067,11 @@
                   "first_party_scripts": {
                     "description": "Whether a site's own scripts load whatever the Filter lists say: off by default.",
                     "type": "boolean"
+                  },
+                  "host_cache": {
+                    "description": "How many hosts' Clean-up rules this Run keeps built: 1,024, the least used dropped first, and none once the Resource governor finds memory critical. A page on a host it keeps builds no rule list. 0 builds each page's rule list, as before.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "page_scriptlets": {
                     "description": "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",
@@ -23048,8 +23077,12 @@
                     "type": "array"
                   },
                   "handling": {
-                    "description": "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering: the wall test still runs, and a consent wall is still `consent_required`.",
-                    "type": "boolean"
+                    "description": "What a browser Session does with Consent prompts: `answer` (the default, in every Access mode) refuses each prompt in every frame and hides one with no refusal that leaves the content readable; `detect` only looks: nothing is clicked or hidden, the wall test still runs, and a consent wall is still `consent_required`; `off` registers and starts no Consent prompt runner and lets no cosmetic rule act on the live page or in extracted content, so no consent wall is reported and the page's text is returned as served, while the Filter lists still block requests; the Run report lists `off` in `weakened`. A Recipe, and a Client acting for a model, never set `off` unless the layers below already give it: `setting_locked`; set it in the program's own code, in configuration or in an Operator policy.",
+                    "enum": [
+                      "answer",
+                      "detect",
+                      "off"
+                    ]
                   },
                   "on_wall": {
                     "description": "What a consent wall on a domain outside `consent.domains` does: `report` (the default) leaves the page at `consent_required`, raised as `blocked`; `ask` raises a Human pause for a person's answer, for this run or always for the domain. Until the Human pause takes a person's answer, `ask` opens no page: `capability_unavailable`.",
@@ -23701,6 +23734,11 @@
                   "first_party_scripts": {
                     "description": "Whether a site's own scripts load whatever the Filter lists say: off by default.",
                     "type": "boolean"
+                  },
+                  "host_cache": {
+                    "description": "How many hosts' Clean-up rules this Run keeps built: 1,024, the least used dropped first, and none once the Resource governor finds memory critical. A page on a host it keeps builds no rule list. 0 builds each page's rule list, as before.",
+                    "minimum": 0,
+                    "type": "integer"
                   },
                   "page_scriptlets": {
                     "description": "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",

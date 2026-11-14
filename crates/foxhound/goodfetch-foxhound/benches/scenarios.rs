@@ -26,6 +26,10 @@
 //! one small page more; and, for the one cell that asks for them, pages
 //! `/item?id=<n>` that differ by one parameter, which the Frontier's
 //! learning reads its evidence for.
+//!
+//! [`start_with_seeds`] starts a crawl from a thousand seeds and aborts it
+//! once its start answered: the seed admission of the crawl's Run state,
+//! which the `admit_seeds` benchmarks bound their figures to (#2167).
 #![expect(
     clippy::disallowed_types,
     reason = "the site's one counter of the bytes it sent, read once the crawl ended: no lock and no order to test under loom (ADR 0060)"
@@ -624,7 +628,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
     let (sent, attempts) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
     let (hops, sitemaps) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
     let requests = Arc::new(AtomicU64::new(0));
-    let tiers = FetchTiers::serving(Arc::new(Site {
+    let site = Arc::new(Site {
         sent: Arc::clone(&sent),
         attempts: Arc::clone(&attempts),
         plant,
@@ -637,9 +641,73 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         robots_txt,
         requests: Arc::clone(&requests),
         linked,
-    }));
-    let engine = foxhound(tiers, metrics);
-    let (records, handled) = goodfetch_test_support::runtime().block_on(async {
+    });
+    let (records, handled) = drive(
+        site,
+        &crawl_start(settings, fields, handler, frontier, linked),
+        Driven {
+            home,
+            start,
+            seed,
+            metrics,
+            run_state_vfs,
+            handler,
+            credits: CREDITS,
+        },
+    );
+    Crawled {
+        records,
+        handled,
+        body_bytes: sent.load(Ordering::Relaxed),
+        hops: hops.load(Ordering::Relaxed),
+        sitemaps: sitemaps.load(Ordering::Relaxed),
+        attempts: attempts.load(Ordering::Relaxed),
+        requests: requests.load(Ordering::Relaxed),
+    }
+}
+
+/// What [`drive`] runs a crawl on: the Goodfetch home `home`, a paused
+/// clock starting at `start`, entropy seeded with `seed`, `metrics`, where
+/// its engine records, among them its Counted work, and the VFS its run
+/// file opens through; whether a `handler` serves its pages, so it keeps no
+/// Record; and the `credits` its read of the Records gives, at least one a
+/// Record.
+pub(crate) struct Driven<'a> {
+    pub(crate) home: &'a Path,
+    pub(crate) start: SystemTime,
+    pub(crate) seed: u64,
+    pub(crate) metrics: Metrics,
+    pub(crate) run_state_vfs: Option<String>,
+    pub(crate) handler: bool,
+    pub(crate) credits: u64,
+}
+
+/// Runs the crawl `crawl_start` starts as the Run `pages`, on a Foxhound
+/// engine whose fetch tiers send each hop to `site`, and answers every
+/// Record of its Dataset `pages` and how many requests a handler handled:
+/// what each in-memory benchmark's crawl is driven by, the site and the
+/// crawl its own (B1's above, B4's in `examples/counts-extraction.rs`).
+pub(crate) fn drive(
+    site: Arc<dyn Transport>,
+    crawl_start: &Value,
+    on: Driven<'_>,
+) -> (Vec<Value>, u64) {
+    let Driven {
+        home,
+        start,
+        seed,
+        metrics,
+        run_state_vfs,
+        handler,
+        credits,
+    } = on;
+    let engine = foxhound(FetchTiers::serving(site), metrics);
+    let credits = json!({
+        "jsonrpc": "2.0", "method": "$/credit",
+        "params": { "id": "records", "credits": credits },
+    })
+    .to_string();
+    goodfetch_test_support::runtime().block_on(async {
         let (network, dialer) = transport::in_memory();
         let client = async {
             let (reader, mut writer) = dialer
@@ -649,11 +717,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
                 .split();
             let mut lines = BufReader::new(reader).lines();
             send(&mut writer, &hello()).await;
-            send(
-                &mut writer,
-                &crawl_start(settings, fields, handler, frontier, linked).to_string(),
-            )
-            .await;
+            send(&mut writer, &crawl_start.to_string()).await;
             let mut records = Vec::new();
             let mut waits = Waits::default();
             while let Ok(Some(line)) = lines.next_line().await {
@@ -671,7 +735,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
                         break;
                     }
                     send(&mut writer, RECORDS).await;
-                    send(&mut writer, CREDITS).await;
+                    send(&mut writer, &credits).await;
                 } else if message["method"] == "$/record" {
                     records.push(message["params"]["record"]["value"].clone());
                 } else if message["id"] == "records" {
@@ -692,16 +756,115 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         );
         served.expect("invariant: the engine got its Connection");
         read
+    })
+}
+
+/// `count` links of the site as a shop's pages write them: every fourth one a
+/// spelling of the one before (tracking parameters, another order, a
+/// fragment, a `;jsessionid=`), the rest distinct pages with encoded
+/// characters, so the URL key's every rule runs and identities meet.
+pub(crate) fn shop_links(count: usize) -> Vec<String> {
+    (0..count)
+        .map(|link| {
+            let page = link / 4 * 3 + link % 4;
+            match link % 4 {
+                3 => format!(
+                    "http://{HOST}/item/{};jsessionid=0A1B?utm_source=mail&size=m&colour=%7eblue#reviews",
+                    page - 1
+                ),
+                2 => format!("http://{HOST}/item/{page}?colour=%c3%a9t%c3%a9&size=m&&gclid=x"),
+                _ => format!("http://{HOST}/item/{page}?size=m&colour=%7eblue"),
+            }
+        })
+        .collect()
+}
+
+/// Starts a code-free crawl from `urls`, each a seed, on the fixture's
+/// engine, home, clock and entropy, and aborts it once its start answered:
+/// the Run's start admits every seed through the crawl's Run state as it
+/// makes the run file, which the `admit_seeds` benchmark counts. Answers
+/// how many seeds it sent.
+pub(crate) fn start_with_seeds(
+    home: &Path,
+    start: SystemTime,
+    seed: u64,
+    urls: &[String],
+) -> usize {
+    let tiers = FetchTiers::serving(Arc::new(Site {
+        sent: Arc::default(),
+        attempts: Arc::default(),
+        plant: None,
+        frontier: None,
+        second_hop: false,
+        small_pages: true,
+        hops: Arc::default(),
+        sitemaps: Arc::default(),
+        largest: None,
+        robots_txt: false,
+        requests: Arc::default(),
+        linked: 0,
+    }));
+    let engine = foxhound(tiers, Metrics::default());
+    let seeds: Vec<Value> = urls
+        .iter()
+        .map(|url| json!({ "url": url, "label": "page" }))
+        .collect();
+    let started = json!({
+        "jsonrpc": "2.0",
+        "id": "start",
+        "method": "crawl.start",
+        "params": {
+            "run_id": "pages",
+            "seeds": seeds,
+            "datasets": [],
+            "extraction": {
+                "formats": {},
+                "follow": "scope",
+                "fields": { "title": { "locator": { "kind": "css", "selector": "h1" } } },
+            },
+            "settings": {
+                "fetch": { "tier": "http" },
+                "politeness": { "domain": { "delay": 0 } },
+                "network": { "resolve": { HOST: ["127.0.0.1"] } },
+                "egress": { "private_ranges": [HOST] },
+            },
+        },
     });
-    Crawled {
-        records,
-        handled,
-        body_bytes: sent.load(Ordering::Relaxed),
-        hops: hops.load(Ordering::Relaxed),
-        sitemaps: sitemaps.load(Ordering::Relaxed),
-        attempts: attempts.load(Ordering::Relaxed),
-        requests: requests.load(Ordering::Relaxed),
-    }
+    goodfetch_test_support::runtime().block_on(async {
+        let (network, dialer) = transport::in_memory();
+        let client = async {
+            let (reader, mut writer) = dialer
+                .connect()
+                .await
+                .expect("invariant: the engine listens")
+                .split();
+            let mut lines = BufReader::new(reader).lines();
+            send(&mut writer, &hello()).await;
+            send(&mut writer, &started.to_string()).await;
+            while let Ok(Some(line)) = lines.next_line().await {
+                let message: Value =
+                    serde_json::from_str(&line).expect("invariant: the engine writes JSON");
+                if message["id"] == "start" {
+                    assert!(message.get("result").is_some(), "{message}");
+                    send(&mut writer, ABORT).await;
+                } else if message["id"] == "abort" {
+                    assert!(message.get("result").is_some(), "{message}");
+                    break;
+                }
+            }
+            writer.shutdown().await.expect("invariant: in memory");
+            while let Ok(Some(_)) = lines.next_line().await {}
+        };
+        let (served, ()) = tokio::join!(
+            engine.run_attached(
+                Network::InMemory(network),
+                dependencies(home, start, seed, None)
+            ),
+            client
+        );
+        served.expect("invariant: the engine got its Connection");
+    });
+    urls.len()
 }
 
 /// What the engine runs on: the Goodfetch home `home`, a paused clock from
@@ -733,13 +896,16 @@ fn dependencies(
 const FINISH: &str =
     r#"{"jsonrpc":"2.0","id":"finish","method":"run.finish","params":{"run_id":"pages"}}"#;
 
+/// `run.abort`, which a Run that only had to start ends with.
+const ABORT: &str =
+    r#"{"jsonrpc":"2.0","id":"abort","method":"run.abort","params":{"run_id":"pages"}}"#;
+
 /// `run.records` of `pages`, once the Run ended: it answers once every
 /// Record is sent.
 const RECORDS: &str = r#"{"jsonrpc":"2.0","id":"records","method":"run.records","params":{"run_id":"pages","dataset":"pages"}}"#;
 
-/// Enough credits for every Record.
-const CREDITS: &str =
-    r#"{"jsonrpc":"2.0","method":"$/credit","params":{"id":"records","credits":1000}}"#;
+/// Enough credits for every Record of B1's site.
+const CREDITS: u64 = 1000;
 
 /// The code-free `crawl.start` from the site's index: every in-scope link
 /// followed, each page's `h1` its Record's `title`, no Politeness delay,

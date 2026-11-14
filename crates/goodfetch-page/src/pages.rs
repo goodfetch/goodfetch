@@ -102,7 +102,9 @@ use crate::document_request::{DocumentRequest, Unread};
 use crate::driver::{Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
 use crate::hiding::Hidden;
-use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
+use crate::interception::{
+    Answer, ConsentHandling, Fulfillment, Interception, Overrides, Reply, Scope,
+};
 use crate::launch::Launcher;
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Matches, Pending, Registered};
@@ -1442,7 +1444,10 @@ impl Pages {
         navigated: bool,
     ) -> Result<(), CallError> {
         let walls = self.sessions.consent_walls();
+        // With `consent.handling: off` no runner looks, so there is nothing
+        // to ask (#2434).
         if navigated
+            && ConsentHandling::of(&page.run) != ConsentHandling::Off
             && crate::consent::first_pass_found(&page.driver, page.run.metrics().counted_work())
                 .await
         {
@@ -1567,7 +1572,13 @@ impl Pages {
                     .read(move |kept| read(Some(kept)))
                     .await
                     .ok_or_else(|| sessions::page_closed(&params.page_id))?,
-                None => served.run.owner().analysis(move || read(None)).await,
+                None => {
+                    served
+                        .run
+                        .owner()
+                        .analysis(served.run.metrics().counted_work(), move || read(None))
+                        .await
+                }
             };
             if let Some(read) = read {
                 trace::provenance(&served.run, read.entry(&params.page_id, None)).await;
@@ -1598,7 +1609,7 @@ impl Pages {
         let (formats, read) = page
             .run
             .owner()
-            .analysis(move || {
+            .analysis(page.run.metrics().counted_work(), move || {
                 clean_up::read(
                     (&document, None),
                     Serialization::Dom,

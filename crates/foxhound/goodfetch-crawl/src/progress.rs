@@ -2,13 +2,19 @@
 //! the live parts as they change: `waiting`, why its due requests wait, one
 //! group per reason with the domains it holds and the setting behind it;
 //! `inFlight`, each attempt with its phase; `idle`, while a keep-alive crawl
-//! waits for work; and `concurrency`. Its composition's progress part reads
-//! `requests`, and `sitemaps`, each sitemap seed's sitemaps read and failed
-//! and its entries' counts, from committed state each time a value is
-//! read, and keeps in
-//! `inFlight` and `concurrency` only the attempts that state leases, so a
-//! value is one moment of the crawl. A Run of another kind gets none of
-//! them.
+//! waits for work; and `concurrency`. `requests`, its requests by state,
+//! and `sitemaps`, each sitemap seed's sitemaps read and failed and its
+//! entries' counts, come from the crawl's Run state, which counts them in
+//! memory (ADR 0142; #2167): the delivery shows the counts with the
+//! requests in flight, as one change, each time a write it waited for
+//! changed them, so a value is one moment of the crawl and a live crawl's
+//! progress reads no count from its run file. Its composition's progress
+//! part builds `requests`, `inFlight`, `concurrency` and `sitemaps` from
+//! them when a value is read. It reads committed state only where no Run
+//! state gives the counts: for a Run no engine works, for a crawl that has
+//! not opened its Run state yet, and for a Run's last value, which then
+//! keeps in `inFlight` and `concurrency` only the attempts that state
+//! leases. A Run of another kind gets none of them.
 //!
 //! `inFlight` stays typed until a reader takes a value: an attempt that
 //! begins, goes on or ends serializes nothing, and each value read
@@ -26,11 +32,13 @@ use goodfetch_engine::runs::{PartValue, ProgressPart, Run, TypedPart, TypedParts
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::foxhound::crawl::CRAWL_HANDLER_CONCURRENCY;
+use goodfetch_protocol::foxhound::outcomes::OutcomeKind;
 use goodfetch_protocol::foxhound::progress::{
     BACKOFF, CrawlConcurrency, DOMAIN_CONCURRENCY, DOMAIN_DELAY, GOVERNOR, HANDLER_CONCURRENCY,
     HELD_DOMAINS, HeldDomain, InFlightPhase, InFlightRequest, POLITENESS_FILE, RequestProgress,
     WaitGroup,
 };
+use goodfetch_protocol::foxhound::report::{CountOf, SitemapReport};
 use goodfetch_protocol::foxhound::settings::{
     POLITENESS_BACKOFF_MAX, POLITENESS_DOMAIN_CONCURRENCY, POLITENESS_DOMAIN_DELAY,
     POLITENESS_RETRY_AFTER_MAX,
@@ -41,6 +49,7 @@ use rusqlite::Connection;
 use serde_json::Value;
 use tokio::time::Instant;
 
+use crate::run_state::Tally;
 use crate::work_items;
 
 /// The names of a crawl's parts in its Run's progress.
@@ -214,7 +223,9 @@ pub(crate) fn show_concurrency(run: &Run, handlers: usize, handler_concurrency: 
 
 /// The crawl's requests in flight, each as its progress shows it, by work
 /// item ID: its delivery adds and removes each, and each attempt says when
-/// it goes on from fetching to handling.
+/// it goes on from fetching to handling. With them, the crawl's requests
+/// by state as its Run state last counted them, which the delivery shows
+/// in the same change as the requests that left.
 #[derive(Debug, Default)]
 pub(crate) struct InFlight {
     /// Each shared with the values of the Run's progress that show it.
@@ -222,6 +233,8 @@ pub(crate) struct InFlight {
     /// How many waits for a navigation gate's permit each request's
     /// handler pages have under way.
     permit_waits: BTreeMap<String, usize>,
+    /// The crawl's requests by state, once its Run state opened.
+    counted: Option<Arc<Tally>>,
 }
 
 /// The crawl's requests in flight, shared by its delivery and its
@@ -270,10 +283,27 @@ impl InFlight {
         }
     }
 
-    /// The request `id` ended.
-    pub(crate) fn ended(&mut self, run: &Run, id: &str) {
-        self.permit_waits.remove(id);
-        if self.requests.remove(id).is_some() {
+    /// The requests `ended` ended, their outcomes written, and the
+    /// crawl's Run state counts its requests by state as `counted`: one
+    /// change of the Run's progress, so no value shows a request both in
+    /// flight and ended, or neither.
+    pub(crate) fn settled<'a>(
+        &mut self,
+        run: &Run,
+        ended: impl IntoIterator<Item = &'a str>,
+        counted: Arc<Tally>,
+    ) {
+        let mut changed = false;
+        for id in ended {
+            self.permit_waits.remove(id);
+            changed |= self.requests.remove(id).is_some();
+        }
+        let same = self
+            .counted
+            .as_ref()
+            .is_some_and(|shown| Arc::ptr_eq(shown, &counted));
+        if changed || !same {
+            self.counted = Some(counted);
             self.show(run);
         }
     }
@@ -285,6 +315,7 @@ impl InFlight {
             IN_FLIGHT,
             TypedPart::new(InFlightPart {
                 requests: self.requests.values().cloned().collect(),
+                counted: self.counted.clone(),
                 work: run.metrics().counted_work().clone(),
             }),
         );
@@ -293,10 +324,13 @@ impl InFlight {
 
 /// The typed `inFlight` part of a value of the Run's progress: the
 /// requests in flight at one change of them, by work item ID, which the
-/// value holds until a reader takes it.
+/// value holds until a reader takes it, with the crawl's requests by
+/// state as its Run state counted them at that change.
 #[derive(Debug)]
 struct InFlightPart {
     requests: Vec<Arc<InFlightRequest>>,
+    /// None until the crawl's Run state opened.
+    counted: Option<Arc<Tally>>,
     /// Where each serialization of them counts.
     work: CountedWork,
 }
@@ -327,17 +361,103 @@ impl PartValue for InFlightPart {
     }
 }
 
-/// The crawl's part of its Run's progress read from committed state:
-/// `requests`, its requests by state, and which are in flight. The live
-/// parts were taken at another moment than the committed state, and the
-/// delivery commits an attempt's lease and its outcome apart from adding
-/// it to `inFlight` and taking it out with its handler, so the committed
-/// state decides which requests are in flight: `inFlight` keeps those it leases at the
+/// The crawl's part of its Run's progress: `requests`, its requests by
+/// state, which of them are in flight, and its `sitemaps`.
+///
+/// A live crawl's come from its Run state, with no read of the run file
+/// (#2167): the requests in flight and the counts are those of one change
+/// the delivery showed, so a value is one moment of the crawl. A request
+/// leased that `inFlight` does not show yet is counted pending, as it was
+/// a moment before, and one whose attempt ended stays in flight until its
+/// outcome is written and counted.
+///
+/// Where no Run state gives the counts, for a Run no engine works, a
+/// crawl that has not opened its Run state yet and a Run's last value,
+/// they are read from committed state. The live parts were then taken at
+/// another moment than the committed state, so the committed state decides
+/// which requests are in flight: `inFlight` keeps those it leases at the
 /// same attempt, split by phase in `requests`, and `concurrency` counts
-/// their handlers; one it leases that `inFlight` does not show yet is
-/// counted pending, as it was a moment before. One read is then one
-/// moment of the crawl.
+/// their handlers.
 pub(crate) struct CrawlProgress;
+
+/// How many requests `count` is, as a progress shows it.
+fn shown(count: usize) -> u64 {
+    u64::try_from(count).unwrap_or(u64::MAX)
+}
+
+/// Puts in `progress` the crawl's requests by state, `counted` with those
+/// `in_flight` split by phase, `inFlight` as `listed` lists them,
+/// `concurrency`'s handlers, and its `sitemaps`, when it has any.
+fn put(
+    progress: &mut RunProgress,
+    (in_flight, listed): (&[&InFlightRequest], Value),
+    mut counted: RequestProgress,
+    sitemaps: &[SitemapReport],
+) {
+    let fetching = in_flight
+        .iter()
+        .filter(|request| request.phase == InFlightPhase::Fetching)
+        .count();
+    let handlers = in_flight.len();
+    if let Some(concurrency) = progress.kind_parts.get_mut(CONCURRENCY) {
+        concurrency["handlers"] = Value::from(shown(handlers));
+    }
+    progress.kind_parts.insert(IN_FLIGHT.to_owned(), listed);
+    counted.fetching = shown(fetching);
+    counted.handling = shown(handlers - fetching);
+    progress
+        .kind_parts
+        .insert(REQUESTS.to_owned(), encoded!(&counted));
+    if !sitemaps.is_empty() {
+        progress
+            .kind_parts
+            .insert(SITEMAPS.to_owned(), encoded!(sitemaps));
+    }
+}
+
+/// The requests of `kind` that `counted` counts ended: how many, and how
+/// many under each skip reason, Error code or Block cause.
+fn ended_as(counted: &Tally, kind: OutcomeKind) -> (u64, Vec<CountOf>) {
+    let by: Vec<CountOf> = counted
+        .ended(kind)
+        .map(|(name, count)| CountOf {
+            name: name.to_owned(),
+            count,
+        })
+        .collect();
+    (by.iter().map(|of| of.count).sum(), by)
+}
+
+impl CrawlProgress {
+    /// Fills a live crawl's part of `progress` from `part`, the requests
+    /// in flight and the counts of its Run state at one change, with no
+    /// read of the run file; answers whether `part` held the counts.
+    fn fill_live(part: &InFlightPart, progress: &mut RunProgress) -> bool {
+        let Some(counted) = &part.counted else {
+            return false;
+        };
+        let (in_flight, listed) = part.listed(|_| true);
+        let (succeeded, _) = ended_as(counted, OutcomeKind::Succeeded);
+        let (failed, by_error_code) = ended_as(counted, OutcomeKind::Failed);
+        let (skipped, by_skip_reason) = ended_as(counted, OutcomeKind::Skipped);
+        let (blocked, by_block_cause) = ended_as(counted, OutcomeKind::Blocked);
+        let requests = RequestProgress {
+            pending: counted.left().saturating_sub(shown(in_flight.len())),
+            fetching: 0,
+            handling: 0,
+            in_human_pause: 0,
+            succeeded,
+            failed,
+            skipped,
+            blocked,
+            by_skip_reason,
+            by_error_code,
+            by_block_cause,
+        };
+        put(progress, (&in_flight, listed), requests, counted.sitemaps());
+        true
+    }
+}
 
 impl ProgressPart for CrawlProgress {
     fn fill(
@@ -346,37 +466,33 @@ impl ProgressPart for CrawlProgress {
         typed: &TypedParts,
         progress: &mut RunProgress,
     ) -> rusqlite::Result<()> {
+        let live = typed
+            .get(IN_FLIGHT)
+            .and_then(TypedPart::value::<InFlightPart>);
+        if let Some(part) = live
+            && !progress.last
+            && Self::fill_live(part, progress)
+        {
+            return Ok(());
+        }
         if !run_row::is_of_kind(connection, RunKind::Crawl)? {
             return Ok(());
         }
         let (ended, _) = crate::report::ended(connection)?;
         let (pending, leased) = work_items::pending_and_leased(connection)?;
-        let (in_flight, listed) = typed
-            .get(IN_FLIGHT)
-            .and_then(TypedPart::value::<InFlightPart>)
-            .map_or_else(
-                || (Vec::new(), Value::Array(Vec::new())),
-                |part| {
-                    part.listed(|request| {
-                        leased.contains(&(request.request_id.clone(), request.attempt))
-                    })
-                },
-            );
-        let count = |requests: usize| u64::try_from(requests).unwrap_or(u64::MAX);
-        let fetching = in_flight
-            .iter()
-            .filter(|request| request.phase == InFlightPhase::Fetching)
-            .count();
+        let (in_flight, listed) = live.map_or_else(
+            || (Vec::new(), Value::Array(Vec::new())),
+            |part| {
+                part.listed(|request| {
+                    leased.contains(&(request.request_id.clone(), request.attempt))
+                })
+            },
+        );
         let starting = leased.len() - in_flight.len();
-        let handlers = in_flight.len();
-        if let Some(concurrency) = progress.kind_parts.get_mut(CONCURRENCY) {
-            concurrency["handlers"] = Value::from(count(handlers));
-        }
-        progress.kind_parts.insert(IN_FLIGHT.to_owned(), listed);
         let requests = RequestProgress {
-            pending: pending + count(starting),
-            fetching: count(fetching),
-            handling: count(handlers - fetching),
+            pending: pending + shown(starting),
+            fetching: 0,
+            handling: 0,
             in_human_pause: 0,
             succeeded: ended.succeeded,
             failed: ended.failed,
@@ -386,15 +502,8 @@ impl ProgressPart for CrawlProgress {
             by_error_code: ended.by_error_code,
             by_block_cause: ended.by_block_cause,
         };
-        progress
-            .kind_parts
-            .insert(REQUESTS.to_owned(), encoded!(&requests));
         let sitemaps = goodfetch_frontier::sitemap::reports(connection)?;
-        if !sitemaps.is_empty() {
-            progress
-                .kind_parts
-                .insert(SITEMAPS.to_owned(), encoded!(&sitemaps));
-        }
+        put(progress, (&in_flight, listed), requests, &sitemaps);
         Ok(())
     }
 }

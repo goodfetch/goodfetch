@@ -39,12 +39,13 @@ use goodfetch_protocol::foxhound::crawl::{CrawlRequest, Seed, SitemapSeed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod, NotAddedReason};
 use goodfetch_protocol::foxhound::outcomes::{
     AttemptError, CrawlRequestOutcome, DatasetRecords, Ending, NotAddedAtCommit, NothingCommitted,
-    OutcomeRequest, SkipReason,
+    OutcomeKind, OutcomeRequest, SkipReason,
 };
 use goodfetch_protocol::foxhound::provenance::{
     CertificateExceptionMark, EncodingProvenance, RecordProvenance, RobotsTxtMark, TierProvenance,
     TransformProvenance, UnreadField,
 };
+use goodfetch_protocol::foxhound::report::SitemapReport;
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::{Map, Value};
@@ -327,19 +328,23 @@ pub(crate) fn check_seed(
 /// Reads `document`, what the sitemap fetch `id` holding its lease under
 /// `lease_epoch` gave, admitting its entries and nested sitemaps within the
 /// Scope of the Run's `invariants` and under its domain policy `policy`,
-/// and ends the fetch, with no outcome; answers whether its lease held.
+/// and ends the fetch, with no outcome. Each work item it adds is keyed
+/// under `keys` as it is added, as an attempt's commit keys its links, so
+/// its fetch's outcome is the one write its read asks for (#2167); answers
+/// them keyed, in order, as they wait for their domains' queues, or `None`
+/// when its lease no longer held. What it did counts in `changed`.
 pub(crate) fn read_sitemap(
     connection: &Connection,
     invariants: &goodfetch_frontier::Invariants,
     policy: &Policy,
     (id, lease_epoch): (&str, u64),
     document: &sitemap::Document,
-    work: &CountedWork,
-) -> rusqlite::Result<bool> {
+    (keys, work, changed): (&Keys, &CountedWork, &mut Changed),
+) -> rusqlite::Result<Option<Vec<Waiting>>> {
     if !still_leased(connection, id, lease_epoch)? {
-        return Ok(false);
+        return Ok(None);
     }
-    let mut positions = Positions::of(connection)?;
+    let mut positions = Positions::keying(connection, keys.clone())?;
     sitemap::read(
         connection,
         invariants,
@@ -352,7 +357,8 @@ pub(crate) fn read_sitemap(
     connection
         .prepare_cached("UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2")
         .and_then(|mut cached| cached.execute((SUCCEEDED, id)))?;
-    Ok(true)
+    changed.fetches_ended += 1;
+    Ok(Some(changed.adds(&mut positions)))
 }
 
 /// Admits each seed through the Frontier within the Run's `invariants` and
@@ -443,6 +449,9 @@ fn admit_sitemap_seed(
         },
     );
     positions.admitting = admitting;
+    if matches!(answer, Ok(Enqueued::Added { .. })) {
+        positions.sitemap_seed = true;
+    }
     answer
 }
 
@@ -749,6 +758,10 @@ pub(crate) struct Positions {
     /// What the admission staged now decided, in order, while an attempt
     /// stages: what its commit applies (#2245).
     decided: Option<Vec<Decided>>,
+    /// How many work items it added.
+    added: u64,
+    /// Whether a sitemap seed is among them.
+    sitemap_seed: bool,
 }
 
 impl Positions {
@@ -771,6 +784,17 @@ impl Positions {
             admitting: goodfetch_frontier::Admitting::RunFile,
             keyed: None,
             decided: None,
+            added: 0,
+            sitemap_seed: false,
+        })
+    }
+
+    /// The same, keying each work item it adds under `keys` as it adds
+    /// it: an admission with no attempt, which nothing keys later.
+    pub(crate) fn keying(connection: &Connection, keys: Keys) -> rusqlite::Result<Self> {
+        Ok(Self {
+            keyed: Some((keys, Vec::new())),
+            ..Self::of(connection)?
         })
     }
 
@@ -930,6 +954,7 @@ pub(crate) fn add(
             key.as_deref(),
         ), |row| row.get(0)))?;
     payload::store(connection, &id, adding.payload.map(|payload| &**payload))?;
+    positions.added += 1;
     if let (Some(key), Some((_, keyed))) = (key, positions.keyed.as_mut()) {
         keyed.push(Waiting {
             id: id.clone(),
@@ -1199,12 +1224,13 @@ impl CleanUpRules {
 /// naming its Provenance: its request, how its document was fetched and
 /// the Clean-up rules the Run holds to; marks its work item succeeded and
 /// writes its outcome, ended at `ended_at`, when its lease is the one the
-/// run file holds; answers whether it did.
+/// run file holds; answers whether it did. Its ending counts in `changed`.
 pub(crate) fn commit(
     connection: &Connection,
     id: &str,
     lease_epoch: u64,
     committed: Committed<'_>,
+    changed: &mut Changed,
 ) -> rusqlite::Result<bool> {
     let Committed {
         records,
@@ -1254,6 +1280,7 @@ pub(crate) fn commit(
             nothing_committed,
             not_added: not_added.to_vec(),
         },
+        changed,
     )?;
     Ok(true)
 }
@@ -1298,13 +1325,15 @@ fn commit_records(
 
 /// Ends an attempt that committed nothing as `unsuccessful` says, ended at
 /// `ended_at`, when its lease is the one the run file holds; answers
-/// whether it did.
+/// whether it did. Its ending counts in `changed`; a retry leaves it
+/// pending and counts nothing.
 pub(crate) fn end(
     connection: &Connection,
     id: &str,
     lease_epoch: u64,
     unsuccessful: Unsuccessful,
     ended_at: &PointInTime,
+    changed: &mut Changed,
 ) -> rusqlite::Result<bool> {
     if !still_leased(connection, id, lease_epoch)? {
         return Ok(false);
@@ -1329,7 +1358,7 @@ pub(crate) fn end(
         Unsuccessful::Skipped { reason, message } => Ending::Skipped { reason, message },
         Unsuccessful::Blocked(cause) => Ending::Blocked { cause },
     };
-    write_outcome(connection, id, ended_at, ending)?;
+    write_outcome(connection, id, ended_at, ending, changed)?;
     Ok(true)
 }
 
@@ -1339,11 +1368,13 @@ pub(crate) fn end(
 /// handler never run, unless none of them was leased or ended otherwise
 /// than so, when the first pending one stays; one ended so and given back
 /// since ([`give_back`]) counts by its latest outcome. Answers each one it
-/// ended, with its URL and the domain key it waits under, if keyed.
+/// ended, with its URL and the domain key it waits under, if keyed; each
+/// counts in `changed`.
 pub(crate) fn end_merged(
     connection: &Connection,
     ids: &BTreeSet<String>,
     ended_at: &PointInTime,
+    changed: &mut Changed,
 ) -> rusqlite::Result<Vec<(String, String, Option<String>)>> {
     let mut members = Vec::with_capacity(ids.len());
     for id in ids {
@@ -1391,6 +1422,7 @@ pub(crate) fn end_merged(
                 reason: SkipReason::Duplicate,
                 message: None,
             },
+            changed,
         )?;
         ended.push((id, url, key));
     }
@@ -1439,10 +1471,12 @@ fn write_outcome(
     id: &str,
     ended_at: &PointInTime,
     ending: Ending,
+    changed: &mut Changed,
 ) -> rusqlite::Result<()> {
     // A sitemap's fetch is no crawl request: its sitemap's counts, or why
     // it could not be read, are its ending (ADR 0102).
     if sitemap::is_fetch(connection, id)? {
+        changed.fetches_ended += 1;
         return sitemap::ended(connection, id, &ending);
     }
     let (url, label, depth, attempts): (String, String, u32, u32) = connection
@@ -1482,6 +1516,7 @@ fn write_outcome(
     // The work item had no counted outcome: it was leased or pending, a
     // re-admission having taken its last one out of the counts.
     count(connection, &ending, 1)?;
+    changed.ended.push(counted_as(&ending));
     let outcome = CrawlRequestOutcome {
         position,
         request: OutcomeRequest {
@@ -1513,9 +1548,80 @@ fn write_outcome(
     Ok(())
 }
 
+/// What an ended request counts under among its Run's ended requests: its
+/// kind, and its skip reason, Error code or Block cause, none for
+/// `succeeded`.
+pub(crate) type CountedAs = (OutcomeKind, String);
+
+/// What one job of the run file changed of the crawl's requests by state,
+/// as the statements that changed them counted it, for the crawl's Run
+/// state to count in memory (#2167): the job answers it, and no count is
+/// read from the run file for it.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Changed {
+    /// How many work items it added, each pending.
+    pub(crate) added: u64,
+    /// Each request it ended, as it counts.
+    pub(crate) ended: Vec<CountedAs>,
+    /// How many sitemaps' fetches it ended, which count under nothing.
+    pub(crate) fetches_ended: u64,
+    /// Each ended request it made pending again, as it counted.
+    pub(crate) reopened: Vec<CountedAs>,
+    /// How many sitemaps' fetches that had failed it made pending again.
+    pub(crate) fetches_reopened: u64,
+    /// Whether it added a sitemap seed.
+    pub(crate) sitemap_seed: bool,
+    /// Each sitemap seed's report after it, when it changed them
+    /// ([`Changed::with_sitemaps`]).
+    pub(crate) sitemaps: Option<Vec<SitemapReport>>,
+}
+
+impl Changed {
+    /// Counts the work items `positions` added, and answers them keyed,
+    /// in order, as [`Positions::keyed`] does.
+    pub(crate) fn adds(&mut self, positions: &mut Positions) -> Vec<Waiting> {
+        self.added += std::mem::take(&mut positions.added);
+        self.sitemap_seed |= std::mem::take(&mut positions.sitemap_seed);
+        positions.keyed()
+    }
+
+    /// Counts what another job, or another part of the same one, `other`,
+    /// changed beside it.
+    pub(crate) fn and(&mut self, other: Self) {
+        self.added += other.added;
+        self.ended.extend(other.ended);
+        self.fetches_ended += other.fetches_ended;
+        self.reopened.extend(other.reopened);
+        self.fetches_reopened += other.fetches_reopened;
+        self.sitemap_seed |= other.sitemap_seed;
+        if other.sitemaps.is_some() {
+            self.sitemaps = other.sitemaps;
+        }
+    }
+
+    /// Whether it changed nothing.
+    pub(crate) fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// The same, with each sitemap seed's report as `connection`'s
+    /// transaction holds them once the job is done, when the job changed
+    /// them: it added a sitemap seed, or ended a sitemap's fetch.
+    ///
+    /// # Errors
+    ///
+    /// The run file's.
+    pub(crate) fn with_sitemaps(mut self, connection: &Connection) -> rusqlite::Result<Self> {
+        if self.sitemap_seed || self.fetches_ended > 0 {
+            self.sitemaps = Some(sitemap::reports(connection)?);
+        }
+        Ok(self)
+    }
+}
+
 /// What `ending` is counted under in `request_counts`: its kind, and its
 /// skip reason, Error code or Block cause, none for `succeeded`.
-fn counted_as(ending: &Ending) -> (&'static str, String) {
+fn counted_as(ending: &Ending) -> CountedAs {
     let name = match ending {
         Ending::Succeeded { .. } => String::new(),
         Ending::Failed { error } => error.code.clone(),
@@ -1525,13 +1631,14 @@ fn counted_as(ending: &Ending) -> (&'static str, String) {
         },
         Ending::Blocked { cause } => cause.as_str().to_owned(),
     };
-    (ending.kind().as_str(), name)
+    (ending.kind(), name)
 }
 
 /// Counts `ending` once more, `by` 1, or once less, `by` -1, among the
 /// ended requests and, for a request that succeeded, its Records.
 pub(crate) fn count(connection: &Connection, ending: &Ending, by: i64) -> rusqlite::Result<()> {
     let (kind, name) = counted_as(ending);
+    let kind = kind.as_str();
     connection
         .prepare_cached(
             "INSERT INTO request_counts (kind, name, count) VALUES (?1, ?2, ?3)
@@ -1614,10 +1721,12 @@ pub(crate) fn ended_counts(
 /// gave back, each with the domain key it waits under, if keyed: each one
 /// still `skipped` whose latest outcome is that ending. Each keeps its ID,
 /// position and domain key, and its outcome leaves the ended requests'
-/// counts until it ends again, as a re-admitted one's does ([`readmit`]).
+/// counts until it ends again, as a re-admitted one's does ([`readmit`]),
+/// which `changed` counts.
 pub(crate) fn give_back(
     connection: &Connection,
     ids: &[String],
+    changed: &mut Changed,
 ) -> rusqlite::Result<Vec<(String, Option<String>)>> {
     let mut given = Vec::new();
     for id in ids {
@@ -1643,6 +1752,7 @@ pub(crate) fn give_back(
             .prepare_cached("UPDATE work_items SET status = ?1 WHERE id = ?2")
             .and_then(|mut cached| cached.execute((PENDING, id)))?;
         count(connection, &outcome.ending, -1)?;
+        changed.reopened.push(counted_as(&outcome.ending));
         given.push((id.clone(), key));
     }
     Ok(given)
@@ -1709,8 +1819,13 @@ pub(crate) fn readmittable(connection: &Connection, blocked: bool) -> rusqlite::
 /// re-admission. Each keeps its ID, Label, Payload and depth, and its
 /// attempts count on from where they are, with a fresh `crawl.retry.max`
 /// from there (ADR 0102). Each counts as pending from then on, its latest
-/// outcome taken out of the ended requests' counts until it ends again.
-pub(crate) fn readmit(connection: &Connection, blocked: bool) -> rusqlite::Result<Vec<String>> {
+/// outcome taken out of the ended requests' counts until it ends again,
+/// which `changed` counts.
+pub(crate) fn readmit(
+    connection: &Connection,
+    blocked: bool,
+    changed: &mut Changed,
+) -> rusqlite::Result<Vec<String>> {
     let statuses = serde_json::to_string(readmitted(blocked)).expect("invariant: names encode");
     let mut ids = connection
         .prepare_cached(
@@ -1722,8 +1837,13 @@ pub(crate) fn readmit(connection: &Connection, blocked: bool) -> rusqlite::Resul
         .collect::<rusqlite::Result<Vec<(i64, String)>>>()?;
     ids.sort();
     for (_, id) in &ids {
-        if let Some(outcome) = latest_outcome(connection, id)? {
-            count(connection, &outcome.ending, -1)?;
+        // A sitemap's fetch that failed left no outcome and no count.
+        match latest_outcome(connection, id)? {
+            Some(outcome) => {
+                count(connection, &outcome.ending, -1)?;
+                changed.reopened.push(counted_as(&outcome.ending));
+            }
+            None => changed.fetches_reopened += 1,
         }
     }
     Ok(ids.into_iter().map(|(_, id)| id).collect())
@@ -1771,12 +1891,13 @@ pub(crate) fn left(connection: &Connection) -> rusqlite::Result<u64> {
 /// with `failure`, ended at `ended_at`: its attempt counted and its error
 /// kept, it returns to pending while it has retries left of `retry_max`
 /// since its latest admission, and fails otherwise, with its outcome
-/// (ADR 0102).
+/// (ADR 0102). Each ending counts in `changed`.
 pub(crate) fn recover_leases(
     connection: &Connection,
     failure: &Failure,
     retry_max: u32,
     ended_at: &PointInTime,
+    changed: &mut Changed,
 ) -> rusqlite::Result<()> {
     let lost = connection
         .prepare_cached(
@@ -1797,7 +1918,14 @@ pub(crate) fn recover_leases(
         } else {
             Unsuccessful::Failed(failure.clone())
         };
-        end(connection, &id, lease_epoch, unsuccessful, ended_at)?;
+        end(
+            connection,
+            &id,
+            lease_epoch,
+            unsuccessful,
+            ended_at,
+            changed,
+        )?;
     }
     Ok(())
 }

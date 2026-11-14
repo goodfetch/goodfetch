@@ -545,19 +545,31 @@ pub const NETWORK_RESOLVE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
-/// `consent.handling` (ADR 0048).
+/// The values `consent.handling` takes (ADR 0048, #2434).
+pub const CONSENT_HANDLING_VALUES: &[&str] = &["answer", "detect", "off"];
+
+/// `consent.handling` (ADR 0048, #2434).
 pub const CONSENT_HANDLING: Setting = Setting {
     name: "consent.handling",
-    description: "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering: the wall test still runs, and a consent wall is still `consent_required`.",
-    kind: ValueKind::Boolean,
-    default: yes,
+    description: "What a browser Session does with Consent prompts: `answer` (the default, in every Access mode) refuses each prompt in every frame and hides one with no refusal that leaves the content readable; `detect` only looks: nothing is clicked or hidden, the wall test still runs, and a consent wall is still `consent_required`; `off` registers and starts no Consent prompt runner and lets no cosmetic rule act on the live page or in extracted content, so no consent wall is reported and the page's text is returned as served, while the Filter lists still block requests; the Run report lists `off` in `weakened`. A Recipe, and a Client acting for a model, never set `off` unless the layers below already give it: `setting_locked`; set it in the program's own code, in configuration or in an Operator policy.",
+    kind: ValueKind::Choice(CONSENT_HANDLING_VALUES),
+    default: answer,
     clearable: false,
-    authority: Authority::Every,
-    weakens: None,
+    authority: Authority::NotWeakenedByRecipeOrModel,
+    weakens: Some(handling_off),
     fixed_for_run: false,
     unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
+
+fn answer() -> Value {
+    Value::String("answer".to_owned())
+}
+
+/// `consent.handling: off`, which leaves the page as served (#2434).
+fn handling_off(value: &Value) -> bool {
+    value.as_str() == Some("off")
+}
 
 /// `consent.domains` (ADR 0048).
 pub const CONSENT_DOMAINS: Setting = Setting {
@@ -828,6 +840,24 @@ pub const FILTER_LISTS_PAGE_SCRIPTLETS: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `filter_lists.host_cache` (spec #2164).
+pub const FILTER_LISTS_HOST_CACHE: Setting = Setting {
+    name: "filter_lists.host_cache",
+    description: "How many hosts' Clean-up rules this Run keeps built: 1,024, the least used dropped first, and none once the Resource governor finds memory critical. A page on a host it keeps builds no rule list. 0 builds each page's rule list, as before.",
+    kind: ValueKind::Count,
+    default: hosts_kept,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn hosts_kept() -> Value {
+    Value::from(1_024_u64)
+}
+
 /// `session.source` (ADR 0056).
 pub const SESSION_SOURCE: Setting = Setting {
     name: "session.source",
@@ -1010,6 +1040,7 @@ pub const ENTRIES: Entries = Entries {
         FILTER_LISTS_ANNOYANCES,
         FILTER_LISTS_FIRST_PARTY_SCRIPTS,
         FILTER_LISTS_PAGE_SCRIPTLETS,
+        FILTER_LISTS_HOST_CACHE,
         FILTER_LISTS_EXTRA,
         CLEAN_UP_UPDATE,
         CLEAN_UP_VERSION,

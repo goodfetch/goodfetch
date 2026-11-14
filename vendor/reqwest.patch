@@ -1,0 +1,200 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -13,7 +13,7 @@
+ edition = "2021"
+ rust-version = "1.85.0"
+ name = "reqwest"
+-version = "0.13.5"
++version = "0.13.5+goodfetch.1"
+ authors = ["Sean McArthur <sean@seanmonstar.com>"]
+ build = false
+ include = [
+--- a/Cargo.toml.orig
++++ b/Cargo.toml.orig
+@@ -1,6 +1,6 @@
+ [package]
+ name = "reqwest"
+-version = "0.13.5"
++version = "0.13.5+goodfetch.1"
+ description = "higher level HTTP client library"
+ keywords = ["http", "request", "client"]
+ categories = ["web-programming::http-client", "wasm"]
+--- a/src/async_impl/client.rs
++++ b/src/async_impl/client.rs
+@@ -1,3 +1,5 @@
++// Modified by Goodfetch (2026-11-14): `ClientBuilder::tcp_connector`, the
++// service the client opens its TCP connections through, in place of its own.
+ #[cfg(any(feature = "__native-tls", feature = "__rustls",))]
+ use std::any::Any;
+ use std::future::Future;
+@@ -49,7 +51,7 @@
+ use http::header::{Entry, HeaderMap, HeaderValue, ACCEPT, PROXY_AUTHORIZATION, USER_AGENT};
+ use http::uri::Scheme;
+ use http::Uri;
+-use hyper_util::client::legacy::connect::HttpConnector;
++use crate::connect::{HttpConnector, TcpConnector};
+ #[cfg(feature = "__native-tls")]
+ use native_tls_crate::TlsConnector;
+ use pin_project_lite::pin_project;
+@@ -58,7 +60,7 @@
+ #[cfg(feature = "http3")]
+ use quinn::VarInt;
+ use tokio::time::Sleep;
+-use tower::util::BoxCloneSyncServiceLayer;
++use tower::util::{BoxCloneSyncService, BoxCloneSyncServiceLayer};
+ use tower::{Layer, Service};
+ #[cfg(any(
+     feature = "gzip",
+@@ -202,6 +204,7 @@
+     #[cfg(feature = "__tls")]
+     tls: TlsBackend,
+     connector_layers: Vec<BoxedConnectorLayer>,
++    tcp_connector: Option<TcpConnector>,
+     http_version_pref: HttpVersionPref,
+     http09_responses: bool,
+     http1_title_case_headers: bool,
+@@ -330,6 +333,7 @@
+                 #[cfg(feature = "__tls")]
+                 tls: TlsBackend::default(),
+                 connector_layers: Vec::new(),
++                tcp_connector: None,
+                 http_version_pref: HttpVersionPref::All,
+                 http09_responses: false,
+                 http1_title_case_headers: false,
+@@ -451,6 +455,9 @@
+ 
+             let mut http = HttpConnector::new_with_resolver(resolver.clone());
+             http.set_connect_timeout(config.connect_timeout);
++            if let Some(tcp) = config.tcp_connector.clone() {
++                http.set_tcp_connector(tcp);
++            }
+ 
+             #[cfg(all(feature = "http3", feature = "__rustls"))]
+             let build_h3_connector =
+@@ -2485,6 +2492,31 @@
+ 
+         self
+     }
++
++    /// Opens the client's TCP connections, to a site or to a proxy,
++    /// through `connector`, which is given the URI to connect to and
++    /// returns the connected stream, in place of the client's own
++    /// connector.
++    ///
++    /// The client's `tcp_nodelay` is applied to the stream `connector`
++    /// returns, and `connect_timeout` bounds the whole connection as for
++    /// any `connector_layer`. `connector` does the lookup and applies
++    /// every other socket option itself: `local_address`, `interface`,
++    /// the TCP keepalive settings, `tcp_user_timeout`, the resolver and
++    /// Happy Eyeballs are not applied to its connections.
++    pub fn tcp_connector<S>(mut self, connector: S) -> ClientBuilder
++    where
++        S: Service<Uri, Response = tokio::net::TcpStream> + Clone + Send + Sync + 'static,
++        S::Error: Into<BoxError>,
++        S::Future: Send + 'static,
++    {
++        use tower::ServiceExt;
++
++        self.config.tcp_connector = Some(BoxCloneSyncService::new(
++            connector.map_err(Into::into),
++        ));
++        self
++    }
+ }
+ 
+ type HyperClient = hyper_util::client::legacy::Client<Connector, super::Body>;
+--- a/src/connect.rs
++++ b/src/connect.rs
+@@ -1,3 +1,6 @@
++// Modified by Goodfetch (2026-11-14): `HttpConnector` wraps hyper-util's
++// connector and opens the client's TCP connections through the service
++// `ClientBuilder::tcp_connector` gave, when it gave one.
+ #[cfg(feature = "__tls")]
+ use http::header::HeaderValue;
+ #[cfg(feature = "__tls")]
+@@ -31,7 +34,84 @@
+ use crate::proxy::{Intercepted, Matcher as ProxyMatcher};
+ use sealed::{Conn, Unnameable};
+ 
+-pub(crate) type HttpConnector = hyper_util::client::legacy::connect::HttpConnector<DynResolver>;
++/// The service a client opens its TCP connections through when
++/// `ClientBuilder::tcp_connector` gave one.
++pub(crate) type TcpConnector = BoxCloneSyncService<Uri, tokio::net::TcpStream, BoxError>;
++
++/// hyper-util's HTTP connector, which opens the client's TCP connections,
++/// or, when a [`TcpConnector`] is set, that connector, with the client's
++/// `tcp_nodelay` applied to the stream it opens. Its settings reach
++/// hyper-util's connector, which a [`TcpConnector`] does not read.
++#[derive(Clone)]
++pub(crate) struct HttpConnector {
++    inner: hyper_util::client::legacy::connect::HttpConnector<DynResolver>,
++    tcp: Option<TcpConnector>,
++    nodelay: bool,
++}
++
++impl HttpConnector {
++    pub(crate) fn new_with_resolver(resolver: DynResolver) -> Self {
++        Self {
++            inner: hyper_util::client::legacy::connect::HttpConnector::new_with_resolver(resolver),
++            tcp: None,
++            nodelay: false,
++        }
++    }
++
++    pub(crate) fn set_tcp_connector(&mut self, tcp: TcpConnector) {
++        self.tcp = Some(tcp);
++    }
++
++    pub(crate) fn set_nodelay(&mut self, nodelay: bool) {
++        self.nodelay = nodelay;
++        self.inner.set_nodelay(nodelay);
++    }
++}
++
++impl std::ops::Deref for HttpConnector {
++    type Target = hyper_util::client::legacy::connect::HttpConnector<DynResolver>;
++
++    fn deref(&self) -> &Self::Target {
++        &self.inner
++    }
++}
++
++impl std::ops::DerefMut for HttpConnector {
++    fn deref_mut(&mut self) -> &mut Self::Target {
++        &mut self.inner
++    }
++}
++
++impl Service<Uri> for HttpConnector {
++    type Response = hyper_util::rt::TokioIo<tokio::net::TcpStream>;
++    type Error = BoxError;
++    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, BoxError>> + Send>>;
++
++    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
++        match &mut self.tcp {
++            Some(tcp) => tcp.poll_ready(cx),
++            None => self.inner.poll_ready(cx).map_err(Into::into),
++        }
++    }
++
++    fn call(&mut self, dst: Uri) -> Self::Future {
++        match &mut self.tcp {
++            Some(tcp) => {
++                let connecting = tcp.call(dst);
++                let nodelay = self.nodelay;
++                Box::pin(async move {
++                    let stream = connecting.await?;
++                    stream.set_nodelay(nodelay)?;
++                    Ok(hyper_util::rt::TokioIo::new(stream))
++                })
++            }
++            None => {
++                let connecting = self.inner.call(dst);
++                Box::pin(async move { connecting.await.map_err(Into::into) })
++            }
++        }
++    }
++}
+ 
+ #[derive(Clone)]
+ pub(crate) enum Connector {

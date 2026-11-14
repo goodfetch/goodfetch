@@ -40,6 +40,9 @@ rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 secrecy.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
+# The transports' sockets keep the libraries' TCP keepalive and user
+# timeout, and bind the Session's interface (ADR 0044, ADR 0118).
+socket2 = { workspace = true, features = ["all"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync"] }
 tokio-util.workspace = true
@@ -53,6 +56,11 @@ wreq-proto.workspace = true
 wreq-util.workspace = true
 zstd.workspace = true
 goodfetch-workspace-hack.workspace = true
+
+# The index of the Session's interface, which each socket binds on macOS and
+# illumos (ADR 0044).
+[target.'cfg(any(target_os = "macos", target_os = "illumos"))'.dependencies]
+netdev.workspace = true
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true

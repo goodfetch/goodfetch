@@ -174,7 +174,7 @@ redaction = true
 echo_repeats = 4
 
 [settings.consent]
-handling = true
+handling = "answer"
 domains = ["example"]
 on_wall = "report"
 
@@ -189,6 +189,7 @@ trackers = true
 annoyances = true
 first_party_scripts = true
 page_scriptlets = true
+host_cache = 4
 extra = ["example"]
 
 [settings.clean_up]

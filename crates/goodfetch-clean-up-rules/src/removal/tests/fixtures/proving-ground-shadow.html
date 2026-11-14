@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>An article with ads in shadow roots</title>
+</head>
+<body>
+<main>
+<h1>An article with ads in shadow roots</h1>
+<p>The article's own text, which a person reads it for, beside ads in its light DOM and in its shadow roots, open and closed.</p>
+<div class="ad-slot">A light ad</div>
+<div id="open-host"><template shadowrootmode="open"><p>Text in an open root.</p><div class="ad-slot">An open-root ad</div></template></div>
+<div id="closed-host"></div>
+<script>
+document.getElementById("closed-host").attachShadow({ mode: "closed" }).innerHTML =
+  '<p>Text in a closed root.</p><div class="ad-slot">A closed-root ad</div>';
+</script>
+</main>
+</body>
+</html>

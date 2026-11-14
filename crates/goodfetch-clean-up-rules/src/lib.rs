@@ -14,7 +14,10 @@
 pub mod consent;
 pub mod cosmetic;
 mod filter_set;
+mod generic;
 pub mod hiding;
+mod index;
+pub mod list;
 pub mod matching;
 pub mod never_block;
 pub mod removal;

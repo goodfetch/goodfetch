@@ -10,9 +10,12 @@ publish.workspace = true
 
 [dependencies]
 adblock.workspace = true
+cssparser.workspace = true
 data-encoding.workspace = true
 dom_query.workspace = true
 goodfetch-counted-work.workspace = true
+moka.workspace = true
+selectors.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 zstd.workspace = true
@@ -31,6 +34,8 @@ toml.workspace = true
 zstd.workspace = true
 
 [dev-dependencies]
+goodfetch-test-support.workspace = true
+proptest.workspace = true
 rstest.workspace = true
 
 [lints]

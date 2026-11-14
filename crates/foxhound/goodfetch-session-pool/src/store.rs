@@ -18,7 +18,7 @@ use rusqlite::Connection;
 use crate::labels::PoolKey;
 
 /// The tables of a crawl's Sessions and its domains' tiers.
-pub(crate) const TABLES: RunStateTables = RunStateTables {
+pub const TABLES: RunStateTables = RunStateTables {
     name: "goodfetch-session-pool",
     statements: &[
         "CREATE TABLE IF NOT EXISTS pool_sessions (

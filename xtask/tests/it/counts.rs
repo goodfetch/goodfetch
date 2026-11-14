@@ -700,6 +700,7 @@ const OTHER_B1_ROWS: &str = "\
 | `F1.tree_copies` | tree copies per page | ≤ 1 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F1.share_readability_runs` | share readability runs per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F1.block_classifications` | Block classifications per page | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F1.analysis_handoffs` | analysis hand-offs per page | at most 1 | B1 2, B4 3 | B1, B4 | must not grow | `just counts` | implementer done |
 | `F4.declaration_reads` | declaration reads per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.validator_builds` | validator builds per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.validations` | validations per Record | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
@@ -748,8 +749,8 @@ const OTHER_B1_ROWS: &str = "\
 
 /// A workspace whose register holds every counted row of B1, and whose
 /// benchmark prints over 13 pages and their 13 Records `parses` parses, one
-/// readability run a page, one validation and one serialization a Record, one
-/// Payload serialized and validated over one links batch, one transaction,
+/// readability run and two analysis hand-offs a page, one validation and one
+/// serialization a Record, one Payload serialized and validated over one links batch, one transaction,
 /// sync and configuration read over one attempt and one Run, two Politeness
 /// transactions an attempt and one robots.txt parse an origin, over 13
 /// Run-trace entries none of their rows' work, none of the other rows' work,
@@ -771,6 +772,7 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F1.tree_copies", 0),
         ("F1.share_readability_runs", 0),
         ("F1.block_classifications", 13),
+        ("F1.analysis_handoffs", 26),
         ("F4.declaration_reads", 0),
         ("F4.validator_builds", 0),
         ("F4.validations", 13),
@@ -1371,6 +1373,121 @@ fn each_action_kind_is_held_to_its_own_figure(
             .contains("C3.commands.fill [default]: 2 per fill_attempt, limit 2 (2 over 1)"),
         "{}",
         outcome.stdout
+    );
+}
+
+/// The rows of the extraction path (spec #2164): its hand-offs, which the
+/// register puts on two families with a figure for each, its clean-up's
+/// instructions and its selectors' compilations' instructions.
+const EXTRACTION_ROWS: &str = "\
+| `F1.analysis_handoffs` | hand-offs to the analysis pool per page | at most 1, and 0 when no reader needs a tree | B1 2, B4 3; until #2189 | B1, B4 | must not grow | `just counts` | implementer done |
+| `F1.clean_up_instructions` | instructions in the clean-up's removal per page | no cap (ratchet) | 1000 | B4 | must not grow | `just counts --family B4` | implementer done |
+| `F1.selector_compilation_instructions` | instructions in a crawl's selector compilations per crawl | no cap (ratchet) | 1000 | B4 | must not grow | `just counts --family B4` | implementer done |
+";
+
+/// A benchmark of `family` whose default cell counts `handoffs` hand-offs
+/// over 13 pages, and `instructions` in the clean-up over one page and in
+/// the selectors' compilations over one crawl.
+fn extraction_benchmark(
+    workspace: &Workspace,
+    family: &str,
+    handoffs: u64,
+    instructions: u64,
+) -> String {
+    let path = executable_script(
+        workspace,
+        &format!("{family}.sh"),
+        &format!(
+            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"callgrind_pages\":1,\"callgrind_crawls\":1}},\"counts\":{{\"F1.analysis_handoffs\":{handoffs},\"F1.clean_up_instructions\":{instructions},\"F1.selector_compilation_instructions\":{instructions}}}}}'\n"
+        ),
+    );
+    format!("{family}={}", path.display())
+}
+
+/// A row the register puts on two families, with a figure for each, is
+/// counted on both, each held to its own family's figure: B1's two
+/// hand-offs a page pass B1's 2, B4's three its 3, and B1 at B4's figure
+/// fails.
+#[rstest]
+#[case::each_at_its_figure(26, 0, &[])]
+#[case::b1_at_b4s_figure(39, 1, &["F1.analysis_handoffs"])]
+fn a_row_two_families_count_is_held_on_each_to_its_own_figure(
+    #[case] b1: u64,
+    #[case] code: i32,
+    #[case] over: &[&str],
+) {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        "TESTING.md",
+        format!("{}{EXTRACTION_ROWS}", register("8")).as_bytes(),
+    );
+    let on_b1 = extraction_benchmark(&workspace, "B1", b1, 0);
+    let on_b4 = extraction_benchmark(&workspace, "B4", 39, 0);
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--row",
+        "F1.analysis_handoffs",
+        "--executable",
+        &on_b1,
+        "--executable",
+        &on_b4,
+    ]);
+
+    assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        over.iter()
+            .map(|row| finding("over-limit", row))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("F1.analysis_handoffs [default]: 3 per page, limit 3 (39 over 13)"),
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(
+        outcome
+            .stdout
+            .contains("F1.analysis_handoffs [default]: 2 per page, limit 2 (26 over 13)"),
+        over.is_empty(),
+        "{}",
+        outcome.stdout
+    );
+}
+
+/// The clean-up's instructions and the selectors' compilations' are read
+/// under Callgrind by B4's own run, and vary a little from run to run: each
+/// row is held within the 0.5 % of a figure read under Valgrind (the
+/// register's ratchet), and fails past it.
+#[rstest]
+#[case::within_the_tolerance(1005, 0, false)]
+#[case::past_it(1006, 1, true)]
+fn b4s_instructions_are_held_within_the_valgrind_tolerance(
+    #[case] instructions: u64,
+    #[case] code: i32,
+    #[case] past: bool,
+    #[values("F1.clean_up_instructions", "F1.selector_compilation_instructions")] row: &str,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        "TESTING.md",
+        format!("{}{EXTRACTION_ROWS}", register("8")).as_bytes(),
+    );
+    let executable = extraction_benchmark(&workspace, "B4", 39, instructions);
+
+    let outcome = workspace.xtask(&["counts", "--row", row, "--executable", &executable]);
+
+    assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        if past {
+            vec![finding("over-limit", row)]
+        } else {
+            Vec::new()
+        }
     );
 }
 

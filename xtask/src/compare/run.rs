@@ -23,9 +23,10 @@ use super::trial::{self, Counted, Outcome, Ruled, callgrind_missing, strace_miss
 use super::trials::{
     CONCURRENCY, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, CollieScenario, CollieStopped, Comparison,
     CountedCell, CountedRun, Declared, GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS,
-    INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Measured, PLAYWRIGHT_VERSION, RULE_RUNS, RuledRun,
-    SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES,
-    SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint, StoppedRun, Trial, size_not_run,
+    INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Measured, PAGESIFT_VERSION, PLAYWRIGHT_VERSION,
+    RULE_RUNS, RuledRun, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES,
+    SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint, StoppedRun, Trial,
+    size_not_run,
 };
 
 mod machine;
@@ -35,9 +36,10 @@ mod watch;
 pub(crate) struct Executables<'a> {
     pub(crate) proving_ground: &'a Path,
     pub(crate) foxhound: &'a Path,
-    /// The folder of the Rust sides' builds, Spider's and crawlee-rs's, and
-    /// the folder Cargo names after the profile each was built with (see
-    /// [`spider_executable`] and [`crawlee_rs_executable`]).
+    /// The folder of the Rust sides' builds, Spider's, crawlee-rs's and
+    /// pagesift's, and the folder Cargo names after the profile each was
+    /// built with (see [`spider_executable`], [`crawlee_rs_executable`] and
+    /// [`pagesift_executable`]).
     pub(crate) spider_builds: &'a Path,
     pub(crate) spider_profile: &'a str,
     /// Crawlee's side's script, run by Node.js, and Scrapy's, run by the
@@ -102,12 +104,12 @@ fn next(state: &mut u64) -> u64 {
     z ^ (z >> 31)
 }
 
-/// `runs` runs of each of `items`, each with its number from 1, shuffled
-/// by `state` (Fisher–Yates).
-fn order<T: Copy>(items: &[T], runs: u32, state: &mut u64) -> Vec<(T, u32)> {
+/// `runs(item)` runs of each of `items`, each with its number from 1,
+/// shuffled by `state` (Fisher–Yates).
+fn order<T: Copy>(items: &[T], runs: impl Fn(T) -> u32, state: &mut u64) -> Vec<(T, u32)> {
     let mut order: Vec<_> = items
         .iter()
-        .flat_map(|&item| (1..=runs).map(move |number| (item, number)))
+        .flat_map(|&item| (1..=runs(item)).map(move |number| (item, number)))
         .collect();
     for last in (1..order.len()).rev() {
         let pick = usize::try_from(next(state) % (last as u64 + 1))
@@ -153,6 +155,20 @@ pub(crate) fn crawlee_rs_executable(builds: &Path, profile: &str) -> PathBuf {
         ))
 }
 
+/// pagesift's side's executable in `builds`, beside Spider's builds:
+/// `just compare` builds it into the target folder
+/// [`matrix::PAGESIFT_FOLDER`] names, where Cargo puts it under `profile`'s
+/// folder.
+pub(crate) fn pagesift_executable(builds: &Path, profile: &str) -> PathBuf {
+    builds
+        .join(matrix::PAGESIFT_FOLDER)
+        .join(profile)
+        .join(format!(
+            "goodfetch-compare-pagesift{}",
+            std::env::consts::EXE_SUFFIX
+        ))
+}
+
 /// Where a trial crawls: the site's pages and the requests it has in
 /// flight at once, and whether its samples read the tool's executable's
 /// own pages.
@@ -187,6 +203,9 @@ fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf>
         Config::Scrapy => executables.scrapy.to_owned(),
         Config::CrawleeRs => {
             crawlee_rs_executable(executables.spider_builds, executables.spider_profile)
+        }
+        Config::Pagesift => {
+            pagesift_executable(executables.spider_builds, executables.spider_profile)
         }
     };
     let program = trial::invocation(config, &executable).program;
@@ -288,7 +307,11 @@ fn pages_of(scenario: Scenario, config: Config, pages: u64, spider_pages: Option
     let pages = scenario.site_pages(pages);
     match config {
         Config::Spider { .. } => spider_pages.unwrap_or(pages),
-        Config::Foxhound { .. } | Config::Crawlee | Config::Scrapy | Config::CrawleeRs => pages,
+        Config::Foxhound { .. }
+        | Config::Crawlee
+        | Config::Scrapy
+        | Config::CrawleeRs
+        | Config::Pagesift => pages,
     }
 }
 
@@ -361,14 +384,15 @@ fn at_concurrency(config: Config, concurrency: u32) -> Config {
         | Config::Spider { .. }
         | Config::Crawlee
         | Config::Scrapy
-        | Config::CrawleeRs => config,
+        | Config::CrawleeRs
+        | Config::Pagesift => config,
     }
 }
 
-/// Runs `options.trials` timed trials of each of `points`, in one random
-/// order, each watched (see [`watch::stopped`]): a stopped trial runs once more,
-/// and a point whose trial is stopped twice is not measured, its later
-/// trials not run. Returns the trials and the points stopped.
+/// Runs `options.trials` timed trials of each of `points`, one of a cell
+/// that runs one ([`Cell::one_trial`]), in one random order, each watched
+/// (see [`watch::stopped`]): a stopped trial runs once more, and a point
+/// whose trial is stopped twice is not measured, its later trials not run. Returns the trials and the points stopped.
 fn timed(
     executables: &Executables<'_>,
     options: &Options,
@@ -389,7 +413,9 @@ fn timed(
                     && point.concurrency == concurrency
             })
         };
-    for ((cell, config, crawl), number) in order(points, options.trials, state) {
+    for ((cell, config, crawl), number) in
+        order(points, |(cell, _, _)| cell.runs(options.trials), state)
+    {
         if is_stopped(
             &stopped,
             cell.scenario,
@@ -517,7 +543,8 @@ pub(crate) fn set_aside(done: &[CountedRun], cell: &Cell, pages: u64) -> bool {
     })
 }
 
-/// Runs a counted cell: `runs` runs of each of `cells` under `mode`, each
+/// Runs a counted cell: `runs` runs of each of `cells` under `mode`, one of
+/// a cell that runs one ([`Cell::one_trial`]), each
 /// run's counting tool writing its output into `outputs`. Under strace
 /// (`watched`), a run whose crawl stalls is stopped (see [`watch::stopped`]): its
 /// cell is not measured, and its later runs do not run; nor do the later
@@ -535,7 +562,7 @@ fn counted(
 ) -> Result<CountedCell> {
     let mut done: Vec<CountedRun> = Vec::new();
     let mut stopped: Vec<StoppedRun> = Vec::new();
-    for ((cell, config), number) in order(cells, runs, state) {
+    for ((cell, config), number) in order(cells, |(cell, _)| cell.runs(runs), state) {
         if stopped
             .iter()
             .any(|run| run.scenario == cell.scenario && run.cell == cell.name)
@@ -617,6 +644,7 @@ fn declared(options: &Options) -> Declared {
         crawlee: CRAWLEE_VERSION.to_owned(),
         scrapy: SCRAPY_VERSION.to_owned(),
         crawlee_rs: CRAWLEE_RS_COMMIT.to_owned(),
+        pagesift: PAGESIFT_VERSION.to_owned(),
         playwright: PLAYWRIGHT_VERSION.to_owned(),
         scrapy_playwright: SCRAPY_PLAYWRIGHT_VERSION.to_owned(),
         browser: crate::test_facts::CHROME_FOR_TESTING_BUILD.to_owned(),
@@ -709,7 +737,11 @@ fn rules(
     state: &mut u64,
 ) -> Result<Vec<RuledRun>> {
     let mut runs = Vec::new();
-    for ((cell, config), number) in order(cells, RULE_RUNS.min(options.trials), state) {
+    for ((cell, config), number) in order(
+        cells,
+        |(cell, _)| cell.runs(RULE_RUNS.min(options.trials)),
+        state,
+    ) {
         let ruled: Ruled = match trial(
             executables,
             cell,

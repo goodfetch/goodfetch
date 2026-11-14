@@ -590,8 +590,8 @@ fn an_ordered_build_without_the_llvm_tools_fails() {
 }
 
 /// A release build of both Products for `xtask pgo check`: each Product's
-/// path a hard link to the file the linker wrote in `deps/`, as Cargo
-/// leaves it, with the link map ci/musl/link-cc wrote beside that file.
+/// path a hard link to the file the linker wrote in `deps/`, named after
+/// the crate, as Cargo leaves it, with the link map ci/musl/link-cc wrote beside that file.
 struct Built {
     workspace: Workspace,
 }
@@ -620,11 +620,13 @@ impl Built {
     /// Links `binary`, its `.text` holding `functions` at these addresses,
     /// with its link map unless `map` is false.
     fn link(&self, binary: &str, functions: &[(u64, &str)], map: bool) {
-        let deps = format!("build/release/deps/{binary}-0f1e");
+        // Cargo names the file in `deps/` after the crate: `-` becomes `_`.
+        let crate_name = binary.replace('-', "_");
+        let deps = format!("build/release/deps/{crate_name}-0f1e");
         self.workspace.write(&deps, b"an executable");
         // An unrelated build's file of the same Product, which is no link.
         self.workspace
-            .write(&format!("build/release/deps/{binary}-9a8b"), b"older");
+            .write(&format!("build/release/deps/{crate_name}-9a8b"), b"older");
         std::fs::hard_link(
             self.workspace.path().join(&deps),
             self.workspace

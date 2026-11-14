@@ -155,7 +155,8 @@ fn check_order(root: &Path, tools: &Path, target: Option<&str>) -> Result<Vec<Fi
 }
 
 /// The link map of `executable`, a Cargo build's: the map ci/musl/link-cc
-/// wrote beside the file the linker made in `deps/`, which Cargo then
+/// wrote beside the file the linker made in `deps/`, named after the
+/// crate, which Cargo then
 /// linked to `executable`'s path (one file, so its device and inode are
 /// the same); `None` when there is none.
 #[cfg(unix)]
@@ -171,7 +172,8 @@ fn link_map(executable: &Path) -> Result<Option<PathBuf>> {
         return Ok(None);
     };
     let deps = folder.join("deps");
-    let prefix = format!("{name}-");
+    // Cargo names the file after the crate, whose `-` are `_`.
+    let prefix = format!("{}-", name.replace('-', "_"));
     let entries = match std::fs::read_dir(&deps) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),

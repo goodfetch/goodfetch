@@ -8,7 +8,7 @@ use crate::output;
 
 use super::super::collie::{self, page_load};
 use super::super::trial::Outcome;
-use super::super::trials::{CollieScenario, CollieStopped, LoadStopped};
+use super::super::trials::{CollieScenario, CollieStopped, Contender, LoadStopped};
 use super::machine::{load, quiet};
 use super::watch::{Retried, retried};
 use super::{Options, next, waits_for_quiet};
@@ -58,9 +58,11 @@ pub(super) fn collie_trials(
             reason: "the run asked for no Collie cell".to_owned(),
         });
     };
+    // The tools run, which the scenario records for its check and report.
+    let tools_run = Contender::ALL.to_vec();
     let mut trials_run = Vec::new();
     let mut stopped: Vec<CollieStopped> = Vec::new();
-    for (exercise, tool, number) in collie::order(options.trials, state, next) {
+    for (exercise, tool, number) in collie::order(&tools_run, options.trials, state, next) {
         if stopped
             .iter()
             .any(|run| run.exercise == exercise && run.tool == tool)
@@ -125,6 +127,7 @@ pub(super) fn collie_trials(
     }
     Ok(CollieScenario::Measured {
         trials: options.trials,
+        tools: tools_run,
         trials_run,
         stopped,
         loads,

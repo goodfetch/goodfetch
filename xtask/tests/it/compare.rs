@@ -1878,7 +1878,7 @@ fn collie(collie: u64) -> Value {
             }
         }
     }
-    json!({ "status": "measured", "trials": 2, "trials_run": trials_run, "loads": loads })
+    json!({ "status": "measured", "trials": 2, "tools": ["collie", "playwright"], "trials_run": trials_run, "loads": loads })
 }
 
 /// TESTING.md's register, its Collie row's Today `today`.

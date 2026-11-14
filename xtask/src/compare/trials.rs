@@ -70,6 +70,11 @@ pub(crate) const PAGESIFT_VERSION: &str = "1.3.0";
 /// in the latter (unit tests hold each equal).
 pub(crate) const PLAYWRIGHT_VERSION: &str = "1.64.1";
 pub(crate) const SCRAPY_PLAYWRIGHT_VERSION: &str = "0.0.48";
+/// The Collie scenario's arms' pinned versions (issues 2441 and 2443):
+/// `puppeteer-core`'s and `@browserbasehq/stagehand`'s in
+/// `xtask/compare-collie-arms/package.json` (unit tests hold each equal).
+pub(crate) const PUPPETEER_VERSION: &str = "25.17.0";
+pub(crate) const STAGEHAND_VERSION: &str = "4.4.0";
 
 /// Runs of each tool in the Callgrind cell, whose figure is their median:
 /// fewer than the timed trials, since a count barely varies and a run under
@@ -435,24 +440,46 @@ pub(crate) enum Exercise {
     Opening,
 }
 
-/// A tool of the Collie scenario, which the driver
-/// (`xtask/compare-collie/act.ts`) runs.
+/// A tool of the Collie scenario, which its driver runs: Collie's and
+/// Playwright's `xtask/compare-collie/act.ts`, the arms'
+/// `xtask/compare-collie-arms/act.ts`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum Contender {
     /// Collie's Attached engine, over JSON-RPC through its TypeScript SDK.
     Collie,
     /// Playwright's Node.js library, its actionability checks on.
     Playwright,
+    /// Puppeteer's locators, whose click waits for the viewport, a stable
+    /// box and enabled (issue 2443).
+    PuppeteerLocator,
+    /// Puppeteer's page methods, whose click checks nothing (issue 2443).
+    PuppeteerPage,
+    /// Stagehand's locators with no model, whose click neither waits nor
+    /// checks (issue 2441).
+    Stagehand,
 }
 
 impl Contender {
-    pub(crate) const ALL: [Self; 2] = [Self::Collie, Self::Playwright];
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Collie,
+        Self::Playwright,
+        Self::PuppeteerLocator,
+        Self::PuppeteerPage,
+        Self::Stagehand,
+    ];
+    /// The scenario's arms, each read against the Collie row the pages it
+    /// got right place it at (issues 2441 and 2443).
+    pub(crate) const ARMS: [Self; 3] =
+        [Self::PuppeteerLocator, Self::PuppeteerPage, Self::Stagehand];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Collie => "collie",
             Self::Playwright => "playwright",
+            Self::PuppeteerLocator => "puppeteer_locator",
+            Self::PuppeteerPage => "puppeteer_page",
+            Self::Stagehand => "stagehand",
         }
     }
 }
@@ -609,7 +636,7 @@ pub(crate) struct LoadStopped {
     pub(crate) reason: String,
 }
 
-/// The Collie scenario: its cells' trials, both tools in each.
+/// The Collie scenario: its cells' trials, each tool's in each.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub(crate) enum CollieScenario {
@@ -619,6 +646,9 @@ pub(crate) enum CollieScenario {
     Measured {
         /// Trials of each tool in each cell, and of each row on each page.
         trials: u32,
+        /// The tools the run ran, in [`Contender::ALL`]'s order, which the
+        /// same-work check and the report read the run by.
+        tools: Vec<Contender>,
         trials_run: Vec<CollieTrial>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         stopped: Vec<CollieStopped>,
@@ -654,7 +684,8 @@ pub(crate) struct Comparison {
     pub(crate) instructions: CountedCell,
     /// The hostile pages' cells' runs: the rules each tool broke (#2439).
     pub(crate) rules: Vec<RuledRun>,
-    /// The Collie scenario: Collie against Playwright on one browser.
+    /// The Collie scenario: Collie against Playwright and the arms on one
+    /// browser.
     pub(crate) collie: CollieScenario,
 }
 

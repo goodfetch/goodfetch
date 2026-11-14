@@ -229,6 +229,7 @@ fn every(trials: u32, collie: u64, playwright: u64) -> Vec<CollieTrial> {
 fn measured(trials_run: Vec<CollieTrial>) -> CollieScenario {
     CollieScenario::Measured {
         trials: 2,
+        tools: vec![Contender::Collie, Contender::Playwright],
         trials_run,
         stopped: Vec::new(),
         loads: page_load::tests::every(2, |_, _| 1.0),
@@ -375,6 +376,7 @@ fn a_tool_stopped_twice_in_a_cell_is_not_measured_there() {
     });
     let scenario = CollieScenario::Measured {
         trials: 2,
+        tools: vec![Contender::Collie, Contender::Playwright],
         trials_run: trials,
         stopped: vec![CollieStopped {
             exercise: Exercise::Click,
@@ -429,6 +431,7 @@ fn a_page_both_tools_split_on_evenly_names_every_trial() {
     trials[1].pages[0].status = Some(404);
     let findings = check(&CollieScenario::Measured {
         trials: 1,
+        tools: vec![Contender::Collie, Contender::Playwright],
         trials_run: trials,
         stopped: Vec::new(),
         loads: Vec::new(),
@@ -475,6 +478,11 @@ fn measured_section(today: &str) -> Section {
         trial.commands = match trial.tool {
             Contender::Collie => actions * 3 / 2,
             Contender::Playwright => actions * 5 / 4,
+            arm @ (Contender::PuppeteerLocator
+            | Contender::PuppeteerPage
+            | Contender::Stagehand) => {
+                unreachable!("`every` runs no {}", arm.name())
+            }
         };
         trial.wall_seconds =
             0.001 * f64::from(u32::try_from(actions).unwrap()) * f64::from(trial.number);
@@ -594,4 +602,210 @@ fn a_collie_scenario_not_run_says_why() {
         "",
     );
     assert!(markdown(&section).contains("not run: the run asked for no Collie cell"));
+}
+
+/// Every trial of a run of `trials` of every tool, the arms with Collie and
+/// Playwright, in each cell it runs, each sending 100 commands.
+fn every_tool(trials: u32) -> Vec<CollieTrial> {
+    EXERCISES
+        .iter()
+        .flat_map(|&exercise| {
+            Contender::ALL
+                .into_iter()
+                .filter(move |&tool| skipped(tool, exercise).is_none())
+                .flat_map(move |tool| {
+                    (1..=trials).map(move |number| done(exercise, tool, number, 100))
+                })
+        })
+        .collect()
+}
+
+fn measured_every_tool(
+    trials_run: Vec<CollieTrial>,
+    stopped: Vec<CollieStopped>,
+) -> CollieScenario {
+    CollieScenario::Measured {
+        trials: 2,
+        tools: Contender::ALL.to_vec(),
+        trials_run,
+        stopped,
+        loads: page_load::tests::every(2, |_, _| 1.0),
+        loads_stopped: Vec::new(),
+    }
+}
+
+/// `tool`'s first trial that ran `task` did not get it right.
+fn miss(trials: &mut [CollieTrial], tool: Contender, task: &str) {
+    let page = trials
+        .iter_mut()
+        .filter(|trial| trial.tool == tool)
+        .flat_map(|trial| trial.pages.iter_mut())
+        .find(|page| page.task == task)
+        .unwrap();
+    *page = page_of(task, page.steps);
+}
+
+fn page_of(task: &str, steps: u64) -> PageDone {
+    page(task, Ended::Failure, steps, Some(OracleOutcome::Failed))
+}
+
+#[test]
+fn the_scenario_runs_each_arm_in_every_cell_but_stagehand_in_the_sessions_cell() {
+    assert_eq!(
+        Contender::ALL.map(Contender::name),
+        [
+            "collie",
+            "playwright",
+            "puppeteer_locator",
+            "puppeteer_page",
+            "stagehand"
+        ]
+    );
+    for tool in Contender::ALL {
+        assert_eq!(serde_json::to_value(tool).unwrap(), json!(tool.name()));
+    }
+    let mut state = 1;
+    let order = order(&Contender::ALL, 1, &mut state, |state| {
+        *state += 1;
+        *state
+    });
+    assert_eq!(order.len(), EXERCISES.len() * Contender::ALL.len() - 1);
+    assert!(!order.contains(&(Exercise::Sessions, Contender::Stagehand, 1)));
+    assert!(order.contains(&(Exercise::Sessions, Contender::PuppeteerPage, 1)));
+    assert!(order.contains(&(Exercise::Click, Contender::Stagehand, 1)));
+    // A run of every tool, Stagehand's Sessions not run, did its cells'
+    // work.
+    assert_eq!(
+        kinds(&check(&measured_every_tool(every_tool(2), Vec::new()))),
+        []
+    );
+}
+
+#[test]
+fn each_tool_runs_its_own_driver_against_the_browser_xtask_launched() {
+    let tools = Tools {
+        proving_ground: Path::new("proving-ground"),
+        engine: Path::new("engine"),
+        driver: PathBuf::from("compare-collie/act.ts"),
+        arms_driver: PathBuf::from("compare-collie-arms/act.ts"),
+        browser: Path::new("chrome"),
+        goodfetch_variables: &[],
+    };
+    for tool in [Contender::Collie, Contender::Playwright] {
+        assert_eq!(tools.script(tool), Path::new("compare-collie/act.ts"));
+    }
+    for arm in Contender::ARMS {
+        assert_eq!(tools.script(arm), Path::new("compare-collie-arms/act.ts"));
+    }
+    // Stagehand's extension speaks CDP over a WebSocket of its own, which
+    // Chrome opens to it only with flags of its own; every other tool's
+    // browser is launched as it was.
+    assert!(browser_flags(Contender::Stagehand).contains(&"--enable-unsafe-extension-debugging"));
+    for tool in [
+        Contender::Collie,
+        Contender::Playwright,
+        Contender::PuppeteerLocator,
+        Contender::PuppeteerPage,
+    ] {
+        assert!(browser_flags(tool).is_empty(), "{}", tool.name());
+    }
+}
+
+#[test]
+fn the_report_lists_each_arm_and_the_calls_its_steps_map_to() {
+    let text = markdown(&section(
+        &measured_every_tool(every_tool(2), Vec::new()),
+        "",
+    ));
+    for (tool, click) in [
+        ("puppeteer_locator", "`Locator.click()`"),
+        ("puppeteer_page", "`page.click()`"),
+        ("stagehand", "`page.locator(…).click()`"),
+    ] {
+        assert!(
+            text.lines()
+                .any(|line| line.starts_with(&format!("- {tool}: ")) && line.contains(click)),
+            "{tool}: {text}"
+        );
+        assert!(
+            text.contains(&format!("| click | 62 | {tool} | 1.6 (1.6–1.6) |")),
+            "{tool}: {text}"
+        );
+    }
+}
+
+#[test]
+fn each_arm_is_read_against_the_collie_row_the_pages_it_got_right_place_it_at() {
+    let mut trials = every_tool(2);
+    // Playwright missed page 5, and so did Puppeteer's locators. Its page
+    // methods missed page 7 besides; Stagehand, page 7 alone.
+    miss(&mut trials, Contender::Playwright, "actionability/5");
+    miss(&mut trials, Contender::PuppeteerLocator, "actionability/5");
+    miss(&mut trials, Contender::PuppeteerPage, "actionability/5");
+    miss(&mut trials, Contender::PuppeteerPage, "actionability/7");
+    miss(&mut trials, Contender::Stagehand, "actionability/7");
+    let section = section(&measured_every_tool(trials, Vec::new()), "");
+    let report = serde_json::to_value(&section).unwrap();
+    let placements = &report["placements"];
+    assert_eq!(placements["puppeteer_locator"], json!({"row": "guard_on"}));
+    for arm in ["puppeteer_page", "stagehand"] {
+        assert_eq!(
+            placements[arm],
+            json!({"row": "guard_off", "missed": ["actionability/7"]}),
+            "{arm}"
+        );
+    }
+    assert!(placements.get("collie").is_none());
+    assert!(placements.get("playwright").is_none());
+    let text = markdown(&section);
+    assert!(
+        text.contains("- puppeteer_locator: Collie's Guard-on row."),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "- stagehand: Collie's Guard-off row (#2440), still to come: it did not get \
+             actionability/7 right, which Playwright got right."
+        ),
+        "{text}"
+    );
+}
+
+#[test]
+fn stagehand_is_not_measured_in_the_sessions_cell_and_an_arm_stopped_twice_is_not_placed() {
+    let mut trials = every_tool(2);
+    trials.retain(|trial| {
+        !(trial.exercise == Exercise::Click
+            && trial.tool == Contender::PuppeteerPage
+            && trial.number == 2)
+    });
+    let scenario = measured_every_tool(
+        trials,
+        vec![CollieStopped {
+            exercise: Exercise::Click,
+            tool: Contender::PuppeteerPage,
+            number: 2,
+            reason: "the tool ran past 300 s".to_owned(),
+        }],
+    );
+    assert_eq!(kinds(&check(&scenario)), []);
+    let section = section(&scenario, "");
+    let report = serde_json::to_value(&section).unwrap();
+    let sessions = &report["cells"][3];
+    assert_eq!(sessions["exercise"], "sessions");
+    let commands = &sessions["tools"]["stagehand"]["commands_per_action"];
+    assert_eq!(commands["status"], "not_measured");
+    assert_eq!(
+        commands["reason"],
+        "Stagehand drives the browser's one context, so it opens no Session"
+    );
+    assert_eq!(
+        report["placements"]["puppeteer_page"],
+        json!({"row": "not_placed", "reason": "its click cell was not measured"})
+    );
+    let text = markdown(&section);
+    assert!(
+        text.contains("- puppeteer_page: not placed, its click cell was not measured."),
+        "{text}"
+    );
 }

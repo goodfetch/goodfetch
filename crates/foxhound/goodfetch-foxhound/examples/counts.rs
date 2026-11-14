@@ -75,8 +75,11 @@
 //!
 //! The cell `varying_parameter` crawls, beside the site, as many pages
 //! `/item?id=<n>` as the site has pages, each its own, with learning on: the
-//! input `F2.evidence_reads` is read on, and its `--shorter` run serves half
-//! of them, so `F2.prepares` sees what each of them prepares too.
+//! input `F2.evidence_reads` and `F2.admission_evidence` are read on, and its
+//! `--shorter` run serves half of them, so `F2.prepares` sees what each of
+//! them prepares too. The cell `learning_off` crawls the same site with
+//! `frontier.learning` off: `F2.learning_off_evidence` is the evidence rows
+//! those two counted in it, over its pages, the unit `learning_off_pages`.
 //!
 //! The default cell's crawl meets a Limit of `requests`, so each request is
 //! charged through the counted ledger (E3), and fails if nothing was; B3
@@ -419,9 +422,18 @@ const UNTYPED: Option<Frontier> = Some(Frontier {
     second_hop: false,
 });
 
-/// How many items the cell [`VARYING_PARAMETER`]'s site serves: as many as
-/// its pages.
+/// How many items the cells [`VARYING_PARAMETER`] and [`LEARNING_OFF`]
+/// serve: as many as their pages.
 const ITEMS: usize = PAGES.len();
+
+/// The Frontier's outcomes with [`ITEMS`] pages `/item?id=<n>` beside the
+/// site's: URLs whose query varies, which learning reads and writes its
+/// evidence for.
+const WITH_ITEMS: Option<Frontier> = Some(Frontier {
+    schema: true,
+    items: ITEMS,
+    second_hop: false,
+});
 
 /// The cell whose site also serves [`ITEMS`] pages `/item?id=<n>`, each its
 /// own, with learning on: the second refuses `id`, and each later one reads
@@ -433,11 +445,7 @@ fn varying_parameter() -> Cell {
     Cell {
         name: VARYING_PARAMETER,
         settings: scoped(json!({})),
-        frontier: Some(Frontier {
-            schema: true,
-            items: ITEMS,
-            second_hop: false,
-        }),
+        frontier: WITH_ITEMS,
         removes: &[],
         removes_syncs: false,
         handler: false,
@@ -451,12 +459,6 @@ fn scoped(mut settings: Value) -> Value {
     settings
 }
 
-/// The cell with no format asked and `frontier.learning` off: the crawl
-/// runs neither the clean-up nor the main-content step (ADR 0138), and no
-/// reader of its untouched page needs a tree, so each page is read in one
-/// streaming pass and parsed none (#1911). It compiles no selector a page,
-/// as no page of the default cell does since the engine keeps its
-/// compilations (#1912).
 /// The cell `name` of the Durability level `level`, on the fixture's own
 /// site, which syncs less than the default cell when `removes_syncs`.
 fn durability(name: &'static str, level: &str, removes_syncs: bool) -> Cell {
@@ -471,11 +473,30 @@ fn durability(name: &'static str, level: &str, removes_syncs: bool) -> Cell {
     }
 }
 
+/// The cell with `frontier.learning` off, on the site of
+/// [`VARYING_PARAMETER`]: its admissions read and write no evidence
+/// ([`LEARNING_OFF_EVIDENCE`], #2169).
+const LEARNING_OFF: &str = "learning_off";
+
+/// The rows of learning's evidence the cell [`LEARNING_OFF`] read and
+/// wrote, over its pages: 0, as learning off does no evidence work.
+const LEARNING_OFF_EVIDENCE: &str = "F2.learning_off_evidence";
+
+/// The counters of learning's evidence, whose sum in [`LEARNING_OFF`] is
+/// its evidence work.
+const EVIDENCE_ROWS: [Row; 2] = [Row::EvidenceReads, Row::AdmissionEvidence];
+
+/// The cell with no format asked and `frontier.learning` off: the crawl
+/// runs neither the clean-up nor the main-content step (ADR 0138), and no
+/// reader of its untouched page needs a tree, so each page is read in one
+/// streaming pass and parsed none (#1911). It compiles no selector a page,
+/// as no page of the default cell does since the engine keeps its
+/// compilations (#1912).
 fn learning_off() -> Cell {
     Cell {
-        name: "learning_off",
+        name: LEARNING_OFF,
         settings: scoped(json!({ "frontier": { "learning": false } })),
-        frontier: FRONTIER,
+        frontier: WITH_ITEMS,
         removes: &[Row::PageParses, Row::PageReadabilityRuns],
         removes_syncs: false,
         handler: false,
@@ -873,8 +894,9 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
         );
         let pages = pages_of(cell, PAGES.len());
         assert!(
-            cell.name != VARYING_PARAMETER || work.read(Row::EvidenceReads) > 0,
-            "the crawl's learning read no evidence"
+            cell.name != VARYING_PARAMETER
+                || (work.read(Row::EvidenceReads) > 0 && work.read(Row::AdmissionEvidence) > 0),
+            "the crawl's learning read or its admissions kept no evidence"
         );
         if cell.name == RECORDS_OFF_CELL {
             assert!(crawled.records.is_empty(), "the crawl kept a Record");
@@ -1278,6 +1300,7 @@ fn main() {
             "requests": cell.requests,
             "origins": ORIGINS,
             "off_attempts": if off { cell.attempts } else { 0 },
+            "learning_off_pages": if cell.name == LEARNING_OFF { cell.pages } else { 0 },
             "batched_pages": if batched { cell.pages } else { 0 },
             "full_pages": if full { cell.pages } else { 0 },
         });
@@ -1318,6 +1341,12 @@ fn counts_of(cell: &Counted) -> Map<String, Value> {
     let off = cell.name == OFF_CELL;
     let off_work: u64 = POLITENESS_ROWS.iter().map(|row| cell.count(*row)).sum();
     counts.insert(OFF_WORK.to_owned(), json!(if off { off_work } else { 0 }));
+    let evidence: u64 = EVIDENCE_ROWS.iter().map(|row| cell.count(*row)).sum();
+    let learning_off = cell.name == LEARNING_OFF;
+    counts.insert(
+        LEARNING_OFF_EVIDENCE.to_owned(),
+        json!(if learning_off { evidence } else { 0 }),
+    );
     let batched = matches!(cell.level, DURABILITY_BATCH | DURABILITY_OFF);
     let full = cell.level == DURABILITY_FULL;
     let page_waits = cell.count(Row::RunPageWaits);

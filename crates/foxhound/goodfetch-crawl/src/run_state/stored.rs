@@ -124,6 +124,9 @@ impl Stored {
             staging,
             intake,
         } = within;
+        // Every admission of the Run, on any task, counts the evidence it
+        // reads and writes on the Run's counted work (#2169).
+        invariants.frontier().count_on(work.clone());
         if !writer.per_attempt() {
             // A batch's visits are in the file only once it commits: the
             // Frontier holds them until then, so a redirect hop is judged

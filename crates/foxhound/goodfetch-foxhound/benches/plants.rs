@@ -119,6 +119,12 @@ pub(crate) fn run_state_plant(name: &str, counted: &Counted<'_>) -> Plant {
             let work = counted.work.clone();
             Arc::new(move |_: &str| work.count(Row::EvidenceReads))
         }
+        // The same for the evidence an admission reads and writes, which
+        // learning off must not touch either.
+        "F2.admission_evidence" | "F2.learning_off_evidence" => {
+            let work = counted.work.clone();
+            Arc::new(move |_: &str| work.count(Row::AdmissionEvidence))
+        }
         "F2.configuration_reads" => {
             let (runtime, folder) = beside_the_crawl();
             let version = ProductVersion::parse("1.4.0").expect("invariant: a literal version");

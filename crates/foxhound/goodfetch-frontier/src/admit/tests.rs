@@ -10,10 +10,12 @@ use goodfetch_protocol::run::{AxisReason, Completeness};
 use rusqlite::Connection;
 use url::Url;
 
-use super::{Candidate, admit};
+use super::{Candidate, Entering, Keyed, Link, admit, admit_keyed, key_link};
 use crate::bounds::{self, Bounds, completeness_reasons};
 use crate::identity::{Declared, TABLES};
+use crate::invariants::Invariants;
 use crate::scope::{self, Narrowing, Patterns, Scope, Strategy};
+use crate::staged::Admitting;
 
 /// A run file holding the Frontier's visited set, in memory, whose crawl
 /// requests the test numbers from 1.
@@ -64,9 +66,13 @@ impl Frontier {
 
     fn admit(&mut self, candidate: Candidate<'_>) -> Enqueued {
         let added = &mut self.added;
+        // As the Run's start or resume builds them, after it records the
+        // Bounds.
+        let invariants =
+            Invariants::new(self.scope.clone(), Bounds::read(&self.connection).unwrap()).unwrap();
         admit(
             &self.connection,
-            &self.scope,
+            &invariants,
             &self.policy,
             candidate,
             |_| {
@@ -82,6 +88,35 @@ impl Frontier {
             url,
             declared: get(),
         })
+    }
+
+    /// The Run's invariants, as its start builds them.
+    fn invariants(&self) -> Invariants {
+        Invariants::new(self.scope.clone(), Bounds::read(&self.connection).unwrap()).unwrap()
+    }
+
+    /// Admits the link `href`, keyed as `keyed`, of the page at
+    /// `http://shop.test/`, at depth 1: the part of its admission that
+    /// reads the run file.
+    fn admit_keyed(&mut self, href: &str, keyed: &Keyed) -> Enqueued {
+        let invariants = self.invariants();
+        let added = &mut self.added;
+        let from = Url::parse("http://shop.test/").unwrap();
+        admit_keyed(
+            &self.connection,
+            &invariants,
+            (href, keyed),
+            Entering {
+                from: Some(&from),
+                depth: 1,
+            },
+            &mut Admitting::RunFile,
+            |_| {
+                *added += 1;
+                Ok(added.to_string())
+            },
+        )
+        .unwrap()
     }
 
     /// Enqueues `url` at `depth` from a document at `http://shop.test/`.
@@ -107,6 +142,23 @@ fn get() -> Declared<'static> {
         key: None,
         keeps_fragment: false,
     }
+}
+
+/// Keys the link `href` of a UTF-8 page at `http://shop.test/` under
+/// `invariants` and the domain policy `policy`, with nothing else: the
+/// part of its admission its page's task runs, which is given no run file.
+fn keyed(invariants: &Invariants, policy: &Policy, href: &str) -> Keyed {
+    key_link(
+        invariants,
+        policy,
+        Link {
+            href,
+            base: &Url::parse("http://shop.test/").unwrap(),
+            encoding: encoding_rs::UTF_8,
+            keeps_fragment: false,
+            narrowing: Narrowing::none(),
+        },
+    )
 }
 
 fn added(id: &str, url: &str) -> Enqueued {
@@ -764,3 +816,79 @@ fn every_spelling_of_a_refused_host_is_refused() {
 }
 
 mod model;
+
+/// A page's link is keyed on its page's task, from the link and the Run's
+/// invariants alone, and admitted where the Run's state is held (issue
+/// 2244). The Scope's seeds are that state: a link to a host no seed
+/// reaches is `out_of_scope`, and once a seed on that host is admitted
+/// while the crawl runs, a link keyed after it is added. A link keyed
+/// before the seed and admitted after it is added too, since its key holds
+/// what it asks the seeds, and never an answer older than its admission.
+///
+/// Covers: story:6-211
+#[test]
+fn a_seed_admitted_while_the_crawl_runs_widens_the_scope_for_the_links_keyed_after_it() {
+    let mut frontier = Frontier::new();
+    frontier.seed("http://shop.test/");
+    let (invariants, policy) = (frontier.invariants(), every_host());
+    let early = keyed(&invariants, &policy, "http://other.test/early");
+    let before = keyed(&invariants, &policy, "http://other.test/a");
+    let before = frontier.admit_keyed("http://other.test/a", &before);
+
+    frontier.seed("http://other.test/");
+    let after = keyed(&invariants, &policy, "http://other.test/a");
+    let after = frontier.admit_keyed("http://other.test/a", &after);
+    let early = frontier.admit_keyed("http://other.test/early", &early);
+
+    assert_eq!(
+        (before, after, early),
+        (
+            not_added(NotAddedReason::OutOfScope, "http://other.test/a"),
+            added("3", "http://other.test/a"),
+            added("4", "http://other.test/early"),
+        )
+    );
+}
+
+/// The part of a link's admission that its page's task runs tells what it
+/// judged in the place the whole admission tells it (issue 2244): a link
+/// the domain policy refuses stays `out_of_scope` while no seed reaches
+/// it, and a cap on its URL's shape comes after the Run's count of
+/// requests, though the policy and the cap are judged first, on the task.
+#[test]
+fn a_keyed_links_verdicts_keep_the_order_of_the_whole_admission() {
+    let mut frontier = Frontier::policed(Strategy::SameHostname, &["*"], &["blocked.test"]);
+    frontier.seed("http://shop.test/");
+    Bounds {
+        max_requests: Some(2),
+        max_url_length: Some(30),
+        ..Bounds::default()
+    }
+    .record(&frontier.connection)
+    .unwrap();
+    let invariants = frontier.invariants();
+    let policy = Policy::new(&["*"], &["blocked.test"]).unwrap();
+    let long = "http://shop.test/a-path-past-the-cap";
+    let link = |frontier: &mut Frontier, href: &str| {
+        frontier.admit_keyed(href, &keyed(&invariants, &policy, href))
+    };
+
+    let answers = [
+        link(&mut frontier, "http://blocked.test/"),
+        link(&mut frontier, long),
+        link(&mut frontier, "http://shop.test/a"),
+        link(&mut frontier, long),
+        link(&mut frontier, "mailto:shop@shop.test"),
+    ];
+
+    assert_eq!(
+        answers,
+        [
+            not_added(NotAddedReason::OutOfScope, "http://blocked.test/"),
+            not_added(NotAddedReason::MaxUrlLength, long),
+            added("2", "http://shop.test/a"),
+            not_added(NotAddedReason::MaxRequests, long),
+            not_added(NotAddedReason::UnsupportedScheme, "mailto:shop@shop.test"),
+        ]
+    );
+}

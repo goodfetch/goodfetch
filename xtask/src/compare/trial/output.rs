@@ -1,10 +1,10 @@
 //! What a tool left once it exited, which a trial reads afterwards:
-//! Foxhound's Records, for their commit times and their pages, and on the
-//! article site each tool's pages, held to the right answers the Proving
+//! Foxhound's Records, for their commit times, their samples and their
+//! pages, and on the article site each tool's pages, held to the right answers the Proving
 //! ground serves (#2136; see `extracted`); and what a counted run on that
 //! site changes so that every page is left ([`traced`]).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
@@ -90,13 +90,20 @@ impl Plan<'_> {
     }
 }
 
-/// Foxhound's Records' commit times, in seconds from `started`, by path:
-/// each page's first.
-pub(super) fn commit_times(
-    records: &[Record],
-    started: jiff::Timestamp,
-) -> Result<HashMap<String, f64>> {
+/// What a trial reads of Foxhound's Records.
+pub(super) struct Read {
+    /// Each page's first Record's commit time, in seconds from the trial's
+    /// start, by path.
+    pub(super) times: HashMap<String, f64>,
+    /// The pages whose Record came from a sample's browser run.
+    pub(super) sample_pages: u64,
+}
+
+/// Foxhound's Records' commit times, in seconds from `started`, by path,
+/// and the pages whose Record came from a sample's browser run.
+pub(super) fn read(records: &[Record], started: jiff::Timestamp) -> Result<Read> {
     let mut times = HashMap::new();
+    let mut samples = HashSet::new();
     for record in records {
         let committed: jiff::Timestamp = record
             .committed_at
@@ -108,10 +115,16 @@ pub(super) fn commit_times(
             .split_once("://")
             .and_then(|(_, rest)| rest.find('/').map(|slash| rest[slash..].to_owned()))
             .unwrap_or_else(|| record.url.clone());
+        if record.sample {
+            samples.insert(path.clone());
+        }
         times
             .entry(path)
             .and_modify(|first: &mut f64| *first = first.min(seconds))
             .or_insert(seconds);
     }
-    Ok(times)
+    Ok(Read {
+        times,
+        sample_pages: samples.len() as u64,
+    })
 }

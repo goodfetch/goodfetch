@@ -45,6 +45,20 @@ impl UrlPattern {
         Self::glob_compiled(glob, |source| work.compile_regex(row, source))
     }
 
+    /// [`Self::glob`], its expression from the engine's cache, compiled and
+    /// counted on `row` only when the cache does not keep it (ADR 0140).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::glob`].
+    pub fn cached_glob(
+        work: &CountedWork,
+        row: Row,
+        glob: &str,
+    ) -> Result<Self, UnsupportedPattern> {
+        Self::glob_compiled(glob, |source| work.regex(row, source))
+    }
+
     /// [`Self::glob`], its expression compiled by `compile`.
     fn glob_compiled(
         glob: &str,

@@ -74,34 +74,37 @@ fn hrefs(body: &str) -> Vec<String> {
 }
 
 /// The multi-domain site's page `page` of `size`, on the host of its
-/// domain: `polite-<d>.localhost`, `d` being `page` modulo 50, from 1.
+/// domain: `polite-<d>.localhost`, `d` being `page` modulo 1,000, from 1.
 fn polite_url(proving_ground: &ProvingGround, size: u64, page: u64) -> String {
     format!(
         "http://polite-{}.localhost:{}/sites/{size}/{page}",
-        (page - 1) % 50 + 1,
+        (page - 1) % 1000 + 1,
         proving_ground.port()
     )
 }
 
-/// The polite scenario's multi-domain site (#1903): a crawl from its first
-/// page that follows every link across its hosts and obeys each host's
-/// robots.txt reaches each of its 1,000 pages once, each on its own
-/// domain's host, 20 on each of 50 domains, and every robots.txt holds
+/// The polite scenario's multi-domain site (#1903, #2283): a crawl from its
+/// first page that follows every link across its hosts and obeys each
+/// host's robots.txt reaches each of its 10,000 pages once, each on its own
+/// domain's host, 10 on each of 1,000 domains, and every robots.txt holds
 /// back the one other page they link, so a crawl that obeys none fetches
 /// a page of no site.
 #[test]
 fn a_polite_crawl_of_the_multi_domain_site_reaches_each_page_on_its_own_domain() {
     let proving_ground = ProvingGround::start(SEED);
-    let first = polite_url(&proving_ground, 1000, 1);
+    let first = polite_url(&proving_ground, 10_000, 1);
     let mut seen = BTreeSet::from([first.clone()]);
     let mut queue = vec![first];
     let mut held_back = BTreeSet::new();
+    let mut origins = BTreeSet::new();
     let mut robots = BTreeSet::new();
     while let Some(url) = queue.pop() {
         let page = proving_ground.get(&url);
         assert_eq!(page.status, 200, "{url}");
         let origin = url[..url.find("/sites/").expect("a site page")].to_owned();
-        robots.insert(proving_ground.get(&format!("{origin}/robots.txt")).body);
+        if origins.insert(origin.clone()) {
+            robots.insert(proving_ground.get(&format!("{origin}/robots.txt")).body);
+        }
         for href in hrefs(&page.body) {
             let link = if href.starts_with('/') {
                 format!("{origin}{href}")
@@ -132,11 +135,11 @@ fn a_polite_crawl_of_the_multi_domain_site_reaches_each_page_on_its_own_domain()
     assert_eq!(
         (seen, domains, held_back.len(), robots, private.status),
         (
-            (1..=1000)
-                .map(|page| polite_url(&proving_ground, 1000, page))
+            (1..=10_000)
+                .map(|page| polite_url(&proving_ground, 10_000, page))
                 .collect(),
-            50,
-            50,
+            1000,
+            1000,
             BTreeSet::from(["User-agent: *\nDisallow: /sites/*/private\n".to_owned()]),
             200
         )
@@ -158,7 +161,9 @@ fn a_multi_domain_page_on_another_domains_host_is_none() {
             .get(&format!("http://polite-4.localhost:{port}/sites/1000/3"))
             .status,
         proving_ground
-            .get(&format!("http://polite-51.localhost:{port}/sites/1000/51"))
+            .get(&format!(
+                "http://polite-1001.localhost:{port}/sites/10000/1001"
+            ))
             .status,
     ];
 

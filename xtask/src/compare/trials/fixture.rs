@@ -1,7 +1,10 @@
 //! A made-up `Comparison` for the tests that read one: its trials, machine
 //! and declarations, built without running a tool.
 
-use super::{Comparison, CountedCell, Declared, GrowthCell, Machine, Measured, Trial};
+use super::{
+    CollieScenario, Comparison, CountedCell, Declared, GrowthCell, Machine, Measured, SizesCell,
+    Trial,
+};
 use crate::compare::extracted::{ANSWERED_PAGES, Extracted};
 use crate::compare::matrix::{self, Cell, Scenario};
 
@@ -20,6 +23,7 @@ pub(crate) fn comparison(site_pages: u64, measured: impl Fn(&Cell, u32) -> Measu
                 tool: config.tool(),
                 number,
                 site_pages: cell.scenario.site_pages(site_pages),
+                concurrency: cell.scenario.concurrency(),
                 load: None,
                 retried: None,
                 measured: {
@@ -68,7 +72,13 @@ pub(crate) fn comparison(site_pages: u64, measured: impl Fn(&Cell, u32) -> Measu
         growth: GrowthCell::NotRun {
             reason: "a test".to_owned(),
         },
+        sizes: SizesCell::NotRun {
+            reason: "a test".to_owned(),
+        },
         instructions: CountedCell::NotRun {
+            reason: "a test".to_owned(),
+        },
+        collie: CollieScenario::NotRun {
             reason: "a test".to_owned(),
         },
         rules: Vec::new(),

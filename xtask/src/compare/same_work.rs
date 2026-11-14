@@ -10,12 +10,14 @@
 //! whose links past the first page only a script adds, a trial that missed
 //! pages is named for the script-rendered pages it never reached. Each
 //! counted cell and the growth cell are held to it among themselves, as
-//! other cells of the comparison (ADR 0140). The long scenario's site is of
-//! its own length, and its cells run only their timed trials. A strace run
-//! that did other work fails nothing: strace's slowdown alone can keep a
-//! headless browser crawl from its last pages, so that cell's system calls
-//! are not measured, with the pages the run reached, and the timed figures
-//! count ([`strace_runs_of_other_work_set_aside`]).
+//! other cells of the comparison (ADR 0140), and the sizes cell's trials at
+//! each size and concurrency among themselves (spec #2165). The long
+//! scenario's site is of its own length, and its cells run only their timed
+//! trials. A strace run that did other work fails nothing: strace's
+//! slowdown alone can keep a headless browser crawl from its last pages, so
+//! that cell's system calls are not measured, with the pages the run
+//! reached, and the timed figures count
+//! ([`strace_runs_of_other_work_set_aside`]).
 //!
 //! On the article site, the same work is also the same output (#2136):
 //! each trial's pages were held to the site's right answers as it ended
@@ -32,7 +34,7 @@ use super::extracted::{ANSWERED_PAGES, Extracted};
 use super::matrix::{self, OutputCheck, Row, Scenario};
 use super::trials::{
     Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS,
-    StoppedRun, Tool, Trial, Work,
+    SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, StoppedRun, Tool, Trial, Work, size_not_run,
 };
 
 /// What one trial of a pass did, whichever pass.
@@ -46,12 +48,15 @@ struct Done<'a> {
     extracted: Option<&'a Extracted>,
 }
 
-/// One pass of trials: the timed one, a counted cell or the growth cell.
+/// One pass of trials: the timed one, a counted cell, the growth cell or
+/// one size and concurrency of the sizes cell.
 struct Pass<'a> {
-    /// ` callgrind`, ` strace`, ` growth` or nothing, as a finding names the
-    /// cell.
-    suffix: &'static str,
+    /// ` callgrind`, ` strace`, ` growth`, ` sizes 100 pages at 16` or
+    /// nothing, as a finding names the cell.
+    suffix: String,
     declared: u32,
+    /// The pages of the comparison's site, from which each scenario's
+    /// ([`Scenario::site_pages`]).
     site_pages: u64,
     /// The scenarios whose measured cells the pass runs, those cells'
     /// tools, and whether it runs their sensitivity rows beside their main
@@ -79,9 +84,9 @@ impl Pass<'_> {
     }
 }
 
-fn of_trials(trials: &[Trial]) -> Vec<Done<'_>> {
+fn of_trials<'a>(trials: impl IntoIterator<Item = &'a Trial>) -> Vec<Done<'a>> {
     trials
-        .iter()
+        .into_iter()
         .map(|trial| Done {
             scenario: trial.scenario,
             cell: &trial.cell,
@@ -111,13 +116,22 @@ fn is_main(done: &Done<'_>) -> bool {
     })
 }
 
+/// Whether a trial's row fetches some of its pages twice, on `http` and
+/// then in a browser: Foxhound's with `fetch.tier` left at `auto`, whose
+/// samples do (#2283).
+fn samples(done: &Done<'_>) -> bool {
+    matrix::measured().any(|(cell, config)| {
+        cell.scenario == done.scenario && cell.name == done.cell && config.samples()
+    })
+}
+
 /// Main and sensitivity rows alike.
 const EVERY_ROW: &[Row] = &[Row::Main, Row::Sensitivity];
 
 /// The cells of stopped runs or trials, not measured.
-fn of_stopped(stopped: &[StoppedRun]) -> Vec<(Scenario, &str)> {
+fn of_stopped<'a>(stopped: impl IntoIterator<Item = &'a StoppedRun>) -> Vec<(Scenario, &'a str)> {
     stopped
-        .iter()
+        .into_iter()
         .map(|run| (run.scenario, run.cell.as_str()))
         .collect()
 }
@@ -153,7 +167,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         .filter(|scenario| ran.contains(scenario))
         .collect();
     let mut findings = check_pass(&Pass {
-        suffix: "",
+        suffix: String::new(),
         declared,
         site_pages: pages,
         scenarios: ran,
@@ -188,7 +202,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         } = cell
         {
             let pass = Pass {
-                suffix,
+                suffix: suffix.to_owned(),
                 declared: *declared,
                 site_pages: pages,
                 scenarios,
@@ -213,7 +227,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
     } = &trials.growth
     {
         findings.extend(check_pass(&Pass {
-            suffix: " growth",
+            suffix: " growth".to_owned(),
             declared: *declared,
             site_pages: *site_pages,
             scenarios: &counted,
@@ -222,6 +236,56 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             done: of_trials(trials_run),
             stopped: of_stopped(stopped),
         }));
+    }
+    let raw: &[Scenario] = if ran.contains(&Scenario::Raw) {
+        &[Scenario::Raw]
+    } else {
+        &[]
+    };
+    findings.extend(check_sizes(&trials.sizes, raw));
+    findings
+}
+
+/// Each finding of the sizes cell, one pass per size and concurrency, of
+/// the scenario 1 main cells of [`SIZE_TOOLS`] it runs there
+/// ([`size_not_run`]) when `raw` holds scenario 1.
+fn check_sizes(sizes: &SizesCell, raw: &[Scenario]) -> Vec<Finding> {
+    let SizesCell::Measured {
+        trials: declared,
+        trials_run,
+        stopped,
+    } = sizes
+    else {
+        return Vec::new();
+    };
+    let mut findings = Vec::new();
+    for site_pages in SIZES {
+        for concurrency in SIZE_CONCURRENCIES {
+            let at = |pages, at_concurrency| pages == site_pages && at_concurrency == concurrency;
+            let tools: Vec<Tool> = SIZE_TOOLS
+                .into_iter()
+                .filter(|&tool| size_not_run(tool, concurrency).is_none())
+                .collect();
+            findings.extend(check_pass(&Pass {
+                suffix: format!(" sizes {site_pages} pages at {concurrency}"),
+                declared: *declared,
+                site_pages,
+                scenarios: raw,
+                tools: &tools,
+                rows: &[Row::Main],
+                done: of_trials(
+                    trials_run
+                        .iter()
+                        .filter(|trial| at(trial.site_pages, trial.concurrency)),
+                ),
+                stopped: of_stopped(
+                    stopped
+                        .iter()
+                        .filter(|point| at(point.site_pages, point.concurrency))
+                        .map(|point| &point.run),
+                ),
+            }));
+        }
     }
     findings
 }
@@ -304,7 +368,10 @@ fn short_or_past(pass: &Pass<'_>) -> Vec<Finding> {
 
 /// Every trial of a pass that did other work, with its finding: each whose
 /// pages are not the site's, and every other whose work is not the one
-/// most of its scenario's trials share.
+/// most of its scenario's trials share. A trial of a scenario that resumes,
+/// or of a row whose samples fetch pages twice, is held to the pages first
+/// served and their bytes; every other to the requests served and their
+/// bytes.
 fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
     let mut findings = Vec::new();
     for scenario in pass.scenarios {
@@ -348,39 +415,46 @@ fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
                 ),
             ));
         }
-        let key = |work: &Work| {
-            if scenario.resumes() {
+        let first_served = |done: &Done<'_>| scenario.resumes() || samples(done);
+        let key = |work: &Work, first_served: bool| {
+            if first_served {
                 (work.pages, work.first_bytes)
             } else {
                 (work.requests, work.bytes)
             }
         };
-        let what = if scenario.resumes() {
-            "pages first served"
-        } else {
-            "requests served"
-        };
         // The work most of the main rows' trials that fetched the site
-        // share; none when two values are shared by as many trials. A
-        // sensitivity row is held to it without a vote: Spider's would
-        // outnumber the other tools' rows together.
-        let mut shared: BTreeMap<(u64, u64), usize> = BTreeMap::new();
-        for done in whole.iter().filter(|done| is_main(done)) {
-            *shared.entry(key(done.work)).or_default() += 1;
-        }
-        let most = shared.values().copied().max().unwrap_or(0);
-        let mut held = shared.iter().filter(|(_, count)| **count == most);
-        let reference = match (held.next(), held.next()) {
-            (Some((work, count)), None) => Some((*work, *count)),
-            _ => None,
+        // share, by either key; none when two values are shared by as many
+        // trials. A sensitivity row is held to it without a vote: Spider's
+        // would outnumber the other tools' rows together.
+        let held = |first_served: bool| {
+            let mut shared: BTreeMap<(u64, u64), usize> = BTreeMap::new();
+            for done in whole.iter().filter(|done| is_main(done)) {
+                *shared.entry(key(done.work, first_served)).or_default() += 1;
+            }
+            let most = shared.values().copied().max().unwrap_or(0);
+            let mut held = shared.iter().filter(|(_, count)| **count == most);
+            let reference = match (held.next(), held.next()) {
+                (Some((work, count)), None) => Some((*work, *count)),
+                _ => None,
+            };
+            (reference, shared.values().sum::<usize>())
         };
+        let by_requests = held(false);
+        let by_pages = held(true);
         for done in whole {
-            let (count, bytes) = key(done.work);
+            let first_served = first_served(done);
+            let (reference, voters) = if first_served { by_pages } else { by_requests };
+            let what = if first_served {
+                "pages first served"
+            } else {
+                "requests served"
+            };
+            let (count, bytes) = key(done.work, first_served);
             let message = match reference {
                 Some((work, _)) if work == (count, bytes) => continue,
                 Some(((held_count, held_bytes), trials)) => format!(
-                    "{count} {what} {bytes} bytes, where {trials} of the main rows' {} trials that fetched the site had {held_count} {what} {held_bytes}",
-                    shared.values().sum::<usize>()
+                    "{count} {what} {bytes} bytes, where {trials} of the main rows' {voters} trials that fetched the site had {held_count} {what} {held_bytes}"
                 ),
                 None => format!(
                     "{count} {what} {bytes} bytes, and no count and bytes is shared by more trials than another"
@@ -415,14 +489,14 @@ pub(crate) fn strace_runs_of_other_work_set_aside(trials: &mut Comparison) {
         return;
     };
     let pass = Pass {
-        suffix: " strace",
+        suffix: " strace".to_owned(),
         declared: *declared,
         site_pages: pages,
         scenarios: &trials.declared.scenarios,
         tools: &Tool::ALL,
         rows: EVERY_ROW,
         done: of_runs(runs),
-        stopped: of_stopped(stopped),
+        stopped: of_stopped(stopped.iter()),
     };
     let mut aside: Vec<StoppedRun> = Vec::new();
     for (done, finding) in other_work(&pass) {
@@ -442,8 +516,11 @@ pub(crate) fn strace_runs_of_other_work_set_aside(trials: &mut Comparison) {
                 .tool,
             number: done.number,
             reason: format!(
-                "under `strace -f`, run {} did other work, reaching {} of the site's {pages} pages: {}",
-                done.number, done.work.pages, finding.message
+                "under `strace -f`, run {} did other work, reaching {} of the site's {} pages: {}",
+                done.number,
+                done.work.pages,
+                done.scenario.site_pages(pages),
+                finding.message
             ),
         });
     }

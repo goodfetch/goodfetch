@@ -26,7 +26,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::rss::crawl::Site;
-use crate::test_facts::{CHROME_FOR_TESTING_BUILD, PLAYWRIGHT_REVISION};
 
 use super::extracted::Extracted;
 use super::foxhound::Engine;
@@ -224,94 +223,6 @@ fn install_bytes(config: Config, executable: &Path, browser: Option<&Path>) -> u
         + browser_bytes
 }
 
-// Every tool of the headless browser scenario runs one browser, the Chrome
-// for Testing build Collie pins (`CHROME_FOR_TESTING_BUILD`), from the
-// folder Playwright installs it in (`PLAYWRIGHT_REVISION`); test support's
-// `browsers.rs` lays out the same build for the tests.
-/// Chrome for Testing's folder and executable in it, on this platform.
-#[cfg(target_os = "macos")]
-const CHROME_FOLDER: &str = if cfg!(target_arch = "aarch64") {
-    "chrome-mac-arm64"
-} else {
-    "chrome-mac-x64"
-};
-#[cfg(target_os = "macos")]
-const CHROME: &str = "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
-#[cfg(not(target_os = "macos"))]
-const CHROME_FOLDER: &str = "chrome-linux64";
-#[cfg(not(target_os = "macos"))]
-const CHROME: &str = "chrome";
-
-/// The folder of the Chrome for Testing build Playwright installed
-/// (`PLAYWRIGHT_BROWSERS_PATH`, else its default folder), which the
-/// headless browser scenario runs; none when it is not installed.
-pub(crate) fn chrome_folder() -> Option<PathBuf> {
-    let browsers = if let Some(path) = std::env::var_os("PLAYWRIGHT_BROWSERS_PATH") {
-        PathBuf::from(path)
-    } else {
-        let home = PathBuf::from(std::env::var_os("HOME")?);
-        if cfg!(target_os = "macos") {
-            home.join("Library/Caches/ms-playwright")
-        } else {
-            home.join(".cache/ms-playwright")
-        }
-    };
-    let folder = browsers
-        .join(format!("chromium-{PLAYWRIGHT_REVISION}"))
-        .join(CHROME_FOLDER);
-    folder.join(CHROME).is_file().then_some(folder)
-}
-
-/// Lays out, in a folder of its own, a Browser cache holding `chrome`'s
-/// files as Foxhound's pinned build, as a prepared `GOODFETCH_BROWSERS_PATH`
-/// holds it: hard links where the folders share a file system, copies
-/// otherwise.
-fn browser_cache(chrome: &Path) -> Result<tempfile::TempDir> {
-    let root = tempfile::tempdir().context("creating the Browser cache's folder")?;
-    let entry = root
-        .path()
-        .join("browser")
-        .join("chrome-for-testing")
-        .join(CHROME_FOR_TESTING_BUILD);
-    link_tree(chrome, &entry.join("files").join(CHROME_FOLDER))
-        .context("laying out the Browser cache")?;
-    std::fs::write(entry.join("lock"), "").context("writing the Browser cache's lock")?;
-    let installed = serde_json::json!({
-        "format_version": "0.1",
-        "artifact": {
-            "kind": "browser",
-            "name": "chrome-for-testing",
-            "build": CHROME_FOR_TESTING_BUILD,
-        },
-        "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-        "installed_at": "2026-01-01T00:00:00Z",
-        "used_at": "2026-01-01T00:00:00Z",
-    });
-    std::fs::write(entry.join("entry.json"), installed.to_string())
-        .context("writing the Browser cache's entry")?;
-    Ok(root)
-}
-
-/// `from`'s files under `to`, each a hard link, or a copy across file
-/// systems; symbolic links kept as such.
-fn link_tree(from: &Path, to: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(to)?;
-    for entry in std::fs::read_dir(from)? {
-        let entry = entry?;
-        let (source, target) = (entry.path(), to.join(entry.file_name()));
-        let kind = entry.file_type()?;
-        if kind.is_dir() {
-            link_tree(&source, &target)?;
-        } else if kind.is_symlink() {
-            #[cfg(unix)]
-            std::os::unix::fs::symlink(std::fs::read_link(&source)?, &target)?;
-        } else if std::fs::hard_link(&source, &target).is_err() {
-            std::fs::copy(&source, &target)?;
-        }
-    }
-    Ok(())
-}
-
 /// The command that runs `invocation`, under `mode`'s counting tool; the
 /// `process`-th process of a resumed trial writes strace's counts to a file
 /// of its own.
@@ -380,6 +291,21 @@ pub(crate) fn kill(pid: u32) -> Result<()> {
 #[cfg(not(unix))]
 pub(crate) fn kill(_pid: u32) -> Result<()> {
     bail!("a resumed scenario kills its tool with SIGKILL, which only Unix has")
+}
+
+/// Kills every process of the tree under `root`, each by its own ID,
+/// gathered before any dies and leaves its children to another parent.
+pub(crate) fn kill_tree(root: u32) {
+    for pid in sampler::tree(root) {
+        // One may have exited meanwhile.
+        let _ = kill(pid);
+    }
+}
+
+/// A trial's figures, or why the comparison stopped it.
+pub(crate) enum Outcome<T> {
+    Done(T),
+    Stopped(String),
 }
 
 /// What the OS accounted to the trial's waited-for children.
@@ -479,6 +405,9 @@ pub(crate) struct Plan<'a> {
     /// Chrome for Testing's folder, which the headless browser scenario's
     /// tools run.
     pub(crate) browser: Option<&'a Path>,
+    /// Whether a timed trial's sampler reads the tool's executable's own
+    /// pages: the sizes cell's trials do (spec #2165).
+    pub(crate) executable_pages: bool,
 }
 
 impl Plan<'_> {
@@ -489,12 +418,13 @@ impl Plan<'_> {
 
     /// The browser the cell's tool runs, in the headless browser scenario.
     fn browser(&self) -> Result<Option<&Path>> {
-        if self.cell.scenario != Scenario::Browser {
+        if self.cell.scenario != Scenario::Browser && !self.config.samples() {
             return Ok(None);
         }
-        self.browser
-            .map(Some)
-            .context("the headless browser scenario takes Chrome for Testing's folder, --browser")
+        self.browser.map(Some).context(
+            "the headless browser scenario and Foxhound's `auto` row take Chrome for Testing's \
+             folder, --browser",
+        )
     }
 
     /// Starts the tool's `process`-th process on `home`, Foxhound's
@@ -623,6 +553,7 @@ impl Plan<'_> {
             Config::Foxhound {
                 durability,
                 commit_interval,
+                ..
             } => (durability, commit_interval),
             Config::Spider { .. } | Config::Crawlee | Config::Scrapy | Config::CrawleeRs => {
                 ("", None)
@@ -659,7 +590,13 @@ impl Plan<'_> {
         }
         let result = (|| -> Result<u32> {
             if let Some(engine) = driven.engine.as_mut() {
-                engine.start(&self.site, self.cell, &self.start_url(), self.durability())?;
+                engine.start(
+                    &self.site,
+                    self.cell,
+                    &self.start_url(),
+                    self.durability(),
+                    self.config.samples(),
+                )?;
                 if !resumes {
                     engine.finish()?;
                     return Ok(1);
@@ -705,7 +642,12 @@ impl Plan<'_> {
         }
         let finished = match second.engine.as_mut() {
             Some(engine) => engine
-                .resume(&self.site, self.cell, self.durability())
+                .resume(
+                    &self.site,
+                    self.cell,
+                    self.durability(),
+                    self.config.samples(),
+                )
                 .and_then(|()| engine.finish()),
             None => self.read_count(&mut second.child),
         };
@@ -755,7 +697,7 @@ impl Plan<'_> {
         mark(&self.site, &self.kind().host_of(1))?;
         let started_wall = wall();
         let started = now();
-        let sampler = Sampler::start(started);
+        let sampler = Sampler::start(started, self.executable_pages);
         let crawled = self.crawl(
             home.path(),
             Some(&sampler),
@@ -766,8 +708,9 @@ impl Plan<'_> {
         let processes = crawled?;
         let usage = usage()?;
         let footprint_bytes = footprint(home.path());
+        let keeps_records = super::foxhound::keeps_records(self.cell.scenario);
         let records = match self.config {
-            Config::Foxhound { .. } if super::foxhound::keeps_records(self.cell.scenario) => {
+            Config::Foxhound { .. } if keeps_records || self.config.samples() => {
                 Some(self.records(home.path())?)
             }
             Config::Foxhound { .. }
@@ -776,11 +719,22 @@ impl Plan<'_> {
             | Config::Scrapy
             | Config::CrawleeRs => None,
         };
-        let committed = records
+        let read = records
             .as_deref()
-            .map(|records| commit_times(records, started_wall))
+            .map(|records| output::read(records, started_wall))
             .transpose()?;
-        let observed = self.observe(seconds, committed.as_ref())?;
+        // An `auto` row's Records are read for its samples only: its pages'
+        // times run to their fetch, as its scenario's main row's do.
+        let observed = self.observe(
+            seconds,
+            read.as_ref()
+                .filter(|_| keeps_records)
+                .map(|read| &read.times),
+        )?;
+        let sample_pages = read
+            .as_ref()
+            .filter(|_| self.config.samples())
+            .map(|read| read.sample_pages);
         let extracted = self.extracted(home.path(), records)?;
         let milestones: Vec<(u64, f64)> = MILESTONES
             .iter()
@@ -792,6 +746,7 @@ impl Plan<'_> {
         let tree = taken.map(|samples| sampler::figures(&samples, &milestones));
         let peak_bytes = usage.peak_bytes;
         Ok(Measured {
+            sample_pages,
             extracted,
             ..measured(
                 seconds,
@@ -899,6 +854,7 @@ fn measured(
         curve: observed.curve,
         latency: observed.latency,
         latency_end: observed.latency_end,
+        sample_pages: None,
         extracted: None,
     }
 }
@@ -979,10 +935,12 @@ pub(crate) fn cell_of(scenario: Scenario, name: &str) -> Result<(&'static Cell, 
     }
 }
 
+mod chrome;
 mod output;
 mod rules;
 
-use output::commit_times;
+use chrome::browser_cache;
+pub(crate) use chrome::{CHROME, chrome_folder};
 pub(crate) use rules::Ruled;
 
 #[cfg(test)]

@@ -435,7 +435,7 @@ type QueuedWrite =
     Box<dyn FnOnce(Option<(&Connection, &Path)>) -> (Completion, Option<RunStateError>) + Send>;
 
 /// What a job in the writer's queue is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Job {
     /// A write.
     Write,
@@ -444,6 +444,9 @@ enum Job {
     /// The idle writer's timer at `periodic`: a group that syncs what the
     /// writer committed unsynced, if anything. It writes nothing itself.
     Tick,
+    /// These statements prepared on each of the writer's connections. It
+    /// writes nothing and commits in no group.
+    Prepare(Vec<&'static str>),
 }
 
 /// A job in the writer's queue, and what it is.
@@ -462,6 +465,19 @@ impl Queued {
             syncing: Syncing::Deferred { charged: 0 },
         }
     }
+}
+
+/// A preparation's place in the queue, which reports what the writer's
+/// actor answers it, and that answer.
+fn preparation() -> (QueuedWrite, oneshot::Receiver<Result<(), RunStateError>>) {
+    let (answer, answered) = oneshot::channel();
+    let job: QueuedWrite = Box::new(move |_| {
+        let completion: Completion = Box::new(move |prepared: Result<(), RunStateError>| {
+            let _ = answer.send(prepared);
+        });
+        (completion, None)
+    });
+    (job, answered)
 }
 
 /// `work` as a write the writer's actor runs in its next commit, and the
@@ -648,6 +664,7 @@ impl RunState {
                     work: &counted,
                 };
                 let ticked = without_ticks(&mut group);
+                connection.prepare(&mut group, &actor_path);
                 let last = group.iter().position(|queued| queued.job == Job::Last);
                 let refused = last.map_or_else(Vec::new, |at| group.split_off(at + 1));
                 let planned = match &interval {
@@ -832,6 +849,33 @@ impl RunState {
         answered.await.map_err(|_| RunStateError::Closed)?
     }
 
+    /// Prepares each of `statements` on every connection the writer commits
+    /// on, in no transaction, so that no later write prepares one of them,
+    /// whichever connection its group commits on (ADR 0138's note of
+    /// #1926): what a Run does once, as it starts or resumes, for the
+    /// statements its units run later (ADR 0140).
+    ///
+    /// # Errors
+    ///
+    /// `Sqlite` when a statement does not prepare, `Closed` when the writer
+    /// has stopped.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future does not withdraw a preparation already queued.
+    pub async fn prepare(&self, statements: Vec<&'static str>) -> Result<(), RunStateError> {
+        let (write, answered) = preparation();
+        self.mailbox
+            .send(Queued {
+                write,
+                job: Job::Prepare(statements),
+                syncing: Syncing::Deferred { charged: 0 },
+            })
+            .await
+            .map_err(|_| RunStateError::Closed)?;
+        answered.await.map_err(|_| RunStateError::Closed)?
+    }
+
     /// A place in the writer's queue, for a write the caller queues once it
     /// knows it: without awaiting, so in order with a change it makes under
     /// a lock, such as a Run's charging and its journal.
@@ -900,6 +944,29 @@ impl WriterConnection {
         match &self.deferring {
             Some(deferring) if !synced => deferring,
             _ => &self.connection,
+        }
+    }
+
+    /// Takes the preparations out of `group` and answers each once its
+    /// statements are prepared on every connection, for the file at `path`.
+    fn prepare(&self, group: &mut Vec<Queued>, path: &Path) {
+        let (preparations, writes): (Vec<Queued>, Vec<Queued>) = std::mem::take(group)
+            .into_iter()
+            .partition(|queued| matches!(queued.job, Job::Prepare(_)));
+        *group = writes;
+        for Queued { write, job, .. } in preparations {
+            let Job::Prepare(statements) = job else {
+                continue;
+            };
+            let prepared = std::iter::once(&self.connection)
+                .chain(&self.deferring)
+                .try_for_each(|connection| {
+                    statements
+                        .iter()
+                        .try_for_each(|statement| connection.prepare_cached(statement).map(drop))
+                })
+                .map_err(|error| sqlite_error(path, &error));
+            write(None).0(prepared);
         }
     }
 }

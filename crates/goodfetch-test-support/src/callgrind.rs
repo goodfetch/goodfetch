@@ -1,6 +1,8 @@
-//! How many times a program calls a C symbol, read from Callgrind (ADR 0140):
+//! How many times a program calls a symbol, read from Callgrind (ADR 0140):
 //! what no wrapper sees, such as SQLite's own `sqlite3_prepare_v3`, whose C
-//! symbol does not inline or change with Goodfetch's code.
+//! symbol does not inline or change with Goodfetch's code, or what has no
+//! counter to count on, such as a `CountedWork`'s own construction, whose
+//! reader checks that the symbol is still called at all.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -121,13 +123,26 @@ pub fn calls_beneath(
     program: &Path,
     arguments: &[&str],
 ) -> Result<Calls, CallgrindError> {
-    let mut each = calls_beneath_each(symbol, depth, &[(beneath, except)], program, arguments)?;
-    Ok(each.remove(0))
+    let mut run = calls_beneath_each(symbol, depth, &[(beneath, except)], &[], program, arguments)?;
+    Ok(run.beneath.remove(0))
+}
+
+/// What one run of a program under Callgrind called, as
+/// [`calls_beneath_each`] reads it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RunCalls {
+    /// The calls of the symbol whose callers are told apart, for each owner
+    /// asked for, in their order.
+    pub beneath: Vec<Calls>,
+    /// Every call of each other symbol asked for, in their order.
+    pub others: Vec<u64>,
 }
 
 /// As [`calls_beneath`], for each of `owners` (the text a caller's name
 /// holds, and the texts left out) from one run of `program`: what several
-/// owners' code prepares, each apart, for the cost of one run.
+/// owners' code prepares, each apart, for the cost of one run. The same run
+/// also counts every call of each of `others`, a symbol by its whole name
+/// as Callgrind writes it.
 ///
 /// # Errors
 ///
@@ -136,15 +151,19 @@ pub fn calls_beneath_each(
     symbol: &str,
     depth: u32,
     owners: &[(&str, &[&str])],
+    others: &[&str],
     program: &Path,
     arguments: &[&str],
-) -> Result<Vec<Calls>, CallgrindError> {
+) -> Result<RunCalls, CallgrindError> {
     let separate = format!("--separate-callers{depth}={symbol}");
     let text = output(&[&separate], program, arguments)?;
-    Ok(owners
-        .iter()
-        .map(|(beneath, except)| calls_beneath_in(&text, symbol, beneath, except))
-        .collect())
+    Ok(RunCalls {
+        beneath: owners
+            .iter()
+            .map(|(beneath, except)| calls_beneath_in(&text, symbol, beneath, except))
+            .collect(),
+        others: others.iter().map(|other| calls_in(&text, other)).collect(),
+    })
 }
 
 /// What `program`, run with `arguments` under Callgrind and its `options`,

@@ -1,8 +1,8 @@
 //! Foxhound's side of a trial: its Attached engine driven over JSON-RPC
 //! through one code-free crawl of the scenario's site at a cell's
 //! settings, started, or resumed after a kill, and, once the measured
-//! process is gone, its Records' commit times read by another engine on the
-//! same home, which no figure counts.
+//! process is gone, its Records' commit times and samples read by another
+//! engine on the same home, which no figure counts.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: the engine's output is read on a thread of its own with blocking calls (STYLE.md)"
@@ -109,13 +109,15 @@ impl Engine {
     }
 
     /// Starts the code-free crawl of `cell`'s scenario's site from `start`
-    /// at `durability`, with its `run_state.commit_interval` at `periodic`.
+    /// at `durability`, with its `run_state.commit_interval` at `periodic`,
+    /// and `fetch.tier` left at `auto` where `auto`.
     pub(crate) fn start(
         &mut self,
         site: &Site<'_>,
         cell: &Cell,
         start: &str,
         durability: (&str, Option<u64>),
+        auto: bool,
     ) -> Result<()> {
         self.call(
             "start",
@@ -125,7 +127,7 @@ impl Engine {
                 "seeds": [{ "url": start, "label": "page" }],
                 "datasets": [],
                 "extraction": extraction(cell.scenario),
-                "settings": settings(site, cell, durability),
+                "settings": settings(site, cell, durability, auto),
             }),
         )?;
         Ok(())
@@ -137,11 +139,12 @@ impl Engine {
         site: &Site<'_>,
         cell: &Cell,
         durability: (&str, Option<u64>),
+        auto: bool,
     ) -> Result<()> {
         self.call(
             "resume",
             "run.resume",
-            &json!({ "run_id": RUN, "settings": settings(site, cell, durability) }),
+            &json!({ "run_id": RUN, "settings": settings(site, cell, durability, auto) }),
         )?;
         Ok(())
     }
@@ -190,6 +193,7 @@ impl Engine {
                 records.push(Record {
                     url: text(&record["url"]).unwrap_or_default(),
                     committed_at: text(&record["committed_at"]).unwrap_or_default(),
+                    sample: record["provenance"]["tier"]["chosen"] == "sample",
                     title: text(&record["value"]["title"]),
                     text: text(&record["value"]["text"]),
                 });
@@ -206,12 +210,16 @@ impl Engine {
     }
 }
 
-/// A Record of the crawl's Dataset, as `run.records` sends it.
+/// What the comparison reads of one Record of the crawl's Dataset, as
+/// `run.records` sends it.
 pub(crate) struct Record {
     /// Its crawl request's URL.
     pub(crate) url: String,
     /// When it was committed, RFC 3339.
     pub(crate) committed_at: String,
+    /// Whether its page was a sample of `auto`'s comparison of tiers, its
+    /// document from the sample's browser run (ADR 0093).
+    pub(crate) sample: bool,
     /// Its field `title` and its `text` format, which the extraction
     /// scenario's Records hold.
     pub(crate) title: Option<String>,
@@ -258,7 +266,8 @@ pub(crate) fn keeps_records(scenario: Scenario) -> bool {
 /// in the hostile pages' pass at defaults (#2439), nothing else, every
 /// other setting the catalog's default, `run_state.durability` too; in the
 /// polite scenario, Foxhound's defaults with ADR 0086's delay and
-/// concurrency per domain, the `http` tier and a scope of every host;
+/// concurrency per domain, the `http` tier (left at `auto` where `auto`)
+/// and a scope of every host;
 /// otherwise its own Politeness at the crawl's concurrency, no delay,
 /// robots.txt not obeyed and the maximum-throughput combination's switches
 /// off, at `durability`, on the `browser` tier in the headless browser
@@ -268,6 +277,7 @@ fn settings(
     site: &Site<'_>,
     cell: &Cell,
     (durability, commit_interval): (&str, Option<u64>),
+    auto: bool,
 ) -> Value {
     let scenario = cell.scenario;
     let hosts = scenario.site().hosts();
@@ -330,5 +340,11 @@ fn settings(
     if let Some(interval) = commit_interval {
         settings["run_state"]["commit_interval"] = json!(interval);
     }
+    if auto && let Some(fetch) = settings["fetch"].as_object_mut() {
+        fetch.remove("tier");
+    }
     settings
 }
+
+#[cfg(test)]
+mod tests;

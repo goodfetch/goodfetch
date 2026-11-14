@@ -42,6 +42,7 @@ use tokio::runtime::Runtime;
 
 use super::DEFAULT_LEASE;
 use crate::attempt_outcome::{Ended, Ending, Learning, Outcome};
+use crate::invariants::fixture;
 use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::staging::Staging;
 use crate::work_items::{self, Failure, Unsuccessful};
@@ -381,12 +382,14 @@ impl StateMachineTest for Subject {
             state
                 .write(move |connection| {
                     datasets.record(connection)?;
+                    let invariants =
+                        fixture::within(connection, goodfetch_frontier::Scope::default())?;
                     work_items::admit_seeds(
                         connection,
                         &mut work_items::Positions::of(connection)?,
-                        &goodfetch_frontier::Scope::default(),
+                        &invariants,
                         &goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap(),
-                        &seeds,
+                        &fixture::checked(&invariants, seeds),
                     )
                     .map(drop)
                 })
@@ -604,12 +607,13 @@ fn commit(
         &leased.crawl_request.id,
         leased.lease_epoch,
         move |connection, positions| {
+            let invariants = fixture::within(connection, goodfetch_frontier::Scope::default())?;
             work_items::admit_seeds(
                 connection,
                 positions,
-                &goodfetch_frontier::Scope::default(),
+                &invariants,
                 &goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap(),
-                &[page_seed(&link)],
+                &fixture::checked(&invariants, [page_seed(&link)]),
             )?;
             Ok(Vec::new())
         },

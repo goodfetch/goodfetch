@@ -140,6 +140,7 @@ impl Plan<'_> {
                         self.cell,
                         &format!("http://{host}/"),
                         self.durability(),
+                        self.config.samples(),
                     )
                     .and_then(|()| engine.ended()),
                 None => drained(&mut driven.child),

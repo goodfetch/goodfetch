@@ -8,11 +8,13 @@
 //! requests they added; their count against `crawl.max_requests` and each
 //! path budget; the seeds that widened the scope; and the sitemaps they
 //! added. What a learned rule takes from them, an offset listing's cursor,
-//! stays with the commit, which admits each again in order on the run
-//! file. A request the commit then does not add, because another attempt's
-//! commit added it meanwhile or a rule refuses it, is told to the commit,
-//! so the attempt's outcome names what became of the ID its staging
-//! answered.
+//! stays with the commit, which adds each request they answered `added`,
+//! in order, on the run file, and judges again only the candidates whose
+//! refusal wrote to it, a bound's count or a learned rule's record
+//! (#2245). A request the commit then does not add, because another
+//! attempt's commit added it meanwhile or a rule refuses it, is told to
+//! the commit, so the attempt's outcome names what became of the ID its
+//! staging answered.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -38,6 +40,10 @@ pub struct Staged {
     seeds: Vec<Url>,
     /// The URLs of the sitemaps whose fetch was added.
     sitemaps: BTreeSet<String>,
+    /// The candidates not added whose judgement wrote to the run file: a
+    /// bound's refusal, counted, and a learned rule's merge or refusal,
+    /// recorded.
+    left: u64,
 }
 
 impl Staged {
@@ -57,6 +63,7 @@ impl Staged {
         }
         self.seeds.extend(later.seeds);
         self.sitemaps.extend(later.sitemaps);
+        self.left += later.left;
     }
 
     /// The crawl request `identity` was admitted for.
@@ -109,8 +116,9 @@ pub enum Admitting {
         /// What this admission does.
         now: Staged,
     },
-    /// An attempt's commit, which admits each staged call again in order on
-    /// the run file: each URL it does not add is kept in `refused`.
+    /// An attempt's commit, which adds each request its staged calls
+    /// answered `added`, in order, on the run file: each URL it does not
+    /// add is kept in `refused`.
     Commit {
         /// Each URL not added, in order.
         refused: Vec<Refused>,
@@ -161,6 +169,28 @@ impl Admitting {
             if let Some(budget) = budget {
                 *now.budgets.entry(budget.to_owned()).or_default() += 1;
             }
+        }
+    }
+
+    /// Notes, while an attempt stages, that the judgement of a candidate
+    /// not added wrote to the run file: a bound's refusal, counted, or a
+    /// learned rule's merge or refusal, recorded. The staging rolls that
+    /// write back, so the attempt's commit judges the candidate again
+    /// (#2245).
+    pub(crate) const fn leaves(&mut self) {
+        if let Self::Staging { now, .. } = self {
+            now.left += 1;
+        }
+    }
+
+    /// How many candidates this admission left its attempt's commit to
+    /// judge again, while it stages ([`Admitting::leaves`]): its caller
+    /// reads it before and after a candidate to know whether it is one.
+    #[must_use]
+    pub const fn left(&self) -> u64 {
+        match self {
+            Self::Staging { now, .. } => now.left,
+            Self::RunFile | Self::Commit { .. } => 0,
         }
     }
 

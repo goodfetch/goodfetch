@@ -22,6 +22,7 @@ use rusqlite::Connection;
 use serde_json::json;
 
 use super::{Ended, Ending, Learning, Outcome};
+use crate::invariants::fixture;
 use crate::lease::{Leases, WorkItemLease};
 use crate::staging::Staging;
 use crate::work_items::{self, Failure, Leased, Unsuccessful};
@@ -90,12 +91,16 @@ async fn pages(env: &TestEnv, without_lessons: bool) -> Pages {
     let leased = state
         .write(move |connection| {
             declared.record(connection)?;
+            let invariants = fixture::within(connection, goodfetch_frontier::Scope::default())?;
             work_items::admit_seeds(
                 connection,
                 &mut work_items::Positions::of(connection)?,
-                &goodfetch_frontier::Scope::default(),
+                &invariants,
                 &goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap(),
-                &[seed("https://shop.test/1"), seed("https://shop.test/2")],
+                &fixture::checked(
+                    &invariants,
+                    [seed("https://shop.test/1"), seed("https://shop.test/2")],
+                ),
             )?;
             if without_lessons {
                 connection.execute_batch("DROP TABLE rules_pages")?;
@@ -403,12 +408,13 @@ fn a_work_item_a_stopped_rule_had_ended_is_pending_again() {
         .unwrap();
         state
             .write(move |connection| {
+                let invariants = fixture::within(connection, goodfetch_frontier::Scope::default())?;
                 work_items::admit_seeds(
                     connection,
                     &mut work_items::Positions::of(connection)?,
-                    &goodfetch_frontier::Scope::default(),
+                    &invariants,
                     &goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap(),
-                    &seeds,
+                    &fixture::checked(&invariants, seeds),
                 )
             })
             .await

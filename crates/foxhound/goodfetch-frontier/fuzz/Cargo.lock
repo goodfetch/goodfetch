@@ -1413,10 +1413,12 @@ name = "goodfetch-clean-up-rules"
 version = "0.0.0"
 dependencies = [
  "adblock",
+ "cssparser 0.37.0",
  "data-encoding",
  "dom_query",
  "goodfetch-counted-work",
  "goodfetch-workspace-hack",
+ "selectors 0.38.0",
  "serde",
  "serde_json",
  "sha2 0.10.9",

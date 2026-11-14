@@ -38,6 +38,7 @@ use encoding_rs::Encoding;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
+use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::retry_after::{self, RetryAfter};
@@ -929,6 +930,7 @@ impl FetchTiers {
             clock: run.clock(),
             resolver: ResolverConfiguration::system().map_err(|error| error.to_string())?,
             local,
+            delays: Delays::of(settings),
         };
         // Every Session of the Run launches one build, so the document
         // request its own transport presents is read once, here.

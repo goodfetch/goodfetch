@@ -43,7 +43,8 @@ fn on_site(scenario: Scenario, work: Work) -> Work {
     }
 }
 
-/// Three trials of each measured cell over the 4-page site, each with the
+/// Three trials of each measured cell over the 4-page site, one of a cell
+/// that runs one ([`matrix::Cell::one_trial`]), each with the
 /// work `work` gives its scenario and number; the long scenario's trials
 /// crawl its own site, and each did all of its work.
 fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
@@ -69,6 +70,29 @@ fn named(trials: &Comparison) -> Vec<(&'static str, String)> {
 #[test]
 fn trials_that_did_the_same_work_pass() {
     assert_eq!(named(&comparison(|_, _| work(0))), vec![]);
+}
+
+/// pagesift's polite cell is held to one trial of each pass, timed and
+/// under strace, the owner's decision of 2026-11-14 (#2215): one is the
+/// whole cell, and a second is past it.
+#[test]
+fn pagesifts_polite_cell_is_held_to_one_trial_of_each_pass() {
+    let mut trials = comparison(|_, _| work(0));
+    trials.syscalls = counted(|_, _, _| true, |_, _, _| work(0));
+    let one = named(&trials);
+    let mut again = trials
+        .trials
+        .iter()
+        .find(|trial| trial.scenario == Scenario::Polite && trial.cell == "pagesift")
+        .cloned()
+        .expect("invariant: the fixture holds a trial of pagesift's polite cell");
+    again.number = 2;
+    trials.trials.push(again);
+
+    assert_eq!(
+        (one, named(&trials)),
+        (vec![], vec![("trial_count", "polite pagesift".to_owned())])
+    );
 }
 
 /// The first trial is held to the site's own pages like any other, so
@@ -294,7 +318,8 @@ fn a_browser_trial_that_never_rendered_the_links_misses_the_script_rendered_page
     );
 }
 
-/// Three runs of each cell `counts` keeps, each of the work `work` gives
+/// Three runs of each cell `counts` keeps, one of a cell that runs one
+/// ([`matrix::Cell::one_trial`]), each of the work `work` gives
 /// its scenario, cell and number: a counted cell over the 4-page site,
 /// which a scenario that runs only its timed trials has no run in.
 fn counted(
@@ -307,7 +332,7 @@ fn counted(
         })
         .flat_map(|(cell, config)| {
             let work = &work;
-            (1..=3).map(move |number| CountedRun {
+            (1..=cell.runs(3)).map(move |number| CountedRun {
                 scenario: cell.scenario,
                 cell: cell.name.to_owned(),
                 tool: config.tool(),

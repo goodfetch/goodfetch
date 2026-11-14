@@ -1654,10 +1654,9 @@ hooks:
 # (`gate=quick`), and for a change a test reads `just pre-merge all`, which
 # starts with `just quick all`'s lint and Quick suite, on the pull request
 # that finishes a spec (head branch `spec/<n>`, the spec's sub-issues none
-# left open once it merges, ADR 0135's note of 2026-11-13) and on the tenth
-# such change since the last full gate, and `just pre-merge quick` on any
-# other (ADR 0135's amendments of 2026-11-10); `just merge <number> --full` runs
-# the full gate on any pull request. It refuses once 10 merges have landed on `main` since
+# left open once it merges, ADR 0135's note of 2026-11-13) and nowhere else,
+# and `just pre-merge quick` on any other (ADR 0135's amendments of
+# 2026-11-10 and its note of 2026-11-14). It refuses once 10 merges have landed on `main` since
 # the backstop's last green run (ci/merge-cap.sh) unless the owner passes
 # `--past-cap`: `just merge <number> --past-cap`. It refuses to start a gate
 # under GOODFETCH_GATE_MIN_FREE_GB (30) free on the file system of the gate's
@@ -1850,14 +1849,16 @@ existing-code-sweep *arguments:
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
       cargo run --quiet --bin xtask -- existing-code sweep {{ arguments }}
 
-# The test-health runs the gate host's cron starts while Actions is off
-# (TESTING.md, After merge; ci/test-health.crontab), on `main`'s head in the
-# backstop's gate worktree: `constrained`, the constrained test-health run,
-# `mutants`, the advisory mutation run over the last day's Rust changes, and
-# `post-merge`, `just counts` and the Pre-merge suite over what `main` gained
-# since the commit it last checked (ci/test-health/scheduled.sh). Each skips
-# while `just merge`'s gate runs, and a gate started during one waits for it,
-# but for a post-merge run, which it stops.
+# The test-health runs the gate host starts while Actions is off
+# (TESTING.md, After merge), on `main`'s head: from its cron
+# (ci/test-health.crontab), in the backstop's gate worktree, `constrained`,
+# the constrained test-health run, and `mutants`, the advisory mutation run
+# over the last day's Rust changes; and from each `just merge` gate as it
+# ends, in that gate's worktree, `post-merge`, `just counts` and the
+# Pre-merge suite over what `main` gained since the commit it last checked
+# (ci/test-health/scheduled.sh). Each skips while `just merge`'s gate runs,
+# and a gate started during one waits for it, but for a post-merge run, which
+# it stops.
 # Logs and results go to ~/test-health/ (GOODFETCH_TEST_HEALTH_LOG). Run from
 # the main checkout.
 test-health run ref="origin/main":

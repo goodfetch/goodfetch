@@ -67,7 +67,7 @@ use goodfetch_protocol::foxhound::provenance::RobotsTxtMark;
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 
-use crate::work_items::{Decided, Fetched, FieldsRead, Positions};
+use crate::work_items::{Changed, Decided, Fetched, FieldsRead, Positions};
 
 /// An admission through the Frontier that an attempt left to its commit
 /// ([`Staging::defer`]), which runs it the first time: it answers the
@@ -188,12 +188,14 @@ pub(crate) struct Staged {
 
 /// What a commit admitted of what its attempt staged: the Key-value store
 /// writes to apply in the same transaction, in order, each request its
-/// staging answered `added` that the commit did not add, and each work
-/// item it added keyed, in order, when it was given the gate's keys.
+/// staging answered `added` that the commit did not add, each work item
+/// it added keyed, in order, when it was given the gate's keys, and what
+/// adding them changed of the crawl's requests by state.
 pub(crate) struct Replayed<'a> {
     pub(crate) writes: &'a [StagedWrite],
     pub(crate) not_added: Vec<NotAddedAtCommit>,
     pub(crate) keyed: Vec<Waiting>,
+    pub(crate) changed: Changed,
 }
 
 impl Staged {
@@ -234,10 +236,13 @@ impl Staged {
             }
             not_added.extend(positions.not_added());
         }
+        let mut changed = Changed::default();
+        let keyed = changed.adds(&mut positions);
         Ok(Replayed {
             writes: &self.writes,
             not_added,
-            keyed: positions.keyed(),
+            keyed,
+            changed,
         })
     }
 

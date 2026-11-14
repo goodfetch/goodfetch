@@ -1,5 +1,7 @@
 // Modified by Goodfetch (2026-10-26): `CustomVerify`, a per-client custom
 // certificate verification (`ClientBuilder::tls_custom_verify`).
+// Modified by Goodfetch (2026-11-14): `ClientBuilder::tcp_connector`, the
+// service the client opens its TCP connections through, in place of its own.
 pub(super) mod body;
 pub(super) mod emulate;
 pub(super) mod future;
@@ -213,6 +215,8 @@ struct Config {
     https_only: bool,
     layers: Vec<BoxedClientServiceLayer>,
     connector_layers: Vec<BoxedConnectorLayer>,
+    #[cfg(feature = "tokio-rt")]
+    tcp_connector: Option<BoxCloneSyncService<http::Uri, tokio::net::TcpStream, BoxError>>,
     tls_sni: bool,
     tls_info: bool,
     tls_keylog: Option<KeyLog>,
@@ -303,6 +307,8 @@ impl Client {
                 http2_options: None,
                 layers: Vec::new(),
                 connector_layers: Vec::new(),
+                #[cfg(feature = "tokio-rt")]
+                tcp_connector: None,
                 tls_sni: true,
                 tls_info: false,
                 tls_keylog: None,
@@ -567,6 +573,17 @@ impl ClientBuilder {
                         config.socket_bind_options.ipv4_address,
                         config.socket_bind_options.ipv6_address,
                     );
+
+                    #[cfg(feature = "tokio-rt")]
+                    if let Some(tcp) = config.tcp_connector {
+                        let nodelay = config.tcp_nodelay;
+                        http.set_tcp_connector(BoxCloneSyncService::new(tcp.and_then(
+                            move |stream: tokio::net::TcpStream| async move {
+                                stream.set_nodelay(nodelay)?;
+                                Ok::<_, BoxError>(stream)
+                            },
+                        )));
+                    }
                 })
                 .build(config.tls_options, config.connector_layers)?;
 
@@ -1678,6 +1695,29 @@ impl ClientBuilder {
     {
         let layer = BoxCloneSyncServiceLayer::new(layer);
         self.config.connector_layers.push(layer);
+        self
+    }
+
+    /// Opens the client's TCP connections, to a site or to a proxy,
+    /// through `connector`, which is given the URI to connect to and
+    /// returns the connected stream, in place of the client's own
+    /// connector.
+    ///
+    /// The client's `tcp_nodelay` is applied to the stream `connector`
+    /// returns, and `connect_timeout` bounds the whole connection.
+    /// `connector` does the lookup and applies every other socket option
+    /// itself: the local addresses, the interface, the TCP keepalive
+    /// settings, `tcp_user_timeout`, the buffer sizes, `SO_REUSEADDR`,
+    /// `SO_LINGER`, the resolver and Happy Eyeballs are not applied to its
+    /// connections.
+    #[cfg(feature = "tokio-rt")]
+    pub fn tcp_connector<S>(mut self, connector: S) -> ClientBuilder
+    where
+        S: Service<http::Uri, Response = tokio::net::TcpStream> + Clone + Send + Sync + 'static,
+        S::Error: Into<BoxError>,
+        S::Future: Send + 'static,
+    {
+        self.config.tcp_connector = Some(BoxCloneSyncService::new(connector.map_err(Into::into)));
         self
     }
 

@@ -7,10 +7,11 @@
 //! shows the wait it sets up. What the handler does is scripted.
 
 use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_protocol::foxhound::progress::RequestProgress;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use super::{Client, Reply, crawl, dependencies};
+use super::{Client, Reply, SITEMAP, crawl, dependencies, run_file};
 
 fn seed(url: &str) -> Value {
     json!({ "url": url, "label": "page" })
@@ -125,6 +126,183 @@ fn a_crawls_progress_counts_its_requests_and_lists_those_in_flight() {
             &json!(4),
             &json!(false),
         )
+    );
+}
+
+/// A live crawl's progress counts its requests from its Run state, in
+/// memory, and reads none of them from its run file (#2167): a count
+/// written into the file behind the crawl's back shows in no value of the
+/// live Run. Its last value, which no Run state gives any more, is read
+/// from the file and shows it.
+///
+/// Covers: story:3-162, operation:run.progress
+#[test]
+fn a_live_crawls_progress_counts_its_requests_in_memory_and_its_last_value_reads_the_run_file() {
+    let env = TestEnv::new();
+    let mut handler = |_: &Value| Reply::Records(Vec::new());
+
+    let (live, last) = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "live",
+                        "seeds": [seed("https://a.test/1")],
+                        "settings": { "crawl": { "keep_alive": true } },
+                    }),
+                    &mut handler,
+                )
+                .await;
+            let idle = |progress: &Value| progress["idle"] == true;
+            first_showing(client, "live", idle, &mut handler).await;
+            run_file(&env, "live")
+                .execute(
+                    "INSERT INTO request_counts (kind, name, count) VALUES ('failed', 'planted', 7)",
+                    [],
+                )
+                .unwrap();
+            let live = client
+                .call("run.progress", json!({ "run_id": "live" }), &mut handler)
+                .await;
+            client
+                .call("run.finish", json!({ "run_id": "live" }), &mut handler)
+                .await;
+            let last = |progress: &Value| progress["last"] == true;
+            let last = first_showing(client, "live", last, &mut handler).await;
+            (live["result"].clone(), last)
+        },
+    );
+
+    assert_eq!(
+        (
+            &live["last"],
+            &live["requests"]["succeeded"],
+            &live["requests"]["failed"],
+            &last["requests"]["succeeded"],
+            &last["requests"]["failed"],
+        ),
+        (&json!(false), &json!(1), &json!(0), &json!(1), &json!(7))
+    );
+}
+
+/// What the run file of `run_id` counts of its crawl's requests by state
+/// and of its sitemap seeds, as a value of its progress shows them with
+/// no request in flight.
+fn committed(env: &TestEnv, run_id: &str) -> (Value, Value) {
+    let connection = run_file(env, run_id);
+    let (ended, _) = crate::report::ended(&connection).unwrap();
+    let requests = RequestProgress {
+        pending: ended.pending,
+        fetching: 0,
+        handling: 0,
+        in_human_pause: 0,
+        succeeded: ended.succeeded,
+        failed: ended.failed,
+        skipped: ended.skipped,
+        blocked: ended.blocked,
+        by_skip_reason: ended.by_skip_reason,
+        by_error_code: ended.by_error_code,
+        by_block_cause: ended.by_block_cause,
+    };
+    let sitemaps = goodfetch_frontier::sitemap::reports(&connection).unwrap();
+    (json!(requests), json!(sitemaps))
+}
+
+/// A live crawl's Run state counts its requests by state, in memory, as
+/// its run file counts them (#2167): through a sitemap seed's read, a
+/// request that succeeds, one that fails, one skipped and one blocked, a
+/// seed added to the running crawl and the re-admission of its failures,
+/// each value of its progress read once the crawl is idle again shows the
+/// counts its run file then holds.
+///
+/// Covers: story:3-162, operation:run.progress, operation:run.add_seed, operation:run.retry_failed
+#[test]
+fn a_live_crawls_counts_in_memory_are_its_run_files_through_every_ending() {
+    let env = TestEnv::new();
+    let readmitted = std::cell::Cell::new(false);
+    let mut handler = |params: &Value| match params["crawl_request"]["url"].as_str() {
+        Some("https://shop.test/page/2") if !readmitted.get() => {
+            Reply::Fails("handler_failed", false)
+        }
+        Some("https://shop.test/page/3") => Reply::Skips("Out of stock."),
+        Some("https://shop.test/blocked") => Reply::Blocked("rate_limit"),
+        _ => Reply::Records(Vec::new()),
+    };
+    let idle_with = |succeeded: u64| {
+        move |progress: &Value| {
+            progress["idle"] == true && progress["requests"]["succeeded"] == succeeded
+        }
+    };
+    let shown = |progress: Value| (progress["requests"].clone(), progress["sitemaps"].clone());
+
+    let (live, file) = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let mut live = Vec::new();
+            let mut file = Vec::new();
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "walked",
+                        "seeds": [
+                            {
+                                "sitemap": format!("https://shop.test{SITEMAP}"),
+                                "rules": [{ "pattern": "**", "label": "page" }],
+                            },
+                            seed("https://shop.test/blocked"),
+                        ],
+                        "settings": { "crawl": { "keep_alive": true } },
+                    }),
+                    &mut handler,
+                )
+                .await;
+            live.push(shown(
+                first_showing(client, "walked", idle_with(1), &mut handler).await,
+            ));
+            file.push(committed(&env, "walked"));
+            client
+                .call(
+                    "run.add_seed",
+                    json!({ "run_id": "walked", "seed": seed("https://shop.test/late") }),
+                    &mut handler,
+                )
+                .await;
+            live.push(shown(
+                first_showing(client, "walked", idle_with(2), &mut handler).await,
+            ));
+            file.push(committed(&env, "walked"));
+            readmitted.set(true);
+            client
+                .call(
+                    "run.retry_failed",
+                    json!({ "run_id": "walked", "blocked": true }),
+                    &mut handler,
+                )
+                .await;
+            live.push(shown(
+                first_showing(client, "walked", idle_with(3), &mut handler).await,
+            ));
+            file.push(committed(&env, "walked"));
+            client
+                .call("run.finish", json!({ "run_id": "walked" }), &mut handler)
+                .await;
+            (live, file)
+        },
+    );
+
+    assert_eq!(live, file);
+    assert_eq!(
+        live.iter()
+            .map(|(requests, _)| {
+                ["pending", "succeeded", "failed", "skipped", "blocked"]
+                    .map(|state| requests[state].as_u64().unwrap())
+            })
+            .collect::<Vec<_>>(),
+        [[0, 1, 1, 1, 1], [0, 2, 1, 1, 1], [0, 3, 0, 1, 1]],
+        "the walk went through each ending"
     );
 }
 

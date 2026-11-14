@@ -1,3 +1,6 @@
+// Modified by Goodfetch (2026-11-14): `HttpConnector::set_tcp_connector`, a
+// service the connector opens its TCP connections through, in place of its
+// own resolver and race (`ClientBuilder::tcp_connector`).
 use std::{
     future::Future,
     marker::PhantomData,
@@ -11,7 +14,7 @@ use std::{
 use http::uri::{Scheme, Uri};
 use pin_project_lite::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tower::{BoxError, Service};
+use tower::{BoxError, Service, util::BoxCloneSyncService};
 
 use super::{
     Connection,
@@ -114,11 +117,22 @@ where
 ///
 /// Sets the [`HttpInfo`] value on responses, which includes
 /// transport information such as the remote socket address used.
-#[derive(Clone)]
-pub struct HttpConnector<R, S> {
+pub struct HttpConnector<R, S: TcpConnector> {
     options: Arc<TcpOptions>,
     resolver: R,
     connector: S,
+    tcp: Option<BoxCloneSyncService<Uri, S::Connection, BoxError>>,
+}
+
+impl<R: Clone, S: TcpConnector> Clone for HttpConnector<R, S> {
+    fn clone(&self) -> Self {
+        HttpConnector {
+            options: Arc::clone(&self.options),
+            resolver: self.resolver.clone(),
+            connector: self.connector.clone(),
+            tcp: self.tcp.clone(),
+        }
+    }
 }
 
 /// Extra information about the transport when an HttpConnector is used.
@@ -149,7 +163,7 @@ pub struct HttpInfo {
 
 // ===== impl HttpConnector =====
 
-impl<R, S> HttpConnector<R, S> {
+impl<R, S: TcpConnector> HttpConnector<R, S> {
     /// Construct a new [`HttpConnector`].
     pub fn new(resolver: R, connector: S) -> HttpConnector<R, S> {
         HttpConnector {
@@ -169,7 +183,18 @@ impl<R, S> HttpConnector<R, S> {
             }),
             resolver,
             connector,
+            tcp: None,
         }
+    }
+
+    /// Opens the TCP connections through `tcp`, which is given the URI to
+    /// connect to and does the lookup and the connection itself, in place
+    /// of this connector's resolver, race and socket options.
+    pub(crate) fn set_tcp_connector(
+        &mut self,
+        tcp: BoxCloneSyncService<Uri, S::Connection, BoxError>,
+    ) {
+        self.tcp = Some(tcp);
     }
 
     fn config_mut(&mut self) -> &mut TcpOptions {
@@ -363,6 +388,14 @@ where
 
         let fut = async move {
             let options = &this.options;
+
+            if let Some(mut tcp) = this.tcp.take() {
+                get_host_port(options, &dst)?;
+                return tcp
+                    .call(dst)
+                    .await
+                    .map_err(ConnectError::m("tcp connect error"));
+            }
 
             let (host, port) = get_host_port(options, &dst)?;
             let host = crate::util::strip_ipv6_brackets(host);

@@ -134,6 +134,9 @@ rows! {
     /// `E1.encodes`: an encode of what the engine sends, into bytes or into
     /// a `Value` that is encoded again.
     MessageEncodes => "E1.encodes", "json_rpc_message", "encodes";
+    /// `E1.decodes`: a decode of a request's params, by dispatch for what it
+    /// reads of them or into the type their handler takes.
+    MessageDecodes => "E1.decodes", "json_rpc_message", "decodes";
     /// `F5.messages_no_hook`: a message or its formatting for a stage with no
     /// Hook on it.
     HookMessagesNoHook => "F5.messages_no_hook", "hook_stage", "messages_no_hook";

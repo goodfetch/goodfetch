@@ -29,6 +29,7 @@ fn config() -> TransportConfig {
         clock: Clock::system(),
         resolver: ResolverConfiguration::name_servers([]),
         local: None,
+        delays: goodfetch_engine::happy_eyeballs::Delays::default(),
     }
 }
 

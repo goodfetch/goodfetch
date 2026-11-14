@@ -341,7 +341,8 @@ fn other_output(pass: &Pass<'_>) -> Vec<Finding> {
     findings
 }
 
-/// Each measured cell of a pass short of or past its declared trials.
+/// Each measured cell of a pass short of or past its declared trials, one
+/// for a cell that runs one ([`matrix::Cell::one_trial`]).
 fn short_or_past(pass: &Pass<'_>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (cell, _) in matrix::measured().filter(|(cell, config)| {
@@ -355,11 +356,15 @@ fn short_or_past(pass: &Pass<'_>) -> Vec<Finding> {
             .iter()
             .filter(|done| done.scenario == cell.scenario && done.cell == cell.name)
             .count();
-        if u32::try_from(count).ok() != Some(pass.declared) {
+        let declared = cell.runs(pass.declared);
+        if u32::try_from(count).ok() != Some(declared) {
             findings.push(Finding::new(
                 "trial_count",
                 pass.cell(cell.scenario, cell.name),
-                format!("{count} trials, where {} were declared", pass.declared),
+                format!(
+                    "{count} trials, where {declared} {} declared",
+                    if declared == 1 { "was" } else { "were" }
+                ),
             ));
         }
     }

@@ -45,7 +45,7 @@ use crate::attempt_outcome::{Ended, Ending, Learning, Outcome};
 use crate::invariants::fixture;
 use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::staging::Staging;
-use crate::work_items::{self, Failure, Unsuccessful};
+use crate::work_items::{self, Changed, Failure, Unsuccessful};
 
 #[derive(Clone, Debug)]
 enum Transition {
@@ -475,6 +475,7 @@ impl StateMachineTest for Subject {
                                 epoch,
                                 Unsuccessful::Retried(Failure::new("handler_lost", "no answer")),
                                 &ended_at(),
+                                &mut Changed::default(),
                             )
                         }))
                         .unwrap();
@@ -646,14 +647,14 @@ fn commit(
             let written = subject
                 .runtime
                 .block_on(state.write(move |connection| outcome.write(connection)));
-            match written {
-                Ok((Ended::Committed(committed), _)) => {
+            match written.map(|written| written.ended) {
+                Ok(Ended::Committed(committed)) => {
                     let _clock = subject.runtime.enter();
                     lease.committed(Ok(Some(Ok(committed)))).unwrap();
                     true
                 }
-                Ok((Ended::LeaseLost, _)) => false,
-                Ok((ended, _)) => {
+                Ok(Ended::LeaseLost) => false,
+                Ok(ended) => {
                     panic!("the commit ended otherwise: {ended:?}")
                 }
                 Err(error) => panic!("the run file failed: {error}"),

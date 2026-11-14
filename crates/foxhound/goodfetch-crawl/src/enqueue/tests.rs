@@ -15,9 +15,9 @@ use goodfetch_protocol::foxhound::frontier::{CrawlRequestEnqueueParams, Enqueued
 use rusqlite::Connection;
 use serde_json::json;
 
-use super::add;
 use crate::invariants::{Invariants, fixture};
 use crate::labels::Fragments;
+use crate::run_state::admission::enqueue as add;
 use crate::staging::Staging;
 use crate::work_items;
 

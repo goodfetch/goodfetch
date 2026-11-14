@@ -545,19 +545,31 @@ pub const NETWORK_RESOLVE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
-/// `consent.handling` (ADR 0048).
+/// The values `consent.handling` takes (ADR 0048, #2434).
+pub const CONSENT_HANDLING_VALUES: &[&str] = &["answer", "detect", "off"];
+
+/// `consent.handling` (ADR 0048, #2434).
 pub const CONSENT_HANDLING: Setting = Setting {
     name: "consent.handling",
-    description: "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering: the wall test still runs, and a consent wall is still `consent_required`.",
-    kind: ValueKind::Boolean,
-    default: yes,
+    description: "What a browser Session does with Consent prompts: `answer` (the default, in every Access mode) refuses each prompt in every frame and hides one with no refusal that leaves the content readable; `detect` only looks: nothing is clicked or hidden, the wall test still runs, and a consent wall is still `consent_required`; `off` registers and starts no Consent prompt runner and lets no cosmetic rule act on the live page or in extracted content, so no consent wall is reported and the page's text is returned as served, while the Filter lists still block requests; the Run report lists `off` in `weakened`. A Recipe, and a Client acting for a model, never set `off` unless the layers below already give it: `setting_locked`; set it in the program's own code, in configuration or in an Operator policy.",
+    kind: ValueKind::Choice(CONSENT_HANDLING_VALUES),
+    default: answer,
     clearable: false,
-    authority: Authority::Every,
-    weakens: None,
+    authority: Authority::NotWeakenedByRecipeOrModel,
+    weakens: Some(handling_off),
     fixed_for_run: false,
     unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
+
+fn answer() -> Value {
+    Value::String("answer".to_owned())
+}
+
+/// `consent.handling: off`, which leaves the page as served (#2434).
+fn handling_off(value: &Value) -> bool {
+    value.as_str() == Some("off")
+}
 
 /// `consent.domains` (ADR 0048).
 pub const CONSENT_DOMAINS: Setting = Setting {

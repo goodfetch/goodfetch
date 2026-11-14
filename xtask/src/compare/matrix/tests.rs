@@ -1,4 +1,4 @@
-use super::{CELLS, Config, OutputCheck, Row, Scenario, Site, SpiderBuild, Status, Tool};
+use super::{CELLS, Config, Network, OutputCheck, Row, Scenario, Site, SpiderBuild, Status, Tool};
 
 /// #2316's scenarios: the realistic-page site, the long site and scenario
 /// 1 at 64 and 256 in flight. Each gives every tool a main cell with its
@@ -70,7 +70,7 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
 /// (#2252 Q11, #2439 Q3); the matrix's own five are unchanged.
 #[test]
 fn the_added_scenarios_run_scenario_1s_settings_but_the_pass_at_defaults() {
-    let read = |scenario: Scenario| (scenario.settings(), scenario.carries_no_bar());
+    let read = |scenario: Scenario| (scenario.settings(), scenario.no_bar().is_some());
 
     assert_eq!(
         Scenario::ALL.map(read),
@@ -85,6 +85,7 @@ fn the_added_scenarios_run_scenario_1s_settings_but_the_pass_at_defaults() {
             (Scenario::Raw, true),
             (Scenario::Raw, true),
             (Scenario::Hostile, true),
+            (Scenario::Raw, true),
             (Scenario::Raw, true),
         ]
     );
@@ -124,7 +125,7 @@ fn the_hostile_pages_passes_map_every_tool_and_carry_no_bar() {
             mapped(scenario),
             tasks(scenario),
             scenario.settings(),
-            scenario.carries_no_bar(),
+            scenario.no_bar().is_some(),
         )),
         [
             (
@@ -439,6 +440,7 @@ fn crawlee_rs_runs_the_http_scenarios_and_not_the_browser() {
             (Scenario::Raw256, measured),
             (Scenario::Hostile, measured),
             (Scenario::Hostile16, measured),
+            (Scenario::CrawlLike, measured),
         ]
         .map(|(scenario, config)| (scenario, "crawlee-rs", Row::Main, config))
     );
@@ -511,9 +513,9 @@ fn the_polite_scenario_crawls_ten_pages_on_each_of_a_thousand_domains() {
         ),
         (
             [
-                1000, 1000, 10_000, 1000, 1000, 1000, 100_000, 1000, 1000, 1000, 1000
+                1000, 1000, 10_000, 1000, 1000, 1000, 100_000, 1000, 1000, 1000, 1000, 1000
             ],
-            [100_000; 11],
+            [100_000; 12],
             1000,
             [
                 "polite-1.localhost",
@@ -522,6 +524,53 @@ fn the_polite_scenario_crawls_ten_pages_on_each_of_a_thousand_domains() {
                 "polite-1000.localhost",
             ]
             .map(str::to_owned),
+        )
+    );
+}
+
+/// The crawl-like scenario (#2284): every tool's main cell, with its
+/// mapping, crawls the article site at scenario 1's settings, over TLS and
+/// HTTP/2 under the Proving ground's `rtt-20` profile, and carries no bar;
+/// no output check holds its pages, and every other scenario stays on
+/// loopback.
+#[test]
+fn the_crawl_like_scenario_maps_every_tool_over_tls_under_rtt_20() {
+    let crawl_like = Scenario::CrawlLike;
+    let mapped: Vec<(Tool, bool)> = CELLS
+        .iter()
+        .filter(|cell| {
+            cell.scenario == crawl_like
+                && cell.row == Row::Main
+                && matches!(cell.status, Status::Measured(_))
+        })
+        .map(|cell| (cell.tool, cell.output_check().is_some()))
+        .collect();
+    let elsewhere: Vec<Scenario> = Scenario::ALL
+        .into_iter()
+        .filter(|scenario| scenario.network() != Network::Loopback)
+        .collect();
+    let network = crawl_like.network();
+
+    assert_eq!(
+        (
+            mapped,
+            crawl_like.name(),
+            crawl_like.site(),
+            crawl_like.settings(),
+            crawl_like.no_bar().is_some(),
+            crawl_like.concurrency(),
+            elsewhere,
+            (network.network_profile(), network.scheme(), network.tls()),
+        ),
+        (
+            Tool::ALL.map(|tool| (tool, false)).to_vec(),
+            "crawl-like",
+            Site::Article,
+            Scenario::Raw,
+            true,
+            16,
+            vec![crawl_like],
+            ("rtt-20", "https", true),
         )
     );
 }

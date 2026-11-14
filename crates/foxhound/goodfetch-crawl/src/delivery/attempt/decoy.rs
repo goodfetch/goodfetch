@@ -9,7 +9,7 @@ use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::page::{BLOCKED, BlockedDetails};
 use serde_json::Value;
 
-use super::Answer;
+use super::{Answer, AttemptFailure};
 
 /// The ending of the request whose page at `url`, answered with `status`,
 /// is marked `noindex` and failed its Page check.
@@ -47,12 +47,12 @@ fn decoy(message: String, url: &str, status: Option<u16>) -> Answer {
     let Ok(Value::Object(details)) = serde_json::to_value(&details) else {
         unreachable!("invariant: `blocked` details serialize to an object")
     };
-    Answer::Failed {
-        code: BLOCKED.name.to_owned(),
-        retryable: false,
+    Answer::failed(AttemptFailure::entered(
+        BLOCKED.name.to_owned(),
+        false,
         message,
         details,
-    }
+    ))
 }
 
 #[cfg(test)]

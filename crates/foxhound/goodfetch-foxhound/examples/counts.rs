@@ -43,6 +43,11 @@
 //! the Frontier's outcomes beyond a links batch: a hop's, a sitemap's and a
 //! Payload's rows say "no hops" there.
 //!
+//! `F3.actor_round_trips` divides by the attempts that ended, the unit
+//! `attempts_ended`: the attempts the site served a page to and the one that
+//! read each sitemap, which is a Work item's attempt as a page's is and
+//! serves no page.
+//!
 //! The cell `varying_parameter` crawls, beside the site, as many pages
 //! `/item?id=<n>` as the site has pages, each its own, with learning on: the
 //! input `F2.evidence_reads` is read on, and its `--shorter` run serves half
@@ -112,9 +117,12 @@ use serde_json::{Map, Value, json};
 /// charges.
 const LIMIT: u64 = 1_000_000;
 
-/// Each outcome's `F3.prepares`, and the one function that does its admission.
+/// Each outcome's `F3.prepares`, and the one function that does its
+/// admission: a links batch's is its attempt's commit's, which holds all the
+/// admission work a commit does, a batch deferred to it and what a staged
+/// one decided alike (#2245), named as Callgrind names a method.
 const PREPARES: [(&str, &str); 3] = [
-    ("F3.prepares", "goodfetch_crawl::enqueue::links::add"),
+    ("F3.prepares", "<goodfetch_crawl::staging::Staged>::admit"),
     ("F3.prepares.hop", "goodfetch_frontier::identity::admit_hop"),
     (
         "F3.prepares.sitemap",
@@ -480,7 +488,9 @@ fn cells() -> Vec<Cell> {
             name: "scope_globs_off",
             settings: json!({}),
             frontier: FRONTIER,
-            removes: &[Row::BatchCompilations, Row::HopCompilations],
+            // The Scope's globs compile once, as the crawl starts (#1896):
+            // a page compiles none whichever the Scope.
+            removes: &[],
             removes_syncs: false,
             handler: false,
             limit: false,
@@ -489,7 +499,8 @@ fn cells() -> Vec<Cell> {
             name: "payload_schema_off",
             settings: scoped(json!({})),
             frontier: UNTYPED,
-            removes: &[Row::PayloadCompilations, Row::PayloadValidations],
+            // The schema compiles once, as the crawl starts (#1896).
+            removes: &[Row::PayloadValidations],
             removes_syncs: false,
             handler: false,
             limit: false,
@@ -1130,6 +1141,7 @@ fn main() {
             "sitemaps": cell.sitemaps,
             "payloads": u64::from(cell.frontier),
             "attempts": cell.attempts,
+            "attempts_ended": cell.attempts + cell.sitemaps,
             "runs": RUNS,
             "effects": EFFECTS,
             "entries": cell.entries,

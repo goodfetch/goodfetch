@@ -14,14 +14,14 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::TestEnv;
 use opentelemetry::metrics::MeterProvider as _;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use serde_json::json;
+use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use super::daemon::{cli_hello, daemon, opened, the_pick};
 use super::disk_view::DiskView;
 use super::events::credit;
 use super::run::call;
-use super::{attached_on, engine, hello};
+use super::{Client, attached_on, engine, hello};
 use crate::daemon::DaemonOptions;
 use crate::engine::Engine;
 use crate::governor::System;
@@ -150,6 +150,102 @@ fn a_subscription_that_asks_takes_the_governors_samples_and_no_other_does() {
             &json!(32),
             json!("run.axes_changed"),
         )
+    );
+}
+
+/// The Memory allowance and its source of each of the next `count`
+/// samples the subscription `1` takes, every other message read past.
+async fn allowances(client: &mut Client, count: usize) -> Vec<(Value, Value)> {
+    let mut allowances = Vec::new();
+    while allowances.len() < count {
+        let message = client.next().await.unwrap();
+        if message["method"] != "$/events" || message["params"]["id"] != 1 {
+            continue;
+        }
+        for event in message["params"]["events"].as_array().unwrap() {
+            let memory = &event["data"]["memory"];
+            allowances.push((
+                memory["allowance"].clone(),
+                memory["allowance_source"].clone(),
+            ));
+        }
+    }
+    allowances.truncate(count);
+    allowances
+}
+
+/// The governor reads the engine's snapshot of the machine's settings, not
+/// the files: a hand edit of the user configuration is not seen by the
+/// samples after it, `config.user_write`, a person's in the Kennel, is
+/// seen by the next sample, and
+/// a hand edit is seen once a Run is admitted, which resolves the machine's
+/// settings again (ADR 0140). A sample taken while the write or the Run's
+/// admission went on may still show the value before it, so each is seen
+/// by the second sample after its reply.
+///
+/// Covers: setting:governor.memory_allowance, operation:config.user_write, operation:run.start
+#[test]
+fn the_governor_sees_the_engines_own_write_at_once_and_a_hand_edit_at_the_next_run() {
+    const SAMPLED: &str = "governor.sample_interval = 250\n";
+    let env = TestEnv::new();
+    configure(&env, SAMPLED);
+    let proc = proc(100 * MIB);
+    let engine = governed(engine(Product::Collie), &env, proc.path());
+    let hand_edit = |allowance: u64| {
+        configure(
+            &env,
+            &format!("{SAMPLED}governor.memory_allowance = {allowance}\n"),
+        );
+    };
+
+    let mut kennel = hello("collie", "0.1");
+    kennel["params"]["surface"] = json!("kennel");
+    let seen = attached_on(&engine, &env, |mut client| async move {
+        client.send(&[kennel]).await;
+        let _ = client.next().await;
+        client
+            .send(&[
+                json!({ "jsonrpc": "2.0", "id": 1, "method": "events.subscribe", "params": { "system_info": true } }),
+                credit(1, 1000),
+            ])
+            .await;
+        let mut seen = allowances(&mut client, 1).await;
+        hand_edit(128 * MIB);
+        seen.extend(allowances(&mut client, 3).await);
+        let written = call(
+            &mut client,
+            2,
+            "config.user_write",
+            json!({ "changes": [{ "key": "governor.memory_allowance", "value": 64 * MIB }] }),
+        )
+        .await;
+        assert!(written.get("result").is_some(), "{written}");
+        seen.extend(allowances(&mut client, 2).await.pop());
+        hand_edit(32 * MIB);
+        seen.extend(allowances(&mut client, 3).await);
+        let started = call(&mut client, 3, "run.start", json!({ "run_id": "first" })).await;
+        assert!(started.get("result").is_some(), "{started}");
+        seen.extend(allowances(&mut client, 2).await.pop());
+        client.close().await;
+        while client.next().await.is_some() {}
+        seen
+    });
+
+    let cgroup = (json!(256 * MIB), json!("cgroup"));
+    let setting = |allowance: u64| (json!(allowance), json!("setting"));
+    assert_eq!(
+        seen,
+        [
+            cgroup.clone(),
+            cgroup.clone(),
+            cgroup.clone(),
+            cgroup,
+            setting(64 * MIB),
+            setting(64 * MIB),
+            setting(64 * MIB),
+            setting(64 * MIB),
+            setting(32 * MIB),
+        ]
     );
 }
 

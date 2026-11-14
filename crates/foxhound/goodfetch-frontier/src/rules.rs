@@ -706,6 +706,23 @@ pub(crate) fn given_back(connection: &Connection, crawl_request: &str) -> rusqli
     Ok(())
 }
 
+/// The statement [`admitted`] ends a path pattern's streak with, which
+/// [`crate::prepare_admission`] prepares as the Run starts.
+pub(crate) const STREAK_ENDED: &str =
+    "UPDATE rules_patterns SET streak = 0, first = NULL WHERE host = ?1 AND pattern = ?2";
+
+/// The statement [`offset_value`] reads what a parameter's values on a
+/// path showed with, which [`crate::prepare_admission`] prepares as the
+/// Run starts.
+pub(crate) const OFFSET_SEEN: &str =
+    "SELECT anchor, step, low, high, count, paged FROM rules_offsets
+     WHERE host = ?1 AND path = ?2 AND parameter = ?3";
+
+/// The statement [`cursor`] reads a path's offset parameters with, which
+/// [`crate::prepare_admission`] prepares as the Run starts.
+pub(crate) const PAGED_OFFSETS: &str = "SELECT parameter, step FROM rules_offsets
+     WHERE host = ?1 AND path = ?2 AND paged = 1 ORDER BY parameter";
+
 /// What the admission of the URL whose key is `key`, a link of the page
 /// whose key is `from` when an attempt enqueued it, teaches: its integer
 /// parameter values, which show an offset; a cursor link on an offset
@@ -739,9 +756,7 @@ pub(crate) fn admitted(
     let from_pattern = pattern(parent.path);
     if from_pattern != pattern(parts.path) {
         connection
-            .prepare_cached(
-                "UPDATE rules_patterns SET streak = 0, first = NULL WHERE host = ?1 AND pattern = ?2",
-            )?
+            .prepare_cached(STREAK_ENDED)?
             .execute((parent.host, from_pattern))?;
     }
     Ok(())
@@ -776,10 +791,7 @@ fn offset_value(
 ) -> rusqlite::Result<()> {
     let listing = (parts.host, parts.path, parameter);
     let seen = connection
-        .prepare_cached(
-            "SELECT anchor, step, low, high, count, paged FROM rules_offsets
-             WHERE host = ?1 AND path = ?2 AND parameter = ?3",
-        )?
+        .prepare_cached(OFFSET_SEEN)?
         .query_row(listing, |row| {
             Ok((
                 row.get::<_, i64>(0)?,
@@ -927,10 +939,7 @@ fn cursor(
     from: &Url,
     key: &Url,
 ) -> rusqlite::Result<()> {
-    let mut statement = connection.prepare_cached(
-        "SELECT parameter, step FROM rules_offsets
-         WHERE host = ?1 AND path = ?2 AND paged = 1 ORDER BY parameter",
-    )?;
+    let mut statement = connection.prepare_cached(PAGED_OFFSETS)?;
     let offsets = statement
         .query_map((parts.host, parts.path), |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))

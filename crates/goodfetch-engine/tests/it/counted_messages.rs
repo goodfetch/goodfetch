@@ -23,7 +23,7 @@ fn run(logs: Logs, planted: Option<Row>) -> (u64, u64, Sent) {
     let work = metrics.counted_work().clone();
     let plant = planted.map(|row| {
         let work = work.clone();
-        Arc::new(move |_: &serde_json::Value| work.count(row)) as Plant
+        Arc::new(move |_: goodfetch_engine::Params<'_>| work.count(row)) as Plant
     });
     let sent = scenario::run(TRAFFIC, logs, metrics, plant, home.path());
     (
@@ -33,13 +33,13 @@ fn run(logs: Logs, planted: Option<Row>) -> (u64, u64, Sent) {
     )
 }
 
-/// A call is read without a copy, while each notification's params and each
-/// reply to a handler request are copied once on the way in; each call counts
-/// its two encodes on the way out, a Plugin's reply and event included; a
-/// plant adds one for each call that went through a handler.
+/// Every message is read without a copy, a notification's params and a reply
+/// to a handler request included, and every answer and event that leaves is
+/// encoded once, a Plugin's reply, its events and its log lines included, the
+/// `$/events` batches copying their events; a plant adds one for each call
+/// that went through a handler.
 #[test]
-fn the_messages_count_their_copies_and_encodes_a_plant_adds_one_a_call_and_log_off_removes_its_own()
-{
+fn every_message_is_read_without_a_copy_and_encoded_once() {
     let calls = u64::try_from(1 + TRAFFIC.small + TRAFFIC.large + TRAFFIC.plugin).unwrap();
 
     let (copies, encodes, sent) = run(Logs::On, None);
@@ -52,12 +52,19 @@ fn the_messages_count_their_copies_and_encodes_a_plant_adds_one_a_call_and_log_o
     assert!(sent.log_lines > 0, "{sent:?}");
     assert_eq!(sent_off.log_lines, 0, "{sent_off:?}");
 
-    let notifications = 1;
-    let replies = u64::try_from(TRAFFIC.plugin).unwrap();
-    assert_eq!(copies, notifications + replies);
-    assert!(encodes >= 2 * u64::try_from(sent.outgoing - sent.log_lines).unwrap());
+    assert_eq!(copies, 0);
+    assert_eq!(
+        encodes,
+        u64::try_from(sent.answers_and_events()).unwrap(),
+        "{sent:?}"
+    );
     assert_eq!(copies_planted - copies, calls);
     assert_eq!(encodes_planted - encodes, calls);
-    assert_eq!(copies_off, copies);
+    assert_eq!(copies_off, 0);
+    assert_eq!(
+        encodes_off,
+        u64::try_from(sent_off.answers_and_events()).unwrap(),
+        "{sent_off:?}"
+    );
     assert!(encodes_off < encodes, "{encodes_off} off, {encodes} on");
 }

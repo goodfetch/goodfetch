@@ -79,7 +79,8 @@ fn judged(cell: &CellReport) -> Option<&BTreeMap<&'static str, Figure>> {
         }
         CellStatus::Measured { .. }
         | CellStatus::NotSupported { .. }
-        | CellStatus::NotMeasured { .. } => None,
+        | CellStatus::NotMeasured { .. }
+        | CellStatus::Ruled { .. } => None,
     }
 }
 
@@ -131,7 +132,9 @@ fn pages(cell: Option<&CellReport>) -> String {
 fn figure<'a>(cell: Option<&'a CellReport>, metric: &str) -> Option<&'a Figure> {
     match &cell?.status {
         CellStatus::Measured { metrics, .. } => metrics.get(metric),
-        CellStatus::NotSupported { .. } | CellStatus::NotMeasured { .. } => None,
+        CellStatus::NotSupported { .. }
+        | CellStatus::NotMeasured { .. }
+        | CellStatus::Ruled { .. } => None,
     }
 }
 

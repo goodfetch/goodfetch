@@ -8,6 +8,7 @@
 //! every other job of its group left as it was.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
@@ -171,11 +172,12 @@ pub(crate) enum Ending {
         ended_at: PointInTime,
     },
     /// Its sitemap's `document` is read, its entries admitted under the
-    /// Run's domain policy `egress` (ADR 0093).
+    /// Run's domain policy `egress` and within its `invariants` (ADR 0093).
     Sitemap {
         work_item: String,
         lease_epoch: u64,
-        egress: Policy,
+        egress: Arc<Policy>,
+        invariants: Arc<goodfetch_frontier::Invariants>,
         document: sitemap::Document,
         work: CountedWork,
     },
@@ -271,10 +273,12 @@ impl Outcome {
                 work_item,
                 lease_epoch,
                 egress,
+                invariants,
                 document,
                 work,
             } => Ended::SitemapRead(work_items::read_sitemap(
                 connection,
+                &invariants,
                 &egress,
                 (&work_item, lease_epoch),
                 &document,
@@ -287,7 +291,7 @@ impl Outcome {
 
 /// Ends the attempt of `work_item` under `lease_epoch` `unsuccessful` at
 /// `ended_at`, as [`work_items::end`] does.
-fn end(
+pub(crate) fn end(
     connection: &Connection,
     (work_item, lease_epoch): (&str, u64),
     unsuccessful: Unsuccessful,

@@ -1,5 +1,5 @@
 use super::standing::Standing;
-use super::{Report, markdown, of};
+use super::{CellStatus, Figure, Report, markdown, of};
 use crate::compare::matrix::Scenario;
 use crate::compare::trials::{Comparison, Measured, Work, fixture};
 
@@ -57,7 +57,7 @@ fn standing(
 }
 
 /// The section of `title` in the Markdown, to the next section.
-fn section<'a>(markdown: &'a str, title: &str) -> &'a str {
+pub(super) fn section<'a>(markdown: &'a str, title: &str) -> &'a str {
     let start = markdown
         .find(&format!("\n## {title}"))
         .unwrap_or_else(|| panic!("no section {title} in:\n{markdown}"));
@@ -307,6 +307,91 @@ fn spiders_extraction_cells_are_not_the_same_work() {
     assert_eq!(
         cells_saying(section(&markdown, "4. "), unlike),
         ["spider", "spider mimalloc"]
+    );
+}
+
+/// Each cell of #2316's scenarios says it carries no bar, and each measured
+/// one gives its rate, latency percentiles and peak memory; no cell of the
+/// matrix's own five says so, and the hostile pages' cells say it for
+/// #2439 (their own test). The cell at the catalog's defaults says it is
+/// pending #2175 and gives no figure.
+#[test]
+fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
+    let trials = comparison(&[]);
+
+    let report = of(&trials);
+    let markdown = markdown(&report, &trials);
+
+    let no_bar = "  - no bar: none is set on this cell until the owner sets one (#2316).";
+    let saying: Vec<(Scenario, Vec<&str>)> = report
+        .scenarios
+        .iter()
+        .map(|scenario| {
+            (
+                scenario.scenario,
+                cells_saying(section(&markdown, scenario.title), no_bar),
+            )
+        })
+        .collect();
+    let every = |scenario: Scenario| -> Vec<&str> {
+        report
+            .scenarios
+            .iter()
+            .find(|report| report.scenario == scenario)
+            .map(|report| report.cells.iter().map(|cell| cell.cell).collect())
+            .unwrap_or_default()
+    };
+    let figures = [
+        "pages_per_second",
+        "latency_p50_seconds",
+        "latency_p95_seconds",
+        "latency_p99_seconds",
+        "peak_rss_bytes",
+    ];
+    let unmeasured: Vec<(Scenario, &str, &str)> = report
+        .scenarios
+        .iter()
+        .filter(|scenario| scenario.scenario.carries_no_bar())
+        .flat_map(|scenario| {
+            scenario
+                .cells
+                .iter()
+                .flat_map(move |cell| match &cell.status {
+                    CellStatus::Measured { metrics, .. } => figures
+                        .iter()
+                        .filter(|name| !matches!(metrics.get(*name), Some(Figure::Measured { .. })))
+                        .map(|name| (scenario.scenario, cell.cell, *name))
+                        .collect::<Vec<_>>(),
+                    CellStatus::NotSupported { .. }
+                    | CellStatus::NotMeasured { .. }
+                    | CellStatus::Ruled { .. } => Vec::new(),
+                })
+        })
+        .collect();
+    let pending = "  - not measured: pending #2175, which brings the cell at the catalog's \
+                   defaults.";
+
+    assert_eq!(
+        (
+            saying,
+            unmeasured,
+            cells_saying(section(&markdown, Scenario::Raw256.title()), pending),
+        ),
+        (
+            Scenario::ALL
+                .into_iter()
+                .map(|scenario| (
+                    scenario,
+                    if scenario.carries_no_bar() && !scenario.hostile() {
+                        every(scenario)
+                    } else {
+                        Vec::new()
+                    }
+                ))
+                .collect::<Vec<_>>(),
+            Vec::new(),
+            vec!["foxhound defaults"],
+        )
     );
 }
 

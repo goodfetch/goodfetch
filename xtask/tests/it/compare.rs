@@ -166,6 +166,7 @@ fn trials() -> Value {
             "scrapy_playwright": "0.0.48",
             "crawlee_rs": "2a3ed90b8391c86005ce6ed8dd3e3248d0d34579",
             "browser": "156.0.8078.4",
+            "scenarios": ["raw", "durable", "polite", "extraction", "browser"],
             "command": "just compare release",
         },
         "machine": {
@@ -179,6 +180,7 @@ fn trials() -> Value {
         "commit": "0123456789abcdef0123456789abcdef01234567",
         "order_seed": 7,
         "trials": trials,
+        "rules": [],
         "syscalls": not_run("strace is not installed on this host"),
         "growth": not_run("the growth cell runs with `--growth`"),
         "instructions": not_run("valgrind is not installed on this host"),

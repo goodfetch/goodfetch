@@ -2,7 +2,8 @@
 //! handler has, the lease that bounds it, how many work items the program
 //! handles at once, and which failures are retried and how often, each read
 //! from the Run's resolved settings (`timeout.handler`, `crawl.retry.max`,
-//! `crawl.retry.handler_failed`, `crawl.handler.concurrency`), resolved once
+//! `crawl.retry.handler_failed`, `crawl.retry.engine_panicked`,
+//! `crawl.handler.concurrency`), resolved once
 //! as the Run opens (ADR 0138); and the Run's domain policy, which its
 //! Frontier judges each seed and enqueue by.
 
@@ -12,7 +13,8 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::foxhound::crawl::{
-    CRAWL_HANDLER_CONCURRENCY, CRAWL_RETRY_HANDLER_FAILED, CRAWL_RETRY_MAX, TIMEOUT_HANDLER,
+    CRAWL_HANDLER_CONCURRENCY, CRAWL_RETRY_ENGINE_PANICKED, CRAWL_RETRY_HANDLER_FAILED,
+    CRAWL_RETRY_MAX, TIMEOUT_HANDLER,
 };
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails};
@@ -27,6 +29,9 @@ pub(crate) struct CrawlPolicy {
     /// `crawl.retry.handler_failed`: whether a handler's own failure is
     /// retried.
     pub(crate) retry_handler_failed: bool,
+    /// `crawl.retry.engine_panicked`: whether an attempt the engine's panic
+    /// ended is retried (ADR 0148).
+    pub(crate) retry_engine_panicked: bool,
     /// `crawl.handler.concurrency`: how many work items the program handles
     /// at once.
     pub(crate) handler_concurrency: usize,
@@ -39,6 +44,7 @@ impl CrawlPolicy {
             handler_timeout: resolved.get(&TIMEOUT_HANDLER),
             retry_max: u32::try_from(resolved.get::<u64>(&CRAWL_RETRY_MAX)).unwrap_or(u32::MAX),
             retry_handler_failed: resolved.get(&CRAWL_RETRY_HANDLER_FAILED),
+            retry_engine_panicked: resolved.get(&CRAWL_RETRY_ENGINE_PANICKED),
             handler_concurrency: usize::try_from(resolved.get::<u64>(&CRAWL_HANDLER_CONCURRENCY))
                 .unwrap_or(usize::MAX)
                 .max(1),
@@ -104,6 +110,7 @@ mod tests {
         handler_timeout: Duration::from_mins(1),
         retry_max: 2,
         retry_handler_failed: false,
+        retry_engine_panicked: true,
         handler_concurrency: 16,
     };
 

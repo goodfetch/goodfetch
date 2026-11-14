@@ -48,13 +48,15 @@ pub(crate) fn engine_info_lines(count: usize) -> Vec<u8> {
 
 /// Frames `bytes` and decodes each line; returns how many decoded.
 pub(crate) fn frame_and_decode(bytes: &[u8]) -> usize {
-    let work = goodfetch_counted_work::CountedWork::default();
     let mut framer = Framer::new(MAX_MESSAGE_BYTES);
     let mut lines = Vec::new();
     framer.feed(bytes, &mut lines);
     lines
-        .iter()
-        .filter(|frame| matches!(frame, Frame::Line(line) if decode(line, &work).is_ok()))
+        .into_iter()
+        .filter_map(|frame| match frame {
+            Frame::Line(line) => decode(line).ok(),
+            Frame::TooLarge => None,
+        })
         .count()
 }
 
@@ -367,12 +369,19 @@ pub(crate) fn mask_input(values: usize, bytes: usize) -> (Masks, Mask, Vec<u8>) 
 }
 
 /// Masks `stream` as the log writers do, each whole line through
-/// [`Masks::apply_bytes`] in the kept outputs' scope, and returns how many
-/// bytes the masked lines hold.
+/// [`Masks::apply_bytes_into`] in the kept outputs' scope, into one buffer,
+/// and returns how many bytes the masked lines hold. Its lines are found
+/// with `memchr`, as a log writer is handed each line whole, so the count
+/// is the masking's rather than a byte-by-byte search for line ends.
 pub(crate) fn mask_stream(masks: &Masks, stream: &[u8]) -> usize {
     let mut written = Vec::with_capacity(stream.len());
-    for line in stream.split_inclusive(|byte| *byte == b'\n') {
-        written.extend_from_slice(&masks.apply_bytes(line, Scope::KeptOutput));
+    let mut start = 0;
+    for end in memchr::memchr_iter(b'\n', stream)
+        .map(|newline| newline + 1)
+        .chain(std::iter::once(stream.len()))
+    {
+        masks.apply_bytes_into(&stream[start..end], Scope::KeptOutput, &mut written);
+        start = end;
     }
     written.len()
 }

@@ -1,26 +1,43 @@
-use super::check;
-use crate::compare::matrix::{self, Scenario};
-use crate::compare::trials::{Comparison, Measured, Work, fixture};
+use super::{check, strace_runs_of_other_work_set_aside};
+use crate::compare::matrix::{self, Row, Scenario};
+use crate::compare::trials::{
+    Comparison, CountedCell, CountedRun, INSTRUCTION_TOOLS, Measured, Tool, Work, fixture,
+};
+
+/// The work of a trial that fetched every page of the site of `pages`
+/// pages once, 600 bytes each.
+fn whole(pages: u64) -> Work {
+    Work {
+        pages,
+        missing: Vec::new(),
+        extra: Vec::new(),
+        requests: pages,
+        bytes: 600 * pages,
+        first_bytes: 600 * pages,
+    }
+}
 
 /// The work of a trial that fetched every page of the 4-page site once,
 /// 600 bytes each, plus `again` pages fetched a second time.
 fn work(again: u64) -> Work {
     Work {
-        pages: 4,
-        missing: Vec::new(),
-        extra: Vec::new(),
         requests: 4 + again,
         bytes: 600 * (4 + again),
-        first_bytes: 2400,
+        ..whole(4)
     }
 }
 
 /// Three trials of each measured cell over the 4-page site, each with the
-/// work `work` gives its scenario and number.
+/// work `work` gives its scenario and number; the long scenario's trials
+/// crawl its own site, and each did all of its work.
 fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
     fixture::comparison(4, |cell, number| Measured {
         seconds: 1.0,
-        work: work(cell.scenario, number),
+        work: if cell.scenario == Scenario::Long {
+            whole(matrix::LONG_PAGES)
+        } else {
+            work(cell.scenario, number)
+        },
         ..Measured::default()
     })
 }
@@ -233,4 +250,179 @@ fn a_browser_trial_that_never_rendered_the_links_misses_the_script_rendered_page
             .map(|(kind, subject, message)| (*kind, subject.as_str(), *message))
             .collect::<Vec<_>>()
     );
+}
+
+/// Three runs of each cell `counts` keeps, each of the work `work` gives
+/// its scenario, cell and number: a counted cell over the 4-page site,
+/// which a scenario that runs only its timed trials has no run in.
+fn counted(
+    counts: impl Fn(Scenario, Row, Tool) -> bool,
+    work: impl Fn(Scenario, &str, u32) -> Work,
+) -> CountedCell {
+    let runs = matrix::measured()
+        .filter(|(cell, config)| {
+            !cell.scenario.timed_only() && counts(cell.scenario, cell.row, config.tool())
+        })
+        .flat_map(|(cell, config)| {
+            let work = &work;
+            (1..=3).map(move |number| CountedRun {
+                scenario: cell.scenario,
+                cell: cell.name.to_owned(),
+                tool: config.tool(),
+                number,
+                count: 9,
+                syncs: 0,
+                work: work(cell.scenario, cell.name, number),
+            })
+        })
+        .collect();
+    CountedCell::Measured {
+        trials: 3,
+        runs,
+        stopped: Vec::new(),
+    }
+}
+
+/// The work of a run that reached 3 of the 4-page site's pages.
+fn short() -> Work {
+    Work {
+        pages: 3,
+        missing: vec!["/sites/4/4".to_owned()],
+        extra: Vec::new(),
+        requests: 3,
+        bytes: 1800,
+        first_bytes: 1800,
+    }
+}
+
+/// A stopped run's scenario, cell, number and reason.
+type Stopped<'a> = (Scenario, &'a str, u32, &'a str);
+
+/// The cells a counted cell's runs are of, and its stopped runs.
+fn cells_of(cell: &CountedCell) -> (Vec<(Scenario, &str)>, Vec<Stopped<'_>>) {
+    let CountedCell::Measured { runs, stopped, .. } = cell else {
+        panic!("the cell ran");
+    };
+    let mut cells: Vec<_> = runs
+        .iter()
+        .map(|run| (run.scenario, run.cell.as_str()))
+        .collect();
+    cells.dedup();
+    let stopped = stopped
+        .iter()
+        .map(|run| {
+            (
+                run.scenario,
+                run.cell.as_str(),
+                run.number,
+                run.reason.as_str(),
+            )
+        })
+        .collect();
+    (cells, stopped)
+}
+
+/// strace slows a headless browser crawl enough for it to miss pages: the
+/// run's system calls are of other work, so its cell's are not measured,
+/// with the pages it reached, and the timed figures still count.
+#[test]
+fn a_strace_run_that_missed_pages_leaves_its_cells_system_calls_not_measured() {
+    let mut trials = comparison(|_, _| work(0));
+    trials.syscalls = counted(
+        |_, _, _| true,
+        |scenario, cell, number| {
+            if (scenario, cell, number) == (Scenario::Browser, "spider", 2) {
+                short()
+            } else {
+                work(0)
+            }
+        },
+    );
+
+    strace_runs_of_other_work_set_aside(&mut trials);
+
+    assert_eq!(named(&trials), vec![]);
+    let (cells, stopped) = cells_of(&trials.syscalls);
+    assert!(!cells.contains(&(Scenario::Browser, "spider")), "{cells:?}");
+    assert!(cells.contains(&(Scenario::Browser, "crawlee")), "{cells:?}");
+    assert_eq!(
+        stopped,
+        vec![(
+            Scenario::Browser,
+            "spider",
+            2,
+            "under `strace -f`, run 2 did other work, reaching 3 of the site's 4 pages: 1 of the site's 3 pages its script links not reached"
+        )]
+    );
+}
+
+/// A strace run served other bytes for the site's pages counted other
+/// work's system calls too.
+#[test]
+fn a_strace_run_served_other_bytes_leaves_its_cells_system_calls_not_measured() {
+    let mut trials = comparison(|_, _| work(0));
+    trials.syscalls = counted(
+        |_, _, _| true,
+        |scenario, cell, number| {
+            work(u64::from(
+                (scenario, cell, number) == (Scenario::Raw, "crawlee", 1),
+            ))
+        },
+    );
+
+    strace_runs_of_other_work_set_aside(&mut trials);
+
+    assert_eq!(named(&trials), vec![]);
+    let (cells, stopped) = cells_of(&trials.syscalls);
+    assert!(!cells.contains(&(Scenario::Raw, "crawlee")), "{cells:?}");
+    assert_eq!(stopped.len(), 1, "{stopped:?}");
+    let (scenario, cell, number, reason) = stopped[0];
+    assert_eq!((scenario, cell, number), (Scenario::Raw, "crawlee", 1));
+    assert!(
+        reason.starts_with(
+            "under `strace -f`, run 1 did other work, reaching 4 of the site's 4 pages: 5 requests served 3000 bytes, where "
+        ),
+        "{reason}"
+    );
+}
+
+/// Only strace's cell is set aside: a timed trial and a Callgrind run that
+/// missed a page still keep every figure from counting.
+#[test]
+fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
+    let mut trials = comparison(|scenario, number| {
+        if (scenario, number) == (Scenario::Polite, 1) {
+            short()
+        } else {
+            work(0)
+        }
+    });
+    trials.syscalls = counted(|_, _, _| true, |_, _, _| work(0));
+    trials.instructions = counted(
+        |scenario, row, tool| {
+            scenario == Scenario::Raw && row == Row::Main && INSTRUCTION_TOOLS.contains(&tool)
+        },
+        |_, cell, number| {
+            if (cell, number) == ("spider", 3) {
+                short()
+            } else {
+                work(0)
+            }
+        },
+    );
+
+    strace_runs_of_other_work_set_aside(&mut trials);
+
+    assert_eq!(
+        named(&trials),
+        vec![
+            ("different_pages", "polite foxhound trial 1".to_owned()),
+            ("different_pages", "polite crawlee trial 1".to_owned()),
+            ("different_pages", "polite scrapy trial 1".to_owned()),
+            ("different_pages", "polite crawlee-rs trial 1".to_owned()),
+            ("different_pages", "raw spider callgrind trial 3".to_owned()),
+        ]
+    );
+    let (_, stopped) = cells_of(&trials.syscalls);
+    assert_eq!(stopped, vec![]);
 }

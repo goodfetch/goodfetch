@@ -9,57 +9,43 @@
 
 use std::sync::{Mutex, PoisonError};
 
-use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use goodfetch_protocol::page::{CHUNK, CHUNK_BYTES, Chunk};
 use serde::Serialize;
-use serde_json::Value;
 use tokio::io::AsyncReadExt as _;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::call_error::CallError;
 use crate::events::Credits;
+use crate::wire::{Line, Received, notification_line};
 
 /// The way back to a call's Client: the notifications that name the call,
-/// written as lines on its Connection's writer.
+/// written as lines on its Connection's writer, each encoded once.
 #[derive(Clone)]
 pub(crate) struct CallNotifier {
     id: RequestId,
-    outgoing: mpsc::Sender<Vec<u8>>,
-    line: fn(&str, Value) -> Vec<u8>,
-    work: CountedWork,
+    outgoing: mpsc::Sender<Line>,
 }
 
 impl CallNotifier {
     /// The notifier of the call `id`, on the Connection's writer
-    /// `outgoing`, which writes the line `line` makes of a notification's
-    /// method and params, each encode counted on `work`.
-    pub(crate) fn new(
-        id: RequestId,
-        outgoing: mpsc::Sender<Vec<u8>>,
-        line: fn(&str, Value) -> Vec<u8>,
-        work: CountedWork,
-    ) -> Self {
-        Self {
-            id,
-            outgoing,
-            line,
-            work,
-        }
+    /// `outgoing`.
+    pub(crate) fn new(id: RequestId, outgoing: mpsc::Sender<Line>) -> Self {
+        Self { id, outgoing }
     }
 
     /// The notification `method` with `params` to the Client; `false` once
     /// the Connection's writer is gone. Dropping the future sends nothing
     /// unless the writer took the line.
     async fn notify(&self, method: &str, params: &impl Serialize) -> bool {
-        self.work.count(Row::MessageEncodes);
-        let params =
-            serde_json::to_value(params).expect("invariant: a notification's params encode");
-        self.outgoing
-            .send((self.line)(method, params))
+        self.send(Line::from(notification_line(method, params)))
             .await
-            .is_ok()
+    }
+
+    /// `line` to the Client; `false` once the Connection's writer is gone.
+    async fn send(&self, line: Line) -> bool {
+        self.outgoing.send(line).await.is_ok()
     }
 }
 
@@ -105,6 +91,18 @@ impl CallStream {
     /// the line.
     pub async fn notify(&self, method: &str, params: &impl Serialize) -> bool {
         self.notifier.notify(method, params).await
+    }
+
+    /// As [`CallStream::notify`], for `params` that carry events, each
+    /// encoded once as it was published: the line copies them.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`CallStream::notify`]'s.
+    pub(crate) async fn notify_events(&self, method: &str, params: &impl Serialize) -> bool {
+        self.notifier
+            .send(Line::copying(notification_line(method, params)))
+            .await
     }
 
     /// Sends `file`, from where it is to its end, in `$/chunk`
@@ -167,7 +165,7 @@ async fn read_chunk(file: &mut tokio::fs::File, chunk: &mut [u8]) -> std::io::Re
 /// let the Client send more.
 pub struct CallInput {
     notifier: CallNotifier,
-    incoming: Mutex<mpsc::Receiver<Value>>,
+    incoming: Mutex<mpsc::Receiver<Received>>,
     /// Cancelled once the Client sent more than `room` notifications the
     /// call had not read.
     overflowed: CancellationToken,
@@ -177,7 +175,7 @@ pub struct CallInput {
 /// The Connection's end of a call's input, which hands each input
 /// notification over until the call's room is full.
 pub(crate) struct InputSender {
-    sender: Option<mpsc::Sender<Value>>,
+    sender: Option<mpsc::Sender<Received>>,
     overflowed: CancellationToken,
 }
 
@@ -185,7 +183,7 @@ impl InputSender {
     /// Hands `params` to the call; when the call has `room` notifications
     /// unread already, refuses its input instead (the call's next read
     /// fails with `invalid_params`) and ignores what comes after.
-    pub(crate) fn hand_over(&mut self, params: Value) {
+    pub(crate) fn hand_over(&mut self, params: Received) {
         let Some(sender) = &self.sender else {
             return;
         };
@@ -222,8 +220,8 @@ impl CallInput {
         &self.notifier.id
     }
 
-    /// The params of the next input notification; `None` once the
-    /// Connection ended. Read by the call's handler alone, one read at a
+    /// The params of the next input notification, as they came; `None`
+    /// once the Connection ended. Read by the call's handler alone, one read at a
     /// time.
     ///
     /// # Errors
@@ -235,7 +233,7 @@ impl CallInput {
     /// # Cancel safety
     ///
     /// Dropping the future loses no notification.
-    pub async fn next(&self) -> Result<Option<Value>, CallError> {
+    pub async fn next(&self) -> Result<Option<Received>, CallError> {
         if self.overflowed.is_cancelled() {
             return Err(self.overflow());
         }

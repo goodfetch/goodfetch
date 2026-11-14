@@ -25,8 +25,6 @@ use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, Handler};
-use goodfetch_frontier::Scope;
-use goodfetch_frontier::payload::PayloadRules;
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, Seed};
 use goodfetch_protocol::foxhound::frontier::{
@@ -38,6 +36,7 @@ use goodfetch_protocol::run::{RUN_NOT_FOUND, RUN_STATE_UNAVAILABLE, RunDetails, 
 use rusqlite::Connection;
 
 use crate::intake::Intake;
+use crate::invariants::Invariants;
 use crate::serving::{Crawls, LiveCrawl};
 use crate::work_items::{self, Positions};
 
@@ -97,6 +96,7 @@ async fn add_seed(
     let Some(LiveCrawl {
         run,
         egress,
+        invariants,
         seeded,
         staging,
         intake,
@@ -118,13 +118,13 @@ async fn add_seed(
             intake.admitting(|| match bound {
                 Some(attempt) => staging.admit(
                     connection,
-                    &attempt.crawl_request_id.clone(),
+                    &attempt.crawl_request_id,
                     attempt.lease_epoch,
-                    move |connection, positions| {
+                    |connection, positions| {
                         admit_within(
                             connection,
                             positions,
-                            (&egress, &work),
+                            (&egress, &invariants, &work),
                             &seed,
                             Some(&attempt),
                         )
@@ -133,7 +133,7 @@ async fn add_seed(
                 None => admit_within(
                     connection,
                     &mut Positions::of(connection)?,
-                    (&egress, &work),
+                    (&egress, &invariants, &work),
                     &seed,
                     None,
                 ),
@@ -157,50 +157,39 @@ async fn add_seed(
     ))
 }
 
-/// Admits `seed` under the Run's domain policy `egress`, at its position
-/// from `positions`, while `attempt`, when given, holds its lease, once
-/// its Payload fits its Label's schema and the cap, else
-/// `payload_invalid`; `None` once that attempt ended.
+/// Admits `seed` within the Run's `invariants` and under its domain policy
+/// `egress`, at its position from `positions`, while `attempt`, when
+/// given, holds its lease, once its Payload fits its Label's schema and
+/// the cap, else `payload_invalid`; `None` once that attempt ended. It
+/// runs once: an attempt's commit applies what its staging decided
+/// (#2245).
 fn admit_within(
     connection: &Connection,
     positions: &mut Positions,
-    (egress, work): (&Policy, &CountedWork),
+    (egress, invariants, work): (&Policy, &Invariants, &CountedWork),
     seed: &Seed,
     attempt: Option<&SeedAttempt>,
 ) -> rusqlite::Result<Option<Result<Enqueued, CallError>>> {
-    positions.counting(work);
     if let Some(attempt) = attempt
         && work_items::attempt(connection, &attempt.crawl_request_id, attempt.lease_epoch)?
             .is_none()
     {
         return Ok(None);
     }
-    if let Err(refused) = refused(connection, std::slice::from_ref(seed), work)? {
-        return Ok(Some(Err(refused)));
-    }
+    let checked = match work_items::check_seed(invariants, seed.clone(), work) {
+        Ok(checked) => checked,
+        Err(refused) => return Ok(Some(Err(refused))),
+    };
     let mut answers = work_items::admit_seeds(
         connection,
         positions,
-        &Scope::read(connection)?,
+        invariants,
         egress,
-        std::slice::from_ref(seed),
+        std::slice::from_ref(&checked),
     )?;
     Ok(Some(Ok(answers
         .pop()
         .expect("invariant: the Frontier answers each seed"))))
-}
-
-/// `payload_invalid` for the first of `seeds` whose Payload does not fit
-/// its Label's schema or the cap the run file `connection` holds.
-fn refused(
-    connection: &Connection,
-    seeds: &[Seed],
-    work: &CountedWork,
-) -> rusqlite::Result<Result<(), CallError>> {
-    let rules = PayloadRules::read(connection)?;
-    Ok(seeds
-        .iter()
-        .try_for_each(|seed| work_items::check_seed(&rules, seed, work)))
 }
 
 async fn add_seeds(
@@ -211,6 +200,7 @@ async fn add_seeds(
     let Some(LiveCrawl {
         run,
         egress,
+        invariants,
         seeded,
         intake,
         ..
@@ -228,7 +218,7 @@ async fn add_seeds(
         let Some(batch) = input.next().await? else {
             return Ok(added);
         };
-        let batch: SeedBatch = serde_json::from_value(batch).map_err(|error| {
+        let batch: SeedBatch = batch.read().map_err(|error| {
             CallError::protocol(
                 ProtocolFailure::InvalidParams,
                 format!("A `$/seeds` batch holds no seeds: {error}"),
@@ -244,7 +234,13 @@ async fn add_seeds(
             ));
         }
         credits -= taken;
-        let answers = admit_batch(&run, (&egress, &intake), &params.run_id, batch.seeds).await?;
+        let answers = admit_batch(
+            &run,
+            (&egress, &invariants, &intake),
+            &params.run_id,
+            batch.seeds,
+        )
+        .await?;
         seeded.notify_one();
         for answer in &answers {
             match answer {
@@ -288,14 +284,14 @@ async fn grant(context: &CallContext, credits: u32) -> bool {
         .await
 }
 
-/// Admits each of `seeds` under the Run's domain policy `egress` in one
-/// write of `run`'s state, and answers each one's answer in order; none
+/// Admits each of `seeds` within the Run's `invariants` and under its
+/// domain policy `egress` in one write of `run`'s state, and answers each one's answer in order; none
 /// is admitted, and the call fails with `payload_invalid`, when one's
 /// Payload does not fit its Label's schema or the cap, and with
 /// `run_not_found` once the crawl's `intake` closed.
 async fn admit_batch(
     run: &Run,
-    (egress, intake): (&Arc<Policy>, &Intake),
+    (egress, invariants, intake): (&Arc<Policy>, &Invariants, &Intake),
     run_id: &RunId,
     seeds: Vec<Seed>,
 ) -> Result<Vec<Enqueued>, CallError> {
@@ -303,20 +299,22 @@ async fn admit_batch(
         return Ok(Vec::new());
     }
     let egress = Arc::clone(egress);
+    let invariants = invariants.clone();
     let intake = intake.clone();
     let work = run.metrics().counted_work().clone();
     run.state()
         .write(move |connection| {
             intake.admitting(|| {
-                if let Err(refused) = refused(connection, &seeds, &work)? {
-                    return Ok(Err(refused));
-                }
+                let checked = match work_items::check_seeds(&invariants, seeds, &work) {
+                    Ok(checked) => checked,
+                    Err(refused) => return Ok(Err(refused)),
+                };
                 work_items::admit_seeds(
                     connection,
-                    &mut Positions::counted(connection, &work)?,
-                    &Scope::read(connection)?,
+                    &mut Positions::of(connection)?,
+                    &invariants,
                     &egress,
-                    &seeds,
+                    &checked,
                 )
                 .map(Ok)
             })

@@ -13,7 +13,7 @@ use opentelemetry::metrics::MeterProvider as _;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use serde_json::{Value, json};
 
-use super::{Reply, crawl_on, dependencies, engine, seeds};
+use super::{Reply, SITEMAP, crawl_on, dependencies, engine, seeds};
 
 /// The value of the series `name` of `registry`, if it has one.
 fn value_of(registry: &prometheus::Registry, name: &str) -> Option<f64> {
@@ -132,4 +132,93 @@ fn a_crawl_counts_each_attempt_while_it_runs_and_each_retry() {
             Some(1.0),
         )
     );
+}
+
+/// The count of `work` on the Shared path `shared_path` in `registry`.
+fn counted(registry: &prometheus::Registry, shared_path: &str, work: &str) -> Option<f64> {
+    registry
+        .gather()
+        .iter()
+        .find(|family| family.name() == "goodfetch_counted_work_total")?
+        .get_metric()
+        .iter()
+        .find(|metric| {
+            let labelled = |name: &str, value: &str| {
+                metric
+                    .get_label()
+                    .iter()
+                    .any(|label| label.name() == name && label.value() == value)
+            };
+            labelled("shared_path", shared_path) && labelled("work", work)
+        })
+        .map(|metric| metric.get_counter().get_value())
+}
+
+/// Crawls from `seeds`, handling three pages at a time, and returns how many
+/// pages the handler saw and how many round trips to the actor that owns the
+/// Run state the crawl counted as `F3.actor_round_trips`.
+fn pages_and_round_trips(seeds: &Value) -> (usize, Option<f64>) {
+    let env = TestEnv::new();
+    let registry = prometheus::Registry::new();
+    let exporter = opentelemetry_prometheus::exporter()
+        .with_registry(registry.clone())
+        .without_target_info()
+        .scope_info_enabled(false)
+        .build()
+        .unwrap();
+    let provider = SdkMeterProvider::builder().with_reader(exporter).build();
+    let engine = engine().with_metrics(Metrics::new(&provider.meter(METER)));
+    let mut pages = 0;
+
+    crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "trips", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 3 } } } }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |_: &Value| {
+                pages += 1;
+                Reply::Records(vec![json!({ "handled": true })])
+            };
+            client
+                .call("run.finish", json!({ "run_id": "trips" }), &mut handler)
+                .await
+        },
+    );
+
+    (
+        pages,
+        counted(&registry, "frontier_admission", "actor_round_trips"),
+    )
+}
+
+/// A page's task tells the actor that owns its crawl's Run state of its
+/// attempt's end in one message, whose answer carries its next attempt
+/// (ADR 0142): five pages, three at a time, cost five round trips, counted
+/// as `F3.actor_round_trips`.
+///
+/// Covers: story:3-25
+#[test]
+fn each_attempt_costs_the_run_states_actor_one_round_trip() {
+    assert_eq!(pages_and_round_trips(&seeds(5)), (5, Some(5.0)));
+}
+
+/// A sitemap's attempt ends in one message to the actor as a page's does:
+/// a crawl from one sitemap seed whose sitemap lists three pages handles
+/// the three and costs four round trips.
+///
+/// Covers: story:3-25
+#[test]
+fn a_sitemap_attempt_costs_the_run_states_actor_one_round_trip() {
+    let seeds = json!([{
+        "sitemap": format!("https://shop.test{SITEMAP}"),
+        "rules": [{ "pattern": "**", "label": "page" }],
+    }]);
+
+    assert_eq!(pages_and_round_trips(&seeds), (3, Some(4.0)));
 }

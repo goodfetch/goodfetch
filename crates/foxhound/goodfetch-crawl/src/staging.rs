@@ -21,17 +21,26 @@
 //! count what the attempt staged; a rule an earlier admission of the
 //! attempt would teach is learned at the commit. Its added requests'
 //! positions, which are their IDs, are reserved in the run file at once,
-//! so the commit, which runs every staged admission again in order, gives
-//! each the ID its enqueue answered. A request another attempt's commit
+//! and what it decided is kept: each candidate whose judgement wrote to
+//! the run file, keyed, which is each request it answered `added`, each a
+//! bound refused and each a learned rule merged or refused, and each
+//! request a link reached again (ADR 0035). The commit applies those
+//! decisions in order and runs no staged admission again (#2245, closing
+//! #2069): it adds each request at the ID its enqueue answered, and
+//! counts or records each such refusal, through the part of the
+//! candidate's admission that needs the Run's state. Every other
+//! candidate, a plain duplicate or one out of the scope among them, wrote
+//! nothing and is not judged again. A request another attempt's commit
 //! added meanwhile, or a rule learned since refuses, is not added, and the
 //! outcome of the commit names its ID, with why; a discarded attempt
 //! leaves a gap among the IDs. An attempt stages at most
 //! `crawl.max_staged_enqueues` admissions: one more fails with
 //! `staging_full`.
 //! An admission an attempt leaves to its commit ([`Staging::defer`]), as
-//! a code-free attempt's links, is answered to nobody: it reserves no
-//! position, and runs the first time at the commit, which keys each work
-//! item it adds as the crawl's gate does (ADR 0138).
+//! a code-free attempt's links, keyed on its page's task, is answered to
+//! nobody: it reserves no position, rides its attempt's outcome and runs
+//! the first time at the commit, in the outcome's one job, which keys each
+//! work item it adds as the crawl's gate does (ADR 0138).
 //!
 //! While a declared Effect's body runs in an attempt, a call that would
 //! stage an output with it fails with `effect_staging_refused` (ADR 0106).
@@ -58,13 +67,13 @@ use goodfetch_protocol::foxhound::provenance::RobotsTxtMark;
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 
-use crate::work_items::{Fetched, FieldsRead, Positions};
+use crate::work_items::{Decided, Fetched, FieldsRead, Positions};
 
-/// An admission through the Frontier that an attempt staged, run again at
-/// its commit, which answers the requests it added there through a link
-/// suspected a trap, each with its URL, when it was deferred to the commit
-/// ([`Staging::defer`]); one answered when staged answers none there.
-type Admission = Arc<
+/// An admission through the Frontier that an attempt left to its commit
+/// ([`Staging::defer`]), which runs it the first time: it answers the
+/// requests it added there through a link suspected a trap, each with its
+/// URL.
+type Deferred = Box<
     dyn Fn(&Connection, &mut Positions) -> rusqlite::Result<Vec<(String, String)>> + Send + Sync,
 >;
 
@@ -72,10 +81,18 @@ type Admission = Arc<
 /// ended, else its answer or the call's own refusal.
 pub(crate) type Answered<T> = rusqlite::Result<Option<Result<T, CallError>>>;
 
+/// What an attempt's commit does of one admission staged with it.
+enum AtCommit {
+    /// Applies what its staging decided, in order: the admission was
+    /// answered when staged, and is not run again (#2245).
+    Apply(Vec<Decided>),
+    /// Runs it, the first time.
+    Run(Deferred),
+}
+
 /// One staged admission, with the position it gave each URL it added.
-#[derive(Clone)]
 struct Admitted {
-    admission: Admission,
+    at_commit: AtCommit,
     positions: BTreeMap<String, u64>,
 }
 
@@ -180,16 +197,22 @@ pub(crate) struct Replayed<'a> {
 }
 
 impl Staged {
-    /// Admits every staged request again, in order, in `connection`'s
-    /// transaction, each at the position its staging answered, and answers
-    /// the Key-value store writes, in order, to apply in it too, with each
-    /// request it did not add.
+    /// Applies what each staged admission decided, in order, in
+    /// `connection`'s transaction, adding each request its staging
+    /// answered `added` at the position it answered and counting or
+    /// recording each refusal that writes, and answers the Key-value store
+    /// writes, in order, to apply in it too, with each request it did not
+    /// add. No staged admission runs again (#2245): the whole of an
+    /// attempt's admission work at its commit is in here, which
+    /// `F3.prepares` reads: a function of its own, never inlined, so that
+    /// `xtask counts`' Callgrind run can name it (ADR 0140).
     ///
     /// Each work item it adds is keyed under `keys`, when given, as it is
     /// added (ADR 0138). An admission deferred to the commit
     /// ([`Staging::defer`]) adds its requests here for the first time,
     /// and those it adds through a link suspected a trap join the
     /// attempt's.
+    #[inline(never)]
     pub(crate) fn admit(
         &mut self,
         connection: &Connection,
@@ -199,8 +222,16 @@ impl Staged {
         let mut not_added = Vec::new();
         for staged in &self.admitted {
             positions.keeping(staged.positions.clone());
-            let suspected = (staged.admission)(connection, &mut positions)?;
-            self.suspected.extend(suspected);
+            match &staged.at_commit {
+                AtCommit::Apply(decided) => {
+                    for decided in decided {
+                        decided.apply(connection, &mut positions)?;
+                    }
+                }
+                AtCommit::Run(deferred) => {
+                    self.suspected.extend(deferred(connection, &mut positions)?);
+                }
+            }
             not_added.extend(positions.not_added());
         }
         Ok(Replayed {
@@ -460,15 +491,17 @@ impl Staging {
     /// `lease_epoch`, inside the write of `connection`, and answers what it
     /// answers there after the attempt's earlier admissions, which it reads
     /// from what they did beside the run file, the run file left as it was
-    /// but for the positions it reserves. An admission that answers the
-    /// attempt ended or a refusal of its own is not staged; one past the
-    /// attempt's `crawl.max_staged_enqueues` fails with `staging_full`.
+    /// but for the positions it reserves. It runs this once: what it
+    /// decided is kept for the attempt's commit to apply. An admission
+    /// that answers the attempt ended or a refusal of its own is not
+    /// staged; one past the attempt's `crawl.max_staged_enqueues` fails
+    /// with `staging_full`.
     pub(crate) fn admit<T>(
         &self,
         connection: &Connection,
         work_item: &str,
         lease_epoch: u64,
-        admission: impl Fn(&Connection, &mut Positions) -> Answered<T> + Send + Sync + 'static,
+        admission: impl FnOnce(&Connection, &mut Positions) -> Answered<T>,
     ) -> Answered<T> {
         let key = AttemptKey::of(work_item, lease_epoch);
         let earlier = match self.entries().get(&key) {
@@ -495,11 +528,8 @@ impl Staging {
             return Ok(answered);
         }
         positions.reserve(connection)?;
-        let admission = Arc::new(admission);
         let admitted = Admitted {
-            admission: Arc::new(move |connection: &Connection, positions: &mut Positions| {
-                admission(connection, positions).map(|_| Vec::new())
-            }),
+            at_commit: AtCommit::Apply(positions.decided()),
             positions: positions.taken(),
         };
         // Its `earlier` goes with it, so the entry's own is the one left.
@@ -542,7 +572,7 @@ impl Staging {
             return Some(Err(full(work_item, lease_epoch, self.max)));
         }
         entry.admitted.push(Admitted {
-            admission: Arc::new(admission),
+            at_commit: AtCommit::Run(Box::new(admission)),
             positions: BTreeMap::new(),
         });
         Some(Ok(()))

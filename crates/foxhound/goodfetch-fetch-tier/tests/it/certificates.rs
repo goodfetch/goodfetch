@@ -259,8 +259,15 @@ impl Fixture {
 
     /// The pins of the user's store.
     fn pins(&self) -> Vec<PinRow> {
-        goodfetch_test_support::runtime()
-            .block_on(self.store.list(PERSON))
+        goodfetch_test_support::runtime().block_on(self.listed_pins())
+    }
+
+    /// [`Self::pins`], for a test already on a runtime, where blocking on
+    /// another one panics.
+    async fn listed_pins(&self) -> Vec<PinRow> {
+        self.store
+            .list(PERSON)
+            .await
             .unwrap()
             .into_iter()
             .map(|pin| {
@@ -1158,7 +1165,7 @@ fn an_accepted_key_lets_the_host_through_in_the_next_run(
             .unwrap();
         let _ = sent(&*run, &hop(&regenerated, EXPIRED)).await;
         let new_key = presented_key(&regenerated, EXPIRED).await;
-        let waiting = fixture.pins().pop().and_then(|pin| pin.3);
+        let waiting = fixture.listed_pins().await.pop().and_then(|pin| pin.3);
         fixture
             .store
             .accept(

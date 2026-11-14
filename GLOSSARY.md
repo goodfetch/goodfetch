@@ -305,8 +305,20 @@ A consistent, self-contained copy of a run's state from which the run can resume
 _Avoid_: snapshot, savepoint, backup
 
 **Durability level**:
-What a run's state survives, chosen per run with `run_state.durability`: both a process crash and a power cut at `full`; a process crash, with recent commits lost to a power cut, at `fast`; a process crash, with at most one `run_state.commit_interval` lost to a power cut, at `periodic`; neither at `off`, where a run file a crash left is discarded.
+What a run's state survives, chosen per run with `run_state.durability`, each value a preset of the batch settings (`run_state.batch.*` and `run_state.commit_interval`), which a person may also set one by one: a crash or a power cut loses at most the last Run-state batch at `batch`, the default; nothing but the attempts in flight at `full`; nothing to a process crash, and recent commits to a power cut, at `fast`; nothing to a process crash, and at most one `run_state.commit_interval` to a power cut, at `periodic`; at `off` a run file a crash left is discarded. A clean stop loses nothing at any level.
 _Avoid_: persistence mode, sync mode, fsync mode
+
+**Run state**:
+What a run keeps to go on and to resume. A crawl's lives in memory, owned by one actor: its Frontier, the Leases of its attempts in flight and the Permits it alone serves; its run file holds it as of the last Run-state batch.
+_Avoid_: crawl state, job state
+
+**Run-state batch**:
+The changes to a run's state since the last batch, written to its run file in one transaction.
+_Avoid_: flush, journal (an Effect journal is another thing), snapshot
+
+**Delegation**:
+The right of one run, or of one engine's runs together, to serve a Politeness key's Permits from memory while no other engine uses the key; a recall writes the key's state back to the per-user Politeness file or the Politeness store.
+_Avoid_: lease (a Lease is a work item's), lock, oplock, Slice
 
 **Limit**:
 A cap on the Usage of one run, or of every run counted against a scope (a Schedule, a Partitioned crawl, the install or a Daemon, a person, a named token or a Connection), over a period or a Connection's lifetime; reaching it stops runs cleanly and refuses new ones until the period ends or a person raises it.

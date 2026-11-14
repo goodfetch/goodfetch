@@ -41,8 +41,8 @@ mod forwarded;
 
 /// The caller's span, in W3C Trace Context's example `traceparent`.
 const TRACE_ID: &str = "0af7651916cd43dd8448eb211c80319c";
-const PARENT_ID: &str = "b7ad6b7169203331";
-const TRACEPARENT: &str = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+pub(super) const PARENT_ID: &str = "b7ad6b7169203331";
+pub(super) const TRACEPARENT: &str = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
 
 /// The handler request `test.ask` sends its Client.
 const ASKED: HandlerRequest = HandlerRequest {
@@ -109,7 +109,7 @@ impl SpanExporter for Collector {
 /// Runs `talk` with every span exported to a collector, its IDs drawn from
 /// an `Entropy` seeded with `seed`, and answers what it answered and the
 /// spans the collector received.
-fn exported<T>(seed: u64, talk: impl FnOnce() -> T) -> (T, Vec<SpanData>) {
+pub(super) fn exported<T>(seed: u64, talk: impl FnOnce() -> T) -> (T, Vec<SpanData>) {
     let collector = Collector::default();
     let provider = SdkTracerProvider::builder()
         .with_simple_exporter(collector.clone())
@@ -223,7 +223,7 @@ fn replies(requests: Vec<Value>) -> Vec<Value> {
 }
 
 /// The one exported span of `kind` named `name`.
-fn the_span<'a>(spans: &'a [SpanData], kind: &SpanKind, name: &str) -> &'a SpanData {
+pub(super) fn the_span<'a>(spans: &'a [SpanData], kind: &SpanKind, name: &str) -> &'a SpanData {
     let found: Vec<&SpanData> = spans
         .iter()
         .filter(|span| span.span_kind == *kind && span.name == name)
@@ -233,7 +233,7 @@ fn the_span<'a>(spans: &'a [SpanData], kind: &SpanKind, name: &str) -> &'a SpanD
 }
 
 /// The span's attribute `key`, as a string.
-fn attribute(span: &SpanData, key: &str) -> Option<String> {
+pub(super) fn attribute(span: &SpanData, key: &str) -> Option<String> {
     span.attributes
         .iter()
         .find(|attribute| attribute.key.as_str() == key)
@@ -243,7 +243,7 @@ fn attribute(span: &SpanData, key: &str) -> Option<String> {
         })
 }
 
-fn trace_id() -> TraceId {
+pub(super) fn trace_id() -> TraceId {
     TraceId::from_hex(TRACE_ID).unwrap()
 }
 

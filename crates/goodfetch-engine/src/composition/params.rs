@@ -5,79 +5,164 @@
 //! read from an array, by position, which the schema's `type: object`
 //! refuses; read through [`Params::read`], that is `invalid_params`. The
 //! params' `_meta`, the Trace context the RPC layer takes (ADR 0132), is no
-//! member of any params type, and the read skips it. Each read is a decode
-//! of the request's params and counts as one (`E1.decodes`).
+//! member of any params type, and the read skips it. The same pass notes
+//! what dispatch takes of them and the page a page call names, for the
+//! call's guard. Each read is a decode of the request's params and counts
+//! as one (`E1.decodes`).
 
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::fmt;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::jsonrpc::{META, ProtocolFailure};
-use serde::Deserialize;
 use serde::de::value::BorrowedStrDeserializer;
 use serde::de::{
-    self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, IgnoredAny,
-    IntoDeserializer, MapAccess, SeqAccess, VariantAccess, Visitor,
+    self, DeserializeOwned, DeserializeSeed, Deserializer, EnumAccess, IntoDeserializer, MapAccess,
+    SeqAccess, VariantAccess, Visitor,
 };
 
-use crate::call_error::CallError;
-use crate::wire::{Key, KeySeed};
+use serde_json::value::RawValue;
 
-/// A call's params as they arrived: their JSON text, where it is in the
-/// line that carried them, `{}` for a call that sent none, with the Counted
-/// work each decode of them counts on.
-#[derive(Clone, Copy, Debug)]
-pub struct Params<'a> {
+use crate::call_error::CallError;
+use crate::trace::ID_FIELDS;
+use crate::wire::{Key, KeySeed, text};
+
+mod preamble;
+
+pub(crate) use preamble::Preamble;
+use preamble::{Found, Noted};
+
+/// A request's params as they arrived, held by dispatch while the call
+/// starts: their JSON text, where it is in the line that carried them, `{}`
+/// for a request that sent none, the Counted work each decode of them
+/// counts on, and what the read into their handler's type found of what
+/// dispatch takes of them and of the page they name.
+pub(crate) struct Arrived<'a> {
     json: &'a str,
     work: &'a CountedWork,
+    /// What a whole read of them found, until dispatch checks it.
+    found: Cell<Option<Found<'a>>>,
+    /// What dispatch takes of them, once checked.
+    preamble: Cell<Option<Preamble<'a>>>,
+    /// The page they name, as it is written in them, once checked.
+    page: Cell<Option<&'a RawValue>>,
+}
+
+impl<'a> Arrived<'a> {
+    /// The params whose JSON text is `json`, or those of a request that
+    /// sent none, their decodes counted on `work`.
+    pub(crate) fn new(json: Option<&'a str>, work: &'a CountedWork) -> Self {
+        Self {
+            json: json.unwrap_or("{}"),
+            work,
+            // No params hold nothing for dispatch, whoever reads them.
+            found: Cell::new(json.is_none().then(Found::default)),
+            preamble: Cell::new(None),
+            page: Cell::new(None),
+        }
+    }
+
+    /// They, as a guard and a handler read them.
+    pub(crate) fn params(&'a self) -> Params<'a> {
+        Params(self)
+    }
+
+    /// What dispatch takes of them: what the read into their handler's
+    /// type found in its pass, or, when no read went through them, as when
+    /// their handler refused them, a read of its own, which counts one
+    /// decode.
+    ///
+    /// # Errors
+    ///
+    /// `invalid_params` when their `_meta` holds a key other than
+    /// `traceparent` and `tracestate` or a value that is no string.
+    pub(crate) fn preamble(&self) -> Result<Preamble<'a>, CallError> {
+        self.check()?;
+        Ok(self.preamble.take().unwrap_or_default())
+    }
+
+    /// Checks what dispatch takes of them, once, and keeps the page they
+    /// name: their own `page_id`, else their locator's.
+    fn check(&self) -> Result<(), CallError> {
+        let checked = self.preamble.take();
+        if checked.is_none() {
+            let found = self.found.take().unwrap_or_else(|| {
+                self.work.count(Row::MessageDecodes);
+                let noted = Noted::scan(self.json);
+                self.page.set(noted.page());
+                noted.found
+            });
+            self.preamble.set(Some(found.checked()?));
+        } else {
+            self.preamble.set(checked);
+        }
+        Ok(())
+    }
+}
+
+/// A call's params as they arrived, as its guard and its handler read
+/// them.
+#[derive(Clone, Copy)]
+pub struct Params<'a>(&'a Arrived<'a>);
+
+impl fmt::Debug for Params<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("Params").field(&self.0.json).finish()
+    }
 }
 
 impl<'a> Params<'a> {
-    /// The params whose JSON text is `json`, their decodes counted on
-    /// `work`.
-    pub fn new(json: &'a str, work: &'a CountedWork) -> Self {
-        Self { json, work }
-    }
-
-    /// The params of a call that sent none: `{}`.
-    pub fn none(work: &'a CountedWork) -> Self {
-        Self { json: "{}", work }
-    }
-
     /// Their JSON text.
     pub fn json(&self) -> &'a str {
-        self.json
+        self.0.json
     }
 
     /// They, read as `P` in one pass, each struct and map only from an
-    /// object, without their `_meta`. Counts one decode.
+    /// object, without their `_meta`. Counts one decode. A read that goes
+    /// through every member of the params also finds, in the same pass,
+    /// what dispatch takes of them and the page they name.
     ///
     /// # Errors
     ///
     /// `invalid_params` when they are no `P`.
     pub fn read<P: DeserializeOwned>(&self) -> Result<P, CallError> {
-        self.work.count(Row::MessageDecodes);
-        let mut json = serde_json::Deserializer::from_str(self.json);
-        P::deserialize(Strict {
+        self.0.work.count(Row::MessageDecodes);
+        let mut noted = Noted::default();
+        let mut json = serde_json::Deserializer::from_str(self.0.json);
+        let params = P::deserialize(Strict {
             inner: &mut json,
-            outer: true,
+            outer: Outer::Params(&mut noted),
         })
         .and_then(|params| json.end().map(|()| params))
         .map_err(|error| {
             CallError::protocol(ProtocolFailure::InvalidParams, without_position(&error))
-        })
+        })?;
+        // Only a pass through the params' own members found what dispatch
+        // takes; after any other, as into a type that ignores them,
+        // dispatch reads them itself.
+        if noted.found.whole {
+            self.0.page.set(noted.page());
+            self.0.found.set(Some(noted.found));
+        }
+        Ok(params)
     }
 
-    /// The members `T` names, read where they are, for a reader that needs
-    /// a few of them before the call's handler reads them all, as a guard
-    /// finding the page a call names; `None` when they do not read as `T`.
-    /// Unlike [`Params::read`], it reads as serde does: it keeps their
-    /// `_meta` and takes a struct from an array too, so what it answers
-    /// says nothing of whether the handler's read takes them. Counts one
-    /// decode.
-    pub fn read_members<T: Deserialize<'a>>(&self) -> Option<T> {
-        self.work.count(Row::MessageDecodes);
-        serde_json::from_str(self.json).ok()
+    /// Whether dispatch takes them: `invalid_params` for a `_meta` it
+    /// refuses, before the call's guard is asked and its handler called.
+    pub(crate) fn taken(self) -> Result<(), CallError> {
+        self.0.check()
+    }
+
+    /// The page they name, as a page call names it (`page_id`) or a
+    /// locator does (`locator.page_id`), the call's own first; `None` when
+    /// neither is a string. The read into the handler's type found it in
+    /// its pass, which a guard comes after; params no read went through
+    /// whole have it found by dispatch's own read, as for what dispatch
+    /// takes of them, and `None` when dispatch refuses them.
+    pub fn page(&self) -> Option<Cow<'a, str>> {
+        self.0.check().ok()?;
+        text(self.0.page.get()?)
     }
 }
 
@@ -92,36 +177,55 @@ pub(crate) fn without_position(error: &serde_json::Error) -> String {
     }
 }
 
+/// The key of the member through which a page call names its page, and
+/// a locator its own.
+const PAGE_ID: &str = "page_id";
+
+/// The key of a call's locator.
+const LOCATOR: &str = "locator";
+
+/// Where a read notes what is taken of the params before their handler.
+enum Outer<'t, 'de> {
+    /// A value inside them, which holds nothing taken.
+    Inside,
+    /// The params themselves: their `_meta`, their IDs and the page they
+    /// name.
+    Params(&'t mut Noted<'de>),
+    /// Their locator: the page it names.
+    Locator(&'t mut Noted<'de>),
+}
+
 /// A deserializer whose structs and maps, at every depth, read only from
-/// objects; `outer` for the params themselves, whose `_meta` it skips.
-struct Strict<D> {
+/// objects; `outer` for the params themselves, whose `_meta`, IDs and page
+/// it notes there, their `_meta` skipped, and for their locator.
+struct Strict<'t, 'de, D> {
     inner: D,
-    outer: bool,
+    outer: Outer<'t, 'de>,
 }
 
 /// A visitor that reads every nested value strictly.
-struct Wrap<V> {
+struct Wrap<'t, 'de, V> {
     visitor: V,
-    outer: bool,
+    outer: Outer<'t, 'de>,
 }
 
 /// A visitor that reads only an object, its members strictly.
-struct Object<V> {
+struct Object<'t, 'de, V> {
     visitor: V,
-    outer: bool,
+    outer: Outer<'t, 'de>,
 }
 
 macro_rules! forward_strictly {
     ($($method:ident)*) => {
         $(
             fn $method<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, D::Error> {
-                self.inner.$method(Wrap { visitor, outer: false })
+                self.inner.$method(Wrap { visitor, outer: Outer::Inside })
             }
         )*
     };
 }
 
-impl<'de, D: Deserializer<'de>> Deserializer<'de> for Strict<D> {
+impl<'de, D: Deserializer<'de>> Deserializer<'de> for Strict<'_, 'de, D> {
     type Error = D::Error;
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, D::Error> {
@@ -177,7 +281,7 @@ impl<'de, D: Deserializer<'de>> Deserializer<'de> for Strict<D> {
             name,
             Wrap {
                 visitor,
-                outer: false,
+                outer: Outer::Inside,
             },
         )
     }
@@ -191,7 +295,7 @@ impl<'de, D: Deserializer<'de>> Deserializer<'de> for Strict<D> {
             length,
             Wrap {
                 visitor,
-                outer: false,
+                outer: Outer::Inside,
             },
         )
     }
@@ -207,7 +311,7 @@ impl<'de, D: Deserializer<'de>> Deserializer<'de> for Strict<D> {
             length,
             Wrap {
                 visitor,
-                outer: false,
+                outer: Outer::Inside,
             },
         )
     }
@@ -223,7 +327,7 @@ impl<'de, D: Deserializer<'de>> Deserializer<'de> for Strict<D> {
             variants,
             Wrap {
                 visitor,
-                outer: false,
+                outer: Outer::Inside,
             },
         )
     }
@@ -233,7 +337,21 @@ impl<'de, D: Deserializer<'de>> Deserializer<'de> for Strict<D> {
         deserialize_i128 deserialize_u8 deserialize_u16 deserialize_u32 deserialize_u64
         deserialize_u128 deserialize_f32 deserialize_f64 deserialize_char deserialize_str
         deserialize_string deserialize_bytes deserialize_byte_buf deserialize_unit
-        deserialize_seq deserialize_identifier deserialize_ignored_any
+        deserialize_seq deserialize_identifier
+    }
+
+    fn deserialize_ignored_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, D::Error> {
+        match self.outer {
+            // A locator the handler's type skips still names the page.
+            Outer::Locator(_) => self.inner.deserialize_any(Wrap {
+                visitor,
+                outer: self.outer,
+            }),
+            Outer::Inside | Outer::Params(_) => self.inner.deserialize_ignored_any(Wrap {
+                visitor,
+                outer: Outer::Inside,
+            }),
+        }
     }
 
     fn is_human_readable(&self) -> bool {
@@ -251,7 +369,7 @@ macro_rules! forward_visits {
     };
 }
 
-impl<'de, V: Visitor<'de>> Visitor<'de> for Wrap<V> {
+impl<'de, V: Visitor<'de>> Visitor<'de> for Wrap<'_, 'de, V> {
     type Value = V::Value;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -296,6 +414,7 @@ impl<'de, V: Visitor<'de>> Visitor<'de> for Wrap<V> {
         self.visitor.visit_map(Members {
             inner: members,
             outer: self.outer,
+            note: None,
         })
     }
 
@@ -306,7 +425,7 @@ impl<'de, V: Visitor<'de>> Visitor<'de> for Wrap<V> {
 
 /// Every value but an object is refused, as serde words what it did not
 /// expect.
-impl<'de, V: Visitor<'de>> Visitor<'de> for Object<V> {
+impl<'de, V: Visitor<'de>> Visitor<'de> for Object<'_, 'de, V> {
     type Value = V::Value;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -317,20 +436,34 @@ impl<'de, V: Visitor<'de>> Visitor<'de> for Object<V> {
         self.visitor.visit_map(Members {
             inner: members,
             outer: self.outer,
+            note: None,
         })
     }
 }
 
-/// A seed that reads its value strictly.
-struct Seed<S>(S);
+/// A seed that reads its value strictly, noting in it what `outer` says.
+struct Seed<'t, 'de, S> {
+    seed: S,
+    outer: Outer<'t, 'de>,
+}
 
-impl<'de, S: DeserializeSeed<'de>> DeserializeSeed<'de> for Seed<S> {
+impl<S> Seed<'_, '_, S> {
+    /// `seed`, read strictly, for a value that holds nothing taken.
+    fn inside(seed: S) -> Self {
+        Self {
+            seed,
+            outer: Outer::Inside,
+        }
+    }
+}
+
+impl<'de, S: DeserializeSeed<'de>> DeserializeSeed<'de> for Seed<'_, 'de, S> {
     type Value = S::Value;
 
     fn deserialize<D: Deserializer<'de>>(self, inner: D) -> Result<S::Value, D::Error> {
-        self.0.deserialize(Strict {
+        self.seed.deserialize(Strict {
             inner,
-            outer: false,
+            outer: self.outer,
         })
     }
 }
@@ -345,7 +478,7 @@ impl<'de, A: SeqAccess<'de>> SeqAccess<'de> for Items<A> {
         &mut self,
         seed: T,
     ) -> Result<Option<T::Value>, A::Error> {
-        self.0.next_element_seed(Seed(seed))
+        self.0.next_element_seed(Seed::inside(seed))
     }
 
     fn size_hint(&self) -> Option<usize> {
@@ -354,30 +487,59 @@ impl<'de, A: SeqAccess<'de>> SeqAccess<'de> for Items<A> {
 }
 
 /// An object's members, each value read strictly; the params' own skip
-/// their `_meta`.
-struct Members<A> {
+/// their `_meta`, noting it, their IDs and the page they name where they
+/// are taken, and their locator's note the page it names.
+struct Members<'t, 'de, A> {
     inner: A,
-    outer: bool,
+    outer: Outer<'t, 'de>,
+    /// What the member whose key was just read is noted as, if anything.
+    note: Option<Note>,
 }
 
-impl<'de, A: MapAccess<'de>> MapAccess<'de> for Members<A> {
+/// A member noted where it is taken.
+#[derive(Clone, Copy)]
+enum Note {
+    /// One of the IDs, by its place in [`ID_FIELDS`].
+    Id(usize),
+    /// The page the params name themselves.
+    Page,
+    /// Their locator.
+    Locator,
+    /// The page their locator names.
+    Located,
+}
+
+impl<'de, A: MapAccess<'de>> MapAccess<'de> for Members<'_, 'de, A> {
     type Error = A::Error;
 
     fn next_key_seed<K: DeserializeSeed<'de>>(
         &mut self,
         seed: K,
     ) -> Result<Option<K::Value>, A::Error> {
-        if !self.outer {
-            return self.inner.next_key_seed(seed);
-        }
+        let (noted, params) = match &mut self.outer {
+            Outer::Inside => return self.inner.next_key_seed(seed),
+            Outer::Params(noted) => (noted, true),
+            Outer::Locator(noted) => (noted, false),
+        };
         loop {
             let Some(Key(key)) = self.inner.next_key_seed(KeySeed)? else {
+                noted.found.whole |= params;
                 return Ok(None);
             };
-            if key == META {
-                self.inner.next_value::<IgnoredAny>()?;
+            if params && key == META {
+                noted.found.meta = Some(self.inner.next_value()?);
                 continue;
             }
+            self.note = match (params, key.as_ref()) {
+                (true, PAGE_ID) => Some(Note::Page),
+                (true, LOCATOR) => Some(Note::Locator),
+                (true, key) => ID_FIELDS
+                    .iter()
+                    .position(|field| *field == key)
+                    .map(Note::Id),
+                (false, PAGE_ID) => Some(Note::Located),
+                (false, _) => None,
+            };
             return match key {
                 Cow::Borrowed(key) => seed.deserialize(BorrowedStrDeserializer::new(key)),
                 Cow::Owned(key) => seed.deserialize(key.into_deserializer()),
@@ -387,7 +549,34 @@ impl<'de, A: MapAccess<'de>> MapAccess<'de> for Members<A> {
     }
 
     fn next_value_seed<V: DeserializeSeed<'de>>(&mut self, seed: V) -> Result<V::Value, A::Error> {
-        self.inner.next_value_seed(Seed(seed))
+        let (Some(note), Outer::Params(noted) | Outer::Locator(noted)) =
+            (self.note.take(), &mut self.outer)
+        else {
+            return self.inner.next_value_seed(Seed::inside(seed));
+        };
+        if let Note::Locator = note {
+            return self.inner.next_value_seed(Seed {
+                seed,
+                outer: Outer::Locator(noted),
+            });
+        }
+        // A noted value is taken where it is and read on into the
+        // handler's type from there, as serde_json reads any value: the
+        // pass goes through the params once, and through its own text once
+        // more.
+        let value: &'de RawValue = self.inner.next_value()?;
+        match note {
+            Note::Id(at) => noted.found.ids[at] = text(value),
+            Note::Page => noted.page = Some(value),
+            Note::Located => noted.located = Some(value),
+            Note::Locator => {}
+        }
+        let mut json = serde_json::Deserializer::from_str(value.get());
+        seed.deserialize(Strict {
+            inner: &mut json,
+            outer: Outer::Inside,
+        })
+        .map_err(|error| de::Error::custom(without_position(&error)))
     }
 
     fn size_hint(&self) -> Option<usize> {
@@ -423,7 +612,7 @@ impl<'de, A: VariantAccess<'de>> VariantAccess<'de> for Content<A> {
     }
 
     fn newtype_variant_seed<T: DeserializeSeed<'de>>(self, seed: T) -> Result<T::Value, A::Error> {
-        self.0.newtype_variant_seed(Seed(seed))
+        self.0.newtype_variant_seed(Seed::inside(seed))
     }
 
     fn tuple_variant<V: Visitor<'de>>(
@@ -435,7 +624,7 @@ impl<'de, A: VariantAccess<'de>> VariantAccess<'de> for Content<A> {
             length,
             Wrap {
                 visitor,
-                outer: false,
+                outer: Outer::Inside,
             },
         )
     }
@@ -449,7 +638,7 @@ impl<'de, A: VariantAccess<'de>> VariantAccess<'de> for Content<A> {
             fields,
             Object {
                 visitor,
-                outer: false,
+                outer: Outer::Inside,
             },
         )
     }

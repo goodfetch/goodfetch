@@ -235,6 +235,9 @@ fn a_document_is_decoded_in_the_encoding_found(
     assert_eq!(decode(body, found.unwrap()), text);
 }
 
+#[path = "tests/stream.rs"]
+mod stream;
+
 mod prescan_target {
     goodfetch_test_support::fuzz_replay!(crate::charset::fuzz_prescan, "fuzz/prescan");
 }

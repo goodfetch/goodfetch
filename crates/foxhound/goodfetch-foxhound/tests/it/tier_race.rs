@@ -59,7 +59,7 @@ fn received(proving_ground: &ProvingGround, target: &str) -> usize {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request.host == HOST && request.target == target)
+        .filter(|request| request.host.split(':').next() == Some(HOST) && request.target == target)
         .count()
 }
 
@@ -71,7 +71,7 @@ fn held_ms(proving_ground: &ProvingGround, target: &str) -> Option<u64> {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request.host == HOST && request.target == target)
+        .filter(|request| request.host.split(':').next() == Some(HOST) && request.target == target)
         .find_map(|request| {
             let timing = &request.timing;
             let answered = timing.answered_microseconds?;
@@ -204,6 +204,130 @@ fn browser_fetch_that_passes_first_wins_and_its_navigation_is_cancelled_both_cou
             // each navigation sent: a browser run counts none.
             &json!(3 + navigations_sent(&env, "won-by-fetch")),
         ),
+    );
+}
+
+/// Under `fetch.http_from: learned` (#2421), a race's first request leaves
+/// from where its Label learned to leave from. A static listing's sample
+/// matched over a Session's own transport, so its Label is learned onto
+/// `http`, and the race of the held listing its handler enqueues sends its
+/// document from a Session's own transport, as the sample's `http` run
+/// was, and its navigation 500 ms later from another Session, whose client
+/// is its browser, as the sample's `browser` run was: the site meets the
+/// sample's two TLS fingerprints, in that order. The Proving ground holds
+/// both 3 s, so the first, sent first, wins: the handler is given its page
+/// once, on `http`, and the navigation is cancelled. Both reach the site
+/// and count in Usage, and Provenance's race entry and the winner's tier
+/// entry name `http`, the tier that sent it.
+///
+/// Covers: story:6-263, setting:fetch.tier_race, setting:fetch.http_from
+#[test]
+fn under_learned_a_race_of_a_label_on_http_sends_its_first_request_from_the_transport() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    env.user_configuration(&format!(
+        "tls.trusted_cas.\"{HOST}\" = ['{}']\n",
+        proving_ground.description().ca.display()
+    ));
+    let mut engine = engine(&env);
+    let origin = format!("https://{HOST}:{}", proving_ground.address().port());
+    let learn = format!("{origin}{LEARN}");
+    let held = format!("{origin}/products/1?hold=3000");
+    let mut settings = racing(&proving_ground);
+    settings["fetch"]["http_from"] = json!("learned");
+
+    let mut seen = Vec::new();
+    let report = crawl_declaring(
+        &mut engine,
+        "raced-from-transport",
+        &[json!({ "url": learn, "label": "list" })],
+        &json!({ "list": {} }),
+        &settings,
+        &mut |inside: &mut Inside<'_>, handle: &Value| {
+            let url = handle["crawl_request"]["url"].as_str().unwrap().to_owned();
+            if url == learn {
+                inside.enqueue(handle, &held, "list", None);
+            }
+            seen.push((url, handle["tier"].clone()));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let ended = outcomes(&mut engine, "raced-from-transport");
+    assert!(engine.finished());
+
+    let answered_after = held_ms(&proving_ground, "/products/1?hold=3000");
+    assert!(
+        answered_after.is_some_and(|after| after >= 3_000),
+        "the Proving ground held the race's answer {answered_after:?} ms, not 3000: its executable predates `tiers.test`'s `hold`; build the test tools again (`just test`)"
+    );
+    // The TLS fingerprint of each request the site received for `target`,
+    // in the order they arrived.
+    let fingerprints = |target: &str| -> Vec<Option<String>> {
+        proving_ground
+            .received_requests()
+            .unwrap()
+            .of_the_case()
+            .filter(|request| {
+                request.host.split(':').next() == Some(HOST) && request.target == target
+            })
+            .map(|request| {
+                request
+                    .tls
+                    .as_ref()
+                    .and_then(|hello| hello["ja4_base"].as_str().map(str::to_owned))
+            })
+            .collect()
+    };
+    let sampled = fingerprints(LEARN);
+    let raced: Vec<Value> = provenance(&env, "raced-from-transport", "tier_race")
+        .iter()
+        .map(|entry| {
+            json!([
+                entry["label"],
+                entry["after_ms"],
+                entry["http"],
+                entry["navigation"],
+                entry["winner"]
+            ])
+        })
+        .collect();
+    let mut chosen = tiers(&env, "raced-from-transport");
+    chosen.sort_by_key(Value::to_string);
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            seen,
+            ended
+                .iter()
+                .map(|ended| ended.1.clone())
+                .collect::<Vec<_>>(),
+            sampled.len() == 2 && sampled[0] != sampled[1],
+            fingerprints("/products/1?hold=3000") == sampled,
+            raced,
+            chosen,
+            &report["result"]["usage"]["requests"],
+        ),
+        (
+            &json!("finished"),
+            vec![
+                (learn.clone(), json!("http")),
+                (learn, json!("browser")),
+                (held, json!("http")),
+            ],
+            vec![json!("succeeded"); 2],
+            true,
+            true,
+            vec![json!(["list", 500, "won", "cancelled", "http"])],
+            vec![
+                json!(["list", "browser", "sample", null, null]),
+                json!(["list", "http", "race", null, null]),
+                json!(["list", "http", "sample", null, null]),
+            ],
+            // The sample, the race's first request and its navigation: a
+            // browser run counts none.
+            &json!(3),
+        ),
+        "{sampled:?}"
     );
 }
 

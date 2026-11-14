@@ -120,13 +120,15 @@ pub(crate) fn tree(pid: u32) -> Vec<u32> {
 }
 
 /// The CPU seconds the live processes of the tree under `pid` have spent
-/// so far, user and system: zero on an OS without `/proc`.
+/// so far, user and system, with those of the children each waited for,
+/// which the OS adds to the parent's as they leave the tree: zero on an OS
+/// without `/proc`.
 pub(crate) fn cpu_seconds(pid: u32) -> f64 {
     let (ticks_per_second, page) = system();
     let ticks: u64 = tree(pid)
         .into_iter()
         .filter_map(|pid| process(pid, page))
-        .map(|process| process.cpu_ticks)
+        .map(|process| process.cpu_ticks + process.waited_ticks)
         .sum();
     #[expect(
         clippy::cast_precision_loss,
@@ -145,6 +147,8 @@ struct Process {
     /// None when the OS refuses the sampler its memory map's totals.
     pss_bytes: Option<u64>,
     cpu_ticks: u64,
+    /// The CPU ticks of the children it waited for, theirs included.
+    waited_ticks: u64,
     threads: u64,
     open_files: u64,
 }
@@ -189,6 +193,8 @@ fn process(pid: u32, page: u64) -> Option<Process> {
     let resident: u64 = pages.next()?.parse().ok()?;
     let shared: u64 = pages.next()?.parse().ok()?;
     let ticks: u64 = fields.get(11)?.parse::<u64>().ok()? + fields.get(12)?.parse::<u64>().ok()?;
+    let waited_ticks: u64 =
+        fields.get(13)?.parse::<u64>().ok()? + fields.get(14)?.parse::<u64>().ok()?;
     let threads: u64 = fields.get(17)?.parse().ok()?;
     let open_files =
         std::fs::read_dir(format!("/proc/{pid}/fd")).map_or(0, |entries| entries.count() as u64);
@@ -197,6 +203,7 @@ fn process(pid: u32, page: u64) -> Option<Process> {
         private_bytes: resident.saturating_sub(shared) * page,
         pss_bytes: pss(pid),
         cpu_ticks: ticks,
+        waited_ticks,
         threads,
         open_files,
     })

@@ -249,3 +249,30 @@ fn an_exited_process_not_yet_waited_for_gives_no_sample() {
 
     assert_eq!(taken, Some(0));
 }
+
+/// A child the process waited for is gone from its tree, and the OS adds
+/// the child's CPU time to the process's own children's time: the tree's
+/// CPU seconds still count it, as they count a child still running. A shell
+/// spends about 0.4 s in a subshell it waits for, then becomes `sleep`.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_cpu_of_a_child_the_process_waited_for_counts_in_its_tree() {
+    let mut shell = std::process::Command::new("sh")
+        .args([
+            "-c",
+            "(i=0; while [ $i -lt 300000 ]; do i=$((i+1)); done); exec sleep 30",
+        ])
+        .spawn()
+        .unwrap();
+    let pid = shell.id();
+    let comm = std::path::PathBuf::from(format!("/proc/{pid}/comm"));
+    while std::fs::read_to_string(&comm).unwrap().trim() != "sleep" {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+
+    let seconds = super::cpu_seconds(pid);
+    shell.kill().unwrap();
+    shell.wait().unwrap();
+
+    assert!(seconds >= 0.2, "{seconds} s");
+}

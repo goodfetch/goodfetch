@@ -480,7 +480,8 @@ fn measured_section(today: &str) -> Section {
             Contender::Playwright => actions * 5 / 4,
             arm @ (Contender::PuppeteerLocator
             | Contender::PuppeteerPage
-            | Contender::Stagehand) => {
+            | Contender::Stagehand
+            | Contender::AgentBrowser) => {
                 unreachable!("`every` runs no {}", arm.name())
             }
         };
@@ -650,7 +651,7 @@ fn page_of(task: &str, steps: u64) -> PageDone {
 }
 
 #[test]
-fn the_scenario_runs_each_arm_in_every_cell_but_stagehand_in_the_sessions_cell() {
+fn the_scenario_runs_each_arm_in_every_cell_but_stagehand_and_agent_browser_in_the_sessions_cell() {
     assert_eq!(
         Contender::ALL.map(Contender::name),
         [
@@ -658,7 +659,8 @@ fn the_scenario_runs_each_arm_in_every_cell_but_stagehand_in_the_sessions_cell()
             "playwright",
             "puppeteer_locator",
             "puppeteer_page",
-            "stagehand"
+            "stagehand",
+            "agent_browser"
         ]
     );
     for tool in Contender::ALL {
@@ -669,12 +671,21 @@ fn the_scenario_runs_each_arm_in_every_cell_but_stagehand_in_the_sessions_cell()
         *state += 1;
         *state
     });
-    assert_eq!(order.len(), EXERCISES.len() * Contender::ALL.len() - 1);
+    assert_eq!(order.len(), EXERCISES.len() * Contender::ALL.len() - 2);
     assert!(!order.contains(&(Exercise::Sessions, Contender::Stagehand, 1)));
+    assert!(!order.contains(&(Exercise::Sessions, Contender::AgentBrowser, 1)));
+    assert_eq!(
+        skipped(Contender::AgentBrowser, Exercise::Sessions),
+        Some(
+            "agent-browser has no command that closes a context it opened, so it opens no \
+             Session"
+        )
+    );
+    assert!(order.contains(&(Exercise::AtOnce, Contender::AgentBrowser, 1)));
     assert!(order.contains(&(Exercise::Sessions, Contender::PuppeteerPage, 1)));
     assert!(order.contains(&(Exercise::Click, Contender::Stagehand, 1)));
-    // A run of every tool, Stagehand's Sessions not run, did its cells'
-    // work.
+    // A run of every tool, Stagehand's and agent-browser's Sessions not
+    // run, did its cells' work.
     assert_eq!(
         kinds(&check(&measured_every_tool(every_tool(2), Vec::new()))),
         []
@@ -706,6 +717,7 @@ fn each_tool_runs_its_own_driver_against_the_browser_xtask_launched() {
         Contender::Playwright,
         Contender::PuppeteerLocator,
         Contender::PuppeteerPage,
+        Contender::AgentBrowser,
     ] {
         assert!(browser_flags(tool).is_empty(), "{}", tool.name());
     }
@@ -721,6 +733,7 @@ fn the_report_lists_each_arm_and_the_calls_its_steps_map_to() {
         ("puppeteer_locator", "`Locator.click()`"),
         ("puppeteer_page", "`page.click()`"),
         ("stagehand", "`page.locator(…).click()`"),
+        ("agent_browser", "`agent-browser click`"),
     ] {
         assert!(
             text.lines()
@@ -808,4 +821,48 @@ fn stagehand_is_not_measured_in_the_sessions_cell_and_an_arm_stopped_twice_is_no
         text.contains("- puppeteer_page: not placed, its click cell was not measured."),
         "{text}"
     );
+}
+
+/// The driver adopts what its descendants detach: agent-browser's command
+/// starts its daemon in a session of its own and exits, and the daemon
+/// stays in the driver's tree, so its CPU and memory count, and the tree's
+/// kill reaches it.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_process_the_driver_detached_stays_in_its_tree() {
+    let mut command = Command::new("sh");
+    command.args(["-c", "(setsid sleep 37 &); exec sleep 30"]);
+    adopt_orphans(&mut command);
+    let mut driver = command.spawn().unwrap();
+    let pid = driver.id();
+    let detached = || {
+        sampler::tree(pid).into_iter().skip(1).find(|&child| {
+            std::fs::read_to_string(format!("/proc/{child}/cmdline"))
+                .is_ok_and(|line| line == "sleep\037\0")
+        })
+    };
+    let mut found = None;
+    for _ in 0..400 {
+        found = detached();
+        if found.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+
+    trial::kill_tree(pid);
+    driver.wait().unwrap();
+
+    let found = found.expect("the detached sleep is in the driver's tree");
+    let gone = |pid: u32| {
+        std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            .map_or(true, |stat| stat.contains(") Z "))
+    };
+    for _ in 0..400 {
+        if gone(found) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(gone(found), "the tree's kill reached {found}");
 }

@@ -70,11 +70,13 @@ pub(crate) const PAGESIFT_VERSION: &str = "1.3.0";
 /// in the latter (unit tests hold each equal).
 pub(crate) const PLAYWRIGHT_VERSION: &str = "1.64.1";
 pub(crate) const SCRAPY_PLAYWRIGHT_VERSION: &str = "0.0.48";
-/// The Collie scenario's arms' pinned versions (issues 2441 and 2443):
-/// `puppeteer-core`'s and `@browserbasehq/stagehand`'s in
-/// `xtask/compare-collie-arms/package.json` (unit tests hold each equal).
+/// The Collie scenario's arms' pinned versions (issues 2441, 2442 and
+/// 2443): `puppeteer-core`'s, `@browserbasehq/stagehand`'s and
+/// `agent-browser`'s in `xtask/compare-collie-arms/package.json` (unit
+/// tests hold each equal).
 pub(crate) const PUPPETEER_VERSION: &str = "25.17.0";
 pub(crate) const STAGEHAND_VERSION: &str = "4.4.0";
+pub(crate) const AGENT_BROWSER_VERSION: &str = "0.43.0";
 
 /// Runs of each tool in the Callgrind cell, whose figure is their median:
 /// fewer than the timed trials, since a count barely varies and a run under
@@ -458,20 +460,28 @@ pub(crate) enum Contender {
     /// Stagehand's locators with no model, whose click neither waits nor
     /// checks (issue 2441).
     Stagehand,
+    /// agent-browser's command line, whose click checks its target once
+    /// and does not wait (issue 2442).
+    AgentBrowser,
 }
 
 impl Contender {
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 6] = [
         Self::Collie,
         Self::Playwright,
         Self::PuppeteerLocator,
         Self::PuppeteerPage,
         Self::Stagehand,
+        Self::AgentBrowser,
     ];
     /// The scenario's arms, each read against the Collie row the pages it
-    /// got right place it at (issues 2441 and 2443).
-    pub(crate) const ARMS: [Self; 3] =
-        [Self::PuppeteerLocator, Self::PuppeteerPage, Self::Stagehand];
+    /// got right place it at (issues 2441, 2442 and 2443).
+    pub(crate) const ARMS: [Self; 4] = [
+        Self::PuppeteerLocator,
+        Self::PuppeteerPage,
+        Self::Stagehand,
+        Self::AgentBrowser,
+    ];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -480,6 +490,7 @@ impl Contender {
             Self::PuppeteerLocator => "puppeteer_locator",
             Self::PuppeteerPage => "puppeteer_page",
             Self::Stagehand => "stagehand",
+            Self::AgentBrowser => "agent_browser",
         }
     }
 }

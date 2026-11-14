@@ -321,7 +321,10 @@ pub(crate) fn trial(
                 command.arg("--routed");
             }
         }
-        Contender::PuppeteerLocator | Contender::PuppeteerPage | Contender::Stagehand => {
+        Contender::PuppeteerLocator
+        | Contender::PuppeteerPage
+        | Contender::Stagehand
+        | Contender::AgentBrowser => {
             bail!("the page-load cell has no row of {}", tool.name())
         }
     }
@@ -601,7 +604,8 @@ pub(crate) fn markdown(text: &mut String, section: &LoadSection) {
             Contender::Playwright
             | Contender::PuppeteerLocator
             | Contender::PuppeteerPage
-            | Contender::Stagehand => "n/a".to_owned(),
+            | Contender::Stagehand
+            | Contender::AgentBrowser => "n/a".to_owned(),
         };
         let _ = writeln!(
             text,

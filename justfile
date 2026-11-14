@@ -1143,7 +1143,8 @@ rss-propose *scenarios:
 # the machine `--machine "<name>"` names, with the command that reruns it;
 # otherwise it fails naming the trial. A host without strace or Valgrind
 # reports that cell as not run. The Collie scenario (issue 2282) runs Collie
-# against Playwright, Guard on, and the arms, Puppeteer 25.17.0's locators
+# over raw JSON-RPC, with its TypeScript SDK program arm beside it (issue
+# 2406), against Playwright, Guard on, and the arms, Puppeteer 25.17.0's locators
 # and page methods and Stagehand 4.4.0 with no model
 # (xtask/compare-collie-arms, its own lock) and chromiumoxide 0.9.1
 # (xtask/compare-chromiumoxide, a Rust program built like Spider's side),

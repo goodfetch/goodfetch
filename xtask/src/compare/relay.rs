@@ -247,6 +247,9 @@ pub(crate) struct Mark {
     pub(crate) rounds: u64,
     /// The CPU seconds of the tool's process tree.
     pub(crate) cpu_seconds: f64,
+    /// The CPU seconds of the tool's own process, its children's left out
+    /// (issue 2406).
+    pub(crate) driver_cpu_seconds: f64,
     pub(crate) at: Instant,
 }
 
@@ -390,13 +393,15 @@ fn connection(mut client: TcpStream, browser: Option<u16>, shared: &Shared) -> R
         "/end" => Some(1),
         _ => None,
     } {
+        let (cpu_seconds, driver_cpu_seconds) = match shared.tool.load(Ordering::Relaxed) {
+            0 => (0.0, 0.0),
+            pid => (sampler::cpu_seconds(pid), sampler::own_cpu_seconds(pid)),
+        };
         let mark = Mark {
             commands: shared.commands.load(Ordering::SeqCst),
             rounds: shared.rounds.load(Ordering::SeqCst),
-            cpu_seconds: match shared.tool.load(Ordering::Relaxed) {
-                0 => 0.0,
-                pid => sampler::cpu_seconds(pid),
-            },
+            cpu_seconds,
+            driver_cpu_seconds,
             at: trial::now(),
         };
         let answer = {

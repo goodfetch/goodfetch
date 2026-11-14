@@ -446,15 +446,19 @@ pub(crate) enum Exercise {
     Opening,
 }
 
-/// A tool of the Collie scenario, which its driver runs: Collie's and
-/// Playwright's `xtask/compare-collie/act.ts`, Puppeteer's, Stagehand's and
+/// A tool of the Collie scenario, which its driver runs: Collie's two rows'
+/// and Playwright's `xtask/compare-collie/act.ts`, Puppeteer's, Stagehand's and
 /// agent-browser's `xtask/compare-collie-arms/act.ts`, chromiumoxide's the
 /// program `xtask/compare-chromiumoxide` builds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Contender {
-    /// Collie's Attached engine, over JSON-RPC through its TypeScript SDK.
+    /// Collie's Attached engine, over raw JSON-RPC: the instrument, which
+    /// ADR 0019's target is read on (issue 2406).
     Collie,
+    /// A Collie program: the same engine, driven through its TypeScript
+    /// SDK by a program that starts it; it carries no bar (issue 2406).
+    CollieProgram,
     /// Playwright's Node.js library, its actionability checks on.
     Playwright,
     /// Puppeteer's locators, whose click waits for the viewport, a stable
@@ -475,8 +479,9 @@ pub(crate) enum Contender {
 }
 
 impl Contender {
-    pub(crate) const ALL: [Self; 7] = [
+    pub(crate) const ALL: [Self; 8] = [
         Self::Collie,
+        Self::CollieProgram,
         Self::Playwright,
         Self::PuppeteerLocator,
         Self::PuppeteerPage,
@@ -497,6 +502,7 @@ impl Contender {
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Collie => "collie",
+            Self::CollieProgram => "collie_program",
             Self::Playwright => "playwright",
             Self::PuppeteerLocator => "puppeteer_locator",
             Self::PuppeteerPage => "puppeteer_page",
@@ -504,6 +510,12 @@ impl Contender {
             Self::AgentBrowser => "agent_browser",
             Self::Chromiumoxide => "chromiumoxide",
         }
+    }
+
+    /// Whether it drives Collie's Attached engine, which its driver starts
+    /// as a child: its tree's CPU is the program's and the engine's.
+    pub(crate) fn drives_collie(self) -> bool {
+        matches!(self, Self::Collie | Self::CollieProgram)
     }
 }
 
@@ -566,6 +578,15 @@ pub(crate) struct CollieTrial {
     /// The highest resident memory of the tool's process tree, from its
     /// start to its exit; the browser's processes are not in it.
     pub(crate) peak_bytes: u64,
+    /// For Collie's rows, the CPU time of the driver's own process between
+    /// the marks: the program's, the engine's being the rest of the tree's
+    /// (issue 2406).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) driver_cpu_seconds: Option<f64>,
+    /// For Collie's rows, the JSON-RPC messages the driver sent the engine
+    /// between the marks (issue 2406).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) messages: Option<u64>,
     pub(crate) pages: Vec<PageDone>,
     /// Why its first attempt was stopped, when these are its retry's.
     #[serde(default, skip_serializing_if = "Option::is_none")]

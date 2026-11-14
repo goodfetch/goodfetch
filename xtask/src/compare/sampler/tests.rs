@@ -277,6 +277,7 @@ fn the_cpu_of_a_child_the_process_waited_for_counts_in_its_tree() {
     let (ticks_per_second, page) = super::system();
     let own = super::process(pid, page).map(|process| process.cpu_ticks);
     let seconds = super::cpu_seconds(pid);
+    let own_seconds = super::own_cpu_seconds(pid);
     shell.kill().unwrap();
     shell.wait().unwrap();
 
@@ -287,4 +288,10 @@ fn the_cpu_of_a_child_the_process_waited_for_counts_in_its_tree() {
     )]
     let own = own as f64 / ticks_per_second;
     assert!(seconds > own, "{seconds} s, of which its own {own} s");
+    // Its own seconds leave the waited child out: `sleep` spends no tick
+    // between the two reads (issue 2406).
+    assert!(
+        (own_seconds - own).abs() < 1e-9,
+        "{own_seconds} s read, {own} s its own"
+    );
 }

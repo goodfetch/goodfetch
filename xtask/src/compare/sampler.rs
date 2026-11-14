@@ -139,6 +139,20 @@ pub(crate) fn cpu_seconds(pid: u32) -> f64 {
     ticks / ticks_per_second
 }
 
+/// The CPU seconds `pid`'s own process has spent so far, user and system,
+/// without its children's, waited for or not: zero on an OS without
+/// `/proc` (issue 2406).
+pub(crate) fn own_cpu_seconds(pid: u32) -> f64 {
+    let (ticks_per_second, page) = system();
+    let ticks = process(pid, page).map_or(0, |process| process.cpu_ticks);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "clock ticks stay far below 2^52"
+    )]
+    let ticks = ticks as f64;
+    ticks / ticks_per_second
+}
+
 /// What one sample reads of one process.
 struct Process {
     resident_bytes: u64,

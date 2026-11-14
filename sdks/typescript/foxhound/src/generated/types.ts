@@ -171,6 +171,14 @@ export type ResponseOrigin =
  */
 export type RobotsTxtMark = "ignored";
 /**
+ * A tier that fetches a crawl request's document (ADR 0020), from the
+ * cheapest up.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "FetchTier".
+ */
+export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
+/**
  * Which scope's `fetch.tier` forced a tier.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -358,14 +366,6 @@ export type ExportId = string;
  * via the `definition` "ExtractionFollow".
  */
 export type ExtractionFollow = "scope" | "sitemap" | "none";
-/**
- * A tier that fetches a crawl request's document (ADR 0020), from the
- * cheapest up.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "FetchTier".
- */
-export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
 /**
  * What finds a field's element, named by `kind`: a CSS selector or an
  * `XPath` expression, each read alike on every tier, a page a fetch tier
@@ -1862,6 +1862,12 @@ export interface TierProvenance {
    */
   call?: string | null;
   /**
+   * For `discovered_api`, where its replayed calls left from: `http`
+   * when the Session's own HTTP transport sent them, `browser_fetch`
+   * when they left from inside its browser.
+   */
+  calls_sent_on?: FetchTier | null;
+  /**
    * How it was chosen.
    */
   chosen: "forced" | "compared" | "sample" | "escalation" | "race";
@@ -1870,10 +1876,8 @@ export interface TierProvenance {
    */
   forced_by?: ForcedBy | null;
   /**
-   * The tier that sent the document's request, whoever chose it:
-   * `browser_fetch` when it left from inside the Session's browser, as
-   * under `auto`, and `http` when the Session's own HTTP transport sent
-   * it.
+   * A tier that fetches a crawl request's document (ADR 0020), from the
+   * cheapest up.
    */
   tier: "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
 }

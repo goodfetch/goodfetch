@@ -71,9 +71,9 @@ use goodfetch_protocol::run::{
     LimitScope, MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, PointInTime,
     Presence, ProgressMessage, RUN_IN_USE, RUN_STATE_BATCH_BYTES, RUN_STATE_BATCH_INTERVAL,
     RUN_STATE_BATCH_PAGES, RUN_STATE_BATCH_PER_ATTEMPT, RUN_STATE_BATCH_SYNC,
-    RUN_STATE_COMMIT_INTERVAL, ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunListParams,
-    RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage, RunWarning, RunWriter,
-    StartInput, StartedAs, StopReason, Tags,
+    RUN_STATE_COMMIT_INTERVAL, RUN_STATE_MEMORY_BUDGET, ReachedLimit, RunAxes, RunId, RunIndexRow,
+    RunKind, RunListParams, RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage,
+    RunWarning, RunWriter, StartInput, StartedAs, StopReason, Tags,
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
@@ -2363,7 +2363,10 @@ impl Run {
     /// queued, with the write, which answers what `work` returned once its
     /// commit is acknowledged, before a sync of its own: it is an attempt's
     /// claim, which a power cut may take, and the writer bounds what such
-    /// writes charge by [`DEFERRED_CHARGES`] (ADR 0138's note of #1926).
+    /// writes charge by [`DEFERRED_CHARGES`] (ADR 0138's note of #1926). At
+    /// a level that batches attempts it rides the open batch once the file
+    /// declares its charges unsynced: answered once its savepoint is
+    /// released, and seen by a reader only once the batch commits (ADR 0142).
     /// The caller need not wait for it: dropping it does not withdraw the
     /// write, and every write queued after it runs after it.
     ///
@@ -5059,6 +5062,9 @@ impl Registry {
     fn opened_with(&self, settings: Option<&RunSettings>) -> RunStateOptions {
         RunStateOptions {
             durability: durability_of(settings),
+            memory_budget: settings.map_or(self.setup.run_state.memory_budget, |settings| {
+                settings.resolved().get(&RUN_STATE_MEMORY_BUDGET)
+            }),
             clock: self.setup.engine.clock(),
             ..self.setup.run_state.clone()
         }

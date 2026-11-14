@@ -9368,6 +9368,17 @@
       ]
     },
     {
+      "id": "setting:run_state.memory.budget",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:sample.echo_repeats",
       "kind": "setting",
       "area": 1,

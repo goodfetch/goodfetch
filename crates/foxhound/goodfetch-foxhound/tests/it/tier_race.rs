@@ -26,7 +26,7 @@ use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
 use crate::fetch_tiers::{engine, expecting, outcomes, provenance, settings, tiers};
-use crate::frontier::{Inside, added, crawl_declaring};
+use crate::frontier::{Inside, added, crawl_declaring, enqueue_params};
 use crate::run_file;
 use crate::staging::{keys, work_items};
 
@@ -488,5 +488,72 @@ fn an_escalated_race_that_fails_in_the_browser_commits_nothing_either_run_staged
                 (url(LEARN), json!("succeeded"), Value::Null),
             ],
         ),
+    );
+}
+
+/// An attempt abandoned while its race's browser-fetch page is with its
+/// handler, as `run.abort` abandons it, closes that page (issue 2510): a
+/// page left open would hold its Run's handles past the Run, and the
+/// engine would wait for them once its input ends. The Label learns
+/// `http` on its sample of a static listing, whose handler enqueues
+/// another, held 3 s; browser-fetch wins that one's race, as the first
+/// case's does, and its handler never answers: the Client aborts the Run
+/// instead, then ends its input.
+///
+/// Covers: story:6-263, setting:fetch.tier_race, operation:run.abort
+#[test]
+fn an_attempt_aborted_while_its_races_browser_fetch_page_is_handled_leaves_no_page_open() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let learn = proving_ground.url(HOST, LEARN);
+    let raced = proving_ground.url(HOST, "/products/1?hold=3000");
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
+        "params": {
+            "run_id": "aborted",
+            "seeds": [{ "url": learn, "label": "list" }],
+            "labels": { "list": {} },
+            "settings": racing(&proving_ground),
+        },
+    }));
+
+    let raced_on = loop {
+        let message = engine
+            .next()
+            .expect("the engine closed before the race's handler ran");
+        if message["method"] != "crawl_request.handle" {
+            continue;
+        }
+        let handle = &message["params"];
+        if handle["crawl_request"]["url"] == raced.as_str() {
+            // The race's handler holds its page from here, and never
+            // answers.
+            break handle["tier"].clone();
+        }
+        // Each run of the sample enqueues the request that races, and
+        // answers once the engine staged it: the two runs then stage the
+        // same, so the Label learns `http` and browser-fetch may win.
+        let _ = engine.call(
+            "enqueue",
+            "crawl_request.enqueue",
+            &enqueue_params(handle, &raced, "list"),
+            &mut |_| None,
+        );
+        engine.send(&json!({
+            "jsonrpc": "2.0", "id": message["id"], "result": { "records": [] },
+        }));
+    };
+    let aborted = engine.call(
+        "abort",
+        "run.abort",
+        &json!({ "run_id": "aborted" }),
+        &mut |_| None,
+    );
+    let exited = engine.finished();
+
+    assert_eq!(
+        (raced_on, &aborted["result"]["lifecycle"], exited),
+        (json!("http"), &json!("stopped"), true)
     );
 }

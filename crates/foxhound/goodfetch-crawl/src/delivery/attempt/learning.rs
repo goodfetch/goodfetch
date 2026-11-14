@@ -1,17 +1,20 @@
 //! What a fetched page teaches the Frontier before its handler runs
-//! (ADRs 0005 and 0120): its page signature and `rel=canonical`, and the
+//! (ADRs 0005 and 0120): each redirect hop its chain followed, its page
+//! signature and `rel=canonical`, and the
 //! pending requests a rule it taught merges, ended `skipped` with
 //! `duplicate`; nothing under `frontier.learning: false`, which signs no
 //! page (ADR 0138). A handler's attempt learns in a job of its own; a
 //! code-free attempt's outcome learns in its own job (ADR 0138).
 
+use std::sync::Arc;
+
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{RunSettings, get_or_default};
-use goodfetch_fetch_tier::FetchTiers;
+use goodfetch_fetch_tier::{FetchTiers, Redirected};
 use goodfetch_protocol::foxhound::frontier::FRONTIER_LEARNING;
 use goodfetch_protocol::page::PageId;
 
-use crate::attempt_outcome::{Learning, Moved};
+use crate::attempt_outcome::{Document, Learning, Moved};
 use crate::work_items::{Changed, Leased};
 
 /// What a fetched page taught the Frontier, or teaches it with its
@@ -34,7 +37,8 @@ pub(in crate::delivery) struct Taught {
 }
 
 /// Hands the Frontier the page `page_id` the tiers fetched for `leased`'s
-/// crawl request, with its page signature and its `rel=canonical`, before
+/// crawl request, with each redirect hop its chain followed, its page
+/// signature and its `rel=canonical`, before
 /// its handler runs, so the links the handler then enqueues count against
 /// what the page taught (ADRs 0005 and 0120); in the same commit, each
 /// pending request a rule it taught merges ends `skipped` with
@@ -54,17 +58,24 @@ pub(super) async fn learn(
     if !learns(run) {
         return Taught::default();
     }
-    let Some(signed) = tiers.signature(page_id).await else {
+    let Some(lesson) = tiers.lesson(page_id).await else {
         return Taught::default();
     };
-    let Ok(url) = goodfetch_frontier::Url::parse(&signed.url) else {
+    let document = lesson.signed.and_then(|signed| {
+        let url = goodfetch_frontier::Url::parse(&signed.url).ok()?;
+        Some(Document {
+            url,
+            signature: signed.signature,
+            canonical: signed.canonical,
+        })
+    });
+    if lesson.redirects.is_empty() && document.is_none() {
         return Taught::default();
-    };
+    }
     let learning = Learning {
         request: leased.crawl_request.clone(),
-        url,
-        signature: signed.signature,
-        canonical: signed.canonical,
+        redirects: lesson.redirects,
+        document,
         ended_at: run.point_in_time(),
         work: run.metrics().counted_work().clone(),
     };
@@ -88,6 +99,27 @@ pub(super) async fn learn(
         merged,
         changed: (!changed.is_empty()).then(|| Box::new(changed)),
         learning: None,
+    }
+}
+
+/// What the redirect hops `redirects` a chain followed before a hop ended
+/// `leased`'s crawl request `skipped` teach the Frontier: each still counts
+/// as evidence of an equivalent form (ADR 0120), taught in the request's
+/// outcome, which ends no page. Nothing when the Run does not learn
+/// ([`learns`]) or the chain followed no hop.
+pub(super) fn skipped(run: &Run, leased: &Leased, redirects: Arc<[Redirected]>) -> Taught {
+    if redirects.is_empty() || !learns(run) {
+        return Taught::default();
+    }
+    Taught {
+        learning: Some(Box::new(Learning {
+            request: leased.crawl_request.clone(),
+            redirects,
+            document: None,
+            ended_at: run.point_in_time(),
+            work: run.metrics().counted_work().clone(),
+        })),
+        ..Taught::default()
     }
 }
 

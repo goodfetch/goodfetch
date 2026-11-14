@@ -29,7 +29,7 @@
 //! answers that it changed, so a live crawl's progress is built from this
 //! state and reads no count from the run file (#2167).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -209,6 +209,36 @@ pub(crate) struct RunState {
     /// waits for the loop.
     tally: Arc<Tally>,
     stored: Stored,
+    claimed: Claimed,
+}
+
+/// The work items the crawl claimed whose claim the run file's readers may
+/// not see yet: at a level that batches attempts, a claim is answered once
+/// it is in the open batch (ADR 0142). Each is kept with the commits its
+/// writer had acknowledged once its claim answered, and the batch that holds
+/// it commits after them, so a read that starts once more have been
+/// acknowledged sees it.
+#[derive(Default)]
+struct Claimed(HashMap<String, u64>);
+
+impl Claimed {
+    /// Keeps each of `ids`, claimed once `committed` commits were
+    /// acknowledged.
+    fn claimed(&mut self, ids: Vec<String>, committed: u64) {
+        self.0.extend(ids.into_iter().map(|id| (id, committed)));
+    }
+
+    /// Forgets each claim a read that starts once `committed` commits were
+    /// acknowledged sees.
+    fn seen(&mut self, committed: u64) {
+        self.0.retain(|_, claimed| *claimed >= committed);
+    }
+
+    /// Whether the work item `id` was claimed in a batch a read may not
+    /// see.
+    fn holds(&self, id: &str) -> bool {
+        self.0.contains_key(id)
+    }
 }
 
 impl RunState {
@@ -227,12 +257,52 @@ impl RunState {
             latencies: Latencies::default(),
             tally: Arc::new(tally),
             stored,
+            claimed: Claimed::default(),
         }
     }
 
     /// What is still the run file's, as the loop reads and writes it.
     pub(crate) fn stored(&self) -> &Stored {
         &self.stored
+    }
+
+    /// The pending work items of `key`, or of every key when `None`, at
+    /// most `bound` of each key, in the order its per-domain queue admits
+    /// them: the run file's, less each the crawl claimed in a batch the
+    /// read does not see yet (ADR 0142).
+    ///
+    /// # Errors
+    ///
+    /// The run file's.
+    pub(crate) async fn waiting(
+        &mut self,
+        key: Option<String>,
+        bound: usize,
+    ) -> Result<Vec<Waiting>, StateError> {
+        self.claimed.seen(self.stored.commits());
+        let mut waiting = self.stored.waiting(key, bound).await?;
+        waiting.retain(|waiting| !self.claimed.holds(&waiting.id));
+        Ok(waiting)
+    }
+
+    /// Writes the open batch and answers once it is in the file, so a read
+    /// that follows sees every write answered before it, every claim
+    /// included.
+    ///
+    /// # Errors
+    ///
+    /// The run file's.
+    pub(crate) async fn seal(&mut self) -> Result<(), StateError> {
+        self.stored.seal().await?;
+        self.claimed = Claimed::default();
+        Ok(())
+    }
+
+    /// Keeps each of `ids`, which a job the writer answered just now
+    /// claimed, out of [`waiting`](Self::waiting) until a read sees the
+    /// batch that holds the claim (ADR 0142).
+    pub(crate) fn keep_claimed(&mut self, ids: Vec<String>) {
+        self.claimed.claimed(ids, self.stored.commits());
     }
 
     /// Counts what a job of the run file `changed` of the crawl's requests
@@ -277,7 +347,13 @@ impl RunState {
         drawing: &Drawing<'_>,
     ) -> Result<Vec<Drawn>, StateError> {
         let rows = (self.pool.changes(), self.learned.counted());
-        let leased = run.write_charged(charges, Stored::claim(ids, rows)).await?;
+        // Each of `ids` is kept, the ones the job leased and the ones it
+        // found no longer pending alike: either change may be in a batch a
+        // read does not see yet.
+        let leased = run
+            .write_charged(charges, Stored::claim(ids.clone(), rows))
+            .await?;
+        self.keep_claimed(ids);
         Ok(leased
             .into_iter()
             .map(|leased| self.draw(drawing, leased))

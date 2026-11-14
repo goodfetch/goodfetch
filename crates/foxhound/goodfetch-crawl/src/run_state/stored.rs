@@ -58,6 +58,10 @@ pub(crate) type Given = (Vec<Waiting>, Changed);
 /// An outcome's job, queued, which answers once it is written.
 pub(crate) type QueuedEnd = Pin<Box<dyn Future<Output = EndWritten> + Send>>;
 
+/// How an attempt's outcome is written: it ends one attempt. The bytes of
+/// its rows are not counted before its job runs.
+const ATTEMPT_ENDED: Syncing = Syncing::Attempt { ended: 1, bytes: 0 };
+
 /// The run file of a running crawl, as its Run state reads and writes it:
 /// the Run's run-state writer, with what each admission is judged within,
 /// the Run's domain policy and its invariants, built once (#1896), where
@@ -418,6 +422,24 @@ impl Stored {
             .await?)
     }
 
+    /// Writes the open batch, at a level that batches attempts, and
+    /// answers once it is in the file, so a read that follows sees every
+    /// write answered before it (ADR 0142); with none open it writes
+    /// nothing.
+    ///
+    /// # Errors
+    ///
+    /// The run file's.
+    pub(crate) async fn seal(&self) -> Result<(), StateError> {
+        Ok(self.writer.seal().await?)
+    }
+
+    /// How many commits the run file's writer acknowledged: a read that
+    /// starts after sees them all.
+    pub(crate) fn commits(&self) -> u64 {
+        *self.writer.commits().borrow()
+    }
+
     /// Whether a work item is pending.
     ///
     /// # Errors
@@ -467,11 +489,14 @@ impl Stored {
 
     /// Queues `outcome`, an ended attempt's, as one job of the run-state
     /// writer (ADR 0138), now, in the loop's order, and answers the job,
-    /// which the loop waits for with the others it queued beside it.
+    /// which the loop waits for with the others it queued beside it. At a
+    /// level that batches attempts, it rides the open batch and is
+    /// answered once in it (ADR 0142).
     pub(crate) async fn end(&self, outcome: Outcome) -> QueuedEnd {
         match self.writer.reserve().await {
             Ok(place) => {
-                let written = place.write(move |connection| outcome.write(connection));
+                let written =
+                    place.write_with(ATTEMPT_ENDED, move |connection| outcome.write(connection));
                 Box::pin(async move { written.await.map_err(StateError::from) })
             }
             Err(error) => Box::pin(std::future::ready(Err(error.into()))),
@@ -480,8 +505,8 @@ impl Stored {
 
     /// Ends the attempt of `work_item` under `lease_epoch` `unsuccessful`
     /// at `ended_at`, in a job of its own: one whose outcome's job failed.
-    /// Answers how it ended, and what that changed of the crawl's requests
-    /// by state.
+    /// It rides as an outcome does. Answers how it ended, and what that
+    /// changed of the crawl's requests by state.
     ///
     /// # Errors
     ///
@@ -494,7 +519,7 @@ impl Stored {
     ) -> Result<(Ended, Changed), StateError> {
         Ok(self
             .writer
-            .write(move |connection| {
+            .write_with(ATTEMPT_ENDED, move |connection| {
                 let mut changed = Changed::default();
                 let ended = attempt_outcome::end(
                     connection,
@@ -510,8 +535,9 @@ impl Stored {
 
     /// Leases each pending work item of `unsent` and ends it `failed` with
     /// its failure at `ended_at`, in one job: a request its domain's site
-    /// asked not to send, which no attempt runs. Answers what that changed
-    /// of the crawl's requests by state.
+    /// asked not to send, which no attempt runs. It rides as an outcome
+    /// does, ending the attempts it counts. Answers what that changed of
+    /// the crawl's requests by state.
     ///
     /// # Errors
     ///
@@ -521,9 +547,13 @@ impl Stored {
         unsent: Vec<(String, Failure)>,
         ended_at: PointInTime,
     ) -> Result<Changed, StateError> {
+        let ended = Syncing::Attempt {
+            ended: u64::try_from(unsent.len()).unwrap_or(u64::MAX),
+            bytes: 0,
+        };
         Ok(self
             .writer
-            .write(move |connection| {
+            .write_with(ended, move |connection| {
                 let mut changed = Changed::default();
                 for (id, failure) in unsent {
                     for leased in work_items::lease(connection, std::slice::from_ref(&id))? {

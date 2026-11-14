@@ -440,7 +440,7 @@ async fn deliver(
                 }
                 continue;
             }
-            match when_idle(run, &mut admission, state.stored()).await {
+            match when_idle(run, &mut admission, &mut state).await {
                 Ok(Idle::Admit) if !starved => continue,
                 Ok(Idle::Admit | Idle::Wait) => {}
                 Ok(Idle::Done) => {
@@ -1043,7 +1043,13 @@ async fn drained(
                 return Waited::Ended;
             }
         }
-        let ending = match state.stored().short_of_scope().await {
+        // What cut the crawl short is read once the last batch is in the
+        // file (ADR 0142).
+        let short = match state.seal().await {
+            Ok(()) => state.stored().short_of_scope().await,
+            Err(error) => Err(error),
+        };
+        let ending = match short {
             Ok(reasons) => Ending::Finished(reasons),
             Err(error) => {
                 tracing::error!(%error, run_id = %run.id(), "what cut the crawl could not be read");
@@ -1108,21 +1114,24 @@ enum Idle {
 
 /// What a crawl with no attempt in flight does next: its queues filled
 /// again from the pending work items when they hold none ready, once any
-/// work item an admission left with no domain key is keyed.
+/// work item an admission left with no domain key is keyed. Its reads
+/// decide, so they follow a seal of the open batch, which every write
+/// answered before them is then in (ADR 0142).
 async fn when_idle(
     run: &Run,
     admission: &mut Admission,
-    stored: &Stored,
+    state: &mut RunState,
 ) -> Result<Idle, StateError> {
     if admission.ready_at(run.clock().now()).is_some() {
         return Ok(Idle::Wait);
     }
-    key_new(stored, admission, Unkeyed::Running).await?;
-    fill(stored, admission, None).await?;
+    state.seal().await?;
+    key_new(state.stored(), admission, Unkeyed::Running).await?;
+    fill(state, admission, None).await?;
     if admission.ready_at(run.clock().now()).is_some() {
         return Ok(Idle::Admit);
     }
-    Ok(if stored.any_pending().await? {
+    Ok(if state.stored().any_pending().await? {
         Idle::Wait
     } else {
         Idle::Done
@@ -1193,12 +1202,11 @@ async fn settled(
         .iter()
         .map(|settling| settling.waiting.id.as_str());
     show_counted(run, state, &fetching.in_flight, ended).await;
-    let stored = state.stored();
-    returned(run, (admission, stored), settlings.into_iter().zip(retried)).await;
+    returned(run, (admission, state), settlings.into_iter().zip(retried)).await;
     for waiting in keyed {
         admission.enqueue(waiting);
     }
-    journal(run, stored, admission).await;
+    journal(run, state.stored(), admission).await;
 }
 
 /// Frees the place of each attempt of `ended` on its Connection, counts
@@ -1281,7 +1289,7 @@ fn scored(
 /// requests a rule it stopped made pending again.
 async fn returned(
     run: &Run,
-    (admission, stored): (&mut Admission, &Stored),
+    (admission, state): (&mut Admission, &mut RunState),
     settled: impl Iterator<Item = (Settling, bool)>,
 ) {
     let mut keys = BTreeSet::new();
@@ -1311,7 +1319,7 @@ async fn returned(
         }
     }
     for key in keys {
-        if let Err(error) = fill(stored, admission, Some(key)).await {
+        if let Err(error) = fill(state, admission, Some(key)).await {
             tracing::warn!(%error, run_id = %run.id(), "a queue a learned rule thinned was not filled again");
         }
     }
@@ -1371,9 +1379,15 @@ async fn open(
     key_new(&stored, &mut admission, Unkeyed::Opening)
         .await
         .map_err(|error| error.to_string())?;
-    fill(&stored, &mut admission, None)
+    // As the crawl opens it has claimed nothing: the run file holds every
+    // pending work item.
+    for waiting in stored
+        .waiting(None, admission.bound())
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())?
+    {
+        admission.enqueue(waiting);
+    }
     let (pool, tally) = stored
         .open(run.fork_entropy().await)
         .await
@@ -1458,7 +1472,9 @@ const KEYED_AT_ONCE: usize = 1024;
 /// wait outside every domain's queue for ever, and is keyed here, in a
 /// write the Run state counts. It offers each to its domain's queue, which
 /// takes it unless full; one it refuses waits in run state until its queue
-/// fills again.
+/// fills again. At a level that batches attempts a round's keys ride the
+/// open batch, which the next read would not see, so each round that keyed
+/// any seals it (ADR 0142): the next round and the reads after it see them.
 async fn key_new(
     stored: &Stored,
     admission: &mut Admission,
@@ -1467,7 +1483,11 @@ async fn key_new(
     loop {
         let unkeyed = stored.unkeyed(KEYED_AT_ONCE).await?;
         let read = unkeyed.len();
+        if read == 0 {
+            return Ok(());
+        }
         key(stored, admission, unkeyed, found).await?;
+        stored.seal().await?;
         if read < KEYED_AT_ONCE {
             return Ok(());
         }
@@ -1503,13 +1523,13 @@ async fn key(
 }
 
 /// Fills the queue of `key`, or of every key when `None`, from the pending
-/// work items, at most its bound.
+/// work items `state` reads, at most its bound.
 async fn fill(
-    stored: &Stored,
+    state: &mut RunState,
     admission: &mut Admission,
     key: Option<String>,
 ) -> Result<(), StateError> {
-    for waiting in stored.waiting(key, admission.bound()).await? {
+    for waiting in state.waiting(key, admission.bound()).await? {
         admission.enqueue(waiting);
     }
     Ok(())
@@ -1556,8 +1576,14 @@ async fn admit(
         keys.push(admitted.key);
     }
     if !refused.is_empty() {
+        // Each is claimed with its end, which a read may not see yet.
+        let unsent = refused
+            .iter()
+            .map(|(admitted, _)| admitted.id.clone())
+            .collect();
         let changed = end_unsent(run, pooled.state.stored(), admission, refused).await?;
         pooled.state.changed(changed);
+        pooled.state.keep_claimed(unsent);
         show_counted(run, pooled.state, &pooled.fetching.in_flight, []).await;
     }
     let asked = ids.clone();
@@ -1577,7 +1603,7 @@ async fn admit(
         }
     }
     for key in drained {
-        fill(pooled.state.stored(), admission, Some(key)).await?;
+        fill(pooled.state, admission, Some(key)).await?;
     }
     Ok(drawn)
 }

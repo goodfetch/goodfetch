@@ -59,7 +59,6 @@ use crate::run_state::admission::{Link, LinksBatch, LinksRequest, Suspected};
 use crate::run_state::{Asking, StateError};
 use crate::serving::{Crawls, LiveCrawl};
 use crate::staging::{Marked, Staging};
-use crate::work_items;
 
 /// The handlers of `crawl_request.links` and `crawl_request.enqueue_links`
 /// on the live crawls of `crawls`, whose pages `tiers` serve.
@@ -159,16 +158,12 @@ async fn links(
         crawl_request_id: &params.crawl_request_id,
         lease_epoch: params.lease_epoch,
     };
-    let Some(LiveCrawl { run, .. }) = crawls.live(&params.run_id).await else {
+    let Some(LiveCrawl { run, staging, .. }) = crawls.live(&params.run_id).await else {
         return Err(attempt.ended());
     };
-    let (id, epoch) = (params.crawl_request_id.clone(), params.lease_epoch);
-    let holds = run
-        .state()
-        .read(move |connection| work_items::attempt(connection, &id, epoch))
-        .await
-        .map_err(|error| attempt.unavailable(error))?;
-    if holds.is_none() {
+    // The Lease is held in memory: the run file may not hold its claim yet,
+    // in a batch its readers do not see (ADR 0142).
+    if !staging.holds(&params.crawl_request_id, params.lease_epoch) {
         return Err(attempt.ended());
     }
     let (served, base) = served(&tiers, &params.locator, run.metrics().counted_work()).await?;

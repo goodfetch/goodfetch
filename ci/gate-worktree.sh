@@ -9,7 +9,12 @@
 # `target/gate-runs/` serve the next run. Locked, so a `git worktree prune`
 # from another session cannot drop it, and held by one run at a time
 # through a lock folder, which the other worktree's runs read before they
-# start. Sourced, never run. It keeps to bash 3.2, which stock macOS runs.
+# start. The post-merge run (ci/test-health/scheduled.sh) builds in `just
+# merge`'s worktree between two gates, holding the backstop's lock, not the
+# gate's: it starts only when it sees no gate, and a gate that sees it stops
+# it and waits for its lock to go before its own checkout. It writes no
+# record in `target/gate-runs/` and sweeps nothing. Sourced, never run. It
+# keeps to bash 3.2, which stock macOS runs.
 
 root=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
 worktree="$root/.claude/worktrees/${gate_worktree_name:-merge-gate}"
@@ -68,7 +73,7 @@ fuzz_nightly_holder() {
   gate_worktree_holder "$root/.claude/worktrees/fuzz-nightly.lock"
 }
 
-# Prints the run that holds the backstop's worktree and that `just merge`'s
+# Prints the run that holds the backstop's lock and that `just merge`'s
 # gate, process `$1`, ends or lets end before it starts, as `the post-merge
 # run, process <n>`, `the test-health run, process <n>` or `the backstop,
 # process <n>`; nothing when the gate may start. ci/test-health/scheduled.sh

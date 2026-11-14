@@ -840,10 +840,11 @@ impl Session<'_> {
     async fn open(&mut self, id: RequestId, call: &Call) -> Flow {
         let daemon = self.connection.daemon.clone();
         let params = call.params();
-        let (hello, meta) = match Preamble::read(params) {
+        let work = self.dispatch.work();
+        let (hello, meta) = match Preamble::read(params, work) {
             Ok(preamble) => (
                 // A `hello` without params is refused as one with `null`.
-                Params::new(params.unwrap_or("null")).read::<HelloParams>(),
+                Params::new(params.unwrap_or("null"), work).read::<HelloParams>(),
                 preamble.meta,
             ),
             Err(error) => (Err(error), None),
@@ -964,13 +965,12 @@ impl Session<'_> {
                 Some(person_required(method))
             } else {
                 let handler = handler.clone();
-                match Preamble::read(call.params()) {
+                match Preamble::read(call.params(), self.dispatch.work()) {
                     // Refused last, so a call the engine would never start
                     // keeps its own refusal at the cap.
                     Ok(_) if self.in_flight.len() >= MAX_IN_FLIGHT => Some(too_many_calls()),
                     Ok(preamble) => {
-                        let params = call.params().map_or_else(Params::none, Params::new);
-                        self.call(id, &handler, params, &preamble);
+                        self.call(id, &handler, call.params(), &preamble);
                         return Flow::Continue;
                     }
                     Err(error) => Some(error),
@@ -1006,14 +1006,15 @@ impl Session<'_> {
         }
     }
 
-    /// Starts `handler` on `params` as a task of the Connection, in the
-    /// request's span, the child of the span the Trace context of
-    /// `preamble` names; the handler reads `params` before it returns.
+    /// Starts `handler` on `params`, a request's params where they are, as a
+    /// task of the Connection, in the request's span, the child of the span
+    /// the Trace context of `preamble` names; the handler reads `params`
+    /// before it returns.
     fn call(
         &mut self,
         id: RequestId,
         handler: &Handler,
-        params: Params<'_>,
+        params: Option<&str>,
         preamble: &Preamble<'_>,
     ) {
         let token = self.owner.token().child_token();
@@ -1049,6 +1050,8 @@ impl Session<'_> {
         // The call's watch (ADR 0148): a panic in its handler is answered
         // here, in the task the call already has, and never reaches the
         // Connection's owner.
+        let work = self.dispatch.work();
+        let params = params.map_or_else(|| Params::none(work), |json| Params::new(json, work));
         let answer = CallWatch {
             answer: handler.call(params, context).instrument(span.clone()),
             metrics: self.dispatch.metrics.clone(),

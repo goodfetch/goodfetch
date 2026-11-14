@@ -15,9 +15,9 @@ const TRAFFIC: Traffic = Traffic {
     plugin: 2,
 };
 
-/// What one run counted: its deep copies, its encodes and what left the
-/// engine.
-fn run(logs: Logs, planted: Option<Row>) -> (u64, u64, Sent) {
+/// What one run counted: its deep copies, its encodes, its decodes and what
+/// left the engine.
+fn run(logs: Logs, planted: Option<Row>) -> (u64, u64, u64, Sent) {
     let home = tempfile::tempdir().unwrap();
     let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
@@ -29,6 +29,7 @@ fn run(logs: Logs, planted: Option<Row>) -> (u64, u64, Sent) {
     (
         work.read(Row::MessageDeepCopies),
         work.read(Row::MessageEncodes),
+        work.read(Row::MessageDecodes),
         sent,
     )
 }
@@ -42,10 +43,10 @@ fn run(logs: Logs, planted: Option<Row>) -> (u64, u64, Sent) {
 fn every_message_is_read_without_a_copy_and_encoded_once() {
     let calls = u64::try_from(1 + TRAFFIC.small + TRAFFIC.large + TRAFFIC.plugin).unwrap();
 
-    let (copies, encodes, sent) = run(Logs::On, None);
-    let (copies_planted, _, _) = run(Logs::On, Some(Row::MessageDeepCopies));
-    let (_, encodes_planted, _) = run(Logs::On, Some(Row::MessageEncodes));
-    let (copies_off, encodes_off, sent_off) = run(Logs::Off, None);
+    let (copies, encodes, _, sent) = run(Logs::On, None);
+    let (copies_planted, _, _, _) = run(Logs::On, Some(Row::MessageDeepCopies));
+    let (_, encodes_planted, _, _) = run(Logs::On, Some(Row::MessageEncodes));
+    let (copies_off, encodes_off, _, sent_off) = run(Logs::Off, None);
 
     assert!(sent.event_batches > 0, "{sent:?}");
     assert_eq!(sent.handler_requests, TRAFFIC.plugin, "{sent:?}");
@@ -67,4 +68,24 @@ fn every_message_is_read_without_a_copy_and_encoded_once() {
         "{sent_off:?}"
     );
     assert!(encodes_off < encodes, "{encodes_off} off, {encodes} on");
+}
+
+/// Each request's params are decoded where they are, and each decode counts
+/// (ADR 0140's E1): one by dispatch, for their `_meta` and the Run and
+/// Session IDs its span names, and one into the type the request's handler
+/// takes, `hello`'s among them. A `$/credit` and a reply to a handler request
+/// are no request and count none; a plant adds one for each call that went
+/// through a handler.
+#[test]
+fn each_decode_of_a_requests_params_is_counted() {
+    let requests = u64::try_from(TRAFFIC.requests()).unwrap();
+    let calls = u64::try_from(1 + TRAFFIC.small + TRAFFIC.large + TRAFFIC.plugin).unwrap();
+
+    let (_, _, decodes, sent) = run(Logs::On, None);
+    let (_, _, decodes_planted, _) = run(Logs::On, Some(Row::MessageDecodes));
+
+    assert_eq!(sent.handler_requests, TRAFFIC.plugin, "{sent:?}");
+    assert_eq!(requests, 9);
+    assert_eq!(decodes, 2 * requests);
+    assert_eq!(decodes_planted - decodes, calls);
 }

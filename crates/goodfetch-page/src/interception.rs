@@ -74,6 +74,7 @@
 mod answers;
 pub(crate) mod authentication;
 mod clean_up;
+pub(crate) use self::clean_up::ConsentHandling;
 mod hops;
 mod lookups;
 mod navigations;
@@ -380,8 +381,14 @@ pub(crate) struct Cosmetic {
 
 impl Cosmetic {
     /// The cosmetic rules of step 4's `blocking`, its Filter lists of the
-    /// version `version`, when any list is on.
-    fn of(blocking: &steps::Blocking, version: Option<String>) -> Option<Self> {
+    /// version `version`, when any list is on and `run`'s
+    /// `consent.handling` is not `off`, under which no cosmetic rule acts,
+    /// live or in extracted content, while the lists still block requests
+    /// (#2434).
+    fn of(blocking: &steps::Blocking, version: Option<String>, run: &Run) -> Option<Self> {
+        if ConsentHandling::of(run) == ConsentHandling::Off {
+            return None;
+        }
         blocking
             .lists
             .as_ref()
@@ -514,7 +521,7 @@ impl Interception {
             .then(|| clean_up::effective(resolved, own, &BROWSER_BLOCK_RESOURCES).to_string());
         let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
         let clean_up = PageCleanUp {
-            cosmetic: Cosmetic::of(&blocking, version),
+            cosmetic: Cosmetic::of(&blocking, version, run),
             live_hiding: clean_up::live_hiding(resolved, own),
         };
         if let Some(blocked) = blocked {
@@ -836,11 +843,18 @@ impl Interception {
 
     /// The cosmetic rules a document a fetch tier served `run` is read with,
     /// as in every tier, HTTP included (ADR 0047): those of the Run's
-    /// Filter lists, when any is on, of the version it holds to.
+    /// Filter lists, when any is on, of the version it holds to; none under
+    /// `consent.handling: off` (#2434).
     ///
     /// They are made on the Run's first served document and held until the
     /// Run ends, so its Filter lists are compiled once for it.
     pub(crate) async fn served_cosmetic(&self, run: &Run) -> Option<Cosmetic> {
+        // A fetch tier already sent the served document's request, so the
+        // lists' cosmetic rules are all it would take from them: under
+        // `off` it takes nothing, and the lists are not loaded for it.
+        if ConsentHandling::of(run) == ConsentHandling::Off {
+            return None;
+        }
         let cell = {
             let mut served = lock(&self.shared.served);
             served.retain(|_, held| !held.live.is_cancelled());
@@ -860,7 +874,7 @@ impl Interception {
                 &Values::default(),
             );
             let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
-            Cosmetic::of(&blocking, version)
+            Cosmetic::of(&blocking, version, run)
         })
         .await
         .clone()

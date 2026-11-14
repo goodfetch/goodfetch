@@ -15,7 +15,7 @@
 //    which the engine has accepted where a person approved its domain
 //    (`consent.domains`) and otherwise reports as `consent_required`.
 //
-// With the engine's answering off (`consent.handling: false`) the runner only
+// With the engine only detecting (`consent.handling: detect`) the runner only
 // looks: autoconsent detects without acting, nothing is clicked or hidden, and
 // each prompt is reported left, but the wall test still runs.
 //

@@ -3,11 +3,12 @@
 # Actions runs only the Release suite, so no required check can block a
 # merge: this command is the lock instead. In a clean checkout of the pull
 # request's exact head it runs one gate and merges only when it passes.
-# Which gate (ADR 0135's amendments of 2026-11-10, the owner's decisions for
-# the refactor: quick per merge, the full gate once per finished spec and on
-# the tenth change a test reads since the last full gate; its note of
-# 2026-11-13: a spec is finished by the pull request that leaves none of its
-# sub-issues open):
+# Which gate (ADR 0135's amendment of 2026-11-10, the owner's decision for
+# the refactor: quick per merge, the full gate once per finished spec; its
+# note of 2026-11-13: a spec is finished by the pull request that leaves none
+# of its sub-issues open; and its note of 2026-11-14, the owner's rule « FULL
+# GATE seulement en fermant une spec entière »: nothing else takes the full
+# gate):
 #   - `just pre-merge docs` when `xtask affected` finds the change is
 #     documents alone (`gate=docs`);
 #   - `just pre-merge quick` when it finds that no test, benchmark, model,
@@ -17,11 +18,8 @@
 #     that finishes a spec: its head branch is `spec/<n>`
 #     (docs/agents/issue-tracker.md), and spec issue #<n> has no open
 #     sub-issue once the issues the pull request closes are closed, as one
-#     GitHub query reads them; and on the tenth such change since the last
-#     full gate, the nine before it having merged on the quick gate, as the
-#     messages of the base's merges say it (#2457), an unfinished spec's pull
-#     request included; `just pre-merge quick` on every other pull request;
-#   - `just pre-merge all` on any pull request when `--full` asks for it.
+#     GitHub query reads them; `just pre-merge quick` on every other pull
+#     request, an unfinished spec's included.
 # The gate's log and the merge's message name the gate that ran and why, and
 # a quick merge of a change a test reads says what it did not run. First the
 # merge cap (ci/merge-cap.sh) refuses once 10 merges have
@@ -32,6 +30,9 @@
 # keeps a failing gate's log and test results where no cleanup reaches them
 # (#2087); and, still holding the gate's lock, removes the build units no
 # gate read since the day before this one started (`xtask sweep-target`).
+# Once its lock is gone, a gate that held it and was not told to stop starts
+# the post-merge run, which checks what a quick merge skips in the worktree
+# this gate built in (#2619).
 #
 # The gate outlives its caller. The command starts itself again in a session
 # of its own, with its output in a log the common folder keeps for 30 days
@@ -43,7 +44,7 @@
 # the lock.
 set -euo pipefail
 
-usage="usage: ci/merge-pr.sh <pull request number> [--full] [--past-cap]"
+usage="usage: ci/merge-pr.sh <pull request number> [--past-cap]"
 # Only the command itself passes this, to start the gate: what names the
 # gate's files, `<run>.log` and `<run>.status`.
 run=""
@@ -54,15 +55,12 @@ fi
 number=${1:?$usage}
 shift
 # The options as given, which the gate started below takes too: `--past-cap`,
-# the owner's way past the merge cap, and `--full`, which asks for the full
-# gate on a pull request that would take another.
+# the owner's way past the merge cap, the only one.
 options=("$@")
 cap=()
-full_asked=""
 for option in ${options[@]+"${options[@]}"}; do
   case $option in
     --past-cap) cap=(--past-cap) ;;
-    --full) full_asked=1 ;;
     *)
       echo "error: $usage" >&2
       exit 2
@@ -111,8 +109,36 @@ fi
 # (xtask/src/sweep_target.rs). The sweep takes the start itself, so the gate's
 # own reads stay however long it ran. A head from before the command only
 # warns. The exit status comes last, as the caller ends on it.
+#
+# A gate that held its lock then starts the post-merge run (`just test-health
+# post-merge`, ci/test-health/scheduled.sh), merged or not: the quick gate
+# runs neither `just counts` nor the Pre-merge suite, and the run checks both
+# over what `main` gained, in this gate's worktree. After a merge `main`'s
+# tree is the one the gate just built there, since the head held the base's
+# tip, so the run builds only what its suites need beyond that; started by the
+# gate, it has the gate's environment, so Cargo takes the gate's build units
+# for its own, where a shell with other build settings would build each a
+# second time. A gate that did not merge starts it too: it may have stopped a
+# run, or found one that could not start, whose range no run covers yet; the
+# run does nothing while `main` has not moved. It starts once the lock is
+# gone, which it reads, at the lowest priority, in a session of its own with
+# its signals as a foreground command gets them (the exit's own are ignored
+# here, and a later gate stops the run with SIGTERM), and nothing waits for
+# it: the gate's log says it started and keeps what a start that failed
+# wrote, the run then writes its own log, and the next gate stops it. A gate
+# that was told to stop starts none: whoever stopped it wants the host quiet,
+# and the run the next gate starts covers the range.
 started=""
 locked=""
+stopping=""
+start_the_post_merge_run() {
+  echo "Starting the post-merge run (\`just test-health post-merge\`): it goes on after this gate, in a log of its own"
+  perl -MPOSIX -e '
+    $SIG{$_} = "DEFAULT" for qw(HUP INT QUIT TERM PIPE);
+    defined POSIX::setsid() or die "setsid: $!\n";
+    exec { $ARGV[0] } @ARGV or die "exec $ARGV[0]: $!\n";
+  ' nice -n 19 just test-health post-merge </dev/null >>"$run.log" 2>&1 &
+}
 on_exit() {
   local status=$?
   trap '' TERM HUP INT
@@ -120,7 +146,10 @@ on_exit() {
     (cd "$worktree" && cargo run --quiet --locked --bin xtask -- sweep-target --read-since "$started") ||
       echo "warning: the gate's target/ was not swept" >&2
   fi
-  [[ -z $locked ]] || rm -rf "$lock"
+  if [[ -n $locked ]]; then
+    rm -rf "$lock"
+    [[ -n $stopping ]] || start_the_post_merge_run
+  fi
   echo "$status" >"$run.status"
 }
 trap on_exit EXIT
@@ -132,6 +161,7 @@ steps=""
 stop() {
   trap '' TERM HUP INT
   started=""
+  stopping=1
   echo "The gate was told to stop: stopping its steps"
   if [[ -n $steps ]]; then kill -TERM -- "-$steps" 2>/dev/null || true; fi
   wait || true
@@ -208,8 +238,10 @@ fi
 # the gate then goes on (ci/gate-worktree.sh). Behind a backstop the wait can
 # last hours, so a gate that waited reads its pull request again: it judges
 # the head, the base and the merge cap as they are once it starts. A
-# post-merge run, every 20 minutes, never holds a gate up: the gate stops it
-# and waits for that stop alone, and the next run covers its range
+# post-merge run never holds a gate up: the gate stops it and waits for that
+# stop alone, and the run this gate starts as it ends covers its range. That
+# run builds in this gate's worktree, and its lock goes only once its suites'
+# processes have all ended, so the checkout below has the worktree to itself
 # (ci/test-health/scheduled.sh).
 waiting_for=""
 while ahead=$(run_in_the_backstops_worktree "$$") && [[ -n $ahead ]]; do
@@ -235,13 +267,16 @@ compiler_cache=$(cd "$(dirname "$0")" && pwd)/compiler-cache.sh
 # temporary folder reaches, for 30 days: a flaky-candidate issue links them.
 # `red-steps` holds what each red step's runners had written when it ended
 # (ci/pre-merge.sh), since the gate goes on and later steps clear those files.
+# `steps` holds each red step's own log, which the gate's summary names
+# (ci/keep-going.sh): the post-merge run this gate starts as it ends may
+# check `main` out in the worktree, which removes them there.
 failures="$common/goodfetch-gate-failures"
 keep_failed_gate() {
   local kept entry
   kept="$failures/$(date -u +%Y%m%dT%H%M%SZ)-pr$number-${head:0:12}"
   mkdir -p "$kept"
   cp "$run.log" "$kept/gate.log"
-  for entry in nextest junit skipped.txt stress-selection.tsv red-steps; do
+  for entry in nextest junit skipped.txt stress-selection.tsv red-steps steps; do
     [[ ! -e $worktree/target/$entry ]] || cp -R "$worktree/target/$entry" "$kept/"
   done
   find "$failures" -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +
@@ -276,33 +311,18 @@ case $affected in
     ;;
 esac
 # Which gate runs, and why, as the log and the merge's message say it. The
-# full gate runs once per finished spec, on the pull request of its
+# full gate runs only once per finished spec, on the pull request of its
 # integration branch `spec/<n>` that leaves none of the spec's sub-issues
-# open, when `--full` asks for it, and on the tenth change a test reads since
-# the last full gate; every other change a test reads merges on the quick
-# gate, a spec's pull request that leaves sub-issues open included (the
-# owner's decisions of 2026-11-10 for the refactor, of 2026-11-11 on the
-# tenth and of 2026-11-13 on the finished spec, ADR 0135).
+# open; every other change a test reads merges on the quick gate, a spec's
+# pull request that leaves sub-issues open included (the owner's decision of
+# 2026-11-10 for the refactor, rule of 2026-11-13 on the finished spec and
+# rule of 2026-11-14, « FULL GATE seulement en fermant une spec entière »,
+# which ended the full gate of the tenth change a test reads, of `--full` and
+# of the pull request that pins the reference build, ADR 0135).
 #
-# How a merge's message opens, and how it names the full gate and a quick
-# merge of a change a test reads: the count below reads back the words the
-# message is written with.
+# How a merge's message opens: `xtask gate compare` and the test-health run
+# find a full gate's merge by these words followed by `just pre-merge all`.
 merged_on="Merged on the local gate: "
-the_full_gate="\`just pre-merge all\`"
-quick_of_a_change_a_test_reads="\`just pre-merge quick\` (a test reads the change"
-# The merges on the base's first-parent line, since the last one a full gate
-# passed, that merged a change a test reads on the quick gate, as their
-# messages say it (#2457). A full gate starts the count again whatever asked
-# for it: a spec's, `--full` or the tenth's own. A docs merge and a quick
-# merge of a change no test reads say other words and are not counted, nor is
-# a merge this script did not make, which starts no count either.
-quick_merges_since_the_last_full_gate() {
-  local last_full
-  last_full=$(git rev-list -1 --first-parent --merges --fixed-strings \
-    --grep="$merged_on$the_full_gate" "origin/$base") || return
-  git rev-list --count --first-parent --merges --fixed-strings \
-    --grep="$merged_on$quick_of_a_change_a_test_reads" "origin/$base" ${last_full:+"^$last_full"}
-}
 # How many of spec #$1's sub-issues stay open once pull request #$number's
 # closing issues are closed: one query of both, read whole, or no number when
 # either holds more than a page.
@@ -327,15 +347,13 @@ JQ
 }
 why_full=""
 not_finished=""
-if [[ -n $full_asked ]]; then
-  why_full="asked for with \`--full\`"
-elif [[ $affected == full && $branch =~ ^spec/[0-9]+$ ]]; then
+if [[ $affected == full && $branch =~ ^spec/[0-9]+$ ]]; then
   # An answer that cannot be read is refused: taken for none left, it would
   # run a full gate on an unfinished spec; taken for some, it would skip a
   # finished spec's.
   spec=${branch#spec/}
   if ! left_open=$(sub_issues_left_open "$spec") || [[ ! $left_open =~ ^(0|[1-9][0-9]*)$ ]]; then
-    echo "error: the sub-issues of spec #$spec that stay open after pull request #$number could not be read from GitHub (the query read \"${left_open:-}\", which is no whole number), so nothing says whether it finishes the spec; run the command again, or ask for the full gate with \`--full\`" >&2
+    echo "error: the sub-issues of spec #$spec that stay open after pull request #$number could not be read from GitHub (the query read \"${left_open:-}\", which is no whole number), so nothing says whether it finishes the spec; run the command again" >&2
     exit 1
   fi
   if ((left_open == 0)); then
@@ -346,24 +364,9 @@ elif [[ $affected == full && $branch =~ ^spec/[0-9]+$ ]]; then
     not_finished="spec #$spec is not finished: $left_open sub-issues stay open after this pull request"
   fi
 fi
-if [[ -z $why_full && $affected == full ]]; then
-  # More than nine can be there, merged before this script counted or by a
-  # checkout that did not: the next change still takes the full gate, and
-  # says which change it is. A count that cannot be read is refused: taken
-  # for none, it would send the tenth change to the quick gate.
-  if ! quick_merges=$(quick_merges_since_the_last_full_gate) || [[ ! $quick_merges =~ ^(0|[1-9][0-9]*)$ ]]; then
-    echo "error: the changes a test reads that merged on the quick gate since the last full gate could not be counted on origin/$base (the count read \"$quick_merges\", which is no whole number), so nothing says whether this change is the tenth; run the command again, or ask for the full gate with \`--full\`" >&2
-    exit 1
-  fi
-  if ((quick_merges == 9)); then
-    why_full="the tenth change a test reads since the last full gate"
-  elif ((quick_merges > 9)); then
-    why_full="change $((quick_merges + 1)) a test reads since the last full gate, past the tenth"
-  fi
-fi
 if [[ -n $why_full ]]; then
   gate=all
-  ran="$the_full_gate ($why_full), which starts with \`just quick all\`'s lint and Quick suite,"
+  ran="\`just pre-merge all\` ($why_full), which starts with \`just quick all\`'s lint and Quick suite,"
   # `just stress`, after the whole Pre-merge suite, refuses a selected
   # `lazyfs::` test without a LazyFS build (xtask's `repeat`). Which tests it
   # selects takes a build to find, so every full gate on Linux, the one system
@@ -380,7 +383,7 @@ elif [[ $affected == quick ]]; then
   ran="\`just pre-merge quick\` (no test, benchmark, model, container or Evaluation reads the change)"
 else
   gate=quick
-  ran="$quick_of_a_change_a_test_reads, and the full gate runs once per finished spec, on the pull request of its \`spec/<n>\` branch that leaves none of its sub-issues open, on the tenth such change or with \`--full\`;${not_finished:+ $not_finished;} the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)"
+  ran="\`just pre-merge quick\` (a test reads the change, and the full gate runs only once per finished spec, on the pull request of its \`spec/<n>\` branch that leaves none of its sub-issues open;${not_finished:+ $not_finished;} the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)"
 fi
 echo "The gate is ${ran%,}"
 echo "Running the local gate ($gate) on #$number at $head in $worktree"

@@ -1,9 +1,10 @@
-//! The test-health runs the gate host's cron starts (`just test-health`,
+//! The test-health runs the gate host starts (`just test-health`,
 //! `ci/test-health/scheduled.sh`; TESTING.md's After merge): a run does not start
 //! while `just merge`'s gate runs, and says so in its results line. It marks the
 //! lock it holds for a gate started during it to wait on, which `merge_pr` tests.
 //! The post-merge run checks what `main` gained since the commit it last
-//! checked, and only when `main` moved without a full gate.
+//! checked, and only when `main` moved without a full gate, in the merge
+//! gate's worktree, where a gate starts it as it ends.
 //! `just` is a stand-in that records each call. The
 //! local gate is repository tooling, so the module declares no Feature.
 #![cfg(unix)]
@@ -28,13 +29,18 @@ fn backstop_lock(workspace: &Workspace) -> PathBuf {
         .join(".claude/worktrees/gate-backstop.lock")
 }
 
-/// A stand-in `just` that appends its arguments to `calls`, and them with the
+/// A stand-in `just` that appends its arguments to `calls`, its first argument
+/// and its working folder to `where`, and its arguments with the
 /// OS services' variables it was given to `variables`, writes its whole
 /// environment to `environment-<first argument>`, appends its first argument
 /// to `post-merge-marked` while the lock says a post-merge run holds it, and
 /// fails with status 3 while `failing-<first argument>` exists. While
 /// `blocking-<first argument>` exists, it starts a `sleep` it waits for, and
-/// writes its own process and the sleep's to `blocked-<first argument>`.
+/// writes its own process and the sleep's to `blocked-<first argument>`; told
+/// to stop while `lingering` exists, it takes a second more to end and then
+/// writes `lingered`; a blocking one then also starts a process in a process
+/// group of its own, as nextest starts a test, noted in `apart`, which told
+/// to stop takes a moment and writes `lingered-apart`.
 /// Beside it, `sudo` keeps
 /// nothing of its caller's environment, as `env_reset` does, and `systemd-run`
 /// runs what follows `--`, so the constrained run's suite sees only what the
@@ -46,11 +52,19 @@ fn stand_in_just(workspace: &Workspace) -> PathBuf {
         &folder.join("just"),
         &format!(
             "#!/bin/sh\necho \"$*\" >>\"{calls}\"\n\
+             echo \"$1 $PWD\" >>\"{folder}/where\"\n\
              echo \"$1|${{XDG_RUNTIME_DIR:-}}|${{GOODFETCH_OS_SERVICES:-}}\" >>\"{variables}\"\n\
              env >\"{folder}/environment-$1\"\n\
              if [ -f \"{mark}\" ]; then cat \"{pid}\" >\"{folder}/marked-by\"; fi\n\
              if [ -f \"{post_merge_mark}\" ]; then echo \"$1\" >>\"{folder}/post-merge-marked\"; fi\n\
+             if [ -f \"{folder}/lingering\" ]; then\n\
+               trap 'sleep 1; : >\"{folder}/lingered\"; exit 0' TERM\n\
+             fi\n\
              if [ -f \"{folder}/blocking-$1\" ]; then\n\
+               if [ -f \"{folder}/lingering\" ]; then\n\
+                 perl -e 'setpgrp(0, 0); exec @ARGV' sh -c 'trap \"sleep 0.3; : >\\\"$0\\\"; exit 0\" TERM; sleep 600 & wait' \"{folder}/lingered-apart\" </dev/null >/dev/null 2>&1 &\n\
+                 echo $! >\"{folder}/apart\"\n\
+               fi\n\
                sleep 600 & echo \"$$ $!\" >\"{folder}/blocking\"; mv \"{folder}/blocking\" \"{folder}/blocked-$1\"; wait\n\
              fi\n\
              if [ -f \"{folder}/failing-$1\" ]; then exit 3; fi\n",
@@ -240,11 +254,11 @@ fn a_run_uses_the_script_of_the_commit_it_tests() {
 }
 
 /// Cron's lines start from `origin/main`'s script, not the checkout's, which on
-/// the day this came in may predate it.
+/// the day this came in may predate it. The post-merge run has no line: a
+/// `just merge` gate starts it (`merge_pr`).
 #[rstest]
 #[case::mutants(0, "mutants")]
 #[case::constrained(1, "constrained")]
-#[case::post_merge(2, "post-merge")]
 fn a_crontab_line_runs_the_script_of_origin_main(#[case] index: usize, #[case] run: &str) {
     let crontab = std::fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/test-health.crontab"),
@@ -255,7 +269,7 @@ fn a_crontab_line_runs_the_script_of_origin_main(#[case] index: usize, #[case] r
         .filter_map(|line| line.split_once(" bash -lc '"))
         .filter_map(|(_, line)| line.strip_suffix('\''))
         .collect();
-    assert_eq!(lines.len(), 3, "{crontab}");
+    assert_eq!(lines.len(), 2, "{crontab}");
     let line = lines[index];
     assert!(
         line.ends_with(&format!(" scheduled {run} origin/main")),
@@ -498,8 +512,8 @@ fn checked(workspace: &Workspace) -> String {
         .to_owned()
 }
 
-/// Cron starts the post-merge run every 20 minutes: while `main` has not
-/// moved since the commit it checked, it runs nothing and writes no line.
+/// Every gate that held its lock starts the post-merge run: while `main` has
+/// not moved since the commit it checked, it runs nothing and writes no line.
 #[test]
 fn a_post_merge_run_does_nothing_while_main_has_not_moved() {
     let workspace = origin_repository();
@@ -514,28 +528,139 @@ fn a_post_merge_run_does_nothing_while_main_has_not_moved() {
     assert_eq!(checked(&workspace), commit(&workspace, "main"));
 }
 
-/// A post-merge run that cannot run now, while `just merge`'s gate runs, says
-/// so in its log alone and leaves the commit it checked where it was: the next
-/// cron run covers the range, and results.txt gets no line every 20 minutes.
-#[test]
-fn a_post_merge_run_skips_without_a_line_while_the_merge_gate_runs() {
+/// A post-merge run that cannot run now leaves the commit it checked where it
+/// was, for the next run to cover the range, and says so in results.txt,
+/// where the watch reads (#2619: its log alone said it, and nothing showed
+/// that `main` was no longer checked): once for a commit and a reason, however
+/// many runs find the same.
+#[rstest]
+#[case::the_merge_gate_runs("merge-gate", "the merge gate is running")]
+#[case::the_backstops_lock_is_held("gate-backstop", "the backstop's worktree is busy")]
+fn a_post_merge_run_that_cannot_start_says_so_once_in_its_results(
+    #[case] held: &str,
+    #[case] reason: &str,
+) {
     let workspace = origin_repository();
     let stand_in = stand_in_just(&workspace);
     checked_up_to(&workspace, "main^");
-    hold_the_merge_gate(&workspace, &std::process::id().to_string());
+    workspace.write(
+        &format!(".claude/worktrees/{held}.lock/pid"),
+        std::process::id().to_string().as_bytes(),
+    );
+
+    let first = scheduled(&workspace, &stand_in, "post-merge");
+    let second = scheduled(&workspace, &stand_in, "post-merge");
+
+    assert_eq!(first.code, Some(0), "{}", first.log);
+    assert_eq!(second.code, Some(0), "{}", second.log);
+    assert!(second.calls.is_empty(), "{:?}", second.calls);
+    let head = commit(&workspace, "main");
+    assert!(
+        second
+            .results
+            .ends_with(&format!(" {head} post-merge=skipped ({reason})\n")),
+        "{}",
+        second.results
+    );
+    assert_eq!(second.results.lines().count(), 1, "{}", second.results);
+    assert_eq!(checked(&workspace), commit(&workspace, "main^"));
+    assert_eq!(backstop_lock(&workspace).exists(), held == "gate-backstop");
+}
+
+/// A post-merge run short of room says on which file system, the one its
+/// build goes to, with no figure that moves between two runs.
+#[test]
+fn a_post_merge_run_short_of_room_names_the_file_system_in_its_results() {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    stand_in_df(&stand_in);
+    checked_up_to(&workspace, "main^");
+
+    let status = scheduled_command(&workspace, &stand_in, "post-merge")
+        .env("GOODFETCH_TEST_HEALTH_MIN_FREE_GB", "2000")
+        .status()
+        .unwrap();
+
+    let outcome = ended(&workspace, &stand_in, status.code());
+    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
+    assert!(outcome.calls.is_empty(), "{:?}", outcome.calls);
+    assert!(
+        outcome
+            .results
+            .ends_with(" post-merge=skipped (free disk under 2000 GB on /stand-in)\n"),
+        "{}",
+        outcome.results
+    );
+    assert_eq!(checked(&workspace), commit(&workspace, "main^"));
+}
+
+/// A post-merge run that ends on its setup, before its suites, reads as
+/// failed and leaves the commit it checked where it was (#2619: it moved it,
+/// so a range no suite had run was listed red once and never run).
+#[test]
+fn a_post_merge_run_whose_setup_fails_leaves_its_range() {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("failing-fetch"), "").unwrap();
+    checked_up_to(&workspace, "main^");
 
     let outcome = scheduled(&workspace, &stand_in, "post-merge");
 
-    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
-    assert!(outcome.calls.is_empty(), "{:?}", outcome.calls);
-    assert_eq!(outcome.results, "");
+    assert_eq!(outcome.code, Some(3), "{}", outcome.log);
+    let (head, since) = (commit(&workspace, "main"), commit(&workspace, "main^"));
     assert!(
-        outcome.log.contains("the merge gate, process"),
+        outcome
+            .results
+            .ends_with(&format!(" {head} post-merge=fail since {since}\n")),
         "{}",
-        outcome.log
+        outcome.results
     );
-    assert_eq!(checked(&workspace), commit(&workspace, "main^"));
-    assert!(!backstop_lock(&workspace).exists());
+    assert_eq!(checked(&workspace), since);
+}
+
+/// The skipped line is written once for a commit and a reason, whatever
+/// came between: two reasons that take turns leave a line each.
+#[test]
+fn a_post_merge_runs_reasons_that_take_turns_are_each_written_once() {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    checked_up_to(&workspace, "main^");
+    let lock = |name: &str| format!(".claude/worktrees/{name}.lock");
+    let hold = |name: &str| {
+        workspace.write(
+            &format!("{}/pid", lock(name)),
+            std::process::id().to_string().as_bytes(),
+        );
+    };
+    let release = |name: &str| std::fs::remove_dir_all(workspace.path().join(lock(name))).unwrap();
+
+    hold("merge-gate");
+    let first = scheduled(&workspace, &stand_in, "post-merge");
+    release("merge-gate");
+    hold("gate-backstop");
+    let second = scheduled(&workspace, &stand_in, "post-merge");
+    release("gate-backstop");
+    hold("merge-gate");
+    let third = scheduled(&workspace, &stand_in, "post-merge");
+
+    assert_eq!(
+        (first.code, second.code, third.code),
+        (Some(0), Some(0), Some(0)),
+        "{}",
+        third.log
+    );
+    let reasons: Vec<&str> = third
+        .results
+        .lines()
+        .filter_map(|line| line.split_once(" post-merge=").map(|(_, said)| said))
+        .collect();
+    assert_eq!(
+        reasons,
+        [
+            "skipped (the merge gate is running)",
+            "skipped (the backstop's worktree is busy)"
+        ]
+    );
 }
 
 /// Lands a merge on the fixture's `main`, with `main`'s tree, whose message
@@ -621,6 +746,96 @@ fn a_post_merge_run_runs_the_counts_and_the_pre_merge_suite_over_the_range(#[cas
     assert_eq!(checked(&workspace), head);
 }
 
+/// The post-merge run builds where `just merge`'s gate just built `main`'s
+/// tree, in the merge gate's worktree, so no second build folder exists
+/// (#2619: its own, in the backstop's worktree, took 36 GB and kept the disk
+/// under the run's own floor); the other runs keep the backstop's worktree.
+#[rstest]
+#[case::post_merge("post-merge", "counts", "merge-gate", "gate-backstop")]
+#[case::mutants("mutants", "mutants", "gate-backstop", "merge-gate")]
+fn a_run_builds_in_its_worktree(
+    #[case] run: &str,
+    #[case] suite: &str,
+    #[case] builds_in: &str,
+    #[case] untouched: &str,
+) {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+
+    let outcome = scheduled(&workspace, &stand_in, run);
+
+    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
+    let folders = std::fs::read_to_string(stand_in.join("where")).unwrap();
+    let folder = folders
+        .lines()
+        .find_map(|line| line.strip_prefix(&format!("{suite} ")))
+        .unwrap_or_else(|| panic!("no `{suite}` in {folders}"));
+    assert!(
+        folder.ends_with(&format!(".claude/worktrees/{builds_in}")),
+        "{folders}"
+    );
+    let worktrees = workspace.path().join(".claude/worktrees");
+    assert!(!worktrees.join(untouched).exists(), "{folders}");
+}
+
+/// A stand-in `df` that appends the folder it is asked about to `df-asked`
+/// and answers with 1,024 GB free.
+fn stand_in_df(stand_in: &Path) {
+    write_executable(
+        &stand_in.join("df"),
+        &format!(
+            "#!/bin/sh\nfor folder; do :; done\necho \"$folder\" >>\"{asked}\"\n\
+             echo 'Filesystem 1024-blocks Used Available Capacity Mounted on'\n\
+             echo '/dev/stand-in 2147483648 1073741824 1073741824 50% /stand-in'\n",
+            asked = stand_in.join("df-asked").display(),
+        ),
+    );
+}
+
+/// The folder the last `df` was asked about.
+fn df_asked(stand_in: &Path) -> String {
+    let asked = std::fs::read_to_string(stand_in.join("df-asked")).unwrap();
+    asked.lines().last().unwrap().to_owned()
+}
+
+/// A run asks for room on the file system its build goes to (#2619: a run
+/// read the checkout's disk and built on another): that of its worktree's
+/// `target/`, which can be a mount of its own, once it exists; before that
+/// of the worktree, and before the worktree exists of the checkout it is
+/// created in.
+#[rstest]
+#[case::post_merge("post-merge", "merge-gate")]
+#[case::mutants("mutants", "gate-backstop")]
+fn a_run_reads_the_free_space_where_its_build_goes(#[case] run: &str, #[case] builds_in: &str) {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    stand_in_df(&stand_in);
+    let root = workspace.path().canonicalize().unwrap();
+
+    let first = scheduled(&workspace, &stand_in, run);
+
+    assert_eq!(first.code, Some(0), "{}", first.log);
+    assert_eq!(df_asked(&stand_in), format!("{}/", root.display()));
+
+    // The first run created the worktree, and no build its `target/`.
+    let worktree = root.join(".claude/worktrees").join(builds_in);
+    commit_to_main(&workspace, &[("moved", b"main moved\n")]);
+
+    let second = scheduled(&workspace, &stand_in, run);
+
+    assert_eq!(second.code, Some(0), "{}", second.log);
+    assert_eq!(df_asked(&stand_in), format!("{}/", worktree.display()));
+
+    let target = worktree.join("target");
+    std::fs::create_dir_all(&target).unwrap();
+    commit_to_main(&workspace, &[("moved", b"main moved again\n")]);
+
+    let third = scheduled(&workspace, &stand_in, run);
+
+    assert_eq!(third.code, Some(0), "{}", third.log);
+    assert_eq!(df_asked(&stand_in), format!("{}/", target.display()));
+}
+
 /// A gate stops a post-merge run rather than wait for it (ci/merge-pr.sh), so
 /// the run marks its lock as a post-merge run's; the other runs do not.
 #[rstest]
@@ -653,13 +868,20 @@ fn runs(pid: &str) -> bool {
 }
 
 /// A gate stops a post-merge run with TERM (ci/merge-pr.sh): the run ends its
-/// suites and every process they started, writes no line and leaves the commit
-/// it checked where it was, so the next cron run covers the range.
+/// suites and every process they started, says in results.txt that a gate
+/// stopped it and leaves the commit it checked where it was, so the run that
+/// gate starts as it ends covers the range. The gate checks its head out in
+/// the worktree the run built in once the run's lock is gone, so the run ends,
+/// and its lock goes, only when no process of its suites is left, one that
+/// takes a moment to stop included, and one in a process group of its own,
+/// as nextest gives each test, which the stop of the suites' group does not
+/// reach.
 #[test]
 fn a_post_merge_run_stopped_by_a_gate_ends_its_suites_and_leaves_its_range() {
     let workspace = origin_repository();
     let stand_in = stand_in_just(&workspace);
     std::fs::write(stand_in.join("blocking-counts"), "").unwrap();
+    std::fs::write(stand_in.join("lingering"), "").unwrap();
     checked_up_to(&workspace, "main^");
     let mut run = Started::spawn(
         scheduled_command(&workspace, &stand_in, "post-merge")
@@ -677,15 +899,41 @@ fn a_post_merge_run_stopped_by_a_gate_ends_its_suites_and_leaves_its_range() {
     let code = run.wait().code();
 
     assert!(sent.success());
-    let outcome = ended(&workspace, &stand_in, code);
-    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
-    for process in std::fs::read_to_string(&blocked)
+    let left: Vec<String> = std::fs::read_to_string(&blocked)
         .unwrap()
         .split_whitespace()
-    {
-        until("the suites' end", || !runs(process));
-    }
-    assert_eq!(outcome.results, "");
+        .filter(|process| runs(process))
+        .map(str::to_owned)
+        .collect();
+    let lingered = stand_in.join("lingered").is_file();
+    let apart = stand_in.join("lingered-apart").is_file();
+    let apart_runs = runs(
+        std::fs::read_to_string(stand_in.join("apart"))
+            .unwrap()
+            .trim(),
+    );
+    let outcome = ended(&workspace, &stand_in, code);
+    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
+    assert!(
+        lingered,
+        "the run ended before its suite had: {}",
+        outcome.log
+    );
+    assert!(
+        apart && !apart_runs,
+        "the run ended before its suite's process in a group of its own had: {}",
+        outcome.log
+    );
+    assert!(left.is_empty(), "{left:?} still ran: {}", outcome.log);
+    let head = commit(&workspace, "main");
+    assert!(
+        outcome.results.ends_with(&format!(
+            " {head} post-merge=skipped (a merge gate stopped the run)\n"
+        )),
+        "{}",
+        outcome.results
+    );
+    assert_eq!(outcome.results.lines().count(), 1, "{}", outcome.results);
     assert_eq!(checked(&workspace), commit(&workspace, "main^"));
     assert!(!backstop_lock(&workspace).exists());
 }

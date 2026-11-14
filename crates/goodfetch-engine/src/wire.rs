@@ -11,6 +11,7 @@ use std::ops::Range;
 use goodfetch_protocol::jsonrpc::{RequestId, Version};
 use serde::de::{self, DeserializeOwned, DeserializeSeed, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::value::RawValue;
 
 /// One line a Connection sends, and whether its bytes are its message's
 /// one encode, which its writer counts (ADR 0140's E1): a `$/events` batch
@@ -146,6 +147,19 @@ impl Received {
     /// When it is no `T`.
     pub fn read<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
         serde_json::from_str(self.json())
+    }
+}
+
+/// The string a JSON value holds: where it is, when it holds no escape.
+pub(crate) fn text(value: &RawValue) -> Option<Cow<'_, str>> {
+    let json = value.get();
+    match json
+        .strip_prefix('"')
+        .and_then(|json| json.strip_suffix('"'))
+    {
+        Some(inner) if !inner.contains('\\') => Some(Cow::Borrowed(inner)),
+        Some(_) => serde_json::from_str::<String>(json).ok().map(Cow::Owned),
+        None => None,
     }
 }
 

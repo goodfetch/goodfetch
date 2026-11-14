@@ -241,15 +241,17 @@ pub(crate) fn politeness_plant(name: &str, work: &CountedWork) -> Plant {
             let work = work.clone();
             Arc::new(move |_: &str| work.count(Row::PolitenessScriptSends))
         }
-        // One read more of a shared robots.txt copy, which parses it again.
+        // One read more of a shared robots.txt copy, which parses it again:
+        // each through a copy of its own, as a Run keeps the parse of what it
+        // read.
         "E6.robots_parses" | "E6.robots_reads" => {
             let (runtime, file) = politeness(work);
             // A paused Clock is made on the runtime it runs on.
             let clock = beside(runtime, async { Clock::paused(std::time::UNIX_EPOCH) });
-            let copies = goodfetch_frontier::SharedRobotsTxt::new(file, clock);
             let location = url::Url::parse("http://planted.test/robots.txt")
                 .expect("invariant: a literal URL");
             Arc::new(move |_: &str| {
+                let copies = goodfetch_frontier::SharedRobotsTxt::new(file.clone(), clock);
                 let fetch = Box::pin(std::future::ready(Answer::Response {
                     status: 200,
                     body: b"User-agent: *\nAllow: /\n".to_vec(),

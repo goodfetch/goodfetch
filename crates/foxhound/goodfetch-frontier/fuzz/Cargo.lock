@@ -1546,6 +1546,7 @@ dependencies = [
  "goodfetch-protocol",
  "goodfetch-workspace-hack",
  "jsonschema",
+ "moka",
  "psl",
  "quick-xml 0.41.0",
  "rusqlite",

@@ -6,7 +6,7 @@ use super::{
 };
 use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
 use crate::compare::trials::{
-    Comparison, CountedCell, CountedRun, GrowthCell, SizesCell, Tool, Work,
+    CollieScenario, Comparison, CountedCell, CountedRun, GrowthCell, SizesCell, Tool, Work,
 };
 
 /// Each of Spider's side's builds runs the executable Cargo left in the
@@ -115,19 +115,19 @@ fn only_a_run_of_the_full_trials_waits_for_a_quiet_machine() {
 
 /// A counted run goes on while its crawl progresses: it is stopped, with the
 /// measured reason, once the Proving ground has received no request for
-/// [`super::STALL_SECONDS`], or once it reaches
-/// [`super::COUNTED_BOUND_SECONDS`].
+/// [`super::watch::STALL_SECONDS`], or once it reaches
+/// [`super::watch::COUNTED_BOUND_SECONDS`].
 #[test]
 fn a_counted_run_is_stopped_once_its_crawl_stalls_or_reaches_the_bound() {
-    let stall = super::STALL_SECONDS;
-    let bound = super::COUNTED_BOUND_SECONDS;
+    let stall = super::watch::STALL_SECONDS;
+    let bound = super::watch::COUNTED_BOUND_SECONDS;
 
     let going = (
-        super::stopped(super::Watch::Counted(1), 300, stall - 1, 240),
-        super::stopped(super::Watch::Counted(1), bound - 1, 0, 990),
+        super::watch::stopped(super::Watch::Counted(1), 300, stall - 1, 240),
+        super::watch::stopped(super::Watch::Counted(1), bound - 1, 0, 990),
     );
-    let stalled = super::stopped(super::Watch::Counted(1), 400, stall, 240);
-    let bounded = super::stopped(super::Watch::Counted(2), bound, 3, 990);
+    let stalled = super::watch::stopped(super::Watch::Counted(1), 400, stall, 240);
+    let bounded = super::watch::stopped(super::Watch::Counted(2), bound, 3, 990);
 
     assert_eq!(
         (going, stalled, bounded),
@@ -144,21 +144,21 @@ fn a_counted_run_is_stopped_once_its_crawl_stalls_or_reaches_the_bound() {
 }
 
 /// A timed trial gets the same watch: stopped once the Proving ground has
-/// received no request for [`super::STALL_SECONDS`], or once it reaches
-/// [`super::TIMED_BOUND_SECONDS`] for the 1,000-page site (scaled to a
+/// received no request for [`super::watch::STALL_SECONDS`], or once it reaches
+/// [`super::watch::TIMED_BOUND_SECONDS`] for the 1,000-page site (scaled to a
 /// larger site's pages), with the measured reason.
 #[test]
 fn a_timed_trial_is_stopped_once_its_crawl_stalls_or_reaches_its_bound() {
     use super::Watch;
-    let stall = super::STALL_SECONDS;
-    let bound = super::TIMED_BOUND_SECONDS;
+    let stall = super::watch::STALL_SECONDS;
+    let bound = super::watch::TIMED_BOUND_SECONDS;
 
     let going = (
-        super::stopped(Watch::Timed(3, 1000), 200, stall - 1, 10),
-        super::stopped(Watch::Timed(3, 100_000), bound + 1, 0, 990),
+        super::watch::stopped(Watch::Timed(3, 1000), 200, stall - 1, 10),
+        super::watch::stopped(Watch::Timed(3, 100_000), bound + 1, 0, 990),
     );
-    let stalled = super::stopped(Watch::Timed(3, 1000), 130, stall, 0);
-    let bounded = super::stopped(Watch::Timed(4, 1000), bound, 2, 990);
+    let stalled = super::watch::stopped(Watch::Timed(3, 1000), 130, stall, 0);
+    let bounded = super::watch::stopped(Watch::Timed(4, 1000), bound, 2, 990);
 
     assert_eq!(
         (going, stalled, bounded),
@@ -245,9 +245,10 @@ fn a_cell_whose_strace_run_missed_pages_runs_no_later_run() {
 
 /// A run of `scenarios` whose executables no file holds, so a part over no
 /// cell starts nothing and a part that starts a tool fails: how the run
-/// ended, and what each hand-over of its trials file said of its sizes,
-/// system-call, growth and Callgrind cells, `measured` or why not run.
-fn handed_over(scenarios: Vec<Scenario>) -> (anyhow::Result<Comparison>, Vec<[String; 4]>) {
+/// ended, and what each hand-over of its trials file said of its Collie
+/// scenario and of its sizes, system-call, growth and Callgrind cells,
+/// `measured` or why not run.
+fn handed_over(scenarios: Vec<Scenario>) -> (anyhow::Result<Comparison>, Vec<[String; 5]>) {
     let nowhere = Path::new("/nowhere");
     let executables = Executables {
         proving_ground: nowhere,
@@ -257,6 +258,7 @@ fn handed_over(scenarios: Vec<Scenario>) -> (anyhow::Result<Comparison>, Vec<[St
         crawlee: nowhere,
         scrapy: nowhere,
         browser: nowhere,
+        collie: None,
     };
     let options = Options {
         machine: None,
@@ -274,6 +276,7 @@ fn handed_over(scenarios: Vec<Scenario>) -> (anyhow::Result<Comparison>, Vec<[St
         &options,
         &mut |so_far: &Comparison| {
             kept.push([
+                collie(&so_far.collie),
                 sized(&so_far.sizes),
                 reached(&so_far.syscalls),
                 grown(&so_far.growth),
@@ -290,6 +293,14 @@ fn reached(cell: &CountedCell) -> String {
     match cell {
         CountedCell::NotRun { reason } => reason.clone(),
         CountedCell::Measured { .. } => "measured".to_owned(),
+    }
+}
+
+/// The Collie scenario as a hand-over shows it.
+fn collie(scenario: &CollieScenario) -> String {
+    match scenario {
+        CollieScenario::NotRun { reason } => reason.clone(),
+        CollieScenario::Measured { .. } => "measured".to_owned(),
     }
 }
 
@@ -315,18 +326,19 @@ fn not_reached(cell: &str) -> String {
 }
 
 /// A run of hours keeps what it has measured: the trials file's contents
-/// are handed over once the timed trials are in, again once the sizes cell
-/// is, again once the system-call cell is, again once the growth cell is
-/// and again once the Callgrind cell is, so a failure in a later part loses
-/// none of them (the base run of #2281 lost 220 trials to its first
-/// Callgrind run). Before its cell has run, the file says the run did not
-/// reach it.
+/// are handed over once the timed trials are in, again once the Collie
+/// scenario's are, again once the sizes cell is, again once the system-call
+/// cell is, again once the growth cell is and again once the Callgrind cell
+/// is, so a failure in a later part loses none of them (the base run of
+/// #2281 lost 220 trials to its first Callgrind run). Before its cell has
+/// run, the file says the run did not reach it.
 #[test]
 fn a_run_hands_over_its_trials_after_each_part_before_the_next() {
     // No scenario, so no cell: every part runs, over nothing.
     let (ended, kept) = handed_over(Vec::new());
 
     let whole = ended.unwrap();
+    let no_collie = "the run asked for no Collie cell".to_owned();
     let strace = if crate::compare::trial::strace_missing().is_some() {
         reached(&whole.syscalls)
     } else {
@@ -338,30 +350,47 @@ fn a_run_hands_over_its_trials_after_each_part_before_the_next() {
         kept,
         vec![
             [
+                not_reached("Collie"),
                 not_reached("sizes"),
                 not_reached("system-call"),
                 not_reached("growth"),
                 not_reached("Callgrind")
             ],
             [
+                no_collie.clone(),
+                not_reached("sizes"),
+                not_reached("system-call"),
+                not_reached("growth"),
+                not_reached("Callgrind")
+            ],
+            [
+                no_collie.clone(),
                 no_sizes.clone(),
                 not_reached("system-call"),
                 not_reached("growth"),
                 not_reached("Callgrind")
             ],
             [
+                no_collie.clone(),
                 no_sizes.clone(),
                 strace.clone(),
                 not_reached("growth"),
                 not_reached("Callgrind")
             ],
             [
+                no_collie.clone(),
                 no_sizes.clone(),
                 strace.clone(),
                 grown(&whole.growth),
                 not_reached("Callgrind")
             ],
-            [no_sizes, strace, grown(&whole.growth), no_callgrind],
+            [
+                no_collie,
+                no_sizes,
+                strace,
+                grown(&whole.growth),
+                no_callgrind
+            ],
         ]
     );
 }
@@ -375,7 +404,7 @@ fn a_failed_hostile_pass_leaves_the_callgrind_cell_in_the_trials_handed_over() {
     // before them runs over no cell.
     let (ended, kept) = handed_over(vec![Scenario::Hostile]);
 
-    let callgrind = kept.last().map(|[_, _, _, callgrind]| callgrind.clone());
+    let callgrind = kept.last().map(|[.., callgrind]| callgrind.clone());
     assert_eq!(
         (ended.is_err(), callgrind),
         (

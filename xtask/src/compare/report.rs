@@ -102,7 +102,7 @@ pub(crate) enum CellStatus {
     NotSupported {
         reason: &'static str,
     },
-    /// Its timed trial was stopped twice (see `run::stopped`), or the
+    /// Its timed trial was stopped twice (see `run::watch::stopped`), or the
     /// ticket that brings it has not landed.
     NotMeasured {
         reason: String,
@@ -172,7 +172,7 @@ pub(crate) struct Report<'a> {
 }
 
 /// The median of `values`, the mean of the middle two for an even count.
-fn median(values: &[f64]) -> f64 {
+pub(super) fn median(values: &[f64]) -> f64 {
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
     let middle = sorted.len() / 2;
@@ -188,11 +188,11 @@ fn median(values: &[f64]) -> f64 {
     clippy::cast_precision_loss,
     reason = "pages, bytes and counts here stay far below 2^52, where a float is exact"
 )]
-fn float(count: u64) -> f64 {
+pub(super) fn float(count: u64) -> f64 {
     count as f64
 }
 
-fn spread(values: &[f64], unit: Unit) -> Figure {
+pub(super) fn spread(values: &[f64], unit: Unit) -> Figure {
     if values.is_empty() || values.iter().any(|value| !value.is_finite()) {
         return Figure::NotMeasured {
             reason: "a trial gave no value".to_owned(),
@@ -737,7 +737,7 @@ fn shown(value: f64, unit: Unit) -> String {
     }
 }
 
-fn cell_text(figure: &Figure) -> String {
+pub(super) fn cell_text(figure: &Figure) -> String {
     match figure {
         Figure::Measured {
             median,

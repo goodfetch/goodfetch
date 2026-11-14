@@ -2,6 +2,7 @@
 //! before the first trial, the machine, each trial's figures with the work
 //! the Proving ground saw it do, and the counted cells' runs with theirs.
 
+use goodfetch_protocol::result_document::OracleOutcome;
 use serde::{Deserialize, Serialize};
 
 use super::hostile::Broken;
@@ -390,6 +391,134 @@ pub(crate) enum SizesCell {
     },
 }
 
+/// A cell of the Collie scenario (issue 2282): what both tools do in it, on
+/// the Proving ground's `actionability.test` and `portal.test` pages.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Exercise {
+    /// The lab's click tasks, one page after another.
+    Click,
+    /// The lab's form tasks, one page after another.
+    Form,
+    /// The portal's pages that need no login, each opened and its title
+    /// read.
+    Navigation,
+    /// Sessions opened and closed one after another.
+    Sessions,
+    /// 16 pages acting at once in one Session.
+    AtOnce,
+}
+
+/// A tool of the Collie scenario, which the driver
+/// (`xtask/compare-collie/act.ts`) runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Contender {
+    /// Collie's Attached engine, over JSON-RPC through its TypeScript SDK.
+    Collie,
+    /// Playwright's Node.js library, its actionability checks on.
+    Playwright,
+}
+
+impl Contender {
+    pub(crate) const ALL: [Self; 2] = [Self::Collie, Self::Playwright];
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Collie => "collie",
+            Self::Playwright => "playwright",
+        }
+    }
+}
+
+/// How a page's steps ended, as the tool reported it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Ended {
+    Success,
+    Failure,
+}
+
+/// One page of a Collie scenario trial.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PageDone {
+    /// The Proving ground's task: `actionability/20`.
+    pub(crate) task: String,
+    pub(crate) ended: Ended,
+    /// The steps it took, the one that failed included.
+    pub(crate) steps: u64,
+    /// The document's status, when the navigation answered one.
+    pub(crate) status: Option<u16>,
+    /// The SHA-256 of the text a read step read, in hex.
+    pub(crate) read: Option<String>,
+    /// The tool's first error's first line, when a step failed.
+    pub(crate) error: Option<String>,
+    /// The oracle's outcome on an `actionability.test` page, for the status
+    /// the tool reported: `verified` when the tool got it right.
+    pub(crate) outcome: Option<OracleOutcome>,
+}
+
+/// One trial of a Collie scenario cell: one tool, in a fresh process,
+/// attached to a fresh Chrome serving a fresh Proving ground, its figures
+/// taken between the marks it asked for once attached.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct CollieTrial {
+    pub(crate) exercise: Exercise,
+    pub(crate) tool: Contender,
+    /// Its number among the cell's trials of its tool, from 1.
+    pub(crate) number: u32,
+    /// The 1-minute load average when it started, where the OS gives one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) load: Option<f64>,
+    /// The actions it took, which its figures are per: each click, fill,
+    /// press or page read, the one that failed included, or each Session
+    /// opened.
+    pub(crate) actions: u64,
+    /// The Sessions it opened between the marks.
+    pub(crate) sessions: u64,
+    /// The CDP commands the counting relay passed to the browser between
+    /// the marks: every WebSocket message from the tool.
+    pub(crate) commands: u64,
+    /// The CPU time of the tool's process tree between the marks.
+    pub(crate) cpu_seconds: f64,
+    /// The time between the marks.
+    pub(crate) wall_seconds: f64,
+    /// The highest resident memory of the tool's process tree, from its
+    /// start to its exit; the browser's processes are not in it.
+    pub(crate) peak_bytes: u64,
+    pub(crate) pages: Vec<PageDone>,
+    /// Why its first attempt was stopped, when these are its retry's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) retried: Option<String>,
+}
+
+/// A Collie scenario trial stopped twice, which leaves its tool's figures in
+/// its cell unmeasured and its later trials there not run.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct CollieStopped {
+    pub(crate) exercise: Exercise,
+    pub(crate) tool: Contender,
+    pub(crate) number: u32,
+    /// Both attempts' reasons.
+    pub(crate) reason: String,
+}
+
+/// The Collie scenario: its cells' trials, both tools in each.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub(crate) enum CollieScenario {
+    NotRun {
+        reason: String,
+    },
+    Measured {
+        /// Trials of each tool in each cell.
+        trials: u32,
+        trials_run: Vec<CollieTrial>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        stopped: Vec<CollieStopped>,
+    },
+}
+
 /// The trials file: one comparison.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Comparison {
@@ -414,6 +543,8 @@ pub(crate) struct Comparison {
     pub(crate) instructions: CountedCell,
     /// The hostile pages' cells' runs: the rules each tool broke (#2439).
     pub(crate) rules: Vec<RuledRun>,
+    /// The Collie scenario: Collie against Playwright on one browser.
+    pub(crate) collie: CollieScenario,
 }
 
 /// One run of a hostile pages' cell: the rules its tool broke on each task

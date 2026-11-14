@@ -1114,8 +1114,15 @@ rss-propose *scenarios:
 # target/compare/report.md and report.json, `local-controlled`, measured on
 # the machine `--machine "<name>"` names, with the command that reruns it;
 # otherwise it fails naming the trial. A host without strace or Valgrind
-# reports that cell as not run. It gates nothing and is no Live check; run
-# it when the 1-minute load is under 4.
+# reports that cell as not run. The Collie scenario (issue 2282) runs Collie
+# against Playwright, Guard on, both attached to one Chrome for Testing
+# xtask launched through a relay that counts each tool's CDP commands, on
+# the Proving ground's actionability.test and portal.test pages in five
+# cells, and gives per action the commands, CPU and wall time, each tool's
+# peak memory, the pages each got right and
+# `collie.playwright_command_ratio` against its register row's Today;
+# `--scenario collie` runs it alone. It gates nothing and is no Live check;
+# run it when the 1-minute load is under 4.
 # Spider's and crawlee-rs's crates and the sides' packages are downloaded
 # once, free. Spider's six builds and crawlee-rs's go to
 # target/compare-spider/, or to the folder GOODFETCH_COMPARE_SPIDER_BUILDS
@@ -1146,6 +1153,7 @@ compare profile="release" *args:
     cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/crawlee-rs
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy
+    pnpm install --frozen-lockfile --reporter=silent --filter goodfetch-compare-collie...
     "$xtask" compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile {{ profile }} "${@:2}"
 
 # The Kennel (ADR 0141), from the repository. On macOS: its release

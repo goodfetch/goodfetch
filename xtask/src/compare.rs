@@ -30,7 +30,9 @@
 //! The hostile pages' passes (#2439) instead crawl the Proving ground's
 //! `traps` and `limits` tasks a few times and count the rules each tool
 //! broke there, from the Proving ground's findings, with no bar and no
-//! standing. `report` holds every
+//! standing. It also runs the Collie scenario (issue 2282, `collie`):
+//! Collie against Playwright on one browser, which gives
+//! `collie.playwright_command_ratio`. `report` holds every
 //! trial to the same-work check, then writes each cell's median and spread
 //! of every metric and Foxhound's verdicts against each competitor,
 //! labelled `local-controlled`, measured on the machine it names, with the
@@ -41,10 +43,12 @@
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
 )]
 
+mod collie;
 mod foxhound;
 mod hostile;
 mod matrix;
 mod observed;
+mod relay;
 mod report;
 mod rerun;
 mod run;
@@ -65,7 +69,7 @@ use crate::output;
 use crate::test_tools::{Tool, ToolManifest};
 
 use matrix::Scenario;
-use trials::Comparison;
+use trials::{CollieScenario, Comparison};
 
 /// Crawlee's side's script, as the recipe runs it.
 const CRAWLEE: &str = "xtask/compare-crawlee/crawl.mjs";
@@ -138,15 +142,74 @@ pub(crate) struct RunArguments {
     /// same-work check refuses: the check shown failing.
     #[arg(long, hide = true)]
     spider_pages: Option<u64>,
+    /// The Collie scenario's side, `xtask/compare-collie`'s script, run by
+    /// Node.js once its packages are installed.
+    #[arg(long, default_value = "xtask/compare-collie/act.ts")]
+    collie_driver: PathBuf,
     /// Runs only this scenario's cells; repeatable. Every scenario by
-    /// default.
+    /// default, the Collie scenario's included.
     #[arg(long = "scenario", value_enum)]
-    scenarios: Vec<Scenario>,
+    scenarios: Vec<Asked>,
     /// The machine's name, which the report names it by, such as "Hetzner
     /// Cloud CCX43, 16 dedicated vCPUs": a reader knows a machine by its
     /// product or model, not by its CPU's.
     #[arg(long)]
     machine: Option<String>,
+}
+
+/// A scenario a run can be asked for: one of the crawl matrix's, by its
+/// own name, or the Collie scenario (issue 2282), Collie against Playwright
+/// on one browser.
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum Asked {
+    Raw,
+    Durable,
+    Polite,
+    Extraction,
+    Browser,
+    Realistic,
+    Long,
+    #[value(name = "raw-64")]
+    Raw64,
+    #[value(name = "raw-256")]
+    Raw256,
+    Hostile,
+    #[value(name = "hostile-16")]
+    Hostile16,
+    Collie,
+}
+
+impl Asked {
+    /// The crawl matrix's scenarios of `asked`: every one when none is.
+    fn crawls(asked: &[Self]) -> Vec<Scenario> {
+        if asked.is_empty() {
+            return Scenario::ALL.to_vec();
+        }
+        asked.iter().filter_map(|asked| asked.crawl()).collect()
+    }
+
+    /// Whether `asked` holds the Collie scenario: it does when empty.
+    fn collie(asked: &[Self]) -> bool {
+        asked.is_empty() || asked.contains(&Self::Collie)
+    }
+
+    /// The crawl matrix's scenario; none for the Collie scenario.
+    fn crawl(self) -> Option<Scenario> {
+        match self {
+            Self::Raw => Some(Scenario::Raw),
+            Self::Durable => Some(Scenario::Durable),
+            Self::Polite => Some(Scenario::Polite),
+            Self::Extraction => Some(Scenario::Extraction),
+            Self::Browser => Some(Scenario::Browser),
+            Self::Realistic => Some(Scenario::Realistic),
+            Self::Long => Some(Scenario::Long),
+            Self::Raw64 => Some(Scenario::Raw64),
+            Self::Raw256 => Some(Scenario::Raw256),
+            Self::Hostile => Some(Scenario::Hostile),
+            Self::Hostile16 => Some(Scenario::Hostile16),
+            Self::Collie => None,
+        }
+    }
 }
 
 #[derive(Args)]
@@ -201,61 +264,79 @@ pub(crate) struct TrialArguments {
     capacity: Option<usize>,
 }
 
+/// `path` made absolute, for a child that runs in another folder.
+fn absolute(path: &Path) -> Result<PathBuf> {
+    std::fs::canonicalize(path).with_context(|| format!("finding {}", path.display()))
+}
+
+/// `run`: every declared trial, the trials file written as the run goes,
+/// then the report.
+fn measure(arguments: &RunArguments, environment: &Environment) -> Result<ExitCode> {
+    let tools = ToolManifest::read(&environment.path(&arguments.tools))?;
+    let commit = crate::git::command(&environment.root)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .context("running git rev-parse")?;
+    let browser = match &arguments.browser {
+        Some(browser) => environment.path(browser),
+        None => trial::chrome_folder().with_context(|| {
+            format!(
+                "Playwright's Chrome for Testing {} is not installed: run `pnpm exec playwright install chromium`, or name its folder with --browser",
+                crate::test_facts::CHROME_FOR_TESTING_BUILD
+            )
+        })?,
+    };
+    let out = environment.path(&arguments.out);
+    let folder = out.parent().unwrap_or_else(|| Path::new("."));
+    let proving_ground = tools.path(Tool::ProvingGround)?;
+    let collie = Asked::collie(&arguments.scenarios)
+        .then(|| -> Result<_> {
+            Ok(collie::Tools {
+                proving_ground,
+                engine: tools.path(Tool::Collie)?,
+                driver: absolute(&environment.path(&arguments.collie_driver))?,
+                browser: &browser,
+                goodfetch_variables: &environment.goodfetch_variables,
+            })
+        })
+        .transpose()?;
+    let mut trials = run::run(
+        &run::Executables {
+            proving_ground,
+            foxhound: tools.path(Tool::Foxhound)?,
+            spider_builds: &environment.path(&arguments.spider_builds),
+            spider_profile: &arguments.spider_profile,
+            browser: &browser,
+            crawlee: &environment.path(&arguments.crawlee),
+            scrapy: &environment.path(&arguments.scrapy),
+            collie,
+        },
+        String::from_utf8_lossy(&commit.stdout).trim().to_owned(),
+        &run::Options {
+            machine: arguments.machine.clone(),
+            command: rerun::of(arguments),
+            trials: arguments.trials,
+            growth: arguments.growth,
+            spider_pages: arguments.spider_pages,
+            scenarios: Asked::crawls(&arguments.scenarios),
+            callgrind_outputs: folder.join(CALLGRIND_OUTPUTS),
+        },
+        &mut |so_far| write(so_far, &out),
+    )?;
+    write(&trials, &out)?;
+    report(&mut trials, &out, environment)
+}
+
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
     match command {
-        Command::Run(arguments) => {
-            let tools = ToolManifest::read(&environment.path(&arguments.tools))?;
-            let commit = crate::git::command(&environment.root)
-                .args(["rev-parse", "HEAD"])
-                .output()
-                .context("running git rev-parse")?;
-            let browser = match &arguments.browser {
-                Some(browser) => environment.path(browser),
-                None => trial::chrome_folder().with_context(|| {
-                    format!(
-                        "Playwright's Chrome for Testing {} is not installed: run `pnpm exec playwright install chromium`, or name its folder with --browser",
-                        crate::test_facts::CHROME_FOR_TESTING_BUILD
-                    )
-                })?,
-            };
-            let out = environment.path(&arguments.out);
-            let folder = out.parent().unwrap_or_else(|| Path::new("."));
-            let mut trials = run::run(
-                &run::Executables {
-                    proving_ground: tools.path(Tool::ProvingGround)?,
-                    foxhound: tools.path(Tool::Foxhound)?,
-                    spider_builds: &environment.path(&arguments.spider_builds),
-                    spider_profile: &arguments.spider_profile,
-                    browser: &browser,
-                    crawlee: &environment.path(&arguments.crawlee),
-                    scrapy: &environment.path(&arguments.scrapy),
-                },
-                String::from_utf8_lossy(&commit.stdout).trim().to_owned(),
-                &run::Options {
-                    machine: arguments.machine.clone(),
-                    command: rerun::of(&arguments),
-                    trials: arguments.trials,
-                    growth: arguments.growth,
-                    spider_pages: arguments.spider_pages,
-                    scenarios: if arguments.scenarios.is_empty() {
-                        Scenario::ALL.to_vec()
-                    } else {
-                        arguments.scenarios.clone()
-                    },
-                    callgrind_outputs: folder.join(CALLGRIND_OUTPUTS),
-                },
-                &mut |so_far| write(so_far, &out),
-            )?;
-            write(&trials, &out)?;
-            report(&mut trials, &out)
-        }
+        Command::Run(arguments) => measure(&arguments, environment),
         Command::Report(arguments) => {
             let path = environment.path(&arguments.trials);
             let text =
                 std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
             let mut trials: Comparison = serde_json::from_slice(&text)
                 .with_context(|| format!("parsing {}", path.display()))?;
-            report(&mut trials, &path)
+            report(&mut trials, &path, environment)
         }
         Command::Trial(arguments) => {
             let (cell, mut config) = trial::cell_of(arguments.scenario, &arguments.cell)?;
@@ -312,23 +393,51 @@ fn write(trials: &Comparison, out: &Path) -> Result<()> {
         .with_context(|| format!("writing {}", out.display()))
 }
 
-/// Holds the trials to the same-work check, then writes the report beside
-/// the trials file at `trials_path` and prints it; no figure is written
-/// when the check fails. A strace run that did other work fails nothing:
-/// its cell's system calls are reported as not measured, and the trials
-/// file keeps the run as it was.
-fn report(trials: &mut Comparison, trials_path: &Path) -> Result<ExitCode> {
+/// The report file: the crawl matrix's report, and the Collie scenario's
+/// section beside it.
+#[derive(serde::Serialize)]
+struct Written<'a> {
+    #[serde(flatten)]
+    report: report::Report<'a>,
+    collie: collie::Section,
+}
+
+/// Holds the trials to the same-work check, the Collie scenario's
+/// included, then writes the report beside the trials file at
+/// `trials_path` and prints it; no figure is written when the check fails.
+/// A strace run that did other work fails nothing: its cell's system calls
+/// are reported as not measured, and the trials file keeps the run as it
+/// was. The Collie scenario's ratio is held to the Today of its row in
+/// the checkout's TESTING.md.
+fn report(
+    trials: &mut Comparison,
+    trials_path: &Path,
+    environment: &Environment,
+) -> Result<ExitCode> {
     same_work::strace_runs_of_other_work_set_aside(trials);
     let trials = &*trials;
-    let findings = same_work::check(trials);
+    let mut findings = same_work::check(trials);
+    findings.extend(collie::check(&trials.collie));
     if !findings.is_empty() {
         return Ok(check::report(&findings));
     }
+    let register = environment.root.join(crate::register::document::FILE);
+    let testing = match &trials.collie {
+        CollieScenario::NotRun { .. } => String::new(),
+        CollieScenario::Measured { .. } => std::fs::read_to_string(&register)
+            .with_context(|| format!("reading the Quality register in {}", register.display()))?,
+    };
+    let section = collie::section(&trials.collie, &testing);
     let report = report::of(trials);
-    let markdown = report::markdown(&report, trials);
+    let mut markdown = report::markdown(&report, trials);
+    markdown.push_str(&collie::markdown(&section));
+    let written = Written {
+        report,
+        collie: section,
+    };
     let folder = trials_path.parent().unwrap_or_else(|| Path::new("."));
     let json = folder.join("report.json");
-    std::fs::write(&json, serde_json::to_vec_pretty(&report)?)
+    std::fs::write(&json, serde_json::to_vec_pretty(&written)?)
         .with_context(|| format!("writing {}", json.display()))?;
     let md = folder.join("report.md");
     std::fs::write(&md, &markdown).with_context(|| format!("writing {}", md.display()))?;
@@ -340,3 +449,6 @@ fn report(trials: &mut Comparison, trials_path: &Path) -> Result<ExitCode> {
     ));
     Ok(ExitCode::SUCCESS)
 }
+
+#[cfg(test)]
+mod tests;

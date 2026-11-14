@@ -335,6 +335,22 @@ importers:
         specifier: 8.22.0
         version: 8.22.0
 
+  xtask/compare-collie:
+    dependencies:
+      '@goodfetch/collie':
+        specifier: workspace:*
+        version: link:../../sdks/typescript/collie
+      playwright:
+        specifier: 'catalog:'
+        version: 1.64.1
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.5
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+
 packages:
 
   '@allurereport/aql@3.20.1':

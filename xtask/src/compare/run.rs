@@ -1,13 +1,13 @@
 //! `run`: every measured cell's declared trials in one random order, each
-//! against a fresh Proving ground, then the sizes cell's, the system-call
-//! cell's, the growth cell's (when asked for) and the Callgrind cell's runs
-//! in the same way, written to the trials file. Every executable a trial
-//! runs is dropped from the page cache before it starts (spec #2165).
+//! against a fresh Proving ground, then the Collie scenario's (when asked
+//! for), the sizes cell's, the system-call cell's, the growth cell's (when
+//! asked for) and the Callgrind cell's runs in the same way, written to the
+//! trials file. Every executable a crawl trial runs is dropped from the
+//! page cache before it starts (spec #2165).
 
 use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::time::Duration;
+use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, Result, bail};
 
@@ -15,16 +15,21 @@ use crate::output;
 use crate::rss::crawl::serve;
 use crate::rss::page_cache;
 
+use self::machine::{load, machine, quiet};
+use self::watch::{Retried, Watch, retried, watched};
+use super::collie;
 use super::matrix::{self, Cell, Config, Row, Scenario, SpiderBuild};
-use super::sampler;
-use super::trial::{self, Counted, Ruled, callgrind_missing, strace_missing};
+use super::trial::{self, Counted, Outcome, Ruled, callgrind_missing, strace_missing};
 use super::trials::{
-    CONCURRENCY, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, Comparison, CountedCell, CountedRun, Declared,
-    GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_TOOLS, Machine, Measured,
-    PLAYWRIGHT_VERSION, QUIET_LOAD, QUIET_WAIT_SECONDS, RULE_RUNS, RuledRun,
+    CONCURRENCY, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, CollieScenario, CollieStopped, Comparison,
+    CountedCell, CountedRun, Declared, GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS,
+    INSTRUCTION_TOOLS, Measured, PLAYWRIGHT_VERSION, RULE_RUNS, RuledRun,
     SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES,
     SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint, StoppedRun, Trial, size_not_run,
 };
+
+mod machine;
+mod watch;
 
 /// The executables a run takes.
 pub(crate) struct Executables<'a> {
@@ -42,6 +47,8 @@ pub(crate) struct Executables<'a> {
     /// Chrome for Testing's folder, which every tool of the headless
     /// browser scenario runs.
     pub(crate) browser: &'a Path,
+    /// The Collie scenario's, when the run asked for it.
+    pub(crate) collie: Option<collie::Tools<'a>>,
 }
 
 /// What a run was asked for.
@@ -108,105 +115,6 @@ fn order<T: Copy>(items: &[T], runs: u32, state: &mut u64) -> Vec<(T, u32)> {
         order.swap(last, pick);
     }
     order
-}
-
-/// The machine: the name given it, OS and version, CPU, threads, memory,
-/// and its load now.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "xtask is synchronous: it asks the OS's own commands and files with blocking calls (STYLE.md)"
-)]
-fn machine(name: Option<String>) -> Machine {
-    let read = |program: &str, arguments: &[&str]| {
-        Command::new(program)
-            .args(arguments)
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-            .unwrap_or_default()
-    };
-    let (os, cpu, memory_bytes) = if cfg!(target_os = "macos") {
-        (
-            format!("macOS {}", read("sw_vers", &["-productVersion"])),
-            read("sysctl", &["-n", "machdep.cpu.brand_string"]),
-            read("sysctl", &["-n", "hw.memsize"]).parse().ok(),
-        )
-    } else {
-        let cpu = std::fs::read_to_string("/proc/cpuinfo")
-            .ok()
-            .and_then(|text| {
-                text.lines()
-                    .find_map(|line| line.strip_prefix("model name"))
-                    .map(|rest| rest.trim_start_matches([' ', '\t', ':']).to_owned())
-            })
-            .unwrap_or_default();
-        // `MemTotal:       65843412 kB`, in KiB.
-        let memory_bytes = std::fs::read_to_string("/proc/meminfo")
-            .ok()
-            .and_then(|text| {
-                text.lines()
-                    .find_map(|line| line.strip_prefix("MemTotal:"))?
-                    .split_whitespace()
-                    .next()?
-                    .parse::<u64>()
-                    .ok()
-            })
-            .map(|kib| kib * 1024);
-        (
-            format!("{} {}", std::env::consts::OS, read("uname", &["-r"])),
-            cpu,
-            memory_bytes,
-        )
-    };
-    let load = load();
-    Machine {
-        class: "local-controlled".to_owned(),
-        name,
-        os,
-        arch: std::env::consts::ARCH.to_owned(),
-        cpu,
-        threads: std::thread::available_parallelism().map_or(0, std::num::NonZero::get),
-        memory_bytes,
-        load,
-    }
-}
-
-/// The 1-minute load average now, where the OS gives one.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "xtask is synchronous: it reads /proc with a blocking call (STYLE.md)"
-)]
-fn load() -> Option<f64> {
-    std::fs::read_to_string("/proc/loadavg")
-        .ok()
-        .and_then(|text| text.split_whitespace().next()?.parse().ok())
-}
-
-/// Waits, up to [`QUIET_WAIT_SECONDS`], for the 1-minute load to fall under
-/// [`QUIET_LOAD`], so a timed trial starts on a quiet machine, a browser
-/// trial's own load included; the load it starts at, where the OS gives
-/// one.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "xtask is synchronous: a run waits for a quiet machine by sleeping between reads of its load (STYLE.md)"
-)]
-fn quiet() -> Option<f64> {
-    const POLL_SECONDS: u64 = 10;
-    let mut waited = 0;
-    loop {
-        let now = load()?;
-        if now < QUIET_LOAD || waited >= QUIET_WAIT_SECONDS {
-            if waited > 0 {
-                output::line(&format!(
-                    "Waited {waited} s for the 1-minute load to fall under {QUIET_LOAD}: {now:.2}."
-                ));
-            }
-            return Some(now);
-        }
-        std::thread::sleep(std::time::Duration::from_secs(POLL_SECONDS));
-        waited += POLL_SECONDS;
-    }
 }
 
 /// The seed of the trials' order, drawn from the wall clock: any seed will
@@ -294,7 +202,7 @@ fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf>
 /// executable it runs is dropped from the page cache, so it pages them in
 /// by its own faults, as a first start does. `mode` and `output` name a
 /// counted trial's tool and file; `watch`, what the comparison stops once
-/// [`stopped`] says why.
+/// [`watch::stopped`] says why.
 #[expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: a trial runs as a blocking child process (STYLE.md)"
@@ -371,143 +279,6 @@ fn trial<T: serde::de::DeserializeOwned>(
                 String::from_utf8_lossy(&figures)
             )
         })
-}
-
-/// A trial's figures, or why the comparison stopped it.
-pub(crate) enum Outcome<T> {
-    Done(T),
-    Stopped(String),
-}
-
-/// How long a watched trial may go with the Proving ground receiving no
-/// request before it is stopped as stalled.
-pub(crate) const STALL_SECONDS: u64 = 120;
-/// The longest a counted run may take.
-pub(crate) const COUNTED_BOUND_SECONDS: u64 = 1800;
-/// The longest a timed trial of the [`SITE_PAGES`]-page site may take: a
-/// browser trial took at most about 260 s on a loaded machine (#1903).
-pub(crate) const TIMED_BOUND_SECONDS: u64 = 600;
-
-/// Which trial the comparison watches, stopping it once its crawl stalls
-/// or reaches its bound.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum Watch {
-    /// Not watched: a Callgrind run, whose slowdown would need another
-    /// bound, and whose scenario 1 crawls finish.
-    None,
-    /// The `n`-th run of a cell under strace.
-    Counted(u32),
-    /// The `n`-th timed trial of a cell, of a site of so many pages.
-    Timed(u32, u64),
-}
-
-/// Why the watched trial, `seconds` into its crawl and `quiet` seconds
-/// since the Proving ground's count of requests last grew, at `requests`,
-/// is stopped; none while it goes on.
-pub(crate) fn stopped(watch: Watch, seconds: u64, quiet: u64, requests: u64) -> Option<String> {
-    let (named, what, bound) = match watch {
-        Watch::None => return None,
-        Watch::Counted(number) => (
-            format!("under `strace -f`, run {number}"),
-            "a counted run",
-            COUNTED_BOUND_SECONDS,
-        ),
-        Watch::Timed(number, pages) => (
-            format!("timed trial {number}"),
-            "a timed trial",
-            TIMED_BOUND_SECONDS * pages.div_ceil(SITE_PAGES).max(1),
-        ),
-    };
-    if quiet >= STALL_SECONDS {
-        return Some(format!(
-            "{named} stopped after {seconds} s: the Proving ground received no request for {quiet} s after {requests} requests"
-        ));
-    }
-    (seconds >= bound).then(|| {
-        format!(
-            "{named} stopped after {seconds} s, the longest {what} may take, at {requests} requests"
-        )
-    })
-}
-
-/// A timed trial once run again when stopped: [`retried`].
-pub(crate) enum Retried<T> {
-    /// Its figures, and why its first attempt stopped when they are its
-    /// retry's.
-    Done {
-        measured: T,
-        retried: Option<String>,
-    },
-    /// Stopped twice: both reasons.
-    Stopped(String),
-}
-
-/// Runs `attempt`, and once more when the comparison stopped it.
-pub(crate) fn retried<T>(mut attempt: impl FnMut() -> Result<Outcome<T>>) -> Result<Retried<T>> {
-    let first = match attempt()? {
-        Outcome::Done(measured) => {
-            return Ok(Retried::Done {
-                measured,
-                retried: None,
-            });
-        }
-        Outcome::Stopped(reason) => reason,
-    };
-    Ok(match attempt()? {
-        Outcome::Done(measured) => Retried::Done {
-            measured,
-            retried: Some(first),
-        },
-        Outcome::Stopped(second) => {
-            Retried::Stopped(format!("{second}; its first attempt: {first}"))
-        }
-    })
-}
-
-/// Waits for the trial `child` on the Proving ground at `address` to exit;
-/// when it is watched, reads its count of requests each second, and once
-/// [`stopped`] says why, kills the trial's processes, each by its own ID,
-/// and returns the reason.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "xtask is synchronous: a watched trial is watched by sleeping between reads of its Proving ground's request count (STYLE.md)"
-)]
-fn watched(child: &mut Child, address: &str, watch: Watch) -> Result<Option<String>> {
-    if matches!(watch, Watch::None) {
-        return Ok(None);
-    }
-    let started = trial::now();
-    let (mut requests, mut grew) = (0, started);
-    loop {
-        if child
-            .try_wait()
-            .context("waiting for xtask compare trial")?
-            .is_some()
-        {
-            return Ok(None);
-        }
-        std::thread::sleep(Duration::from_secs(1));
-        let count = trial::request_count(address)?;
-        if count != requests {
-            (requests, grew) = (count, trial::now());
-        }
-        let reason = stopped(
-            watch,
-            started.elapsed().as_secs(),
-            grew.elapsed().as_secs(),
-            requests,
-        );
-        if let Some(reason) = reason {
-            // Every process of the trial's tree, gathered before any dies
-            // and leaves its children to another parent.
-            for pid in sampler::tree(child.id()) {
-                // One may have exited meanwhile.
-                let _ = trial::kill(pid);
-            }
-            child.wait().context("waiting for the stopped trial")?;
-            return Ok(Some(reason));
-        }
-    }
 }
 
 /// The pages of the site `config`'s tool crawls in `scenario`, where the
@@ -595,7 +366,7 @@ fn at_concurrency(config: Config, concurrency: u32) -> Config {
 }
 
 /// Runs `options.trials` timed trials of each of `points`, in one random
-/// order, each watched (see [`stopped`]): a stopped trial runs once more,
+/// order, each watched (see [`watch::stopped`]): a stopped trial runs once more,
 /// and a point whose trial is stopped twice is not measured, its later
 /// trials not run. Returns the trials and the points stopped.
 fn timed(
@@ -748,7 +519,7 @@ pub(crate) fn set_aside(done: &[CountedRun], cell: &Cell, pages: u64) -> bool {
 
 /// Runs a counted cell: `runs` runs of each of `cells` under `mode`, each
 /// run's counting tool writing its output into `outputs`. Under strace
-/// (`watched`), a run whose crawl stalls is stopped (see [`stopped`]): its
+/// (`watched`), a run whose crawl stalls is stopped (see [`watch::stopped`]): its
 /// cell is not measured, and its later runs do not run; nor do the later
 /// runs of a cell one of whose runs did not fetch the site, which the
 /// report sets aside as not measured (the same-work check's
@@ -981,11 +752,96 @@ fn rules(
     Ok(runs)
 }
 
+/// The Collie scenario's trials, when the run asked for it (`tools`):
+/// `options.trials` of each tool in each of its cells, in one random order
+/// drawn from `state`, each waiting for a quiet machine as a timed trial
+/// does.
+fn collie_trials(
+    tools: Option<&collie::Tools<'_>>,
+    options: &Options,
+    state: &mut u64,
+) -> Result<CollieScenario> {
+    let Some(tools) = tools else {
+        return Ok(CollieScenario::NotRun {
+            reason: "the run asked for no Collie cell".to_owned(),
+        });
+    };
+    let mut trials_run = Vec::new();
+    let mut stopped: Vec<CollieStopped> = Vec::new();
+    for (exercise, tool, number) in collie::order(options.trials, state, next) {
+        if stopped
+            .iter()
+            .any(|run| run.exercise == exercise && run.tool == tool)
+        {
+            continue;
+        }
+        let measured = retried(|| {
+            let load = if waits_for_quiet(options) {
+                quiet()
+            } else {
+                load()
+            };
+            collie::trial(tools, exercise, tool, number, load)
+        })
+        .with_context(|| {
+            format!(
+                "running the Collie scenario's {} cell, {} trial {number}",
+                exercise.name(),
+                tool.name()
+            )
+        })?;
+        match measured {
+            Retried::Done {
+                measured: mut done,
+                retried,
+            } => {
+                if let Some(reason) = &retried {
+                    output::line(&format!(
+                        "collie {} {} trial {number} was stopped, then retried: {reason}",
+                        exercise.name(),
+                        tool.name()
+                    ));
+                }
+                output::line(&format!(
+                    "collie {} {} trial {number}: {} actions, {} CDP commands in {:.3} s, peak {} bytes",
+                    exercise.name(),
+                    tool.name(),
+                    done.actions,
+                    done.commands,
+                    done.wall_seconds,
+                    done.peak_bytes,
+                ));
+                done.retried = retried;
+                trials_run.push(done);
+            }
+            Retried::Stopped(reason) => {
+                output::line(&format!(
+                    "collie {} {} trial {number} was stopped twice, and the cell measures it no further: {reason}",
+                    exercise.name(),
+                    tool.name()
+                ));
+                stopped.push(CollieStopped {
+                    exercise,
+                    tool,
+                    number,
+                    reason,
+                });
+            }
+        }
+    }
+    Ok(CollieScenario::Measured {
+        trials: options.trials,
+        trials_run,
+        stopped,
+    })
+}
+
 /// Runs every declared trial and returns the trials file's contents. `keep`
 /// is handed them as they stand once the timed trials are in, again once
-/// the sizes cell is, again once the system-call cell is, again once the
-/// growth cell is and again once the Callgrind cell is, so a failure in a
-/// later part, the hostile pages' passes included, loses none of them.
+/// the Collie scenario's are, again once the sizes cell is, again once the
+/// system-call cell is, again once the growth cell is and again once the
+/// Callgrind cell is, so a failure in a later part, the hostile pages'
+/// passes included, loses none of them.
 pub(crate) fn run(
     executables: &Executables<'_>,
     commit: String,
@@ -1025,8 +881,13 @@ pub(crate) fn run(
         instructions: CountedCell::NotRun {
             reason: not_reached("Callgrind"),
         },
+        collie: CollieScenario::NotRun {
+            reason: not_reached("Collie"),
+        },
         rules: Vec::new(),
     };
+    keep(&comparison)?;
+    comparison.collie = collie_trials(executables.collie.as_ref(), options, &mut state)?;
     keep(&comparison)?;
     comparison.sizes = sizes(executables, options, &mut state)?;
     keep(&comparison)?;

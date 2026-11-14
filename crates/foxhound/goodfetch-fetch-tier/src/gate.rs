@@ -544,11 +544,14 @@ impl NavigationGate for Gate {
                     // encoding reads the same for them.
                     let html = String::from_utf8_lossy(response.body).into_owned();
                     let readers = Arc::clone(&self.0.untouched);
-                    let work = self.0.run().metrics().counted_work().clone();
+                    let counted = self.0.run().metrics().counted_work();
+                    let work = counted.clone();
                     self.0
                         .run()
                         .owner()
-                        .analysis(move || readers.markup_use_signals(signals, &html, &url, &work))
+                        .analysis(counted, move || {
+                            readers.markup_use_signals(signals, &html, &url, &work)
+                        })
                         .await
                 }
                 Err(_) => signals,

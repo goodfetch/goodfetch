@@ -291,8 +291,9 @@ fn just_compare_builds_each_of_spiders_sides_builds_into_its_folder() {
 /// The extraction scenario crawls the article site (#2136), which every
 /// tool reaches by its name, and each cell's mapping names what reads its
 /// Main content: Foxhound's Clean-up rules and `dom_smoothie`, Spider's
-/// `llm_readability` at the versions its side pins, and the text of
-/// `<main>` for the tools that read no main content of their own.
+/// `llm_readability` at the versions its side pins, pagesift's
+/// `onlyMainContent`, and the text of `<main>` for the tools that read no
+/// main content of their own.
 #[test]
 fn the_extraction_scenario_crawls_the_article_site_and_names_each_extractor() {
     let manifest: toml::Table = include_str!("../../../compare-spider/Cargo.toml")
@@ -312,7 +313,7 @@ fn the_extraction_scenario_crawls_the_article_site_and_names_each_extractor() {
             pinned("spider_transformations")
         ),
     ];
-    let extractors: [(&str, &[&str]); 7] = [
+    let extractors: [(&str, &[&str]); 8] = [
         ("foxhound", &["Clean-up rules", "dom_smoothie"]),
         (
             "foxhound filter lists off",
@@ -322,6 +323,7 @@ fn the_extraction_scenario_crawls_the_article_site_and_names_each_extractor() {
         ("crawlee", &["the text of its `main`"]),
         ("scrapy", &["the text of its `main`"]),
         ("crawlee-rs", &["the text of its `main`"]),
+        ("pagesift", &["`onlyMainContent`"]),
         ("spider mimalloc", &["the spider row's settings"]),
     ];
     let unnamed: Vec<(&str, &str)> = extractors
@@ -395,6 +397,7 @@ fn foxhounds_filter_lists_off_row_is_checked_with_the_ad_allowed() {
                 ("crawlee", false, whole),
                 ("scrapy", false, whole),
                 ("crawlee-rs", false, whole),
+                ("pagesift", false, whole),
                 ("spider mimalloc", false, whole),
             ],
             Row::Main,
@@ -451,6 +454,42 @@ fn just_compare_builds_crawlee_rss_side_into_its_folder() {
         "cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml \
          --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
         super::CRAWLEE_RS_FOLDER
+    )));
+}
+
+/// pagesift runs on its side in every scenario, each its main row: the
+/// four HTTP scenarios, the headless browser scenario on its browser
+/// engine, #2316's four and the hostile pages' two (#2215).
+#[test]
+fn pagesift_runs_every_scenario_on_its_side() {
+    let cells: Vec<(Scenario, &str, Row, Option<Config>)> = CELLS
+        .iter()
+        .filter(|cell| cell.tool == Tool::Pagesift)
+        .map(|cell| {
+            let config = match cell.status {
+                Status::Measured(config) => Some(config),
+                Status::NotSupported(_) | Status::Pending(_) => None,
+            };
+            (cell.scenario, cell.name, cell.row, config)
+        })
+        .collect();
+
+    assert_eq!(
+        cells,
+        Scenario::ALL.map(|scenario| (scenario, "pagesift", Row::Main, Some(Config::Pagesift)))
+    );
+}
+
+/// `just compare` builds pagesift's side, locked, at the run's profile,
+/// into the folder the run reads its executable from.
+#[test]
+fn just_compare_builds_pagesifts_side_into_its_folder() {
+    let recipes = include_str!("../../../../justfile");
+
+    assert!(recipes.contains(&format!(
+        "cargo build --quiet --locked --manifest-path xtask/compare-pagesift/Cargo.toml \
+         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
+        super::PAGESIFT_FOLDER
     )));
 }
 

@@ -36,8 +36,8 @@ pub(super) fn traced(cell: &Cell, config: Config, mode: &Mode, pages: u64) -> Co
     }
 }
 
-/// The files Spider's and Scrapy's sides write the extraction scenario's
-/// pages to, in the folder they run in.
+/// The files Spider's and pagesift's sides and Scrapy's write the
+/// extraction scenario's pages to, in the folder they run in.
 const SPIDER_PAGES: &str = "pages.jsonl";
 const SCRAPY_ITEMS: &str = "items.jsonl";
 
@@ -81,7 +81,9 @@ impl Plan<'_> {
                     text: record.text,
                 })
                 .collect(),
-            Config::Spider { .. } => extracted::read(Written::Lines(SPIDER_PAGES), home)?,
+            Config::Spider { .. } | Config::Pagesift => {
+                extracted::read(Written::Lines(SPIDER_PAGES), home)?
+            }
             Config::Scrapy => extracted::read(Written::Lines(SCRAPY_ITEMS), home)?,
             Config::Crawlee | Config::CrawleeRs => extracted::read(Written::Dataset, home)?,
         };

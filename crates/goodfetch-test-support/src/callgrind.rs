@@ -2,7 +2,9 @@
 //! what no wrapper sees, such as SQLite's own `sqlite3_prepare_v3`, whose C
 //! symbol does not inline or change with Goodfetch's code, or what has no
 //! counter to count on, such as a `CountedWork`'s own construction, whose
-//! reader checks that the symbol is still called at all.
+//! reader checks that the symbol is still called at all. And the
+//! instructions a program runs beneath one function
+//! ([`instructions_beneath`]), such as a page's clean-up.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -93,6 +95,47 @@ pub enum CallgrindError {
 pub fn calls(symbol: &str, program: &Path, arguments: &[&str]) -> Result<u64, CallgrindError> {
     let text = output(&[], program, arguments)?;
     Ok(calls_in(&text, symbol))
+}
+
+/// How many instructions `program`, run with `arguments` under Callgrind,
+/// ran in each of `functions` and in whatever it called: Callgrind collects
+/// only while one of them, each named as Callgrind names a function, is on
+/// the stack. None when the program never entered one: a function renamed
+/// would otherwise read as free. What ran before the program entered the
+/// function `from`, when one is named, is left out: Callgrind zeroes its
+/// costs there, so a program can do first what its figure must not hold,
+/// such as work done once however many units follow. A `from` the program
+/// never enters leaves that work in, and the figure above its limit.
+///
+/// # Errors
+///
+/// As [`calls`].
+pub fn instructions_beneath(
+    functions: &[&str],
+    from: Option<&str>,
+    program: &Path,
+    arguments: &[&str],
+) -> Result<Option<u64>, CallgrindError> {
+    let mut named: Vec<String> = functions
+        .iter()
+        .map(|function| format!("--toggle-collect={function}"))
+        .collect();
+    named.extend(from.map(|function| format!("--zero-before={function}")));
+    let mut options = vec!["--collect-atstart=no"];
+    options.extend(named.iter().map(String::as_str));
+    let text = output(&options, program, arguments)?;
+    Ok(total_in(&text).filter(|total| *total > 0))
+}
+
+/// The events `text`, a Callgrind output, collected in all: its `totals:`
+/// line's first figure, the instructions.
+fn total_in(text: &str) -> Option<u64> {
+    text.lines()
+        .find_map(|line| line.strip_prefix("totals:"))?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()
 }
 
 /// How many times a program called a symbol: in all, and beneath a caller

@@ -168,6 +168,20 @@ pub(crate) fn pagesift_executable(builds: &Path, profile: &str) -> PathBuf {
         ))
 }
 
+/// chromiumoxide's side's executable in `builds`, beside Spider's builds:
+/// `just compare` builds it into the target folder
+/// [`matrix::CHROMIUMOXIDE_FOLDER`] names, where Cargo puts it under
+/// `profile`'s folder (issue 2444).
+pub(crate) fn chromiumoxide_executable(builds: &Path, profile: &str) -> PathBuf {
+    builds
+        .join(matrix::CHROMIUMOXIDE_FOLDER)
+        .join(profile)
+        .join(format!(
+            "goodfetch-compare-chromiumoxide{}",
+            std::env::consts::EXE_SUFFIX
+        ))
+}
+
 /// Where a trial crawls: the site's pages and the requests it has in
 /// flight at once, and whether its samples read the tool's executable's
 /// own pages.

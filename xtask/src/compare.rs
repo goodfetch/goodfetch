@@ -117,7 +117,9 @@ pub(crate) struct RunArguments {
     /// once for each build the matrix's Spider rows run, each into the
     /// target folder of its name under this one (`spider`, `spider-chrome`,
     /// `spider-bloom` and so on), `xtask/compare-crawlee-rs` built into
-    /// `crawlee-rs` and `xtask/compare-pagesift` into `pagesift`.
+    /// `crawlee-rs`, `xtask/compare-pagesift` into `pagesift` and the
+    /// Collie scenario's `xtask/compare-chromiumoxide` into
+    /// `chromiumoxide`.
     #[arg(long)]
     spider_builds: PathBuf,
     /// The folder Cargo names after the profile those builds were made
@@ -314,6 +316,10 @@ fn measure(arguments: &RunArguments, environment: &Environment) -> Result<ExitCo
                 engine: tools.path(Tool::Collie)?,
                 driver: absolute(&environment.path(&arguments.collie_driver))?,
                 arms_driver: absolute(&environment.path(&arguments.collie_arms_driver))?,
+                chromiumoxide: absolute(&run::chromiumoxide_executable(
+                    &environment.path(&arguments.spider_builds),
+                    &arguments.spider_profile,
+                ))?,
                 browser: &browser,
                 goodfetch_variables: &environment.goodfetch_variables,
             })

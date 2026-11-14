@@ -1,0 +1,58 @@
+# chromiumoxide's side of the Collie scenario of `just compare` (#2444): a
+# Rust program that carries out a trial's plan with chromiumoxide, a Rust
+# CDP library (MIT OR Apache-2.0), attached to the Chrome for Testing xtask
+# launched, through the counting relay, as `xtask/compare-collie/plan.ts`
+# does for the scenario's other tools. It is fetched and run by the
+# comparison alone, never linked into a Product.
+#
+# The pin: chromiumoxide 0.9.1 on crates.io, the newest on 2026-11-14, held
+# to that exact version below; the Cargo.lock beside this file pins every
+# crate under it. Move the pin by changing the version below and the one
+# `xtask/src/compare/trials.rs` declares (`CHROMIUMOXIDE_VERSION`, which a
+# test holds equal to it), then `cargo update --manifest-path
+# xtask/compare-chromiumoxide/Cargo.toml`.
+#
+# The build: the repository's pinned toolchain (`rust-toolchain.toml`,
+# found above this folder) and the workspace's release profile below, as
+# Spider's side is built. `just compare` runs
+#
+#   cargo build --locked --manifest-path xtask/compare-chromiumoxide/Cargo.toml \
+#     --profile release --target-dir target/compare-spider/chromiumoxide
+#
+# and the comparison runs
+# `target/compare-spider/chromiumoxide/release/goodfetch-compare-chromiumoxide`
+# (`GOODFETCH_COMPARE_SPIDER_BUILDS` moves the folder, as for Spider's).
+[package]
+name = "goodfetch-compare-chromiumoxide"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Its default features, as it ships.
+chromiumoxide = { version = "=0.9.1" }
+futures = "0.3"
+# The marks are plain HTTP on loopback: no TLS.
+reqwest = { version = "0.13", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[workspace]
+
+# The workspace's release profile, so no tool is built with more
+# optimization than another.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+panic = "unwind"
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "debuginfo"
+
+# The workspace's `ci` profile, for `just compare ci`'s quicker try.
+[profile.ci]
+inherits = "release"
+lto = "thin"

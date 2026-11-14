@@ -75,6 +75,8 @@ use trials::{CollieScenario, Comparison};
 const CRAWLEE: &str = "xtask/compare-crawlee/crawl.mjs";
 /// Scrapy's side's script, as the recipe runs it.
 const SCRAPY: &str = "xtask/compare-scrapy/crawl.py";
+/// The Collie scenario's side's script, as the recipe runs it.
+const COLLIE_DRIVER: &str = "xtask/compare-collie/act.ts";
 /// The trials file the recipe writes.
 const TRIALS_FILE: &str = "target/compare/trials.json";
 /// The folder beside the trials file where a run keeps the Callgrind cell's
@@ -144,7 +146,7 @@ pub(crate) struct RunArguments {
     spider_pages: Option<u64>,
     /// The Collie scenario's side, `xtask/compare-collie`'s script, run by
     /// Node.js once its packages are installed.
-    #[arg(long, default_value = "xtask/compare-collie/act.ts")]
+    #[arg(long, default_value = COLLIE_DRIVER)]
     collie_driver: PathBuf,
     /// Runs only this scenario's cells; repeatable. Every scenario by
     /// default, the Collie scenario's included.

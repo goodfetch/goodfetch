@@ -35,8 +35,9 @@ const PLACE: u64 = 26;
 /// The fewest and most paragraphs of a page's article.
 const PARAGRAPHS: (u64, u64) = (30, 90);
 
-/// The sentences a paragraph is drawn from.
-const SENTENCES: [&str; 16] = [
+/// The sentences a paragraph is drawn from, here and in the article site's
+/// pages.
+pub(super) const SENTENCES: [&str; 16] = [
     "The workshop has made this piece by hand since the spring, in small batches that sell out within the week.",
     "Each one is checked twice before it leaves the bench, once for its finish and once for the fit of its parts.",
     "Customers who bought it last season wrote that it still looks new after months of daily use in a busy kitchen.",

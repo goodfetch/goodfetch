@@ -2,17 +2,19 @@
 //! each other tool's main row, on every metric both give a lowest and a
 //! highest trial of. `ahead` when every trial of the Product's is better
 //! than every trial of the competitor's, `behind` when every one is worse,
-//! otherwise `overlapping`: two ranges that cross are no ranking. A cell
-//! declared as not doing the Product's work gets none, and neither does a
-//! scenario whose content no check read.
+//! otherwise `overlapping`: two ranges that cross are no ranking. On the
+//! article site, a standing against a competitor whose output differs
+//! under the check the Product's row is held to is labelled so (#2136):
+//! a timed bar reads only against a competitor whose output passes (the
+//! owner's decision of 2026-11-10, #2252 Q8).
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use serde::Serialize;
 
-use super::{CellReport, CellStatus, Figure, ROWS, ScenarioReport, cell_text};
-use crate::compare::matrix::{Row, Scenario, Tool};
+use super::{CellReport, CellStatus, Figure, ROWS, ScenarioReport, cell_text, output_differs};
+use crate::compare::matrix::{self, Row, Scenario, Tool};
 
 /// The Product's standing against a competitor on one metric.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -28,6 +30,10 @@ pub(crate) enum Standing {
 pub(crate) struct Standings {
     pub(crate) product: &'static str,
     pub(crate) competitor: &'static str,
+    /// The competitor's label when its output differs under the check the
+    /// Product's row is held to: no bar reads such a standing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) output_differs: Option<String>,
     pub(crate) metrics: BTreeMap<&'static str, Standing>,
 }
 
@@ -72,11 +78,7 @@ fn judge(metric: &str, product: &Figure, competitor: &Figure) -> Option<Standing
 /// read.
 fn judged(cell: &CellReport) -> Option<&BTreeMap<&'static str, Figure>> {
     match &cell.status {
-        CellStatus::Measured { metrics, .. }
-            if cell.row == Row::Main && cell.unlike_work.is_none() =>
-        {
-            Some(metrics)
-        }
+        CellStatus::Measured { metrics, .. } if cell.row == Row::Main => Some(metrics),
         CellStatus::Measured { .. }
         | CellStatus::NotSupported { .. }
         | CellStatus::NotMeasured { .. }
@@ -84,14 +86,20 @@ fn judged(cell: &CellReport) -> Option<&BTreeMap<&'static str, Figure>> {
     }
 }
 
-/// The standings of `scenario`'s cells: none when no check read the content
-/// they wrote.
+/// The competitor's label against a row of the Product's held to the
+/// output check, when its pages differ under that row's check.
+fn differs(scenario: Scenario, product: &CellReport, competitor: &CellReport) -> Option<String> {
+    let check = matrix::cell(scenario, product.cell)?.output_check()?;
+    let CellStatus::Measured { site_pages, .. } = &competitor.status else {
+        return None;
+    };
+    output_differs(competitor.output.as_ref()?, check, *site_pages)
+}
+
+/// The standings of `scenario`'s cells.
 pub(super) fn of(scenario: Scenario, cells: &[CellReport]) -> Vec<Standings> {
     let product = Tool::Foxhound.name();
     let mut standings = Vec::new();
-    if scenario.content_unverified() {
-        return standings;
-    }
     for (product_cell, product_metrics) in cells
         .iter()
         .filter(|cell| cell.tool == product)
@@ -111,6 +119,7 @@ pub(super) fn of(scenario: Scenario, cells: &[CellReport]) -> Vec<Standings> {
             standings.push(Standings {
                 product: product_cell.cell,
                 competitor: competitor_cell.cell,
+                output_differs: differs(scenario, product_cell, competitor_cell),
                 metrics,
             });
         }
@@ -149,16 +158,32 @@ pub(super) fn markdown(text: &mut String, scenario: &ScenarioReport) {
          measured: `ahead` when every trial of Foxhound's is better than every trial of the \
          other's, `behind` when every one is worse, otherwise `overlapping`, with both medians \
          and both ranges. Better is more pages per second and more pages fetched, and less of \
-         every other metric.\n\n| Standing |",
+         every other metric.",
     );
+    if scenario
+        .standings
+        .iter()
+        .any(|standings| standings.output_differs.is_some())
+    {
+        text.push_str(
+            " A standing against a tool labelled `output differs` is against other work than \
+             the Foxhound row's: its pages differ under the check that row is held to, and no \
+             bar reads it.",
+        );
+    }
+    text.push_str("\n\n| Standing |");
     for standings in &scenario.standings {
         let _ = write!(
             text,
-            " {} ({}) against {} ({}) |",
+            " {} ({}) against {} ({}{}) |",
             standings.product,
             pages(cell(standings.product)),
             standings.competitor,
             pages(cell(standings.competitor)),
+            standings
+                .output_differs
+                .as_ref()
+                .map_or_else(String::new, |label| format!(", {label}")),
         );
     }
     text.push_str("\n|---|");

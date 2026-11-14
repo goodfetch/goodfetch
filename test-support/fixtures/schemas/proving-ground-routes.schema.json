@@ -2,6 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "The paths of the Proving ground's own routes, served on its bound\naddress rather than on a page family's host.",
   "properties": {
+    "article_answers": {
+      "description": "`GET <path>/<size>`: the right answer of each page of the article\nsite of `<size>` pages ([`ArticleAnswers`]).",
+      "type": "string"
+    },
     "client_certificate": {
       "description": "`GET`: the client certificate its mutual-TLS hosts accept.",
       "type": "string"
@@ -33,7 +37,8 @@
     "time_step",
     "observations",
     "client_certificate",
-    "client_key"
+    "client_key",
+    "article_answers"
   ],
   "title": "Routes",
   "type": "object"

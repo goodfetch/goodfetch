@@ -13,8 +13,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_engine::home::Home;
+use goodfetch_engine::ledger::Ledger;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_test_support::{CountingVfs, TestEnv};
+use jiff::Timestamp;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
@@ -319,9 +322,14 @@ fn parses(settings: &Value, planted: bool) -> u64 {
 /// B1 meets a Limit (ADR 0140's E3): every page's request is charged through
 /// the counted ledger, on the crawl's own engine, which the crawl with no
 /// Limit also reads and no Slice's transaction commits; a Slice's commit is
-/// the difference.
+/// the difference. A charge the Slices the Run holds cover runs no SQL
+/// (issue 1888), so the ledger counts one statement, the first charge's
+/// read of the Limits, which stay current on the crawl's paused clock;
+/// and the ledger holds one request per page as charged to the Limit once
+/// the crawl ended.
 #[test]
 fn a_crawl_under_a_limit_charges_each_page_through_the_counted_ledger() {
+    const LIMIT: u64 = 1_000_000;
     let charged = |limit: Option<u64>| {
         let env = TestEnv::new();
         let metrics = Metrics::none();
@@ -336,16 +344,31 @@ fn a_crawl_under_a_limit_charges_each_page_through_the_counted_ledger() {
                 ..Options::default()
             },
         );
+        let ledger = Ledger::at(Home::new(env.home().to_owned()).usage_ledger(), None);
+        let now = Timestamp::try_from(env.start_time()).unwrap();
+        let used: Vec<u64> = ledger
+            .limits()
+            .unwrap()
+            .iter()
+            .map(|limit| limit.amount - ledger.left(limit, now).unwrap())
+            .collect();
         (
-            work.read(Row::ChargeStatements),
-            work.read(Row::ChargeTransactions),
+            (
+                work.read(Row::ChargeStatements),
+                work.read(Row::ChargeTransactions),
+            ),
+            used,
         )
     };
 
-    let (limited, free) = (charged(Some(1_000_000)), charged(None));
+    let ((limited, used), (free, _)) = (charged(Some(LIMIT)), charged(None));
 
     let pages = u64::try_from(PAGES.len() + 1).unwrap();
-    assert!(limited.0 >= pages, "{limited:?} over {pages} pages");
+    assert_eq!(
+        (limited.0, used),
+        (1, vec![pages]),
+        "one read of the Limits, and each of the {pages} pages charged: {limited:?}"
+    );
     assert!(
         limited.1 > free.1,
         "a Slice taken commits: {limited:?} with a Limit, {free:?} without"
@@ -434,9 +457,9 @@ fn record_counts(planted: bool) -> ([u64; 7], u64) {
 /// B1's counts cell (ADR 0140): each Record of the code-free crawl, under its
 /// Dataset's schema, is validated and serialized once and commits in its
 /// attempt's transaction, reading no declaration and building no validator,
-/// both done when the crawl starts (ADR 0138); what its commit repeats per
-/// Record is counted (the Exception X8), and one planted unit per page adds
-/// exactly its Records' worth to every row. `xtask counts` holds the figures
+/// both done when the crawl starts (ADR 0138); its commit copies none of its
+/// data and looks up no value constant for the Run, and one planted unit per
+/// page adds exactly its Records' worth to every row. `xtask counts` holds the figures
 /// to the register, and `--prove` runs each plant through it.
 #[test]
 #[expect(
@@ -461,12 +484,16 @@ fn each_record_of_the_crawl_counts_its_work_and_a_plant_adds_one_a_record_to_eve
     ] = default;
     assert_eq!(records, u64::try_from(PAGES.len() + 1).unwrap());
     assert_eq!(
-        (reads, builds, validations, serializations, transactions),
-        (0, 0, records, records, 0)
-    );
-    assert!(
-        copies > 0 && lookups > 0,
-        "copies {copies}, lookups {lookups}"
+        (
+            reads,
+            builds,
+            validations,
+            serializations,
+            copies,
+            lookups,
+            transactions
+        ),
+        (0, 0, records, records, 0, 0, 0)
     );
     assert_eq!(
         std::array::from_fn::<u64, 7, _>(|row| planted[row] - default[row]),

@@ -978,6 +978,26 @@ fn a_run_after_the_ignore_file_of_the_user_changed_reuses_nothing() {
     assert_eq!(after.why["perf"], host_changed_since(&first.head));
 }
 
+/// The gate removes the caller's thread and job caps before any step
+/// (`ci/pre-merge.sh`, #2090's F1), so no step of a planned run reads them
+/// and the host fingerprint leaves them out (F5): a plan made by hand in a
+/// shell that caps them reuses what the gate recorded.
+#[test]
+fn a_run_in_a_shell_that_caps_threads_and_jobs_reuses_the_gates_results() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    first_run(&workspace, &records);
+
+    let capped = plan_in(
+        &workspace,
+        &records,
+        "CARGO_BUILD_JOBS=4\nCI=\nNEXTEST_TEST_THREADS=4",
+    );
+
+    for step in ["perf", "tlc", "visual"] {
+        assert_eq!(action(&capped, step).0, "reuse", "{step}");
+    }
+}
+
 /// A crate is judged by the dep-info of each of its test targets: one with
 /// none reruns, though another target's dep-info exists (the re-review's N3).
 #[test]

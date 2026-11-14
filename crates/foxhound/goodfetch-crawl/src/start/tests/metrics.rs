@@ -13,7 +13,7 @@ use opentelemetry::metrics::MeterProvider as _;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use serde_json::{Value, json};
 
-use super::{Reply, SITEMAP, crawl_on, dependencies, engine, seeds};
+use super::{Reply, SITEMAP, crawl_on, dependencies, engine, records, run_file, seeds};
 
 /// The value of the series `name` of `registry`, if it has one.
 fn value_of(registry: &prometheus::Registry, name: &str) -> Option<f64> {
@@ -390,4 +390,80 @@ fn a_reader_that_takes_one_value_of_a_crawls_progress_serializes_its_requests_in
         ),
         (Some(1.0), Some("https://shop.test/page/1"))
     );
+}
+
+/// Crawls one page whose handler stages three Records as `staging` says,
+/// and returns how many Records the crawl committed and how many jobs its
+/// Run state's writer ran, counted as `F2.transactions`.
+fn records_and_writer_jobs(staging: fn(&Value) -> Reply) -> (usize, Option<f64>) {
+    let env = TestEnv::new();
+    let (engine, registry, _provider) = metered();
+
+    crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "pushed", "seeds": seeds(1) }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |params: &Value| staging(params);
+            client
+                .call("run.finish", json!({ "run_id": "pushed" }), &mut handler)
+                .await;
+            assert!(
+                client
+                    .replies
+                    .iter()
+                    .all(|reply| reply.get("result").is_some()),
+                "{:?}",
+                client.replies
+            );
+        },
+    );
+
+    (
+        records(&run_file(&env, "pushed")).len(),
+        counted(&registry, "run_state", "transactions"),
+    )
+}
+
+/// The three Records a handler stages.
+fn titles() -> [Value; 3] {
+    ["Dune", "Emma", "Ulysses"].map(|title| json!({ "title": title }))
+}
+
+/// A handler's push asks the Run state's writer for nothing (ADR 0140's
+/// F4: a Record takes no transaction of its own): a page whose handler
+/// pushes three Records from inside its attempt costs the writer as many
+/// jobs as a page whose handler answers the three, and both commit them.
+///
+/// Covers: story:6-267, operation:crawl_request.push
+#[test]
+fn a_pushed_record_costs_the_run_states_writer_no_job_of_its_own() {
+    let answered = records_and_writer_jobs(|_| Reply::Records(titles().to_vec()));
+    let pushed = records_and_writer_jobs(|params| {
+        let pushes = titles()
+            .into_iter()
+            .map(|data| {
+                (
+                    "crawl_request.push",
+                    json!({
+                        "run_id": params["run_id"],
+                        "crawl_request_id": params["crawl_request"]["id"],
+                        "lease_epoch": params["lease_epoch"],
+                        "dataset": "pages",
+                        "data": data,
+                    }),
+                )
+            })
+            .collect();
+        Reply::Calls(pushes, Box::new(Reply::Records(Vec::new())))
+    });
+
+    assert_eq!(answered.0, 3);
+    assert_eq!(pushed, answered);
 }

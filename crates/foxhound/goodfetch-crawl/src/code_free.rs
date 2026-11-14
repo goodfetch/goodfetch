@@ -368,15 +368,27 @@ fn sitemap_seeds<'a>(
 }
 
 /// The Record of `pages` for a page read as `formats`, its response's
-/// `status`, read at `fetched_at`, with its `fields`' values.
+/// `status`, read at `fetched_at`, with its `fields`' values. The page's
+/// Markdown, HTML and text, which are as long as the page, move into the
+/// Record; its other formats are encoded into it.
 pub(crate) fn record_of(
-    formats: &PageFormats,
+    mut formats: PageFormats,
     status: Option<u16>,
     fetched_at: &PointInTime,
     fields: Map<String, Value>,
 ) -> Value {
-    let mut record = serde_json::to_value(formats).expect("invariant: formats encode as JSON");
+    let texts = [
+        ("markdown", formats.markdown.take()),
+        ("html", formats.html.take()),
+        ("text", formats.text.take()),
+    ];
+    let mut record = serde_json::to_value(&formats).expect("invariant: formats encode as JSON");
     if let Some(properties) = record.as_object_mut() {
+        for (format, text) in texts {
+            if let Some(text) = text {
+                properties.insert(format.to_owned(), Value::String(text));
+            }
+        }
         properties.insert("status".to_owned(), json!(status));
         properties.insert(FETCHED_AT.to_owned(), json!(fetched_at));
         properties.extend(fields);
@@ -504,7 +516,7 @@ impl CodeFree {
             CrawlRequestHandled {
                 records: vec![PushedRecord {
                     dataset: CODE_FREE_DATASET.to_owned(),
-                    data: record_of(&formats, status, &fetched_at, values),
+                    data: record_of(formats, status, &fetched_at, values),
                 }],
                 skipped: None,
             },

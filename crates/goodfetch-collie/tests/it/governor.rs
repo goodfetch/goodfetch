@@ -20,8 +20,9 @@ use std::process::{Command, Stdio};
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::{MESSAGE_DEADLINE, TestEnv};
-use serde_json::{Value, json};
+use serde_json::json;
 
+use crate::page::next_sample;
 use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -73,26 +74,6 @@ fn needs_user_scopes(env: &TestEnv) {
          user session (`loginctl enable-linger`) whose memory controller is delegated",
         String::from_utf8_lossy(&probe.stderr).trim()
     );
-}
-
-/// The next `engine.system_info` the engine sends.
-fn next_sample(engine: &mut Attached) -> Value {
-    loop {
-        let message = engine
-            .next()
-            .expect("the engine ended before its next sample");
-        let events = message["params"]["events"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        if let Some(sample) = events
-            .into_iter()
-            .find(|event| event["event"] == "engine.system_info")
-        {
-            engine.send(&json!({ "jsonrpc": "2.0", "method": "$/credit", "params": { "id": "samples", "credits": 1 } }));
-            return sample["data"].clone();
-        }
-    }
 }
 
 /// In a scope limited to 256 MiB, the Memory allowance is that limit, read

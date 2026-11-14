@@ -137,7 +137,7 @@ impl Plan<'_> {
                 Some(engine) => engine
                     .start(
                         &self.site,
-                        self.cell.scenario,
+                        self.cell,
                         &format!("http://{host}/"),
                         self.durability(),
                         self.config.samples(),

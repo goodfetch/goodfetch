@@ -1,5 +1,5 @@
 use super::settings;
-use crate::compare::matrix::Scenario;
+use crate::compare::matrix::{self, Scenario};
 use crate::rss::crawl::Site;
 
 const SITE: Site<'static> = Site {
@@ -13,8 +13,9 @@ const SITE: Site<'static> = Site {
 /// crawl samples each domain in a browser (#2283).
 #[test]
 fn the_polite_auto_row_leaves_the_tier_at_its_default() {
-    let forced = settings(&SITE, Scenario::Polite, ("full", None), false);
-    let auto = settings(&SITE, Scenario::Polite, ("full", None), true);
+    let cell = matrix::cell(Scenario::Polite, "foxhound").expect("the polite scenario's row");
+    let forced = settings(&SITE, cell, ("full", None), false);
+    let auto = settings(&SITE, cell, ("full", None), true);
 
     assert_eq!(forced["fetch"]["tier"], "http");
     assert!(auto["fetch"].get("tier").is_none());

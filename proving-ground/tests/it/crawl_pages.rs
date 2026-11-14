@@ -22,6 +22,7 @@ fn crawl_page() -> impl Strategy<Value = (&'static str, String)> {
         (1..=1_000_u32).prop_map(|n| ("scale.test", format!("/sites/1000/{n}"))),
         (1..=1_000_u32).prop_map(|n| ("rendered.localhost", format!("/sites/1000/{n}"))),
         (1..=1_000_u32).prop_map(|n| ("realistic.localhost", format!("/sites/1000/{n}"))),
+        (1..=1_000_u32).prop_map(|n| ("article.localhost", format!("/sites/1000/{n}"))),
         (1..=8_u32).prop_map(|n| ("1.links.test", format!("/library/shelves/book/{n}"))),
         (1..=12_u32).prop_map(|n| ("3.links.test", format!("/rooms/R-{n:02}"))),
         (1..=24_u32).prop_map(|n| ("facets.test", format!("/products/{n}"))),

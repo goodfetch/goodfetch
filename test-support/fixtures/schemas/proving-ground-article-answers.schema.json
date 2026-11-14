@@ -1,0 +1,61 @@
+{
+  "$defs": {
+    "ArticleAnswer": {
+      "additionalProperties": false,
+      "description": "One page's right answer.",
+      "properties": {
+        "paragraphs": {
+          "description": "The paragraphs of its article, each as its text reads.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "path": {
+          "description": "The page's path on the site's host.",
+          "type": "string"
+        },
+        "title": {
+          "description": "Its title: character references decoded, white space collapsed.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "title",
+        "paragraphs"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "What `GET /article-answers/<size>` serves: the right answer of each page\nof the article site of `<size>` pages (`article.localhost/sites/<size>/`),\nwhich a comparison checks each tool's title and Main content against.",
+  "properties": {
+    "ad": {
+      "description": "The marker of each page's ad, which a Clean-up rule removes.",
+      "type": "string"
+    },
+    "boilerplate": {
+      "description": "The markers of each page's header, nav, aside and footer: text no\nMain content holds.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "pages": {
+      "description": "Each page's answer, in the pages' order.",
+      "items": {
+        "$ref": "#/$defs/ArticleAnswer"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "pages",
+    "boilerplate",
+    "ad"
+  ],
+  "title": "ArticleAnswers",
+  "type": "object"
+}

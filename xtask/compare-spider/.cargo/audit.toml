@@ -1,6 +1,6 @@
 # cargo-audit's ignores for Spider's side of `just compare-spider`: the IDs
 # of `../deny.toml`'s `[advisories] ignore`, each with its reason and what
-# removes it there, and one cargo-deny never meets.
+# removes it there, and two cargo-deny never meets.
 [advisories]
 ignore = [
   "RUSTSEC-2024-0436",
@@ -10,4 +10,12 @@ ignore = [
   # graph, does not meet it; cargo-audit reads every locked crate. Removed
   # with the Spider bump whose lock drops sqlx-mysql.
   "RUSTSEC-2023-0071",
+  # fxhash, unmaintained: through `spider_transformations` 2.39.13's
+  # `spider_scraper` and its `selectors` 0.25, which only the `extraction`
+  # feature's executables build (issue 2136), so cargo-deny, which reads the
+  # default features' graph, does not meet it. It has no release that
+  # removes it; removed with the `spider_transformations` bump whose
+  # `spider_scraper` drops `selectors` 0.25. Agent decision of issue 2136,
+  # pending owner review.
+  "RUSTSEC-2025-0057",
 ]

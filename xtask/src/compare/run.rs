@@ -23,9 +23,10 @@ use super::trial::{self, Counted, Outcome, Ruled, callgrind_missing, strace_miss
 use super::trials::{
     CONCURRENCY, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, CollieScenario, CollieStopped, Comparison,
     CountedCell, CountedRun, Declared, GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS,
-    INSTRUCTION_TOOLS, Measured, PAGESIFT_VERSION, PLAYWRIGHT_VERSION, RULE_RUNS, RuledRun,
-    SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES,
-    SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint, StoppedRun, Trial, size_not_run,
+    INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Measured, PAGESIFT_VERSION, PLAYWRIGHT_VERSION,
+    RULE_RUNS, RuledRun, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES,
+    SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint, StoppedRun, Trial,
+    size_not_run,
 };
 
 mod machine;
@@ -619,6 +620,7 @@ fn counted(
             count: counted.count,
             syncs: counted.syncs,
             work: counted.work,
+            extracted: counted.extracted,
         });
     }
     Ok(CountedCell::Measured {
@@ -920,20 +922,21 @@ pub(crate) fn run(
     keep(&comparison)?;
     comparison.growth = growth(executables, options, &counted_cells, &mut state)?;
     keep(&comparison)?;
-    // ADR 0140's row compares Foxhound's instructions with Spider's, each
-    // on its main row.
-    let scenario_1: Vec<_> = measured
+    // ADR 0140's rows compare Foxhound's instructions with Spider's, each
+    // on its main rows, in scenario 1 and in the extraction scenario.
+    let instruction_cells: Vec<_> = measured
         .iter()
         .copied()
         .filter(|(cell, config)| {
-            cell.scenario == Scenario::Raw
+            INSTRUCTION_SCENARIOS.contains(&cell.scenario)
                 && cell.row == Row::Main
                 && INSTRUCTION_TOOLS.contains(&config.tool())
         })
         .collect();
     comparison.instructions = match callgrind_missing() {
-        _ if scenario_1.is_empty() => CountedCell::NotRun {
-            reason: "the run asked for no scenario 1 cell".to_owned(),
+        _ if instruction_cells.is_empty() => CountedCell::NotRun {
+            reason: "the run asked for no cell of scenario 1 or of the extraction scenario"
+                .to_owned(),
         },
         Some(reason) => {
             output::line(&format!("The Callgrind cell does not run: {reason}."));
@@ -944,7 +947,7 @@ pub(crate) fn run(
             let cell = counted(
                 executables,
                 options,
-                &scenario_1,
+                &instruction_cells,
                 INSTRUCTION_RUNS,
                 ("callgrind", false),
                 &options.callgrind_outputs,

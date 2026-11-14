@@ -67,7 +67,7 @@ pub(crate) fn measure(scenarios: &[Scenario], tools: &Path, out: &Path, runs: u3
                 scenario.name()
             )
         })?;
-        Some(crawl::serve(proving_ground)?)
+        Some(crawl::serve(proving_ground, "none")?)
     } else {
         None
     };

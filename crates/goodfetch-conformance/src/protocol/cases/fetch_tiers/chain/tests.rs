@@ -16,6 +16,7 @@ fn request(target: &str, arrived: u64, answered: u64) -> ObservedRequest {
         "tls": null, "http2": null, "status": 200,
         "timing": { "arrived_microseconds": arrived, "answered_microseconds": answered },
         "bytes": { "received": 0, "sent": 0 },
+        "body": { "received": 0, "sent": 0 },
     }))
     .unwrap()
 }

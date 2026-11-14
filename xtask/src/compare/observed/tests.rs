@@ -43,6 +43,7 @@ fn observations() -> Value {
 const SITE: Site<'static> = Site {
     hosts: &["scale.test"],
     pages: 4,
+    tls: false,
 };
 
 #[test]
@@ -216,6 +217,7 @@ fn a_site_on_several_hosts_is_observed_on_each_of_them() {
     let site = Site {
         hosts: &["polite-1.localhost", "polite-2.localhost"],
         pages: 4,
+        tls: false,
     };
 
     let observed = observe(&observations, &site, 1.0, None).unwrap();
@@ -241,5 +243,66 @@ fn assert_percentiles(latency: Percentiles, expected: [f64; 3]) {
             .zip(expected)
             .all(|(got, expected)| (got - expected).abs() < 1e-9),
         "{got:?} against {expected:?}"
+    );
+}
+
+/// A request the Proving ground recorded on `article.localhost` over
+/// `protocol`, with a TLS handshake where `tls`: 500 bytes of body sent in
+/// 640 framed ones.
+fn over(connection: u64, target: &str, protocol: &str, tls: bool, arrived: u64) -> Value {
+    json!({
+        "host": "article.localhost:4000",
+        "connection": connection,
+        "protocol": protocol,
+        "method": "GET",
+        "target": target,
+        "status": 200,
+        "tls": if tls { json!({ "sni": "article.localhost" }) } else { Value::Null },
+        "timing": { "arrived_microseconds": arrived, "answered_microseconds": arrived + 100 },
+        "bytes": { "received": 90, "sent": 640 },
+        "body": { "received": 0, "sent": 500 },
+    })
+}
+
+/// Over TLS and HTTP/2 (#2284), a trial's work counts each answer's body
+/// bytes, which no client's framing or header compression changes, and
+/// counts apart each request for the site's pages that came over anything
+/// else: here page 3, over plain HTTP/1.1. The marker, the harness's own
+/// request over plain HTTP, is none of them.
+#[test]
+fn over_tls_a_trials_work_counts_body_bytes_and_requests_over_another_protocol() {
+    let observations = json!({
+        "requests": [
+            over(1, MARKER, "http/1.1", false, 1_000_000),
+            over(2, "/sites/4/1", "h2", true, 1_100_000),
+            over(2, "/sites/4/2", "h2", true, 1_200_000),
+            over(3, "/sites/4/3", "http/1.1", false, 1_300_000),
+            over(2, "/sites/4/4", "h2", true, 1_400_000),
+        ],
+        "unrecorded_requests": 0,
+        "hosts": { "article.localhost": { "received": 450, "sent": 3200 } },
+    });
+    let site = Site {
+        hosts: &["article.localhost"],
+        pages: 4,
+        tls: true,
+    };
+    let loopback = Site { tls: false, ..site };
+
+    let observed = observe(&observations, &site, 1.0, None).unwrap();
+    let on_loopback = observe(&observations, &loopback, 1.0, None).unwrap();
+
+    assert_eq!(
+        (
+            observed.work.pages,
+            observed.work.requests,
+            observed.work.bytes,
+            observed.work.first_bytes,
+            observed.work.other_protocol,
+            observed.tls_connections,
+            on_loopback.work.bytes,
+            on_loopback.work.other_protocol,
+        ),
+        (4, 4, 2000, 2000, 1, 1, 2560, 0)
     );
 }

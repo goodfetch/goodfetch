@@ -23,11 +23,28 @@ impl Default for Chunked {
     }
 }
 
+/// What of some bytes a body consumed.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Consumed {
+    /// The bytes that belong to the body, framing included.
+    pub(super) used: usize,
+    /// Those that are the body's data: a chunked body's chunk-size lines,
+    /// the CRLF after each chunk and its trailers left out.
+    pub(super) data: usize,
+    /// Whether the body ended there.
+    pub(super) ended: bool,
+}
+
 impl Chunked {
-    /// Consumes what of `bytes` belongs to the body: how many, and whether
-    /// the body ended there.
-    pub(super) fn consume(&mut self, bytes: &[u8]) -> (usize, bool) {
+    /// Consumes what of `bytes` belongs to the body.
+    pub(super) fn consume(&mut self, bytes: &[u8]) -> Consumed {
         let mut used = 0;
+        let mut data = 0;
+        let ended = |used, data| Consumed {
+            used,
+            data,
+            ended: true,
+        };
         while used < bytes.len() {
             let rest = &bytes[used..];
             match self {
@@ -36,7 +53,7 @@ impl Chunked {
                         line.extend_from_slice(rest);
                         used = bytes.len();
                         if line.len() > LINE_LIMIT {
-                            return (used, true);
+                            return ended(used, data);
                         }
                         break;
                     };
@@ -48,12 +65,13 @@ impl Chunked {
                         Ok(0) => Self::Trailer(0),
                         Ok(size) => Self::Data(size),
                         // A malformed size ends the body here.
-                        Err(_) => return (used, true),
+                        Err(_) => return ended(used, data),
                     };
                 }
                 Self::Data(left) => {
                     let taken = usize::try_from(*left).unwrap_or(usize::MAX).min(rest.len());
                     used += taken;
+                    data += taken;
                     *left -= taken as u64;
                     if *left == 0 {
                         *self = Self::DataEnd(2);
@@ -71,20 +89,24 @@ impl Chunked {
                     let byte = rest[0];
                     used += 1;
                     match byte {
-                        b'\n' if *length == 0 => return (used, true),
+                        b'\n' if *length == 0 => return ended(used, data),
                         b'\n' => *length = 0,
                         b'\r' => {}
                         _ => {
                             *length += 1;
                             if *length > LINE_LIMIT {
-                                return (used, true);
+                                return ended(used, data);
                             }
                         }
                     }
                 }
             }
         }
-        (used, false)
+        Consumed {
+            used,
+            data,
+            ended: false,
+        }
     }
 }
 
@@ -109,9 +131,9 @@ mod tests {
             if ended {
                 break;
             }
-            let (used, done) = chunked.consume(part);
-            consumed += used;
-            ended = done;
+            let part = chunked.consume(part);
+            consumed += part.used;
+            ended = part.ended;
         }
 
         assert!(ended);
@@ -124,6 +146,20 @@ mod tests {
 
         let consumed = Chunked::default().consume(body);
 
-        assert_eq!(consumed, (body.len() - 4, true));
+        assert_eq!((consumed.used, consumed.ended), (body.len() - 4, true));
+    }
+
+    #[test]
+    fn a_chunked_bodys_data_is_counted_without_its_chunk_lines() {
+        let consumed = Chunked::default().consume(BODY);
+
+        assert_eq!(
+            consumed,
+            Consumed {
+                used: BODY.len(),
+                data: "Wikipedia".len(),
+                ended: true,
+            }
+        );
     }
 }

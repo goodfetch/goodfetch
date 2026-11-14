@@ -1100,15 +1100,10 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             if let Some(why) = cell.one_trial {
                 let _ = writeln!(text, "  - one trial: {why}.");
             }
-            if scenario.scenario.carries_no_bar() {
+            if let Some(issue) = scenario.scenario.no_bar() {
                 let _ = writeln!(
                     text,
-                    "  - no bar: none is set on this cell until the owner sets one ({}).",
-                    if scenario.scenario.hostile() {
-                        "#2439, Q3"
-                    } else {
-                        "#2316"
-                    }
+                    "  - no bar: none is set on this cell until the owner sets one ({issue})."
                 );
             }
             output_line(&mut text, scenario.scenario, cell);
@@ -1126,10 +1121,17 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                     metrics,
                     ..
                 } => {
+                    // Over TLS a trial's work counts its answers' bodies alone
+                    // (`trials::Work::bytes`).
                     let _ = writeln!(
                         text,
-                        "  - same work: {trials} trial{}, each {pages} pages served in {bytes} bytes.",
-                        if *trials == 1 { "" } else { "s" }
+                        "  - same work: {trials} trial{}, each {pages} pages served in {bytes} {}bytes.",
+                        if *trials == 1 { "" } else { "s" },
+                        if scenario.scenario.network().tls() {
+                            "body "
+                        } else {
+                            ""
+                        }
                     );
                     published::cpu(&mut text, cell.tool, metrics);
                     published::spider_buffer(&mut text, cell.tool, scenario.scenario);

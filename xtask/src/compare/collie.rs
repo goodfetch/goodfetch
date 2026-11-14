@@ -486,7 +486,7 @@ pub(crate) fn trial(
     number: u32,
     load: Option<f64>,
 ) -> Result<Outcome<CollieTrial>> {
-    let serving = crate::rss::crawl::serve(tools.proving_ground)?;
+    let serving = crate::rss::crawl::serve(tools.proving_ground, "none")?;
     let urls = start_urls(&serving.address)?;
     let cell = cell(exercise);
     let plan = cell.plan(&urls)?;

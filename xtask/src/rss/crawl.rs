@@ -82,11 +82,14 @@ struct ServeLine {
     address: String,
 }
 
-/// Starts `proving_ground` serving on a loopback port of its own.
-pub(crate) fn serve(proving_ground: &Path) -> Result<Serving> {
+/// Starts `proving_ground` serving on a loopback port of its own, under
+/// its network profile `network_profile`: its address is then the
+/// profile's proxy's.
+pub(crate) fn serve(proving_ground: &Path, network_profile: &str) -> Result<Serving> {
     let mut child = Command::new(proving_ground)
         .args(["serve", "--seed", &SEED.to_string(), "--copy", "local"])
-        .args(["--address", "127.0.0.1:0", "--network-profile", "none"])
+        .args(["--address", "127.0.0.1:0"])
+        .args(["--network-profile", network_profile])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

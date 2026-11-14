@@ -61,6 +61,7 @@ mod same_work;
 mod sampler;
 mod trial;
 mod trials;
+mod trust;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -183,6 +184,8 @@ enum Asked {
     Hostile,
     #[value(name = "hostile-16")]
     Hostile16,
+    #[value(name = "crawl-like")]
+    CrawlLike,
     Collie,
 }
 
@@ -214,6 +217,7 @@ impl Asked {
             Self::Raw256 => Some(Scenario::Raw256),
             Self::Hostile => Some(Scenario::Hostile),
             Self::Hostile16 => Some(Scenario::Hostile16),
+            Self::CrawlLike => Some(Scenario::CrawlLike),
             Self::Collie => None,
         }
     }
@@ -363,6 +367,12 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             // folder.
             let executable = std::path::absolute(&arguments.executable)
                 .context("finding the tool's executable")?;
+            let authority = cell
+                .scenario
+                .network()
+                .tls()
+                .then(|| trust::certificate_authority(&arguments.address))
+                .transpose()?;
             let plan = trial::Plan {
                 cell,
                 config,
@@ -376,6 +386,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 goodfetch_variables: &environment.goodfetch_variables,
                 browser: arguments.browser.as_deref(),
                 executable_pages: arguments.executable_pages,
+                certificate_authority: authority.as_ref().map(tempfile::NamedTempFile::path),
             };
             let line = match plan.mode {
                 trial::Mode::Timed => serde_json::to_string(&plan.timed()?)?,

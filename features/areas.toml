@@ -672,6 +672,13 @@ number = 5
 kind = "setting"
 prefix = "fetch.tier"
 
+# Where a Label's HTTP leaves from under `auto`: the Session's browser,
+# the transport, or what was learned (spec #2413, #2415).
+[[area]]
+number = 5
+kind = "setting"
+prefix = "fetch.http_from"
+
 # Whether a crawl may use the light-browser tier (spec #579, #771).
 [[area]]
 number = 5

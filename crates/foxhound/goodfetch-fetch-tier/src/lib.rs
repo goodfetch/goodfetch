@@ -55,7 +55,7 @@ mod xpath;
 pub use chain::{Following, Gating, HopGate, Skip, Stop, follow};
 #[doc(hidden)]
 pub use charset::fuzz_prescan;
-pub use choice::{Choosing, Forced, LabelSettings, SetTier, TierChoice};
+pub use choice::{Choosing, Forced, HttpFrom, LabelSettings, SetTier, TierChoice};
 pub use content_types::ContentTypes;
 pub use discovered_api::{Call as CapturedCall, Capture, Plan as ReplayPlan, infer as infer_plan};
 /// Compiles into the engine's cache on `work` the selectors a handler's

@@ -143,6 +143,22 @@ fn collies_configuration_maps_each_host_to_loopback_and_lets_it_through() {
     );
 }
 
+#[test]
+fn the_opening_cell_opens_its_pages_one_after_another_in_one_session() {
+    let opening = cell(Exercise::Opening);
+    assert!(opening.pages().is_empty());
+    assert_eq!(
+        (opening.sessions(), opening.openings(), opening.actions()),
+        (0, OPENINGS, OPENINGS)
+    );
+    let plan = opening.plan(&BTreeMap::new()).unwrap();
+    assert_eq!(plan["openings"], OPENINGS);
+    assert_eq!(plan["sessions"], 0);
+    assert_eq!(plan["pages"], json!([]));
+    assert_eq!(EXERCISES.last(), Some(&Exercise::Opening));
+    assert_eq!(Exercise::Opening.name(), "opening");
+}
+
 /// A page as the tool left it, after `steps` steps.
 fn page(task: &str, ended: Ended, steps: u64, outcome: Option<OracleOutcome>) -> PageDone {
     PageDone {
@@ -167,6 +183,7 @@ fn done(exercise: Exercise, tool: Contender, number: u32, commands: u64) -> Coll
         actions: cell.actions(),
         sessions: cell.sessions(),
         commands,
+        rounds: commands / 2,
         cpu_seconds: 0.5,
         wall_seconds: 1.0,
         peak_bytes: 100 << 20,
@@ -214,6 +231,8 @@ fn measured(trials_run: Vec<CollieTrial>) -> CollieScenario {
         trials: 2,
         trials_run,
         stopped: Vec::new(),
+        loads: page_load::tests::every(2, |_, _| 1.0),
+        loads_stopped: Vec::new(),
     }
 }
 
@@ -322,6 +341,32 @@ fn a_page_that_took_other_steps_than_its_plan_is_other_work() {
 }
 
 #[test]
+fn an_opening_trial_that_opened_other_pages_is_other_work() {
+    let mut trials = every(2, 120, 100);
+    let at = trials
+        .iter()
+        .position(|trial| {
+            trial.exercise == Exercise::Opening
+                && trial.tool == Contender::Playwright
+                && trial.number == 1
+        })
+        .unwrap();
+    trials[at].actions = 9;
+    let findings = check(&measured(trials));
+    assert_eq!(
+        kinds(&findings),
+        [("different_actions", "collie opening playwright trial 1")]
+    );
+    assert!(
+        findings[0]
+            .message
+            .contains("9 pages opened, where it plans 10"),
+        "{}",
+        findings[0].message
+    );
+}
+
+#[test]
 fn a_tool_stopped_twice_in_a_cell_is_not_measured_there() {
     let mut trials = every(2, 120, 100);
     // Collie's second click trial was stopped twice.
@@ -337,6 +382,8 @@ fn a_tool_stopped_twice_in_a_cell_is_not_measured_there() {
             number: 2,
             reason: "the tool ran past 300 s".to_owned(),
         }],
+        loads: page_load::tests::every(2, |_, _| 1.0),
+        loads_stopped: Vec::new(),
     };
     assert!(check(&scenario).is_empty());
     let section = section(&scenario, "");
@@ -384,6 +431,8 @@ fn a_page_both_tools_split_on_evenly_names_every_trial() {
         trials: 1,
         trials_run: trials,
         stopped: Vec::new(),
+        loads: Vec::new(),
+        loads_stopped: Vec::new(),
     });
     let mut subjects: Vec<_> = kinds(&findings);
     subjects.retain(|(kind, _)| *kind != "trial_count");
@@ -506,6 +555,34 @@ fn the_section_gives_the_command_ratio_of_the_click_and_form_cells_against_the_r
         text.contains("has no Today figure yet (not run yet: first read by issue 2300)"),
         "{text}"
     );
+}
+
+#[test]
+fn the_section_gives_the_opening_cells_wall_time_beside_the_commands_awaited_one_after_another() {
+    // 30 commands over 10 pages opened, 15 of them awaited one after
+    // another, in 1 s.
+    let section = section(&measured(every(2, 30, 20)), "");
+    let report = serde_json::to_value(&section).unwrap();
+    let opening = &report["cells"][5];
+    assert_eq!(opening["exercise"], "opening");
+    assert_eq!(opening["actions"], OPENINGS);
+    let collie = &opening["tools"]["collie"];
+    assert_eq!(collie["rounds_per_action"]["median"], 1.5);
+    assert_eq!(collie["commands_per_action"]["median"], 3.0);
+    let text = markdown(&section);
+    assert!(
+        text.contains(
+            "- collie: 100.0 ms per page opened, 1.50 CDP commands awaited one after another, of 3.00 sent."
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "- playwright: 100.0 ms per page opened, 1.00 CDP commands awaited one after another, of 2.00 sent."
+        ),
+        "{text}"
+    );
+    assert!(text.contains("### The page-load cell"), "{text}");
 }
 
 #[test]

@@ -154,3 +154,174 @@ fn a_mark_asked_twice_is_refused_and_keeps_the_first() {
     assert!(start.is_some());
     assert!(end.is_none());
 }
+
+/// A browser's frame: unmasked, as a server sends it.
+fn answer(payload: &[u8]) -> Vec<u8> {
+    let mut bytes = vec![0x81];
+    match payload.len() {
+        length @ 0..=125 => bytes.push(u8::try_from(length).unwrap()),
+        length => {
+            bytes.push(0x7e);
+            bytes.extend(u16::try_from(length).unwrap().to_be_bytes());
+        }
+    }
+    bytes.extend(payload);
+    bytes
+}
+
+#[test]
+fn a_browser_message_that_answers_a_command_is_a_reply_and_an_event_is_not() {
+    let mut stream = Vec::new();
+    stream.extend(answer(br#"{"id":1,"result":{}}"#));
+    stream.extend(answer(br#"{"method":"Page.loadEventFired","params":{}}"#));
+    // A reply in two frames, a ping between them.
+    stream.extend([0x01, 4]);
+    stream.extend(br#"{"id"#);
+    stream.extend([0x89, 0]);
+    stream.extend([0x80, 16]);
+    stream.extend(br#"":2,"result":{}}"#);
+    stream.extend(answer(&[b' '; 300]));
+    for chunk in [1, 2, 5, 1000] {
+        let mut frames = Frames::default();
+        let read = stream.chunks(chunk).fold(Ended::default(), |sum, bytes| {
+            let read = frames.read(bytes);
+            Ended {
+                messages: sum.messages + read.messages,
+                replies: sum.replies + read.replies,
+            }
+        });
+        assert_eq!(
+            read,
+            Ended {
+                messages: 4,
+                replies: 2
+            },
+            "in chunks of {chunk}"
+        );
+    }
+    // A masked frame, as a client sends it, is read unmasked.
+    let mut frames = Frames::default();
+    assert_eq!(frames.read(&command(7)).replies, 1);
+}
+
+#[test]
+fn a_round_starts_each_time_the_tool_sends_with_nothing_in_flight() {
+    let rounds = AtomicU64::new(0);
+    let awaited = Awaited::default();
+    // One command, answered: one round.
+    awaited.sent(1, &rounds);
+    awaited.answered(1);
+    // Two commands at once, then a third before either answer: one round.
+    awaited.sent(2, &rounds);
+    awaited.sent(1, &rounds);
+    awaited.answered(2);
+    awaited.answered(1);
+    // A message that ends no command starts none.
+    awaited.sent(0, &rounds);
+    // Two commands one after another, each awaited: two rounds.
+    awaited.sent(1, &rounds);
+    awaited.answered(1);
+    awaited.sent(1, &rounds);
+    assert_eq!(rounds.load(Ordering::SeqCst), 4);
+}
+
+#[test]
+fn a_relay_with_no_browser_answers_its_marks_and_nothing_else() {
+    let relay = Relay::marks_only().unwrap();
+    let address = relay.address().to_string();
+    assert!(get(&address, "/start").starts_with("HTTP/1.1 204"));
+    assert!(get(&address, "/json/version").starts_with("HTTP/1.1 404"));
+    assert!(get(&address, "/end").starts_with("HTTP/1.1 204"));
+    let (start, end) = relay.marks();
+    assert_eq!((start.unwrap().rounds, end.unwrap().commands), (0, 0));
+}
+
+/// A browser's endpoint that accepts one WebSocket, answers its handshake
+/// as Chrome does, then answers each command it receives once whole.
+fn answering_browser() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            if line == "\r\n" {
+                break;
+            }
+        }
+        reader
+            .get_mut()
+            .write_all(
+                b"HTTP/1.1 101 WebSocket Protocol Handshake\r\nUpgrade: WebSocket\r\n\
+                  Connection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n",
+            )
+            .unwrap();
+        let mut command = vec![0; command(1).len()];
+        for id in 1.. {
+            if reader.read_exact(&mut command).is_err() {
+                break;
+            }
+            let reply = answer(format!(r#"{{"id":{id},"result":{{}}}}"#).as_bytes());
+            if reader.get_mut().write_all(&reply).is_err() {
+                break;
+            }
+        }
+    });
+    port
+}
+
+#[test]
+fn the_relay_counts_one_round_per_command_awaited_after_the_browsers_handshake() {
+    let relay = Relay::start(answering_browser()).unwrap();
+    let address = relay.address().to_string();
+    let mut tool = BufReader::new(TcpStream::connect(&address).unwrap());
+    write!(
+        tool.get_mut(),
+        "GET /devtools/browser/abc HTTP/1.1\r\nHost: {address}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"
+    )
+    .unwrap();
+    let mut line = String::new();
+    while line != "\r\n" {
+        line.clear();
+        tool.read_line(&mut line).unwrap();
+    }
+    let replies = |tool: &mut BufReader<TcpStream>, count: usize| {
+        let mut reply = vec![0; answer(br#"{"id":1,"result":{}}"#).len() * count];
+        tool.read_exact(&mut reply).unwrap();
+    };
+    assert!(get(&address, "/start").starts_with("HTTP/1.1 204"));
+    // Two commands, each awaited before the next: two rounds.
+    tool.get_mut().write_all(&command(1)).unwrap();
+    replies(&mut tool, 1);
+    tool.get_mut().write_all(&command(2)).unwrap();
+    replies(&mut tool, 1);
+    // Two sent together: one round.
+    tool.get_mut()
+        .write_all(&[command(3), command(4)].concat())
+        .unwrap();
+    replies(&mut tool, 2);
+    assert!(get(&address, "/end").starts_with("HTTP/1.1 204"));
+    let (start, end) = relay.marks();
+    let (start, end) = (start.unwrap(), end.unwrap());
+    assert_eq!(
+        (end.commands - start.commands, end.rounds - start.rounds),
+        (4, 3)
+    );
+}
+
+#[test]
+fn the_browsers_handshake_answer_is_skipped_whatever_its_chunks() {
+    let head: &[u8] = b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\r\n\r\n";
+    let stream = [head, &answer(br#"{"id":1,"result":{}}"#)].concat();
+    for chunk in [1, 2, 3, 5, stream.len()] {
+        let (mut end, mut frames) = (HeadEnd::default(), Frames::default());
+        let replies: u64 = stream
+            .chunks(chunk)
+            .map(|bytes| frames.read(end.past(bytes)).replies)
+            .sum();
+        assert_eq!(replies, 1, "in chunks of {chunk}");
+    }
+}

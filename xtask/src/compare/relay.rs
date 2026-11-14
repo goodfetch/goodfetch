@@ -7,11 +7,20 @@
 //! tool to the browser (text or binary, however many frames carry it;
 //! pings, pongs and closes are no command).
 //!
+//! It also counts the rounds the tool waited on the browser (issue 2319):
+//! on each connection, a round starts whenever the tool sends a command
+//! while none of its commands is awaiting its reply, so commands sent
+//! together, or while others are in flight, share one round, and commands
+//! each awaited before the next count one round each. A reply is a message
+//! from the browser that starts `{"id":`, as Chrome writes every reply;
+//! an event starts `{"method":`.
+//!
 //! The relay also answers the driver's two marks, `GET /start` and
 //! `GET /end`, around the part of the trial that is measured: each mark
-//! records the command count so far, the CPU time of the tool's process
-//! tree ([`Relay::follow`]) and the moment, before it answers, so the
-//! figures between the marks are the measured part's alone.
+//! records the command and round counts so far, the CPU time of the tool's
+//! process tree ([`Relay::follow`]) and the moment, before it answers, so
+//! the figures between the marks are the measured part's alone. Without a
+//! browser ([`Relay::marks_only`]), it answers only the marks.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: the relay copies each connection's bytes on threads of its own (STYLE.md)"
@@ -23,7 +32,7 @@
 
 use std::io::{Read as _, Write as _};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Instant;
@@ -35,8 +44,12 @@ use super::{sampler, trial};
 /// The longest request head the relay reads.
 const HEAD_LIMIT: usize = 16 * 1024;
 
-/// The streaming count of whole data messages in a client's WebSocket
-/// frames (RFC 6455, section 5.2), fed the bytes in any chunks.
+/// What a reply's payload starts with.
+const REPLY: &[u8] = br#"{"id":"#;
+
+/// The streaming count of whole data messages in one side's WebSocket
+/// frames (RFC 6455, section 5.2), masked or not, fed the bytes in any
+/// chunks.
 #[derive(Debug, Default)]
 pub(crate) struct Frames {
     /// The current frame's header bytes read so far.
@@ -44,8 +57,23 @@ pub(crate) struct Frames {
     /// The current frame's payload bytes left to skip, once its header is
     /// whole.
     payload_left: u64,
-    /// Whether the current frame ends a data message.
-    ends_message: bool,
+    /// The current frame's mask key, when it is masked.
+    mask: Option<[u8; 4]>,
+    /// The current frame's payload bytes read so far.
+    payload_read: u64,
+    /// Whether the current frame carries a data message's bytes.
+    data: bool,
+    /// The current data message's first bytes, up to [`REPLY`]'s length.
+    start: Vec<u8>,
+}
+
+/// What a run of bytes ended.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Ended {
+    /// Whole data messages.
+    pub(crate) messages: u64,
+    /// Those of them that start as a reply does.
+    pub(crate) replies: u64,
 }
 
 impl Frames {
@@ -75,15 +103,36 @@ impl Frames {
 
     /// Reads `bytes`, the next of the stream, and returns how many data
     /// messages they ended.
-    pub(crate) fn feed(&mut self, mut bytes: &[u8]) -> u64 {
-        let mut ended = 0;
+    pub(crate) fn feed(&mut self, bytes: &[u8]) -> u64 {
+        self.read(bytes).messages
+    }
+
+    /// Reads `bytes`, the next of the stream, and returns the data messages
+    /// they ended and how many of those were replies.
+    pub(crate) fn read(&mut self, mut bytes: &[u8]) -> Ended {
+        let mut read = Ended::default();
         while !bytes.is_empty() {
             if self.payload_left > 0 {
-                let skipped = usize::try_from(self.payload_left)
+                let taken = usize::try_from(self.payload_left)
                     .unwrap_or(usize::MAX)
                     .min(bytes.len());
-                bytes = &bytes[skipped..];
-                self.payload_left -= skipped as u64;
+                if self.data {
+                    for &byte in &bytes[..taken] {
+                        if self.start.len() >= REPLY.len() {
+                            break;
+                        }
+                        let key = self.mask.map_or(0, |mask| {
+                            mask[usize::try_from(self.payload_read % 4).unwrap_or_default()]
+                        });
+                        self.start.push(byte ^ key);
+                        self.payload_read += 1;
+                    }
+                }
+                bytes = &bytes[taken..];
+                self.payload_left -= taken as u64;
+                if self.payload_left == 0 {
+                    self.frame_ended(&mut read);
+                }
                 continue;
             }
             self.header.push(bytes[0]);
@@ -91,16 +140,101 @@ impl Frames {
             if self.header.len() < 2 || self.header.len() < self.header_length() {
                 continue;
             }
-            let fin = self.header[0] & 0x80 != 0;
             let opcode = self.header[0] & 0x0f;
-            self.ends_message = fin && matches!(opcode, 0..=2);
+            self.data = matches!(opcode, 0..=2);
+            if matches!(opcode, 1 | 2) {
+                self.start.clear();
+            }
+            self.mask = (self.header[1] & 0x80 != 0).then(|| {
+                let at = self.header.len() - 4;
+                [
+                    self.header[at],
+                    self.header[at + 1],
+                    self.header[at + 2],
+                    self.header[at + 3],
+                ]
+            });
+            self.payload_read = 0;
             self.payload_left = self.payload_length();
-            self.header.clear();
-            if self.ends_message {
-                ended += 1;
+            if self.payload_left == 0 {
+                self.frame_ended(&mut read);
             }
         }
-        ended
+        read
+    }
+
+    /// Ends the current frame, whose header is whole and whose payload is
+    /// read, counting the data message it ends into `read`.
+    fn frame_ended(&mut self, read: &mut Ended) {
+        let fin = self.header[0] & 0x80 != 0;
+        if self.data && fin {
+            read.messages += 1;
+            if self.start == REPLY {
+                read.replies += 1;
+            }
+        }
+        self.header.clear();
+    }
+}
+
+/// The end of an HTTP head, its blank line, found in bytes read in any
+/// chunks: the browser's answer to the WebSocket handshake comes before
+/// its first frame.
+#[derive(Debug, Default)]
+struct HeadEnd {
+    /// How many of the blank line's bytes the last bytes read matched.
+    matched: usize,
+    /// Whether the blank line was found.
+    found: bool,
+}
+
+impl HeadEnd {
+    const BLANK_LINE: &[u8] = b"\r\n\r\n";
+
+    /// The part of `bytes`, the next of the stream, past the head: none
+    /// until its blank line, all of them after it.
+    fn past<'a>(&mut self, bytes: &'a [u8]) -> &'a [u8] {
+        if self.found {
+            return bytes;
+        }
+        for (index, &byte) in bytes.iter().enumerate() {
+            self.matched = if byte == Self::BLANK_LINE[self.matched] {
+                self.matched + 1
+            } else {
+                usize::from(byte == b'\r')
+            };
+            if self.matched == Self::BLANK_LINE.len() {
+                self.found = true;
+                return &bytes[index + 1..];
+            }
+        }
+        &[]
+    }
+}
+
+/// One connection's commands awaiting their reply, which start a round
+/// whenever the tool sends with none in flight.
+#[derive(Debug, Default)]
+struct Awaited {
+    in_flight: AtomicI64,
+}
+
+impl Awaited {
+    /// The tool sent `commands`: a round starts when none was in flight.
+    fn sent(&self, commands: u64, rounds: &AtomicU64) {
+        if commands == 0 {
+            return;
+        }
+        let commands = i64::try_from(commands).unwrap_or(i64::MAX);
+        if self.in_flight.fetch_add(commands, Ordering::SeqCst) <= 0 {
+            rounds.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// The browser answered `replies` commands.
+    fn answered(&self, replies: u64) {
+        let replies = i64::try_from(replies).unwrap_or(i64::MAX);
+        self.in_flight.fetch_sub(replies, Ordering::SeqCst);
     }
 }
 
@@ -109,6 +243,8 @@ impl Frames {
 pub(crate) struct Mark {
     /// The commands the relay had counted.
     pub(crate) commands: u64,
+    /// The rounds the tool had waited on the browser.
+    pub(crate) rounds: u64,
     /// The CPU seconds of the tool's process tree.
     pub(crate) cpu_seconds: f64,
     pub(crate) at: Instant,
@@ -117,6 +253,7 @@ pub(crate) struct Mark {
 /// What the relay's threads share.
 struct Shared {
     commands: AtomicU64,
+    rounds: AtomicU64,
     /// The process whose tree a mark reads the CPU time of; 0 for none.
     tool: AtomicU32,
     marks: Mutex<(Option<Mark>, Option<Mark>)>,
@@ -134,6 +271,16 @@ impl Relay {
     /// Starts relaying a loopback port of its own to the browser's
     /// remote-debugging port `browser`.
     pub(crate) fn start(browser: u16) -> Result<Self> {
+        Self::bind(Some(browser))
+    }
+
+    /// Starts answering the marks alone, for a trial whose tool launches
+    /// its own browser.
+    pub(crate) fn marks_only() -> Result<Self> {
+        Self::bind(None)
+    }
+
+    fn bind(browser: Option<u16>) -> Result<Self> {
         let listener =
             TcpListener::bind("127.0.0.1:0").context("binding the counting relay's port")?;
         let address = listener
@@ -141,6 +288,7 @@ impl Relay {
             .context("reading the counting relay's port")?;
         let shared = Arc::new(Shared {
             commands: AtomicU64::new(0),
+            rounds: AtomicU64::new(0),
             tool: AtomicU32::new(0),
             marks: Mutex::new((None, None)),
             stop: AtomicBool::new(false),
@@ -224,8 +372,9 @@ fn head(stream: &mut TcpStream) -> Result<(Vec<u8>, Vec<u8>)> {
     }
 }
 
-/// Serves one connection: a mark, or a relayed request to the browser.
-fn connection(mut client: TcpStream, browser: u16, shared: &Shared) -> Result<()> {
+/// Serves one connection: a mark, or a relayed request to the browser,
+/// when there is one.
+fn connection(mut client: TcpStream, browser: Option<u16>, shared: &Shared) -> Result<()> {
     if shared.stop.load(Ordering::Relaxed) {
         return Ok(());
     }
@@ -243,6 +392,7 @@ fn connection(mut client: TcpStream, browser: u16, shared: &Shared) -> Result<()
     } {
         let mark = Mark {
             commands: shared.commands.load(Ordering::SeqCst),
+            rounds: shared.rounds.load(Ordering::SeqCst),
             cpu_seconds: match shared.tool.load(Ordering::Relaxed) {
                 0 => 0.0,
                 pid => sampler::cpu_seconds(pid),
@@ -266,20 +416,48 @@ fn connection(mut client: TcpStream, browser: u16, shared: &Shared) -> Result<()
         client.write_all(answer.as_bytes())?;
         return Ok(());
     }
+    let Some(browser) = browser else {
+        client.write_all(
+            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        )?;
+        return Ok(());
+    };
     let upgrade = text.to_ascii_lowercase().contains("upgrade: websocket");
     let mut upstream =
         TcpStream::connect(("127.0.0.1", browser)).context("connecting to the browser")?;
     upstream.write_all(&request)?;
+    let awaited = Arc::new(Awaited::default());
     let mut frames = Frames::default();
-    if upgrade {
-        shared
-            .commands
-            .fetch_add(frames.feed(&rest), Ordering::SeqCst);
-    }
+    let mut sent = |bytes: &[u8]| {
+        if upgrade {
+            let commands = frames.feed(bytes);
+            shared.commands.fetch_add(commands, Ordering::SeqCst);
+            awaited.sent(commands, &shared.rounds);
+        }
+    };
+    sent(&rest);
     upstream.write_all(&rest)?;
     let (mut from_browser, mut to_client) = (upstream.try_clone()?, client.try_clone()?);
+    let answers = Arc::clone(&awaited);
     let back = std::thread::spawn(move || {
-        let _ = std::io::copy(&mut from_browser, &mut to_client);
+        let mut replies = Frames::default();
+        let mut head = HeadEnd::default();
+        let mut buffer = vec![0; 64 * 1024];
+        loop {
+            let length = match from_browser.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(length) => length,
+            };
+            let bytes = &buffer[..length];
+            if upgrade {
+                // Before the tool can see the replies, so its next command
+                // finds them answered.
+                answers.answered(replies.read(head.past(bytes)).replies);
+            }
+            if to_client.write_all(bytes).is_err() {
+                break;
+            }
+        }
         let _ = to_client.shutdown(Shutdown::Write);
     });
     let mut buffer = vec![0; 64 * 1024];
@@ -289,11 +467,7 @@ fn connection(mut client: TcpStream, browser: u16, shared: &Shared) -> Result<()
             Ok(length) => length,
         };
         let bytes = &buffer[..length];
-        if upgrade {
-            shared
-                .commands
-                .fetch_add(frames.feed(bytes), Ordering::SeqCst);
-        }
+        sent(bytes);
         if upstream.write_all(bytes).is_err() {
             break;
         }

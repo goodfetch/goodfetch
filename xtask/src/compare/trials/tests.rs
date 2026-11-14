@@ -1,6 +1,6 @@
 use super::{
-    AGENT_BROWSER_VERSION, CHROMIUMOXIDE_VERSION, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION,
-    OPENSPIDER_COMMIT, PAGESIFT_VERSION, PLAYWRIGHT_VERSION, PUPPETEER_VERSION,
+    AGENT_BROWSER_VERSION, CHROMIUMOXIDE_VERSION, CRAWLBERG_VERSION, CRAWLEE_RS_COMMIT,
+    CRAWLEE_VERSION, OPENSPIDER_COMMIT, PAGESIFT_VERSION, PLAYWRIGHT_VERSION, PUPPETEER_VERSION,
     SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SPIDER_VERSION, STAGEHAND_VERSION, Work,
 };
 
@@ -72,6 +72,20 @@ fn the_declared_openspider_is_the_commit_its_side_pins() {
     assert_eq!(
         ["os-engine", "os-fetch", "os-model", "os-store"].map(pinned),
         [commit.clone(), commit.clone(), commit.clone(), commit]
+    );
+}
+
+/// The trials declare the crawlberg its side builds: the exact version
+/// `xtask/compare-crawlberg/Cargo.toml` holds it to.
+#[test]
+fn the_declared_crawlberg_is_the_version_its_side_pins() {
+    let manifest: toml::Table = include_str!("../../../compare-crawlberg/Cargo.toml")
+        .parse()
+        .unwrap();
+
+    assert_eq!(
+        manifest["dependencies"]["crawlberg"]["version"].as_str(),
+        Some(format!("={CRAWLBERG_VERSION}").as_str())
     );
 }
 

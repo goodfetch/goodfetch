@@ -395,7 +395,10 @@ pub(crate) fn without_learned(
 
 /// The statement [`keep_held`] reads the rules with: each from an ID on,
 /// with its host and whether a contradiction stopped it.
-const FROM: &str = "SELECT id, kind, host, path, parameter, form, contradiction IS NOT NULL
+/// [`crate::admission_statements`] names it for a Run to prepare as it
+/// starts.
+pub(crate) const HELD: &str =
+    "SELECT id, kind, host, path, parameter, form, contradiction IS NOT NULL
      FROM learned_rules WHERE id >= ?1 ORDER BY id";
 
 /// Brings the rules `holding`, memory under its lock, holds up to those
@@ -411,7 +414,7 @@ pub(crate) fn keep_held(
 ) -> rusqlite::Result<()> {
     holding.keep_rules(connection, "learned_rules", |from| {
         connection
-            .prepare_cached(FROM)?
+            .prepare_cached(HELD)?
             .query_map([from], |row| {
                 Ok((
                     row.get(2)?,

@@ -400,7 +400,8 @@ pub(crate) fn skipped(tool: Contender, exercise: Exercise) -> Option<&'static st
         Contender::Stagehand => {
             Some("Stagehand drives the browser's one context, so it opens no Session")
         }
-        // `window new` opens a context, which no command closes.
+        // Its instances share the default context over `--cdp`; its binary
+        // creates browser contexts but never disposes of one.
         Contender::AgentBrowser => Some(
             "agent-browser has no command that closes a context it opened, so it opens no \
              Session",

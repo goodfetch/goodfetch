@@ -181,7 +181,7 @@ fn side_of(script: &Path) -> &Path {
 /// beside it.
 pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
     match config {
-        Config::Foxhound { .. } | Config::CrawleeRs | Config::Pagesift | Config::Openspider => {
+        Config::Foxhound { .. } | Config::CrawleeRs | Config::Pagesift | Config::OpenSpider => {
             Invocation {
                 program: executable.to_owned(),
                 arguments: Vec::new(),
@@ -219,7 +219,7 @@ fn install_bytes(config: Config, executable: &Path, browser: Option<&Path>) -> u
         | Config::Spider { .. }
         | Config::CrawleeRs
         | Config::Pagesift
-        | Config::Openspider => {
+        | Config::OpenSpider => {
             return file_bytes(executable) + browser_bytes;
         }
         Config::Crawlee => NODE_MODULES,
@@ -542,7 +542,7 @@ impl Plan<'_> {
             | Config::Scrapy
             | Config::CrawleeRs
             | Config::Pagesift
-            | Config::Openspider => None,
+            | Config::OpenSpider => None,
         };
         Ok(Driven { child, engine })
     }
@@ -587,7 +587,7 @@ impl Plan<'_> {
             | Config::Scrapy
             | Config::CrawleeRs
             | Config::Pagesift
-            | Config::Openspider => ("", None),
+            | Config::OpenSpider => ("", None),
         }
     }
 
@@ -764,7 +764,7 @@ impl Plan<'_> {
             | Config::Scrapy
             | Config::CrawleeRs
             | Config::Pagesift
-            | Config::Openspider => None,
+            | Config::OpenSpider => None,
         };
         let read = records
             .as_deref()
@@ -828,7 +828,7 @@ impl Plan<'_> {
             | Config::Scrapy
             | Config::CrawleeRs
             | Config::Pagesift
-            | Config::Openspider => None,
+            | Config::OpenSpider => None,
         };
         let extracted = self.extracted(home.path(), records)?;
         let (count, syncs) = match &self.mode {

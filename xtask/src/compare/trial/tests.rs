@@ -67,7 +67,7 @@ fn pagesift_runs_as_its_executable() {
 /// arguments every side takes.
 #[test]
 fn openspider_runs_as_its_executable() {
-    let openspider = invocation(Config::Openspider, Path::new("/r/openspider"));
+    let openspider = invocation(Config::OpenSpider, Path::new("/r/openspider"));
 
     assert_eq!(
         (openspider.program.as_path(), openspider.arguments),

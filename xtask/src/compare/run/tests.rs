@@ -485,7 +485,7 @@ fn the_sizes_cell_runs_spider_at_16_and_at_64_on_a_wider_channel() {
                 | Config::Scrapy
                 | Config::CrawleeRs
                 | Config::Pagesift
-                | Config::Openspider => None,
+                | Config::OpenSpider => None,
             };
             (config.tool(), crawl.concurrency, capacity)
         })

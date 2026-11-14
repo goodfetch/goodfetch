@@ -236,7 +236,7 @@ fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf>
         Config::Pagesift => {
             pagesift_executable(executables.spider_builds, executables.spider_profile)
         }
-        Config::Openspider => {
+        Config::OpenSpider => {
             openspider_executable(executables.spider_builds, executables.spider_profile)
         }
     };
@@ -347,7 +347,7 @@ fn pages_of(scenario: Scenario, config: Config, pages: u64, spider_pages: Option
         | Config::Scrapy
         | Config::CrawleeRs
         | Config::Pagesift
-        | Config::Openspider => pages,
+        | Config::OpenSpider => pages,
     }
 }
 
@@ -422,7 +422,7 @@ fn at_concurrency(config: Config, concurrency: u32) -> Config {
         | Config::Scrapy
         | Config::CrawleeRs
         | Config::Pagesift
-        | Config::Openspider => config,
+        | Config::OpenSpider => config,
     }
 }
 

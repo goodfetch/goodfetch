@@ -2,7 +2,8 @@ use super::{CELLS, Config, Network, OutputCheck, Row, Scenario, Site, SpiderBuil
 
 /// #2316's scenarios: the realistic-page site, the long site and scenario
 /// 1 at 64 and 256 in flight. Each gives every tool a main cell with its
-/// mapping, and the cell at the catalog's defaults (#2175) stands at each
+/// mapping, but OpenSpider at 64 and 256, beyond the 6 it keeps in flight
+/// on a host (#2216), and the cell at the catalog's defaults (#2175) stands at each
 /// of the sweep's three points, 16, 64 and 256 in flight, pending until
 /// #2175 brings it.
 #[test]
@@ -38,6 +39,11 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
             )
         })
         .collect();
+    let within_six: Vec<Tool> = Tool::ALL
+        .iter()
+        .copied()
+        .filter(|tool| *tool != Tool::OpenSpider)
+        .collect();
 
     assert_eq!(
         (
@@ -50,8 +56,8 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
             [
                 Tool::ALL.to_vec(),
                 Tool::ALL.to_vec(),
-                Tool::ALL.to_vec(),
-                Tool::ALL.to_vec()
+                within_six.clone(),
+                within_six
             ],
             [Site::Realistic, Site::Scale, Site::Scale, Site::Scale],
             [(16, 1000), (16, 100_000), (64, 1000), (256, 1000)],
@@ -497,15 +503,16 @@ fn just_compare_builds_pagesifts_side_into_its_folder() {
     )));
 }
 
-/// OpenSpider runs on its side in every scenario but the polite one, each
-/// its main row (#2216): its polite cell is not supported, since its one
-/// pace setting is the whole crawl's. In the durable scenario, where
-/// Spider's cell is not supported, it is the Rust crawler measured.
+/// OpenSpider runs on its side in every scenario but three, each its main
+/// row (#2216): its polite cell is not supported, since its one pace
+/// setting is the whole crawl's, nor are the cells of 64 and 256 requests
+/// in flight, since it keeps at most 6 on a host. In the durable
+/// scenario, where Spider's cell is not supported, it is measured.
 #[test]
-fn openspider_runs_every_scenario_on_its_side_but_the_polite_one() {
+fn openspider_runs_every_scenario_on_its_side_but_polite_raw_64_and_raw_256() {
     let cells: Vec<(Scenario, &str, Row, Option<Config>)> = CELLS
         .iter()
-        .filter(|cell| cell.tool == Tool::Openspider)
+        .filter(|cell| cell.tool == Tool::OpenSpider)
         .map(|cell| {
             let config = match cell.status {
                 Status::Measured(config) => Some(config),
@@ -525,14 +532,18 @@ fn openspider_runs_every_scenario_on_its_side_but_the_polite_one() {
     };
 
     assert_eq!(
-        (cells, durable(Tool::Spider), durable(Tool::Openspider)),
+        (cells, durable(Tool::Spider), durable(Tool::OpenSpider)),
         (
             Scenario::ALL
                 .map(|scenario| (
                     scenario,
                     "openspider",
                     Row::Main,
-                    (scenario != Scenario::Polite).then_some(Config::Openspider)
+                    (!matches!(
+                        scenario,
+                        Scenario::Polite | Scenario::Raw64 | Scenario::Raw256
+                    ))
+                    .then_some(Config::OpenSpider)
                 ))
                 .to_vec(),
             vec![false],

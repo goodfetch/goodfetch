@@ -37,7 +37,7 @@ os-engine = { git = "https://github.com/wojcikdominik/openspider", rev = "2d25a7
 os-fetch = { git = "https://github.com/wojcikdominik/openspider", rev = "2d25a7d627df4cedeb5ec657243765c0e09b4239" }
 os-model = { git = "https://github.com/wojcikdominik/openspider", rev = "2d25a7d627df4cedeb5ec657243765c0e09b4239" }
 os-store = { git = "https://github.com/wojcikdominik/openspider", rev = "2d25a7d627df4cedeb5ec657243765c0e09b4239" }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 serde_json = "1"
 
 [workspace]

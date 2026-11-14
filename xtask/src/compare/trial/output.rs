@@ -81,7 +81,7 @@ impl Plan<'_> {
                     text: record.text,
                 })
                 .collect(),
-            Config::Spider { .. } | Config::Pagesift | Config::Openspider => {
+            Config::Spider { .. } | Config::Pagesift | Config::OpenSpider => {
                 extracted::read(Written::Lines(SPIDER_PAGES), home)?
             }
             Config::Scrapy => extracted::read(Written::Lines(SCRAPY_ITEMS), home)?,

@@ -1120,9 +1120,9 @@ rss-propose *scenarios:
 # `Scraper`'s crawl, built like Spider's side, its browser engine for
 # scenario 5) and OpenSpider at its release v1.0.0-rc.1's commit
 # (xtask/compare-openspider: its engine's spider crawl, built like
-# Spider's side; it has no per-domain pace, so scenario 3 says so, and it
-# is scenario 2's Rust crawler), each side installed from its own lock, outside the
-# Products'. Scenario 5's tools
+# Spider's side; it has no per-domain pace, so scenario 3 says so, and
+# keeps at most 6 requests in flight on a host, so the 64 and 256 cells
+# say so), each side installed from its own lock, outside the Products'. Scenario 5's tools
 # all run the Chrome for Testing build Foxhound pins, as Playwright
 # installed it (`pnpm exec playwright install chromium`). A cell a tool
 # cannot run says why: 10 trials of each measured cell in random order,

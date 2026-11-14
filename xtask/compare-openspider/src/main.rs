@@ -11,10 +11,10 @@
 //! `--scenario` names the matrix's scenario:
 //!
 //! - `raw`: robots.txt not obeyed (`robots.mode: ignore`) and the rest at
-//!   its defaults: as many requests in flight on a host as threads
-//!   (`max_per_host` unset), at most 6 connections to a host
-//!   (`connections_per_host: auto`), no rate limit, its adaptive throttle
-//!   on, images, style sheets, scripts and canonicals followed on the
+//!   its defaults: at most 6 connections to a host
+//!   (`connections_per_host: auto`), each carrying one request at a time
+//!   under HTTP/1.1, so at most 6 requests in flight on a host whatever
+//!   the threads, no rate limit, its adaptive throttle on, images, style sheets, scripts and canonicals followed on the
 //!   host (none on the Proving ground's pages);
 //! - `durable`: `raw`, the process the comparison starts again after a kill
 //!   resuming the crawl file the killed one left (`os_engine::resume_crawl`,
@@ -34,7 +34,8 @@
 //!   throttle on; `--concurrency` is unread.
 //!
 //! OpenSpider has no polite cell: its only pace setting holds the whole
-//! crawl to its rate (the matrix says why).
+//! crawl to its rate; nor cells of 64 or 256 requests in flight, beyond
+//! its 6 on a host (the matrix says why).
 //!
 //! The crawl-like scenario (#2284) runs `raw` on an `https` site, whose
 //! certificate authority `SSL_CERT_FILE` names, which its fetcher also
@@ -50,7 +51,7 @@
 //!     --host scale.test:<port> --concurrency 16 --scenario raw
 #![expect(
     clippy::disallowed_methods,
-    reason = "a comparison side, no Product crate: its `main` builds its runtime"
+    reason = "a comparison side, no Product crate: its `main` builds its runtime and reads `SSL_CERT_FILE`, and once its crawl has ended it writes `pages.jsonl` through std's file"
 )]
 
 use std::io::{self, Write as _};
@@ -187,7 +188,7 @@ fn configuration(arguments: &Arguments, rule: Option<String>) -> CrawlConfig {
     config
 }
 
-fn deps() -> EngineDeps {
+fn dependencies() -> EngineDeps {
     EngineDeps {
         clock: Arc::new(SystemClock),
         ids: Arc::new(RandomIds),
@@ -200,16 +201,18 @@ fn deps() -> EngineDeps {
     }
 }
 
-fn fetcher(config: &CrawlConfig) -> Result<Arc<HttpFetcher>, String> {
+/// OpenSpider's fetcher for `config`, trusting `authority`, the
+/// certificate authority `SSL_CERT_FILE` names, as a certificate a user
+/// adds.
+fn fetcher(config: &CrawlConfig, authority: Option<&str>) -> Result<Arc<HttpFetcher>, String> {
     let secrets = MemorySecretStore::new();
     let mut fetch = FetchConfig::from_crawl_config(config, &secrets, Arc::new(SystemClock))
         .map_err(|error| error.to_string())?;
-    if let Some(authority) = std::env::var_os("SSL_CERT_FILE") {
-        fetch.network.trusted_certificates.push(
-            authority
-                .into_string()
-                .map_err(|_| "SSL_CERT_FILE is no text".to_owned())?,
-        );
+    if let Some(authority) = authority {
+        fetch
+            .network
+            .trusted_certificates
+            .push(authority.to_owned());
     }
     HttpFetcher::new(fetch)
         .map(Arc::new)
@@ -237,13 +240,19 @@ async fn heartbeat_stale(file: &Path) -> Result<(), String> {
     }
 }
 
-async fn crawl(arguments: Arguments) -> Result<u64, String> {
+async fn crawl(arguments: Arguments, authority: Option<String>) -> Result<u64, String> {
     let (start_url, rule) = start(&arguments.url, arguments.host.as_deref())?;
     let config = configuration(&arguments, rule);
     let file = crawl_file();
     let handle = if arguments.scenario == Scenario::Durable && file.exists() {
         heartbeat_stale(&file).await?;
-        resume_crawl(fetcher(&config)?, file.clone(), None, deps()).await
+        resume_crawl(
+            fetcher(&config, authority.as_deref())?,
+            file.clone(),
+            None,
+            dependencies(),
+        )
+        .await
     } else {
         let request = CrawlRequest {
             config: config.clone(),
@@ -252,7 +261,12 @@ async fn crawl(arguments: Arguments) -> Result<u64, String> {
             project: "compare".to_owned(),
             name: "compare".to_owned(),
         };
-        start_crawl(fetcher(&config)?, request, deps()).await
+        start_crawl(
+            fetcher(&config, authority.as_deref())?,
+            request,
+            dependencies(),
+        )
+        .await
     }
     .map_err(|error| error.to_string())?;
     handle.wait().await.map_err(|error| error.to_string())?;
@@ -304,9 +318,16 @@ fn write_pages(crawl: &CrawlFile) -> Result<(), String> {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    let crawled = match arguments() {
-        Ok(arguments) => crawl(arguments).await,
-        Err(usage) => Err(usage),
+    let authority = std::env::var_os("SSL_CERT_FILE")
+        .map(|authority| {
+            authority
+                .into_string()
+                .map_err(|_| "SSL_CERT_FILE is no text".to_owned())
+        })
+        .transpose();
+    let crawled = match (arguments(), authority) {
+        (Ok(arguments), Ok(authority)) => crawl(arguments, authority).await,
+        (Err(error), _) | (_, Err(error)) => Err(error),
     };
     match crawled {
         Ok(pages) => {

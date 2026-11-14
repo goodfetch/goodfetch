@@ -11,7 +11,9 @@ use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use serde_json::{Value, json};
 
-use super::{Choosing, Forced, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved};
+use super::{
+    Choosing, Forced, HttpFrom, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved,
+};
 
 /// The Labels named in `labels`, each declared with its nested settings.
 fn declared(labels: &[(&str, Value)]) -> BTreeMap<String, LabelDeclaration> {
@@ -103,6 +105,8 @@ fn a_labels_tier_forces_its_own_requests_over_the_runs(
 #[case::unknown_encoding(json!({ "fetch": { "encoding": "klingon" } }), "setting_invalid", "fetch.encoding")]
 #[case::encoding_not_text(json!({ "fetch": { "encoding": 8 } }), "setting_invalid", "fetch.encoding")]
 #[case::unknown_extractor(json!({ "content": { "extractor": "readability" } }), "setting_invalid", "content.extractor")]
+#[case::unknown_sender(json!({ "fetch": { "http_from": "proxy" } }), "setting_invalid", "fetch.http_from")]
+#[case::sender_not_text(json!({ "fetch": { "http_from": true } }), "setting_invalid", "fetch.http_from")]
 /// Covers: story:5-137, setting:session.page_check
 #[case::no_page_check(
     json!({ "session": { "page_check": { "expected_page": { "kind": "css" } } } }),
@@ -152,6 +156,41 @@ fn a_requests_forced_encoding_is_its_labels_else_the_runs(
     .unwrap();
 
     assert_eq!(tiers.encoding(label, run), expected);
+}
+
+/// Where a request's HTTP leaves from under `auto`: its Label's
+/// `fetch.http_from`, else the Run's; a Label that sets it is accepted
+/// beside its `fetch.tier`, which it leaves alone.
+///
+/// Covers: setting:fetch.http_from
+#[rstest::rstest]
+#[case::the_labels_own("api", HttpFrom::Browser, HttpFrom::Transport)]
+#[case::the_labels_learned("learning", HttpFrom::Transport, HttpFrom::Learned)]
+#[case::the_runs_for_a_label_setting_none("page", HttpFrom::Transport, HttpFrom::Transport)]
+#[case::the_runs_for_an_undeclared_label("other", HttpFrom::Learned, HttpFrom::Learned)]
+#[case::the_default("page", HttpFrom::Browser, HttpFrom::Browser)]
+fn a_requests_http_leaves_from_its_labels_choice_else_the_runs(
+    #[case] label: &str,
+    #[case] run: HttpFrom,
+    #[case] expected: HttpFrom,
+) {
+    let labels = LabelSettings::of(&declared(&[
+        (
+            "api",
+            json!({ "fetch": { "http_from": "transport", "tier": "auto" } }),
+        ),
+        ("learning", json!({ "fetch": { "http_from": "learned" } })),
+        ("page", json!({})),
+    ]))
+    .unwrap();
+
+    assert_eq!(
+        (
+            labels.http_from(label, run),
+            labels.choose("api", SetTier::Unset)
+        ),
+        (expected, Choosing::Engine)
+    );
 }
 
 /// A Label's own `session.page_check` is read whole beside its

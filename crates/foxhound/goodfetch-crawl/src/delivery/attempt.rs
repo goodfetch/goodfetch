@@ -203,6 +203,22 @@ pub(super) struct Tiering {
     /// The Page check the request's Label declares of its own.
     page_check: Option<PageCheck>,
     second_copies: SecondCopies,
+    /// The client the attempt's Session sends from.
+    sends_from: SendsFrom,
+    /// The Session a sample's `http` run is sent from when its Label sends
+    /// its HTTP from the transport (`fetch.http_from`): drawn beside the
+    /// attempt's, sharing nothing with it.
+    transport: Option<SampleSession>,
+}
+
+/// The Session a sample's `http` run is sent from, from its own transport,
+/// as it would run in the browser, with the Run's HTTP tier as it sends
+/// on it: `None` when that tier could not be built for it, which fails the
+/// sample.
+pub(super) struct SampleSession {
+    pub(super) session: ServingSession,
+    pub(super) in_browser: PooledSession,
+    pub(super) http: Option<HttpTier>,
 }
 
 impl Tiering {
@@ -223,7 +239,21 @@ impl Tiering {
             light,
             page_check,
             second_copies: second_copies.clone(),
+            sends_from: SendsFrom::Browser,
+            transport: None,
         }
+    }
+
+    /// The same, its Session sending from `sends_from`, and a sample's
+    /// `http` run sent from `transport`'s Session when given.
+    pub(super) fn sending(
+        mut self,
+        sends_from: SendsFrom,
+        transport: Option<SampleSession>,
+    ) -> Self {
+        self.sends_from = sends_from;
+        self.transport = transport;
+        self
     }
 
     /// The tier the attempt starts on, if any.
@@ -400,6 +430,9 @@ pub(super) struct Attempt {
     _counted: Counted,
     /// The Session of the crawl's Session pool that served it.
     pub(super) session: ServingSession,
+    /// The Session a sample's `http` run was sent from, from its own
+    /// transport, when its Label sends its HTTP from there.
+    pub(super) transport: Option<ServingSession>,
     pub(super) lease: WorkItemLease,
     pub(super) answer: Answer,
     /// What its page taught the Frontier, or teaches it with its outcome.
@@ -444,8 +477,7 @@ pub(super) async fn attempt(
     (tiering, (hand_over, code_free)): (Tiering, (Arc<HandOver>, Option<Arc<CodeFree>>)),
     in_flight: SharedInFlight,
 ) -> Attempt {
-    let document = Mutex::new(None);
-    let sent_at = Mutex::new(None);
+    let (document, sent_at) = (Mutex::new(None), Mutex::new(None));
     let moved = OnceLock::new();
     let on = On {
         document: &document,
@@ -457,6 +489,7 @@ pub(super) async fn attempt(
         session: &session,
         in_browser: &in_browser,
         http: tiering.http.as_ref(),
+        sends_from: tiering.sends_from,
         lease: &lease,
         hand_over: &hand_over,
         code_free: code_free.as_deref(),
@@ -539,6 +572,7 @@ pub(super) async fn attempt(
         leased,
         _counted: counted,
         session,
+        transport: tiering.transport.map(|sample| sample.session),
         lease,
         answer,
         taught,
@@ -625,6 +659,7 @@ struct BrowserRun {
 }
 
 /// What one attempt runs its handler with.
+#[derive(Clone, Copy)]
 struct On<'a> {
     run: &'a Run,
     context: &'a CallContext,
@@ -635,6 +670,8 @@ struct On<'a> {
     /// The Run's HTTP tier, when it could be built, whose address check
     /// judges the request's URL before a browser tier opens it.
     http: Option<&'a HttpTier>,
+    /// The client the Session sends its HTTP from.
+    sends_from: SendsFrom,
     lease: &'a WorkItemLease,
     /// What the attempt hands over with its Run's pages, built once as it
     /// was leased: each of its runs on a tier takes it whole.
@@ -764,10 +801,44 @@ impl On<'_> {
         (answer, merged)
     }
 
-    /// A sample of the crawl's sample comparison: its run on `http`, then,
-    /// unless that run ended the attempt, its run on `browser` under a
-    /// whole lease of its own, whose answer is the attempt's, matched or
-    /// not. Answers it, the pending requests the page's rules merged, and
+    /// Where a sample's `http` run is sent from, on the Run's HTTP tier as
+    /// it sends there: the Session drawn for it from the transport when
+    /// there is one, else the attempt's own on `http`; a failed answer
+    /// when that Session's tier could not be built.
+    fn sampled_from<'s>(
+        &'s self,
+        tiering: &'s Tiering,
+        http: &'s HttpTier,
+    ) -> Result<(On<'s>, &'s HttpTier), Answer> {
+        let Some(sample) = &tiering.transport else {
+            return Ok((*self, http));
+        };
+        let Some(http) = &sample.http else {
+            return Err(Answer::failed(AttemptFailure::named(
+                NAVIGATION_FAILED.name,
+                true,
+                "The crawl's HTTP tier could not be built for the sample's own Session, so the request was not fetched."
+                    .to_owned(),
+            )));
+        };
+        Ok((
+            On {
+                session: &sample.session,
+                in_browser: &sample.in_browser,
+                http: Some(http),
+                sends_from: SendsFrom::Transport,
+                ..*self
+            },
+            http,
+        ))
+    }
+
+    /// A sample of the crawl's sample comparison: its run on `http`, sent
+    /// from the Session drawn for it when its Label sends its HTTP from the
+    /// transport (`fetch.http_from`), else from the attempt's, then, unless
+    /// that run ended the attempt, its run on `browser` under a whole lease
+    /// of its own, whose answer is the attempt's, matched or not. Answers
+    /// it, the pending requests the page's rules merged, and
     /// how the two runs weighed once the browser's answered: what each run
     /// staged, the Records it pushed then those of its answer and the
     /// requests it enqueued, before any Hook (ADR 0103), the URL each ended
@@ -778,8 +849,12 @@ impl On<'_> {
         tiering: &Tiering,
         http: &HttpTier,
     ) -> (Answer, Taught, Option<Weighed>) {
-        let (run, merged) = match self
-            .on_http(tiering, http, (&SAMPLED, None), Chosen::Sample(None))
+        let (sender, sent_on) = match self.sampled_from(tiering, http) {
+            Ok(sender) => sender,
+            Err(answer) => return (answer, Taught::default(), None),
+        };
+        let (run, merged) = match sender
+            .on_http(tiering, sent_on, (&SAMPLED, None), Chosen::Sample(None))
             .await
         {
             Ok(ran) => ran,
@@ -865,7 +940,8 @@ impl On<'_> {
                             if tier_serves(call, FetchTier::DiscoveredApi)
                                 && !tier_serves(call, FetchTier::Http) =>
                         {
-                            Box::pin(self.replayed(tiering, http, &capture, &browser_run)).await
+                            Box::pin(sender.replayed(tiering, sent_on, &capture, &browser_run))
+                                .await
                         }
                         _ => None,
                     };
@@ -948,8 +1024,8 @@ impl On<'_> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let tiers = &tiering.tiers;
         let hand_over = self.hand_over;
-        // The client the Session was drawn for (`tier_choice::sends_from`).
-        let http = &match crate::tier_choice::sends_from(choice) {
+        // The client the Session was drawn for (`AttemptPlan::sends_from`).
+        let http = &match self.sends_from {
             SendsFrom::Browser => {
                 tiers.in_browser(http, run, self.in_browser, hand_over, self.context)
             }

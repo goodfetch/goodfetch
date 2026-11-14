@@ -27,6 +27,12 @@
 //! `http` when every one matched over `http`, and on `light_browser` when
 //! some matched only there.
 //!
+//! A choice keeps the client its samples' HTTP was sent from
+//! (`fetch.http_from`, spec #2413): the browser, or the Session's own
+//! transport. A Label whose setting no longer sends from it is sampled
+//! again, from the client it now sends from; a choice kept before choices
+//! kept their client reads back as sent from the browser.
+//!
 //! A choice is sampled again once it served `fetch.sample.refresh_after`'s
 //! requests, or once its time passed, whichever comes first (500 requests
 //! or 24 hours by default), and at once when [`TierChoices::invalidate`]
@@ -104,15 +110,29 @@ pub(crate) enum AttemptPlan {
 
 impl AttemptPlan {
     /// The client the attempt's Session sends from, which its draw asks
-    /// the pool for: a sitemap's fetch is read by an HTTP client, never a
-    /// browser; a tier as [`sends_from`] says; the engine's own plans, a
-    /// replay, a sample or a race, from the browser, where the Session may
-    /// move.
-    pub(crate) fn sends_from(&self) -> SendsFrom {
+    /// the pool for, its Label's HTTP sent `from` that client under
+    /// `auto` (`fetch.http_from`): a sitemap's fetch is read by an HTTP
+    /// client, never a browser; a forced tier as [`sends_from`] says; a
+    /// learned `http` or `discovered_api`, and a replay, from `from`; any
+    /// other learned tier, a sample or a race from the browser, where the
+    /// Session may move. A sample's `http` run sent from the transport
+    /// takes a Session of its own beside it.
+    pub(crate) fn sends_from(&self, from: SendsFrom) -> SendsFrom {
         match self {
             Self::Sitemap => SendsFrom::Transport,
-            Self::On(choice) => sends_from(choice),
-            Self::Replayed(_) | Self::Sample(_) | Self::Race(_) => SendsFrom::Browser,
+            Self::On(
+                choice @ TierChoice {
+                    forced: Some(_), ..
+                },
+            ) => sends_from(choice),
+            Self::On(TierChoice {
+                tier: FetchTier::Http | FetchTier::DiscoveredApi,
+                forced: None,
+            })
+            | Self::Replayed(_) => from,
+            Self::On(TierChoice { forced: None, .. }) | Self::Sample(_) | Self::Race(_) => {
+                SendsFrom::Browser
+            }
         }
     }
 }
@@ -140,6 +160,8 @@ pub(crate) struct Sampled {
     pub(crate) domain_key: String,
     /// The first segment of its URL's path.
     pub(crate) segment: String,
+    /// The client its `http` run is sent from.
+    pub(crate) from: SendsFrom,
 }
 
 /// How the weighing judged a sample's runs against the browser's.
@@ -170,16 +192,23 @@ pub(crate) struct TierChoices {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum Unit {
-    /// Its first samples, in the order they were classified, and the plan
-    /// the last that matched on `discovered_api` replayed.
+    /// Its first samples, in the order they were classified, each sent
+    /// `from` that client, and the plan the last that matched on
+    /// `discovered_api` replayed.
     Sampling {
         samples: Vec<Sample>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         plan: Option<ReplayPlan>,
+        #[serde(
+            default = "browser",
+            skip_serializing_if = "is_browser",
+            with = "client"
+        )]
+        from: SendsFrom,
     },
     /// One tier for every request, chosen at `since` (milliseconds since
-    /// the Unix epoch), having `served` requests since, with the plan
-    /// `discovered_api` replays.
+    /// the Unix epoch) from samples sent `from` that client, having
+    /// `served` requests since, with the plan `discovered_api` replays.
     Learned {
         tier: FetchTier,
         since: u64,
@@ -187,10 +216,17 @@ pub(crate) enum Unit {
         served: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         plan: Option<ReplayPlan>,
+        #[serde(
+            default = "browser",
+            skip_serializing_if = "is_browser",
+            with = "client"
+        )]
+        from: SendsFrom,
     },
     /// A tier per path segment, in the order the segments came, chosen at
-    /// `since`, having `served` requests since, with the plan
-    /// `discovered_api` replays; any other segment takes `browser`.
+    /// `since` from samples sent `from` that client, having `served`
+    /// requests since, with the plan `discovered_api` replays; any other
+    /// segment takes `browser`.
     Split {
         segments: Vec<Segment>,
         since: u64,
@@ -198,6 +234,12 @@ pub(crate) enum Unit {
         served: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         plan: Option<ReplayPlan>,
+        #[serde(
+            default = "browser",
+            skip_serializing_if = "is_browser",
+            with = "client"
+        )]
+        from: SendsFrom,
     },
     /// `browser` for every request, never sampled again: a browser sample
     /// showed a consent wall (ADR 0048).
@@ -212,6 +254,51 @@ pub(crate) enum Unit {
 )]
 fn is_zero(served: &u64) -> bool {
     *served == 0
+}
+
+/// The client a choice kept before choices kept theirs was sent from.
+const fn browser() -> SendsFrom {
+    SendsFrom::Browser
+}
+
+/// Whether a choice was sent from the browser, its client then left out
+/// of the run file, which keeps such a choice as it was kept before.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes the field by reference"
+)]
+fn is_browser(from: &SendsFrom) -> bool {
+    *from == SendsFrom::Browser
+}
+
+/// A choice's client as the run file names it: `browser` or `transport`.
+mod client {
+    use goodfetch_session_pool::SendsFrom;
+    use serde::{Deserialize, Deserializer, Serializer, de::Error};
+
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde's `with` passes the field by reference"
+    )]
+    pub(super) fn serialize<S: Serializer>(
+        from: &SendsFrom,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(match from {
+            SendsFrom::Browser => "browser",
+            SendsFrom::Transport => "transport",
+        })
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<SendsFrom, D::Error> {
+        match String::deserialize(deserializer)?.as_str() {
+            "browser" => Ok(SendsFrom::Browser),
+            "transport" => Ok(SendsFrom::Transport),
+            other => Err(D::Error::unknown_variant(other, &["browser", "transport"])),
+        }
+    }
 }
 
 /// One classified sample.
@@ -311,26 +398,26 @@ impl TierChoices {
         self
     }
 
-    /// How an attempt of a request of `label` at `url` on `domain_key`
-    /// runs under `auto` at `now` (milliseconds since the Unix epoch): a
-    /// choice that served its requests or outlived its time is sampled
-    /// again, and each request a choice serves counts toward its refresh.
-    /// Answers the plan, and the unit whose count it moved, for the run
-    /// file, so a resumed crawl goes on counting.
+    /// How an attempt of a request of `label` at `url` on `domain_key`,
+    /// its HTTP sent `from` that client, runs under `auto` at `now`
+    /// (milliseconds since the Unix epoch): a choice that served its
+    /// requests, outlived its time or was learned from another client is
+    /// sampled again, and each request a choice serves counts toward its
+    /// refresh. Answers the plan, and the unit whose count it moved, for
+    /// the run file, so a resumed crawl goes on counting.
     pub(crate) fn serve_attempt(
         &mut self,
         label: &str,
         domain_key: &str,
         url: &str,
+        from: SendsFrom,
         now: u64,
     ) -> (AttemptPlan, Option<&Unit>) {
         let segment = segment(url);
         let id = (label.to_owned(), domain_key.to_owned());
-        if self
-            .units
-            .get(&id)
-            .is_some_and(|unit| unit.stale(now, self.sampling))
-        {
+        if self.units.get(&id).is_some_and(|unit| {
+            unit.stale(now, self.sampling) || unit.from().is_some_and(|kept| kept != from)
+        }) {
             self.units.remove(&id);
         }
         let plan = match self
@@ -344,6 +431,7 @@ impl TierChoices {
                         label: label.to_owned(),
                         domain_key: domain_key.to_owned(),
                         segment,
+                        from,
                     }),
                     None,
                 );
@@ -370,16 +458,23 @@ impl TierChoices {
     }
 
     /// Takes the sample `sampled`, as the weighing judged its runs at
-    /// `now`; answers its unit as it now stands, for the run file.
+    /// `now`; answers its unit as it now stands, for the run file. A unit
+    /// learned from another client than the sample's starts sampling
+    /// again from the sample's.
     pub(crate) fn classify(&mut self, sampled: &Sampled, weighed: Weighed, now: u64) -> &Unit {
         let count = self.sampling.count;
+        let fresh = || Unit::Sampling {
+            samples: Vec::new(),
+            plan: None,
+            from: sampled.from,
+        };
         let unit = self
             .units
             .entry((sampled.label.clone(), sampled.domain_key.clone()))
-            .or_insert_with(|| Unit::Sampling {
-                samples: Vec::new(),
-                plan: None,
-            });
+            .or_insert_with(fresh);
+        if unit.from().is_some_and(|kept| kept != sampled.from) {
+            *unit = fresh();
+        }
         match weighed {
             Weighed::Walled => *unit = Unit::Walled,
             Weighed::Matched
@@ -418,6 +513,17 @@ enum Plan {
 }
 
 impl Unit {
+    /// The client its samples were sent from; none for a walled Label,
+    /// which stays on `browser` from either.
+    fn from(&self) -> Option<SendsFrom> {
+        match self {
+            Self::Sampling { from, .. } | Self::Learned { from, .. } | Self::Split { from, .. } => {
+                Some(*from)
+            }
+            Self::Walled => None,
+        }
+    }
+
     /// The plan `discovered_api` replays for it, once a sample matched
     /// there.
     fn replay_plan(&self) -> Option<&ReplayPlan> {
@@ -496,14 +602,18 @@ impl Unit {
         };
         match self {
             Self::Learned { .. } | Self::Walled => {}
-            Self::Sampling { samples, plan } => {
+            Self::Sampling {
+                samples,
+                plan,
+                from,
+            } => {
                 if replayed.is_some() {
                     *plan = replayed;
                 }
                 samples.push(sample);
                 if samples.len() >= count {
                     let plan = plan.take();
-                    *self = Self::chosen(samples, count, now, plan);
+                    *self = Self::chosen(samples, count, (now, *from), plan);
                 }
             }
             Self::Split { segments, plan, .. } => {
@@ -516,11 +626,17 @@ impl Unit {
     }
 
     /// What a Label on a domain learned at `now` from its first `samples`,
-    /// `plan` the one its samples replayed on `discovered_api`: the
-    /// cheapest tier that served every one ([`Serves`]) when every one
-    /// matched; split by first segment when some segment matched
-    /// throughout and another did not; `browser` otherwise.
-    fn chosen(samples: &[Sample], count: usize, now: u64, plan: Option<ReplayPlan>) -> Self {
+    /// sent `from` that client, `plan` the one its samples replayed on
+    /// `discovered_api`: the cheapest tier that served every one
+    /// ([`Serves`]) when every one matched; split by first segment when
+    /// some segment matched throughout and another did not; `browser`
+    /// otherwise.
+    fn chosen(
+        samples: &[Sample],
+        count: usize,
+        (now, from): (u64, SendsFrom),
+        plan: Option<ReplayPlan>,
+    ) -> Self {
         if samples.iter().all(|sample| sample.matched) {
             let tier = samples
                 .iter()
@@ -531,6 +647,7 @@ impl Unit {
                 since: now,
                 served: 0,
                 plan,
+                from,
             };
         }
         let mut segments: Vec<Segment> = Vec::new();
@@ -546,6 +663,7 @@ impl Unit {
                 since: now,
                 served: 0,
                 plan,
+                from,
             }
         } else {
             Self::Learned {
@@ -553,6 +671,7 @@ impl Unit {
                 since: now,
                 served: 0,
                 plan: None,
+                from,
             }
         }
     }

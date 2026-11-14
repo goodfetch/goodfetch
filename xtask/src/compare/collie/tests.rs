@@ -713,25 +713,29 @@ fn each_tool_runs_its_own_driver_against_the_browser_xtask_launched() {
         words.extend(command.get_args().map(ToOwned::to_owned));
         words
     };
+    // A Node.js driver carries out the plan for whichever tool `--tool`
+    // names.
     for tool in [Contender::Collie, Contender::Playwright] {
-        assert_eq!(run(tool), ["node", "compare-collie/act.ts"]);
+        assert_eq!(
+            run(tool),
+            ["node", "compare-collie/act.ts", "--tool", tool.name()]
+        );
     }
-    for arm in [
-        Contender::PuppeteerLocator,
-        Contender::PuppeteerPage,
-        Contender::Stagehand,
-    ] {
-        assert_eq!(run(arm), ["node", "compare-collie-arms/act.ts"]);
+    for arm in Contender::ARMS
+        .into_iter()
+        .filter(|&arm| arm != Contender::Chromiumoxide)
+    {
+        assert_eq!(
+            run(arm),
+            ["node", "compare-collie-arms/act.ts", "--tool", arm.name()]
+        );
     }
     // chromiumoxide is a Rust library: its side is a program of its own,
-    // built beside the other Rust sides.
+    // built beside the other Rust sides, which runs that one tool and takes
+    // no `--tool`.
     assert_eq!(
         run(Contender::Chromiumoxide),
         ["builds/goodfetch-compare-chromiumoxide"]
-    );
-    assert_eq!(
-        chromiumoxide_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/chromiumoxide/release/goodfetch-compare-chromiumoxide")
     );
     // Stagehand's extension speaks CDP over a WebSocket of its own, which
     // Chrome opens to it only with flags of its own; every other tool's

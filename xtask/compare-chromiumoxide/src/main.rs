@@ -18,14 +18,17 @@
 //! `Browser::dispose_browser_context`. chromiumoxide runs at its defaults
 //! (`HandlerConfig::default()`), as it ships.
 //!
-//! A step is chromiumoxide's own calls, none of which waits for its target
-//! nor checks it: `Page::find_element` (`DOM.querySelector`, which fails at
-//! once when nothing matches), then `Element::click()` (scroll into view,
-//! a clickable point from the content quads, the mouse events),
+//! A step is chromiumoxide's own calls, none of which waits for its target:
+//! `Page::find_element` (`DOM.querySelector`, which fails at once when
+//! nothing matches), then `Element::click()` (scroll into view, a clickable
+//! point from the content quads, which fails at once on a detached target
+//! or one with no box, the mouse events),
 //! `Element::click()` then `Element::type_str()` for a fill, as its own
 //! documentation types into a field, and `Element::focus()` then
-//! `Element::press_key()` for a press. A page's status is its navigation's
-//! response, which `Page::http_future` resolves once the page has loaded.
+//! `Element::press_key()` for a press. A page opens with `Page::goto`, which
+//! resolves once it has loaded; a navigation that failed is the page's
+//! error, and it takes no step. Its status is the loaded frame's response,
+//! which `Page::wait_for_navigation_response` answers without a command.
 //!
 //! It prints one JSON line of what each page came to, as `plan.ts` does.
 //!
@@ -209,25 +212,31 @@ async fn steps_on(page: &Page, planned: &PlannedPage) -> PageResult {
     let mut read = None;
     let mut steps = 0;
     let mut error = None;
-    match page.http_future(NavigateParams::new(planned.url.as_str())) {
+    // `Page::goto` resolves once the page has loaded, and fails with the
+    // navigation's error, its address refused say, as `page.goto` throws in
+    // `plan.ts`; the loaded frame's request then answers the status without
+    // a command.
+    let navigated = async {
+        page.goto(NavigateParams::new(planned.url.as_str())).await?;
+        page.wait_for_navigation_response().await
+    };
+    match navigated.await {
         Err(failed) => error = Some(first_line(&failed)),
-        Ok(navigation) => match navigation.await {
-            Err(failed) => error = Some(first_line(&failed)),
-            Ok(request) => {
-                status = request.and_then(|request| request.response.as_ref().map(|r| r.status));
-                for planned_step in &planned.steps {
-                    steps += 1;
-                    match step(page, planned_step).await {
-                        Ok(Some(text)) => read = Some(text),
-                        Ok(None) => {}
-                        Err(failed) => {
-                            error = Some(first_line(&failed));
-                            break;
-                        }
+        Ok(request) => {
+            status = request
+                .and_then(|request| request.response.as_ref().map(|response| response.status));
+            for planned_step in &planned.steps {
+                steps += 1;
+                match step(page, planned_step).await {
+                    Ok(Some(text)) => read = Some(text),
+                    Ok(None) => {}
+                    Err(failed) => {
+                        error = Some(first_line(&failed));
+                        break;
                     }
                 }
             }
-        },
+        }
     }
     PageResult {
         task: planned.task.clone(),

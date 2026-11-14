@@ -409,7 +409,8 @@ fn mapping(tool: Contender) -> String {
         ),
         Contender::PuppeteerPage => format!(
             "Puppeteer {PUPPETEER_VERSION}'s page methods, `page.click()`, `page.type()`, and \
-             `page.focus()` then `page.keyboard.press()`; its click checks nothing"
+             `page.focus()` then `page.keyboard.press()`; its click waits for nothing and \
+             fails at once on a target that is missing or has no box"
         ),
         Contender::Stagehand => format!(
             "Stagehand {STAGEHAND_VERSION} with no model, `page.locator(…).click()` and \
@@ -426,7 +427,8 @@ fn mapping(tool: Contender) -> String {
             "chromiumoxide {CHROMIUMOXIDE_VERSION}, `page.find_element(…)` then \
              `Element::click()`, `.click()` then `.type_str()`, and `.focus()` then \
              `.press_key()`; its click scrolls, finds a clickable point and sends the mouse \
-             events, and neither waits nor checks"
+             events, waits for nothing and fails at once on a target that is detached or has \
+             no box"
         ),
     }
 }
@@ -535,10 +537,11 @@ fn ratios_text(text: &mut String, ratios: &[CommandRatio], today: &Today) {
 /// placed any.
 const ARMS_INTRO: &str = "Beside them the arms, each attached the same way, through its own \
     library or, for agent-browser, its command line: Puppeteer's locators and its page methods, \
-    agent-browser's command line, chromiumoxide, a Rust program, and Stagehand with no model, whose browser is launched with \
-    `--enable-unsafe-extension-debugging` and `--remote-allow-origins=*` for the extension it \
-    drives the browser through. That extension runs in the browser's processes, so Stagehand's \
-    CPU and memory leave its work out, while its CDP commands pass the relay and are counted. \
+    agent-browser's command line, chromiumoxide through a Rust program of its own, and Stagehand \
+    with no model, whose browser is launched with `--enable-unsafe-extension-debugging` and \
+    `--remote-allow-origins=*` for the extension it drives the browser through. That extension \
+    runs in the browser's processes, so Stagehand's CPU and memory leave its work out, while its \
+    CDP commands pass the relay and are counted. \
     Stagehand drives the browser's one context, so it is not measured in the Sessions cell. \
     agent-browser runs each step as a command, a process of its own that hands it to a daemon the \
     first one started; the daemon is in agent-browser's process tree, and each command's CPU \

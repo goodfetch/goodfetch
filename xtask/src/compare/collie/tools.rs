@@ -17,11 +17,11 @@ pub(crate) struct Tools<'a> {
     /// `xtask/compare-collie/act.ts`, which Node.js runs for Collie and
     /// Playwright, as an absolute path.
     pub(crate) driver: PathBuf,
-    /// `xtask/compare-collie-arms/act.ts`, which it runs for Puppeteer's
-    /// and Stagehand's arms (issues 2441 and 2443), as an absolute path.
+    /// `xtask/compare-collie-arms/act.ts`, which it runs for the arms but
+    /// chromiumoxide (issues 2441, 2442 and 2443), as an absolute path.
     pub(crate) arms_driver: PathBuf,
-    /// chromiumoxide's side's executable ([`chromiumoxide_executable`],
-    /// issue 2444).
+    /// chromiumoxide's side's executable
+    /// ([`super::super::run::chromiumoxide_executable`], issue 2444).
     pub(crate) chromiumoxide: PathBuf,
     /// Chrome for Testing's folder.
     pub(crate) browser: &'a Path,
@@ -31,35 +31,24 @@ pub(crate) struct Tools<'a> {
 
 impl Tools<'_> {
     /// The driver that runs `tool`, none of this process's Goodfetch
-    /// variables in its environment: Node.js running its script, or
-    /// chromiumoxide's side's own executable.
+    /// variables in its environment: Node.js running its script, told which
+    /// tool by `--tool`, or chromiumoxide's side's own executable, which
+    /// runs that one tool.
     pub(crate) fn command(&self, tool: Contender) -> Command {
-        match tool {
-            Contender::Collie | Contender::Playwright => node(self, &self.driver),
+        let script = match tool {
+            Contender::Collie | Contender::Playwright => &self.driver,
             Contender::PuppeteerLocator
             | Contender::PuppeteerPage
             | Contender::Stagehand
-            | Contender::AgentBrowser => node(self, &self.arms_driver),
-            Contender::Chromiumoxide => without_goodfetch_variables(self, &self.chromiumoxide),
-        }
+            | Contender::AgentBrowser => &self.arms_driver,
+            Contender::Chromiumoxide => {
+                return without_goodfetch_variables(self, &self.chromiumoxide);
+            }
+        };
+        let mut command = node(self, script);
+        command.args(["--tool", tool.name()]);
+        command
     }
-}
-
-/// The folder of chromiumoxide's side's build among the Rust sides' builds,
-/// beside Spider's (`just compare`).
-const CHROMIUMOXIDE_FOLDER: &str = "chromiumoxide";
-
-/// chromiumoxide's side's executable in `builds`: `just compare` builds it
-/// into the target folder [`CHROMIUMOXIDE_FOLDER`] names, where Cargo puts
-/// it under `profile`'s folder.
-pub(crate) fn chromiumoxide_executable(builds: &Path, profile: &str) -> PathBuf {
-    builds
-        .join(CHROMIUMOXIDE_FOLDER)
-        .join(profile)
-        .join(format!(
-            "goodfetch-compare-chromiumoxide{}",
-            std::env::consts::EXE_SUFFIX
-        ))
 }
 
 /// The flags `tool`'s browser is launched with past every tool's: Stagehand

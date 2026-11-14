@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use super::{
-    Executables, Options, counted_output, crawlee_rs_executable, order, pagesift_executable, run,
-    set_aside, size_points, spider_executable,
+    Executables, Options, chromiumoxide_executable, counted_output, crawlee_rs_executable, order,
+    pagesift_executable, run, set_aside, size_points, spider_executable,
 };
 use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
 use crate::compare::trials::{
@@ -74,6 +74,16 @@ fn pagesift_runs_the_executable_built_in_its_folder() {
     assert_eq!(
         pagesift_executable(Path::new("/t/compare-spider"), "release"),
         Path::new("/t/compare-spider/pagesift/release/goodfetch-compare-pagesift")
+    );
+}
+
+/// chromiumoxide's side runs the executable Cargo left in its own folder
+/// among the Rust sides' builds, under the profile's (issue 2444).
+#[test]
+fn chromiumoxide_runs_the_executable_built_in_its_folder() {
+    assert_eq!(
+        chromiumoxide_executable(Path::new("/t/compare-spider"), "release"),
+        Path::new("/t/compare-spider/chromiumoxide/release/goodfetch-compare-chromiumoxide")
     );
 }
 

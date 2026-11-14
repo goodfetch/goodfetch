@@ -460,7 +460,8 @@ pub(crate) enum Contender {
     /// Puppeteer's locators, whose click waits for the viewport, a stable
     /// box and enabled (issue 2443).
     PuppeteerLocator,
-    /// Puppeteer's page methods, whose click checks nothing (issue 2443).
+    /// Puppeteer's page methods, whose click waits for nothing and fails at
+    /// once on a target that is missing or has no box (issue 2443).
     PuppeteerPage,
     /// Stagehand's locators with no model, whose click neither waits nor
     /// checks (issue 2441).
@@ -468,8 +469,8 @@ pub(crate) enum Contender {
     /// agent-browser's command line, whose click checks its target once
     /// and does not wait (issue 2442).
     AgentBrowser,
-    /// chromiumoxide, a Rust library, whose click neither waits nor checks
-    /// (issue 2444).
+    /// chromiumoxide, a Rust library, whose click waits for nothing and fails
+    /// at once on a target that is detached or has no box (issue 2444).
     Chromiumoxide,
 }
 

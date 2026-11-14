@@ -63,7 +63,7 @@ mod section;
 mod tools;
 
 use tools::adopt_orphans;
-pub(crate) use tools::{Tools, browser_flags, chromiumoxide_executable, skipped};
+pub(crate) use tools::{Tools, browser_flags, skipped};
 
 pub(crate) use section::{Section, markdown, section};
 
@@ -603,7 +603,7 @@ pub(crate) fn trial(
     let mut command = tools.command(tool);
     adopt_orphans(&mut command);
     command
-        .args(["--tool", tool.name(), "--plan"])
+        .arg("--plan")
         .arg(&plan_file)
         .arg("--cdp")
         .arg(format!("ws://{relayed}{path}"))

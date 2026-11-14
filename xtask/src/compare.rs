@@ -316,7 +316,7 @@ fn measure(arguments: &RunArguments, environment: &Environment) -> Result<ExitCo
                 engine: tools.path(Tool::Collie)?,
                 driver: absolute(&environment.path(&arguments.collie_driver))?,
                 arms_driver: absolute(&environment.path(&arguments.collie_arms_driver))?,
-                chromiumoxide: absolute(&collie::chromiumoxide_executable(
+                chromiumoxide: absolute(&run::chromiumoxide_executable(
                     &environment.path(&arguments.spider_builds),
                     &arguments.spider_profile,
                 ))?,

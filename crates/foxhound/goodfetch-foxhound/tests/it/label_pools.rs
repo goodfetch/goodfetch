@@ -213,6 +213,66 @@ fn a_blocked_pool_session_is_retired_and_its_replacement_is_a_new_session_withou
     );
 }
 
+/// A pool Session sends from one client for its life: in a crawl that
+/// mixes a Label forced onto `http`, which sends from a Session's own
+/// transport, and one left to the engine, which sends from its browser,
+/// each Session ID the handlers are given goes with the requests of one
+/// Label only, though the pool holds one Session at a time.
+///
+/// Covers: story:6-250
+#[test]
+fn each_pool_session_serves_one_client_when_a_forced_http_label_and_an_engine_label_mix() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let set = |_: &str, _: usize| None;
+
+    let mut seen = Vec::new();
+    let finished = crawl_declaring(
+        &mut engine,
+        "mixed-clients",
+        &[
+            seed(&proving_ground, "/corpus/article?n=1", "forced"),
+            seed(&proving_ground, "/corpus/article?n=2", "engine"),
+            seed(&proving_ground, "/corpus/article?n=3", "forced"),
+            seed(&proving_ground, "/corpus/article?n=4", "engine"),
+        ],
+        &json!({
+            "forced": { "settings": { "fetch": { "tier": "http" } } },
+            "engine": {},
+        }),
+        &settings(&proving_ground, "auto"),
+        &mut handler(&mut seen, &set),
+    );
+    assert!(engine.finished());
+
+    let mut labels_by_session: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeSet<String>,
+    > = std::collections::BTreeMap::new();
+    for served in &seen {
+        labels_by_session
+            .entry(served.session.clone())
+            .or_default()
+            .insert(served.label.clone());
+    }
+    let mixed: Vec<&String> = labels_by_session
+        .iter()
+        .filter(|(_, labels)| labels.len() > 1)
+        .map(|(session, _)| session)
+        .collect();
+    let labels: std::collections::BTreeSet<&str> =
+        seen.iter().map(|served| served.label.as_str()).collect();
+    assert_eq!(
+        (mixed, labels, &finished["result"]["lifecycle"]),
+        (
+            Vec::<&String>::new(),
+            ["engine", "forced"].into(),
+            &json!("finished")
+        )
+    );
+}
+
 /// Each browser context the Run `run_id` created or disposed, in order, by
 /// its CDP trace.
 #[expect(

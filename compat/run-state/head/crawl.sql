@@ -165,6 +165,7 @@ CREATE TABLE pool_sessions (
             pool TEXT NOT NULL,
             position INTEGER NOT NULL,
             proxy_tier TEXT NOT NULL,
+            sends_from TEXT NOT NULL,
             opened_at INTEGER NOT NULL,
             uses INTEGER NOT NULL,
             error_score REAL NOT NULL,
@@ -172,23 +173,23 @@ CREATE TABLE pool_sessions (
             address_ordinal INTEGER,
             PRIMARY KEY (pool, position)
         ) STRICT;
-INSERT INTO "pool_sessions" VALUES('',1,'none',1767603600000,1,0.0,NULL,0);
-INSERT INTO "pool_sessions" VALUES('',2,'none',1767603600000,1,0.0,NULL,1);
-INSERT INTO "pool_sessions" VALUES('',3,'none',1767603600000,1,1.0,'escalated',2);
-INSERT INTO "pool_sessions" VALUES('',4,'none',1767603600000,1,0.0,NULL,3);
-INSERT INTO "pool_sessions" VALUES('',5,'none',1767603600000,1,0.0,NULL,4);
-INSERT INTO "pool_sessions" VALUES('',6,'none',1767603600000,1,0.0,NULL,5);
-INSERT INTO "pool_sessions" VALUES('',7,'none',1767603600000,1,0.0,NULL,6);
-INSERT INTO "pool_sessions" VALUES('',8,'none',1767603600000,1,0.0,NULL,7);
-INSERT INTO "pool_sessions" VALUES('',9,'none',1767603600000,1,0.0,NULL,8);
-INSERT INTO "pool_sessions" VALUES('',10,'none',1767603600000,1,0.0,NULL,9);
-INSERT INTO "pool_sessions" VALUES('',11,'none',1767603600000,1,0.0,NULL,10);
-INSERT INTO "pool_sessions" VALUES('',12,'none',1767603600000,1,0.0,NULL,11);
-INSERT INTO "pool_sessions" VALUES('',13,'none',1767603600000,1,0.0,NULL,12);
-INSERT INTO "pool_sessions" VALUES('',14,'none',1767603600000,1,0.0,NULL,13);
-INSERT INTO "pool_sessions" VALUES('',15,'none',1767603600000,1,0.0,NULL,14);
-INSERT INTO "pool_sessions" VALUES('',16,'none',1767603600000,1,0.0,NULL,15);
-INSERT INTO "pool_sessions" VALUES('',17,'none',1767603602000,1,0.0,NULL,16);
+INSERT INTO "pool_sessions" VALUES('',1,'none','transport',1767603600000,1,0.0,NULL,0);
+INSERT INTO "pool_sessions" VALUES('',2,'none','transport',1767603600000,1,0.0,NULL,1);
+INSERT INTO "pool_sessions" VALUES('',3,'none','transport',1767603600000,1,1.0,'escalated',2);
+INSERT INTO "pool_sessions" VALUES('',4,'none','transport',1767603600000,1,0.0,NULL,3);
+INSERT INTO "pool_sessions" VALUES('',5,'none','transport',1767603600000,1,0.0,NULL,4);
+INSERT INTO "pool_sessions" VALUES('',6,'none','transport',1767603600000,1,0.0,NULL,5);
+INSERT INTO "pool_sessions" VALUES('',7,'none','transport',1767603600000,1,0.0,NULL,6);
+INSERT INTO "pool_sessions" VALUES('',8,'none','transport',1767603600000,1,0.0,NULL,7);
+INSERT INTO "pool_sessions" VALUES('',9,'none','transport',1767603600000,1,0.0,NULL,8);
+INSERT INTO "pool_sessions" VALUES('',10,'none','transport',1767603600000,1,0.0,NULL,9);
+INSERT INTO "pool_sessions" VALUES('',11,'none','transport',1767603600000,1,0.0,NULL,10);
+INSERT INTO "pool_sessions" VALUES('',12,'none','transport',1767603600000,1,0.0,NULL,11);
+INSERT INTO "pool_sessions" VALUES('',13,'none','transport',1767603600000,1,0.0,NULL,12);
+INSERT INTO "pool_sessions" VALUES('',14,'none','transport',1767603600000,1,0.0,NULL,13);
+INSERT INTO "pool_sessions" VALUES('',15,'none','transport',1767603600000,1,0.0,NULL,14);
+INSERT INTO "pool_sessions" VALUES('',16,'none','transport',1767603600000,1,0.0,NULL,15);
+INSERT INTO "pool_sessions" VALUES('',17,'none','transport',1767603602000,1,0.0,NULL,16);
 CREATE TABLE pool_tiers (
             domain_key TEXT NOT NULL PRIMARY KEY,
             proxy_tier TEXT NOT NULL,

@@ -1,7 +1,7 @@
 //! The Session pools in run state (ADRs 0002 and 0006): the tables of a
 //! crawl's Sessions, each by its pool (the Label that owns it, or `''` for
 //! the Run's) and the position it opened at there, with its proxy tier,
-//! when it opened, its uses, its error score and, once retired, why; and of
+//! the client it sends from, when it opened, its uses, its error score and, once retired, why; and of
 //! each domain key a block moved, with its proxy tier and whether it moved
 //! to the browser tier; and of the local-address blocks a block retired a
 //! Session of on each domain key (ADR 0044). The pools read them when their crawl starts or
@@ -25,6 +25,7 @@ pub const TABLES: RunStateTables = RunStateTables {
             pool TEXT NOT NULL,
             position INTEGER NOT NULL,
             proxy_tier TEXT NOT NULL,
+            sends_from TEXT NOT NULL,
             opened_at INTEGER NOT NULL,
             uses INTEGER NOT NULL,
             error_score REAL NOT NULL,
@@ -47,10 +48,46 @@ pub const TABLES: RunStateTables = RunStateTables {
     ],
 };
 
+/// Why a run file whose pool table predates the Sessions' client is not
+/// resumed, and what to do instead.
+pub(crate) const PREDATES_CLIENTS: &str = "its Session pool was stored by an earlier build of Goodfetch, before each Session kept whether it sends from its own HTTP transport or from its browser, so the crawl cannot resume: start a new Run of it";
+
+/// Where a pool Session sends its requests from, for its life: its own
+/// HTTP transport, or its browser. It takes one at its first use, run state
+/// keeps it, and a request is only ever served by a Session of the client
+/// it needs, so a site never meets one Session from both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SendsFrom {
+    /// Its own HTTP transport.
+    Transport,
+    /// Its browser.
+    Browser,
+}
+
+impl SendsFrom {
+    /// Its name in run state.
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Transport => "transport",
+            Self::Browser => "browser",
+        }
+    }
+
+    /// The client run state names `name`, if it names one.
+    pub(crate) fn parse(name: &str) -> Option<Self> {
+        match name {
+            "transport" => Some(Self::Transport),
+            "browser" => Some(Self::Browser),
+            _ => None,
+        }
+    }
+}
+
 /// One Session of a pool as run state keeps it.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct StoredSession {
     pub(crate) proxy_tier: ProxyTier,
+    pub(crate) sends_from: SendsFrom,
     pub(crate) opened_at: SystemTime,
     pub(crate) uses: u64,
     /// Its error score, in steps of a half, exact in binary.
@@ -95,7 +132,23 @@ pub(crate) struct Stored {
 }
 
 /// Reads the pools of a run file whose tables exist.
+///
+/// # Errors
+///
+/// The run file's, and [`PREDATES_CLIENTS`] when its pool table was made
+/// before Sessions kept their client: no reader of that shape exists.
 pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Stored> {
+    let keeps_clients = connection
+        .prepare_cached(
+            "SELECT count(*) FROM pragma_table_info('pool_sessions') WHERE name = 'sends_from'",
+        )?
+        .query_row([], |row| row.get::<_, i64>(0))?;
+    if keeps_clients == 0 {
+        return Err(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_ERROR),
+            Some(PREDATES_CLIENTS.to_owned()),
+        ));
+    }
     let opened = connection
         .prepare_cached("SELECT pool, max(position) FROM pool_sessions GROUP BY pool")?
         .query_map([], |row| {
@@ -104,7 +157,8 @@ pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Stored> {
         .collect::<rusqlite::Result<_>>()?;
     let open = connection
         .prepare_cached(
-            "SELECT pool, position, proxy_tier, opened_at, uses, error_score, address_ordinal
+            "SELECT pool, position, proxy_tier, sends_from, opened_at, uses, error_score,
+                address_ordinal
              FROM pool_sessions
              WHERE retired_because IS NULL ORDER BY pool, position",
         )?
@@ -113,11 +167,12 @@ pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Stored> {
                 (pool(row.get::<_, String>(0)?), unsigned(row.get(1)?)),
                 StoredSession {
                     proxy_tier: tier(&row.get::<_, String>(2)?)?,
-                    opened_at: UNIX_EPOCH + Duration::from_millis(unsigned(row.get(3)?)),
-                    uses: unsigned(row.get(4)?),
-                    error_score: row.get(5)?,
+                    sends_from: sends_from(&row.get::<_, String>(3)?)?,
+                    opened_at: UNIX_EPOCH + Duration::from_millis(unsigned(row.get(4)?)),
+                    uses: unsigned(row.get(5)?),
+                    error_score: row.get(6)?,
                     retired_because: None,
-                    address_ordinal: row.get::<_, Option<i64>>(6)?.map(unsigned),
+                    address_ordinal: row.get::<_, Option<i64>>(7)?.map(unsigned),
                 },
             ))
         })?
@@ -179,9 +234,9 @@ impl Changes {
     pub fn write(&self, connection: &Connection) -> rusqlite::Result<()> {
         let mut session = connection.prepare_cached(
             "INSERT INTO pool_sessions
-                (pool, position, proxy_tier, opened_at, uses, error_score, retired_because,
-                 address_ordinal)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                (pool, position, proxy_tier, sends_from, opened_at, uses, error_score,
+                 retired_because, address_ordinal)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT (pool, position) DO UPDATE SET
                 uses = excluded.uses,
                 error_score = excluded.error_score,
@@ -197,6 +252,7 @@ impl Changes {
                 pool_name(pool),
                 integer(*position),
                 stored.proxy_tier.as_str(),
+                stored.sends_from.as_str(),
                 i64::try_from(opened_at).unwrap_or(i64::MAX),
                 integer(stored.uses),
                 stored.error_score,
@@ -246,6 +302,16 @@ fn tier(name: &str) -> rusqlite::Result<ProxyTier> {
             0,
             rusqlite::types::Type::Text,
             format!("`{name}` is no proxy tier").into(),
+        )
+    })
+}
+
+fn sends_from(name: &str) -> rusqlite::Result<SendsFrom> {
+    SendsFrom::parse(name).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            0,
+            rusqlite::types::Type::Text,
+            format!("`{name}` is no client a Session sends from").into(),
         )
     })
 }

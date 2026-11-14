@@ -25,7 +25,10 @@
 //! production on tracked blocking threads, and an actor that owns blocking
 //! state (the run's SQLite writer) on a dedicated thread its owner joins; in
 //! the Simulation and in-process tests, blocking calls run inline and an
-//! actor's loop runs as a task on the host's runtime.
+//! actor's loop runs as a task on the host's runtime. A Page analysis runs
+//! in production on a thread of the CPU pool's own (ADR 0138), at most one
+//! a core, never on a blocking thread, whose count the runtime `main`
+//! builds caps at `governor.blocking_threads`.
 
 use std::any::Any;
 use std::future::Future;

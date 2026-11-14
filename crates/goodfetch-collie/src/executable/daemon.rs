@@ -1081,10 +1081,3 @@ fn runtime() -> tokio::runtime::Runtime {
         .build()
         .expect("invariant: the OS gives the runtime its thread")
 }
-
-fn multi_thread_runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .expect("invariant: the OS gives the runtime its threads")
-}

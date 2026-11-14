@@ -18539,6 +18539,11 @@
               "governor": {
                 "additionalProperties": false,
                 "properties": {
+                  "blocking_threads": {
+                    "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: 4, a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
                   "browser": {
                     "additionalProperties": false,
                     "properties": {
@@ -18669,6 +18674,20 @@
                     "description": "How often the engine's Resource governor reads memory, CPU and Tokio saturation, sizes its concurrency and sends `engine.system_info`: every second.",
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "worker_threads": {
+                    "description": "How many worker threads run the engine's async tasks: 2, a whole number of at least 1, or `per_core` for one a core. A crawl's parsing runs on threads of its own, one a core at most, so few workers keep its memory low without slowing it. Read once, when the engine starts.",
+                    "oneOf": [
+                      {
+                        "description": "This many worker threads.",
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      {
+                        "const": "per_core",
+                        "description": "One worker thread a core."
+                      }
+                    ]
                   }
                 },
                 "type": "object"
@@ -21278,6 +21297,11 @@
               "governor": {
                 "additionalProperties": false,
                 "properties": {
+                  "blocking_threads": {
+                    "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: 4, a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
                   "browser": {
                     "additionalProperties": false,
                     "properties": {
@@ -21408,6 +21432,20 @@
                     "description": "How often the engine's Resource governor reads memory, CPU and Tokio saturation, sizes its concurrency and sends `engine.system_info`: every second.",
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "worker_threads": {
+                    "description": "How many worker threads run the engine's async tasks: 2, a whole number of at least 1, or `per_core` for one a core. A crawl's parsing runs on threads of its own, one a core at most, so few workers keep its memory low without slowing it. Read once, when the engine starts.",
+                    "oneOf": [
+                      {
+                        "description": "This many worker threads.",
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      {
+                        "const": "per_core",
+                        "description": "One worker thread a core."
+                      }
+                    ]
                   }
                 },
                 "type": "object"
@@ -24033,6 +24071,11 @@
               "governor": {
                 "additionalProperties": false,
                 "properties": {
+                  "blocking_threads": {
+                    "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: 4, a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
                   "browser": {
                     "additionalProperties": false,
                     "properties": {
@@ -24163,6 +24206,20 @@
                     "description": "How often the engine's Resource governor reads memory, CPU and Tokio saturation, sizes its concurrency and sends `engine.system_info`: every second.",
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "worker_threads": {
+                    "description": "How many worker threads run the engine's async tasks: 2, a whole number of at least 1, or `per_core` for one a core. A crawl's parsing runs on threads of its own, one a core at most, so few workers keep its memory low without slowing it. Read once, when the engine starts.",
+                    "oneOf": [
+                      {
+                        "description": "This many worker threads.",
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      {
+                        "const": "per_core",
+                        "description": "One worker thread a core."
+                      }
+                    ]
                   }
                 },
                 "type": "object"

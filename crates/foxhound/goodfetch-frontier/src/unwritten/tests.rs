@@ -982,3 +982,5 @@ fn a_seed_the_file_never_holds_never_joins_memory() {
         (Some(false), Some(false))
     );
 }
+
+mod rules;

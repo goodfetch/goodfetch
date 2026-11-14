@@ -50,9 +50,10 @@
 //!   new on the host.
 //!
 //! The rules read a URL by its key (`identity`'s fixed rules), so its query
-//! pairs are already normalized and sorted by name. Nothing is held in
-//! memory between calls (STYLE.md: the Frontier keeps its state in the run
-//! file).
+//! pairs are already normalized and sorted by name. The run file keeps
+//! the rules and their evidence (STYLE.md: the Frontier keeps its state in
+//! the run file); within `run_state.memory.budget`, memory holds the rules
+//! too (`unwritten`, #2169), so an admission's lookups read none.
 //!
 //! Size: one concern, the evidence the learned rules keep in the run file
 //! and what it teaches; every rule reads the same pages, pairs and rule
@@ -74,6 +75,7 @@ use rusqlite::{CachedStatement, Connection, OptionalExtension as _, Params};
 use url::Url;
 
 use crate::forms;
+use crate::unwritten::{self, HeldRule, LearnedRules};
 
 /// The rules learned, each with the URLs it merged, a URL it made a
 /// `duplicate` at admission with its identity, and the crawl requests each
@@ -374,7 +376,8 @@ fn value(pair: &str) -> &str {
 
 /// `key` under the rules that merge on its host and still hold: without
 /// the parameters learned to have no effect, then in the spelling each
-/// learned form keeps; and the rules that changed it.
+/// learned form keeps; and the rules that changed it. They are `held`'s,
+/// memory's, when it holds them, and the run file's otherwise.
 ///
 /// # Errors
 ///
@@ -382,8 +385,48 @@ fn value(pair: &str) -> &str {
 pub(crate) fn without_learned(
     connection: &Connection,
     key: &Url,
+    held: Option<&LearnedRules>,
 ) -> rusqlite::Result<(Url, Vec<i64>)> {
-    without_learned_by(&mut OnRunFile(connection), key)
+    match held {
+        Some(held) => without_learned_by(&mut InMemory(held), key),
+        None => without_learned_by(&mut OnRunFile(connection), key),
+    }
+}
+
+/// The statement [`keep_held`] reads the rules with: each from an ID on,
+/// with its host and whether a contradiction stopped it.
+const FROM: &str = "SELECT id, kind, host, path, parameter, form, contradiction IS NOT NULL
+     FROM learned_rules WHERE id >= ?1 ORDER BY id";
+
+/// Brings the rules `holding`, memory under its lock, holds up to those
+/// the writer's connection `connection` holds, for an admission that
+/// writes (#2169).
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub(crate) fn keep_held(
+    connection: &Connection,
+    holding: &mut unwritten::Holding<'_>,
+) -> rusqlite::Result<()> {
+    holding.keep_rules(connection, "learned_rules", |from| {
+        connection
+            .prepare_cached(FROM)?
+            .query_map([from], |row| {
+                Ok((
+                    row.get(2)?,
+                    HeldRule {
+                        id: row.get(0)?,
+                        kind: row.get::<_, String>(1)?.into(),
+                        path: row.get::<_, String>(3)?.into(),
+                        parameter: row.get::<_, String>(4)?.into(),
+                        form: row.get::<_, String>(5)?.into(),
+                        stopped: row.get(6)?,
+                    },
+                ))
+            })?
+            .collect()
+    })
 }
 
 /// The rules that merge on each host and still hold, read once per host
@@ -440,6 +483,10 @@ impl<'c> Holding<'c> {
     }
 }
 
+/// The parameters learned to have no effect on a host, each with its rule,
+/// in the order of their IDs.
+type Parameters<'p> = dyn Iterator<Item = (i64, &'p str)> + 'p;
+
 /// Where [`without_learned_by`] reads the rules that hold on a host.
 trait Lookup {
     /// What `read` answers of the parameters learned to have no effect on
@@ -447,7 +494,7 @@ trait Lookup {
     fn with_parameters<T>(
         &mut self,
         host: &str,
-        read: impl FnOnce(&[(i64, String)]) -> T,
+        read: impl FnOnce(&mut Parameters<'_>) -> T,
     ) -> rusqlite::Result<T>;
 
     /// The rule about `form` on `host`, while it holds.
@@ -461,9 +508,14 @@ impl Lookup for OnRunFile<'_> {
     fn with_parameters<T>(
         &mut self,
         host: &str,
-        read: impl FnOnce(&[(i64, String)]) -> T,
+        read: impl FnOnce(&mut Parameters<'_>) -> T,
     ) -> rusqlite::Result<T> {
-        Ok(read(&no_effect_parameters(self.0, host)?))
+        let parameters = no_effect_parameters(self.0, host)?;
+        Ok(read(
+            &mut parameters
+                .iter()
+                .map(|(rule, parameter)| (*rule, parameter.as_str())),
+        ))
     }
 
     fn form(&mut self, host: &str, form: EquivalentForm) -> rusqlite::Result<Option<i64>> {
@@ -475,9 +527,14 @@ impl Lookup for Holding<'_> {
     fn with_parameters<T>(
         &mut self,
         host: &str,
-        read: impl FnOnce(&[(i64, String)]) -> T,
+        read: impl FnOnce(&mut Parameters<'_>) -> T,
     ) -> rusqlite::Result<T> {
-        Ok(read(&self.host(host)?.parameters))
+        let parameters = &self.host(host)?.parameters;
+        Ok(read(
+            &mut parameters
+                .iter()
+                .map(|(rule, parameter)| (*rule, parameter.as_str())),
+        ))
     }
 
     fn form(&mut self, host: &str, form: EquivalentForm) -> rusqlite::Result<Option<i64>> {
@@ -488,6 +545,39 @@ impl Lookup for Holding<'_> {
             .iter()
             .find(|(held, _)| held == name)
             .map(|(_, rule)| *rule))
+    }
+}
+
+/// The rules memory holds (`unwritten`, #2169), filtered as the run file's
+/// queries filter them.
+struct InMemory<'r>(&'r LearnedRules);
+
+impl Lookup for InMemory<'_> {
+    fn with_parameters<T>(
+        &mut self,
+        host: &str,
+        read: impl FnOnce(&mut Parameters<'_>) -> T,
+    ) -> rusqlite::Result<T> {
+        Ok(read(&mut self.0.on(host).iter().filter_map(|rule| {
+            (&*rule.kind == NO_EFFECT_PARAMETER && !rule.stopped)
+                .then_some((rule.id, &*rule.parameter))
+        })))
+    }
+
+    fn form(&mut self, host: &str, form: EquivalentForm) -> rusqlite::Result<Option<i64>> {
+        let name = forms::name(form);
+        Ok(self
+            .0
+            .on(host)
+            .iter()
+            .find(|rule| {
+                &*rule.kind == EQUIVALENT_FORM
+                    && rule.path.is_empty()
+                    && rule.parameter.is_empty()
+                    && &*rule.form == name
+                    && !rule.stopped
+            })
+            .map(|rule| rule.id))
     }
 }
 
@@ -541,9 +631,8 @@ fn without_parameters(rules: &mut impl Lookup, key: &Url) -> rusqlite::Result<(U
     }
     let applied: Vec<(i64, String)> = rules.with_parameters(parts.host, |learned| {
         learned
-            .iter()
             .filter(|(_, parameter)| parts.has(parameter))
-            .cloned()
+            .map(|(rule, parameter)| (rule, parameter.to_owned()))
             .collect()
     })?;
     if applied.is_empty() {
@@ -599,7 +688,8 @@ fn by_id(mut rules: Vec<(i64, String)>) -> Vec<(i64, String)> {
 /// trap closed over its path pattern refuses it with `trap_path`, and a
 /// cursor learned for its listing refuses an offset URL as a `duplicate`.
 /// None does, and none is read, when the Run's admissions do not learn
-/// (`learning`, `frontier.learning`, #2169).
+/// (`learning`, `frontier.learning`, #2169). The rules are `held`'s,
+/// memory's, when it holds them, and the run file's otherwise.
 ///
 /// # Errors
 ///
@@ -608,11 +698,15 @@ pub(crate) fn refuses(
     connection: &Connection,
     key: &Url,
     learning: bool,
+    held: Option<&LearnedRules>,
 ) -> rusqlite::Result<Option<(NotAddedReason, i64)>> {
     if !learning {
         return Ok(None);
     }
     let parts = Parts::of(key);
+    if let Some(held) = held {
+        return Ok(refused_by(held.on(parts.host), &parts));
+    }
     let trap = connection
         .prepare_cached("SELECT id FROM learned_rules WHERE kind = ?1 AND host = ?2 AND path = ?3")?
         .query_row((TRAP_PATH, parts.host, pattern(parts.path)), |row| {
@@ -640,6 +734,35 @@ pub(crate) fn refuses(
         .into_iter()
         .find(|(_, offset)| parts.has(offset))
         .map(|(rule, _)| (NotAddedReason::Duplicate, rule)))
+}
+
+/// The rule among `rules`, a host's in the order of their IDs, that
+/// refuses the URL of `parts`, as [`refuses`] reads it from the file: a
+/// trap on its path pattern, stopped or not, then the first cursor on its
+/// path whose offset it has.
+fn refused_by(rules: &[HeldRule], parts: &Parts<'_>) -> Option<(NotAddedReason, i64)> {
+    let is_trap = |rule: &&HeldRule| &*rule.kind == TRAP_PATH;
+    if rules.iter().any(|rule| is_trap(&rule)) {
+        let path = pattern(parts.path);
+        if let Some(rule) = rules
+            .iter()
+            .filter(is_trap)
+            .find(|rule| *rule.path == *path)
+        {
+            return Some((NotAddedReason::TrapPath, rule.id));
+        }
+    }
+    if parts.pairs.is_empty() {
+        return None;
+    }
+    rules
+        .iter()
+        .find(|rule| {
+            &*rule.kind == CURSOR_PAGINATION
+                && &*rule.path == parts.path
+                && parts.has(&rule.parameter)
+        })
+        .map(|rule| (NotAddedReason::Duplicate, rule.id))
 }
 
 /// Records that the rule `rule` merged or refused `url`; with `identity`,

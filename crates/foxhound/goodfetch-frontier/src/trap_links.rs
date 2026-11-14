@@ -299,7 +299,7 @@ pub fn seen_again(
     let Some((key, fixed)) = keyed.identity() else {
         return Ok(());
     };
-    let identities = under_rules(connection, key, fixed)?;
+    let identities = under_rules(connection, key, fixed, None)?;
     // The run file only: a request an attempt staged holds no mark until
     // its commit, which admits this link again in order on the run file.
     let reached = match seen(connection, &identities, None, None)? {

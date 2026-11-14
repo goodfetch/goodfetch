@@ -28,7 +28,7 @@ use crate::invariants::Invariants;
 use crate::rules;
 use crate::scope::{Narrowing, Scope};
 use crate::staged::Staged;
-use crate::unwritten::{Holding, UnwrittenVisits};
+use crate::unwritten::{Holding, LearnedRules, UnwrittenVisits};
 
 /// The Frontier's visited set: each identity admitted, with the ID of the
 /// crawl request it was admitted for, or that reached it by a redirect;
@@ -155,7 +155,7 @@ pub(crate) fn identities(
     declared: Declared<'_>,
 ) -> rusqlite::Result<Identities<'static>> {
     let fixed = Fixed::of(key, declared);
-    let learned = learned_of(connection, key, &fixed)?;
+    let learned = learned_of(connection, key, &fixed, None)?;
     Ok(Identities {
         plain: Cow::Owned(fixed.plain),
         learned,
@@ -165,9 +165,10 @@ pub(crate) fn identities(
 
 /// The identities of a request whose URL's key is `key` and whose fixed
 /// identity is `fixed`, under the learned rules as the run file
-/// `connection` holds them now: the rules are the Run's state, which a
-/// rule learned or stopped changes, so a request keyed before either has
-/// the learned identity of the moment it is admitted (#2244).
+/// `connection` holds them now, or as memory holds them, `held`, while it
+/// does (#2169): the rules are the Run's state, which a rule learned or
+/// stopped changes, so a request keyed before either has the learned
+/// identity of the moment it is admitted (#2244).
 ///
 /// # Errors
 ///
@@ -176,10 +177,11 @@ pub(crate) fn under_rules<'a>(
     connection: &Connection,
     key: &Key,
     fixed: &'a Fixed,
+    held: Option<&LearnedRules>,
 ) -> rusqlite::Result<Identities<'a>> {
     Ok(Identities {
         plain: Cow::Borrowed(&fixed.plain),
-        learned: learned_of(connection, key, fixed)?,
+        learned: learned_of(connection, key, fixed, held)?,
         learning: true,
     })
 }
@@ -197,16 +199,18 @@ pub(crate) fn fixed_only(fixed: &Fixed) -> Identities<'_> {
 
 /// The learned identity of a request whose URL's key is `key` and whose
 /// fixed identity is `fixed`, with the rules that changed it, when the
-/// learned rules of the run file `connection` holds change it.
+/// learned rules of the run file `connection` holds, or memory's, `held`,
+/// change it.
 fn learned_of(
     connection: &Connection,
     key: &Key,
     fixed: &Fixed,
+    held: Option<&LearnedRules>,
 ) -> rusqlite::Result<Option<(String, Vec<i64>)>> {
     if fixed.key.is_none() {
         return Ok(None);
     }
-    let (merged, rules) = rules::without_learned(connection, &key.url)?;
+    let (merged, rules) = rules::without_learned(connection, &key.url, held)?;
     if rules.is_empty() {
         return Ok(None);
     }

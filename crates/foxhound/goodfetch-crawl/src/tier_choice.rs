@@ -120,8 +120,9 @@ pub(crate) enum AttemptPlan {
     Replayed(Replay),
     /// A sample: on `http`, then on `browser`, whose run commits.
     Sample(Sampled),
-    /// A race of browser-fetch against a navigation (`fetch.tier_race`;
-    /// the `tier_race` module), whose winner's run commits.
+    /// A race of a request on the document tier against a navigation
+    /// (`fetch.tier_race`; the `tier_race` module), whose winner's run
+    /// commits.
     Race(Raced),
 }
 

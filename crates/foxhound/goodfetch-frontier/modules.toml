@@ -2,7 +2,7 @@
 [modules]
 admit = ["bounds", "identity", "invariants", "rules", "scope", "staged", "unwritten", "url"]
 backoff_classes = []
-bounds = ["staged"]
+bounds = ["staged", "unwritten"]
 domain_key = []
 forms = []
 identity = ["invariants", "rules", "scope", "staged", "unwritten", "url"]

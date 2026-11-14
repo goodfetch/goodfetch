@@ -24,6 +24,13 @@
 //! `goodfetch.run_state.spilled_lookups`, and what memory holds in
 //! `goodfetch.run_state.memory`.
 //!
+//! The Bounds' counts, the requests admitted against `crawl.max_requests`
+//! and each path budget's, are held here too (#2169): read from the file
+//! once, on the writer, by the first admission that writes, then counted
+//! here as each admission writes its own to the file, so no later one
+//! reads them. A staged admission, rolled back, counts beside them and
+//! never in them.
+//!
 //! The run-state writer tells these, as a [`WriteWatch`], as each job
 //! begins and when one fails: its changes are then rolled back while its
 //! batch goes on, so what it noted here is taken back too.
@@ -79,6 +86,9 @@ struct Held {
     /// Each visited identity the file holds that memory keeps, in the
     /// order it reached the file, with its tag: the first leave first.
     resident: VecDeque<(u64, Arc<str>)>,
+    /// The Bounds' counts, as the file holds them with the writes not
+    /// committed yet, once an admission that writes read them.
+    counts: Option<Counts>,
     /// What the writer job running now changed here, to take back if its
     /// work fails.
     journal: Journal,
@@ -111,13 +121,85 @@ struct Visit {
     written: Option<u64>,
 }
 
+/// The Bounds' counts the Frontier keeps in memory (#2169): the requests
+/// admitted, and each path budget's, by its pattern, as the run file holds
+/// them with the writes not committed yet. Written with the batch and
+/// never removed; the refusals' counts are only written.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Counts {
+    admitted: u64,
+    paths: HashMap<Box<str>, u64>,
+}
+
+impl Counts {
+    /// The counts of `admitted` requests, and of each path budget's, by
+    /// its pattern.
+    pub(crate) const fn new(admitted: u64, paths: HashMap<Box<str>, u64>) -> Self {
+        Self { admitted, paths }
+    }
+
+    /// The requests admitted.
+    pub(crate) const fn admitted(&self) -> u64 {
+        self.admitted
+    }
+
+    /// The requests the path budget of `pattern` admitted.
+    pub(crate) fn path_admitted(&self, pattern: &str) -> u64 {
+        self.paths.get(pattern).copied().unwrap_or_default()
+    }
+
+    /// Counts one request admitted, against the path budget of `pattern`
+    /// when one counts it.
+    fn count(&mut self, pattern: Option<&str>) {
+        self.admitted = self.admitted.saturating_add(1);
+        if let Some(pattern) = pattern {
+            let path = self.paths.entry(pattern.into()).or_default();
+            *path = path.saturating_add(1);
+        }
+    }
+}
+
 /// What one writer job changed, each identity with its tag before the
-/// job: none when the job added it or held it as a chain's pending end.
+/// job: none when the job added it or held it as a chain's pending end;
+/// and the Bounds' counts before its first count, when it counted.
 #[derive(Debug, Default)]
 struct Journal {
     /// The commits acknowledged as it noted its first change.
     tag: u64,
     changes: Vec<(Space, Arc<str>, Option<u64>)>,
+    counts: CountsBefore,
+}
+
+/// The Bounds' counts memory held before a writer job first changed them.
+#[derive(Debug, Default)]
+enum CountsBefore {
+    /// The job changed none.
+    #[default]
+    Unchanged,
+    /// Memory held none: the job read them from the file.
+    Unread,
+    /// Memory held these.
+    Held(Counts),
+}
+
+impl Journal {
+    /// Forgets what a job of an earlier batch noted, which ended, once a
+    /// job notes a change under `tag`.
+    fn under(&mut self, tag: u64) -> &mut Self {
+        if self.tag != tag {
+            *self = Self {
+                tag,
+                ..Self::default()
+            };
+        }
+        self
+    }
+
+    /// Forgets what the job that ran before noted.
+    fn clear(&mut self) {
+        self.changes.clear();
+        self.counts = CountsBefore::Unchanged;
+    }
 }
 
 /// The bytes an identity held in `space` for `crawl_request` costs: its
@@ -191,13 +273,7 @@ impl Held {
         crawl_request: &str,
         tag: u64,
     ) {
-        if self.journal.tag != tag {
-            // A job of an earlier batch noted these, and it ended.
-            self.journal = Journal {
-                tag,
-                changes: Vec::new(),
-            };
-        }
+        self.journal.under(tag);
         let identity: Arc<str> = match self.visit_mut(space, identity) {
             Some(visit) if *visit.crawl_request != *crawl_request => return,
             Some(visit) => {
@@ -228,6 +304,11 @@ impl Held {
     /// Takes back what the writer job running now changed: its work
     /// failed, so the file holds none of it.
     fn undo(&mut self) {
+        match std::mem::take(&mut self.journal.counts) {
+            CountsBefore::Unchanged => {}
+            CountsBefore::Unread => self.counts = None,
+            CountsBefore::Held(counts) => self.counts = Some(counts),
+        }
         let changes = std::mem::take(&mut self.journal.changes);
         for (space, identity, before) in changes.into_iter().rev() {
             match before {
@@ -434,6 +515,44 @@ impl Holding<'_> {
         }
     }
 
+    /// The Bounds' counts memory holds: as `read` reads them from the
+    /// writer's connection, by the first call of an admission that
+    /// `writes`; none before it, when the counts are the file's.
+    ///
+    /// # Errors
+    ///
+    /// When `read` cannot read the run file.
+    pub(crate) fn counts(
+        &mut self,
+        writes: bool,
+        read: impl FnOnce() -> rusqlite::Result<Counts>,
+    ) -> rusqlite::Result<Option<&Counts>> {
+        if self.held.counts.is_none() && writes {
+            let counts = read()?;
+            let held = &mut *self.held;
+            let journal = held.journal.under(self.committed);
+            if matches!(journal.counts, CountsBefore::Unchanged) {
+                journal.counts = CountsBefore::Unread;
+            }
+            held.counts = Some(counts);
+        }
+        Ok(self.held.counts.as_ref())
+    }
+
+    /// Counts one request a writer job admitted, against the path budget
+    /// of `pattern` when one counts it, as it writes the count to the
+    /// file in the batch it runs in.
+    pub(crate) fn counted(&mut self, pattern: Option<&str>) {
+        let held = &mut *self.held;
+        if let Some(counts) = &mut held.counts {
+            let journal = held.journal.under(self.committed);
+            if matches!(journal.counts, CountsBefore::Unchanged) {
+                journal.counts = CountsBefore::Held(counts.clone());
+            }
+            counts.count(pattern);
+        }
+    }
+
     /// Notes that a writer job widened the scope in the batch it runs in.
     pub(crate) fn widened(&mut self) {
         self.held.widened = Some(self.committed);
@@ -491,6 +610,7 @@ impl UnwrittenVisits {
                 learned: HashMap::new(),
                 written: VecDeque::new(),
                 resident: VecDeque::new(),
+                counts: None,
                 journal: Journal::default(),
                 bytes: 0,
                 budget,
@@ -585,7 +705,6 @@ impl Watch {
         held.lock()
             .unwrap_or_else(PoisonError::into_inner)
             .journal
-            .changes
             .clear();
     }
 

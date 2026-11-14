@@ -54,7 +54,7 @@ use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReaso
 use rusqlite::Connection;
 use url::Url;
 
-use crate::bounds::{count_admitted, count_refused};
+use crate::bounds::{SoFar, count_admitted, count_refused};
 use crate::identity::{
     Declared, Fixed, Key, Seen, fixed_only, keyed as keyed_url, seen, under_rules, visit_all,
 };
@@ -479,10 +479,12 @@ fn admit_measured(
     }
     let budget = (*budget).and_then(|at| invariants.budget(at));
     let depth = entering.depth.into();
-    if let Some(reason) = bounds
-        .past(connection, depth, budget, admitting.earlier())?
-        .or(*shape)
-    {
+    let mut so_far = SoFar {
+        connection,
+        holding: holding.as_mut(),
+        admitting,
+    };
+    if let Some(reason) = bounds.past(depth, budget, &mut so_far)?.or(*shape) {
         count_refused(connection, reason, budget)?;
         admitting.leaves();
         return Ok(not_added(admitting, answered, reason, None));
@@ -493,6 +495,7 @@ fn admit_measured(
     if let Some(holding) = &mut holding
         && admitting.writes()
     {
+        holding.counted(budget.map(|budget| budget.pattern.as_str()));
         holding.written(identities.plain(), identities.learned(), &id);
     }
     admitting.admitted(

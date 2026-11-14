@@ -67,9 +67,12 @@
 //! passes through one loop.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::pin::Pin;
 use std::time::{Duration, SystemTime};
 
+use futures_util::StreamExt as _;
 use futures_util::future::join_all;
+use futures_util::stream::FuturesUnordered;
 use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
@@ -404,6 +407,7 @@ async fn deliver(
     let run_leases = leases_of(run, arrivals, &admission);
     let (mut wakes, mut queued) = (admission.wakes(), run.metrics().level(&WORK_ITEM_QUEUED));
     let mut pages = Pages::new(run, in_flight);
+    let mut settling = Settlements::new();
     // Resolved once, as the Run opened: no turn reads the settings again
     // (ADR 0138).
     let (resolved, read) = (settings.resolved(), Read::of(settings.resolved()));
@@ -426,7 +430,7 @@ async fn deliver(
         }
         let starved = run.governor().waits(WorkKind::Http);
         pages.dismiss();
-        if pages.idle() {
+        if pages.idle() && settling.is_empty() {
             if let Some(reason) = stop {
                 end(run, &mut admission, Ending::Stopped(reason)).await;
                 return;
@@ -469,10 +473,12 @@ async fn deliver(
         let room = [stop.is_some(), free, starved];
         let shown = (resolved, read.policy);
         show(run, (&mut admission, &mut queued), shown, servers, room);
+        let settles = !settling.is_empty();
         tokio::select! {
             biased;
             () = run.cancellation().cancelled() => {
                 pages.shutdown().await;
+                abandoned(&mut settling).await;
                 admission.close().await;
                 release(run, state.stored()).await;
                 return;
@@ -486,9 +492,14 @@ async fn deliver(
             Some(ask) = arrivals.asked.next() => {
                 answered(run, (&mut admission, &mut state), in_flight, ask).await;
             }
+            Some(written) = settling.next(), if settles => {
+                let on = (&mut admission, servers.as_mut_slice());
+                completed(run, on, (&mut state, fetching), written).await;
+            }
             ended = pages.ended() => {
                 let state = (&mut state, fetching);
-                settled(run, read, &mut admission, state, servers, ended).await;
+                let settlement = settled(run, read, state, servers, ended).await;
+                settling.push(settlement);
             }
             () = sleep_until(run.clock(), wake), if wake.is_some() => {}
             () = run.governor().turn(WorkKind::Http), if free && starved => {}
@@ -1139,8 +1150,10 @@ async fn when_idle(
 }
 
 /// What settling one ended attempt keeps of it once its Session is scored,
-/// for its domain's turn and queue after its commit.
+/// for its Connection's place, its domain's turn and queue after its
+/// outcome is written.
 struct Settling {
+    server: usize,
     waiting: Waiting,
     merged: Vec<(String, String)>,
     domain: Ended,
@@ -1155,28 +1168,33 @@ struct Scored {
     chosen: Option<(String, String, Unit)>,
 }
 
+/// The settlements whose outcomes the run state's writer has yet to
+/// answer, which the delivery loop polls beside its other work and never
+/// waits for alone (#2168).
+type Settlements = FuturesUnordered<Settlement>;
+
+/// A group of ended attempts whose outcomes are queued with the run
+/// state's writer: once each is answered, what each one's settling keeps
+/// and what its outcome left the delivery to do, in their order.
+type Settlement = Pin<Box<dyn Future<Output = (Vec<Settling>, Vec<Finished>)> + Send>>;
+
 /// Settles the attempts that ended, `ended`, in the order they ended,
 /// under the Run's policy and pool settings, resolved as it opened (ADR
-/// 0138): frees each one's place on its Connection and scores its
-/// Session; queues each one's outcome as one job of the run state's
+/// 0138): scores each one's Session; queues each one's outcome as one job of the run state's
 /// writer, in their order, so the writer takes them in one group rather
 /// than the loop waiting for each in turn (#1765), and each one's failure
-/// rolls back its own alone (ADR 0138); once they are written, counts what
-/// they changed of the crawl's requests by state and shows it with the
-/// attempts out of the requests in flight, as one change of the Run's
-/// progress (#2167); then returns each one's domain turn and puts each
-/// retried work item back in its queue, in their order, offers its
-/// domain's queue each work item an outcome added, keyed as it was added,
-/// and journals what the queues changed.
+/// rolls back its own alone (ADR 0138). It answers the group's
+/// settlement, which the loop polls beside its other work rather than
+/// waiting for it (#2168): at `batch` an outcome rides the writer's open
+/// batch, and no page waits for the writer. [`completed`] finishes it.
 async fn settled(
     run: &Run,
     read: Read,
-    admission: &mut Admission,
     (state, fetching): (&mut RunState, &Fetching<'_>),
     servers: &mut [Serving],
     ended: Vec<Attempt>,
-) {
-    let (attempts, mut settlings, scores) = scored(run, read, &mut *state, servers, ended);
+) -> Settlement {
+    let (attempts, settlings, scores) = scored(run, read, &mut *state, servers, ended);
     for attempt in &attempts {
         fetching
             .retire(run, state.pool(), &servers[attempt.server].context)
@@ -1188,13 +1206,34 @@ async fn settled(
         let on = (run, state.stored());
         queued.push(queue_outcome(on, read.policy, held, attempt, scored).await);
     }
-    let mut retried = Vec::with_capacity(queued.len());
+    let stored = state.stored().clone();
+    Box::pin(async move {
+        let finished = join_all(queued.into_iter().map(|queued| queued.finished(&stored))).await;
+        (settlings, finished)
+    })
+}
+
+/// Finishes a settlement once its outcomes were written: frees each
+/// attempt's place on its Connection, which its page holds until then so
+/// that a Connection's handler concurrency counts the pages it has not
+/// settled and a retried work item goes back before its place is leased
+/// again; counts what they
+/// changed of the crawl's requests by state and shows it with the
+/// attempts out of the requests in flight, as one change of the Run's
+/// progress (#2167); then returns each one's domain turn and puts each
+/// retried work item back in its queue, in their order, offers its
+/// domain's queue each work item an outcome added, keyed as it was added,
+/// and journals what the queues changed.
+async fn completed(
+    run: &Run,
+    (admission, servers): (&mut Admission, &mut [Serving]),
+    (state, fetching): (&mut RunState, &Fetching<'_>),
+    (mut settlings, finished): (Vec<Settling>, Vec<Finished>),
+) {
+    let mut retried = Vec::with_capacity(finished.len());
     let mut keyed = Vec::new();
-    let stored = state.stored();
-    // The loop waits for each ended page's outcome to be written.
-    stored.waited(queued.len());
-    let finished = join_all(queued.into_iter().map(|queued| queued.finished(stored))).await;
     for (outcome, settling) in finished.into_iter().zip(&mut settlings) {
+        servers[settling.server].in_flight -= 1;
         settling.merged.extend(outcome.merged);
         keyed.extend(outcome.keyed);
         retried.push(outcome.retried);
@@ -1211,8 +1250,14 @@ async fn settled(
     journal(run, state.stored(), admission).await;
 }
 
-/// Frees the place of each attempt of `ended` on its Connection, counts
-/// what its lesson to the Frontier changed of the crawl's requests by
+/// Waits for every settlement in `settling`, finishing none: the crawl was
+/// cancelled, and its leases are released next.
+async fn abandoned(settling: &mut Settlements) {
+    while settling.next().await.is_some() {}
+}
+
+/// Marks the Connection of each attempt of `ended` gone when its client
+/// went, counts what its lesson to the Frontier changed of the crawl's requests by
 /// state when it taught it in a job of its own, and scores its Session in
 /// `state`'s pool under what the loop `read`, in their order, answering
 /// them with what each one's settling keeps and what its outcome writes of
@@ -1240,10 +1285,8 @@ fn scored(
             state.changed(*changed);
         }
         let pool = state.pool();
-        let server = &mut servers[attempt.server];
-        server.in_flight -= 1;
         if let Answer::ClientGone = attempt.answer {
-            server.gone = true;
+            servers[attempt.server].gone = true;
         }
         let waiting = attempt.leased.waiting.clone();
         let merged = std::mem::take(&mut attempt.taught.merged);
@@ -1269,6 +1312,7 @@ fn scored(
             read.longest_wait,
         );
         settlings.push(Settling {
+            server: attempt.server,
             waiting,
             merged,
             domain,
@@ -1301,6 +1345,7 @@ async fn returned(
             merged,
             domain,
             held,
+            ..
         } = settling;
         if let Some(asked) = held {
             let clock = run.clock();

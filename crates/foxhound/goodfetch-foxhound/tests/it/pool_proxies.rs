@@ -159,6 +159,68 @@ fn every_session_of_a_runs_pools_leaves_from_a_proxy_of_the_runs_kind_and_provid
     );
 }
 
+/// A crawl at the default tier whose Run sets `proxy.provider = "list"`
+/// and `proxy.kind = "isp"` reads its site files, robots.txt and the
+/// AI-use signal file, from a pool Session's own transport through the
+/// Run's provider's `isp` server, as its browser's document goes: nothing
+/// reaches the site past the proxy (#2422).
+///
+/// Covers: story:8-235, setting:proxy.provider, setting:proxy.kind,
+/// setting:site_preferences.respect_use_signals
+#[cfg(unix)]
+#[test]
+fn a_crawl_at_the_default_tier_reads_its_site_files_through_the_runs_proxy() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    env.user_configuration(&list_configuration(&proving_ground));
+    let password = proving_ground
+        .description()
+        .fixtures
+        .proxy_credentials
+        .password
+        .clone();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+        command.env(PASSWORD_VARIABLE, &password);
+    });
+
+    let finished = crawl_declaring(
+        &mut engine,
+        "site-files-through-the-proxy",
+        &[page_seed(&proving_ground)],
+        &json!({ "page": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "site_preferences": { "respect_use_signals": true, "purpose": "ai-train" },
+                "proxy": { "provider": "list", "kind": "isp" },
+            }),
+        ),
+        &mut |_, _| json!({ "result": { "records": [] } }),
+    );
+    assert!(engine.finished());
+
+    let isp = BTreeSet::from(["isp".to_owned()]);
+    let relayed = relayed(&proving_ground);
+    assert_eq!(
+        (
+            direct(&proving_ground, &relayed),
+            proxies_to(&proving_ground, "/robots.txt"),
+            proxies_to(&proving_ground, "/.well-known/tdmrep.json"),
+            proxies_to(&proving_ground, "/version"),
+            &finished["result"]["lifecycle"],
+        ),
+        (
+            Vec::new(),
+            isp.clone(),
+            isp.clone(),
+            isp,
+            &json!("finished")
+        )
+    );
+}
+
 /// A Label that sets a `proxy.*` key fails the crawl's start with
 /// `setting_not_applicable` naming the key, before the Run begins: a
 /// Run's proxy settings are its pools' identity policy.

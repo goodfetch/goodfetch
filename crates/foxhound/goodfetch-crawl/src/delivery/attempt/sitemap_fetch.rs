@@ -28,6 +28,9 @@ impl On<'_> {
     /// since the crawl asked for its `Sitemap:` lines (ADR 0138).
     pub(super) async fn sitemap(&self, http: &HttpTier) -> Answer {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
+        // A sitemap seed's Session sends from its own transport, keeping
+        // its cookies there (`AttemptPlan::sends_from`).
+        let http = &http.keeping_cookies_of(&self.session.id);
         tokio::select! {
             biased;
             answer = async {
@@ -43,7 +46,7 @@ impl On<'_> {
                 let Ok(url) = goodfetch_frontier::Url::parse(&leased.crawl_request.url) else {
                     return unreadable(&leased.crawl_request.url, "its URL does not parse");
                 };
-                let read = match self.site_preferences_judged(http, Request::Sitemap, &url).await {
+                let read = match self.site_preferences_judged(Request::Sitemap, &url).await {
                     Ok(read) => read,
                     Err(refused) => return refused,
                 };

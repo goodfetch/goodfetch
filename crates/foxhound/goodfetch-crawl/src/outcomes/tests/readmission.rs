@@ -16,6 +16,7 @@ use proptest::prelude::*;
 use rusqlite::Connection;
 
 use super::super::{Filter, latest_of_readmitted, page};
+use crate::invariants::fixture;
 use crate::work_items::{self, Failure, Unsuccessful};
 
 /// How the test ends one work item's first attempt.
@@ -81,12 +82,13 @@ fn crawl_of(count: usize) -> Connection {
         })
         .collect();
     let every_host = goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap();
+    let invariants = fixture::within(&connection, goodfetch_frontier::Scope::default()).unwrap();
     work_items::admit_seeds(
         &connection,
         &mut work_items::Positions::of(&connection).unwrap(),
-        &goodfetch_frontier::Scope::default(),
+        &invariants,
         &every_host,
-        &seeds,
+        &fixture::checked(&invariants, seeds),
     )
     .unwrap();
     connection
@@ -432,6 +434,8 @@ fn a_seed_added_after_the_crawls_last_look_is_not_admitted() {
         },
     );
     let every_host = goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap();
+    let invariants = fixture::within(&connection, goodfetch_frontier::Scope::default()).unwrap();
+    let checked = fixture::checked(&invariants, [seed]);
 
     let ended = intake.close_if_drained(&connection).unwrap();
     let added = intake
@@ -439,9 +443,9 @@ fn a_seed_added_after_the_crawls_last_look_is_not_admitted() {
             work_items::admit_seeds(
                 &connection,
                 &mut work_items::Positions::of(&connection)?,
-                &goodfetch_frontier::Scope::default(),
+                &invariants,
                 &every_host,
-                std::slice::from_ref(&seed),
+                &checked,
             )
         })
         .unwrap();

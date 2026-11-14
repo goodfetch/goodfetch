@@ -12,8 +12,8 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::run_state::PAGE_CACHE_KIB;
 use goodfetch_frontier::{
-    Admitting, BOUNDS_TABLES, Candidate, Declared, DomainKeys, DomainQueues, Narrowing,
-    SCOPE_TABLES, Scope, Staged, Url, VISITED_TABLES, admit, admit_in, url_key,
+    Admitting, BOUNDS_TABLES, Bounds, Candidate, Declared, DomainKeys, DomainQueues, Invariants,
+    Narrowing, SCOPE_TABLES, Scope, Staged, Url, VISITED_TABLES, admit, admit_in, url_key,
 };
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
 use rusqlite::Connection;
@@ -106,7 +106,7 @@ pub(crate) fn admit_seeds(links: &[String]) -> usize {
     let mut connection =
         Connection::open_in_memory().expect("invariant: SQLite opens a database in memory");
     create_tables(&connection);
-    let scope = Scope::default();
+    let invariants = unbounded();
     let policy =
         Policy::new(&["*"], &[] as &[&str]).expect("invariant: the default domain policy reads");
     let get = HttpMethod::get();
@@ -125,7 +125,7 @@ pub(crate) fn admit_seeds(links: &[String]) -> usize {
                     keeps_fragment: false,
                 },
             };
-            let answer = admit(&transaction, &scope, &policy, candidate, |_| {
+            let answer = admit(&transaction, &invariants, &policy, candidate, |_| {
                 Ok((added + 1).to_string())
             })
             .expect("invariant: the visited set in memory is written");
@@ -149,7 +149,7 @@ pub(crate) fn stage(enqueues: usize) -> usize {
     let connection =
         Connection::open_in_memory().expect("invariant: SQLite opens a database in memory");
     create_tables(&connection);
-    let scope = Scope::default();
+    let invariants = unbounded();
     let policy =
         Policy::new(&["*"], &[] as &[&str]).expect("invariant: the default domain policy reads");
     let get = HttpMethod::get();
@@ -162,7 +162,7 @@ pub(crate) fn stage(enqueues: usize) -> usize {
     let base = Url::parse(SEED).expect("invariant: the seed parses");
     admit(
         &connection,
-        &scope,
+        &invariants,
         &policy,
         Candidate::Seed {
             url: SEED,
@@ -193,7 +193,7 @@ pub(crate) fn stage(enqueues: usize) -> usize {
             .expect("invariant: the run file opens a savepoint");
         let answer = admit_in(
             &connection,
-            &scope,
+            &invariants,
             &policy,
             candidate,
             &mut admitting,
@@ -213,6 +213,13 @@ pub(crate) fn stage(enqueues: usize) -> usize {
         }
     }
     added
+}
+
+/// The invariants of a Run of the default scope and no bounds, as a
+/// crawl builds them once as it starts.
+fn unbounded() -> Invariants {
+    Invariants::new(Scope::default(), Bounds::default())
+        .expect("invariant: no path budget has a pattern to read")
 }
 
 /// Creates the Frontier's tables in the run file `connection` holds: its
@@ -271,14 +278,14 @@ pub(crate) fn enqueue(urls: usize) -> usize {
         .pragma_update(None, "cache_size", -i64::from(PAGE_CACHE_KIB))
         .expect("invariant: the run file takes its page cache");
     create_tables(&connection);
-    let scope = Scope::default();
+    let invariants = unbounded();
     let policy =
         Policy::new(&["*"], &[] as &[&str]).expect("invariant: the default domain policy reads");
     let get = HttpMethod::get();
     let base = Url::parse(SEED).expect("invariant: the seed parses");
     let mut added = 0_usize;
     let mut admit_one = |connection: &Connection, candidate: Candidate<'_>| {
-        let answer = admit(connection, &scope, &policy, candidate, |_| {
+        let answer = admit(connection, &invariants, &policy, candidate, |_| {
             Ok((added + 1).to_string())
         })
         .expect("invariant: the run file is written");

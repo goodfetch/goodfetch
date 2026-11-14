@@ -46,7 +46,7 @@ use tokio::sync::Mutex;
 
 use crate::enqueue::links::defer_links;
 use crate::serving::Crawls;
-use crate::work_items::FieldsRead;
+use crate::work_items::{CheckedSeed, FieldsRead};
 
 /// The field of a Record that holds when its page was read: each run of
 /// an attempt reads at its own time, so a sample's comparison leaves it
@@ -317,26 +317,32 @@ fn page_schema(formats: &FormatsRequest) -> Value {
     schema
 }
 
-/// The seeds a crawl admits: its own `seeds`, and for a code-free crawl
+/// The seeds a crawl admits: its own, `checked`, and for a code-free crawl
 /// reading `extraction`, its [`sitemap_seeds`] after them.
-pub(crate) fn admitted(extraction: Option<&CrawlExtraction>, seeds: &[Seed]) -> Vec<Seed> {
-    let mut admitted = seeds.to_vec();
+pub(crate) fn admitted(
+    extraction: Option<&CrawlExtraction>,
+    mut checked: Vec<CheckedSeed>,
+) -> Vec<CheckedSeed> {
     if let Some(extraction) = extraction {
-        admitted.extend(sitemap_seeds(extraction, seeds));
+        let added = sitemap_seeds(extraction, checked.iter().map(CheckedSeed::seed));
+        checked.extend(added.into_iter().map(CheckedSeed::sitemap));
     }
-    admitted
+    checked
 }
 
 /// The seeds a code-free crawl reading `extraction` admits beside its own
 /// `seeds`: under `follow: sitemap`, one sitemap seed of each request
 /// seed's site's robots.txt, each entry given the Label `page`; none
 /// otherwise.
-fn sitemap_seeds(extraction: &CrawlExtraction, seeds: &[Seed]) -> Vec<Seed> {
+fn sitemap_seeds<'a>(
+    extraction: &CrawlExtraction,
+    seeds: impl IntoIterator<Item = &'a Seed>,
+) -> Vec<SitemapSeed> {
     if extraction.follow != ExtractionFollow::Sitemap {
         return Vec::new();
     }
     let sites: BTreeSet<String> = seeds
-        .iter()
+        .into_iter()
         .filter_map(|seed| match seed {
             Seed::Request(request) => Url::parse(&request.url).ok(),
             Seed::Sitemap(_) => None,
@@ -351,14 +357,12 @@ fn sitemap_seeds(extraction: &CrawlExtraction, seeds: &[Seed]) -> Vec<Seed> {
         .collect();
     sites
         .into_iter()
-        .map(|robots_txt| {
-            Seed::Sitemap(SitemapSeed {
-                sitemap: robots_txt,
-                rules: vec![SitemapRule {
-                    pattern: EVERY_ENTRY.to_owned(),
-                    label: CODE_FREE_LABEL.to_owned(),
-                }],
-            })
+        .map(|robots_txt| SitemapSeed {
+            sitemap: robots_txt,
+            rules: vec![SitemapRule {
+                pattern: EVERY_ENTRY.to_owned(),
+                label: CODE_FREE_LABEL.to_owned(),
+            }],
         })
         .collect()
 }

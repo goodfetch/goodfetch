@@ -216,6 +216,9 @@ pub struct RunHandOver {
     pub site_preferences: SitePreferences,
     /// The Run's domain policy, which judges each redirect hop.
     pub egress: Arc<Policy>,
+    /// The Run's admission invariants, built once, which each redirect hop
+    /// is admitted within (#1896).
+    pub invariants: Arc<goodfetch_frontier::Invariants>,
     /// The address check of the Run's HTTP tier, which judges each
     /// redirect hop's URL and the addresses its name resolves to before
     /// its robots.txt is read; `None` without the tier, the URL alone then
@@ -699,15 +702,15 @@ impl ChainGate {
         let run = self.hand_over.run();
         let (id, url, method, body) = frontier_hop(&self.crawl_request, hop);
         let egress = Arc::clone(&self.hand_over.of_run.egress);
-        let work = run.metrics().counted_work().clone();
-        work.count(Row::HopTransactions);
+        let invariants = Arc::clone(&self.hand_over.of_run.invariants);
+        run.metrics().counted_work().count(Row::HopTransactions);
         // A hop's check-and-set answers the chain, not the outside: the
         // attempt's outcome syncs it (ADR 0138's note of #1926).
         run.state()
             .write_deferred(move |connection| {
                 goodfetch_frontier::admit_hop(
                     connection,
-                    &work,
+                    &invariants,
                     &egress,
                     &id,
                     (&url, &method, body.as_deref()),

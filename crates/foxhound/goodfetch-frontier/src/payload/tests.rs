@@ -13,17 +13,17 @@ use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use super::{PayloadRules, TABLES, store};
+use super::{Payload, PayloadRules, TABLES, store};
 
 /// Rules of the cap `max_size` and the Labels `labels`.
 fn rules(max_size: u64, labels: &[(&str, Option<Value>)]) -> PayloadRules {
-    PayloadRules {
+    PayloadRules::built(
         max_size,
-        labels: labels
+        labels
             .iter()
             .map(|(label, schema)| ((*label).to_owned(), schema.clone()))
             .collect::<BTreeMap<_, _>>(),
-    }
+    )
 }
 
 fn isbn() -> Value {
@@ -33,8 +33,10 @@ fn isbn() -> Value {
 /// The code of what `rules` answers `payload` enqueued under `label`, and
 /// the paths of its issues.
 fn checked(rules: &PayloadRules, label: &str, payload: Option<&Value>) -> Option<(String, Value)> {
+    let work = CountedWork::default();
+    let payload = payload.map(|payload| Payload::of(payload.clone(), &work));
     rules
-        .check(label, payload, &CountedWork::default())
+        .check(label, payload.as_ref(), &work)
         .err()
         .map(|error| {
             let details = error.details().unwrap();
@@ -114,7 +116,8 @@ fn run_file(recorded: &PayloadRules, payloads: &[(&str, Value)]) -> Connection {
     }
     recorded.record(&connection).unwrap();
     for (request, payload) in payloads {
-        store(&connection, request, Some(payload), &CountedWork::default()).unwrap();
+        let payload = Payload::of(payload.clone(), &CountedWork::default());
+        store(&connection, request, Some(&payload)).unwrap();
     }
     connection
 }

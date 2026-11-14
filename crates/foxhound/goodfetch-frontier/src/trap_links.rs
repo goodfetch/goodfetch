@@ -14,15 +14,12 @@
 //! Cloudflare's AI Labyrinth gives, is a trap, answered "not added" with
 //! `trap_link` (ADR 0035, owner decision O26).
 
-use encoding_rs::Encoding;
 use goodfetch_engine::run_state::RunStateTables;
-use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::{Value, json};
-use url::Url;
 
-use crate::identity::{Declared, Key, Seen as Visited, identities, seen};
-use crate::url::parse_link;
+use crate::admit::Keyed;
+use crate::identity::{Seen as Visited, seen, under_rules};
 
 /// The page function that reads what a person sees of each element a
 /// selector matches, called with [`read_params`] and `cosmetic`, the
@@ -262,62 +259,60 @@ pub fn suspect(connection: &Connection, id: &str, mark: Mark) -> rusqlite::Resul
     Ok(())
 }
 
-/// Clears the mark of the work item that the link `href`, resolved
-/// against `base` with its query in `encoding`, reaches again, once the
-/// Frontier answered it `duplicate`, when the link is one a person sees or
-/// whose markup hides nothing: the request the visited set names for it,
-/// or the one a learned rule merged it into, is then reached through a
-/// link that is not suspected, so it is no suspected trap (ADR 0035's
-/// #1153 note, as finding 600-1 scopes it). When the link is one a person
-/// reveals (`revealable`), the mark stays, as [`Mark::Revealable`]: the
-/// request is reached through a link a person opens, which a browser tier
-/// follows. Run inside the admission that answered the link, so the clear
-/// commits or is discarded with it. A link to a URL the Frontier never
-/// admitted clears nothing.
+/// The statements [`seen_again`] runs, which [`crate::prepare_admission`]
+/// prepares as the Run starts: whether any request is marked, then a
+/// mark's update to revealable or its removal.
+pub(crate) const SEEN_AGAIN: [&str; 3] = [
+    "SELECT 1 FROM trap_link_suspected LIMIT 1",
+    "UPDATE trap_link_suspected SET revealable = 1 WHERE work_item = ?1",
+    "DELETE FROM trap_link_suspected WHERE work_item = ?1",
+];
+
+/// Clears the mark of the work item that the link keyed as `keyed`
+/// reaches again, once the Frontier answered it `duplicate`, when the link
+/// is one a person sees or whose markup hides nothing: the request the
+/// visited set names for it, or the one a learned rule merged it into, is
+/// then reached through a link that is not suspected, so it is no
+/// suspected trap (ADR 0035's #1153 note, as finding 600-1 scopes it).
+/// When the link is one a person reveals (`revealable`), the mark stays,
+/// as [`Mark::Revealable`]: the request is reached through a link a person
+/// opens, which a browser tier follows. Run inside the admission that
+/// answered the link, so the clear commits or is discarded with it. A link
+/// to a URL the Frontier never admitted clears nothing.
 ///
 /// # Errors
 ///
 /// The run state's.
 pub fn seen_again(
     connection: &Connection,
-    href: &str,
-    base: &Url,
-    encoding: &'static Encoding,
-    keeps_fragment: bool,
+    keyed: &Keyed,
     revealable: bool,
 ) -> rusqlite::Result<()> {
     let any_marked = connection
-        .prepare_cached("SELECT 1 FROM trap_link_suspected LIMIT 1")
+        .prepare_cached(SEEN_AGAIN[0])
         .and_then(|mut cached| cached.query_row([], |_| Ok(())))
         .optional()?
         .is_some();
     if !any_marked {
         return Ok(());
     }
-    let Ok(url) = parse_link(href, base, encoding) else {
+    let Some((key, fixed)) = keyed.identity() else {
         return Ok(());
     };
-    let method = HttpMethod::get();
-    let declared = Declared {
-        method: &method,
-        body: None,
-        key: None,
-        keeps_fragment,
-    };
-    let identities = identities(connection, &Key::of(&url, keeps_fragment), declared)?;
+    let identities = under_rules(connection, key, fixed)?;
     // The run file only: a request an attempt staged holds no mark until
-    // its commit, which replays this admission in order on the run file.
+    // its commit, which admits this link again in order on the run file.
     let reached = match seen(connection, &identities, None)? {
         Visited::New => return Ok(()),
         Visited::Visited(crawl_request) | Visited::Merged { crawl_request, .. } => crawl_request,
     };
     if revealable {
         connection
-            .prepare_cached("UPDATE trap_link_suspected SET revealable = 1 WHERE work_item = ?1")
+            .prepare_cached(SEEN_AGAIN[1])
             .and_then(|mut cached| cached.execute([reached]))?;
     } else {
         connection
-            .prepare_cached("DELETE FROM trap_link_suspected WHERE work_item = ?1")
+            .prepare_cached(SEEN_AGAIN[2])
             .and_then(|mut cached| cached.execute([reached]))?;
     }
     Ok(())

@@ -551,3 +551,81 @@ fn a_pushed_record_costs_the_run_states_writer_no_job_of_its_own() {
     assert_eq!(answered.0, 3);
     assert_eq!(pushed, answered);
 }
+
+/// What `goodfetch.run_state.memory` and
+/// `goodfetch.run_state.spilled_lookups` read as a crawl's one seed, at the
+/// memory budget `budget`, runs its handler, which enqueues a link: the
+/// enqueue's duplicate check comes first, so both are read after it.
+fn memory_while_a_link_is_enqueued(budget: u64) -> (Option<f64>, Option<f64>) {
+    let env = TestEnv::new();
+    let (engine, registry, _provider) = metered();
+    let mut during = None;
+
+    crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "held",
+                        "seeds": seeds(1),
+                        "settings": { "run_state": { "memory": { "budget": budget } } },
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |params: &Value| {
+                if params["attempt"] == 1 && params["crawl_request"]["url"] != "https://shop.test/b"
+                {
+                    let enqueue = (
+                        "crawl_request.enqueue",
+                        json!({
+                            "run_id": params["run_id"],
+                            "crawl_request_id": params["crawl_request"]["id"],
+                            "lease_epoch": params["lease_epoch"],
+                            "url": "https://shop.test/b",
+                            "label": "page",
+                        }),
+                    );
+                    return Reply::Calls(vec![enqueue], Box::new(Reply::Records(Vec::new())));
+                }
+                during = Some((
+                    value_of(&registry, "goodfetch_run_state_memory_bytes"),
+                    value_of(&registry, "goodfetch_run_state_spilled_lookups_total"),
+                ));
+                Reply::Records(Vec::new())
+            };
+            client
+                .call("run.finish", json!({ "run_id": "held" }), &mut handler)
+                .await;
+        },
+    );
+
+    during.expect("the enqueued link reaches the handler")
+}
+
+/// Within the default memory budget, memory reads the seed's visit as the
+/// crawl opens and holds the link's: memory holds bytes, and no lookup
+/// reads the run file.
+///
+/// Covers: setting:run_state.memory.budget
+#[test]
+fn within_the_memory_budget_memory_holds_the_visits_and_no_lookup_reads_the_run_file() {
+    let (bytes, spilled) = memory_while_a_link_is_enqueued(64 << 20);
+
+    assert!(bytes.is_some_and(|bytes| bytes > 0.0), "{bytes:?}");
+    assert_eq!(spilled.unwrap_or(0.0), 0.0);
+}
+
+/// At a budget of 0 memory keeps no visit the file holds, so the link's
+/// duplicate check reads the run file and counts as a spilled lookup.
+///
+/// Covers: setting:run_state.memory.budget
+#[test]
+fn at_a_memory_budget_of_0_a_lookup_reads_the_run_file_and_counts_as_spilled() {
+    let (_, spilled) = memory_while_a_link_is_enqueued(0);
+
+    assert!(spilled.is_some_and(|spilled| spilled >= 1.0), "{spilled:?}");
+}

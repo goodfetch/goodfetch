@@ -17,6 +17,13 @@
 //! from the file again. A chain's pending visit is held until its job
 //! runs, or until its job is dropped unrun.
 //!
+//! As the crawl opens, memory reads the visits the file holds, within the
+//! budget: once it read them all, and until one leaves it, memory holds
+//! every visit, so a miss reads nothing either. Each lookup that reads the
+//! file because memory does not hold every visit counts in
+//! `goodfetch.run_state.spilled_lookups`, and what memory holds in
+//! `goodfetch.run_state.memory`.
+//!
 //! The run-state writer tells these, as a [`WriteWatch`], as each job
 //! begins and when one fails: its changes are then rolled back while its
 //! batch goes on, so what it noted here is taken back too.
@@ -35,7 +42,10 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use goodfetch_engine::metrics::{Level, Metrics, Occurrences};
 use goodfetch_engine::run_state::WriteWatch;
+use goodfetch_protocol::ops::{RUN_STATE_MEMORY, RUN_STATE_SPILLED_LOOKUPS};
+use rusqlite::Connection;
 
 /// The visits the run file does not hold yet, the ones it holds that
 /// memory keeps within its budget, and how many commits the writer
@@ -43,6 +53,9 @@ use goodfetch_engine::run_state::WriteWatch;
 pub struct UnwrittenVisits {
     committed: Box<dyn Fn() -> u64 + Send + Sync>,
     held: Arc<Mutex<Held>>,
+    /// Each lookup that read the file because memory does not hold every
+    /// visit (`goodfetch.run_state.spilled_lookups`).
+    spilled_lookups: Occurrences,
 }
 
 impl fmt::Debug for UnwrittenVisits {
@@ -53,7 +66,7 @@ impl fmt::Debug for UnwrittenVisits {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Held {
     /// Each identity visited, as the `visited` table keeps it.
     visited: HashMap<Arc<str>, Visit>,
@@ -75,6 +88,12 @@ struct Held {
     budget: u64,
     /// The commits acknowledged as a seed last widened the scope.
     widened: Option<u64>,
+    /// Whether memory read every visit the file held as the crawl opened.
+    read_whole: bool,
+    /// Whether a visit the file holds left memory past the budget.
+    spilled: bool,
+    /// The bytes held, as `goodfetch.run_state.memory` counts them.
+    reported: Level,
 }
 
 /// Which of the visited set's tables an identity is held for.
@@ -254,27 +273,107 @@ impl Held {
                 .is_some_and(|visit| visit.written == Some(tag))
             {
                 self.remove(Space::Visited, &identity);
+                self.spilled = true;
             }
         }
     }
+
+    /// Reads the visits `connection` holds, the file's, as the oldest
+    /// memory keeps, until the next would take memory past the budget.
+    fn read_visits(&mut self, connection: &Connection) -> rusqlite::Result<()> {
+        let mut read = Vec::new();
+        let mut whole = true;
+        let mut statement = connection.prepare(VISITS)?;
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            let identity = row.get_ref(0)?.as_str()?;
+            let crawl_request = row.get_ref(1)?.as_str()?;
+            if let Some(visit) = self.visited.get_mut(identity) {
+                // Held as a chain's pending end, which the file holds: it
+                // stays once its job is dropped.
+                if visit.written.is_none() {
+                    visit.written = Some(0);
+                    read.push(Arc::clone(
+                        self.visited
+                            .get_key_value(identity)
+                            .map(|(key, _)| key)
+                            .expect("invariant: the identity just found is held"),
+                    ));
+                }
+                continue;
+            }
+            if self
+                .bytes
+                .saturating_add(cost(Space::Visited, identity, crawl_request))
+                > self.budget
+            {
+                whole = false;
+                break;
+            }
+            let identity: Arc<str> = identity.into();
+            self.insert(Space::Visited, (&identity, 0), crawl_request, Some(0));
+            read.push(identity);
+        }
+        // What the file held as the crawl opened reached it before any
+        // batch memory noted: it leaves first.
+        for identity in read.into_iter().rev() {
+            self.resident.push_front((0, identity));
+        }
+        self.read_whole = whole;
+        Ok(())
+    }
+
+    /// Whether memory holds every visit the file holds.
+    const fn holds_every_visit(&self) -> bool {
+        self.read_whole && !self.spilled
+    }
+
+    /// Counts the bytes held in `goodfetch.run_state.memory`.
+    fn report(&mut self) {
+        self.reported
+            .set(usize::try_from(self.bytes).unwrap_or(usize::MAX));
+    }
 }
+
+/// The statement [`Held::read_visits`] reads the file's visits with.
+const VISITS: &str = "SELECT identity, crawl_request FROM visited";
 
 /// The visits the run file does not hold yet, and those memory keeps,
 /// locked for one duplicate check and the visit it decides.
 pub(crate) struct Holding<'a> {
-    shared: &'a Arc<Mutex<Held>>,
+    visits: &'a UnwrittenVisits,
     held: MutexGuard<'a, Held>,
     committed: u64,
 }
 
+impl Drop for Holding<'_> {
+    fn drop(&mut self) {
+        self.held.report();
+    }
+}
+
 impl Holding<'_> {
-    /// The crawl request `identity` was visited for, while the file may
-    /// not hold it, or while memory keeps it.
-    pub(crate) fn visitor(&self, identity: &str) -> Option<&str> {
-        self.held
-            .visited
-            .get(identity)
-            .map(|visit| &*visit.crawl_request)
+    /// The crawl request `identity` was visited for: memory's answer when
+    /// it keeps the visit, or holds every visit the file holds; otherwise
+    /// `read`'s from the file, counted as a spilled lookup
+    /// (`goodfetch.run_state.spilled_lookups`).
+    ///
+    /// # Errors
+    ///
+    /// When `read` fails.
+    pub(crate) fn visitor_or(
+        &self,
+        identity: &str,
+        read: impl FnOnce() -> rusqlite::Result<Option<String>>,
+    ) -> rusqlite::Result<Option<String>> {
+        if let Some(visit) = self.held.visited.get(identity) {
+            return Ok(Some(String::from(&*visit.crawl_request)));
+        }
+        if self.held.holds_every_visit() {
+            return Ok(None);
+        }
+        self.visits.spilled_lookups.add(1);
+        read()
     }
 
     /// The rule and crawl request of the learned identity `identity`,
@@ -329,7 +428,7 @@ impl Holding<'_> {
             inserted.push((Space::Learned, learned));
         }
         Pending {
-            held: Arc::clone(self.shared),
+            held: Arc::clone(&self.visits.held),
             inserted,
             done: false,
         }
@@ -371,21 +470,54 @@ impl Drop for Pending {
                 held.remove(space, &identity);
             }
         }
+        held.report();
     }
 }
 
 impl UnwrittenVisits {
     /// None held yet, keeping at most `budget` bytes of what the file
     /// holds, against a writer that has acknowledged `committed` commits
-    /// as it is called.
-    pub(crate) fn new(budget: u64, committed: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
+    /// as it is called, measured on `metrics`. Until it reads the file's
+    /// visits ([`Self::read_visits`]), a miss reads the file.
+    pub(crate) fn new(
+        budget: u64,
+        committed: impl Fn() -> u64 + Send + Sync + 'static,
+        metrics: &Metrics,
+    ) -> Self {
         Self {
             committed: Box::new(committed),
             held: Arc::new(Mutex::new(Held {
+                visited: HashMap::new(),
+                learned: HashMap::new(),
+                written: VecDeque::new(),
+                resident: VecDeque::new(),
+                journal: Journal::default(),
+                bytes: 0,
                 budget,
-                ..Held::default()
+                widened: None,
+                read_whole: false,
+                spilled: false,
+                reported: metrics.level(&RUN_STATE_MEMORY),
             })),
+            spilled_lookups: metrics.occurrences(&RUN_STATE_SPILLED_LOOKUPS),
         }
+    }
+
+    /// Reads the visits the file holds on `connection`, a reader's, as the
+    /// crawl opens, within the budget: once memory read them all, and
+    /// until one leaves it, a miss reads nothing. The file never takes a
+    /// visit back, and each one written after these noted is held here
+    /// until its batch commits, so none is missed.
+    ///
+    /// # Errors
+    ///
+    /// When the run file cannot be read.
+    pub fn read_visits(&self, connection: &Connection) -> rusqlite::Result<()> {
+        let mut holding = self.lock();
+        holding.held.read_visits(connection)?;
+        let committed = holding.committed;
+        holding.held.prune(committed);
+        Ok(())
     }
 
     /// The visits held, the ones the file holds by now forgotten or kept
@@ -396,7 +528,7 @@ impl UnwrittenVisits {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         held.prune(committed);
         Holding {
-            shared: &self.held,
+            visits: self,
             held,
             committed,
         }
@@ -458,7 +590,9 @@ impl Watch {
     }
 
     fn failed_on(held: &Mutex<Held>) {
-        held.lock().unwrap_or_else(PoisonError::into_inner).undo();
+        let mut held = held.lock().unwrap_or_else(PoisonError::into_inner);
+        held.undo();
+        held.report();
     }
 }
 

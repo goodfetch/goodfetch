@@ -21,9 +21,9 @@
 //!   off, so no rule list is built and no rule tested, and the ad stays;
 //! - `host_cache_off`: `filter_lists.host_cache: 0`, so each page builds
 //!   its own rule list;
-//! - `single_attempt`: the setting `extraction.readability:
-//!   single_attempt` does not exist yet, so it runs as `default` does until
-//!   its ticket switches it on (#2190);
+//! - `single_attempt`: `extraction.readability: single_attempt`, so the
+//!   main-content step tries each page once; it runs the step as often as
+//!   `default` does, which the example checks;
 //! - `many_hosts`: the same pages, one on each of [`HOSTS`] hosts, each a
 //!   seed and no link followed, since a host enters the host cache only
 //!   through a page: more hosts than the cache's default bound.
@@ -141,6 +141,9 @@ const PLANTED_SELECTORS: usize = 64;
 /// The cell whose crawl runs again under Callgrind.
 const DEFAULT: &str = "default";
 
+/// The cell whose main-content step tries each page once.
+const SINGLE_ATTEMPT: &str = "single_attempt";
+
 /// The pages of [`SITE`].
 fn pages() -> Vec<&'static str> {
     SITE.split_inclusive(DOCUMENT_END).collect()
@@ -231,8 +234,10 @@ fn cells() -> [Cell; 5] {
                 json!({ "filter_lists": { "host_cache": 0 } }),
             )
         },
-        // `extraction.readability: single_attempt`, once #2190 brings it.
-        cell("single_attempt", json!({})),
+        cell(
+            SINGLE_ATTEMPT,
+            json!({ "extraction": { "readability": "single_attempt" } }),
+        ),
         Cell {
             many_hosts: true,
             ..cell("many_hosts", json!({}))
@@ -556,6 +561,21 @@ fn main() {
         });
         (counted, instructions, compilations)
     });
+    if planted.is_none() {
+        // The number of attempts is inside one run of the step: a single
+        // attempt runs it as often as the retries do.
+        let runs = |name: &str| {
+            counted
+                .iter()
+                .find(|(_, cell)| cell.name == name)
+                .map(|(work, _)| work.read(Row::PageReadabilityRuns))
+        };
+        assert_eq!(
+            runs(SINGLE_ATTEMPT),
+            runs(DEFAULT),
+            "the cell {SINGLE_ATTEMPT} ran the main-content step another number of times than {DEFAULT}"
+        );
+    }
     for (work, cell) in &counted {
         let mut counts: Map<String, Value> = PER_PAGE
             .iter()

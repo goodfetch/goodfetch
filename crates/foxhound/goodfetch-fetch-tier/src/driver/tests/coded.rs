@@ -13,11 +13,13 @@
 
 use std::collections::VecDeque;
 use std::io::Write as _;
+use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use bytes::Bytes;
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::response_limits::Limits;
@@ -31,6 +33,7 @@ use crate::content_types::Accepts;
 use crate::driver::{
     Body, FetchBounds, Hop, OwnDocument, Reuse, Sending, Sent, Transport, fetch, fetch_accepting,
 };
+use crate::untouched::{UntouchedDemand, UntouchedReaders};
 
 /// A transport whose one answer is a `200` under `encoding`, its body
 /// `chunks`, which then ends, or never does when it is `endless`.
@@ -227,6 +230,7 @@ async fn the_own_document_is_read_as_its_bytes_decode(
     let own = OwnDocument {
         accepts: &Accepts::default(),
         encoding: None,
+        readers: None,
     };
 
     let fetched =
@@ -237,7 +241,8 @@ async fn the_own_document_is_read_as_its_bytes_decode(
             let text = fetched
                 .text
                 .expect("a document's text is read")
-                .text(&fetched.body);
+                .text(&fetched.body)
+                .0;
             assert_eq!(
                 text,
                 Text::of(&Bytes::from(document), Kind::Html, None, None)
@@ -246,4 +251,89 @@ async fn the_own_document_is_read_as_its_bytes_decode(
         })
         .map_err(|failure| failure.error().code());
     assert_eq!(read, expected);
+}
+
+/// The readers of the untouched page read the crawl request's own document
+/// in one pass as its bytes decode, what they read of its whole text, with
+/// no parse: a windows-1251 document decoded once its `<meta>` is found,
+/// and a UTF-8 one read in place (issue 2188).
+#[rstest]
+#[case::decoded(windows_1251_page())]
+#[case::in_place(
+    format!(
+        "<!doctype html><html><head><title>Kites</title></head><body>{}</body></html>",
+        "<p>Délta <a href=/k/delta>Delta</a></p>".repeat(400)
+    )
+    .into_bytes()
+)]
+#[tokio::test(start_paused = true)]
+async fn the_untouched_readers_read_the_own_document_as_its_bytes_decode(
+    #[case] document: Vec<u8>,
+) {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&document).unwrap();
+    let transport = Coded {
+        encoding: "gzip",
+        chunks: encoder
+            .finish()
+            .unwrap()
+            .chunks(7)
+            .map(Bytes::copy_from_slice)
+            .collect(),
+        endless: false,
+    };
+    let work = CountedWork::default();
+    let readers = Arc::new(UntouchedReaders::of(
+        UntouchedDemand {
+            links: vec!["a[href]".to_owned()],
+            ..UntouchedDemand::default()
+        },
+        &work,
+    ));
+    let own = OwnDocument {
+        accepts: &Accepts::default(),
+        encoding: None,
+        readers: Some(&readers),
+    };
+    let clock = Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001));
+    let hop = Hop::get(Url::parse("http://site.test/page").unwrap());
+
+    let fetched = fetch_accepting(&transport, &hop, &bounds(1 << 30), &clock, Some(own))
+        .await
+        .unwrap_or_else(|_| panic!("the document is fetched"));
+
+    let (text, as_handed) = fetched
+        .text
+        .as_ref()
+        .expect("a document's text is read")
+        .text(&fetched.body);
+    let whole = readers.stream(&text.html);
+    assert!(as_handed, "the text read is the one handed out");
+    assert!(whole.is_some(), "the readers read it in one pass");
+    let passed = fetched
+        .pass
+        .expect("its readers read it in one pass")
+        .by(&readers)
+        .expect("the readers that started it read it")
+        .read();
+    assert_eq!(passed, whole);
+    assert_eq!(work.read(Row::PageParses), 0);
+}
+
+/// A windows-1251 page whose `<meta>` follows an 8 KB inline script, with
+/// links.
+fn windows_1251_page() -> Vec<u8> {
+    let mut page = format!(
+        "<!doctype html><html><head><script>{}</script><meta charset=windows-1251></head><body>",
+        "var x = 1;".repeat(820)
+    )
+    .into_bytes();
+    for _ in 0..200 {
+        // <p>Привет <a href=/k/delta>Delta</a></p> in windows-1251.
+        page.extend_from_slice(b"<p>");
+        page.extend_from_slice(&[0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2]);
+        page.extend_from_slice(b" <a href=/k/delta>Delta</a></p>");
+    }
+    page.extend_from_slice(b"</body></html>");
+    page
 }

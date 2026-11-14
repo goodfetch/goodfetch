@@ -104,6 +104,7 @@ async fn fetched(transport: &Untyped) -> Result<Fetched, goodfetch_engine::CallE
     let own = OwnDocument {
         accepts: &Accepts::default(),
         encoding: None,
+        readers: None,
     };
     fetch_accepting(transport, &hop, &bounds, &clock, Some(own))
         .await

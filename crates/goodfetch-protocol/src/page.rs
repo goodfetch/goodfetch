@@ -1087,6 +1087,29 @@ fn estimate() -> serde_json::Value {
     serde_json::Value::String("estimate".to_owned())
 }
 
+/// The values `extraction.readability` takes (spec #2164).
+pub const READABILITY_ATTEMPTS: &[&str] = &["retry", "single_attempt"];
+
+/// `extraction.readability` (spec #2164): how many attempts the
+/// `dom_smoothie` main-content step makes on a page, for the formats and
+/// the Page signature alike.
+pub const EXTRACTION_READABILITY: Setting = Setting {
+    name: "extraction.readability",
+    description: "How many times the main-content step may try a page. `retry` (the default) tries up to four times while it finds under 500 characters, keeping the best. `single_attempt` tries once, which is faster and may keep less text on short pages. The trafilatura Extractor always tries once.",
+    kind: ValueKind::Choice(READABILITY_ATTEMPTS),
+    default: retry,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn retry() -> serde_json::Value {
+    serde_json::Value::String("retry".to_owned())
+}
+
 /// The name the Run trace's request log records a service worker's own
 /// request under, beside its pages' events (ADR 0121): no page sent it, so
 /// no page's event reports it.
@@ -1805,6 +1828,7 @@ pub const ENTRIES: Entries = Entries {
         LIVE_VIEW_HIDING,
         CONTENT_EXTRACTOR,
         EXTRACTION_REMOVAL_SHARE,
+        EXTRACTION_READABILITY,
     ],
     hook_stages: &[],
     shared_type_values: &[],

@@ -492,12 +492,69 @@ impl SignalFiles {
 
 /// Whether `html` names either markup signal, in any case.
 pub(crate) fn names_signals(html: &str) -> bool {
-    let names = |needle: &str| {
-        html.as_bytes()
-            .windows(needle.len())
-            .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
-    };
-    names("tdm-reservation") || names(RSL_TYPE)
+    let mut names = SignalNames::default();
+    names.read(html.as_bytes());
+    names.named()
+}
+
+/// The names of the markup signals, which a document's text is scanned
+/// for in any case.
+const SIGNAL_NAMES: [&str; 2] = ["tdm-reservation", RSL_TYPE];
+
+/// The most bytes of a name that one chunk can end on and the next
+/// continue: the longest name's but one.
+const NAME_SPLIT: usize = {
+    let (reservation, rsl) = (SIGNAL_NAMES[0].len(), SIGNAL_NAMES[1].len());
+    if reservation > rsl {
+        reservation - 1
+    } else {
+        rsl - 1
+    }
+};
+
+/// A scan of a document's text read in chunks for either markup signal's
+/// name, in any case, which answers as [`names_signals`] does on the whole
+/// text (issue 2188): it keeps the last bytes of the text read so far, so
+/// that a name split between two chunks is found.
+#[derive(Debug, Default)]
+pub(crate) struct SignalNames {
+    /// The last [`NAME_SPLIT`] bytes read, fewer at the start.
+    tail: Vec<u8>,
+    named: bool,
+}
+
+impl SignalNames {
+    /// Scans `chunk`, the text's next bytes.
+    pub(crate) fn read(&mut self, chunk: &[u8]) {
+        if self.named {
+            return;
+        }
+        // A name split between the chunks lies within the tail and the
+        // chunk's head.
+        let mut joint = std::mem::take(&mut self.tail);
+        joint.extend_from_slice(&chunk[..chunk.len().min(NAME_SPLIT)]);
+        self.named = names_in(&joint) || names_in(chunk);
+        if chunk.len() >= NAME_SPLIT {
+            joint.clear();
+            joint.extend_from_slice(&chunk[chunk.len() - NAME_SPLIT..]);
+        } else {
+            joint.drain(..joint.len().saturating_sub(NAME_SPLIT));
+        }
+        self.tail = joint;
+    }
+
+    /// Whether the text read so far names either markup signal.
+    pub(crate) fn named(&self) -> bool {
+        self.named
+    }
+}
+
+/// Whether `text` holds either markup signal's name, in any case.
+fn names_in(text: &[u8]) -> bool {
+    SIGNAL_NAMES.iter().any(|name| {
+        text.windows(name.len())
+            .any(|window| window.eq_ignore_ascii_case(name.as_bytes()))
+    })
 }
 
 /// The matchers the markup's AI-use signals are read with.

@@ -1,7 +1,8 @@
 //! The `Extractor` interface (ADRs 0007 and 0033): what finds the part of
 //! a document a person reads it for, and the two built-ins the setting
 //! `content.extractor` chooses between, dom-smoothie (Readability's
-//! algorithm, the default) and rs-trafilatura. The Extractor Plugin
+//! algorithm, the default) and rs-trafilatura, with the number of
+//! attempts `extraction.readability` gives dom-smoothie. The Extractor Plugin
 //! adapter (area 7) implements the same interface, so a Plugin's main
 //! content takes the built-ins' place and nothing else changes.
 //!
@@ -13,7 +14,7 @@
 use std::fmt::{self, Debug, Formatter};
 
 use dom_query::{NodeId, NodeRef};
-use dom_smoothie::Readability;
+use dom_smoothie::{ParsePolicy, Readability};
 use goodfetch_counted_work::ParsedHtml;
 
 /// A main-content step: the document's tree in, which it consumes, its
@@ -155,18 +156,61 @@ impl BuiltIn {
             _ => None,
         }
     }
+}
 
-    /// Its step.
-    pub fn extractor(self) -> &'static dyn Extractor {
-        match self {
-            Self::DomSmoothie => &DomSmoothie,
-            Self::Trafilatura => &Trafilatura,
+/// How many times dom-smoothie's step may try a page, by the value of
+/// `extraction.readability` that chooses it (spec #2164).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Attempts {
+    /// `retry`, the default: dom-smoothie's `parse()`, up to four
+    /// attempts while one finds under 500 characters, each on a copy of
+    /// the tree, the longest kept.
+    #[default]
+    Retry,
+    /// `single_attempt`: the first of those attempts alone, on the tree
+    /// itself.
+    SingleAttempt,
+}
+
+impl Attempts {
+    /// The value `extraction.readability`'s `name` chooses; none for a
+    /// name it has no value of.
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "retry" => Some(Self::Retry),
+            "single_attempt" => Some(Self::SingleAttempt),
+            _ => None,
         }
     }
 }
 
-/// dom-smoothie's step, on the tree itself.
-struct DomSmoothie;
+/// A main-content step as a page's settings choose it: the built-in
+/// `content.extractor` names, and the attempts `extraction.readability`
+/// gives it, which rs-trafilatura's one pass does not read.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Chosen {
+    /// The built-in.
+    pub built_in: BuiltIn,
+    /// The attempts dom-smoothie may make.
+    pub attempts: Attempts,
+}
+
+impl Chosen {
+    /// Its step.
+    #[must_use]
+    pub fn extractor(self) -> &'static dyn Extractor {
+        match (self.built_in, self.attempts) {
+            (BuiltIn::DomSmoothie, Attempts::Retry) => &DomSmoothie(Attempts::Retry),
+            (BuiltIn::DomSmoothie, Attempts::SingleAttempt) => {
+                &DomSmoothie(Attempts::SingleAttempt)
+            }
+            (BuiltIn::Trafilatura, _) => &Trafilatura,
+        }
+    }
+}
+
+/// dom-smoothie's step, on the tree itself, making the attempts it holds.
+struct DomSmoothie(Attempts);
 
 impl Extractor for DomSmoothie {
     fn main_content(&self, document: ParsedHtml, url: &str) -> Option<Found> {
@@ -178,7 +222,12 @@ impl Extractor for DomSmoothie {
             .is_ok()
             .then_some(url);
         let mut readability = Readability::with_document(document, url, None).ok()?;
-        let article = readability.parse().ok()?;
+        let article = match self.0 {
+            Attempts::Retry => readability.parse(),
+            // The first attempt `parse()` makes, with every flag on.
+            Attempts::SingleAttempt => readability.parse_with_policy(ParsePolicy::Strict),
+        }
+        .ok()?;
         // The step's answer is its element `#readability-page-1`, the first
         // of that ID, in the tree it leaves.
         let root = readability

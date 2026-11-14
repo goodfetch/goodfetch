@@ -487,11 +487,19 @@ impl Text {
 /// UTF-8 `bytes` as text, in place when they are valid, else decoded
 /// with each byte that does not decode replaced by U+FFFD.
 fn in_place(bytes: Bytes) -> ByteString {
-    ByteString::from_utf8(bytes).unwrap_or_else(|invalid| {
-        let bytes = invalid.into_bytes();
-        let (text, _) = UTF_8.decode_without_bom_handling(&bytes);
-        ByteString::from(text.into_owned())
-    })
+    in_place_checked(bytes).0
+}
+
+/// [`in_place`], and whether `bytes` were valid, so read in place.
+fn in_place_checked(bytes: Bytes) -> (ByteString, bool) {
+    match ByteString::from_utf8(bytes) {
+        Ok(text) => (text, true),
+        Err(invalid) => {
+            let bytes = invalid.into_bytes();
+            let (text, _) = UTF_8.decode_without_bom_handling(&bytes);
+            (ByteString::from(text.into_owned()), false)
+        }
+    }
 }
 
 /// The most bytes of a document a [`Stream`] prescans as they arrive:
@@ -508,11 +516,22 @@ const PRESCANNED_AS_THEY_ARRIVE: usize = 64 * 1024;
 /// left to read in place on the CPU pool ([`Streamed::text`]), which
 /// checks it once. A body that broke off or passed a limit is never
 /// finished, so it leaves nothing read.
+///
+/// It hands out the document's characters as they are read, for a reader
+/// of the text as it arrives (issue 2188): once the encoding is found,
+/// the UTF-8 bytes received, after a BOM, or the characters decoded.
+/// [`Streamed::text`] tells whether the text it ends with is what it
+/// handed out: always, but for a UTF-8 or undeclared body holding bytes
+/// that do not decode.
 pub(crate) struct Stream {
     kind: Kind,
     header: Option<&'static Encoding>,
     forced: Option<&'static Encoding>,
     phase: Phase,
+    /// Where the text not yet handed out starts: in the decoded bytes
+    /// for a UTF-8 or undeclared body, in the decoded characters for
+    /// another encoding.
+    handed: usize,
 }
 
 /// How far a [`Stream`] read.
@@ -561,12 +580,14 @@ impl Stream {
                 prescan_at: UNCONDITIONAL,
                 prescanned: false,
             },
+            handed: 0,
         }
     }
 
     /// Reads `decoded`, every decoded byte of the body received so far,
-    /// the bytes of an earlier call first.
-    pub(crate) fn advance(&mut self, decoded: &[u8]) {
+    /// the bytes of an earlier call first, handing `to` the characters
+    /// read that it was not handed yet.
+    pub(crate) fn advance(&mut self, decoded: &[u8], to: &mut impl FnMut(&[u8])) {
         if let Phase::Finding {
             prescan_at,
             prescanned,
@@ -580,7 +601,10 @@ impl Stream {
             ) {
                 Found::Pending => return,
                 Found::Undeclared => self.phase = Phase::Undeclared,
-                Found::Read(read) if read.encoding == UTF_8 => self.phase = Phase::InPlace(read),
+                Found::Read(read) if read.encoding == UTF_8 => {
+                    self.handed = if read.source == Source::Bom { 3 } else { 0 };
+                    self.phase = Phase::InPlace(read);
+                }
                 Found::Read(read) => {
                     self.phase = Phase::Decoding {
                         read,
@@ -595,31 +619,50 @@ impl Stream {
                 }
             }
         }
-        if let Phase::Decoding {
-            decoder, fed, text, ..
-        } = &mut self.phase
-        {
-            feed(decoder, &decoded[*fed..], text, false);
-            *fed = decoded.len();
+        match &mut self.phase {
+            Phase::Finding { .. } => {}
+            Phase::InPlace(_) | Phase::Undeclared => {
+                hand(decoded, &mut self.handed, to);
+            }
+            Phase::Decoding {
+                decoder, fed, text, ..
+            } => {
+                feed(decoder, &decoded[*fed..], text, false);
+                *fed = decoded.len();
+                hand(text.as_bytes(), &mut self.handed, to);
+            }
         }
     }
 
     /// What it read of `body`, the whole body, once that ended: the
     /// encoding of a body of [`PRESCANNED_AS_THEY_ARRIVE`] bytes at most
     /// found on it whole when its bytes did not settle it; none for a
-    /// longer one, which [`Text::of`] then reads on the CPU pool.
-    pub(crate) fn finish(mut self, body: &Bytes) -> Option<Streamed> {
-        self.advance(body);
+    /// longer one, which [`Text::of`] then reads on the CPU pool. `to` is
+    /// handed the characters it was not handed yet, those of a body whose
+    /// encoding is found on it whole included.
+    pub(crate) fn finish(mut self, body: &Bytes, to: &mut impl FnMut(&[u8])) -> Option<Streamed> {
+        self.advance(body, to);
         let ended = match self.phase {
             Phase::Finding { .. } if body.len() > PRESCANNED_AS_THEY_ARRIVE => return None,
             Phase::Finding { .. } => {
                 match read_under(body, self.kind, (self.header, self.forced)) {
-                    Some(read) if read.encoding == UTF_8 => Ended::InPlace(read),
-                    Some(read) => Ended::Decoded(Text {
-                        read: Some(read),
-                        html: ByteString::from(decode(body, read)),
-                    }),
-                    None => Ended::Undeclared,
+                    Some(read) if read.encoding == UTF_8 => {
+                        let start = if read.source == Source::Bom { 3 } else { 0 };
+                        to(body.get(start..).unwrap_or_default());
+                        Ended::InPlace(read)
+                    }
+                    Some(read) => {
+                        let text = decode(body, read);
+                        to(text.as_bytes());
+                        Ended::Decoded(Text {
+                            read: Some(read),
+                            html: ByteString::from(text),
+                        })
+                    }
+                    None => {
+                        to(&body[..]);
+                        Ended::Undeclared
+                    }
                 }
             }
             Phase::InPlace(read) => Ended::InPlace(read),
@@ -631,6 +674,7 @@ impl Stream {
                 ..
             } => {
                 feed(&mut decoder, &[], &mut text, true);
+                hand(text.as_bytes(), &mut self.handed, to);
                 text.shrink_to_fit();
                 Ended::Decoded(Text {
                     read: Some(read),
@@ -672,22 +716,45 @@ impl Streamed {
     }
 
     /// The text of `body`, the whole body it read, as [`Text::of`] reads
-    /// it: a UTF-8 body in place, checked once.
-    pub(crate) fn text(&self, body: &Bytes) -> Text {
+    /// it: a UTF-8 body in place, checked once; and whether its
+    /// characters are those the stream handed out, which they are but
+    /// for a UTF-8 or undeclared body holding bytes that do not decode.
+    pub(crate) fn text(&self, body: &Bytes) -> (Text, bool) {
         match &self.ended {
-            Ended::InPlace(read) => Text::whole(body, Some(*read)),
+            Ended::InPlace(read) => {
+                let start = if read.source == Source::Bom { 3 } else { 0 };
+                let (html, valid) = in_place_checked(body.slice(start.min(body.len())..));
+                (
+                    Text {
+                        read: Some(*read),
+                        html,
+                    },
+                    valid,
+                )
+            }
             Ended::Undeclared => match ByteString::try_from(body.clone()) {
-                Ok(html) => Text {
-                    read: Some(Read {
-                        encoding: UTF_8,
-                        source: Source::Utf8,
-                    }),
-                    html,
-                },
-                Err(_) => Text::whole(body, None),
+                Ok(html) => (
+                    Text {
+                        read: Some(Read {
+                            encoding: UTF_8,
+                            source: Source::Utf8,
+                        }),
+                        html,
+                    },
+                    true,
+                ),
+                Err(_) => (Text::whole(body, None), false),
             },
-            Ended::Decoded(text) => text.clone(),
+            Ended::Decoded(text) => (text.clone(), true),
         }
+    }
+}
+
+/// Hands `to` the bytes of `read` from `handed` on, then marks them handed.
+fn hand(read: &[u8], handed: &mut usize, to: &mut impl FnMut(&[u8])) {
+    if let Some(rest) = read.get(*handed..).filter(|rest| !rest.is_empty()) {
+        to(rest);
+        *handed = read.len();
     }
 }
 
@@ -765,13 +832,21 @@ pub fn fuzz_prescan(data: &[u8]) {
             let _ = decode(data, read);
         }
         let mut stream = Stream::new(kind, None, None);
-        stream.advance(&data[..data.len() / 2]);
-        stream.advance(data);
-        if let Some(streamed) = stream.finish(&body) {
+        let mut handed = Vec::new();
+        let mut to = |text: &[u8]| handed.extend_from_slice(text);
+        stream.advance(&data[..data.len() / 2], &mut to);
+        stream.advance(data, &mut to);
+        if let Some(streamed) = stream.finish(&body, &mut to) {
+            let (text, as_handed) = streamed.text(&body);
             assert_eq!(
-                streamed.text(&body),
+                text,
                 Text::of(&body, kind, None, None),
                 "a document read as it arrives reads as the whole body does"
+            );
+            assert_eq!(
+                as_handed,
+                handed == text.html.as_bytes()[..],
+                "a stream tells whether it handed out its text"
             );
         }
     }

@@ -100,6 +100,7 @@ extractor = "dom_smoothie"
 
 [settings.extraction]
 removal_share = "estimate"
+readability = "retry"
 
 [settings.proxy]
 server = "http://proxy.example:3128"
@@ -452,6 +453,7 @@ extractor = "dom_smoothie"
 
 [lock.extraction]
 removal_share = "estimate"
+readability = "retry"
 
 [lock.proxy]
 server = "http://proxy.example:3128"

@@ -62,6 +62,11 @@ pub(crate) type QueuedEnd = Pin<Box<dyn Future<Output = EndWritten> + Send>>;
 /// its rows are not counted before its job runs.
 const ATTEMPT_ENDED: Syncing = Syncing::Attempt { ended: 1, bytes: 0 };
 
+/// How a handler's call staged with its attempt is written: as part of the
+/// attempt, which ends none, in its batch, and synced where each attempt's
+/// writes are a batch of their own.
+const STAGED: Syncing = Syncing::Attempt { ended: 0, bytes: 0 };
+
 /// The run file of a running crawl, as its Run state reads and writes it:
 /// the Run's run-state writer, with what each admission is judged within,
 /// the Run's domain policy and its invariants, built once (#1896), where
@@ -204,9 +209,10 @@ impl Stored {
                 attempt,
                 answer,
             } => {
-                // No page makes this call again once its attempt ended, so
-                // it is synced as a seed added with no attempt is.
-                self.queue(answer, Syncing::Required, move |connection| {
+                // Made inside a handler, it rides its attempt's batch: a
+                // crash that takes it takes the outcome after it, so the
+                // page makes it again (ADR 0142; synced at `full`).
+                self.queue(answer, STAGED, move |connection| {
                     this.intake.admitting(|| {
                         this.staging.admit(
                             connection,
@@ -227,7 +233,7 @@ impl Stored {
                 .await;
             }
             Ask::Enqueue { enqueue, answer } => {
-                self.queue(answer, Syncing::Required, move |connection| {
+                self.queue(answer, STAGED, move |connection| {
                     this.enqueue(connection, &enqueue)
                 })
                 .await;

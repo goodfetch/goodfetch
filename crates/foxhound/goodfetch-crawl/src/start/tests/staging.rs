@@ -3,10 +3,12 @@
 //! #339): the attempt staged an enqueue, a seed and a Key-value store write,
 //! then the process died or the power went before its handler answered.
 //! Nothing it staged is in the run file the next process opens, which
-//! passes `PRAGMA integrity_check`, and once the Run is resumed the
-//! attempt's retry stages them again and its commit is the one that counts:
-//! each request once, the Frontier's visited set and counts naming exactly
-//! the work items, and the key the retry wrote.
+//! passes `PRAGMA integrity_check`; at the default level its lease rode the
+//! open batch with them (ADR 0142), so the page is pending there. Once the
+//! Run is resumed the page's next attempt stages them again and its commit
+//! is the one that counts: each request once, the Frontier's visited set
+//! and counts naming exactly the work items, and the key that attempt
+//! wrote.
 
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
@@ -196,7 +198,7 @@ fn a_kill_between_an_attempts_staging_and_its_commit_leaves_the_frontier_consist
         (crashed, finished["result"]["lifecycle"].clone(), resumed),
         (
             (
-                vec![item("https://shop.test/page/1", "leased")],
+                vec![item("https://shop.test/page/1", "pending")],
                 true,
                 1,
                 Vec::new()
@@ -210,7 +212,7 @@ fn a_kill_between_an_attempts_staging_and_its_commit_leaves_the_frontier_consist
                 ],
                 true,
                 3,
-                vec![("progress".to_owned(), "2".to_owned())],
+                vec![("progress".to_owned(), "1".to_owned())],
             ),
         )
     );

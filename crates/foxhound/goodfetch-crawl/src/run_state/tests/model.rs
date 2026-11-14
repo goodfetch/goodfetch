@@ -29,7 +29,7 @@
 //! one on, and the resumed crawl, given every page again, adds each page
 //! it does not hold once. Each case runs at a level it draws: `full`, each
 //! write in the file as it is answered, or `batch` with no threshold, where
-//! a claim, a key and an attempt's end ride the open batch, which a reader
+//! a claim, a key, an attempt's enqueue and its end ride the open batch, which a reader
 //! sees only once a barrier, a seal or the writer's end writes it, and
 //! which a crash takes whole; the loop's reads leave out what it claimed
 //! in a batch they do not see. 16 cases in the Quick suite and 256 in the
@@ -456,14 +456,8 @@ impl Model {
         Answer::Leased(pages)
     }
 
-    /// An attempt's enqueue, a barrier however it is answered.
+    /// An attempt's enqueue, which rides its attempt's batch at `batch`.
     fn enqueue(&mut self, index: usize, page: usize) -> Answer {
-        let answer = self.staged(index, page);
-        self.committed();
-        answer
-    }
-
-    fn staged(&mut self, index: usize, page: usize) -> Answer {
         let attempt = &self.attempts[index];
         if attempt.over {
             return Answer::Admitted(None);
@@ -471,7 +465,7 @@ impl Model {
         if self.holds(page) || attempt.staged.iter().any(|(staged, _)| *staged == page) {
             return Answer::Admitted(Some(vec![false]));
         }
-        // Its place is reserved at once, in a synced write.
+        // Its place is reserved at once, in a write synced at `full`.
         self.attempts[index].staged.push((page, self.next_place));
         self.next_place += 1;
         self.wrote(true);

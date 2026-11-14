@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>An article with an ad a blocker hides</title>
+<link rel="stylesheet" href="/css/site.css">
+</head>
+<body>
+<main>
+<h1>An article with an ad a blocker hides</h1>
+<p>The article's text begins here, long enough to be the page's main content: a person reads it for these paragraphs, which say what the article has to say about blockers, hidden elements and the pages they leave behind.</p>
+<div class="ad-slot" id="ad">An ad's text no extraction keeps, for <a href="/hiding/offer">the offer</a>. <button id="inside" type="button" onclick="fetch('/hiding/clicked')">Continue to the offer</button></div>
+<p>The article goes on after the ad, with more of its own text: a blocker hides what a filter list matches, and a program that clicks inside it still reaches what it clicked.</p>
+<iframe src="/hiding/frame" title="A frame with an ad" width="300" height="100"></iframe>
+</main>
+<script>
+addEventListener("load", () => {
+  const ad = document.getElementById("ad");
+  const started = performance.now();
+  const look = () => {
+    const display = getComputedStyle(ad).display;
+    if (display !== "none" && performance.now() - started < 2000) {
+      setTimeout(look, 50);
+      return;
+    }
+    fetch(`/hiding/seen?sheets=${document.styleSheets.length}&ad=${display}`);
+  };
+  look();
+});
+</script>
+</body>
+</html>

@@ -14,6 +14,7 @@
     "crates/goodfetch-extractor/src/formats/fixtures/**",
     "crates/foxhound/goodfetch-foxhound/benches/fixtures/**",
     "crates/goodfetch-clean-up-rules/stand-ins/**",
+    "crates/goodfetch-clean-up-rules/src/removal/tests/fixtures/**",
     "crates/goodfetch-clean-up-rules/consent/autoconsent/**",
     "**/fuzz/*/seeds/**",
     "**/journeys/journey.schema.json",

@@ -12,7 +12,7 @@ use std::sync::LazyLock;
 
 use goodfetch_clean_up_rules::matching::{Choices, List};
 use goodfetch_clean_up_rules::removal::{self, Removal, Rules, Share};
-use goodfetch_clean_up_rules::rules::FilterLists;
+use goodfetch_clean_up_rules::rules::{FilterLists, ListTexts};
 use goodfetch_counted_work::{CountedWork, Row};
 
 static LISTS: LazyLock<FilterLists> =
@@ -178,34 +178,75 @@ fn pages_that_share_the_engines_cache_compile_each_selector_of_their_rules_once(
 }
 
 /// Removal counts its page's rule list as one build (`F1.rule_list_builds`)
-/// and each rule it tests against an element as one test (`F1.rule_tests`),
-/// at least one an element while a rule is left to test; a page with no
-/// list on builds no rule list and tests no rule.
+/// and each rule it tests (`F1.rule_tests`): a plain rule against an element
+/// whose ID, classes, attributes or tag it is filed under, up to the first
+/// that matches, and a procedural rule once a root. A page with no list on
+/// builds no rule list and tests no rule.
 #[test]
 fn removal_counts_its_pages_rule_list_and_each_rule_it_tests() {
-    let url = "https://news.example/article";
-    let counted = |work: &CountedWork| {
+    // In rule order, which is their selectors' text order.
+    let lists = FilterLists::compile(&ListTexts {
+        ads: "news.example###ad\n\
+              news.example##.promo:empty\n\
+              news.example##[data-ad]\n\
+              news.example##aside\n\
+              news.example##div:has-text(Sponsored)",
+        trackers: "",
+        annoyances: "",
+        unbreak: "",
+    });
+    // `html`, `head`, `title`, `body` and `p` are filed under by no rule.
+    // The first `div` is tested against `.promo:empty`, which it does not
+    // match. The `aside` is tested against `.promo:empty`, then `[data-ad]`,
+    // which matches it, and not against `aside`. The second `div` is tested
+    // against `#ad`. The procedural rule runs once, on the document.
+    let page = r#"<!DOCTYPE html>
+<html><head><title>An article</title></head><body>
+<p>The article's own text.</p>
+<div class="promo">Sponsored</div>
+<aside class="promo" data-ad="1">An ad</aside>
+<div id="ad"></div>
+</body></html>"#;
+    let clean = |choices: &Choices, work: &CountedWork| {
+        let document = work.parse_html(Row::PageParses, page);
+        let removal = removal::remove(
+            &document,
+            "https://news.example/article",
+            Rules {
+                lists: &lists,
+                version: VERSION,
+                choices,
+            },
+            work,
+        );
+        let rules: Vec<String> = removal
+            .removed
+            .into_iter()
+            .map(|element| element.rule)
+            .collect();
         (
+            rules,
             work.read(Row::PageRuleListBuilds),
             work.read(Row::PageRuleTests),
         )
     };
-    let elements = CountedWork::default()
-        .parse_html(Row::PageParses, PAGE)
-        .select("*")
-        .length() as u64;
     let work = CountedWork::default();
-    let off = CountedWork::default();
 
-    let _ = removed(PAGE, url, &defaults(), &work);
-    let (builds, tests) = counted(&work);
-    let _ = removed(PAGE, url, &defaults(), &work);
-    let _ = removed(PAGE, url, &Choices::default(), &off);
+    let (removed, builds, tests) = clean(&defaults(), &work);
+    let (_, builds_of_two, tests_of_two) = clean(&defaults(), &work);
+    let off = clean(&Choices::default(), &CountedWork::default());
 
-    assert_eq!(builds, 1);
-    assert!(tests >= elements, "{tests} tests of {elements} elements");
-    assert_eq!(counted(&work), (2, 2 * tests));
-    assert_eq!(counted(&off), (0, 0));
+    assert_eq!(
+        (&removed[..2], removed.len(), builds, tests),
+        (
+            &["[data-ad]".to_owned(), "#ad".to_owned()][..],
+            3,
+            1,
+            1 + 2 + 1 + 1
+        )
+    );
+    assert_eq!((builds_of_two, tests_of_two), (2, 2 * tests));
+    assert_eq!(off, (vec![], 0, 0));
 }
 
 /// Covers: story:5-98

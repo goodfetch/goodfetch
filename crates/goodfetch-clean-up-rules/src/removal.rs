@@ -18,6 +18,16 @@
 //! bounded cache of compilations, keyed by their text and the digest of the
 //! rules' version (`CountedWork::rules_selector`), so a page compiles none
 //! that an earlier page, of this Run or another, compiled.
+//!
+//! An element is tested only against the plain rules it could match: the
+//! page's rules are filed in an [`Index`] by a key of each one's subject,
+//! and one walk tests each element against the rules its own ID, classes,
+//! attributes and tag file, the earliest in rule order winning, as it did
+//! when every element was tested against every rule (spec #2164).
+
+mod index;
+#[cfg(test)]
+mod tests;
 
 use std::collections::BTreeSet;
 
@@ -25,7 +35,9 @@ use adblock::cosmetic_filter_cache::ProceduralOrActionFilter;
 use adblock::filters::cosmetic::{CosmeticFilterAction, CosmeticFilterOperator};
 use dom_query::{Matcher, NodeId, NodeRef, Selection};
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
+use selectors::context::SelectorCaches;
 
+use self::index::Index;
 use crate::cosmetic::{HIDDEN, PageRules};
 use crate::matching::{Choices, List};
 use crate::rules::FilterLists;
@@ -97,8 +109,8 @@ enum Step {
 /// element the cosmetic rules of `rules` match, their selectors compiled
 /// through the engine's cache on `work`, and answers what it removed. It
 /// counts on `work` the page's rule list it builds (`F1.rule_list_builds`)
-/// and each rule it tests: a plain rule against one element, a procedural
-/// one over one root (`F1.rule_tests`).
+/// and each rule it tests: a plain rule against one element that could
+/// match it, a procedural one over one root (`F1.rule_tests`).
 pub fn remove(document: &ParsedHtml, url: &str, rules: Rules<'_>, work: &CountedWork) -> Removal {
     let page = PageRules::of(rules.lists, rules.choices, url);
     if page.is_empty() {
@@ -133,6 +145,9 @@ pub fn remove(document: &ParsedHtml, url: &str, rules: Rules<'_>, work: &Counted
     if css.is_empty() && procedural.is_empty() {
         return Removal::default();
     }
+    // Built with the rule list it indexes.
+    let by_key = Index::of(css.iter().map(|rule| rule.name.as_str()));
+    let mut candidates = Vec::new();
     let mut gone = BTreeSet::new();
     let mut tests = 0_u64;
     for (index, (root, host)) in roots.iter().enumerate() {
@@ -140,14 +155,19 @@ pub fn remove(document: &ParsedHtml, url: &str, rules: Rules<'_>, work: &Counted
             continue;
         }
         // One pass over each root finds, in document order, each element a
-        // plain rule matches, credited to the first rule that matches it.
+        // plain rule matches, credited to the first rule that matches it:
+        // the earliest, in rule order, of those the index files under the
+        // element's keys. The matches of one root share their caches, since
+        // nothing leaves the tree before the pass has collected them all.
+        let mut caches = SelectorCaches::default();
         let found: Vec<(NodeRef<'_>, &str, List)> = root
             .descendants_it()
             .filter(NodeRef::is_element)
             .filter_map(|node| {
-                let rule = css.iter().find(|rule| {
+                by_key.candidates(&node, &mut candidates);
+                let rule = candidates.iter().map(|at| &css[*at]).find(|rule| {
                     tests += 1;
-                    node.is_match(&rule.kind)
+                    rule.kind.match_element_with_caches(&node, &mut caches)
                 })?;
                 Some((node, rule.name.as_str(), rule.list))
             })

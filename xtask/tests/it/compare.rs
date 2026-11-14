@@ -62,6 +62,17 @@ const CELLS: [(&str, &str, &str); 33] = [
     ("polite", "foxhound auto", "foxhound"),
 ];
 
+/// The runs of `cell` in a pass that asks for `asked`: pagesift's polite
+/// cell runs one trial of each pass, the owner's decision of 2026-11-14
+/// (#2215), and every other cell the run's.
+fn runs(scenario: &str, cell: &str, asked: u32) -> u32 {
+    if (scenario, cell) == ("polite", "pagesift") {
+        asked.min(1)
+    } else {
+        asked
+    }
+}
+
 /// The pages of `scenario`'s site: the polite scenario's multi-domain site
 /// holds 10 pages on each of its 1,000 domains (#2283), every other the
 /// declared 1,000.
@@ -79,6 +90,7 @@ fn work_on(pages: u64, again: u64) -> Value {
         "requests": pages + again,
         "bytes": 600 * (pages + again),
         "first_bytes": 600 * pages,
+        "other_protocol": 0,
     })
 }
 
@@ -192,11 +204,12 @@ fn cell_trial(
     trial
 }
 
-/// A cell's three trials: in 1, 2 and 4 seconds at 20, 30 and 10 MiB.
+/// A cell's three trials, or its one ([`runs`]): in 1, 2 and 4 seconds at
+/// 20, 30 and 10 MiB.
 fn cell_trials(scenario: &str, cell: &str, tool: &str) -> Vec<Value> {
     [(1.0, 20), (2.0, 30), (4.0, 10)]
         .into_iter()
-        .zip(1..)
+        .zip(1..=runs(scenario, cell, 3))
         .map(|((seconds, mib), number)| {
             cell_trial(scenario, cell, tool, number, seconds, mib * MIB)
         })
@@ -303,17 +316,21 @@ fn callgrind() -> Value {
     })
 }
 
-/// A system-call cell of three runs of each measured cell: Foxhound's
-/// durable crawl syncing 7,000, 7,500 and 8,000 times.
+/// A system-call cell of three runs of each measured cell, or its one
+/// ([`runs`]): Foxhound's durable crawl syncing 7,000, 7,500 and 8,000
+/// times.
 fn strace() -> Value {
-    let mut runs = Vec::new();
+    let mut counted = Vec::new();
     for (scenario, cell, tool) in CELLS {
-        for (number, syncs) in [(1, 7000), (2, 7500), (3, 8000)] {
+        for (number, syncs) in [(1, 7000), (2, 7500), (3, 8000)]
+            .into_iter()
+            .filter(|(number, _)| *number <= runs(scenario, cell, 3))
+        {
             let syncs = if cell == "foxhound full" { syncs } else { 0 };
-            runs.push(run(scenario, cell, tool, number, 300_000, syncs));
+            counted.push(run(scenario, cell, tool, number, 300_000, syncs));
         }
     }
-    json!({ "status": "measured", "trials": 3, "runs": runs })
+    json!({ "status": "measured", "trials": 3, "runs": counted })
 }
 
 fn report(workspace: &Workspace, trials: &Value) -> crate::workspace::Outcome {
@@ -413,6 +430,7 @@ fn sized_trials() -> Value {
                             "requests": pages,
                             "bytes": 600 * pages,
                             "first_bytes": 600 * pages,
+                            "other_protocol": 0,
                         }),
                     );
                     trial["site_pages"] = json!(pages);
@@ -1031,7 +1049,7 @@ fn the_report_shows_the_load_each_trial_started_at() {
          Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
-        "1 of the 99 timed trials started above a 1-minute load of 4.",
+        "1 of the 97 timed trials started above a 1-minute load of 4.",
     ] {
         assert!(
             markdown.contains(expected),
@@ -1299,7 +1317,8 @@ fn a_report_of_fewer_than_10_trials_says_it_falls_short() {
     ten["trials"] = CELLS
         .iter()
         .flat_map(|(scenario, cell, tool)| {
-            (1..=10).map(move |number| cell_trial(scenario, cell, tool, number, 2.0, 20 * MIB))
+            (1..=runs(scenario, cell, 10))
+                .map(move |number| cell_trial(scenario, cell, tool, number, 2.0, 20 * MIB))
         })
         .collect();
 
@@ -1758,7 +1777,7 @@ fn a_tool_that_counted_no_instructions_fails() {
 }
 
 /// The Collie scenario's cells, each with its pages and actions.
-const COLLIE_CELLS: [(&str, &str, &[u32], u64); 5] = [
+const COLLIE_CELLS: [(&str, &str, &[u32], u64); 6] = [
     (
         "click",
         "actionability",
@@ -1774,6 +1793,18 @@ const COLLIE_CELLS: [(&str, &str, &[u32], u64); 5] = [
         &[1, 2, 3, 4, 5, 6, 15, 18, 26, 27, 20, 21, 22, 23, 24, 28],
         81,
     ),
+    ("opening", "", &[], 10),
+];
+
+/// The rows of the Collie scenario's page-load cell.
+const LOAD_ROWS: [&str; 7] = [
+    "defaults",
+    "live_hiding_off",
+    "consent_off",
+    "filter_lists_off",
+    "egress_relay_off",
+    "playwright",
+    "playwright_routed",
 ];
 
 /// The steps the Collie scenario plans on `family`'s page `number`: a
@@ -1790,7 +1821,8 @@ fn collie_steps(family: &str, number: u32) -> u64 {
 
 /// A Collie scenario of two trials of each tool in each cell, every page
 /// done and verified, Collie sending `collie` commands per action and
-/// Playwright one.
+/// Playwright one; and two trials of each row on each page of its
+/// page-load cell, each its page's work.
 fn collie(collie: u64) -> Value {
     let mut trials_run = Vec::new();
     for (exercise, family, numbers, actions) in COLLIE_CELLS {
@@ -1818,6 +1850,7 @@ fn collie(collie: u64) -> Value {
                     "actions": actions,
                     "sessions": if exercise == "sessions" { 10 } else { 0 },
                     "commands": actions * per_action,
+                    "rounds": actions,
                     "cpu_seconds": 0.5,
                     "wall_seconds": 1.0,
                     "peak_bytes": 100 * MIB,
@@ -1826,7 +1859,26 @@ fn collie(collie: u64) -> Value {
             }
         }
     }
-    json!({ "status": "measured", "trials": 2, "trials_run": trials_run })
+    let mut loads = Vec::new();
+    for (page, own) in [("plain", 150), ("ads", 120)] {
+        for row in LOAD_ROWS {
+            for number in 1..=2 {
+                loads.push(json!({
+                    "page": page,
+                    "row": row,
+                    "number": number,
+                    "status": 200,
+                    "read": "digest of the content",
+                    "own": own,
+                    "sent": own + 1,
+                    "cpu_seconds": 0.5,
+                    "wall_seconds": 1.0,
+                    "peak_bytes": 100 * MIB,
+                }));
+            }
+        }
+    }
+    json!({ "status": "measured", "trials": 2, "tools": ["collie", "playwright"], "trials_run": trials_run, "loads": loads })
 }
 
 /// TESTING.md's register, its Collie row's Today `today`.

@@ -152,13 +152,13 @@ impl Stored {
     /// items it added, each keyed as it was added, for the loop to offer
     /// their domains' queues, and what it changed of the crawl's requests
     /// by state.
-    pub(crate) async fn answer(&self, ask: Box<Ask>) -> Option<Given> {
+    pub(crate) async fn answer(&self, ask: Ask) -> Option<Given> {
         // A program's links batch and a redirect hop promise nothing
         // outside: their attempt's outcome syncs them. A handler's enqueue
         // is synced as it was; #2168 answers it from memory.
         let unsynced = Syncing::Deferred { charged: 0 };
         let this = self.clone();
-        match *ask {
+        match ask {
             Ask::Seed { seed, answer } => {
                 let written = self.writer.write(move |connection| {
                     let mut positions = Positions::keying(connection, this.keys.clone())?;

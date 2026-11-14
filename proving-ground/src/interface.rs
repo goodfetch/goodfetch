@@ -183,6 +183,9 @@ pub struct ObservedRequest {
     pub timing: RequestTiming,
     /// The bytes received and sent for it.
     pub bytes: Value,
+    /// The bytes of its bodies alone, received and sent: the same for
+    /// every client that sends and receives the same bodies.
+    pub body: Value,
     /// The latest earlier request of the same host, method and target
     /// this one repeats.
     #[serde(default, skip_serializing_if = "Option::is_none")]

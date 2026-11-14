@@ -50,7 +50,7 @@ pub(crate) fn chrome_folder() -> Option<PathBuf> {
 /// files as Foxhound's pinned build, as a prepared `GOODFETCH_BROWSERS_PATH`
 /// holds it: hard links where the folders share a file system, copies
 /// otherwise.
-pub(super) fn browser_cache(chrome: &Path) -> Result<tempfile::TempDir> {
+pub(crate) fn browser_cache(chrome: &Path) -> Result<tempfile::TempDir> {
     let root = tempfile::tempdir().context("creating the Browser cache's folder")?;
     let entry = root
         .path()

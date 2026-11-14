@@ -9,6 +9,10 @@
 //! classification found does; and a Challenge met on the browser ends
 //! `blocked`, since no Challenge ladder runs for a pool Session yet.
 //!
+//! Under `fetch.http_from: transport`, a request a Session's own transport
+//! fetched runs again in another Session, one whose client is its browser
+//! (#2416).
+//!
 //! Each crawl's Label samples one request (`fetch.sample.count: 1`) on a
 //! page the tiers serve alike, so its later requests run on `http` under
 //! `auto`, not as samples, whose browser run would hide the move.
@@ -484,5 +488,217 @@ fn a_challenge_a_handlers_goto_meets_under_a_forced_http_tier_raises_blocked() {
             )],
         ),
         "{went}"
+    );
+}
+
+/// The host whose storage page answers a `mark` cookie and whose quiet
+/// page answers none.
+const MARKS_HOST: &str = "scope.test";
+
+/// The settings of a crawl under `auto` whose Label sends its HTTP from
+/// the transport (`fetch.http_from: transport`) and samples one request,
+/// one request at a time, its Frontier learning nothing that would skip a
+/// page reading alike.
+fn from_the_transport(proving_ground: &ProvingGround) -> Value {
+    settings(
+        proving_ground,
+        &json!({
+            "fetch": { "tier": "auto", "http_from": "transport", "sample": { "count": 1 } },
+            "politeness": { "domain": { "concurrency": 1 } },
+            "frontier": { "learning": false },
+        }),
+    )
+}
+
+/// Each handler request as the handler saw it, by the target its URL asks
+/// [`MARKS_HOST`] for: the target, the pool Session that served it and its
+/// tier.
+fn seen_marked(handle: &Value) -> (String, Value, Value) {
+    let url = handle["crawl_request"]["url"].as_str().unwrap();
+    let path = url.split_once(MARKS_HOST).unwrap().1;
+    let path = &path[path.find('/').unwrap()..];
+    (
+        path.to_owned(),
+        handle["session"]["id"].clone(),
+        handle["tier"].clone(),
+    )
+}
+
+/// Under `fetch.http_from: transport`, a call only the browser serves,
+/// `page.evaluate`, made on a page a Session's own transport fetched for a
+/// Label learned onto `http`, runs the request again in the same attempt
+/// in another Session, one whose client is its browser: nothing of the
+/// first Session is carried, so the browser's request carries none of the
+/// cookie the first Session's transport sent, and the attempt commits once
+/// (#2416). Two Sessions at a time make the transport's second request
+/// reuse the Session its first one's answer set the cookie in.
+///
+/// Covers: story:8-209, setting:fetch.http_from, operation:page.evaluate
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+fn under_transport_a_call_only_the_browser_serves_runs_again_in_a_browser_session() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let origin = proving_ground.url(MARKS_HOST, "");
+    let escalated = "/storage?mark=e-3";
+    let mut settings = from_the_transport(&proving_ground);
+    settings["session"] = json!({ "pool": { "max_size": 2 } });
+
+    let (mut handled_by, mut evaluated) = (Vec::new(), Vec::new());
+    let finished = crawl_declaring(
+        &mut engine,
+        "escalated-across-clients",
+        &["/quiet?mark=e-1", "/storage?mark=e-2", escalated]
+            .map(|path| json!({ "url": format!("{origin}{path}"), "label": "page" })),
+        &json!({ "page": {} }),
+        &settings,
+        &mut |inside, handle| {
+            let (path, session, tier) = seen_marked(handle);
+            handled_by.push((path.clone(), session, tier.clone()));
+            if path == escalated {
+                let reply = inside.call(
+                    "page.evaluate",
+                    &json!({ "page_id": handle["page_id"], "function": "() => document.title" }),
+                );
+                evaluated.push((tier, reply.get("error").is_some()));
+                if reply.get("error").is_some() {
+                    return json!({ "error": reply["error"] });
+                }
+            }
+            json!({ "result": { "records": [{ "dataset": "pages", "data": { "path": path } }] } })
+        },
+    );
+    let outcomes = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "escalated-across-clients" }),
+        &mut |_| None,
+    );
+    assert!(engine.finished());
+
+    let cookies: Vec<Vec<(String, String)>> = proving_ground
+        .received_requests()
+        .unwrap()
+        .of_the_case()
+        .filter(|request| request.host == MARKS_HOST && request.target == escalated)
+        .map(|request| request.cookies.clone())
+        .collect();
+    let session = |path: &str, tier: &str| -> Vec<Value> {
+        handled_by
+            .iter()
+            .filter(|(seen, _, seen_tier)| seen == path && *seen_tier == json!(tier))
+            .map(|(_, session, _)| session.clone())
+            .collect()
+    };
+    let sent = session(escalated, "http");
+    assert_eq!(
+        (
+            &finished["result"]["lifecycle"],
+            evaluated,
+            sent == session("/storage?mark=e-2", "http"),
+            sent.len(),
+            sent == session(escalated, "browser"),
+            cookies,
+            outcomes["result"]["outcomes"]
+                .as_array()
+                .map(|outcomes| outcomes
+                    .iter()
+                    .map(|outcome| (outcome["kind"].clone(), outcome["attempts"].clone()))
+                    .collect::<Vec<_>>()),
+        ),
+        (
+            &json!("finished"),
+            vec![(json!("http"), true), (json!("browser"), false)],
+            true,
+            1,
+            false,
+            vec![vec![("mark".to_owned(), "e-2".to_owned())], Vec::new()],
+            Some(vec![(json!("succeeded"), json!(1)); 3]),
+        ),
+        "{handled_by:?}\n{outcomes}"
+    );
+}
+
+/// Under `fetch.http_from: transport`, a Challenge met on a page a
+/// Session's own transport fetched moves its domain to the browser as
+/// under `browser`, and the request runs again in the same attempt in
+/// another Session, one whose client is its browser; the domain's next
+/// request starts on the browser (#2416).
+///
+/// Covers: story:8-216, story:8-209, setting:fetch.http_from
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+fn under_transport_a_challenge_moves_its_request_to_a_browser_session() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+
+    let mut handled_by = Vec::new();
+    let finished = crawl_declaring(
+        &mut engine,
+        "moved-across-clients",
+        &seeds(
+            &proving_ground,
+            &[SAMPLED, "/corpus/article?n=2", "/corpus/article?n=3"],
+        ),
+        &json!({ "page": {} }),
+        &from_the_transport(&proving_ground),
+        &mut |_, handle| {
+            let (path, session, tier) = seen(handle);
+            handled_by.push((path.clone(), session, tier.clone()));
+            if path == "/corpus/article?n=2" && tier == "http" {
+                json!({ "error": { "code": -32003, "message": "a soft block", "data": {
+                    "code": "blocked", "retryable": false, "cause": "challenge",
+                } } })
+            } else {
+                json!({ "result": { "records": [] } })
+            }
+        },
+    );
+    let ended = ended(&mut engine, "moved-across-clients");
+    assert!(engine.finished());
+
+    let of = |path: &str| -> Vec<(Value, Value)> {
+        handled_by
+            .iter()
+            .filter(|(seen, _, _)| seen == path)
+            .map(|(_, session, tier)| (session.clone(), tier.clone()))
+            .collect()
+    };
+    let moved = of("/corpus/article?n=2");
+    assert_eq!(
+        (
+            &finished["result"]["lifecycle"],
+            moved
+                .iter()
+                .map(|(_, tier)| tier.clone())
+                .collect::<Vec<_>>(),
+            moved.first().map(|(session, _)| session) == moved.get(1).map(|(session, _)| session),
+            of("/corpus/article?n=3")
+                .into_iter()
+                .map(|(_, tier)| tier)
+                .collect::<Vec<_>>(),
+            tiers(&env, "moved-across-clients")[3].clone(),
+            ended
+                .iter()
+                .map(|(_, kind, _)| kind.clone())
+                .collect::<Vec<_>>(),
+        ),
+        (
+            &json!("finished"),
+            vec![json!("http"), json!("browser")],
+            false,
+            vec![json!("browser")],
+            json!(["page", "browser", "escalation", null, "blocked"]),
+            vec![json!("succeeded"); 3],
+        ),
+        "{handled_by:?}"
     );
 }

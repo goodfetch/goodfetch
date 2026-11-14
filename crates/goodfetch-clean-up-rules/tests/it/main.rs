@@ -7,5 +7,6 @@ mod hiding;
 mod matching;
 #[cfg(target_os = "linux")]
 mod memory;
+mod page_load;
 mod removal;
 mod versions;

@@ -868,6 +868,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
+name = "bytestring"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca79160522b4aed4a69bab673bee78d3884d44240c78c96cb04b7557d532b4dc"
+dependencies = [
+ "bytes",
+]
+
+[[package]]
 name = "calendrical_calculations"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1855,7 +1864,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2282,16 +2291,22 @@ name = "goodfetch-clean-up-rules"
 version = "0.0.0"
 dependencies = [
  "adblock",
+ "cssparser 0.37.0",
  "data-encoding",
  "dom_query",
  "goodfetch-counted-work",
+ "goodfetch-test-support",
  "goodfetch-workspace-hack",
+ "moka",
+ "proptest",
  "rstest",
+ "selectors 0.38.0",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.21",
  "toml 1.1.8+spec-1.1.0",
+ "ureq",
  "zstd",
 ]
 
@@ -2566,9 +2581,9 @@ dependencies = [
 name = "goodfetch-fetch-tier"
 version = "0.0.0"
 dependencies = [
- "brotli-decompressor 6.0.1",
  "btls",
  "bytes",
+ "bytestring",
  "cookie_store",
  "cssparser 0.37.0",
  "data-encoding",
@@ -2710,6 +2725,7 @@ dependencies = [
  "btls",
  "btls-sys",
  "bytes",
+ "bytestring",
  "data-encoding",
  "flate2",
  "foreign-types",
@@ -5994,7 +6010,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6051,7 +6067,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6851,10 +6867,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7709,7 +7725,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

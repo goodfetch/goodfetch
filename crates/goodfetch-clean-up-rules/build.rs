@@ -1,7 +1,9 @@
 //! Compiles the embedded Clean-up rules (ADRs 0047, 0048 and 0057): each
 //! Filter list under `rules/`, with Brave's unbreak list, into one `adblock`
 //! engine serialized with `Engine::serialize` from the binary's own
-//! `adblock` version and compressed with zstd; the never-block list and the
+//! `adblock` version and compressed with zstd, beside the lines of each
+//! that are `$generichide` exceptions (`filter_set::generic_hide_lines`),
+//! which an engine keeps no text of; the never-block list and the
 //! stand-ins' alias table into Rust tables; and the Consent prompt runner's
 //! bundle (`consent`). Everything it reads is in the crate, so it downloads
 //! nothing (STYLE.md).
@@ -46,8 +48,24 @@ fn main() {
     let lists = embedded_lists(&manifest);
     let unbreak = read(&manifest, &format!("rules/{}", lists.unbreak));
     let mut embedded = String::new();
+    writeln!(
+        embedded,
+        "/// The unbreak list's `$generichide` exceptions.\n\
+         pub(crate) const UNBREAK_GENERIC_HIDE: &str = {:?};",
+        filter_set::generic_hide_lines(&unbreak)
+    )
+    .expect("invariant: writing to a String cannot fail");
     for (name, file) in lists.engines() {
-        let set = filter_set::of(read(&manifest, &format!("rules/{file}")), unbreak.clone());
+        let text = read(&manifest, &format!("rules/{file}"));
+        writeln!(
+            embedded,
+            "/// The `{name}` list's `$generichide` exceptions.\n\
+             pub(crate) const {}_GENERIC_HIDE: &str = {:?};",
+            name.to_ascii_uppercase(),
+            filter_set::generic_hide_lines(&text)
+        )
+        .expect("invariant: writing to a String cannot fail");
+        let set = filter_set::of(text, unbreak.clone());
         let serialized = Engine::new_with_filter_set(set).serialize();
         let compressed = zstd::bulk::compress(&serialized, LEVEL)
             .expect("invariant: zstd compresses a buffer in memory");

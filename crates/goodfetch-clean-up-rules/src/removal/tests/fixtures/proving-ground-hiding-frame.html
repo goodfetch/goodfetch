@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A frame with an ad</title>
+</head>
+<body>
+<div class="ad-slot" id="ad">A frame's ad</div>
+<script>
+addEventListener("load", () => {
+  const ad = document.getElementById("ad");
+  const started = performance.now();
+  const look = () => {
+    const display = getComputedStyle(ad).display;
+    if (display !== "none" && performance.now() - started < 2000) {
+      setTimeout(look, 50);
+      return;
+    }
+    fetch(`/hiding/frame-seen?sheets=${document.styleSheets.length}&ad=${display}`);
+  };
+  look();
+});
+</script>
+</body>
+</html>

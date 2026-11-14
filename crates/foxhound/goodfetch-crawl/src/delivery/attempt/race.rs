@@ -22,8 +22,8 @@ use goodfetch_protocol::usage::REQUESTS;
 use tokio::sync::oneshot;
 
 use super::{
-    Answer, AttemptFailure, BLOCKED, BROWSER, Found, On, PAGE_CHECK_FAILED, RACED, Served, Taught,
-    Tiering, failed, judged, learn, reached_through_trap, read_by_browser, record_tier,
+    Answer, AttemptFailure, BLOCKED, BROWSER, FETCHED, Found, On, PAGE_CHECK_FAILED, Served,
+    Taught, Tiering, failed, judged, learn, reached_through_trap, read_by_browser, record_tier,
     refused_type,
 };
 use crate::lease::WorkItemLease;
@@ -83,7 +83,12 @@ impl On<'_> {
             );
         }
         let document = Box::pin(async {
-            let (served, facts) = self.document(tiering, &fetching, &RACED, hand_over).await?;
+            // A raced chain a hop ends `skipped` teaches nothing: the
+            // navigation may still serve the request.
+            let (served, facts) = self
+                .document(tiering, &fetching, &FETCHED, hand_over)
+                .await
+                .map_err(|unserved| unserved.answer)?;
             let latency = run.clock().now().duration_since(started);
             // Browser-fetch's page is checked as a run on `http` checks
             // its own. A document only a guess could read never wins: the
@@ -93,7 +98,7 @@ impl On<'_> {
             let passed = match self.found(tiering, served.page_id(), &facts).await {
                 Found::Unreadable(_) => false,
                 Found::Challenge(cause, _) => {
-                    self.on_block(cause, &RACED);
+                    self.on_block(cause, &FETCHED);
                     false
                 }
                 Found::Readable => matches!(
@@ -174,7 +179,7 @@ impl On<'_> {
                         self.lease.restage();
                         self.browser(tiers, &BROWSER, Chosen::Escalated(call)).await
                     }
-                    None if self.moves(&answer, &RACED) => {
+                    None if self.moves(&answer, &FETCHED) => {
                         self.lease.renew(self.lease.length());
                         self.lease.restage();
                         self.browser(tiers, &BROWSER, Chosen::Escalated(BLOCKED))

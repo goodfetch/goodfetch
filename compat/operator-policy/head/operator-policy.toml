@@ -100,6 +100,7 @@ extractor = "dom_smoothie"
 
 [settings.extraction]
 removal_share = "estimate"
+readability = "retry"
 
 [settings.proxy]
 server = "http://proxy.example:3128"
@@ -196,6 +197,7 @@ trackers = true
 annoyances = true
 first_party_scripts = true
 page_scriptlets = true
+host_cache = 4
 extra = ["example"]
 
 [settings.clean_up]
@@ -290,6 +292,7 @@ max_size = 4
 tier = "auto"
 tier_race = true
 light_browser = true
+http_from = "browser"
 encoding = "example"
 coalesce = true
 block_classification = true
@@ -457,6 +460,7 @@ extractor = "dom_smoothie"
 
 [lock.extraction]
 removal_share = "estimate"
+readability = "retry"
 
 [lock.proxy]
 server = "http://proxy.example:3128"
@@ -553,6 +557,7 @@ trackers = true
 annoyances = true
 first_party_scripts = true
 page_scriptlets = true
+host_cache = 4
 extra = ["example"]
 
 [lock.clean_up]
@@ -647,6 +652,7 @@ max_size = 4
 tier = "auto"
 tier_race = true
 light_browser = true
+http_from = "browser"
 encoding = "example"
 coalesce = true
 block_classification = true
@@ -791,6 +797,9 @@ dataset_query = 30000
 
 [cap.sample]
 echo_repeats = 4
+
+[cap.filter_lists]
+host_cache = 4
 
 [cap.clean_up]
 fetch_timeout = 30000

@@ -3,7 +3,8 @@
 
 use std::sync::LazyLock;
 
-use goodfetch_clean_up_rules::matching::{Choices, List, Request, ResourceKind, Verdict, judge};
+use goodfetch_clean_up_rules::list::List;
+use goodfetch_clean_up_rules::matching::{Choices, Request, ResourceKind, Verdict, judge};
 use goodfetch_clean_up_rules::never_block::{self, NeverBlock};
 use goodfetch_clean_up_rules::rules::FilterLists;
 use rstest::rstest;

@@ -21,6 +21,11 @@ scenario:
   by default), 16 requests in flight, 8 a domain, no delay, and 429s and
   503s retried twice; `--concurrency` is unread.
 
+Every scenario but `hostile` verifies an `https` site's certificate against
+the platform's roots, which `SSL_CERT_FILE` extends with the Proving
+ground's authority, and fetches it over HTTP/2 unless in the browser: the
+crawl-like scenario (#2284) runs `raw` over TLS and HTTP/2.
+
 Scenario 2's cell says why Scrapy has none. It prints one line, `pages=<n>`,
 the pages Scrapy says it parsed; the comparison's same-work check reads the
 Proving ground's own observations instead.
@@ -51,6 +56,9 @@ SCENARIOS = ("raw", "polite", "extraction", "browser", "hostile")
 ITEMS_FILE = "items.jsonl"
 
 REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
+
+# Scrapy's HTTP/2 download handler, which offers `h2` alone over ALPN.
+H2_HANDLER = "scrapy.core.downloader.handlers.http2.H2DownloadHandler"
 
 
 class Site(scrapy.Spider):
@@ -134,6 +142,9 @@ def settings_of(arguments: argparse.Namespace) -> dict[str, Any]:
         "CONCURRENT_REQUESTS_PER_DOMAIN": arguments.concurrency,
         "DOWNLOAD_DELAY": 0,
         "LOG_LEVEL": "INFO",
+        # Scrapy accepts any certificate by default.
+        "DOWNLOAD_VERIFY_CERTIFICATES": True,
+        "DOWNLOAD_HANDLERS": {"https": H2_HANDLER},
     }
     if arguments.host:
         settings["DEFAULT_REQUEST_HEADERS"] = {"Host": arguments.host}

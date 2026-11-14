@@ -5,7 +5,9 @@ use std::path::Path;
 
 use clap::ValueEnum as _;
 
-use super::{COLLIE_DRIVER, CRAWLEE, RunArguments, SCRAPY, TRIALS_FILE, trials};
+use super::{
+    COLLIE_ARMS_DRIVER, COLLIE_DRIVER, CRAWLEE, RunArguments, SCRAPY, TRIALS_FILE, trials,
+};
 
 /// `word` as one word of a POSIX shell's command: as it is when no
 /// character of it is special, otherwise in single quotes.
@@ -58,6 +60,11 @@ pub(super) fn of(arguments: &RunArguments) -> String {
         ("--crawlee", &arguments.crawlee, CRAWLEE),
         ("--scrapy", &arguments.scrapy, SCRAPY),
         ("--collie-driver", &arguments.collie_driver, COLLIE_DRIVER),
+        (
+            "--collie-arms-driver",
+            &arguments.collie_arms_driver,
+            COLLIE_ARMS_DRIVER,
+        ),
         ("--out", &arguments.out, TRIALS_FILE),
     ] {
         if path != Path::new(default) {

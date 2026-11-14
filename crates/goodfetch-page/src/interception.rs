@@ -76,6 +76,7 @@ pub(crate) mod authentication;
 mod clean_up;
 pub(crate) use self::clean_up::ConsentHandling;
 mod hops;
+mod hosts;
 mod lookups;
 mod navigations;
 mod pipeline;
@@ -91,6 +92,7 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use goodfetch_cdp::NetError;
 use goodfetch_cdp::generated::{fetch, network};
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
+use goodfetch_clean_up_rules::removal::HostCache;
 use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
@@ -114,6 +116,7 @@ use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
 use self::clean_up::CleanUp;
 pub(crate) use self::clean_up::SESSION_KEYS;
+use self::hosts::HostCaches;
 pub(crate) use self::lookups::{HeldBrowser, Lookups};
 use self::navigations::{NavigatingPage, Pending};
 use self::pipeline::{PageContext, Sender};
@@ -168,6 +171,8 @@ struct Shared {
     /// hold no Session that keeps its Filter lists loaded, and without
     /// this each served document would compile them again.
     served: Mutex<BTreeMap<RunId, ServedCosmetic>>,
+    /// The host cache each live Run's pages share, held until it ends.
+    hosts: HostCaches,
 }
 
 /// The cosmetic rules of one live Run's served documents, made once.
@@ -377,6 +382,8 @@ pub(crate) struct Cosmetic {
     pub(crate) version: String,
     /// What the Session's settings choose of them.
     pub(crate) choices: Choices,
+    /// The rule lists its Run's pages built, by host.
+    pub(crate) hosts: Arc<HostCache>,
 }
 
 impl Cosmetic {
@@ -384,8 +391,13 @@ impl Cosmetic {
     /// version `version`, when any list is on and `run`'s
     /// `consent.handling` is not `off`, under which no cosmetic rule acts,
     /// live or in extracted content, while the lists still block requests
-    /// (#2434).
-    fn of(blocking: &steps::Blocking, version: Option<String>, run: &Run) -> Option<Self> {
+    /// (#2434); read through `run`'s host cache of `hosts`.
+    fn of(
+        blocking: &steps::Blocking,
+        version: Option<String>,
+        run: &Run,
+        hosts: &HostCaches,
+    ) -> Option<Self> {
         if ConsentHandling::of(run) == ConsentHandling::Off {
             return None;
         }
@@ -397,6 +409,7 @@ impl Cosmetic {
                 lists: Arc::clone(lists),
                 version,
                 choices: blocking.choices.clone(),
+                hosts: hosts.of(run),
             })
     }
 }
@@ -521,7 +534,7 @@ impl Interception {
             .then(|| clean_up::effective(resolved, own, &BROWSER_BLOCK_RESOURCES).to_string());
         let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
         let clean_up = PageCleanUp {
-            cosmetic: Cosmetic::of(&blocking, version, run),
+            cosmetic: Cosmetic::of(&blocking, version, run, &self.shared.hosts),
             live_hiding: clean_up::live_hiding(resolved, own),
         };
         if let Some(blocked) = blocked {
@@ -874,7 +887,7 @@ impl Interception {
                 &Values::default(),
             );
             let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
-            Cosmetic::of(&blocking, version, run)
+            Cosmetic::of(&blocking, version, run, &self.shared.hosts)
         })
         .await
         .clone()

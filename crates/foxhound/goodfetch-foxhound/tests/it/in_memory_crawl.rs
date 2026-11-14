@@ -282,6 +282,34 @@ fn a_handlers_waits_on_a_document_tier_count_as_the_pages_work() {
     );
 }
 
+/// Each call a document tier answers decodes its params once (ADR 0140's
+/// E1, issue 2617): the read into its handler's type, which the tier
+/// answers from, as every other request does. The Client sends `hello`,
+/// `crawl.start`, `run.finish`, and the handler's two waits a page.
+#[test]
+fn a_call_a_document_tier_answers_decodes_its_params_once() {
+    let env = TestEnv::new();
+    let metrics = Metrics::none();
+    let work = metrics.counted_work().clone();
+
+    let crawled = crawl_with(
+        env.home(),
+        env.start_time(),
+        env.seed(),
+        Options {
+            metrics,
+            handler: true,
+            ..Options::default()
+        },
+    );
+
+    let pages = u64::try_from(PAGES.len() + 1).unwrap();
+    assert_eq!(
+        (crawled.handled, work.read(Row::MessageDecodes)),
+        (pages, 3 + 2 * pages)
+    );
+}
+
 /// A crawl that needs no tree, asking for no format with learning off,
 /// reads each page's links and fields in one streaming pass: it parses no
 /// page (#1911).

@@ -52,10 +52,10 @@ mod untouched;
 mod use_signals;
 mod xpath;
 
-pub use chain::{Following, Gating, HopGate, Skip, Stop, follow};
+pub use chain::{Following, Gating, HopGate, Redirected, Skip, Stop, Unfollowed, follow};
 #[doc(hidden)]
 pub use charset::fuzz_prescan;
-pub use choice::{Choosing, Forced, LabelSettings, SetTier, TierChoice};
+pub use choice::{Choosing, Forced, HttpFrom, LabelSettings, SetTier, TierChoice};
 pub use content_types::ContentTypes;
 pub use discovered_api::{Call as CapturedCall, Capture, Plan as ReplayPlan, infer as infer_plan};
 /// Compiles into the engine's cache on `work` the selectors a handler's
@@ -90,8 +90,9 @@ pub use site_preferences::{
 };
 pub use sniffing::sniff;
 pub use tiers::{
-    Chosen, FetchTiers, FieldElements, HandedOver, HttpTier, Judged, LinksUnread, PAGE_CHECK_CALL,
-    PageFacts, Race, RaceEnd, ServedLinks, Signed, record_race, record_tier, tier_provenance,
+    Chosen, FetchTiers, FieldElements, HandedOver, HttpTier, Judged, Lesson, LinksUnread,
+    PAGE_CHECK_CALL, PageFacts, Race, RaceEnd, ServedLinks, Signed, record_race, record_tier,
+    tier_provenance,
 };
 pub use transports::{
     AddressCheck, LocalSource, Reqwest, TransportConfig, TransportUnavailable, Wreq,

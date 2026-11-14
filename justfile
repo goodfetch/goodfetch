@@ -133,12 +133,15 @@ lint:
     step cargo-deny-crawlee-rs 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-crawlee-rs/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     # pagesift's side, the same.
     step cargo-deny-pagesift 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-pagesift/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
-    # Crawlee's and Scrapy's sides, no workspace member either: their locks'
-    # licenses against the same allowlist, read from what their frozen
-    # installs leave beside them, with each side's own exceptions (ADR 0138).
+    # Crawlee's, Scrapy's and the Collie scenario's arms' sides, no
+    # workspace member either: their locks' licenses against the same
+    # allowlist, read from what their frozen installs leave beside them, with
+    # each side's own exceptions (ADR 0138).
     step compare-crawlee-install 'pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee'
     step compare-scrapy-install 'uv sync --frozen --quiet --directory xtask/compare-scrapy'
-    step --after xtask --after compare-crawlee-install --after compare-scrapy-install xtask-notices 'cargo run --quiet --bin xtask -- notices --side xtask/compare-crawlee --side xtask/compare-scrapy'
+    step compare-collie-arms-install 'pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-collie-arms'
+    step --after compare-collie-arms-install compare-collie-arms-typecheck 'pnpm --dir xtask/compare-collie-arms run --silent typecheck'
+    step --after xtask --after compare-crawlee-install --after compare-scrapy-install --after compare-collie-arms-install xtask-notices 'cargo run --quiet --bin xtask -- notices --side xtask/compare-crawlee --side xtask/compare-scrapy --side xtask/compare-collie-arms'
     # The Kennel's workspace (ADR 0141), read without a build: its lock's
     # licenses against the root allowlist, its bans and sources with its own
     # deny.toml, and its manifest's lints, `rust-version` and shared
@@ -392,6 +395,7 @@ fetch:
     cargo fetch --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml
     cargo fetch --locked --manifest-path xtask/compare-pagesift/Cargo.toml
     pnpm install --frozen-lockfile --dir xtask/compare-crawlee
+    pnpm install --frozen-lockfile --dir xtask/compare-collie-arms
     uv sync --frozen --directory xtask/compare-scrapy
     cd kennel && cargo fetch --locked
     ci/fuzz-check.sh fetch
@@ -1086,11 +1090,13 @@ rss-propose *scenarios:
 # on the Proving ground's article site, each page held to its right answer
 # (#2136: a Foxhound trial that differs is refused, a competitor's is
 # labelled), with a second Foxhound row whose Filter lists are off; 5,
-# headless browser, on its script-rendered site. Four more run scenario
+# headless browser, on its script-rendered site. Five more run scenario
 # 1's settings and carry no bar (#2316): `realistic`, on the realistic-page
 # site, pages of tens of kilobytes with 30 to 100 links; `long`, over a
-# 100,000-page site, its timed trials only; and `raw-64` and `raw-256`, at
-# 64 and 256 requests at once. Foxhound against Spider
+# 100,000-page site, its timed trials only; `raw-64` and `raw-256`, at 64
+# and 256 requests at once; and `crawl-like` (#2284), the article site over
+# TLS and HTTP/2 behind the Proving ground's `rtt-20` profile, each tool
+# trusting its local authority. Foxhound against Spider
 # 2.53.9 (xtask/compare-spider, no workspace member: its HTTP mode, and its
 # `chrome` feature's executable for scenario 5, and its `extraction`
 # feature's, which reads each page with `llm_readability`, for scenario 4;
@@ -1135,12 +1141,15 @@ rss-propose *scenarios:
 # the machine `--machine "<name>"` names, with the command that reruns it;
 # otherwise it fails naming the trial. A host without strace or Valgrind
 # reports that cell as not run. The Collie scenario (issue 2282) runs Collie
-# against Playwright, Guard on, both attached to one Chrome for Testing
-# xtask launched through a relay that counts each tool's CDP commands, on
-# the Proving ground's actionability.test and portal.test pages in five
-# cells, and gives per action the commands, CPU and wall time, each tool's
-# peak memory, the pages each got right and
-# `collie.playwright_command_ratio` against its register row's Today;
+# against Playwright, Guard on, and the arms, Puppeteer 25.17.0's locators
+# and page methods and Stagehand 4.4.0 with no model
+# (xtask/compare-collie-arms, its own lock), all attached to one Chrome for
+# Testing xtask launched through a relay that counts each tool's CDP
+# commands, on the Proving ground's actionability.test and portal.test
+# pages in its cells, and gives per action the commands, CPU and wall time,
+# each tool's peak memory, the pages each got right, which Collie row each
+# arm is read against and `collie.playwright_command_ratio` against its
+# register row's Today;
 # `--scenario collie` runs it alone. It gates nothing and is no Live check;
 # run it when the 1-minute load is under 4.
 # Spider's, crawlee-rs's and pagesift's crates and the sides' packages are
@@ -1176,6 +1185,7 @@ compare profile="release" *args:
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy
     pnpm install --frozen-lockfile --reporter=silent --filter goodfetch-compare-collie...
+    pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-collie-arms
     "$xtask" compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile {{ profile }} "${@:2}"
 
 # The Kennel (ADR 0141), from the repository. On macOS: its release
@@ -1453,7 +1463,8 @@ notices *arguments:
 # The security advisories of the Cargo, pnpm and uv lockfiles (the
 # workspace's, and the sides of `just compare`: Spider's xtask/compare-spider,
 # crawlee-rs's xtask/compare-crawlee-rs, pagesift's xtask/compare-pagesift,
-# Crawlee's xtask/compare-crawlee and Scrapy's xtask/compare-scrapy), against
+# Crawlee's xtask/compare-crawlee, Scrapy's xtask/compare-scrapy and the
+# Collie scenario's arms' xtask/compare-collie-arms), against
 # the advisory snapshot ci/advisories.toml pins (ADR 0064), offline:
 # cargo-deny's and cargo-audit's over RustSec's pinned commit, OSV-Scanner's
 # over OSV's pinned npm and PyPI databases (ci/audit.sh). Its first run
@@ -1465,6 +1476,7 @@ audit:
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-crawlee-rs/Cargo.toml
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-pagesift/Cargo.toml
     ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-crawlee/pnpm-lock.yaml
+    ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-collie-arms/pnpm-lock.yaml
     ci/tool.sh osv-scanner ci/audit.sh python xtask/compare-scrapy/uv.lock
     ci/tool.sh cargo-audit ci/audit.sh rust kennel/Cargo.toml
     ci/tool.sh osv-scanner ci/audit.sh npm

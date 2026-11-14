@@ -655,3 +655,98 @@ fn equivalent_forms_merge_only_on_evidence() {
         ])
     );
 }
+
+/// One redirect is evidence enough of an equivalent form (ADR 0120): a
+/// crawl whose seed `/moved/old` redirects to `/moved/old/` learns the
+/// trailing slash's form from that hop alone, so of the two URLs of the
+/// next page its target links, the slashed one is a `duplicate` the
+/// crawl never fetches.
+///
+/// Covers: story:6-217, operation:crawl_request.enqueue, setting:fetch.tier
+#[test]
+fn a_redirect_between_two_forms_teaches_the_form() {
+    let (env, proving_ground) = ground();
+    let crawled = crawl(
+        &env,
+        &proving_ground,
+        "moved",
+        &[("learning.test", "/moved/old")],
+    );
+
+    let on = |path: &str| proving_ground.url("learning.test", path);
+    assert_eq!(
+        (
+            crawled.answers.get(&on("/moved/next")),
+            crawled.answers.get(&on("/moved/next/")),
+            crawled.handled.clone(),
+            crawled.report["learned_rules"].clone(),
+        ),
+        (
+            Some(&"added".to_owned()),
+            Some(&"duplicate".to_owned()),
+            vec![on("/moved/old"), on("/moved/next")],
+            json!([{
+                "kind": "equivalent_form",
+                "host": "learning.test",
+                "form": "trailing_slash",
+                "evidence": format!(
+                    "{} redirected to {}, which differs from it only by a trailing slash.",
+                    on("/moved/old"),
+                    on("/moved/old/"),
+                ),
+                "merged": [on("/moved/next/")],
+            }]),
+        )
+    );
+}
+
+/// A redirect that ends its request `skipped` with `duplicate`, its target
+/// already admitted, still counts as evidence of an equivalent form (ADR
+/// 0120): a crawl seeded with `/moved/old/` and then `/moved/old`, which
+/// redirects to it, learns the trailing slash's form from that hop, and
+/// hands no handler the redirected request.
+///
+/// Covers: story:6-217, setting:fetch.tier
+#[test]
+fn a_redirect_to_an_admitted_form_still_teaches_the_form() {
+    let (env, proving_ground) = ground();
+    let crawled = crawl(
+        &env,
+        &proving_ground,
+        "moved-twice",
+        &[
+            ("learning.test", "/moved/old/"),
+            ("learning.test", "/moved/old"),
+        ],
+    );
+
+    let on = |path: &str| proving_ground.url("learning.test", path);
+    // Which pending URL the rule merged depends on which seed was fetched
+    // first; the rule and its evidence do not.
+    let rules: Vec<Value> = crawled.report["learned_rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|rule| {
+            let mut rule = rule.clone();
+            rule.as_object_mut().unwrap().remove("merged");
+            rule
+        })
+        .collect();
+    assert_eq!(
+        (crawled.handled.contains(&on("/moved/old")), rules),
+        (
+            false,
+            vec![json!({
+                "kind": "equivalent_form",
+                "host": "learning.test",
+                "form": "trailing_slash",
+                "evidence": format!(
+                    "{} redirected to {}, which differs from it only by a trailing slash.",
+                    on("/moved/old"),
+                    on("/moved/old/"),
+                ),
+            })],
+        )
+    );
+}

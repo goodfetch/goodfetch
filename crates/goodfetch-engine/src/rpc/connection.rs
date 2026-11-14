@@ -68,15 +68,16 @@ use super::framing::{
 };
 use super::websocket::{self, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined};
 use super::{
-    Line, Preamble, failure_line, handshake, not_in_product, notification_line, record,
-    record_cancel, success_line,
+    Line, failure_line, handshake, not_in_product, notification_line, record, record_cancel,
+    success_line,
 };
 use crate::call_error::CallError;
 use crate::client::{Client, Outgoing};
 use crate::clock::Clock;
+use crate::composition::params::Arrived;
 use crate::composition::{
     Answered, CallChannels, CallContext, CallInput, CallNotifier, CallStream, ConnectionContext,
-    DaemonSide, Driver, Handler, InputSender, Params,
+    DaemonSide, Driver, Handler, InputSender,
 };
 use crate::crash_report;
 use crate::endpoint::{Authorities, same_token};
@@ -839,14 +840,13 @@ impl Session<'_> {
     /// on a private endpoint.
     async fn open(&mut self, id: RequestId, call: &Call) -> Flow {
         let daemon = self.connection.daemon.clone();
-        let params = call.params();
-        let work = self.dispatch.work();
-        let (hello, meta) = match Preamble::read(params, work) {
-            Ok(preamble) => (
-                // A `hello` without params is refused as one with `null`.
-                Params::new(params.unwrap_or("null"), work).read::<HelloParams>(),
-                preamble.meta,
-            ),
+        // A `hello` without params is refused as one with `null`.
+        let arrived = Arrived::new(Some(call.params().unwrap_or("null")), self.dispatch.work());
+        // One read of the params, in whose pass their `_meta` is found; a
+        // `_meta` the engine refuses comes before what else they hold.
+        let hello = arrived.params().read::<HelloParams>();
+        let (hello, meta) = match arrived.preamble() {
+            Ok(preamble) => (hello, preamble.meta),
             Err(error) => (Err(error), None),
         };
         if let Some(expected) = self.access.token() {
@@ -941,7 +941,7 @@ impl Session<'_> {
         Flow::Close
     }
 
-    async fn request(&mut self, id: RequestId, call: &Call) -> Flow {
+    async fn request(&mut self, mut id: RequestId, call: &Call) -> Flow {
         let method = call.method();
         let refusal = if method == CANCEL {
             Some(CallError::protocol(
@@ -965,15 +965,21 @@ impl Session<'_> {
                 Some(person_required(method))
             } else {
                 let handler = handler.clone();
-                match Preamble::read(call.params(), self.dispatch.work()) {
+                if self.in_flight.len() >= MAX_IN_FLIGHT {
                     // Refused last, so a call the engine would never start
                     // keeps its own refusal at the cap.
-                    Ok(_) if self.in_flight.len() >= MAX_IN_FLIGHT => Some(too_many_calls()),
-                    Ok(preamble) => {
-                        self.call(id, &handler, call.params(), &preamble);
-                        return Flow::Continue;
+                    let refused = Arrived::new(call.params(), self.dispatch.work())
+                        .preamble()
+                        .err();
+                    Some(refused.unwrap_or_else(too_many_calls))
+                } else {
+                    match self.call(id, &handler, call.params()) {
+                        Ok(()) => return Flow::Continue,
+                        Err((refused, error)) => {
+                            id = refused;
+                            Some(error)
+                        }
                     }
-                    Err(error) => Some(error),
                 }
             }
         } else if !self.dispatch.identity.product.contains(Product::Foxhound)
@@ -1008,18 +1014,22 @@ impl Session<'_> {
 
     /// Starts `handler` on `params`, a request's params where they are, as a
     /// task of the Connection, in the request's span, the child of the span
-    /// the Trace context of `preamble` names; the handler reads `params`
-    /// before it returns.
+    /// the Trace context of their `_meta` names. The handler reads `params`
+    /// before it returns, and what dispatch takes of them, their `_meta`
+    /// and the IDs the span records, comes from that read's pass.
+    ///
+    /// # Errors
+    ///
+    /// The request's id and `invalid_params`, for a `_meta` the engine
+    /// refuses: nothing started.
     fn call(
         &mut self,
         id: RequestId,
         handler: &Handler,
         params: Option<&str>,
-        preamble: &Preamble<'_>,
-    ) {
+    ) -> Result<(), (RequestId, CallError)> {
         let token = self.owner.token().child_token();
         let operation = handler.operation();
-        let span = trace::server_span(operation.name, &id, &preamble.ids, preamble.meta.as_ref());
         let credits = handler.streams().then(Credits::new);
         // Only a call that streams or takes input notifies its Client: any
         // other, most calls, makes no notifier and carries no channels (E1,
@@ -1050,10 +1060,17 @@ impl Session<'_> {
         // The call's watch (ADR 0148): a panic in its handler is answered
         // here, in the task the call already has, and never reaches the
         // Connection's owner.
-        let work = self.dispatch.work();
-        let params = params.map_or_else(|| Params::none(work), |json| Params::new(json, work));
+        let arrived = Arrived::new(params, self.dispatch.work());
+        let started = handler
+            .call(arrived.params(), context)
+            .and_then(|answer| Ok((answer, arrived.preamble()?)));
+        let (answer, preamble) = match started {
+            Ok(started) => started,
+            Err(error) => return Err((id, error)),
+        };
+        let span = trace::server_span(operation.name, &id, &preamble.ids, preamble.meta.as_ref());
         let answer = CallWatch {
-            answer: handler.call(params, context).instrument(span.clone()),
+            answer: answer.instrument(span.clone()),
             metrics: self.dispatch.metrics.clone(),
         };
         self.in_flight.insert(
@@ -1105,6 +1122,7 @@ impl Session<'_> {
             let _ = completed.send(Told::CallEnded(id)).await;
             let _ = outgoing.send(line.into()).await;
         });
+        Ok(())
     }
 
     /// Whether the call `id` names is still in flight, once every call that

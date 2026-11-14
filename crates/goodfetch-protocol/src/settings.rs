@@ -864,6 +864,24 @@ pub const FILTER_LISTS_PAGE_SCRIPTLETS: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `filter_lists.host_cache` (spec #2164).
+pub const FILTER_LISTS_HOST_CACHE: Setting = Setting {
+    name: "filter_lists.host_cache",
+    description: "How many hosts' Clean-up rules this Run keeps built: 1,024, the least used dropped first, and none once the Resource governor finds memory critical. A page on a host it keeps builds no rule list. 0 builds each page's rule list, as before.",
+    kind: ValueKind::Count,
+    default: hosts_kept,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn hosts_kept() -> Value {
+    Value::from(1_024_u64)
+}
+
 /// `session.source` (ADR 0056).
 pub const SESSION_SOURCE: Setting = Setting {
     name: "session.source",
@@ -1046,6 +1064,7 @@ pub const ENTRIES: Entries = Entries {
         FILTER_LISTS_ANNOYANCES,
         FILTER_LISTS_FIRST_PARTY_SCRIPTS,
         FILTER_LISTS_PAGE_SCRIPTLETS,
+        FILTER_LISTS_HOST_CACHE,
         FILTER_LISTS_EXTRA,
         CLEAN_UP_UPDATE,
         CLEAN_UP_VERSION,

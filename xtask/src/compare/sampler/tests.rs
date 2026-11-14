@@ -249,3 +249,42 @@ fn an_exited_process_not_yet_waited_for_gives_no_sample() {
 
     assert_eq!(taken, Some(0));
 }
+
+/// A child the process waited for is gone from its tree, and the OS adds
+/// the child's CPU time to the process's own children's time: the tree's
+/// CPU seconds still count it, as they count a child still running. A shell
+/// spends a few tenths of a second in a subshell it waits for, then becomes
+/// `sleep`, which spends next to none.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_cpu_of_a_child_the_process_waited_for_counts_in_its_tree() {
+    let mut shell = std::process::Command::new("sh")
+        .args([
+            "-c",
+            "(i=0; while [ $i -lt 300000 ]; do i=$((i+1)); done); exec sleep 30",
+        ])
+        .spawn()
+        .unwrap();
+    let pid = shell.id();
+    let comm = std::path::PathBuf::from(format!("/proc/{pid}/comm"));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !std::fs::read_to_string(&comm).is_ok_and(|name| name.trim() == "sleep")
+        && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+
+    let (ticks_per_second, page) = super::system();
+    let own = super::process(pid, page).map(|process| process.cpu_ticks);
+    let seconds = super::cpu_seconds(pid);
+    shell.kill().unwrap();
+    shell.wait().unwrap();
+
+    let own = own.expect("the shell became sleep before the deadline");
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "clock ticks stay far below 2^52"
+    )]
+    let own = own as f64 / ticks_per_second;
+    assert!(seconds > own, "{seconds} s, of which its own {own} s");
+}

@@ -39,6 +39,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use bytes::Bytes;
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
@@ -135,6 +136,27 @@ impl Stop {
     }
 }
 
+/// How a chain ended without a document, with each redirect hop it
+/// followed before it ended, in order: a request a hop ends `skipped`
+/// still teaches them, the hop that reached a key admitted for another
+/// request last among them (ADR 0120).
+#[derive(Debug)]
+pub struct Unfollowed {
+    /// How it ended.
+    pub stop: Stop,
+    /// The redirect hops it followed before.
+    pub redirects: Arc<[Redirected]>,
+}
+
+impl From<Stop> for Unfollowed {
+    fn from(stop: Stop) -> Self {
+        Self {
+            stop,
+            redirects: Arc::new([]),
+        }
+    }
+}
+
 /// A boxed future a [`HopGate`] answers.
 pub type Gating<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -207,7 +229,42 @@ where
     let reading = Arc::new(MarkupRefresh(work.clone()));
     follow_reading(first, following, gate, (clock, owner, &reading), fetch)
         .await
-        .map(|(fetched, _)| fetched)
+        .map(|followed| followed.fetched)
+        .map_err(|unfollowed| unfollowed.stop)
+}
+
+/// A redirect hop a chain followed, which the Frontier learns an
+/// equivalent form from (ADR 0120): a redirect's, or a refresh stub's.
+#[derive(Clone, Debug)]
+pub struct Redirected {
+    /// The URL that answered with the redirect.
+    pub from: Url,
+    /// The URL it led to, resolved.
+    pub to: Url,
+    /// The method the hop at `from` was sent with.
+    pub method: http::Method,
+    /// The body the hop at `from` was sent with, if any.
+    pub body: Option<Bytes>,
+}
+
+impl Redirected {
+    /// The redirect from `hop` to `next`.
+    fn between(hop: Hop, next: &Hop) -> Self {
+        Self {
+            from: hop.url,
+            to: next.url.clone(),
+            method: hop.method,
+            body: hop.body,
+        }
+    }
+}
+
+/// The document a chain ended on, with what its [`Reading`] read of it,
+/// if it read it, and each redirect hop it followed to reach it, in order.
+pub(crate) struct Followed<T> {
+    pub(crate) fetched: Fetched,
+    pub(crate) read: Option<T>,
+    pub(crate) redirects: Vec<Redirected>,
 }
 
 /// What a hop's document is read into on the CPU pool, when the chain reads
@@ -220,7 +277,7 @@ pub(crate) trait Reading: Send + Sync + 'static {
 
     /// Reads `fetched`'s document, an HTML one by its type: its refresh
     /// directive, which ends the read when `follows` follows it.
-    fn read(&self, fetched: &Fetched, follows: &dyn Fn(&Refresh) -> bool) -> HopRead<Self::Read>;
+    fn read(&self, fetched: Fetched, follows: &dyn Fn(&Refresh) -> bool) -> HopRead<Self::Read>;
 
     /// The Counted work its reads count on, and each read's hand-off to
     /// the CPU pool with them.
@@ -242,7 +299,7 @@ struct MarkupRefresh(CountedWork);
 impl Reading for MarkupRefresh {
     type Read = ();
 
-    fn read(&self, fetched: &Fetched, follows: &dyn Fn(&Refresh) -> bool) -> HopRead<()> {
+    fn read(&self, fetched: Fetched, follows: &dyn Fn(&Refresh) -> bool) -> HopRead<()> {
         match refresh::in_markup(&fetched.url, &fetched.body, &self.0) {
             Some(refresh) if follows(&refresh) => HopRead::Refresh(refresh),
             Some(_) | None => HopRead::Document(()),
@@ -258,11 +315,14 @@ impl Reading for MarkupRefresh {
 /// pool: answers the document the chain ends on, with what `reading` read
 /// of it when it read its markup, `None` when the chain ended on it
 /// unread (a redirect's status it does not follow, a type that is no
-/// HTML, a `Refresh` header, or a chain that follows no refresh stub).
+/// HTML, a `Refresh` header, or a chain that follows no refresh stub),
+/// and each redirect hop `gate` admitted on the way.
 ///
 /// # Errors
 ///
-/// Those of [`follow`].
+/// Those of [`follow`], with each redirect hop followed before: the hop
+/// whose key `gate` found admitted for another request among them, as a
+/// redirect to it still counts as evidence (ADR 0120).
 ///
 /// # Cancel safety
 ///
@@ -273,7 +333,7 @@ pub(crate) async fn follow_reading<F, Fut, E, R>(
     gate: &dyn HopGate,
     (clock, owner, reading): (&Clock, &TaskOwner, &Arc<R>),
     mut fetch: F,
-) -> Result<(Fetched, Option<R::Read>), Stop>
+) -> Result<Followed<R::Read>, Unfollowed>
 where
     F: FnMut(Hop) -> Fut,
     Fut: Future<Output = Result<Fetched, E>>,
@@ -281,58 +341,79 @@ where
     R: Reading,
 {
     let first_url = first.url.to_string();
-    let mut hops: Vec<String> = Vec::new();
-    let mut hop = first;
-    let mut permit: Option<Permit> = None;
-    loop {
-        gate.sending(&hop, hops.is_empty()).await?;
-        let sent = clock.now();
-        let fetched = fetch(hop.clone()).await.map_err(|failure| {
-            let failure: FetchFailure = failure.into();
-            if failure.error().code() != EGRESS_REFUSED.name {
-                return Stop::Failed(failure);
-            }
-            let error = failure.error();
-            let what = if hops.is_empty() {
-                "The request to"
-            } else {
-                "A redirect to"
-            };
-            Stop::Skipped(Skip {
-                reason: SkipReason::DomainPolicy,
-                message: format!(
-                    "{what} `{}` reaches an address the Run's egress policy refuses: {}",
-                    hop.url,
-                    error.message()
-                ),
-            })
-        })?;
-        gate.answered(&hop, clock.now().duration_since(sent)).await;
-        // The hop's answer arrived: its permit is released (ADR 0118).
-        drop(permit.take());
-        let next = match next_hop(&hop, &fetched, following, (owner, reading)).await? {
-            Step::Next(next) => next,
-            Step::End(read) => {
-                if !hops.is_empty() {
-                    gate.reached(&hop).await?;
+    let mut redirects: Vec<Redirected> = Vec::new();
+    let walked: Result<Followed<R::Read>, Stop> = async {
+        let redirects = &mut redirects;
+        let mut hop = first;
+        let mut permit: Option<Permit> = None;
+        loop {
+            gate.sending(&hop, redirects.is_empty()).await?;
+            let sent = clock.now();
+            let mut fetched = fetch(hop.clone()).await.map_err(|failure| {
+                let failure: FetchFailure = failure.into();
+                if failure.error().code() != EGRESS_REFUSED.name {
+                    return Stop::Failed(failure);
                 }
-                return Ok((fetched, read));
+                let error = failure.error();
+                let what = if redirects.is_empty() {
+                    "The request to"
+                } else {
+                    "A redirect to"
+                };
+                Stop::Skipped(Skip {
+                    reason: SkipReason::DomainPolicy,
+                    message: format!(
+                        "{what} `{}` reaches an address the Run's egress policy refuses: {}",
+                        hop.url,
+                        error.message()
+                    ),
+                })
+            })?;
+            gate.answered(&hop, clock.now().duration_since(sent)).await;
+            // The hop's answer arrived: its permit is released (ADR 0118).
+            drop(permit.take());
+            let next = match next_hop(&hop, &mut fetched, following, (owner, reading)).await? {
+                Step::Next(next) => next,
+                Step::End(read) => {
+                    if !redirects.is_empty() {
+                        gate.reached(&hop).await?;
+                    }
+                    return Ok(Followed {
+                        fetched,
+                        read,
+                        redirects: std::mem::take(redirects),
+                    });
+                }
+            };
+            if redirects.len() >= usize::try_from(following.max).unwrap_or(usize::MAX) {
+                let hops = redirects.iter().map(|hop| hop.to.to_string()).collect();
+                return Err(Stop::failed(too_many_redirects(
+                    &first_url,
+                    hops,
+                    following.max,
+                )));
             }
-        };
-        if hops.len() >= usize::try_from(following.max).unwrap_or(usize::MAX) {
-            return Err(Stop::failed(too_many_redirects(
-                &first_url,
-                hops,
-                following.max,
-            )));
+            if let Some(until) = retry_after(&fetched, following, clock)? {
+                gate.wait_until(&next, until).await;
+            }
+            match gate.admit(&next).await {
+                Ok(admitted) => permit = Some(admitted),
+                // The redirect still counts as evidence (ADR 0120).
+                Err(Stop::Skipped(skip)) if skip.reason == SkipReason::Duplicate => {
+                    redirects.push(Redirected::between(hop, &next));
+                    return Err(Stop::Skipped(skip));
+                }
+                Err(stop) => return Err(stop),
+            }
+            redirects.push(Redirected::between(hop, &next));
+            hop = next;
         }
-        if let Some(until) = retry_after(&fetched, following, clock)? {
-            gate.wait_until(&next, until).await;
-        }
-        permit = Some(gate.admit(&next).await?);
-        hops.push(next.url.to_string());
-        hop = next;
     }
+    .await;
+    walked.map_err(|stop| Unfollowed {
+        stop,
+        redirects: redirects.into(),
+    })
 }
 
 /// Where a chain goes after a hop's answer.
@@ -348,9 +429,10 @@ enum Step<T> {
 /// while `following` follows refresh stubs, an HTTP(S) refresh stub's
 /// within `fetch.refresh.max_delay`, its markup read by `reading` on
 /// `owner`'s blocking pool; [`Step::End`] when it is the chain's document.
+/// The read takes the pass `fetched` holds, which only it reads.
 async fn next_hop<R: Reading>(
     hop: &Hop,
-    fetched: &Fetched,
+    fetched: &mut Fetched,
     following: &Following,
     (owner, reading): (&TaskOwner, &Arc<R>),
 ) -> Result<Step<R::Read>, Stop> {
@@ -381,11 +463,17 @@ async fn next_hop<R: Reading>(
         Some(refresh) => refresh,
         None if html => {
             let counted = reading.work();
-            let (reading, read) = (Arc::clone(reading), fetched.clone());
+            // The read takes the pass, which is never cloned.
+            let pass = fetched.pass.take();
+            let read = Fetched {
+                pass,
+                ..fetched.clone()
+            };
+            let reading = Arc::clone(reading);
             let read = owner
                 .analysis(counted, move || {
                     let at = read.url.clone();
-                    reading.read(&read, &|refresh| follows(refresh, max_delay, &at))
+                    reading.read(read, &|refresh| follows(refresh, max_delay, &at))
                 })
                 .await;
             match read {

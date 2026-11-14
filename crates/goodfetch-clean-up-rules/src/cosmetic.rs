@@ -11,7 +11,8 @@ use std::collections::BTreeMap;
 use adblock::Engine;
 use adblock::cosmetic_filter_cache::{ProceduralOrActionFilter, UrlSpecificResources};
 
-use crate::matching::{Choices, List};
+use crate::list::List;
+use crate::matching::Choices;
 use crate::rules::FilterLists;
 
 /// One cosmetic rule that hides through CSS: its selector, and the
@@ -98,24 +99,13 @@ impl<'a> PageRules<'a> {
             })
             .collect()
     }
-
-    /// The procedural rules of the page's URL that are no plain CSS, each
-    /// with its list.
-    pub(crate) fn procedural(&self) -> Vec<(ProceduralOrActionFilter, List)> {
-        self.lists
-            .iter()
-            .flat_map(|(list, _, resources)| {
-                procedural(resources)
-                    .filter(|filter| filter.as_css().is_none())
-                    .map(|filter| (filter, *list))
-            })
-            .collect()
-    }
 }
 
 /// The procedural rules `resources` hold, each read from the JSON `adblock`
 /// keeps them in; one it cannot read is left out.
-fn procedural(resources: &UrlSpecificResources) -> impl Iterator<Item = ProceduralOrActionFilter> {
+pub(crate) fn procedural(
+    resources: &UrlSpecificResources,
+) -> impl Iterator<Item = ProceduralOrActionFilter> {
     let mut filters: Vec<&String> = resources.procedural_actions.iter().collect();
     filters.sort();
     filters

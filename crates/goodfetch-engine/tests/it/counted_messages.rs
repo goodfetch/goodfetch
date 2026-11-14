@@ -70,11 +70,11 @@ fn every_message_is_read_without_a_copy_and_encoded_once() {
     assert!(encodes_off < encodes, "{encodes_off} off, {encodes} on");
 }
 
-/// Each request's params are decoded where they are, and each decode counts
-/// (ADR 0140's E1): one by dispatch, for their `_meta` and the Run and
-/// Session IDs its span names, and one into the type the request's handler
-/// takes, `hello`'s among them. A `$/credit` and a reply to a handler request
-/// are no request and count none; a plant adds one for each call that went
+/// Each request's params are decoded once, where they are, straight into
+/// the type the request's handler takes, `hello`'s among them (ADR 0140's
+/// E1): dispatch takes their `_meta` and the Run and Session IDs its span
+/// names from that pass. A `$/credit` and a reply to a handler request are
+/// no request and count none; a plant adds one for each call that went
 /// through a handler.
 #[test]
 fn each_decode_of_a_requests_params_is_counted() {
@@ -86,6 +86,6 @@ fn each_decode_of_a_requests_params_is_counted() {
 
     assert_eq!(sent.handler_requests, TRAFFIC.plugin, "{sent:?}");
     assert_eq!(requests, 9);
-    assert_eq!(decodes, 2 * requests);
+    assert_eq!(decodes, requests);
     assert_eq!(decodes_planted - decodes, calls);
 }

@@ -12,7 +12,10 @@
 //! and whether the cheaper runs matched it classified once the attempt
 //! settles. A run on `light_browser` is one on `http` whose page is served
 //! from the document Lightpanda's run of the page's scripts left (ADR
-//! 0020), escalated to the browser as `http`'s is.
+//! 0020), escalated to the browser as `http`'s is. Under
+//! `fetch.http_from: learned` (#2417), a sample whose `http` run differed
+//! from the browser's runs once more after it, on `browser_fetch`, from the
+//! hop page of the attempt's own browser Session.
 //!
 //! Under `fetch.tier_race` (ADR 0040; the `tier_race` module), an attempt
 //! whose tier is not forced races instead: its document is fetched through
@@ -85,8 +88,8 @@ use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
     Capture, Chosen, FetchFailure, FetchTiers, HandOver, HopChecks, HttpTier, Judged,
-    PAGE_CHECK_CALL, PageFacts, PooledSession, ReplayPlan, Request, Requester, RunHandOver,
-    SitePreferences, Stop, TierChoice, infer_plan, tier_serves,
+    PAGE_CHECK_CALL, PageFacts, PooledSession, Redirected, ReplayPlan, Request, Requester,
+    RunHandOver, SitePreferences, Stop, TierChoice, Unfollowed, infer_plan, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -106,8 +109,8 @@ use goodfetch_protocol::foxhound::settings::{
 use goodfetch_protocol::page::{NAVIGATION_FAILED, PageId, PageResponse};
 use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
 use goodfetch_protocol::settings::page_check::PageCheck;
-use goodfetch_session_pool::Effect;
 use goodfetch_session_pool::escalation::{self, Action, Met};
+use goodfetch_session_pool::{Effect, PoolKey, PoolSettings, SendsFrom};
 use tokio::sync::{Mutex, oneshot};
 
 use super::failure::{AttemptFailure, Why};
@@ -115,8 +118,9 @@ use super::watch::{self, Watch};
 use crate::code_free::CodeFree;
 use crate::lease::{CommitError, SoFar, WorkItemLease};
 use crate::progress::SharedInFlight;
+use crate::run_state::{Asking, Escalated};
 use crate::tier_choice::weighing::{self, StagedRun};
-use crate::tier_choice::{AttemptPlan, Sampled, Weighed};
+use crate::tier_choice::{AttemptPlan, Between, Sampled, Weighed};
 use crate::tier_race::Raced;
 use crate::work_items::{Fetched, Leased};
 
@@ -126,8 +130,8 @@ mod race;
 mod site_preferences;
 mod sitemap_fetch;
 
-use learning::learn;
 pub(super) use learning::{Taught, learns};
+use learning::{learn, skipped};
 use site_preferences::{escaped_refusal, share_robots_txt};
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -138,6 +142,23 @@ const BLOCKED: &str = goodfetch_protocol::page::BLOCKED.name;
 /// The Error code of a page that failed its Page check (ADR 0006), which
 /// scores its Session down.
 const PAGE_CHECK_FAILED: &str = goodfetch_protocol::page::PAGE_CHECK_FAILED.name;
+
+/// How an attempt's document ended unserved: its answer, with the redirect
+/// hops its chain followed before a hop ended it `skipped`, which still
+/// teach (ADR 0120); none for any other ending.
+pub(super) struct Unserved {
+    pub(super) answer: Answer,
+    pub(super) redirects: Arc<[Redirected]>,
+}
+
+impl From<Answer> for Unserved {
+    fn from(answer: Answer) -> Self {
+        Self {
+            answer,
+            redirects: Arc::new([]),
+        }
+    }
+}
 
 /// How an attempt ended, before its outcome is committed.
 pub(super) enum Answer {
@@ -186,6 +207,40 @@ pub(super) struct Tiering {
     /// The Page check the request's Label declares of its own.
     page_check: Option<PageCheck>,
     second_copies: SecondCopies,
+    /// The client the attempt's Session sends from.
+    sends_from: SendsFrom,
+    /// The Session a sample's `http` run is sent from when its Label sends
+    /// its HTTP from the transport (`fetch.http_from`): drawn beside the
+    /// attempt's, sharing nothing with it.
+    transport: Option<SampleSession>,
+    /// The Session drawn only to read the attempt's site files from its
+    /// own transport, when neither the attempt's Session nor `transport`
+    /// sends from one (#2422).
+    site_files: Option<ServingSession>,
+    /// Where an escalation draws the Session it runs again in, when the
+    /// attempt's Session sends from its own transport (#2416).
+    escalating: Option<Escalating>,
+}
+
+/// What an attempt whose Session sends from its own transport asks the
+/// crawl's Run state through, as it escalates to the browser, for a
+/// Session whose client is its browser (#2416): the pool its Label draws
+/// from among the crawl's `labels`, under the Run's pool `settings`.
+pub(super) struct Escalating {
+    pub(super) asking: Asking,
+    pub(super) labels: std::sync::Arc<crate::labels::Declared>,
+    pub(super) pool: PoolKey,
+    pub(super) settings: PoolSettings,
+}
+
+/// The Session a sample's `http` run is sent from, from its own transport,
+/// as it would run in the browser, with the Run's HTTP tier as it sends
+/// on it: `None` when that tier could not be built for it, which fails the
+/// sample.
+pub(super) struct SampleSession {
+    pub(super) session: ServingSession,
+    pub(super) in_browser: PooledSession,
+    pub(super) http: Option<HttpTier>,
 }
 
 impl Tiering {
@@ -206,7 +261,37 @@ impl Tiering {
             light,
             page_check,
             second_copies: second_copies.clone(),
+            sends_from: SendsFrom::Browser,
+            transport: None,
+            site_files: None,
+            escalating: None,
         }
+    }
+
+    /// The same, its Session sending from `sends_from`, and a sample's
+    /// `http` run sent from `transport`'s Session when given.
+    pub(super) fn sending(
+        mut self,
+        sends_from: SendsFrom,
+        transport: Option<SampleSession>,
+    ) -> Self {
+        self.sends_from = sends_from;
+        self.transport = transport;
+        self
+    }
+
+    /// The same, its site files read from `site_files`' Session when
+    /// given.
+    pub(super) fn reading_site_files(mut self, site_files: Option<ServingSession>) -> Self {
+        self.site_files = site_files;
+        self
+    }
+
+    /// The same, an escalation drawing through `escalating` the Session it
+    /// runs again in, when given.
+    pub(super) fn escalating(mut self, escalating: Option<Escalating>) -> Self {
+        self.escalating = escalating;
+        self
     }
 
     /// The tier the attempt starts on, if any.
@@ -240,9 +325,12 @@ const REPLAYED: TierChoice = TierChoice {
     forced: None,
 };
 
-/// The tier a race's browser-fetch serves its page on: `http`, sent from
-/// inside the Session's browser, chosen by no one.
-const RACED: TierChoice = SAMPLED;
+/// The tier a browser-fetch the engine chose serves its page on, a
+/// race's, a sample's under `fetch.http_from: learned` and a Label's
+/// learned onto `browser_fetch`: `http`, sent from inside the Session's
+/// browser, chosen by no one. Provenance names `browser_fetch`, the tier
+/// that sent it; its handler is told `http`, the tier its page serves as.
+const FETCHED: TierChoice = SAMPLED;
 
 /// The browser's tier, chosen by no one.
 const BROWSER: TierChoice = TierChoice {
@@ -253,9 +341,8 @@ const BROWSER: TierChoice = TierChoice {
 /// What every attempt of `run` hands over alike with its pages, built once
 /// as its delivery opens, never per attempt (ADR 0138): its `settings` as
 /// the navigation gate and the site's preferences read them, the
-/// Politeness it shares, robots.txt and the AI-use signal files fetched on
-/// `http`, the Run's HTTP tier, whose address check judges each redirect
-/// hop, `egress`, its domain policy, and `hops`, how each redirect hop
+/// Politeness it shares, `http`, the Run's HTTP tier, whose address check
+/// judges each redirect hop, `egress`, its domain policy, and `hops`, how each redirect hop
 /// asks the delivery loop of the visited set (ADR 0142).
 pub(super) async fn run_hand_over(
     run: &Run,
@@ -281,7 +368,6 @@ pub(super) async fn run_hand_over(
         keys: DomainKeys::of(settings),
         politeness: shared.clone().filter(|_| paces),
         shared_politeness: shared,
-        robots: http.map(HttpTier::robots_txt_fetch),
         domain_delay: settings
             .get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY)
             .unwrap_or_default(),
@@ -383,6 +469,15 @@ pub(super) struct Attempt {
     _counted: Counted,
     /// The Session of the crawl's Session pool that served it.
     pub(super) session: ServingSession,
+    /// The Session a sample's `http` run was sent from, from its own
+    /// transport, when its Label sends its HTTP from there.
+    pub(super) transport: Option<ServingSession>,
+    /// The Session drawn only to read its site files, when one was.
+    pub(super) site_files: Option<ServingSession>,
+    /// The Session whose client is its browser that it ran again in, when
+    /// it escalated from its Session's own transport (#2416): its answer
+    /// is this Session's.
+    pub(super) escalated: Option<ServingSession>,
     pub(super) lease: WorkItemLease,
     pub(super) answer: Answer,
     /// What its page taught the Frontier, or teaches it with its outcome.
@@ -407,6 +502,29 @@ pub(super) struct Attempt {
     pub(super) moved: bool,
 }
 
+/// The answer of an attempt that needs the crawl's HTTP tier, which could
+/// not be built: its `what` was not fetched, retried as a failed
+/// navigation.
+fn without_http_tier(what: &str) -> Answer {
+    Answer::failed(AttemptFailure::named(
+        NAVIGATION_FAILED.name,
+        true,
+        format!("The crawl's HTTP tier could not be built, so the {what} was not fetched."),
+    ))
+}
+
+/// The choice a request on `choice` is served under: a Label learned onto
+/// `browser_fetch` is served as `http` from its Session's browser (#2417).
+fn served_as(choice: &TierChoice) -> &TierChoice {
+    match choice {
+        TierChoice {
+            tier: FetchTier::BrowserFetch,
+            forced: None,
+        } => &FETCHED,
+        choice => choice,
+    }
+}
+
 /// One attempt: the handler request, bounded by its lease, on the tier its
 /// request takes. On `http` the request's document is fetched first and
 /// the handler given a page served from it; a call that tier cannot serve
@@ -427,11 +545,12 @@ pub(super) async fn attempt(
     (tiering, (hand_over, code_free)): (Tiering, (Arc<HandOver>, Option<Arc<CodeFree>>)),
     in_flight: SharedInFlight,
 ) -> Attempt {
-    let document = Mutex::new(None);
-    let sent_at = Mutex::new(None);
+    let (document, sent_at) = (Mutex::new(None), Mutex::new(None));
     let moved = OnceLock::new();
+    let escalated = OnceLock::new();
     let on = On {
         document: &document,
+        escalated_to: &escalated,
         sent_at: &sent_at,
         moved: &moved,
         run: &run,
@@ -440,6 +559,7 @@ pub(super) async fn attempt(
         session: &session,
         in_browser: &in_browser,
         http: tiering.http.as_ref(),
+        sends_from: tiering.sends_from,
         lease: &lease,
         hand_over: &hand_over,
         code_free: code_free.as_deref(),
@@ -455,17 +575,12 @@ pub(super) async fn attempt(
             let mut raced = None;
             let answer = match (&tiering.plan, &tiering.http) {
                 (AttemptPlan::Sitemap, Some(http)) => on.sitemap(http).await,
-                (AttemptPlan::Sitemap, None) => Answer::failed(AttemptFailure::named(
-                    NAVIGATION_FAILED.name,
-                    true,
-                    "The crawl's HTTP tier could not be built, so the sitemap was not fetched."
-                        .to_owned(),
-                )),
+                (AttemptPlan::Sitemap, None) => without_http_tier("sitemap"),
                 (AttemptPlan::On(choice), _) if choice.tier == FetchTier::Browser => {
                     on.browser(&tiering.tiers, choice, Chosen::AsChosen).await
                 }
                 (AttemptPlan::On(choice), Some(http)) => {
-                    let (answer, learned) = on.http(&tiering, http, choice, None).await;
+                    let (answer, learned) = on.http(&tiering, http, served_as(choice), None).await;
                     merged = learned;
                     answer
                 }
@@ -475,7 +590,8 @@ pub(super) async fn attempt(
                     answer
                 }
                 (AttemptPlan::Sample(sample), Some(http)) => {
-                    let (answer, learned, weighed) = Box::pin(on.sample(&tiering, http)).await;
+                    let (answer, learned, weighed) =
+                        Box::pin(on.sample(&tiering, http, sample.browser_fetch)).await;
                     merged = learned;
                     sampled = weighed.map(|weighed| (sample.clone(), weighed));
                     answer
@@ -492,12 +608,7 @@ pub(super) async fn attempt(
                     | AttemptPlan::Sample(_)
                     | AttemptPlan::Race(_),
                     None,
-                ) => Answer::failed(AttemptFailure::named(
-                    NAVIGATION_FAILED.name,
-                    true,
-                    "The crawl's HTTP tier could not be built, so the request was not fetched."
-                        .to_owned(),
-                )),
+                ) => without_http_tier("request"),
             };
             (answer, merged, sampled, raced)
         }))
@@ -522,6 +633,9 @@ pub(super) async fn attempt(
         leased,
         _counted: counted,
         session,
+        transport: tiering.transport.map(|sample| sample.session),
+        site_files: tiering.site_files,
+        escalated: escalated.into_inner().map(|(session, _)| session),
         lease,
         answer,
         taught,
@@ -608,6 +722,7 @@ struct BrowserRun {
 }
 
 /// What one attempt runs its handler with.
+#[derive(Clone, Copy)]
 struct On<'a> {
     run: &'a Run,
     context: &'a CallContext,
@@ -618,6 +733,8 @@ struct On<'a> {
     /// The Run's HTTP tier, when it could be built, whose address check
     /// judges the request's URL before a browser tier opens it.
     http: Option<&'a HttpTier>,
+    /// The client the Session sends its HTTP from.
+    sends_from: SendsFrom,
     lease: &'a WorkItemLease,
     /// What the attempt hands over with its Run's pages, built once as it
     /// was leased: each of its runs on a tier takes it whole.
@@ -638,6 +755,10 @@ struct On<'a> {
     /// Whether a Challenge met on a tier short of the browser moved the
     /// request to the browser, set once it did.
     moved: &'a OnceLock<()>,
+    /// The Session whose client is its browser that the request ran again
+    /// in, as that Session runs in the browser, set once its attempt
+    /// escalated from a Session's own transport (#2416).
+    escalated_to: &'a OnceLock<(ServingSession, PooledSession)>,
 }
 
 impl On<'_> {
@@ -707,7 +828,8 @@ impl On<'_> {
 
     /// The attempt on the `http` tier: its run there ([`On::on_http`]),
     /// escalated to the browser at the first call the tier cannot serve
-    /// under `auto`, in the same attempt, the first answer discarded.
+    /// under `auto`, in the same attempt, the first answer discarded
+    /// ([`On::escalate`]).
     /// Answers how it ended and the pending requests the page's rules
     /// merged. On `discovered_api`, its page replays `plan`'s calls.
     async fn http(
@@ -731,38 +853,123 @@ impl On<'_> {
                 // stages anew: what the first run staged goes with it.
                 self.lease.renew(self.lease.length());
                 drop(self.lease.restage());
-                self.browser(&tiering.tiers, choice, Chosen::Escalated(call))
-                    .await
+                self.escalate(tiering, choice, call).await
             }
             // A Challenge the program's code named moves as one the rules
             // found does.
             None if self.moves(&run.answer, choice) => {
                 self.lease.renew(self.lease.length());
                 drop(self.lease.restage());
-                self.browser(&tiering.tiers, choice, Chosen::Escalated(BLOCKED))
-                    .await
+                self.escalate(tiering, choice, BLOCKED).await
             }
             _ => run.answer,
         };
         (answer, merged)
     }
 
-    /// A sample of the crawl's sample comparison: its run on `http`, then,
-    /// unless that run ended the attempt, its run on `browser` under a
-    /// whole lease of its own, whose answer is the attempt's, matched or
-    /// not. Answers it, the pending requests the page's rules merged, and
+    /// The request run again on the browser, escalated at `call` from a
+    /// run as `choice` says: in the attempt's Session when it sends from
+    /// its browser (`fetch.http_from: browser`), else in a Session whose
+    /// client is its browser, drawn for it from its Label's pool, which
+    /// carries nothing of the first (#2416). A failed answer, retried, when
+    /// the crawl ended before that Session was drawn.
+    async fn escalate(&self, tiering: &Tiering, choice: &TierChoice, call: &'static str) -> Answer {
+        let how = Chosen::Escalated(call);
+        let escalating = match &tiering.escalating {
+            Some(escalating) if self.sends_from == SendsFrom::Transport => escalating,
+            _ => return self.browser(&tiering.tiers, choice, how).await,
+        };
+        // The loop answers from memory, at once: the attempt waits for it
+        // whatever its lease, so the Session it draws is always settled.
+        let drawn = escalating
+            .asking
+            .escalated(Escalated {
+                labels: std::sync::Arc::clone(&escalating.labels),
+                pool: escalating.pool.clone(),
+                domain_key: self.leased.waiting.key.clone(),
+                settings: escalating.settings,
+                now: self.run.clock().wall(),
+            })
+            .await;
+        let Ok(drawn) = drawn else {
+            return Answer::failed(AttemptFailure::named(
+                NAVIGATION_FAILED.name,
+                true,
+                "The crawl ended before a browser Session was drawn for the escalated request, so it was not fetched again."
+                    .to_owned(),
+            ));
+        };
+        // An attempt escalates once, so nothing was set before.
+        let (session, in_browser) = self
+            .escalated_to
+            .get_or_init(|| (drawn.session, drawn.in_browser));
+        On {
+            session,
+            in_browser,
+            sends_from: SendsFrom::Browser,
+            ..*self
+        }
+        .browser(&tiering.tiers, choice, how)
+        .await
+    }
+
+    /// Where a sample's `http` run is sent from, on the Run's HTTP tier as
+    /// it sends there: the Session drawn for it from the transport when
+    /// there is one, else the attempt's own on `http`; a failed answer
+    /// when that Session's tier could not be built.
+    fn sampled_from<'s>(
+        &'s self,
+        tiering: &'s Tiering,
+        http: &'s HttpTier,
+    ) -> Result<(On<'s>, &'s HttpTier), Answer> {
+        let Some(sample) = &tiering.transport else {
+            return Ok((*self, http));
+        };
+        let Some(http) = &sample.http else {
+            return Err(Answer::failed(AttemptFailure::named(
+                NAVIGATION_FAILED.name,
+                true,
+                "The crawl's HTTP tier could not be built for the sample's own Session, so the request was not fetched."
+                    .to_owned(),
+            )));
+        };
+        Ok((
+            On {
+                session: &sample.session,
+                in_browser: &sample.in_browser,
+                http: Some(http),
+                sends_from: SendsFrom::Transport,
+                ..*self
+            },
+            http,
+        ))
+    }
+
+    /// A sample of the crawl's sample comparison: its run on `http`, sent
+    /// from the Session drawn for it when its Label sends its HTTP from the
+    /// transport (`fetch.http_from`), else from the attempt's, then, unless
+    /// that run ended the attempt, its run on `browser` under a whole lease
+    /// of its own, whose answer is the attempt's, matched or not. Answers
+    /// it, the pending requests the page's rules merged, and
     /// how the two runs weighed once the browser's answered: what each run
     /// staged, the Records it pushed then those of its answer and the
     /// requests it enqueued, before any Hook (ADR 0103), the URL each ended
     /// on and the encoding each read in (ADRs 0118 and 0119). A browser run
     /// that met a consent wall keeps its Label on `browser` (ADR 0048).
+    /// When `browser_fetch` (`fetch.http_from: learned`), a sample whose
+    /// `http` run differed runs once more on `browser_fetch` ([`Self::fetched`]).
     async fn sample(
         &self,
         tiering: &Tiering,
         http: &HttpTier,
+        browser_fetch: bool,
     ) -> (Answer, Taught, Option<Weighed>) {
-        let (run, merged) = match self
-            .on_http(tiering, http, (&SAMPLED, None), Chosen::Sample(None))
+        let (sender, sent_on) = match self.sampled_from(tiering, http) {
+            Ok(sender) => sender,
+            Err(answer) => return (answer, Taught::default(), None),
+        };
+        let (run, merged) = match sender
+            .on_http(tiering, sent_on, (&SAMPLED, None), Chosen::Sample(None))
             .await
         {
             Ok(ran) => ran,
@@ -778,32 +985,9 @@ impl On<'_> {
         self.moves(&run.answer, &SAMPLED);
         self.lease.renew(self.lease.length());
         let cheaper = self.lease.restage();
-        // Where the Run allows it, the sample runs on `light_browser` too,
-        // before the browser, whose run stages what commits.
-        let light = if tiering.light {
-            match self
-                .on_http(tiering, http, (&LIGHT_SAMPLED, None), Chosen::Sample(None))
-                .await
-            {
-                Ok((light, _))
-                    if matches!(light.answer, Answer::LeaseEnded | Answer::ClientGone) =>
-                {
-                    return (light.answer, merged, None);
-                }
-                Ok((light, _)) => {
-                    self.lease.renew(self.lease.length());
-                    Some((light, self.lease.restage()))
-                }
-                Err((Answer::LeaseEnded, _)) => return (Answer::LeaseEnded, merged, None),
-                Err((Answer::ClientGone, _)) => return (Answer::ClientGone, merged, None),
-                Err(_) => {
-                    self.lease.renew(self.lease.length());
-                    drop(self.lease.restage());
-                    None
-                }
-            }
-        } else {
-            None
+        let light = match self.light_sampled(tiering, http).await {
+            Ok(light) => light,
+            Err(ended) => return (ended, merged, None),
         };
         let capture = Capture::under(Limits::of_run(self.run.settings()));
         let browser = self
@@ -848,15 +1032,18 @@ impl On<'_> {
                             if tier_serves(call, FetchTier::DiscoveredApi)
                                 && !tier_serves(call, FetchTier::Http) =>
                         {
-                            self.replayed(tiering, http, &capture, &browser_run).await
+                            Box::pin(sender.replayed(tiering, sent_on, &capture, &browser_run))
+                                .await
                         }
                         _ => None,
                     };
-                    Some(match replayed {
-                        Some(plan) => Weighed::MatchedApi { plan, light },
-                        None if light => Weighed::MatchedLight,
-                        None => Weighed::Differed,
-                    })
+                    let fetch =
+                        browser_fetch && Box::pin(self.fetched(tiering, http, &browser_run)).await;
+                    Some(Weighed::Differed(Between {
+                        api: replayed,
+                        fetch,
+                        light,
+                    }))
                 }
             }
             _ => None,
@@ -899,6 +1086,57 @@ impl On<'_> {
         matches_browser(&run, &staged, browser, self.not_compared()).then_some(plan)
     }
 
+    /// A sample's run on `browser_fetch` under `fetch.http_from: learned`
+    /// (#2417), after its browser's, whose staging is set aside meanwhile
+    /// and kept to commit: the same request sent from the hop page of the
+    /// attempt's own browser Session, its staging then discarded. Answers
+    /// whether the run staged what the browser's run `browser` did; not
+    /// when it differed, escalated or failed.
+    /// Where the Run allows it, the sample's run on `light_browser`, before
+    /// the browser, whose run stages what commits; `None` where it is not
+    /// allowed or failed, and the answer that ends the attempt where its
+    /// lease ended or its client left.
+    async fn light_sampled(
+        &self,
+        tiering: &Tiering,
+        http: &HttpTier,
+    ) -> Result<Option<(HttpRun, SoFar)>, Answer> {
+        if !tiering.light {
+            return Ok(None);
+        }
+        match self
+            .on_http(tiering, http, (&LIGHT_SAMPLED, None), Chosen::Sample(None))
+            .await
+        {
+            Ok((light, _)) if matches!(light.answer, Answer::LeaseEnded | Answer::ClientGone) => {
+                Err(light.answer)
+            }
+            Ok((light, _)) => {
+                self.lease.renew(self.lease.length());
+                Ok(Some((light, self.lease.restage())))
+            }
+            Err((ended @ (Answer::LeaseEnded | Answer::ClientGone), _)) => Err(ended),
+            Err(_) => {
+                self.lease.renew(self.lease.length());
+                drop(self.lease.restage());
+                Ok(None)
+            }
+        }
+    }
+
+    async fn fetched(&self, tiering: &Tiering, http: &HttpTier, browser: &StagedRun<'_>) -> bool {
+        let Some(browsers) = self.lease.set_aside() else {
+            return false;
+        };
+        self.lease.renew(self.lease.length());
+        let ran = self
+            .on_http(tiering, http, (&FETCHED, None), Chosen::Sample(None))
+            .await;
+        let staged = self.lease.restage();
+        self.lease.put_back(browsers);
+        ran.is_ok_and(|(run, _)| matches_browser(&run, &staged, browser, self.not_compared()))
+    }
+
     /// The fields of a Record that two runs of one attempt never hold
     /// alike, which a sample's comparison leaves out: a code-free crawl's
     /// ([`crate::code_free::NOT_COMPARED`]), none of a handler's.
@@ -931,21 +1169,25 @@ impl On<'_> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let tiers = &tiering.tiers;
         let hand_over = self.hand_over;
-        // A Session that may move to the browser, under `auto`, sends its
-        // HTTP from inside its browser, so its fingerprint and cookies stay
-        // the Session's on both tiers (ADR 0020; pitfall H20), and so does
-        // one forced onto `browser_fetch`.
-        // A Session forced onto its own transport keeps its cookies in a
-        // jar of its own there (ADR 0021).
-        let http = &if choice.forced.is_none() || choice.tier == FetchTier::BrowserFetch {
-            tiers.in_browser(http, run, self.in_browser, hand_over, self.context)
-        } else {
-            http.keeping_cookies_of(&self.session.id)
+        // The client the Session was drawn for (`AttemptPlan::sends_from`).
+        let http = &match self.sends_from {
+            SendsFrom::Browser => {
+                tiers.in_browser(http, run, self.in_browser, hand_over, self.context)
+            }
+            SendsFrom::Transport => http.keeping_cookies_of(&self.session.id),
         };
         let (served, facts) = self
             .document(tiering, http, choice, hand_over)
             .await
-            .map_err(|answer| (answer, Taught::default()))?;
+            .map_err(|Unserved { answer, redirects }| {
+                // A sample's runs teach nothing, as [`Self::taught`] says.
+                let taught = if matches!(how, Chosen::Sample(_)) {
+                    Taught::default()
+                } else {
+                    skipped(run, leased, redirects)
+                };
+                (answer, taught)
+            })?;
         // `served` is held until its handler answered: an attempt abandoned
         // while its handler runs, as an abort abandons it, closes its page
         // as it drops, so the page never holds the Run's handles past the
@@ -1126,7 +1368,7 @@ impl On<'_> {
         http: &HttpTier,
         choice: &TierChoice,
         hand_over: &Arc<HandOver>,
-    ) -> Result<(Served<'t>, PageFacts), Answer> {
+    ) -> Result<(Served<'t>, PageFacts), Unserved> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let requester = Requester {
             request_id: &leased.crawl_request.id,
@@ -1146,10 +1388,10 @@ impl On<'_> {
             document = async {
                 address_check(run, http, leased).await?;
                 if let Ok(url) = goodfetch_frontier::Url::parse(&leased.crawl_request.url) {
-                    self.site_preferences_judged(http, Request::CrawlRequest, &url)
+                    self.site_preferences_judged(Request::CrawlRequest, &url)
                         .await?;
                 }
-                let served = if choice.tier == FetchTier::LightBrowser {
+                let served: Result<PageId, Unfollowed> = if choice.tier == FetchTier::LightBrowser {
                     let identity = self.context.identity();
                     let pinned_by = PinnedBy {
                         product: identity.product,
@@ -1165,29 +1407,34 @@ impl On<'_> {
                             (self.context.engine().home(), &pinned_by),
                         )
                         .await
+                        .map_err(Unfollowed::from)
                 } else {
                     tiers
                         .serve(http, run, &leased.crawl_request, &requester, choice, hand_over)
                         .await
                 };
-                served
-                    .map_err(|stop| match stop {
-                        Stop::Failed(failure) => fetch_failed(&failure),
-                        Stop::RobotsTxtUnreachable {
-                            message,
-                            on_own_domain: true,
-                        } => Answer::RobotsTxtUnreachable(message),
-                        Stop::RobotsTxtUnreachable {
-                            message,
-                            on_own_domain: false,
-                        } => Answer::HopsRobotsTxtUnreachable(message),
-                        Stop::Skipped(skip) => {
-                            tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, reason = ?skip.reason, message = skip.message, "a redirect hop ended its request skipped");
-                            Answer::Refused(skip.reason)
+                served.map_err(|Unfollowed { stop, redirects }| match stop {
+                    Stop::Failed(failure) => fetch_failed(&failure).into(),
+                    Stop::RobotsTxtUnreachable {
+                        message,
+                        on_own_domain: true,
+                    } => Answer::RobotsTxtUnreachable(message).into(),
+                    Stop::RobotsTxtUnreachable {
+                        message,
+                        on_own_domain: false,
+                    } => Answer::HopsRobotsTxtUnreachable(message).into(),
+                    // A failed chain's hops are followed again by its
+                    // retry; a skipped request's are taught now (ADR 0120).
+                    Stop::Skipped(skip) => {
+                        tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, reason = ?skip.reason, message = skip.message, "a redirect hop ended its request skipped");
+                        Unserved {
+                            answer: Answer::Refused(skip.reason),
+                            redirects,
                         }
-                    })
+                    }
+                })
             } => document,
-            _ = lease.ended() => Err(Answer::LeaseEnded),
+            _ = lease.ended() => Err(Answer::LeaseEnded.into()),
         };
         let served = Served {
             tiers,
@@ -1196,8 +1443,8 @@ impl On<'_> {
         let facts = tiers
             .facts(served.page_id())
             .expect("invariant: a served page is open while it is held");
-        if let Some(refused) = self.document_refusal(http, &facts.use_signals).await {
-            return Err(refused);
+        if let Some(refused) = self.document_refusal(&facts.use_signals).await {
+            return Err(refused.into());
         }
         Ok((served, facts))
     }

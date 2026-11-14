@@ -35,7 +35,8 @@
 //! broke there, from the Proving ground's findings, with no bar and no
 //! standing. It also runs the Collie scenario (issue 2282, `collie`):
 //! Collie against Playwright on one browser, which gives
-//! `collie.playwright_command_ratio`. `report` holds every
+//! `collie.playwright_command_ratio`, Puppeteer and Stagehand beside them
+//! as its arms (issues 2443 and 2441). `report` holds every
 //! trial to the same-work check, then writes each cell's median and spread
 //! of every metric and Foxhound's verdicts against each competitor,
 //! labelled `local-controlled`, measured on the machine it names, with the
@@ -61,6 +62,7 @@ mod same_work;
 mod sampler;
 mod trial;
 mod trials;
+mod trust;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -82,6 +84,8 @@ const CRAWLEE: &str = "xtask/compare-crawlee/crawl.mjs";
 const SCRAPY: &str = "xtask/compare-scrapy/crawl.py";
 /// The Collie scenario's side's script, as the recipe runs it.
 const COLLIE_DRIVER: &str = "xtask/compare-collie/act.ts";
+/// The Collie scenario's arms' script, as the recipe runs it.
+const COLLIE_ARMS_DRIVER: &str = "xtask/compare-collie-arms/act.ts";
 /// The trials file the recipe writes.
 const TRIALS_FILE: &str = "target/compare/trials.json";
 /// The folder beside the trials file where a run keeps the Callgrind cell's
@@ -153,6 +157,10 @@ pub(crate) struct RunArguments {
     /// Node.js once its packages are installed.
     #[arg(long, default_value = COLLIE_DRIVER)]
     collie_driver: PathBuf,
+    /// The Collie scenario's arms, `xtask/compare-collie-arms`'s script,
+    /// run by Node.js once its packages are installed.
+    #[arg(long, default_value = COLLIE_ARMS_DRIVER)]
+    collie_arms_driver: PathBuf,
     /// Runs only this scenario's cells; repeatable. Every scenario by
     /// default, the Collie scenario's included.
     #[arg(long = "scenario", value_enum)]
@@ -183,6 +191,8 @@ enum Asked {
     Hostile,
     #[value(name = "hostile-16")]
     Hostile16,
+    #[value(name = "crawl-like")]
+    CrawlLike,
     Collie,
 }
 
@@ -214,6 +224,7 @@ impl Asked {
             Self::Raw256 => Some(Scenario::Raw256),
             Self::Hostile => Some(Scenario::Hostile),
             Self::Hostile16 => Some(Scenario::Hostile16),
+            Self::CrawlLike => Some(Scenario::CrawlLike),
             Self::Collie => None,
         }
     }
@@ -302,6 +313,7 @@ fn measure(arguments: &RunArguments, environment: &Environment) -> Result<ExitCo
                 proving_ground,
                 engine: tools.path(Tool::Collie)?,
                 driver: absolute(&environment.path(&arguments.collie_driver))?,
+                arms_driver: absolute(&environment.path(&arguments.collie_arms_driver))?,
                 browser: &browser,
                 goodfetch_variables: &environment.goodfetch_variables,
             })
@@ -363,6 +375,12 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             // folder.
             let executable = std::path::absolute(&arguments.executable)
                 .context("finding the tool's executable")?;
+            let authority = cell
+                .scenario
+                .network()
+                .tls()
+                .then(|| trust::certificate_authority(&arguments.address))
+                .transpose()?;
             let plan = trial::Plan {
                 cell,
                 config,
@@ -376,6 +394,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 goodfetch_variables: &environment.goodfetch_variables,
                 browser: arguments.browser.as_deref(),
                 executable_pages: arguments.executable_pages,
+                certificate_authority: authority.as_ref().map(tempfile::NamedTempFile::path),
             };
             let line = match plan.mode {
                 trial::Mode::Timed => serde_json::to_string(&plan.timed()?)?,

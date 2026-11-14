@@ -70,6 +70,13 @@ pub(crate) const PAGESIFT_VERSION: &str = "1.3.0";
 /// in the latter (unit tests hold each equal).
 pub(crate) const PLAYWRIGHT_VERSION: &str = "1.64.1";
 pub(crate) const SCRAPY_PLAYWRIGHT_VERSION: &str = "0.0.48";
+/// The Collie scenario's arms' pinned versions (issues 2441, 2442 and
+/// 2443): `puppeteer-core`'s, `@browserbasehq/stagehand`'s and
+/// `agent-browser`'s in `xtask/compare-collie-arms/package.json` (unit
+/// tests hold each equal).
+pub(crate) const PUPPETEER_VERSION: &str = "25.17.0";
+pub(crate) const STAGEHAND_VERSION: &str = "4.4.0";
+pub(crate) const AGENT_BROWSER_VERSION: &str = "0.43.0";
 
 /// Runs of each tool in the Callgrind cell, whose figure is their median:
 /// fewer than the timed trials, since a count barely varies and a run under
@@ -153,11 +160,18 @@ pub(crate) struct Work {
     pub(crate) extra: Vec<String>,
     /// The requests for the site's paths it answered `200`.
     pub(crate) requests: u64,
-    /// The bytes it sent answering them: heads and bodies as framed.
+    /// The bytes it sent answering them: heads and bodies as framed, or
+    /// over TLS (#2284) bodies alone, which no client's framing or header
+    /// compression changes.
     pub(crate) bytes: u64,
     /// The bytes of each page's first `200` answer, the work of a crawl
     /// that fetched some pages again after a kill.
     pub(crate) first_bytes: u64,
+    /// The requests for the site's paths that came over another protocol
+    /// than the scenario's: over TLS and HTTP/2 (#2284), each over plain
+    /// text or HTTP/1.1; none over loopback, where any protocol is the
+    /// scenario's.
+    pub(crate) other_protocol: u64,
 }
 
 impl Work {
@@ -423,26 +437,60 @@ pub(crate) enum Exercise {
     Sessions,
     /// 16 pages acting at once in one Session.
     AtOnce,
+    /// Pages opened one after another in one Session, each kept open
+    /// (issue 2319).
+    Opening,
 }
 
-/// A tool of the Collie scenario, which the driver
-/// (`xtask/compare-collie/act.ts`) runs.
+/// A tool of the Collie scenario, which its driver runs: Collie's and
+/// Playwright's `xtask/compare-collie/act.ts`, the arms'
+/// `xtask/compare-collie-arms/act.ts`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum Contender {
     /// Collie's Attached engine, over JSON-RPC through its TypeScript SDK.
     Collie,
     /// Playwright's Node.js library, its actionability checks on.
     Playwright,
+    /// Puppeteer's locators, whose click waits for the viewport, a stable
+    /// box and enabled (issue 2443).
+    PuppeteerLocator,
+    /// Puppeteer's page methods, whose click checks nothing (issue 2443).
+    PuppeteerPage,
+    /// Stagehand's locators with no model, whose click neither waits nor
+    /// checks (issue 2441).
+    Stagehand,
+    /// agent-browser's command line, whose click checks its target once
+    /// and does not wait (issue 2442).
+    AgentBrowser,
 }
 
 impl Contender {
-    pub(crate) const ALL: [Self; 2] = [Self::Collie, Self::Playwright];
+    pub(crate) const ALL: [Self; 6] = [
+        Self::Collie,
+        Self::Playwright,
+        Self::PuppeteerLocator,
+        Self::PuppeteerPage,
+        Self::Stagehand,
+        Self::AgentBrowser,
+    ];
+    /// The scenario's arms, each read against the Collie row the pages it
+    /// got right place it at (issues 2441, 2442 and 2443).
+    pub(crate) const ARMS: [Self; 4] = [
+        Self::PuppeteerLocator,
+        Self::PuppeteerPage,
+        Self::Stagehand,
+        Self::AgentBrowser,
+    ];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Collie => "collie",
             Self::Playwright => "playwright",
+            Self::PuppeteerLocator => "puppeteer_locator",
+            Self::PuppeteerPage => "puppeteer_page",
+            Self::Stagehand => "stagehand",
+            Self::AgentBrowser => "agent_browser",
         }
     }
 }
@@ -495,6 +543,10 @@ pub(crate) struct CollieTrial {
     /// The CDP commands the counting relay passed to the browser between
     /// the marks: every WebSocket message from the tool.
     pub(crate) commands: u64,
+    /// The rounds the tool waited on the browser between the marks: its
+    /// CDP commands awaited one after another, those sent together or
+    /// while others were in flight counting once.
+    pub(crate) rounds: u64,
     /// The CPU time of the tool's process tree between the marks.
     pub(crate) cpu_seconds: f64,
     /// The time between the marks.
@@ -519,7 +571,83 @@ pub(crate) struct CollieStopped {
     pub(crate) reason: String,
 }
 
-/// The Collie scenario: its cells' trials, both tools in each.
+/// A page of the Collie scenario's page-load cell (issue 2319): the
+/// Proving ground's `page-load.test` page of 150 subresources.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LoadPage {
+    /// Every subresource on the page's own host.
+    Plain,
+    /// 30 of them on hosts the embedded Filter lists block.
+    Ads,
+}
+
+/// A row of the page-load cell: a tool and the settings it loads with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Row {
+    /// Collie at its defaults.
+    Defaults,
+    /// `live_view.hiding: off`.
+    LiveHidingOff,
+    /// `live_view.hiding: off` and `consent.handling: off`.
+    ConsentOff,
+    /// `live_view.hiding: off` and the three Filter lists off.
+    FilterListsOff,
+    /// `security.raw_cdp_egress_proxy` off.
+    EgressRelayOff,
+    /// Playwright at its defaults.
+    Playwright,
+    /// Playwright with a route that lets every request through.
+    PlaywrightRouted,
+}
+
+/// One trial of the page-load cell: one tool, in a fresh process, launching
+/// its own browser against a fresh Proving ground, timed from the call that
+/// loads the page to its `load` event.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct LoadTrial {
+    pub(crate) page: LoadPage,
+    pub(crate) row: Row,
+    /// Its number among its row's trials on its page, from 1.
+    pub(crate) number: u32,
+    /// The 1-minute load average when it started, where the OS gives one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) load: Option<f64>,
+    /// The document's status, when the navigation answered one.
+    pub(crate) status: Option<u16>,
+    /// The SHA-256 of the page's `#content` text, in hex.
+    pub(crate) read: Option<String>,
+    /// The page's own subresources the Proving ground answered, each once.
+    pub(crate) own: u64,
+    /// The requests the Proving ground received for the page's host and
+    /// the ad hosts: those the tool sent.
+    pub(crate) sent: u64,
+    /// The CPU time of the tool's process tree, its browser in it, between
+    /// the marks.
+    pub(crate) cpu_seconds: f64,
+    /// The time from the call that loads the page to its `load` event.
+    pub(crate) wall_seconds: f64,
+    /// The highest resident memory of the tool's process tree, its browser
+    /// in it, from its start to its exit.
+    pub(crate) peak_bytes: u64,
+    /// Why its first attempt was stopped, when these are its retry's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) retried: Option<String>,
+}
+
+/// A page-load trial stopped twice, which leaves its row's figures on its
+/// page unmeasured and its later trials there not run.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct LoadStopped {
+    pub(crate) page: LoadPage,
+    pub(crate) row: Row,
+    pub(crate) number: u32,
+    /// Both attempts' reasons.
+    pub(crate) reason: String,
+}
+
+/// The Collie scenario: its cells' trials, each tool's in each.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub(crate) enum CollieScenario {
@@ -527,11 +655,18 @@ pub(crate) enum CollieScenario {
         reason: String,
     },
     Measured {
-        /// Trials of each tool in each cell.
+        /// Trials of each tool in each cell, and of each row on each page.
         trials: u32,
+        /// The tools the run ran, in [`Contender::ALL`]'s order, which the
+        /// same-work check and the report read the run by.
+        tools: Vec<Contender>,
         trials_run: Vec<CollieTrial>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         stopped: Vec<CollieStopped>,
+        /// The page-load cell's trials (issue 2319).
+        loads: Vec<LoadTrial>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        loads_stopped: Vec<LoadStopped>,
     },
 }
 
@@ -560,7 +695,8 @@ pub(crate) struct Comparison {
     pub(crate) instructions: CountedCell,
     /// The hostile pages' cells' runs: the rules each tool broke (#2439).
     pub(crate) rules: Vec<RuledRun>,
-    /// The Collie scenario: Collie against Playwright on one browser.
+    /// The Collie scenario: Collie against Playwright and the arms on one
+    /// browser.
     pub(crate) collie: CollieScenario,
 }
 

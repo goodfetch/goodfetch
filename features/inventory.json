@@ -8352,6 +8352,17 @@
       ]
     },
     {
+      "id": "setting:extraction.readability",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:extraction.removal_share",
       "kind": "setting",
       "area": 6,
@@ -8406,6 +8417,16 @@
       "id": "setting:fetch.hedge.max_percent",
       "kind": "setting",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:fetch.http_from",
+      "kind": "setting",
+      "area": 5,
       "milestone": null,
       "status": "active",
       "products": [
@@ -8527,6 +8548,17 @@
     },
     {
       "id": "setting:filter_lists.first_party_scripts",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:filter_lists.host_cache",
       "kind": "setting",
       "area": 5,
       "milestone": null,

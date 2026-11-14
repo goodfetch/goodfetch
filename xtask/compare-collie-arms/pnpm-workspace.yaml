@@ -1,0 +1,14 @@
+# The Collie scenario's arms of `just compare` (issues 2443, 2441 and 2442):
+# Puppeteer, Stagehand and agent-browser, a pnpm workspace of its own, like
+# `xtask/compare-crawlee`'s, so their dependencies stay out of the Products'
+# `pnpm-lock.yaml`. Its own lock pins them; `just fetch` and `just compare`
+# install them with `--frozen-lockfile`, and `just audit` and `just lint`
+# read them.
+packages: []
+
+# Install scripts that never run (STYLE.md, Dependencies: nothing a build
+# downloads). agent-browser's finds its native binary, which pnpm installs
+# as its optional dependency for the host, and links its command to it; the
+# driver runs that binary itself.
+allowBuilds:
+  agent-browser: false

@@ -54,8 +54,8 @@ use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::{RunSettings, Values};
-use goodfetch_engine::{CallContext, CallError, Contribution, Guard, Handler, Params};
+use goodfetch_engine::settings::RunSettings;
+use goodfetch_engine::{CallContext, CallError, Contribution, Guard, Handler};
 use goodfetch_extractor::Serialization;
 use goodfetch_protocol::connection::{Surface, WaitedFor};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -93,14 +93,14 @@ use goodfetch_protocol::page::{
 };
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
-use serde::Deserialize;
-use serde_json::{Value, value::RawValue};
+use serde_json::Value;
 
 use crate::blocks::{Block, BlockClassifier, NoBlocks};
 use crate::browser_fetch;
 use crate::dialogs::{self, Dialogs};
 use crate::document_request::{DocumentRequest, Unread};
 use crate::driver::{Destination, SerializedDocument};
+use crate::extractor;
 use crate::guard::{self, Action, Request, Window};
 use crate::hiding::Hidden;
 use crate::interception::{
@@ -194,9 +194,9 @@ pub fn contribution_with(
     // A call on a page a fetch tier serves from a document is the
     // Product's to answer, serve or refuse (ADR 0093).
     let product = Arc::clone(&pages.product);
-    let guard: Guard = Arc::new(move |operation, params, context| {
-        let page_id = page_of(params)?;
-        product.call(&page_id, operation.name, params, context)
+    let guard: Guard = Arc::new(move |operation, params, read, context| {
+        let page_id = PageId(params.page()?.into_owned());
+        product.call(&page_id, operation.name, read, context)
     });
     contribution.guarded(&guard)
 }
@@ -1016,31 +1016,6 @@ impl BrowserPages for Opener {
     }
 }
 
-/// The page a call's params name, as a page call names it (`page_id`) or a
-/// locator's (`locator.page_id`).
-fn page_of(params: Params<'_>) -> Option<PageId> {
-    /// The members of a call's params that can name its page.
-    #[derive(Deserialize)]
-    struct Addressed<'a> {
-        page_id: Option<String>,
-        /// Read only when no `page_id` names the page, as a locator the
-        /// call does not need can be anything.
-        #[serde(borrow)]
-        locator: Option<&'a RawValue>,
-    }
-    /// A locator's member that names its page.
-    #[derive(Deserialize)]
-    struct Located {
-        page_id: Option<String>,
-    }
-    let addressed: Addressed<'_> = params.read_members()?;
-    if let Some(page_id) = addressed.page_id {
-        return Some(PageId(page_id));
-    }
-    let located: Located = serde_json::from_str(addressed.locator?.get()).ok()?;
-    located.page_id.map(PageId)
-}
-
 /// The engine's pages, which every call of every Connection shares.
 #[derive(Clone)]
 struct Pages {
@@ -1565,15 +1540,14 @@ impl Pages {
         if let Some(served) = self.product.document(&params.page_id) {
             tracing::Span::current().record("run_id", served.run.id().as_str());
             let document = SerializedDocument {
-                html: served.html,
-                url: served.url,
-                base_url: served.base_url,
+                html: served.html.clone(),
+                url: served.url.clone(),
+                base_url: served.base_url.clone(),
             };
             let request = params.formats;
-            let extractor = clean_up::extractor(
+            let extractor = extractor::served(
                 served.run.settings().map(RunSettings::resolved),
-                (&Values::default(), served.extractor),
-                &Values::default(),
+                served.extractor,
             );
             let measure =
                 clean_up::ShareMeasure::of(served.run.settings().map(RunSettings::resolved));
@@ -1623,7 +1597,7 @@ impl Pages {
             .await?;
         let request = params.formats;
         let (_, session) = self.sessions.own_settings(&page.session).await?;
-        let extractor = clean_up::extractor(
+        let extractor = extractor::chosen(
             page.run.settings().map(RunSettings::resolved),
             (&session, page.driver.value().extractor()),
             &page.settings,

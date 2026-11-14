@@ -11,15 +11,14 @@ publish.workspace = true
 autobenches = false
 
 [dependencies]
-brotli-decompressor.workspace = true
 btls.workspace = true
 bytes.workspace = true
+bytestring.workspace = true
 cookie_store.workspace = true
 cssparser.workspace = true
 data-encoding.workspace = true
 dom_query.workspace = true
 encoding_rs.workspace = true
-flate2.workspace = true
 http-body-util.workspace = true
 goodfetch-counted-work.workspace = true
 goodfetch-engine.workspace = true
@@ -54,7 +53,6 @@ webpki-root-certs.workspace = true
 wreq.workspace = true
 wreq-proto.workspace = true
 wreq-util.workspace = true
-zstd.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 # The index of the Session's interface, which each socket binds on macOS and
@@ -63,6 +61,7 @@ goodfetch-workspace-hack.workspace = true
 netdev.workspace = true
 
 [dev-dependencies]
+flate2.workspace = true
 goodfetch-test-support.workspace = true
 hyper = { workspace = true, features = ["http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }
@@ -72,6 +71,7 @@ gungraun.workspace = true
 proptest.workspace = true
 rstest.workspace = true
 toml.workspace = true
+zstd.workspace = true
 tokio = { workspace = true, features = ["rt", "macros", "time", "net"] }
 
 # ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.

@@ -33,6 +33,7 @@ use super::matrix::{Cell, Config, Scenario, Site as SiteKind};
 use super::observed::{self, MARKER, Observed};
 use super::sampler::{self, Sampler};
 use super::trials::{MILESTONES, Measured, Work};
+use super::trust;
 
 /// How a trial runs its tool.
 #[derive(Clone, Debug)]
@@ -126,7 +127,7 @@ pub(crate) fn request_count(address: &str) -> Result<u64> {
 }
 
 /// The Proving ground's observations.
-fn observations(address: &str) -> Result<Value> {
+pub(crate) fn observations(address: &str) -> Result<Value> {
     ureq::get(&format!("http://{address}/observations"))
         .call()
         .context("reading the Proving ground's observations")?
@@ -408,6 +409,10 @@ pub(crate) struct Plan<'a> {
     /// Whether a timed trial's sampler reads the tool's executable's own
     /// pages: the sizes cell's trials do (spec #2165).
     pub(crate) executable_pages: bool,
+    /// The Proving ground's certificate authority, a PEM file, which a
+    /// scenario served over TLS (#2284) has each tool trust: none
+    /// otherwise.
+    pub(crate) certificate_authority: Option<&'a Path>,
 }
 
 impl Plan<'_> {
@@ -476,6 +481,8 @@ impl Plan<'_> {
             if let Some(cache) = cache {
                 command.env(goodfetch_protocol::settings::BROWSERS_PATH_VARIABLE, cache);
             }
+            // Foxhound trusts the certificate authority from its user
+            // configuration, which `configure` writes.
         } else {
             // The other tools crawl from their arguments, in their data
             // folder, and print their count last on stdout.
@@ -490,6 +497,9 @@ impl Plan<'_> {
                 .stdout(Stdio::piped());
             if let Some(host) = host {
                 command.args(["--host", host]);
+            }
+            if let Some(authority) = self.certificate_authority {
+                trust::in_environment(&mut command, authority);
             }
             if let Some(browser) = self.browser()? {
                 let chrome = browser.join(CHROME);
@@ -536,14 +546,20 @@ impl Plan<'_> {
         if self.kind().by_name() {
             self.start_url()
         } else {
-            format!("http://{}/sites/{}/1", self.site.address, self.site.pages)
+            format!(
+                "{}://{}/sites/{}/1",
+                self.cell.scenario.network().scheme(),
+                self.site.address,
+                self.site.pages
+            )
         }
     }
 
     /// The site's first page on its host's name.
     fn start_url(&self) -> String {
         format!(
-            "http://{}:{}/sites/{}/1",
+            "{}://{}:{}/sites/{}/1",
+            self.cell.scenario.network().scheme(),
             self.kind().host_of(1),
             self.site.port(),
             self.site.pages
@@ -681,6 +697,7 @@ impl Plan<'_> {
             &observed::Site {
                 hosts: &hosts,
                 pages: self.site.pages,
+                tls: self.cell.scenario.network().tls(),
             },
             seconds,
             records,
@@ -696,9 +713,23 @@ impl Plan<'_> {
         }
     }
 
+    /// Writes Foxhound's user configuration in `home`, where a scenario
+    /// served over TLS has it trust the Proving ground's certificate
+    /// authority for the site's hosts. Every other home has none, as
+    /// shipped.
+    fn configure(&self, home: &Path) -> Result<()> {
+        match (self.config, self.certificate_authority) {
+            (Config::Foxhound { .. }, Some(authority)) => {
+                trust::in_foxhound_configuration(home, &self.kind().hosts(), authority)
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// Runs a timed trial.
     pub(crate) fn timed(&self) -> Result<Measured> {
         let home = tempfile::tempdir().context("creating the tool's data folder")?;
+        self.configure(home.path())?;
         let cache = self.cache()?;
         mark(&self.site, &self.kind().host_of(1))?;
         let started_wall = wall();
@@ -771,6 +802,7 @@ impl Plan<'_> {
     /// Runs a counted trial: its count and the work it did.
     pub(crate) fn counted(&self) -> Result<Counted> {
         let home = tempfile::tempdir().context("creating the tool's data folder")?;
+        self.configure(home.path())?;
         let cache = self.cache()?;
         mark(&self.site, &self.kind().host_of(1))?;
         let processes = self.crawl(
@@ -947,8 +979,7 @@ mod chrome;
 mod output;
 mod rules;
 
-use chrome::browser_cache;
-pub(crate) use chrome::{CHROME, chrome_folder};
+pub(crate) use chrome::{CHROME, browser_cache, chrome_folder};
 pub(crate) use rules::Ruled;
 
 #[cfg(test)]

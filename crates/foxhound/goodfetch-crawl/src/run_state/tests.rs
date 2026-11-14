@@ -5,7 +5,7 @@ mod model;
 
 use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::run_state::{BatchRows, BatchWriter};
-use goodfetch_fetch_tier::TierChoice;
+use goodfetch_fetch_tier::{HttpFrom, TierChoice};
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use rusqlite::Connection;
 
@@ -27,7 +27,7 @@ const SAMPLING: Sampling = Sampling {
 /// The plan of the request of the Label `static` at `/products/{page}`.
 fn plan(learned: &mut Learned, page: u32) -> AttemptPlan {
     let url = format!("http://tiers.test/products/{page}");
-    learned.serve("static", KEY, &url, NOW)
+    learned.serve("static", KEY, &url, (HttpFrom::Browser, NOW))
 }
 
 /// The tier that plan is on, `None` for a sample.

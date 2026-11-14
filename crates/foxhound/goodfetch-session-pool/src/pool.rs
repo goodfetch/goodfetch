@@ -5,8 +5,10 @@
 //! sets one (`labels`), so a logged-in section of a site and its public
 //! section never share a Session. In each pool, a request goes to a new
 //! Session while the pool has room, as Crawlee's does, then to one drawn
-//! from `Entropy` among the Sessions open at its domain's proxy tier; with
-//! none open there, the drawn Session makes room. A Session is retired once
+//! from `Entropy` among the Sessions open at its domain's proxy tier that
+//! send from the client it needs, its own HTTP transport or its browser
+//! ([`SendsFrom`]); with none open there, the drawn Session makes room, so
+//! `max_size` bounds both clients together. A Session is retired once
 //! its error score reaches `max_error_score`, after `max_uses` requests or
 //! at `max_age`. A block that escalates retires its Session (ADR 0021):
 //! `rate_limit` and `ip_block` move its domain one proxy tier up, where the
@@ -48,7 +50,7 @@ use rusqlite::Connection;
 
 use crate::labels::PoolKey;
 use crate::settings::PoolSettings;
-use crate::store::{self, Changes, StoredSession, StoredTier};
+use crate::store::{self, Changes, SendsFrom, StoredSession, StoredTier};
 
 /// What an attempt's ending says of the Session that served it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,7 +88,8 @@ enum Retirement {
     /// A block that moves its domain to the browser tier, such as a
     /// Challenge.
     Blocked,
-    /// It made room for a Session at another proxy tier.
+    /// It made room for a Session at another proxy tier, or of the other
+    /// client.
     PoolFull,
 }
 
@@ -109,6 +112,17 @@ struct Open {
     stored: StoredSession,
     /// Whether its next page is its first since the crawl resumed.
     revalidate: bool,
+}
+
+/// What a pool holds open for a draw: the proxy tier the draw's domain is
+/// at, whether the pool has room for one Session more, its open Sessions
+/// of the draw's client at that tier and every open Session, by their
+/// positions.
+struct Drawable {
+    tier: ProxyTier,
+    room: bool,
+    at_tier: Vec<u64>,
+    every: Vec<u64>,
 }
 
 /// The Sessions of one pool.
@@ -283,37 +297,98 @@ impl SessionPool {
     }
 
     /// The Session of `pool` that serves a request on `domain_key` at
-    /// `now`, which counts as one of its uses, and as one attempt it serves
-    /// until [`SessionPool::settle`].
+    /// `now`, sent from `sends_from`, which counts as one of its uses, and
+    /// as one attempt it serves until [`SessionPool::settle`]. It is never
+    /// a Session of the other client: with no room, and none of that client
+    /// open at the domain's proxy tier, one drawn among every open Session
+    /// makes room.
     pub fn draw(
         &mut self,
         pool: &PoolKey,
         domain_key: &str,
+        sends_from: SendsFrom,
         settings: &PoolSettings,
         now: SystemTime,
     ) -> ServingSession {
-        self.retire_spent(pool, settings, now);
-        let tier = self.tier_of(domain_key);
-        let (room, at_tier, every) = {
-            let sessions = self.pools.entry(pool.clone()).or_default();
-            let at_tier: Vec<u64> = sessions
-                .open
-                .iter()
-                .filter(|(_, open)| open.stored.proxy_tier == tier)
-                .map(|(position, _)| *position)
-                .collect();
-            let every: Vec<u64> = sessions.open.keys().copied().collect();
-            (sessions.open.len() < settings.max_size, at_tier, every)
-        };
+        let Drawable {
+            tier,
+            room,
+            at_tier,
+            every,
+        } = self.drawable(pool, domain_key, sends_from, (settings, now));
         let position = if room {
-            self.open_session(pool, tier, now, domain_key)
+            self.open_session(pool, tier, sends_from, now, domain_key)
         } else if at_tier.is_empty() {
             let making_room = self.pick(&every);
             self.retire(pool, making_room, Retirement::PoolFull);
-            self.open_session(pool, tier, now, domain_key)
+            self.open_session(pool, tier, sends_from, now, domain_key)
         } else {
             self.pick(&at_tier)
         };
+        self.serving(pool, position)
+    }
+
+    /// As [`SessionPool::draw`], for a Session that only reads a site's
+    /// files for an attempt, a robots.txt, an AI-use signal file or an RSL
+    /// license (#2422): an open Session of `sends_from`'s client at the
+    /// domain's proxy tier serves even while the pool has room, one opens
+    /// only while none is open and the pool has room, and none is drawn,
+    /// `None`, rather than retire a Session to make room.
+    pub fn draw_reusing(
+        &mut self,
+        pool: &PoolKey,
+        domain_key: &str,
+        sends_from: SendsFrom,
+        settings: &PoolSettings,
+        now: SystemTime,
+    ) -> Option<ServingSession> {
+        let Drawable {
+            tier,
+            room,
+            at_tier,
+            ..
+        } = self.drawable(pool, domain_key, sends_from, (settings, now));
+        let position = if !at_tier.is_empty() {
+            self.pick(&at_tier)
+        } else if room {
+            self.open_session(pool, tier, sends_from, now, domain_key)
+        } else {
+            return None;
+        };
+        Some(self.serving(pool, position))
+    }
+
+    /// What `pool` holds open for a draw on `domain_key` at `now`, sent
+    /// from `sends_from`, once the Sessions spent by then are retired.
+    fn drawable(
+        &mut self,
+        pool: &PoolKey,
+        domain_key: &str,
+        sends_from: SendsFrom,
+        (settings, now): (&PoolSettings, SystemTime),
+    ) -> Drawable {
+        self.retire_spent(pool, settings, now);
+        let tier = self.tier_of(domain_key);
+        let sessions = self.pools.entry(pool.clone()).or_default();
+        let at_tier = sessions
+            .open
+            .iter()
+            .filter(|(_, open)| {
+                open.stored.proxy_tier == tier && open.stored.sends_from == sends_from
+            })
+            .map(|(position, _)| *position)
+            .collect();
+        Drawable {
+            tier,
+            room: sessions.open.len() < settings.max_size,
+            at_tier,
+            every: sessions.open.keys().copied().collect(),
+        }
+    }
+
+    /// The open Session at `position` of `pool`, drawn: one use more, and
+    /// one attempt more it serves.
+    fn serving(&mut self, pool: &PoolKey, position: u64) -> ServingSession {
         let open = self
             .pools
             .get_mut(pool)
@@ -386,8 +461,8 @@ impl SessionPool {
     }
 
     /// Learns that a Challenge met on a tier short of the browser moved a
-    /// request of `domain_key` to the browser tier, in the same Session
-    /// ([`crate::escalation`]): the domain's later requests start there
+    /// request of `domain_key` to the browser tier ([`crate::escalation`]):
+    /// the domain's later requests start there
     /// under `fetch.tier: auto`, and a resumed crawl keeps it.
     pub fn moved_to_browser(&mut self, domain_key: &str) {
         self.move_to_browser(domain_key);
@@ -507,12 +582,13 @@ impl SessionPool {
         }
     }
 
-    /// Opens a Session of `pool` at `tier` for a request on `domain_key`
-    /// and answers its position.
+    /// Opens a Session of `pool` at `tier`, sending from `sends_from`, for
+    /// a request on `domain_key` and answers its position.
     fn open_session(
         &mut self,
         pool: &PoolKey,
         tier: ProxyTier,
+        sends_from: SendsFrom,
         now: SystemTime,
         domain_key: &str,
     ) -> u64 {
@@ -522,6 +598,7 @@ impl SessionPool {
         sessions.opened = position;
         let stored = StoredSession {
             proxy_tier: tier,
+            sends_from,
             opened_at: now,
             uses: 0,
             error_score: 0.0,

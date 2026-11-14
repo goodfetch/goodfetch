@@ -40,6 +40,8 @@ fn stub(content: &str) -> Fetched {
         )),
         unaccepted: None,
         certificate_exception: None,
+        text: None,
+        pass: None,
     }
 }
 
@@ -49,7 +51,7 @@ async fn next(fetched: &Fetched, following: &Following) -> Option<String> {
     let owner = TaskOwner::root(BlockingPolicy::Inline);
     let reading =
         std::sync::Arc::new(MarkupRefresh(goodfetch_counted_work::CountedWork::default()));
-    match next_hop(&hop, fetched, following, (&owner, &reading))
+    match next_hop(&hop, &mut fetched.clone(), following, (&owner, &reading))
         .await
         .unwrap_or_else(|_| panic!("the stub fails its chain"))
     {

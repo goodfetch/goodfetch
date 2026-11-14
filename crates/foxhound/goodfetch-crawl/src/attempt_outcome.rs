@@ -14,9 +14,10 @@ use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::Keys;
 use goodfetch_engine::egress::Policy;
-use goodfetch_frontier::{EndMerged, PageSeen, Url, sitemap};
+use goodfetch_fetch_tier::Redirected;
+use goodfetch_frontier::{EndMerged, PageSeen, Redirect, Url, sitemap};
 use goodfetch_protocol::foxhound::crawl::CrawlRequest;
-use goodfetch_protocol::foxhound::frontier::HttpBody;
+use goodfetch_protocol::foxhound::frontier::{HttpBody, HttpMethod};
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_session_pool::Changes;
 use rusqlite::Connection;
@@ -25,24 +26,35 @@ use crate::lease::{Commit, Committed};
 use crate::tier_choice::{self, Unit};
 use crate::work_items::{self, Changed, Leased, Unsuccessful};
 
-/// What a fetched page teaches the Frontier (ADRs 0005 and 0120): its page
-/// signature and `rel=canonical`, and the pending requests a rule it
-/// taught merges, ended `skipped` with `duplicate` at `ended_at`; those a
-/// rule it stopped had ended so are pending again.
+/// What a fetched page teaches the Frontier (ADRs 0005 and 0120): each
+/// redirect hop its chain followed, its page signature and
+/// `rel=canonical`, and the pending requests a rule it taught merges,
+/// ended `skipped` with `duplicate` at `ended_at`; those a rule it stopped
+/// had ended so are pending again.
 #[derive(Debug)]
 pub(crate) struct Learning {
     pub(crate) request: CrawlRequest,
-    /// The URL its document was fetched at.
-    pub(crate) url: Url,
-    pub(crate) signature: [u8; 32],
-    pub(crate) canonical: Option<Url>,
+    /// Each redirect hop its crawl request's chain followed, in order.
+    pub(crate) redirects: Arc<[Redirected]>,
+    /// Its document, when the page holds one.
+    pub(crate) document: Option<Document>,
     pub(crate) ended_at: PointInTime,
     /// What counts the rows of evidence its teaching reads.
     pub(crate) work: CountedWork,
 }
 
+/// A fetched page's document, as the Frontier learns from it.
+#[derive(Debug)]
+pub(crate) struct Document {
+    /// The URL it was fetched at.
+    pub(crate) url: Url,
+    pub(crate) signature: [u8; 32],
+    pub(crate) canonical: Option<Url>,
+}
+
 impl Learning {
-    /// Teaches it in `connection`'s transaction, answering each pending
+    /// Teaches it in `connection`'s transaction, each redirect hop first
+    /// and then the document, answering each pending
     /// request a rule it taught merged, and each one a rule it stopped
     /// gave back, by ID with the domain key it waits under: the requests
     /// whose domain's queue no longer holds what the run file says. With
@@ -55,9 +67,8 @@ impl Learning {
     pub(crate) fn teach(self, connection: &Connection) -> rusqlite::Result<Moved> {
         let Self {
             request,
-            url,
-            signature,
-            canonical,
+            redirects,
+            document,
             ended_at,
             work,
         } = self;
@@ -66,19 +77,44 @@ impl Learning {
             moved: Vec::new(),
             changed: Changed::default(),
         };
-        goodfetch_frontier::learn(
-            connection,
-            PageSeen {
-                crawl_request: &request.id,
-                url: &url,
-                method: &request.method,
-                body: request.body.as_ref().map(HttpBody::bytes),
-                signature,
-                canonical: canonical.as_ref(),
-            },
-            &mut merged,
-            &work,
-        )?;
+        for hop in redirects.iter() {
+            // A method the protocol cannot name is no `GET`, which alone
+            // is evidence.
+            let Ok(method) = HttpMethod::parse(hop.method.as_str()) else {
+                continue;
+            };
+            goodfetch_frontier::learn_redirect(
+                connection,
+                Redirect {
+                    from: &hop.from,
+                    to: &hop.to,
+                    method: &method,
+                    body: hop.body.as_deref(),
+                },
+                &mut merged,
+                &work,
+            )?;
+        }
+        if let Some(Document {
+            url,
+            signature,
+            canonical,
+        }) = &document
+        {
+            goodfetch_frontier::learn(
+                connection,
+                PageSeen {
+                    crawl_request: &request.id,
+                    url,
+                    method: &request.method,
+                    body: request.body.as_ref().map(HttpBody::bytes),
+                    signature: *signature,
+                    canonical: canonical.as_ref(),
+                },
+                &mut merged,
+                &work,
+            )?;
+        }
         Ok((merged.moved, merged.changed))
     }
 

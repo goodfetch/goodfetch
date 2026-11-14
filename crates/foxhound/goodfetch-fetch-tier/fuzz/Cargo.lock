@@ -479,6 +479,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
+name = "bytestring"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca79160522b4aed4a69bab673bee78d3884d44240c78c96cb04b7557d532b4dc"
+dependencies = [
+ "bytes",
+]
+
+[[package]]
 name = "cc"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1483,10 +1492,13 @@ name = "goodfetch-clean-up-rules"
 version = "0.0.0"
 dependencies = [
  "adblock",
+ "cssparser 0.37.0",
  "data-encoding",
  "dom_query",
  "goodfetch-counted-work",
  "goodfetch-workspace-hack",
+ "moka",
+ "selectors 0.38.0",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1595,15 +1607,14 @@ dependencies = [
 name = "goodfetch-fetch-tier"
 version = "0.0.0"
 dependencies = [
- "brotli-decompressor 6.0.1",
  "btls",
  "bytes",
+ "bytestring",
  "cookie_store",
  "cssparser 0.37.0",
  "data-encoding",
  "dom_query",
  "encoding_rs",
- "flate2",
  "goodfetch-counted-work",
  "goodfetch-engine",
  "goodfetch-extractor",
@@ -1638,7 +1649,6 @@ dependencies = [
  "wreq",
  "wreq-proto",
  "wreq-util",
- "zstd",
 ]
 
 [[package]]
@@ -1680,6 +1690,7 @@ dependencies = [
  "btls",
  "btls-sys",
  "bytes",
+ "bytestring",
  "data-encoding",
  "flate2",
  "foreign-types",

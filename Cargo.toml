@@ -101,6 +101,10 @@ dom_query = { version = "0.28.0", default-features = false, features = ["atomic"
 # Its CSS tokenizer, on which the fetch tiers find the selector extensions
 # dom_query reads and a browser refuses; the version dom_query links.
 cssparser = { version = "0.37.0", default-features = false }
+# The caches a selector match reuses across the elements of one walk, which
+# the Clean-up rules' removal holds (spec #2164): dom_query takes this type
+# and does not re-export it; the version dom_query links.
+selectors = { version = "0.38.0", default-features = false }
 htmd = { version = "0.5.6", default-features = false }
 # Chrome's `<meta>` prescan of a crawl page's document tokenizes it as
 # Blink's HTMLMetaCharsetParser does, with the HTML standard's tokenizer
@@ -391,6 +395,9 @@ prometheus = { version = "0.14.0", default-features = false }
 tracing-opentelemetry = { version = "0.34.0", default-features = false }
 async-trait = { version = "0.1.92", default-features = false }
 bytes = { version = "1.12.1", default-features = false, features = ["std"] }
+# A UTF-8 string held as `Bytes`: a fetched document's text read in place
+# (issue 2187).
+bytestring = { version = "1.6.0", default-features = false }
 http = { version = "1.5.0", default-features = false, features = ["std"] }
 prost = { version = "0.14.1", default-features = false, features = ["std"] }
 # Run IDs, from the Clock and Entropy (ADRs 0036 and 0059).

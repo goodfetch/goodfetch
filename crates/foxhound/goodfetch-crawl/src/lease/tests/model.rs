@@ -44,7 +44,7 @@ use serde_json::{Value, json};
 use tokio::runtime::Runtime;
 
 use super::DEFAULT_LEASE;
-use crate::attempt_outcome::{Ended, Ending, Learning, Outcome};
+use crate::attempt_outcome::{Document, Ended, Ending, Learning, Outcome};
 use crate::invariants::fixture;
 use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::staging::Staging;
@@ -636,9 +636,12 @@ fn commit(
                 scored: goodfetch_session_pool::Changes::default(),
                 chosen: None,
                 learning: Some(Learning {
-                    url: goodfetch_frontier::Url::parse(&leased.crawl_request.url).unwrap(),
-                    signature: [u8::try_from(attempt.item).unwrap(); 32],
-                    canonical: None,
+                    redirects: Vec::new().into(),
+                    document: Some(Document {
+                        url: goodfetch_frontier::Url::parse(&leased.crawl_request.url).unwrap(),
+                        signature: [u8::try_from(attempt.item).unwrap(); 32],
+                        canonical: None,
+                    }),
                     ended_at: ended_at(),
                     request: leased.crawl_request.clone(),
                     work: goodfetch_counted_work::CountedWork::default(),

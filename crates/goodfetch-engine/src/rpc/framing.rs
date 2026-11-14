@@ -21,8 +21,8 @@ use serde::{Deserialize, Deserializer};
 use serde_json::Map;
 use serde_json::value::RawValue;
 
-use crate::wire::Key;
 pub use crate::wire::Received;
+use crate::wire::{Key, text};
 
 /// The longest message the engine reads, in bytes, its newline excluded.
 /// Page bodies and files travel as handles, never inline.
@@ -370,19 +370,6 @@ fn request_id(id: &RawValue) -> Option<RequestId> {
         return Some(RequestId::Number(number));
     }
     text(id).map(|text| RequestId::Text(text.into_owned()))
-}
-
-/// The string a JSON value holds: where it is, when it holds no escape.
-pub(crate) fn text(value: &RawValue) -> Option<Cow<'_, str>> {
-    let json = value.get();
-    match json
-        .strip_prefix('"')
-        .and_then(|json| json.strip_suffix('"'))
-    {
-        Some(inner) if !inner.contains('\\') => Some(Cow::Borrowed(inner)),
-        Some(_) => serde_json::from_str::<String>(json).ok().map(Cow::Owned),
-        None => None,
-    }
 }
 
 /// Where `part`, a slice of `line`, is in it.

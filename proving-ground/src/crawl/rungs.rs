@@ -7,7 +7,8 @@
 //!   every client.
 //! - `/identity/<n>`, **browser identity:** the same markup, answered only
 //!   on a connection whose TLS fingerprint is the pinned browser's
-//!   ([`PINNED_BROWSER_JA4`]); any other client, and any
+//!   ([`PINNED_BROWSER_JA4`]), or that browser's as the engine's egress
+//!   relay mirrors it ([`RELAYED_BROWSER_JA4`]); any other client, and any
 //!   request over plain text, gets a `403` that holds no Record. No script
 //!   is needed, so a request sent from inside that browser reads it.
 //! - `/scripted/<n>`, **script-rendered:** an empty `article.item` its
@@ -54,9 +55,24 @@ const PINNED_BROWSER_JA4: [&str; 2] = [
     "t13d1518h2_8daaf6152771_4980c97edce0",
 ];
 
-/// Whether a connection's TLS fingerprint is the pinned browser's.
+/// The JA4, without what a resumed handshake adds, of the pinned build's
+/// ClientHello as the engine's egress relay mirrors it to a host it
+/// terminates (ADR 0042), which is how an engine's browser reaches this
+/// site: a Run trusts the Proving ground's authority for the host
+/// (`tls.trusted_cas`), and the relay terminates every such host. The
+/// relay's BoringSSL sends neither the ML-DSA signature algorithms nor
+/// extension `0x12e0`, so its JA4 is the first of [`PINNED_BROWSER_JA4`]
+/// with another signature hash; it goes once the relay sends them
+/// ([#1624](https://github.com/goodfetch/goodfetch/issues/1624)), and
+/// moves with the pin as those do. Measured through a code-free crawl's
+/// samples of the identity pages (Foxhound's `code_free` tests).
+const RELAYED_BROWSER_JA4: &str = "t13d1517h2_8daaf6152771_dcad5a053991";
+
+/// Whether a connection's TLS fingerprint is the pinned browser's, sent by
+/// the browser itself or mirrored by the engine's egress relay.
 fn of_the_pinned_browser(hello: &ClientHello) -> bool {
-    PINNED_BROWSER_JA4.contains(&hello.ja4_base.as_str())
+    let ja4 = hello.ja4_base.as_str();
+    PINNED_BROWSER_JA4.contains(&ja4) || ja4 == RELAYED_BROWSER_JA4
 }
 
 /// Where the manifest is served.

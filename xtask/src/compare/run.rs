@@ -4,6 +4,10 @@
 //! asked for) and the Callgrind cell's runs in the same way, written to the
 //! trials file. Every executable a crawl trial runs is dropped from the
 //! page cache before it starts (spec #2165).
+//!
+//! Size: one concern, the run: each part of the comparison's trials, timed,
+//! counted, ruled and auto, run in its order beside the others, and the
+//! trials file handed over between them.
 
 use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};

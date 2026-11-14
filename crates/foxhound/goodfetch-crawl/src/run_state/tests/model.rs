@@ -1023,23 +1023,31 @@ impl Subject {
             .crawl
             .as_mut()
             .expect("invariant: the crawl runs until the case ends");
-        let ids: Vec<String> = self
+        let asked: Vec<(String, String)> = self
             .runtime
             .block_on(crawl.state.waiting(None, count))
             .unwrap()
             .into_iter()
-            .map(|waiting| waiting.id)
+            .map(|waiting| (waiting.id, waiting.key))
             .collect();
-        if ids.is_empty() {
+        if asked.is_empty() {
             return Vec::new();
         }
-        let rows = (crawl.state.pool().changes(), crawl.state.counted());
-        let claim = crawl.writer.write_with(
-            Syncing::Deferred { charged: 0 },
-            Stored::claim(ids.clone(), rows),
+        let leased = self.runtime.block_on(crawl.state.leasable(asked)).unwrap();
+        let claim = crawl
+            .writer
+            .write_with(Syncing::Deferred { charged: 0 }, crawl.state.claim(&leased));
+        // The loop does not wait for its claim; the model does, so that
+        // every step's file is the one it checks, and the Run state hears
+        // the answer at its next operation as the loop's does.
+        let unclaimed = self.runtime.block_on(claim).unwrap();
+        assert!(
+            unclaimed.is_empty(),
+            "a claim found its rows changed: {unclaimed:?}"
         );
-        let leased = self.runtime.block_on(claim).unwrap();
-        crawl.state.keep_claimed(ids);
+        crawl
+            .state
+            .claiming(Box::pin(std::future::ready(Ok(unclaimed))), &leased);
         let _clock = self.runtime.enter();
         leased
             .into_iter()
@@ -1081,7 +1089,10 @@ impl Subject {
                                 panic!("the model pushes no Record: {refused:?}")
                             }),
                         },
-                        Err(CommitError::LeaseLost) => return false,
+                        Err(CommitError::LeaseLost) => {
+                            crawl.state.settled(leased, false);
+                            return false;
+                        }
                         Err(error) => panic!("the commit failed: {error:?}"),
                     }
                 }
@@ -1117,16 +1128,19 @@ impl Subject {
             .block_on(async { stored.end(outcome).await.await })
             .unwrap();
         crawl.state.changed(written.changed);
-        let ended = match written.ended {
+        let (ended, retried) = match written.ended {
             Ended::Committed(committed) => {
                 let _clock = self.runtime.enter();
-                lease.committed(Ok(Some(Ok(committed)))).unwrap();
-                true
+                let committed = lease.committed(Ok(Some(Ok(committed)))).unwrap();
+                // The model reads every page it leases back from the file.
+                crawl.state.added(committed.keyed);
+                (true, false)
             }
-            Ended::LeaseLost => false,
-            Ended::Unsuccessful { ended, .. } => ended,
+            Ended::LeaseLost => (false, false),
+            Ended::Unsuccessful { ended, retried, .. } => (ended, ended && retried),
             Ended::SitemapRead(_) => panic!("the model reads no sitemap"),
         };
+        crawl.state.settled(leased, retried);
         if ended {
             crawl.in_flight -= 1;
         }
@@ -1193,7 +1207,7 @@ impl Subject {
             .block_on(stored.end_unsent(unsent, ended_at()))
             .unwrap();
         crawl.state.changed(changed);
-        crawl.state.keep_claimed(vec![waiting.id]);
+        crawl.state.gone([waiting.id]);
         true
     }
 

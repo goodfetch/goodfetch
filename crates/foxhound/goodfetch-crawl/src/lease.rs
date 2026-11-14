@@ -23,7 +23,7 @@ use std::time::Duration;
 use goodfetch_counted_work::CountedWork;
 use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallError;
-use goodfetch_engine::admission::{Keys, Waiting};
+use goodfetch_engine::admission::Keys;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::mask::Masks;
@@ -220,9 +220,11 @@ pub(crate) struct Committed {
     /// kept marked, each with its URL and mark, whose `trap_link_suspected`
     /// Provenance entries the caller writes (ADR 0035).
     pub(crate) suspected: Vec<crate::staging::Marked>,
-    /// Each work item it added, keyed as it was added, in order, for the
-    /// delivery to offer its domain's queue (ADR 0138).
-    pub(crate) keyed: Vec<Waiting>,
+    /// Each work item it added, keyed as it was added, in order, as its
+    /// first lease takes it, for the delivery to offer its domain's queue
+    /// (ADR 0138) and lease without reading the run file, whose readers do
+    /// not see it before its batch is in the file (ADR 0142).
+    pub(crate) keyed: Vec<work_items::Leased>,
 }
 
 /// What an attempt's commit writes, taken from its lease while it held
@@ -306,15 +308,15 @@ impl Commit {
             keeps_records: declared.keeps_records(),
             clean_up_rules: &clean_up_rules,
         };
-        Ok(
-            work_items::commit(connection, &work_item, epoch, committed, changed)?.then_some(Ok(
-                Committed {
-                    files,
-                    suspected,
-                    keyed,
-                },
-            )),
-        )
+        if !work_items::commit(connection, &work_item, epoch, committed, changed)? {
+            return Ok(None);
+        }
+        let keyed = work_items::leasable_added(connection, &keyed)?;
+        Ok(Some(Ok(Committed {
+            files,
+            suspected,
+            keyed,
+        })))
     }
 }
 

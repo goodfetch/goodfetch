@@ -659,7 +659,7 @@ pub enum ChargeError {
 
 /// What a Run charged with [`Run::charge_unjournaled`] that no journal
 /// holds yet: the Slices its charges took from, and what they counted in
-/// the Run's Usage, which [`Run::write_charged`] journals.
+/// the Run's Usage, which [`Run::queue_charged`] journals.
 #[derive(Debug, Default)]
 pub struct UnjournaledCharges {
     slices: Vec<SliceId>,
@@ -2282,7 +2282,7 @@ impl Run {
 
     /// Charges `amount` of `usage_kind` as [`Run::charge`] does, without
     /// journaling it: what it charged joins `charges`, which
-    /// [`Run::write_charged`] journals in the write that uses it, so the
+    /// [`Run::queue_charged`] journals in the write that uses it, so the
     /// journal and that write commit as one job of the run state's writer.
     ///
     /// # Errors
@@ -2332,27 +2332,29 @@ impl Run {
     /// with what the Run has now used of each Slice they took from, read
     /// under its charging's lock as the write takes its place in the queue,
     /// so journals reach the run state in the order of the changes. A Run
-    /// whose charging ended journals nothing. Answers what `work` returned
-    /// once the write's commit is acknowledged, before a sync of its own:
-    /// it is an attempt's claim, which a power cut may take, and the
-    /// writer bounds what such writes charge by [`DEFERRED_CHARGES`] (ADR
-    /// 0138's note of #1926).
+    /// whose charging ended journals nothing. Answers once the write is
+    /// queued, with the write, which answers what `work` returned once its
+    /// commit is acknowledged, before a sync of its own: it is an attempt's
+    /// claim, which a power cut may take, and the writer bounds what such
+    /// writes charge by [`DEFERRED_CHARGES`] (ADR 0138's note of #1926).
+    /// The caller need not wait for it: dropping it does not withdraw the
+    /// write, and every write queued after it runs after it.
     ///
     /// [`DEFERRED_CHARGES`]: crate::run_state::DEFERRED_CHARGES
     ///
     /// # Errors
     ///
-    /// `State` when `work` or its commit failed, or the run state's writer
-    /// stopped.
+    /// `State` when the run state's writer stopped; the write answers
+    /// `State` when `work` or its commit failed, or the writer stopped.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future once the write is queued does not withdraw it.
-    pub async fn write_charged<T, F>(
+    pub async fn queue_charged<T, F>(
         &self,
         charges: UnjournaledCharges,
         work: F,
-    ) -> Result<T, ChargeError>
+    ) -> Result<impl Future<Output = Result<T, ChargeError>> + Send + 'static, ChargeError>
     where
         T: Send + 'static,
         F: FnOnce(&rusqlite::Connection) -> rusqlite::Result<T> + Send + 'static,
@@ -2389,7 +2391,7 @@ impl Run {
                 })
             })
             .await;
-        Ok(written.await?)
+        Ok(async move { Ok(written.await?) })
     }
 
     /// Reserves ahead an amount of `usage_kind` the Run is about to use, as

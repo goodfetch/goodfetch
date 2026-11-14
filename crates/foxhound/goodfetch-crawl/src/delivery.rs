@@ -387,6 +387,54 @@ impl Read {
     }
 }
 
+/// What the delivery's loop does once no page is open and no settlement
+/// is being written.
+enum Idled {
+    /// The Run ended: the loop returns.
+    Ended,
+    /// The loop looks for work again, stopping for the reason it holds.
+    Again(Option<StopReason>),
+    /// The loop waits for its next event.
+    Waits,
+}
+
+/// The delivery loop's turn once nothing is in flight: it ends a stopped
+/// Run, waits for a Connection while none serves, and otherwise asks the
+/// work items whether to admit more, wait, or drain the Run.
+async fn idled(
+    (run, resolved): (&Run, &Resolved),
+    (admission, state): (&mut Admission, &mut RunState),
+    (servers, arrivals, in_flight): (&mut Vec<Serving>, &mut Opened, &SharedInFlight),
+    (stop, starved): (Option<StopReason>, bool),
+) -> Idled {
+    if let Some(reason) = stop {
+        end(run, admission, Ending::Stopped(reason)).await;
+        return Idled::Ended;
+    }
+    let again = |waited| match waited {
+        Waited::Ended => Idled::Ended,
+        Waited::Stop(reason) => Idled::Again(Some(reason)),
+        Waited::Again => Idled::Again(None),
+    };
+    if !servers.iter_mut().any(Serving::serves) {
+        let state = (admission, state);
+        return again(waited(run, state, servers, arrivals, in_flight, false).await);
+    }
+    match when_idle(run, admission, state).await {
+        Ok(Idle::Admit) if !starved => Idled::Again(None),
+        Ok(Idle::Admit | Idle::Wait) => Idled::Waits,
+        Ok(Idle::Done) => {
+            let state = (admission, state);
+            again(drained(run, resolved, state, servers, arrivals, in_flight).await)
+        }
+        Err(error) => {
+            tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
+            end(run, admission, failed(run, &error)).await;
+            Idled::Ended
+        }
+    }
+}
+
 /// The delivery's loop, which returns once the Run ended or stopped, each
 /// attempt it starts handing over `handing` with its own part. It owns the
 /// crawl's Run state, which starts from the Session pool the run file
@@ -431,36 +479,15 @@ async fn deliver(
         let starved = run.governor().waits(WorkKind::Http);
         pages.dismiss();
         if pages.idle() && settling.is_empty() {
-            if let Some(reason) = stop {
-                end(run, &mut admission, Ending::Stopped(reason)).await;
-                return;
-            }
-            if !servers.iter_mut().any(Serving::serves) {
-                let state = (&mut admission, &mut state);
-                match waited(run, state, servers, arrivals, in_flight, false).await {
-                    Waited::Ended => return,
-                    Waited::Stop(reason) => stop = Some(reason),
-                    Waited::Again => {}
-                }
-                continue;
-            }
-            match when_idle(run, &mut admission, &mut state).await {
-                Ok(Idle::Admit) if !starved => continue,
-                Ok(Idle::Admit | Idle::Wait) => {}
-                Ok(Idle::Done) => {
-                    let state = (&mut admission, &mut state);
-                    match drained(run, resolved, state, servers, arrivals, in_flight).await {
-                        Waited::Ended => return,
-                        Waited::Stop(reason) => stop = Some(reason),
-                        Waited::Again => {}
-                    }
+            let state = (&mut admission, &mut state);
+            let serving = (&mut *servers, &mut *arrivals, in_flight);
+            match idled((run, resolved), state, serving, (stop.take(), starved)).await {
+                Idled::Ended => return,
+                Idled::Again(reason) => {
+                    stop = reason;
                     continue;
                 }
-                Err(error) => {
-                    tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
-                    end(run, &mut admission, failed(run, &error)).await;
-                    return;
-                }
+                Idled::Waits => {}
             }
         }
         let free = stop.is_none()
@@ -1235,7 +1262,10 @@ async fn completed(
     for (outcome, settling) in finished.into_iter().zip(&mut settlings) {
         servers[settling.server].in_flight -= 1;
         settling.merged.extend(outcome.merged);
-        keyed.extend(outcome.keyed);
+        // Each change is in a batch a read may not see yet (ADR 0142).
+        state.gone(settling.merged.iter().map(|(id, _)| id.clone()));
+        state.settled(outcome.leased, outcome.retried);
+        keyed.extend(state.added(outcome.keyed));
         retried.push(outcome.retried);
         state.changed(outcome.changed);
     }
@@ -1623,25 +1653,25 @@ async fn admit(
         keys.push(admitted.key);
     }
     if !refused.is_empty() {
-        // Each is claimed with its end, which a read may not see yet.
-        let unsent = refused
+        // Each ended in a batch a read may not see yet.
+        let unsent: Vec<String> = refused
             .iter()
             .map(|(admitted, _)| admitted.id.clone())
             .collect();
         let changed = end_unsent(run, pooled.state.stored(), admission, refused).await?;
         pooled.state.changed(changed);
-        pooled.state.keep_claimed(unsent);
+        pooled.state.gone(unsent);
         show_counted(run, pooled.state, &pooled.fetching.in_flight, []).await;
     }
-    let asked = ids.clone();
-    let drawn = if ids.is_empty() {
+    let asked: Vec<(String, String)> = ids.into_iter().zip(keys).collect();
+    let drawn = if asked.is_empty() {
         Vec::new()
     } else {
-        leased_and_drawn(run, charges, ids, pooled).await?
+        leased_and_drawn(run, charges, asked.clone(), pooled).await?
     };
     // A work item a rule learned later merged after the gate took it is
     // no longer pending: it gives its domain's turn back unsent.
-    for (id, key) in asked.iter().zip(&keys) {
+    for (id, key) in &asked {
         if !drawn
             .iter()
             .any(|drawn| drawn.leased.crawl_request.id == *id)
@@ -1655,13 +1685,13 @@ async fn admit(
     Ok(drawn)
 }
 
-/// Claims each pending work item of `ids` in `pooled`'s Run state, which
-/// journals `charges` with the claim and draws the Session that serves
-/// each and how its tier is chosen (ADR 0142).
+/// Leases each pending work item of `asked`, by ID with its domain key, in
+/// `pooled`'s Run state, whose claim journals `charges`, and draws the
+/// Session that serves each and how its tier is chosen (ADR 0142).
 async fn leased_and_drawn(
     run: &Run,
     charges: UnjournaledCharges,
-    ids: Vec<String>,
+    asked: Vec<(String, String)>,
     pooled: &mut Pooled<'_>,
 ) -> Result<Vec<Drawn>, StateError> {
     let fetching = pooled.fetching;
@@ -1672,7 +1702,7 @@ async fn leased_and_drawn(
         races: fetching.races,
         wall: (run.clock().wall(), wall_ms(run)),
     };
-    pooled.state.lease(run, charges, ids, &drawing).await
+    pooled.state.lease(run, charges, asked, &drawing).await
 }
 
 /// Writes what the gate changed into the run file.
@@ -1717,13 +1747,15 @@ struct QueuedOutcome {
 }
 
 /// What an attempt's outcome left the delivery to do once it was written:
-/// the pending requests a rule its page taught merged, by ID with their
-/// domain key, each work item it added keyed, in order, whether its work
+/// its work item as its lease took it, the pending requests a rule its
+/// page taught merged, by ID with their domain key, each work item it
+/// added keyed, in order, as its first lease takes it, whether its work
 /// item waits again for a retry, and what its job changed of the crawl's
 /// requests by state.
 struct Finished {
+    leased: Leased,
     merged: Vec<(String, String)>,
-    keyed: Vec<Waiting>,
+    keyed: Vec<Leased>,
     retried: bool,
     changed: Changed,
 }
@@ -1872,6 +1904,7 @@ impl QueuedOutcome {
             written,
         } = self;
         let mut finished = Finished {
+            leased: leased.clone(),
             merged: Vec::new(),
             keyed: Vec::new(),
             retried: false,

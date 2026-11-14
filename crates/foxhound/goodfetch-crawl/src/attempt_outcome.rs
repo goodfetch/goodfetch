@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
-use goodfetch_engine::admission::{Keys, Waiting};
+use goodfetch_engine::admission::Keys;
 use goodfetch_engine::egress::Policy;
 use goodfetch_frontier::{EndMerged, PageSeen, Url, sitemap};
 use goodfetch_protocol::foxhound::crawl::CrawlRequest;
@@ -23,7 +23,7 @@ use rusqlite::Connection;
 
 use crate::lease::{Commit, Committed};
 use crate::tier_choice::{self, Unit};
-use crate::work_items::{self, Changed, Unsuccessful};
+use crate::work_items::{self, Changed, Leased, Unsuccessful};
 
 /// What a fetched page teaches the Frontier (ADRs 0005 and 0120): its page
 /// signature and `rel=canonical`, and the pending requests a rule it
@@ -228,8 +228,8 @@ pub(crate) enum Ended {
         retried: bool,
     },
     /// Its sitemap was read, when its lease still held: each work item
-    /// its read added, keyed, in order.
-    SitemapRead(Option<Vec<Waiting>>),
+    /// its read added, keyed, in order, as its first lease takes it.
+    SitemapRead(Option<Vec<Leased>>),
 }
 
 /// What an outcome's job answers.
@@ -307,14 +307,20 @@ impl Outcome {
                 document,
                 keys,
                 work,
-            } => Ended::SitemapRead(work_items::read_sitemap(
-                connection,
-                &invariants,
-                &egress,
-                (&work_item, lease_epoch),
-                &document,
-                (&keys, &work, &mut changed),
-            )?),
+            } => {
+                let read = work_items::read_sitemap(
+                    connection,
+                    &invariants,
+                    &egress,
+                    (&work_item, lease_epoch),
+                    &document,
+                    (&keys, &work, &mut changed),
+                )?;
+                Ended::SitemapRead(
+                    read.map(|added| work_items::leasable_added(connection, &added))
+                        .transpose()?,
+                )
+            }
         };
         Ok(Written {
             ended,

@@ -152,6 +152,20 @@ pub(crate) struct Leased {
     pub(crate) trap_link_suspected: bool,
 }
 
+impl Leased {
+    /// The same work item as its next lease takes it, once this attempt
+    /// left it pending for a retry: one attempt and one try further, under
+    /// the next lease epoch.
+    pub(crate) fn next(self) -> Self {
+        Self {
+            attempt: self.attempt.saturating_add(1),
+            tries: self.tries.saturating_add(1),
+            lease_epoch: self.lease_epoch.saturating_add(1),
+            ..self
+        }
+    }
+}
+
 /// What an attempt that committed no Record failed with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Failure {
@@ -1095,6 +1109,68 @@ pub(crate) fn lease(connection: &Connection, ids: &[String]) -> rusqlite::Result
          WHERE id = ?1 AND status = 'pending'
          RETURNING id, url, label, attempts, lease_epoch, domain_key, priority, position,
              forefront IS NOT NULL, method, body, attempts - retried_from")?;
+    leased_rows(connection, &mut statement, ids)
+}
+
+/// Each pending work item of `ids`, in that order, as its next lease takes
+/// it: its attempts and lease epoch one up, which [`claim`] then writes.
+/// It changes nothing, so it reads on one of the run file's readers.
+pub(crate) fn leasable(connection: &Connection, ids: &[String]) -> rusqlite::Result<Vec<Leased>> {
+    let mut statement = connection.prepare_cached(
+        "SELECT id, url, label, attempts + 1, lease_epoch + 1, domain_key, priority, position,
+             forefront IS NOT NULL, method, body, attempts + 1 - retried_from
+         FROM work_items WHERE id = ?1 AND status = 'pending'",
+    )?;
+    leased_rows(connection, &mut statement, ids)
+}
+
+/// Each of `added`, the work items a write just added, keyed, in order, as
+/// its first lease takes it, read in that write's transaction.
+pub(crate) fn leasable_added(
+    connection: &Connection,
+    added: &[Waiting],
+) -> rusqlite::Result<Vec<Leased>> {
+    let ids: Vec<String> = added.iter().map(|waiting| waiting.id.clone()).collect();
+    let mut rows = leasable(connection, &ids)?;
+    // Each waits as it was keyed, which the row holds once its batch does.
+    for (leased, waiting) in rows.iter_mut().zip(added) {
+        if leased.waiting.id == waiting.id {
+            leased.waiting = waiting.clone();
+        }
+    }
+    Ok(rows)
+}
+
+/// Leases each work item of `claims` that is still pending as it was when
+/// its row was read ([`leasable`]): its lease epoch one below the one
+/// given. Answers the IDs it did not lease, whose attempts then end with
+/// their lease lost.
+pub(crate) fn claim(
+    connection: &Connection,
+    claims: &[(String, u64)],
+) -> rusqlite::Result<Vec<String>> {
+    let mut statement = connection.prepare_cached(
+        "UPDATE work_items SET status = 'leased', attempts = attempts + 1, lease_epoch = lease_epoch + 1
+         WHERE id = ?1 AND status = 'pending' AND lease_epoch + 1 = ?2",
+    )?;
+    let mut unclaimed = Vec::new();
+    for (id, lease_epoch) in claims {
+        if statement.execute((id, integer(*lease_epoch)))? == 0 {
+            unclaimed.push(id.clone());
+        }
+    }
+    Ok(unclaimed)
+}
+
+/// Each row `statement` answers for each of `ids`, in that order, as a
+/// lease of it: its ID, URL, Label, attempts, lease epoch, domain key,
+/// priority, position, whether it goes to the forefront, method, body and
+/// tries since its latest admission.
+fn leased_rows(
+    connection: &Connection,
+    statement: &mut rusqlite::CachedStatement<'_>,
+    ids: &[String],
+) -> rusqlite::Result<Vec<Leased>> {
     let mut leased = Vec::with_capacity(ids.len());
     for id in ids {
         let row = statement

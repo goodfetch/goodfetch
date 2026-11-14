@@ -747,6 +747,7 @@ pub struct RunState {
     watched: std::sync::Arc<Watched>,
     readers: std::sync::Arc<RunStateReaders>,
     batches: std::sync::Arc<batch::Batches>,
+    per_attempt: bool,
 }
 
 /// What a writer's watchers follow: its acknowledged commits and its first
@@ -835,7 +836,16 @@ impl RunState {
             watched: std::sync::Arc::new(Watched { commits, failures }),
             readers,
             batches: std::sync::Arc::new(batch::Batches::new()),
+            per_attempt: options.durability.per_attempt,
         })
+    }
+
+    /// Whether each attempt's claim and outcome is a batch of its own
+    /// (`run_state.batch.per_attempt`): a write is then in the file before
+    /// it is answered, and only a caller that waits for a claim knows it
+    /// is in the file before its fetch.
+    pub fn per_attempt(&self) -> bool {
+        self.per_attempt
     }
 
     /// The first commit that met a full disk or an I/O error, as SQLite

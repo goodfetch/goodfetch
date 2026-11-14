@@ -50,10 +50,10 @@ use crate::work_items::{self, Changed, Failure, Leased, Positions, Unsuccessful}
 pub(crate) type EndWritten = Result<Written, StateError>;
 
 /// What a write the loop waited for gave the crawl: the work items it
-/// added, each keyed as it was added, for the loop to offer their
-/// domains' queues, and what it changed of the crawl's requests by state,
+/// added, each keyed as it was added and as its first lease takes it, for
+/// the loop to offer their domains' queues, and what it changed of the crawl's requests by state,
 /// for the Run state to count.
-pub(crate) type Given = (Vec<Waiting>, Changed);
+pub(crate) type Given = (Vec<Leased>, Changed);
 
 /// An outcome's job, queued, which answers once it is written.
 pub(crate) type QueuedEnd = Pin<Box<dyn Future<Output = EndWritten> + Send>>;
@@ -449,6 +449,13 @@ impl Stored {
         *self.writer.commits().borrow()
     }
 
+    /// Whether each attempt's claim is in the run file before its fetch
+    /// (`run_state.batch.per_attempt`, at `full`, `fast` and `periodic`):
+    /// the crawl then waits for it (ADR 0142).
+    pub(crate) fn claims_first(&self) -> bool {
+        self.writer.per_attempt()
+    }
+
     /// Whether a work item is pending.
     ///
     /// # Errors
@@ -458,20 +465,35 @@ impl Stored {
         Ok(self.writer.read(work_items::any_pending).await?)
     }
 
-    /// The job of a claim: leases each pending work item of `ids`, in that
-    /// order, after writing the rows the draws before it decided, what
-    /// they changed in the Session pool, `changes`, and each tier choice's
-    /// count of requests served, `counted`.
+    /// Each pending work item of `ids`, in that order, as its next lease
+    /// takes it, read in one read transaction beside the writer: what the
+    /// run file's committed state holds of it.
+    ///
+    /// # Errors
+    ///
+    /// The run file's.
+    pub(super) async fn leasable(&self, ids: Vec<String>) -> Result<Vec<Leased>, StateError> {
+        Ok(self
+            .writer
+            .read(move |connection| work_items::leasable(connection, &ids))
+            .await?)
+    }
+
+    /// The job of a claim: leases each work item of `claims` still pending
+    /// under the lease epoch below the one given, in that order, after
+    /// writing the rows the draws before it decided, what they changed in
+    /// the Session pool, `changes`, and each tier choice's count of
+    /// requests served, `counted`. It answers the IDs it did not lease.
     pub(super) fn claim(
-        ids: Vec<String>,
+        claims: Vec<(String, u64)>,
         (changes, counted): (Changes, Counted),
-    ) -> impl FnOnce(&Connection) -> rusqlite::Result<Vec<Leased>> + Send + 'static {
+    ) -> impl FnOnce(&Connection) -> rusqlite::Result<Vec<String>> + Send + 'static {
         move |connection| {
             if !changes.is_empty() {
                 changes.write(connection)?;
             }
             counted.write(&BatchWriter::over(connection))?;
-            work_items::lease(connection, &ids)
+            work_items::claim(connection, &claims)
         }
     }
 
@@ -676,7 +698,7 @@ impl Stored {
 /// adding them changed of the crawl's requests by state.
 fn given(connection: &Connection, positions: &mut Positions) -> rusqlite::Result<Given> {
     let mut changed = Changed::default();
-    let added = changed.adds(positions);
+    let added = work_items::leasable_added(connection, &changed.adds(positions))?;
     Ok((added, changed.with_sitemaps(connection)?))
 }
 

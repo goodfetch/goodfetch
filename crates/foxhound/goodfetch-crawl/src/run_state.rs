@@ -5,12 +5,18 @@
 //! pool, how its tier is chosen, what its Label on its domain learned and
 //! the browser-fetch latencies that time a race.
 //!
-//! The run file stays the truth of what is leased: a writer's job leases
-//! the work items, and the draw then runs here, in memory, on what that job
-//! answered. What a draw changes is written as rows the next time the loop
-//! queues a job, a lease's or an outcome's, and once more when the crawl has
-//! nothing left to lease, so a draw adds no job of its own and the file
-//! follows memory by one job at most.
+//! A lease waits for no write (#2168): each work item's row is the one
+//! the crawl kept of a change the run file's readers may not see yet, a
+//! retry or a work item an attempt added, else one read on a reader; the
+//! draw runs here, in memory, on it; and its claim is a writer's job the
+//! loop queues and does not wait for, which leases only a work item still
+//! as its row was read, and before which no later job runs. The crawl
+//! keeps each work item it leased out of the pending ones it reads until
+//! its attempt settles, and each one that ended or was merged until a
+//! read sees that change. What a draw changes is written as rows the next
+//! time the loop queues a job, a lease's or an outcome's, and once more
+//! when the crawl has nothing left to lease, so a draw adds no job of its
+//! own and the file follows memory by one job at most.
 //!
 //! It also owns ADR 0140's F3 whole (#2167): every admission, the writes
 //! that claim work items and those that end their attempts go through it.
@@ -30,8 +36,13 @@
 //! state and reads no count from the run file (#2167).
 
 use std::collections::{BTreeMap, HashMap};
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
+
+use futures_util::FutureExt as _;
+use futures_util::StreamExt as _;
+use futures_util::stream::FuturesUnordered;
 
 use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::local_addresses::{SessionAddresses, Unavailable};
@@ -41,6 +52,7 @@ use goodfetch_fetch_tier::{Choosing, PooledSession, SetTier, TierChoice};
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_session_pool::{PoolSettings, SessionPool};
+use rusqlite::Connection;
 
 use crate::labels;
 use crate::tier_choice::{AttemptPlan, Sampled, TierChoices, Unit, Weighed};
@@ -209,35 +221,69 @@ pub(crate) struct RunState {
     /// waits for the loop.
     tally: Arc<Tally>,
     stored: Stored,
-    claimed: Claimed,
+    unwritten: Unwritten,
+    /// The claims queued with the run-state writer whose answers the crawl
+    /// has not heard yet: no page waits for one (#2168). Only `&mut self`
+    /// reaches them, so their lock is never contended: it only lets a
+    /// shared Run state cross threads.
+    claims: tokio::sync::Mutex<FuturesUnordered<Claim>>,
 }
 
-/// The work items the crawl claimed whose claim the run file's readers may
-/// not see yet: at a level that batches attempts, a claim is answered once
-/// it is in the open batch (ADR 0142). Each is kept with the commits its
-/// writer had acknowledged once its claim answered, and the batch that holds
-/// it commits after them, so a read that starts once more have been
-/// acknowledged sees it.
+/// A claim queued with the run-state writer: answers the IDs it did not
+/// lease.
+pub(crate) type Claim = Pin<Box<dyn Future<Output = Result<Vec<String>, ChargeError>> + Send>>;
+
+/// What the crawl knows of a work item that the run file's readers may not
+/// see yet: at a level that batches attempts, a write is answered once it
+/// is in the open batch (ADR 0142), and a claim is queued and not waited
+/// for at all (#2168).
+enum Known {
+    /// Its claim is queued and its attempt not settled: it is leased.
+    InFlight,
+    /// It ended, or a rule merged it, once `.0` commits were acknowledged.
+    Gone(u64),
+    /// It waits as `.0` says its next lease takes it, which a write
+    /// answered once `.1` commits were acknowledged: a retry, or a work
+    /// item an attempt added.
+    Pending(Box<Leased>, u64),
+}
+
+/// The work items whose latest change the run file's readers may not see
+/// yet, each as [`Known`] says. A change answered once `committed` commits
+/// were acknowledged is in a batch that commits after them, so a read that
+/// starts once more have been acknowledged sees it.
 #[derive(Default)]
-struct Claimed(HashMap<String, u64>);
+struct Unwritten(HashMap<String, Known>);
 
-impl Claimed {
-    /// Keeps each of `ids`, claimed once `committed` commits were
-    /// acknowledged.
-    fn claimed(&mut self, ids: Vec<String>, committed: u64) {
-        self.0.extend(ids.into_iter().map(|id| (id, committed)));
-    }
-
-    /// Forgets each claim a read that starts once `committed` commits were
-    /// acknowledged sees.
+impl Unwritten {
+    /// Forgets each change a read that starts once `committed` commits
+    /// were acknowledged sees: a claim stays until its attempt settles.
     fn seen(&mut self, committed: u64) {
-        self.0.retain(|_, claimed| *claimed >= committed);
+        self.0.retain(|_, known| match known {
+            Known::InFlight => true,
+            Known::Gone(answered) | Known::Pending(_, answered) => *answered >= committed,
+        });
     }
 
-    /// Whether the work item `id` was claimed in a batch a read may not
-    /// see.
+    /// Forgets every change but the claims: the open batch is in the file.
+    fn sealed(&mut self) {
+        self.0.retain(|_, known| matches!(known, Known::InFlight));
+    }
+
+    /// Whether a read may still find `id` pending though it is not.
     fn holds(&self, id: &str) -> bool {
-        self.0.contains_key(id)
+        matches!(self.0.get(id), Some(Known::InFlight | Known::Gone(_)))
+    }
+
+    /// Keeps `id` gone once `committed` commits were acknowledged, unless
+    /// its attempt is in flight, whose settling says how it ended.
+    fn gone(&mut self, id: String, committed: u64) {
+        match self.0.get(&id) {
+            Some(Known::InFlight) => {}
+            _ => {
+                self.0.insert(id, Known::Gone(committed));
+            }
+        }
     }
 }
 
@@ -257,7 +303,8 @@ impl RunState {
             latencies: Latencies::default(),
             tally: Arc::new(tally),
             stored,
-            claimed: Claimed::default(),
+            unwritten: Unwritten::default(),
+            claims: tokio::sync::Mutex::new(FuturesUnordered::new()),
         }
     }
 
@@ -268,8 +315,8 @@ impl RunState {
 
     /// The pending work items of `key`, or of every key when `None`, at
     /// most `bound` of each key, in the order its per-domain queue admits
-    /// them: the run file's, less each the crawl claimed in a batch the
-    /// read does not see yet (ADR 0142).
+    /// them: the run file's, less each the crawl leased, ended or saw
+    /// merged in a change the read does not see yet (ADR 0142).
     ///
     /// # Errors
     ///
@@ -279,9 +326,9 @@ impl RunState {
         key: Option<String>,
         bound: usize,
     ) -> Result<Vec<Waiting>, StateError> {
-        self.claimed.seen(self.stored.commits());
+        self.unwritten.seen(self.stored.commits());
         let mut waiting = self.stored.waiting(key, bound).await?;
-        waiting.retain(|waiting| !self.claimed.holds(&waiting.id));
+        waiting.retain(|waiting| !self.unwritten.holds(&waiting.id));
         Ok(waiting)
     }
 
@@ -294,15 +341,65 @@ impl RunState {
     /// The run file's.
     pub(crate) async fn seal(&mut self) -> Result<(), StateError> {
         self.stored.seal().await?;
-        self.claimed = Claimed::default();
-        Ok(())
+        self.unwritten.sealed();
+        self.heard()
     }
 
-    /// Keeps each of `ids`, which a job the writer answered just now
-    /// claimed, out of [`waiting`](Self::waiting) until a read sees the
-    /// batch that holds the claim (ADR 0142).
-    pub(crate) fn keep_claimed(&mut self, ids: Vec<String>) {
-        self.claimed.claimed(ids, self.stored.commits());
+    /// Keeps each of `ids` out of [`waiting`](Self::waiting) until a read
+    /// sees the change a job the writer answered just now made to it: it
+    /// ended, or a rule merged it (ADR 0142). One whose attempt is in
+    /// flight stays leased until it settles.
+    pub(crate) fn gone(&mut self, ids: impl IntoIterator<Item = String>) {
+        let committed = self.stored.commits();
+        for id in ids {
+            self.unwritten.gone(id, committed);
+        }
+    }
+
+    /// Takes how the attempt of `leased` settled, once its outcome's job
+    /// answered: its work item waits again for a retry, `retried`, as its
+    /// next lease takes it, or else it ended.
+    pub(crate) fn settled(&mut self, leased: Leased, retried: bool) {
+        let committed = self.stored.commits();
+        let id = leased.crawl_request.id.clone();
+        let known = if retried {
+            Known::Pending(Box::new(leased.next()), committed)
+        } else {
+            Known::Gone(committed)
+        };
+        self.unwritten.0.insert(id, known);
+    }
+
+    /// Takes `added`, the work items a job the writer answered just now
+    /// added, keyed, as each one's first lease takes it, and answers how
+    /// each waits for its domain's queue, in order.
+    pub(crate) fn added(&mut self, added: Vec<Leased>) -> Vec<Waiting> {
+        let committed = self.stored.commits();
+        added
+            .into_iter()
+            .map(|leased| {
+                let waiting = leased.waiting.clone();
+                self.unwritten.0.insert(
+                    waiting.id.clone(),
+                    Known::Pending(Box::new(leased), committed),
+                );
+                waiting
+            })
+            .collect()
+    }
+
+    /// Hears each claim the writer answered: one that failed fails the
+    /// crawl's next operation, as a claim the loop waited for would have,
+    /// and a work item one did not lease is traced, its attempt ending
+    /// with its lease lost.
+    fn heard(&mut self) -> Result<(), StateError> {
+        let claims = self.claims.get_mut();
+        while let Some(Some(answered)) = claims.next().now_or_never() {
+            for id in answered? {
+                tracing::debug!(work_item = %id, "a claim found its work item no longer as it was read");
+            }
+        }
+        Ok(())
     }
 
     /// Counts what a job of the run file `changed` of the crawl's requests
@@ -326,40 +423,131 @@ impl RunState {
     pub(crate) async fn answer(&mut self, ask: Box<Ask>) -> Option<Vec<Waiting>> {
         let (added, changed) = self.stored.answer(ask).await?;
         self.changed(changed);
-        Some(added)
+        Some(self.added(added))
     }
 
-    /// Claims each pending work item of `ids`, in that order, in one job
-    /// of the run-state writer that also journals `charges`, what `run`
-    /// charged for them (ADR 0138), and writes the rows the draws before it
-    /// decided: what they changed in the pool, and each tier choice's
-    /// count of requests served. Then draws, in memory, the Session that
-    /// serves each and how its tier is chosen.
+    /// Leases each pending work item of `asked`, by ID with the domain key
+    /// its queue admitted it under, in that order, and draws, in memory,
+    /// the Session that serves each and how its tier is chosen. Each one's
+    /// row is the one the crawl kept of a change the run file's readers
+    /// may not see yet, else read in one read transaction beside the
+    /// writer; one whose attempt is in flight, or that ended or was merged
+    /// in such a change, is left out. Its claim is one job of the
+    /// run-state writer, queued now and, at a level that batches attempts,
+    /// not waited for (#2168); at one where each attempt is a batch of its
+    /// own, it is in the file before the fetch, as before. The claim also
+    /// journals `charges`, what `run` charged for them (ADR 0138), and
+    /// writes the rows the draws before it decided: what they changed in
+    /// the pool, and each tier choice's count of requests served. Every
+    /// job queued after it runs after it, its attempts' outcomes included,
+    /// and a work item it finds changed since its row was read is not
+    /// leased: its attempt's outcome then finds its lease lost.
     ///
     /// # Errors
     ///
-    /// The charges' refusal, or the run file's.
+    /// The run file's, or an earlier claim's that failed.
     pub(crate) async fn lease(
         &mut self,
         run: &Run,
         charges: UnjournaledCharges,
-        ids: Vec<String>,
+        asked: Vec<(String, String)>,
         drawing: &Drawing<'_>,
     ) -> Result<Vec<Drawn>, StateError> {
-        let rows = (self.pool.changes(), self.learned.counted());
-        // Each page the lease claims waits for the writer's job.
-        self.stored.waited(ids.len());
-        // Each of `ids` is kept, the ones the job leased and the ones it
-        // found no longer pending alike: either change may be in a batch a
-        // read does not see yet.
-        let leased = run
-            .write_charged(charges, Stored::claim(ids.clone(), rows))
-            .await?;
-        self.keep_claimed(ids);
+        let leased = self.leasable(asked).await?;
+        let claim = run.queue_charged(charges, self.claim(&leased)).await?;
+        if self.stored.claims_first() {
+            // Each claim is in the file before its fetch, as each attempt's
+            // own batch promises: one page wait (`F2.page_waits.full`).
+            self.stored.waited(leased.len());
+            let answered = claim.await;
+            self.claiming(Box::pin(std::future::ready(answered)), &leased);
+        } else {
+            self.claiming(Box::pin(claim), &leased);
+        }
         Ok(leased
             .into_iter()
             .map(|leased| self.draw(drawing, leased))
             .collect())
+    }
+
+    /// Each pending work item of `asked`, by ID with the domain key its
+    /// queue admitted it under, in that order, as its next lease takes it:
+    /// the row the crawl kept of a change the run file's readers may not
+    /// see yet, else the one read in one read transaction beside the
+    /// writer. One whose attempt is in flight, or that ended or was merged
+    /// in such a change, is left out.
+    ///
+    /// # Errors
+    ///
+    /// The run file's, or an earlier claim's that failed.
+    pub(crate) async fn leasable(
+        &mut self,
+        asked: Vec<(String, String)>,
+    ) -> Result<Vec<Leased>, StateError> {
+        self.heard()?;
+        self.unwritten.seen(self.stored.commits());
+        let mut kept = HashMap::new();
+        let mut unread = Vec::new();
+        for (id, _) in &asked {
+            match self.unwritten.0.remove(id) {
+                Some(Known::Pending(leased, _)) => {
+                    kept.insert(id.clone(), *leased);
+                }
+                Some(known) => {
+                    self.unwritten.0.insert(id.clone(), known);
+                }
+                None => unread.push(id.clone()),
+            }
+        }
+        let mut read: HashMap<String, Leased> = if unread.is_empty() {
+            HashMap::new()
+        } else {
+            self.stored
+                .leasable(unread)
+                .await?
+                .into_iter()
+                .map(|leased| (leased.crawl_request.id.clone(), leased))
+                .collect()
+        };
+        Ok(asked
+            .into_iter()
+            .filter_map(|(id, key)| {
+                let mut leased = kept.remove(&id).or_else(|| read.remove(&id))?;
+                // A work item keyed in a batch the read does not see yet
+                // reads with no key: its queue's is the one it was keyed
+                // under.
+                leased.waiting.key = key;
+                Some(leased)
+            })
+            .collect())
+    }
+
+    /// The job that claims `leased`, as [`leasable`](Self::leasable) read
+    /// them, and writes the rows the draws before it decided: what they
+    /// changed in the pool, and each tier choice's count of requests
+    /// served. It answers the IDs it did not lease: each one changed since
+    /// its row was read.
+    pub(crate) fn claim(
+        &mut self,
+        leased: &[Leased],
+    ) -> impl FnOnce(&Connection) -> rusqlite::Result<Vec<String>> + Send + 'static {
+        let claims = leased
+            .iter()
+            .map(|leased| (leased.crawl_request.id.clone(), leased.lease_epoch))
+            .collect();
+        Stored::claim(claims, (self.pool.changes(), self.learned.counted()))
+    }
+
+    /// Takes `claim`, the queued [`claim`](Self::claim) of `leased`, which
+    /// the crawl hears at its next operation, and keeps each of `leased`
+    /// leased until its attempt settles.
+    pub(crate) fn claiming(&mut self, claim: Claim, leased: &[Leased]) {
+        self.claims.get_mut().push(claim);
+        for leased in leased {
+            self.unwritten
+                .0
+                .insert(leased.crawl_request.id.clone(), Known::InFlight);
+        }
     }
 
     /// The Session pool.

@@ -50,6 +50,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::mask::Masks;
+use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run_state::{Durability, RunStateOptions, RunStateTables, Syncing};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{RequestSeed, Seed};
@@ -930,8 +931,9 @@ impl Subject {
                     intake: Intake::default(),
                 },
                 keys.clone(),
-                CountedWork::default(),
+                &Metrics::none(),
             );
+            stored.read_visits().await.unwrap();
             if resumed {
                 loop {
                     let unkeyed = stored.unkeyed(KEYED_AT_ONCE).await.unwrap();

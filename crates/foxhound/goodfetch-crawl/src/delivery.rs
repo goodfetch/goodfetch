@@ -1567,12 +1567,11 @@ async fn open(
         staging: arrivals.staging.clone(),
         intake: arrivals.intake.clone(),
     };
-    let stored = Stored::new(
-        run.state().clone(),
-        within,
-        admission.keys(),
-        run.metrics().counted_work().clone(),
-    );
+    let stored = Stored::new(run.state().clone(), within, admission.keys(), run.metrics());
+    stored
+        .read_visits()
+        .await
+        .map_err(|error| error.to_string())?;
     key_new(&stored, &mut admission, Unkeyed::Opening)
         .await
         .map_err(|error| error.to_string())?;

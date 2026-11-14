@@ -244,13 +244,12 @@ pub(crate) fn seen(
     staged: Option<&Staged>,
     held: Option<&Holding<'_>>,
 ) -> rusqlite::Result<Seen> {
-    // Memory first: what it keeps of the file is what the file holds, and
-    // a hit there reads nothing (#2169).
+    // Memory first: a hit there reads nothing, nor a miss while it holds
+    // every visit the file holds (#2169).
     let visitor = |identity: &str| -> rusqlite::Result<Option<String>> {
-        if let Some(visitor) = held.and_then(|held| held.visitor(identity)) {
-            return Ok(Some(visitor.to_owned()));
-        }
-        Ok(visitor(connection, identity)?.or_else(|| {
+        let read = || visitor(connection, identity);
+        let read = held.map_or_else(read, |held| held.visitor_or(identity, read))?;
+        Ok(read.or_else(|| {
             staged
                 .and_then(|staged| staged.visitor(identity))
                 .map(str::to_owned)

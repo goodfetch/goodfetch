@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use goodfetch_engine::egress::Policy;
+use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run_state::WriteWatch;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
 use rusqlite::Connection;
@@ -16,8 +17,8 @@ use url::Url;
 use crate::admit::{Candidate, admit};
 use crate::bounds::{self, Bounds};
 use crate::identity::{
-    self, Declared, Hop, Key, Reached, Seen, admit_hop, admit_reached, hold_reached, redirect_hop,
-    seen, visit_pending,
+    self, Declared, Fixed, Hop, Key, Reached, Seen, admit_hop, admit_reached, fixed_only,
+    hold_reached, redirect_hop, seen, visit_pending,
 };
 use crate::invariants::Invariants;
 use crate::scope::{self, Scope};
@@ -69,7 +70,11 @@ fn holding(commits: &Arc<AtomicU64>) -> Invariants {
 fn within(budget: u64, commits: &Arc<AtomicU64>) -> Invariants {
     let invariants = Invariants::new(Scope::default(), Bounds::default()).unwrap();
     let commits = Arc::clone(commits);
-    invariants.hold_unwritten(budget, move || commits.load(Ordering::SeqCst));
+    invariants.hold_unwritten(
+        budget,
+        move || commits.load(Ordering::SeqCst),
+        &Metrics::none(),
+    );
     invariants
 }
 
@@ -100,6 +105,24 @@ fn looked_up(
     )?;
     let holding = invariants.unwritten().unwrap().lock();
     seen(connection, &identities, None, Some(&holding))
+}
+
+/// Whether the visited set holds `url`'s identity in a Run that does not
+/// learn, beside the visits memory holds, read on `connection`: the
+/// visited set alone, with no learned identity to read.
+fn visited(connection: &Connection, invariants: &Invariants, url: &str) -> rusqlite::Result<Seen> {
+    let get = HttpMethod::get();
+    let fixed = Fixed::of(
+        &Key::of(&Url::parse(url).unwrap(), false),
+        Declared {
+            method: &get,
+            body: None,
+            key: None,
+            keeps_fragment: false,
+        },
+    );
+    let holding = invariants.unwritten().unwrap().lock();
+    seen(connection, &fixed_only(&fixed), None, Some(&holding))
 }
 
 /// Commits the batch open on `file`'s writer, as the writer's commit
@@ -188,19 +211,27 @@ fn a_visit_in_an_uncommitted_batch_makes_a_readers_hop_a_duplicate() {
     file.writer.execute_batch("COMMIT").unwrap();
     commits.store(1, Ordering::SeqCst);
     let committed = hop(&file.reader, &invariants, "2", "http://shop.test/a");
-    let still_held = invariants
+    let answered_by = invariants
         .unwritten()
         .unwrap()
         .lock()
-        .visitor(&format!(
-            "GET {}",
-            identity::url_key(&Url::parse("http://shop.test/a").unwrap())
-        ))
-        .map(str::to_owned);
+        .visitor_or(
+            &format!(
+                "GET {}",
+                identity::url_key(&Url::parse("http://shop.test/a").unwrap())
+            ),
+            || Ok(Some("the file".to_owned())),
+        )
+        .unwrap();
 
     assert_eq!(
-        (from_the_file_alone, beside_memory, committed, still_held),
-        (Hop::Follow, Hop::Duplicate, Hop::Duplicate, None)
+        (from_the_file_alone, beside_memory, committed, answered_by),
+        (
+            Hop::Follow,
+            Hop::Duplicate,
+            Hop::Duplicate,
+            Some("the file".to_owned())
+        )
     );
 }
 
@@ -404,4 +435,80 @@ fn a_failed_job_leaves_nothing_it_visited_in_memory() {
 
     assert!(matches!(kept, Ok(Seen::Visited(visitor)) if visitor == "1"));
     assert!(matches!(again, Enqueued::Added { id, .. } if id == "3"));
+}
+
+/// Once memory read every visit the run file holds, a miss reads nothing:
+/// a URL no request visited is new, and one the file held is a duplicate,
+/// with no run file to read.
+#[test]
+fn a_miss_reads_nothing_once_memory_holds_every_visit_the_file_holds() {
+    let file = run_file();
+    let commits = Arc::new(AtomicU64::new(0));
+    let invariants = within(1 << 20, &commits);
+
+    invariants
+        .unwritten()
+        .unwrap()
+        .read_visits(&file.reader)
+        .unwrap();
+    let new = visited(&no_file(), &invariants, "http://shop.test/new");
+    let held = visited(&no_file(), &invariants, "http://shop.test/");
+
+    assert!(matches!(new, Ok(Seen::New)));
+    assert!(matches!(held, Ok(Seen::Visited(visitor)) if visitor == "0"));
+}
+
+/// A run file holding more visits than the budget keeps is read in part:
+/// a miss then reads the file.
+#[test]
+fn a_miss_reads_the_file_when_its_visits_are_past_the_budget() {
+    let file = run_file();
+    let commits = Arc::new(AtomicU64::new(0));
+    let invariants = holding(&commits);
+
+    invariants
+        .unwritten()
+        .unwrap()
+        .read_visits(&file.reader)
+        .unwrap();
+    let without_the_file = visited(&no_file(), &invariants, "http://shop.test/new");
+    let on_the_file = visited(&file.reader, &invariants, "http://shop.test/new");
+
+    assert!(without_the_file.is_err());
+    assert!(matches!(on_the_file, Ok(Seen::New)));
+}
+
+/// Once a visit the file holds leaves memory past the budget, memory no
+/// longer holds every visit, and a miss reads the file again.
+#[test]
+fn a_miss_reads_the_file_again_once_a_visit_left_memory() {
+    let file = run_file();
+    let commits = Arc::new(AtomicU64::new(0));
+    let probe = within(1 << 20, &commits);
+    probe
+        .unwritten()
+        .unwrap()
+        .read_visits(&file.reader)
+        .unwrap();
+    let one_visit = probe.unwritten().unwrap().bytes();
+    let invariants = within(2 * one_visit, &commits);
+    invariants
+        .unwritten()
+        .unwrap()
+        .read_visits(&file.reader)
+        .unwrap();
+    let before = visited(&no_file(), &invariants, "http://shop.test/new");
+
+    for (commit_number, (url, id)) in [("http://shop.test/a", "1"), ("http://shop.test/b", "2")]
+        .into_iter()
+        .enumerate()
+    {
+        file.writer.execute_batch("BEGIN").unwrap();
+        seed(&file.writer, &invariants, url, id);
+        commit(&file, &commits, 1 + u64::try_from(commit_number).unwrap());
+    }
+    let after = visited(&no_file(), &invariants, "http://shop.test/new");
+
+    assert!(matches!(before, Ok(Seen::New)));
+    assert!(after.is_err());
 }

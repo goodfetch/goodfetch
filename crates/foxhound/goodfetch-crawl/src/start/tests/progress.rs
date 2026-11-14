@@ -128,6 +128,83 @@ fn a_crawls_progress_counts_its_requests_and_lists_those_in_flight() {
     );
 }
 
+/// A subscription to the engine's events reads a crawl's requests in
+/// flight in the `run.progress` events its Run publishes: the request in
+/// its handler, as `run.progress` answers it.
+///
+/// Covers: story:3-162, event:run.progress, operation:events.subscribe
+#[test]
+fn a_subscription_reads_a_crawls_requests_in_flight_in_its_runs_progress_events() {
+    const SUBSCRIPTION: i64 = 1000;
+    let env = TestEnv::new();
+    // The requests in flight of the first `run.progress` event of a batch
+    // that shows one in its handler, or of the Run's last.
+    let handling = |message: &Value| {
+        let events = message["params"]["events"].as_array()?;
+        events
+            .iter()
+            .filter(|event| event["event"] == "run.progress")
+            .map(|event| &event["data"])
+            .find(|progress| {
+                progress["in_flight"][0]["phase"] == "handling" || progress["last"] == true
+            })
+            .map(|progress| progress["in_flight"].clone())
+    };
+
+    let in_flight = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .send(&json!({
+                    "jsonrpc": "2.0", "id": SUBSCRIPTION, "method": "events.subscribe", "params": {},
+                }))
+                .await;
+            client
+                .send(&json!({
+                    "jsonrpc": "2.0", "method": "$/credit",
+                    "params": { "id": SUBSCRIPTION, "credits": 1000 },
+                }))
+                .await;
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "published", "seeds": [seed("https://a.test/1")] }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            // What came before the reply to `crawl.start`, then what comes.
+            if let Some(found) = client
+                .arrivals
+                .iter()
+                .find_map(|(message, _)| handling(message))
+            {
+                return found;
+            }
+            loop {
+                let message = client
+                    .next()
+                    .await
+                    .expect("the engine closed before the event");
+                if let Some(found) = handling(&message) {
+                    return found;
+                }
+            }
+        },
+    );
+
+    assert_eq!(
+        in_flight,
+        json!([{
+            "request_id": "1",
+            "url": "https://a.test/1",
+            "phase": "handling",
+            "tier": "http",
+            "attempt": 1,
+            "started_at": "2026-01-05T09:00:00Z",
+        }])
+    );
+}
+
 /// A keep-alive crawl with no work says it is idle until a seed comes.
 ///
 /// Covers: story:3-162, operation:run.progress, setting:crawl.keep_alive

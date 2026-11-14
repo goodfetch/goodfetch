@@ -172,7 +172,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 99] = [
+const ROWS: [Row; 100] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -322,6 +322,7 @@ const ROWS: [Row; 99] = [
     b1("F3.payload_serializations", PAYLOADS, true),
     b1("F3.validations", PAYLOADS, true),
     b1("F3.actor_round_trips", ATTEMPTS_ENDED, true),
+    b1("F3.in_flight_serializations", ATTEMPTS_ENDED, false),
     // What each page more builds, read as `F2.prepares` is: the whole
     // site's run less a run on half its pages, over the pages it adds.
     b1("F3.counted_work_constructions", ADDED_PAGES, false),

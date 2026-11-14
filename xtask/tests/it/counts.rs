@@ -728,6 +728,7 @@ const OTHER_B1_ROWS: &str = "\
 | `F3.payload_serializations` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F3.validations` | its work | 0 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F3.actor_round_trips` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.in_flight_serializations` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F3.counted_work_constructions` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.file_opens` | folders created and files opened per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.spawns` | tasks spawned per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
@@ -796,6 +797,7 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F3.payload_serializations", 1),
         ("F3.validations", 1),
         ("F3.actor_round_trips", 1),
+        ("F3.in_flight_serializations", 0),
         ("F3.counted_work_constructions", 0),
         ("E5.file_opens", 0),
         ("E5.spawns", 0),
@@ -970,7 +972,7 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
 }
 
 /// Every F3 row, in what a benchmark prints and the register holds.
-const FRONTIER_ROWS: [&str; 17] = [
+const FRONTIER_ROWS: [&str; 18] = [
     "F3.invariant_reads",
     "F3.invariant_reads.hop",
     "F3.invariant_reads.sitemap",
@@ -987,6 +989,7 @@ const FRONTIER_ROWS: [&str; 17] = [
     "F3.payload_serializations",
     "F3.validations",
     "F3.actor_round_trips",
+    "F3.in_flight_serializations",
     "F3.counted_work_constructions",
 ];
 

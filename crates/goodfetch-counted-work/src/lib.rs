@@ -157,6 +157,9 @@ rows! {
     /// `F3.actor_round_trips`: a message a page's task sends the actor that
     /// owns its crawl's Run state, whose answer the task waits for (ADR 0142).
     ActorRoundTrips => "F3.actor_round_trips", "frontier_admission", "actor_round_trips";
+    /// `F3.in_flight_serializations`: a crawl's requests in flight encoded
+    /// to JSON, for a value of its Run's progress that a reader takes.
+    InFlightSerializations => "F3.in_flight_serializations", "frontier_admission", "in_flight_serializations";
     /// `F3.invariant_reads`, of a redirect hop.
     HopInvariantReads => "F3.invariant_reads.hop", "frontier_hop", "invariant_reads";
     /// `F3.compilations`, of a redirect hop.

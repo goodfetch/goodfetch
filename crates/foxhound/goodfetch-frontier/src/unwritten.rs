@@ -38,6 +38,11 @@
 //! link's scope check then reads the file only for a seed that left it,
 //! and counts that lookup in `goodfetch.run_state.spilled_lookups` too.
 //!
+//! The learned rules are held here too (#2169), each as the file holds
+//! it, read once by the first admission that writes and again, from the
+//! lowest rule the writer changed, by the next one after a change; they
+//! count in the budget and never leave memory (`rules`).
+//!
 //! The run-state writer tells these, as a [`WriteWatch`], as each job
 //! begins and when one fails: its changes are then rolled back while its
 //! batch goes on, so what it noted here is taken back too.
@@ -54,12 +59,17 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use goodfetch_engine::metrics::{Level, Metrics, Occurrences};
 use goodfetch_engine::run_state::WriteWatch;
 use goodfetch_protocol::ops::{RUN_STATE_MEMORY, RUN_STATE_SPILLED_LOOKUPS};
 use rusqlite::Connection;
+
+pub(crate) use self::rules::{HeldRule, LearnedRules};
+
+mod rules;
 
 /// The visits the run file does not hold yet, the ones it holds that
 /// memory keeps within its budget, and how many commits the writer
@@ -101,6 +111,11 @@ struct Held {
     /// The Bounds' counts, as the file holds them with the writes not
     /// committed yet, once an admission that writes read them.
     counts: Option<Counts>,
+    /// The learned rules, once an admission that writes read them.
+    rules: Option<LearnedRules>,
+    /// The lowest ID of a rule the writer changed since memory read them,
+    /// or [`i64::MAX`]: told by the writer's connection as it changes one.
+    rules_changed: Arc<AtomicI64>,
     /// What the writer job running now changed here, to take back if its
     /// work fails.
     journal: Journal,
@@ -198,6 +213,9 @@ struct Journal {
     tag: u64,
     changes: Vec<(Space, Arc<str>, Option<u64>)>,
     counts: CountsBefore,
+    /// The lowest ID of the learned rules it read, which its failure has
+    /// memory read again.
+    rules_from: Option<i64>,
 }
 
 /// The Bounds' counts memory held before a writer job first changed them.
@@ -229,6 +247,7 @@ impl Journal {
     fn clear(&mut self) {
         self.changes.clear();
         self.counts = CountsBefore::Unchanged;
+        self.rules_from = None;
     }
 }
 
@@ -393,6 +412,9 @@ impl Held {
     /// Takes back what the writer job running now changed: its work
     /// failed, so the file holds none of it.
     fn undo(&mut self) {
+        if let Some(from) = self.journal.rules_from.take() {
+            self.rules_changed.fetch_min(from, Ordering::SeqCst);
+        }
         match std::mem::take(&mut self.journal.counts) {
             CountsBefore::Unchanged => {}
             CountsBefore::Unread => self.counts = None,
@@ -467,6 +489,7 @@ impl Held {
     fn evict(&mut self) {
         while self
             .entries
+            .saturating_add(self.kept())
             .saturating_add(self.containers().min(self.least(0)))
             > self.budget
             && let Some((tag, space, identity)) = self.resident.pop_front()
@@ -484,9 +507,17 @@ impl Held {
         }
     }
 
-    /// The bytes held: the entries' own ([`cost`]) and the containers'.
+    /// The bytes held: the entries' own ([`cost`]), the containers' and
+    /// the learned rules'.
     fn bytes(&self) -> u64 {
-        self.entries.saturating_add(self.containers())
+        self.entries
+            .saturating_add(self.containers())
+            .saturating_add(self.kept())
+    }
+
+    /// The bytes the learned rules take, which never leave memory.
+    fn kept(&self) -> u64 {
+        self.rules.as_ref().map_or(0, LearnedRules::bytes)
     }
 
     /// The bytes the tables and queues holding the entries take, by the
@@ -574,6 +605,7 @@ impl Held {
             self.insert(space, (&identity, 0), crawl_request, Some(0));
             if self
                 .entries
+                .saturating_add(self.kept())
                 .saturating_add(self.least(queued + read.len() + 1))
                 > self.budget
             {
@@ -819,6 +851,8 @@ impl UnwrittenVisits {
                 written: VecDeque::new(),
                 resident: VecDeque::new(),
                 counts: None,
+                rules: None,
+                rules_changed: rules::unchanged(),
                 journal: Journal::default(),
                 entries: 0,
                 budget,

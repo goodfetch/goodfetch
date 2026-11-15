@@ -139,6 +139,11 @@ pub fn admission_statements(invariants: &Invariants) -> Vec<&'static str> {
         ])
         .chain(trap_links::SEEN_AGAIN)
         .chain(sitemap::READ)
-        .chain([rules::HOLDING, identity::VISITOR, identity::LEARNED])
+        .chain([
+            rules::HOLDING,
+            rules::HELD,
+            identity::VISITOR,
+            identity::LEARNED,
+        ])
         .collect()
 }

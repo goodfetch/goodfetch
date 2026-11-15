@@ -13,7 +13,6 @@
 //! `duplicate` the rules merged.
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
 use data_encoding::HEXLOWER;
@@ -29,7 +28,7 @@ use crate::invariants::Invariants;
 use crate::rules;
 use crate::scope::{Narrowing, Scope};
 use crate::staged::Staged;
-use crate::unwritten::{Holding, UnwrittenVisits};
+use crate::unwritten::{Holding, LearnedRules, UnwrittenVisits};
 
 /// The Frontier's visited set: each identity admitted, with the ID of the
 /// crawl request it was admitted for, or that reached it by a redirect;
@@ -156,7 +155,7 @@ pub(crate) fn identities(
     declared: Declared<'_>,
 ) -> rusqlite::Result<Identities<'static>> {
     let fixed = Fixed::of(key, declared);
-    let learned = learned_of(connection, key, &fixed)?;
+    let learned = learned_of(connection, key, &fixed, None)?;
     Ok(Identities {
         plain: Cow::Owned(fixed.plain),
         learned,
@@ -166,9 +165,10 @@ pub(crate) fn identities(
 
 /// The identities of a request whose URL's key is `key` and whose fixed
 /// identity is `fixed`, under the learned rules as the run file
-/// `connection` holds them now: the rules are the Run's state, which a
-/// rule learned or stopped changes, so a request keyed before either has
-/// the learned identity of the moment it is admitted (#2244).
+/// `connection` holds them now, or as memory holds them, `held`, while it
+/// does (#2169): the rules are the Run's state, which a rule learned or
+/// stopped changes, so a request keyed before either has the learned
+/// identity of the moment it is admitted (#2244).
 ///
 /// # Errors
 ///
@@ -177,10 +177,11 @@ pub(crate) fn under_rules<'a>(
     connection: &Connection,
     key: &Key,
     fixed: &'a Fixed,
+    held: Option<&LearnedRules>,
 ) -> rusqlite::Result<Identities<'a>> {
     Ok(Identities {
         plain: Cow::Borrowed(&fixed.plain),
-        learned: learned_of(connection, key, fixed)?,
+        learned: learned_of(connection, key, fixed, held)?,
         learning: true,
     })
 }
@@ -198,16 +199,18 @@ pub(crate) fn fixed_only(fixed: &Fixed) -> Identities<'_> {
 
 /// The learned identity of a request whose URL's key is `key` and whose
 /// fixed identity is `fixed`, with the rules that changed it, when the
-/// learned rules of the run file `connection` holds change it.
+/// learned rules of the run file `connection` holds, or memory's, `held`,
+/// change it.
 fn learned_of(
     connection: &Connection,
     key: &Key,
     fixed: &Fixed,
+    held: Option<&LearnedRules>,
 ) -> rusqlite::Result<Option<(String, Vec<i64>)>> {
     if fixed.key.is_none() {
         return Ok(None);
     }
-    let (merged, rules) = rules::without_learned(connection, &key.url)?;
+    let (merged, rules) = rules::without_learned(connection, &key.url, held)?;
     if rules.is_empty() {
         return Ok(None);
     }
@@ -333,233 +336,8 @@ fn learn_identity(
     Ok(())
 }
 
-/// The crawl requests the learned rules show to be one page, and the
-/// rules that say so: each rule that changed the identity of one of them,
-/// so the merge holds only while every one of those rules does.
-#[derive(Debug, Default)]
-pub(crate) struct OnePage {
-    /// The crawl requests' IDs.
-    pub(crate) requests: BTreeSet<String>,
-    /// The rules their merge relies on.
-    pub(crate) rules: BTreeSet<i64>,
-}
-
-/// Gives each visited identity of `merging`'s hosts that its rule changes
-/// its learned identity, so a URL that differs from it only by what the
-/// learned rules merge is a `duplicate` from then on, whichever of the two
-/// was admitted; answers each set of crawl requests the rule just showed to
-/// be one page, the requests admitted before it was learned among them.
-/// It holds the identities the host's rules change, which those sets are
-/// made of and whose order is the order the crawl ends them in; the host's
-/// visited set it reads a slice at a time.
-///
-/// # Errors
-///
-/// When the run file cannot be read or written.
-pub(crate) fn merge_learned(
-    connection: &Connection,
-    merging: &rules::Merging,
-) -> rusqlite::Result<Vec<OnePage>> {
-    let mut pages: BTreeMap<String, (OnePage, bool)> = BTreeMap::new();
-    visited_on(
-        connection,
-        &merging.hosts,
-        |learned, rules, crawl_request| {
-            let changed = rules.contains(&merging.rule);
-            if changed {
-                learn_identity(connection, &learned, merging.rule, &crawl_request)?;
-            }
-            let page = pages.entry(learned).or_default();
-            page.0.requests.insert(crawl_request);
-            page.0.rules.extend(rules);
-            page.1 |= changed;
-            Ok(())
-        },
-    )?;
-    let mut groups = Vec::new();
-    for (learned, (mut page, changed)) in pages {
-        if !changed {
-            continue;
-        }
-        page.requests.extend(visitor(connection, &learned)?);
-        if page.requests.len() > 1 {
-            groups.push(page);
-        }
-    }
-    Ok(groups)
-}
-
-/// Gives every visited identity of `merging`'s hosts its learned identity
-/// again under the rules that still hold, once `merging`'s rule stopped,
-/// so nothing it merged merges a URL from then on.
-///
-/// # Errors
-///
-/// When the run file cannot be read or written.
-pub(crate) fn unmerge(connection: &Connection, merging: &rules::Merging) -> rusqlite::Result<()> {
-    for (low, high) in host_ranges(connection, Keyed::Learned, &merging.hosts)? {
-        connection
-            .prepare_cached(
-                "DELETE FROM learned_identities WHERE identity >= ?1 AND identity < ?2",
-            )?
-            .execute((low, high))?;
-    }
-    visited_on(
-        connection,
-        &merging.hosts,
-        |learned, rules, crawl_request| match rules.last() {
-            Some(rule) => learn_identity(connection, &learned, *rule, &crawl_request),
-            None => Ok(()),
-        },
-    )
-}
-
-/// A table of identities, read by ranges of its key.
-#[derive(Clone, Copy, Debug)]
-enum Keyed {
-    Visited,
-    Learned,
-}
-
-impl Keyed {
-    /// The first identity the table holds from `?1` on.
-    fn first_from(self) -> &'static str {
-        match self {
-            Self::Visited => {
-                "SELECT identity FROM visited WHERE identity >= ?1 ORDER BY identity LIMIT 1"
-            }
-            Self::Learned => {
-                "SELECT identity FROM learned_identities WHERE identity >= ?1 ORDER BY identity LIMIT 1"
-            }
-        }
-    }
-}
-
-/// The ranges of `table`'s key that hold the identities of the URLs on
-/// `hosts`, each from its first identity to past its last: for each method
-/// the table holds, each scheme a crawl fetches and each host, the URLs
-/// with no port and those with one. The methods are found by stepping
-/// from one to the next along the key, one lookup each, so no read goes
-/// past the rows of the hosts; an identity a program declared, `key:…`,
-/// names no URL.
-fn host_ranges(
-    connection: &Connection,
-    table: Keyed,
-    hosts: &[String],
-) -> rusqlite::Result<Vec<(String, String)>> {
-    let mut methods = Vec::new();
-    let mut from = String::new();
-    while let Some(identity) = connection
-        .prepare_cached(table.first_from())?
-        .query_row([&from], |row| row.get::<_, String>(0))
-        .optional()?
-    {
-        from = if identity.starts_with(DECLARED) {
-            // Past every declared key: `;` follows `:`.
-            "key;".to_owned()
-        } else if let Some((method, _)) = identity.split_once(' ') {
-            // Past every identity of `method`: `!` follows the space.
-            let next = format!("{method}!");
-            methods.push(method.to_owned());
-            next
-        } else {
-            format!("{identity}\u{1}")
-        };
-    }
-    let mut ranges = Vec::new();
-    for method in &methods {
-        for scheme in crate::url::FETCHED {
-            for host in hosts {
-                let prefix = format!("{method} {scheme}://{host}");
-                // `0` follows `/`, and `;` follows `:`.
-                ranges.push((format!("{prefix}/"), format!("{prefix}0")));
-                ranges.push((format!("{prefix}:"), format!("{prefix};")));
-            }
-        }
-    }
-    Ok(ranges)
-}
-
 /// How a declared key's identity begins.
 const DECLARED: &str = "key:";
-
-/// How many visited identities a re-keying reads at once: what it holds of
-/// a host's visited set, however many identities the host has.
-pub(crate) const SLICE: usize = 256;
-
-/// Hands `each` every visited identity whose URL is on one of `hosts` and
-/// that the learned rules that hold change, in the order of the visited
-/// set's key within each of the hosts' ranges: its identity under those
-/// rules, the rules that changed it and its crawl request. The rules are
-/// read once per host for the call, and the visited set [`SLICE`]
-/// identities at a time, each slice read whole before `each` writes.
-fn visited_on(
-    connection: &Connection,
-    hosts: &[String],
-    mut each: impl FnMut(String, Vec<i64>, String) -> rusqlite::Result<()>,
-) -> rusqlite::Result<()> {
-    let mut holding = rules::Holding::of(connection);
-    for (low, high) in host_ranges(connection, Keyed::Visited, hosts)? {
-        let mut last: Option<String> = None;
-        loop {
-            let slice = visited_slice(connection, (&low, last.as_deref()), &high)?;
-            for (visited, crawl_request) in &slice {
-                let Some((method, rest)) = visited.split_once(' ') else {
-                    continue;
-                };
-                let (key, hash) = rest
-                    .split_once(' ')
-                    .map_or((rest, None), |(key, hash)| (key, Some(hash)));
-                let Ok(url) = Url::parse(key) else {
-                    continue;
-                };
-                let (merged, rules) = holding.without_learned(&url)?;
-                if rules.is_empty() {
-                    continue;
-                }
-                let mut learned = format!("{method} {}", url_key(&merged));
-                if let Some(hash) = hash {
-                    learned.push(' ');
-                    learned.push_str(hash);
-                }
-                each(learned, rules, crawl_request.clone())?;
-            }
-            if slice.len() < SLICE {
-                break;
-            }
-            last = slice.into_iter().next_back().map(|(visited, _)| visited);
-        }
-    }
-    Ok(())
-}
-
-/// At most [`SLICE`] visited identities with their crawl requests, in the
-/// order of the key: those after `after`, or from `low` on when none was
-/// read yet, and before `high`.
-fn visited_slice(
-    connection: &Connection,
-    (low, after): (&str, Option<&str>),
-    high: &str,
-) -> rusqlite::Result<Vec<(String, String)>> {
-    let limit = i64::try_from(SLICE).unwrap_or(i64::MAX);
-    let read = |row: &rusqlite::Row<'_>| Ok((row.get(0)?, row.get(1)?));
-    match after {
-        None => connection
-            .prepare_cached(
-                "SELECT identity, crawl_request FROM visited
-                 WHERE identity >= ?1 AND identity < ?2 ORDER BY identity LIMIT ?3",
-            )?
-            .query_map((low, high, limit), read)?
-            .collect(),
-        Some(after) => connection
-            .prepare_cached(
-                "SELECT identity, crawl_request FROM visited
-                 WHERE identity > ?1 AND identity < ?2 ORDER BY identity LIMIT ?3",
-            )?
-            .query_map((after, high, limit), read)?
-            .collect(),
-    }
-}
 
 /// `url`'s key, as a URL, without its fragment.
 pub(crate) fn keyed(url: &Url) -> Url {
@@ -991,9 +769,13 @@ fn hex(digit: u8) -> Option<u8> {
 }
 
 mod chain_end;
+mod merging;
 
 pub use chain_end::{PendingVisit, Reached, hold_reached, visit_pending};
 use chain_end::{duplicate, reached_identities};
+#[cfg(test)]
+pub(crate) use merging::SLICE;
+pub(crate) use merging::{merge_learned, unmerge};
 
 #[cfg(test)]
 mod tests;

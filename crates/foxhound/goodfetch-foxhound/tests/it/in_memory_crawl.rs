@@ -143,12 +143,12 @@ fn a_planted_unit_of_a_run_trace_row_adds_one_a_page(#[case] row: Row) {
 }
 
 /// The crawl writes Run-trace entries, all Provenance's, and each costs what
-/// the Run-trace rows count: a task spawned for its write (Exception X2). The
-/// Run holds the Provenance log's file, so its folder is created and its file
-/// opened once a Run, and no page opens any. No kind of entry the crawl writes
-/// can be switched off, so none is formatted while off.
+/// the Run-trace rows count: nothing, its Run's one writer spawned once, its
+/// folder created and its file opened once a Run, and no page opens any. No
+/// kind of entry the crawl writes can be switched off, so none is formatted
+/// while off.
 #[test]
-fn each_run_trace_entry_of_the_crawl_spawns_its_write_and_its_run_opens_the_file_once() {
+fn the_crawl_s_run_trace_entries_go_through_one_writer_that_its_run_starts_once() {
     let env = TestEnv::new();
     let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
@@ -172,7 +172,7 @@ fn each_run_trace_entry_of_the_crawl_spawns_its_write_and_its_run_opens_the_file
             work.read(Row::RunTraceFormattingOff),
             work.read(Row::PageFileOpens),
         ),
-        (2, entries, 0, 0)
+        (2, 1, 0, 0)
     );
 }
 

@@ -77,7 +77,7 @@ use goodfetch_engine::http_client::{self, LocalBinding};
 use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::local_addresses::SessionAddresses;
 use goodfetch_engine::run_trace::RequestLog;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{Run, run_trace};
 use goodfetch_engine::settings::{Resolved as ResolvedSettings, RunSettings};
 use goodfetch_engine::tls::{
     CertificateExceptions, CertificateInvalid, Examiner, ExceptionUsed, Trust,
@@ -411,12 +411,7 @@ impl EgressRelay {
             address,
             terminated: Mutex::new(BTreeMap::new()),
             run: run.clone(),
-            log: Arc::new(RequestLog::new(
-                run.owner().child(),
-                run.folder(),
-                run.secrets().mask().clone(),
-                run.metrics().counted_work().clone(),
-            )),
+            log: Arc::new(RequestLog::new(run_trace(run))),
             met,
             refusals: Mutex::new(VecDeque::new()),
             unreached: Mutex::new(BTreeMap::new()),

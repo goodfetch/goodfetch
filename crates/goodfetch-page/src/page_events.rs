@@ -91,7 +91,7 @@ use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_engine::response_limits::{LimitExceeded, Limits};
 use goodfetch_engine::rpc::send_events;
 use goodfetch_engine::run_trace::RequestLog;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{Run, run_trace};
 use goodfetch_engine::{CallError, CallStream};
 use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::connection::{Surface, WaitedFor};
@@ -571,12 +571,7 @@ impl PageEvents {
             refusals,
             wait,
             clock: run.clock(),
-            log: Arc::new(RequestLog::new(
-                run.owner().child(),
-                run.folder(),
-                run.secrets().mask().clone(),
-                run.metrics().counted_work().clone(),
-            )),
+            log: Arc::new(RequestLog::new(run_trace(run))),
             state: Mutex::new(State {
                 url: "about:blank".to_owned(),
                 work: run.metrics().counted_work().clone(),

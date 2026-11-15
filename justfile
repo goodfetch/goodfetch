@@ -1167,7 +1167,11 @@ rss-propose *scenarios:
 # target/compare/report.md and report.json, `local-controlled`, measured on
 # the machine `--machine "<name>"` names, with the command that reruns it;
 # otherwise it fails naming the trial. A host without strace or Valgrind
-# reports that cell as not run. The Collie scenario (issue 2282) runs Collie
+# reports that cell as not run. A pre-flight first runs each cell once under each
+# tool the run runs it under, and fails before the first timed trial at a
+# broken one; `just compare <profile> --redo [--cell <scenario>/<cell>]`
+# measures again, into the trials file, the cells it reads as not measured
+# or those named, then writes the report (issue 2521). The Collie scenario (issue 2282) runs Collie
 # over raw JSON-RPC, with its TypeScript SDK program arm beside it (issue
 # 2406), against Playwright, Guard on, and the arms, Puppeteer 25.17.0's locators
 # and page methods, Stagehand 4.4.0 with no model and agent-browser

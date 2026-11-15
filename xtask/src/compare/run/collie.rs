@@ -8,6 +8,7 @@ use crate::output;
 
 use super::super::collie::{self, page_load};
 use super::super::trial::Outcome;
+use super::super::trials::QUIET_LOAD;
 use super::super::trials::{CollieScenario, CollieStopped, Contender, LoadStopped};
 use super::machine::{load, quiet};
 use super::watch::{Retried, retried};
@@ -24,7 +25,7 @@ fn attempted<T>(
 ) -> Result<Retried<T>> {
     let attempt = retried(|| {
         let load = if waits_for_quiet(options) {
-            quiet()
+            quiet(QUIET_LOAD)
         } else {
             load()
         };

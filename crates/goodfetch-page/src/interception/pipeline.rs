@@ -27,7 +27,7 @@ use goodfetch_engine::http_client;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::run_trace::RequestLog;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{Run, run_trace};
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::events::RequestFailure;
@@ -207,12 +207,7 @@ impl PageContext {
             permit: Mutex::new(None),
             proxy_permit: Mutex::new(None),
             lookups: None,
-            log: Arc::new(RequestLog::new(
-                run.owner().child(),
-                run.folder(),
-                run.secrets().mask().clone(),
-                run.metrics().counted_work().clone(),
-            )),
+            log: Arc::new(RequestLog::new(run_trace(&run))),
             run,
         }
     }

@@ -902,6 +902,12 @@ fn fabricated_hello(
     refused
 }
 
+/// The settings of a Run whose commands a case reads from its CDP command
+/// log, which they turn on, off by default (ADR 0140's C1).
+pub(crate) fn commands_logged() -> Value {
+    json!({ "browser": { "cdp_command_log": true } })
+}
+
 /// Starts the Run `run_id` with `settings`, its `network.resolve` mapping
 /// the site's hosts.
 pub(crate) fn start_run(

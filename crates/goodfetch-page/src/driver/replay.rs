@@ -35,6 +35,7 @@ pub(super) fn connected() -> (Client, Played) {
             reader,
             writer,
             goodfetch_counted_work::CountedWork::default(),
+            None,
         ),
         Played {
             pipe: browser,

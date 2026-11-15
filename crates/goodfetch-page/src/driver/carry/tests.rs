@@ -4,7 +4,7 @@
 
 use goodfetch_cdp::SessionId as TargetSession;
 use goodfetch_engine::CallError;
-use goodfetch_test_support::{TestEnv, runtime};
+use goodfetch_test_support::runtime;
 use serde_json::{Value, json};
 use tokio::sync::Notify;
 
@@ -60,9 +60,8 @@ const LAG: usize = 10_000;
 #[test]
 fn a_capture_waits_for_a_watcher_behind_the_browsers_answer() {
     runtime().block_on(async {
-        let env = TestEnv::new();
         let ((connection, driver), mut played) = replay::connected();
-        let browser = Browser::played(connection, env.folder());
+        let browser = Browser::played(connection);
         let session = TargetSession(SESSION.to_owned());
         let origins = Origins::default();
         let watcher = origins
@@ -120,9 +119,8 @@ fn a_capture_waits_for_a_watcher_behind_the_browsers_answer() {
 /// answers with `navigated`, in one write after the events `before`:
 /// whether the page committed the origin's document.
 async fn committed_once(before: &[Value], navigated: &Value) -> bool {
-    let env = TestEnv::new();
     let ((connection, driver), mut played) = replay::connected();
-    let browser = Browser::played(connection, env.folder());
+    let browser = Browser::played(connection);
     let session = TargetSession(SESSION.to_owned());
     let mut events = browser.connection.subscribe(Some(&session));
     let call = browser.opening();

@@ -26,7 +26,7 @@ use serde_json::{Value, json};
 
 use super::clean_up::{self, AD, ANNOYANCE, TRACKER};
 use super::navigation::call;
-use super::{Checks, Site, new_page, poll, run_trace, start_run};
+use super::{Checks, Site, commands_logged, new_page, poll, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone};
 
 pub(super) mod walls;
@@ -349,7 +349,7 @@ fn notice(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-consent-notice";
-    let Some(page) = open(connection, site, run_id, &json!({}), checks)? else {
+    let Some(page) = open(connection, site, run_id, &commands_logged(), checks)? else {
         return finish(connection, run_id);
     };
     let hidden: &[(&str, &str)] = &[("vendor", "notice"), ("visible", "false"), ("sheets", "0")];
@@ -429,7 +429,7 @@ fn worlds(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-consent-worlds";
-    let Some(page) = open(connection, site, run_id, &json!({}), checks)? else {
+    let Some(page) = open(connection, site, run_id, &commands_logged(), checks)? else {
         return finish(connection, run_id);
     };
     let closed = count(site, "/consent/closed", &[("vendor", "cookiebot")]);
@@ -562,7 +562,8 @@ fn off_sends(
     let mut sent = [[0; OFF_METHODS.len()]; 2];
     for (handling, counted) in ["detect", "off"].into_iter().zip(&mut sent) {
         let run_id = format!("conformance-consent-off-{handling}");
-        let settings = json!({ "consent": { "handling": handling } });
+        let mut settings = commands_logged();
+        settings["consent"] = json!({ "handling": handling });
         let Some(page) = open(connection, site, &run_id, &settings, checks)? else {
             return finish(connection, &run_id);
         };

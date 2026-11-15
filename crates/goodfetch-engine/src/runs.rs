@@ -1329,8 +1329,15 @@ struct Shared {
     /// Where its crawl's attempts stage the writes made through a
     /// handler's `ctx.run`, once its crawl registered it.
     attempt_writes: std::sync::OnceLock<Arc<dyn AttemptWrites>>,
-    /// Its Run trace's Provenance log, which holds its file (ADR 0140's E5).
-    provenance: run_trace::Provenance,
+    /// Its Run trace, whose one writer holds its files (ADR 0140's E5).
+    trace: run_trace::RunTrace,
+}
+
+/// The Run trace of `run`, whose one writer every entry of the Run goes
+/// through (ADR 0140's E5): a power of the Run its owner module holds, so
+/// `Run` gains no method for it (ADR 0145).
+pub fn run_trace(run: &Run) -> &run_trace::RunTrace {
+    &run.shared.trace
 }
 
 impl Shared {
@@ -2052,7 +2059,7 @@ impl Run {
     /// Records `entry`, one Provenance entry of the Run, such as of one of
     /// its pages or of a request a fetch tier sent for it, as a line of its
     /// Run trace's Provenance log (ADR 0047), masked by its `Mask` and
-    /// written through its blocking policy to the file the Run holds.
+    /// written by its Run trace's writer ([`run_trace::RunTrace::provenance`]).
     ///
     /// # Errors
     ///
@@ -2060,17 +2067,10 @@ impl Run {
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future never stops a line being written once it began.
+    /// Dropping the future never stops a line being written once it was
+    /// sent to the writer.
     pub async fn provenance(&self, entry: serde_json::Value) -> std::io::Result<()> {
-        self.shared
-            .provenance
-            .record(
-                &self.owner,
-                self.secrets().mask(),
-                self.metrics().counted_work(),
-                entry,
-            )
-            .await
+        self.shared.trace.provenance(entry).await
     }
 
     /// Starts `future` as one of the Run's tasks, in its span.
@@ -5657,6 +5657,14 @@ impl Registry {
             .driving(kind)
             .provenance_log
             .is_none_or(|setting| get_or_default(resolved, setting));
+        let owner = Arc::new(self.owner.child_for(OwnerKind::Run));
+        let trace = run_trace::RunTrace::new(
+            Arc::clone(&owner),
+            folder,
+            keys.secrets.mask().clone(),
+            self.setup.metrics.counted_work().clone(),
+            logs_provenance,
+        );
         Run {
             id: run_id.clone(),
             folder: folder.to_owned(),
@@ -5689,9 +5697,9 @@ impl Registry {
                 robots_txt: RunCopies::default(),
                 crawls_robots_txt: std::sync::OnceLock::new(),
                 attempt_writes: std::sync::OnceLock::new(),
-                provenance: run_trace::Provenance::logging(folder, logs_provenance),
+                trace,
             }),
-            owner: Arc::new(self.owner.child_for(OwnerKind::Run)),
+            owner,
             runs: self.handle(connection),
             settings: settings.map(Arc::new),
             entropy: Arc::new(tokio::sync::Mutex::new(self.setup.entropy.fork())),

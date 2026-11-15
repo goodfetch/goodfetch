@@ -64,7 +64,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{Run, run_trace};
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::tls::CertificateInvalid;
 use goodfetch_protocol::connection::WaitedFor;
@@ -269,11 +269,22 @@ impl HiddenPages {
 #[cfg(test)]
 impl Browser {
     /// A browser no Run holds, over `connection`, under the timeouts'
-    /// declared defaults, as a test plays one in process.
-    fn played(connection: Connection) -> Self {
+    /// declared defaults, as a test plays one in process: its CDP command
+    /// log is written into `run_folder`.
+    fn played(connection: Connection, run_folder: &std::path::Path) -> Self {
+        let work = goodfetch_counted_work::CountedWork::default();
+        let trace = goodfetch_engine::run_trace::RunTrace::new(
+            Arc::new(goodfetch_engine::tasks::TaskOwner::root(
+                goodfetch_engine::tasks::BlockingPolicy::Inline,
+            )),
+            run_folder,
+            goodfetch_engine::mask::Masks::new().for_run(goodfetch_engine::mask::Redaction::On),
+            work.clone(),
+            false,
+        );
         Self {
             connection,
-            log: CommandLog::unwritten(),
+            log: CommandLog::new(trace, work),
             exit: watch::channel(None).1,
             executable: "played".to_owned(),
             identity: None,
@@ -507,21 +518,18 @@ impl Connect for BorrowedBrowser {
                 let log = self
                     .log
                     .get_or_try_init(|| async {
-                        CommandLog::start(
-                            self.run.owner(),
-                            self.run.folder(),
-                            self.run.metrics().counted_work().clone(),
-                        )
-                        .map_err(|error| {
-                            CallError::new(
-                                &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
-                                format!("the Run trace's CDP log cannot start: {error}"),
-                                &goodfetch_protocol::page::BrowserLaunchFailedDetails {
-                                    executable: address.clone(),
-                                    exit: None,
-                                },
-                            )
-                        })
+                        CommandLog::start(run_trace(&self.run), self.run.metrics().counted_work())
+                            .await
+                            .map_err(|error| {
+                                CallError::new(
+                                    &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
+                                    format!("the Run trace's CDP log cannot start: {error}"),
+                                    &goodfetch_protocol::page::BrowserLaunchFailedDetails {
+                                        executable: address.clone(),
+                                        exit: None,
+                                    },
+                                )
+                            })
                     })
                     .await?
                     .clone();
@@ -675,21 +683,18 @@ impl Connect for LocalBrowser {
                 let log = self
                     .log
                     .get_or_try_init(|| async {
-                        CommandLog::start(
-                            self.run.owner(),
-                            self.run.folder(),
-                            self.run.metrics().counted_work().clone(),
-                        )
-                        .map_err(|error| {
-                            CallError::new(
-                                &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
-                                format!("the Run trace's CDP log cannot start: {error}"),
-                                &goodfetch_protocol::page::BrowserLaunchFailedDetails {
-                                    executable: launched.executable.display().to_string(),
-                                    exit: None,
-                                },
-                            )
-                        })
+                        CommandLog::start(run_trace(&self.run), self.run.metrics().counted_work())
+                            .await
+                            .map_err(|error| {
+                                CallError::new(
+                                    &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
+                                    format!("the Run trace's CDP log cannot start: {error}"),
+                                    &goodfetch_protocol::page::BrowserLaunchFailedDetails {
+                                        executable: launched.executable.display().to_string(),
+                                        exit: None,
+                                    },
+                                )
+                            })
                     })
                     .await?
                     .clone();

@@ -43,8 +43,8 @@ fn judged(work: &goodfetch_counted_work::CountedWork) -> [u64; 4] {
 }
 
 /// Every command costs the encode of its frame, one send and one send to the
-/// command log's writer, which keeps its file open once per batch at most; a
-/// typed command's params serialized first are an encode of their own (X21);
+/// Run trace's writer, which opens no file for it; a typed command's params
+/// serialized first are an encode of their own (X21);
 /// the page a Borrowed browser opens walks no memory, as the pool never
 /// measures it.
 #[test]
@@ -65,11 +65,7 @@ fn a_session_counts_each_commands_work() {
     assert_eq!(work.read(Row::CdpSends), commands);
     assert_eq!(work.read(Row::CdpLogSendsOff), commands);
     assert_eq!((pages_opened, work.read(Row::PoolWalks)), (1, 0));
-    let opens = work.read(Row::CdpFileOpens);
-    assert!(
-        opens > 0 && opens <= 2 * commands,
-        "{opens} opens over {commands} commands"
-    );
+    assert_eq!(work.read(Row::CdpFileOpens), 0);
 }
 
 /// On each of the two documents with actions, a click, a fill and a press
@@ -105,10 +101,11 @@ fn a_sessions_actions_count_each_check_and_their_commands_by_kind() {
 }
 
 /// A plant adds one unit of its row per command, which takes the row past
-/// its limit: one over the exact rows, and past two for the writer's opens.
+/// its limit.
 #[rstest]
 #[case::sends(Row::CdpSends, 2)]
 #[case::log_sends(Row::CdpLogSendsOff, 2)]
+#[case::file_opens(Row::CdpFileOpens, 1)]
 /// A page's walk is planted per command, at least one per page opened.
 #[case::pool_walks(Row::PoolWalks, 1)]
 fn a_planted_unit_adds_one_a_command(#[case] row: Row, #[case] per_command: u64) {
@@ -127,17 +124,6 @@ fn a_planted_encode_adds_one_a_command() {
     assert_eq!(
         planted.work.read(Row::CdpEncodes) - unplanted.work.read(Row::CdpEncodes),
         planted.commands
-    );
-}
-
-#[test]
-fn a_planted_file_open_takes_the_row_past_two_a_command() {
-    let Counted { commands, work, .. } = run(Some(Row::CdpFileOpens));
-
-    assert!(
-        work.read(Row::CdpFileOpens) > 2 * commands,
-        "{} opens over {commands} commands",
-        work.read(Row::CdpFileOpens)
     );
 }
 
@@ -230,7 +216,7 @@ fn a_planted_unit_adds_one_a_command_to_an_actions_row(#[case] row: Row) {
 /// each answer to it is a `Fetch` message, as is the page's `Fetch.enable`;
 /// each request leaving is matched once against the Filter lists, which are
 /// on by default; each refusal spawns one task, which sends one entry to the
-/// request log, whose folder and file it opens; nothing is compiled.
+/// Run trace's writer, which opens no file for it; nothing is compiled.
 #[test]
 fn a_session_counts_each_intercepted_requests_work() {
     let Counted {
@@ -256,15 +242,7 @@ fn a_session_counts_each_intercepted_requests_work() {
             Row::InterceptedCompilations,
         ]
         .map(|row| work.read(row)),
-        [
-            2 * paused + 1,
-            paused,
-            requests,
-            refused,
-            refused,
-            2 * refused,
-            0
-        ]
+        [2 * paused + 1, paused, requests, refused, refused, 0, 0]
     );
 }
 

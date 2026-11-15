@@ -25,6 +25,11 @@
 //! its cell's check is refused here, in every pass; a competitor's keeps
 //! its figures, which the report labels; and a trial no check read is no
 //! figure, while the Proving ground serves the site's answers.
+//!
+//! An auto cell's run (#2411) did the same work when the Proving ground saw
+//! every page of the rungs site's manifest requested; the tools render
+//! different shares of its pages, so their bytes are not compared, and the
+//! Records each page gave are the report's pages wrong.
 
 use std::collections::BTreeMap;
 
@@ -33,8 +38,9 @@ use crate::check::Finding;
 use super::extracted::{ANSWERED_PAGES, Extracted};
 use super::matrix::{self, OutputCheck, Row, Scenario};
 use super::trials::{
-    Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS,
-    SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, StoppedRun, Tool, Trial, Work, size_not_run,
+    AutoRun, Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_SCENARIOS,
+    INSTRUCTION_TOOLS, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, StoppedRun, Tool, Trial,
+    Work, size_not_run,
 };
 
 /// What one trial of a pass did, whichever pass.
@@ -243,7 +249,27 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         &[]
     };
     findings.extend(check_sizes(&trials.sizes, raw));
+    findings.extend(check_auto(&trials.auto));
     findings
+}
+
+/// Each auto cell's run that left a page of the rungs site's manifest
+/// unrequested (#2411): its tool's Records are held to the manifest as the
+/// report's pages wrong, never here.
+fn check_auto(runs: &[AutoRun]) -> Vec<Finding> {
+    runs.iter()
+        .filter(|run| !run.judged.same_work())
+        .map(|run| {
+            Finding::new(
+                "unrequested_pages",
+                format!("{} {} run {}", run.scenario.name(), run.cell, run.number),
+                format!(
+                    "the Proving ground saw {} of the manifest's {} pages requested",
+                    run.judged.requested, run.judged.pages
+                ),
+            )
+        })
+        .collect()
 }
 
 /// Each finding of the sizes cell, one pass per size and concurrency, of

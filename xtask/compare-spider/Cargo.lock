@@ -1105,6 +1105,7 @@ version = "0.0.0"
 dependencies = [
  "html-escape",
  "llm_readability",
+ "lol_html",
  "mimalloc",
  "openssl",
  "serde_json",

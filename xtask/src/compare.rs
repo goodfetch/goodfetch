@@ -49,6 +49,7 @@
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
 )]
 
+mod auto;
 mod collie;
 mod extracted;
 mod foxhound;
@@ -205,6 +206,7 @@ enum Asked {
     Hostile16,
     #[value(name = "crawl-like")]
     CrawlLike,
+    Auto,
     Collie,
 }
 
@@ -237,6 +239,7 @@ impl Asked {
             Self::Hostile => Some(Scenario::Hostile),
             Self::Hostile16 => Some(Scenario::Hostile16),
             Self::CrawlLike => Some(Scenario::CrawlLike),
+            Self::Auto => Some(Scenario::Auto),
             Self::Collie => None,
         }
     }
@@ -257,6 +260,9 @@ enum Mode {
     Callgrind,
     /// A hostile pages' cell's run (#2439): the rules its tool broke.
     Rules,
+    /// An auto cell's run (#2411): what its tool read against the rungs
+    /// site's manifest.
+    Auto,
 }
 
 #[derive(Args)]
@@ -392,6 +398,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 Mode::Syscalls => trial::Mode::Syscalls(output_file()?),
                 Mode::Callgrind => trial::Mode::Callgrind(output_file()?),
                 Mode::Rules => trial::Mode::Rules,
+                Mode::Auto => trial::Mode::Auto,
             };
             // Absolute, since a tool other than Foxhound runs in its data
             // folder.
@@ -422,6 +429,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             let line = match plan.mode {
                 trial::Mode::Timed => serde_json::to_string(&plan.timed()?)?,
                 trial::Mode::Rules => serde_json::to_string(&plan.ruled()?)?,
+                trial::Mode::Auto => serde_json::to_string(&plan.auto_read()?)?,
                 trial::Mode::Syscalls(_) | trial::Mode::Callgrind(_) => {
                     serde_json::to_string(&plan.counted()?)?
                 }

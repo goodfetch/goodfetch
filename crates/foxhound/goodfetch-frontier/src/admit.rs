@@ -54,7 +54,7 @@ use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReaso
 use rusqlite::Connection;
 use url::Url;
 
-use crate::bounds::{SoFar, count_admitted, count_refused};
+use crate::bounds::{Bounds, SoFar, count_admitted, count_refused};
 use crate::identity::{
     Declared, Fixed, Key, Seen, fixed_only, keyed as keyed_url, seen, under_rules, visit_all,
 };
@@ -453,14 +453,16 @@ fn admit_measured(
         return Ok(not_added(admitting, answered, reason, None));
     }
     let bounds = invariants.bounds();
+    // Held from the keying through the visit, so no reader's chain takes
+    // the identity between them (#2168).
+    let mut holding = invariants.unwritten().map(UnwrittenVisits::lock);
+    keep_rules(connection, bounds, admitting, holding.as_mut())?;
+    let held = holding.as_ref().and_then(Holding::rules);
     let identities = if bounds.learning {
-        under_rules(connection, key, fixed)?
+        under_rules(connection, key, fixed, held)?
     } else {
         fixed_only(fixed)
     };
-    // Held from the duplicate check through the visit, so no reader's
-    // chain takes the identity between them (#2168).
-    let mut holding = invariants.unwritten().map(UnwrittenVisits::lock);
     match seen(
         connection,
         &identities,
@@ -484,7 +486,7 @@ fn admit_measured(
             return Ok(not_added(admitting, answered, reason, Some(&crawl_request)));
         }
     }
-    if let Some((reason, rule)) = rules::refuses(connection, key.url(), bounds.learning)? {
+    if let Some((reason, rule)) = rules::refuses(connection, key.url(), bounds.learning, held)? {
         rules::merged(connection, rule, url.as_str(), None)?;
         admitting.leaves();
         return Ok(not_added(admitting, answered, reason, None));
@@ -531,6 +533,28 @@ fn admit_measured(
         id,
         url: url.as_str().to_owned(),
     })
+}
+
+/// Brings the learned rules memory holds, `holding` under its lock, up to
+/// those the writer's connection `connection` holds, for an admission
+/// that writes in a Run that learns, so it keys a URL and asks whether a
+/// rule refuses it from memory (#2169).
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+fn keep_rules(
+    connection: &Connection,
+    bounds: &Bounds,
+    admitting: &Admitting,
+    holding: Option<&mut Holding<'_>>,
+) -> rusqlite::Result<()> {
+    match holding {
+        Some(holding) if bounds.learning && admitting.writes() => {
+            rules::keep_held(connection, holding)
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Widens the scope of the run file `connection` holds by the seed

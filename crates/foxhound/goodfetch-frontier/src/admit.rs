@@ -56,7 +56,8 @@ use url::Url;
 
 use crate::bounds::{Bounds, SoFar, count_admitted, count_refused};
 use crate::identity::{
-    Declared, Fixed, Key, Seen, fixed_only, keyed as keyed_url, seen, under_rules, visit_all,
+    Declared, Fixed, Key, Seen, fixed_only, keep_learned, keyed as keyed_url, seen, under_rules,
+    visit_all,
 };
 use crate::invariants::Invariants;
 use crate::rules;
@@ -535,10 +536,11 @@ fn admit_measured(
     })
 }
 
-/// Brings the learned rules memory holds, `holding` under its lock, up to
-/// those the writer's connection `connection` holds, for an admission
-/// that writes in a Run that learns, so it keys a URL and asks whether a
-/// rule refuses it from memory (#2169).
+/// Brings the learned rules memory holds, `holding` under its lock, and
+/// the learned identities, up to those the writer's connection
+/// `connection` holds, for an admission that writes in a Run that learns,
+/// so it keys a URL, asks whether a rule refuses it and whether its
+/// learned identity is a visited one's from memory (#2169).
 ///
 /// # Errors
 ///
@@ -551,7 +553,8 @@ fn keep_rules(
 ) -> rusqlite::Result<()> {
     match holding {
         Some(holding) if bounds.learning && admitting.writes() => {
-            rules::keep_held(connection, holding)
+            let hosts = rules::keep_held(connection, holding)?;
+            keep_learned(connection, holding, &hosts)
         }
         _ => Ok(()),
     }

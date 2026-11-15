@@ -267,7 +267,10 @@ pub(crate) async fn drive(
             warn_switched_off(&run, code, message).await;
         }
     }
-    arrivals.invariants.prepare(&run).await;
+    arrivals
+        .invariants
+        .prepare(&run, &work_items::SITEMAP_READ)
+        .await;
     // What every attempt hands over alike, built once (ADR 0138), with
     // how its redirect hops ask the loop (ADR 0142).
     let hops: std::sync::Arc<dyn HopChecks> = std::sync::Arc::new(arrivals.asking.clone());

@@ -98,7 +98,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::{self, Navigator, Policy, RequestKind};
 use goodfetch_engine::run_trace::RequestLog;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{Run, run_trace};
 use goodfetch_engine::settings::{RunSettings, Values};
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::route::{RouteId, UrlMatcher};
@@ -743,12 +743,7 @@ impl Interception {
                         Arc::clone(tables.failures.entry(session.clone()).or_default()),
                     )
                 };
-                let log = Arc::new(RequestLog::new(
-                    run.owner().child(),
-                    run.folder(),
-                    run.secrets().mask().clone(),
-                    run.metrics().counted_work().clone(),
-                ));
+                let log = Arc::new(RequestLog::new(run_trace(&run)));
                 let driver = driver.with_egress(egress).with_value(value, run.clock());
                 let events = driver.events();
                 if let Err(error) = pause_requests(&driver).await {

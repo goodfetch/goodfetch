@@ -209,8 +209,8 @@ how = "holds no value: the per-install layout's copies of run files, masked when
 
 [[writer]]
 path = "crates/goodfetch-engine/src/run_trace.rs"
-count = 2
-how = "masked: the request log's lines and the Provenance log's, which the Run's held file takes, pass through the Run's `Mask`, `Scope::KeptOutput`"
+count = 1
+how = "masked: the Run trace's one writer: the request log's lines and the Provenance log's pass through the Run's `Mask`, `Scope::KeptOutput`; the CDP command log's hold each command's method alone"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/rpc/connection.rs"
@@ -271,8 +271,3 @@ how = "holds no value: proxy limits by endpoint and username, never a password"
 path = "crates/goodfetch-page/src/sessions.rs"
 count = 1
 how = "holds no value: Sessions' settings, Secret settings by reference"
-
-[[writer]]
-path = "crates/goodfetch-page/src/trace.rs"
-count = 1
-how = "holds no value: the CDP command log: each command's method alone; its Provenance log is `run_trace`'s"

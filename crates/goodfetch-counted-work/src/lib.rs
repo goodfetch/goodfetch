@@ -212,7 +212,8 @@ rows! {
     /// `C1.sends`: a CDP command's bytes written to its pipe.
     CdpSends => "C1.sends", "cdp_command", "sends";
     /// `C1.file_opens`: a directory created or a file opened for a CDP
-    /// command, as the CDP command log's writer does.
+    /// command. The Run trace's one writer opens the CDP command log once a
+    /// Run, on `E5.file_opens` (ADR 0140), so no command does.
     CdpFileOpens => "C1.file_opens", "cdp_command", "file_opens";
     /// `C1.log_sends_off`: a CDP command's method sent to the CDP command
     /// log's writer. The log has no off yet, so every send counts (X9).
@@ -315,9 +316,10 @@ rows! {
     /// `C6.seals`: a seal of a fragment of a relayed viewer's frame.
     LiveViewSeals => "C6.seals", "live_view_frame", "seals";
     /// `E5.file_opens`: a file opened or a folder created for a Run-trace
-    /// entry.
+    /// entry, as the Run's one writer does once a Run for each file.
     RunTraceFileOpens => "E5.file_opens", "run_trace", "file_opens";
-    /// `E5.spawns`: a task spawned for a Run-trace entry.
+    /// `E5.spawns`: a task spawned for a Run-trace entry, as the Run's one
+    /// writer is, once a Run.
     RunTraceSpawns => "E5.spawns", "run_trace", "spawns";
     /// `E5.formatting_off`: a Run-trace entry formatted though its kind is
     /// switched off.
@@ -376,7 +378,8 @@ rows! {
     /// `C5.spawns`: a task spawned for a refused request.
     InterceptedSpawns => "C5.spawns", "intercepted_request", "spawns";
     /// `C5.file_opens`: a file opened or a folder created for a refused
-    /// request, as the Run trace's request log does.
+    /// request. The Run trace's one writer opens the request log once a
+    /// Run, on `E5.file_opens` (ADR 0140), so no request does.
     InterceptedFileOpens => "C5.file_opens", "intercepted_request", "file_opens";
     /// `C5.matches`: a paused request matched against the compiled Filter
     /// lists.
@@ -386,7 +389,8 @@ rows! {
     /// `C5.compilations`: a glob or regular expression compiled for a paused
     /// request.
     InterceptedCompilations => "C5.compilations", "intercepted_request", "compilations";
-    /// `C5.entries`: an entry sent to the Run trace's request log.
+    /// `C5.entries`: an entry sent to the Run trace's writer for its
+    /// request log.
     InterceptedEntries => "C5.entries", "intercepted_request", "entries";
 }
 

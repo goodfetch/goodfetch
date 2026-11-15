@@ -1,7 +1,7 @@
 //! The CDP command log the Run trace keeps (spec #577): one JSON line per
 //! command the engine sends a browser, its method only, never its params,
-//! in `trace/cdp-commands.jsonl` of the Run's folder. A blocking actor of
-//! the Run's owner appends the lines, a group at a time.
+//! in `trace/cdp-commands.jsonl` of the Run's folder, written by the Run
+//! trace's one writer (the engine's `run_trace`, ADR 0140's E5).
 //!
 //! Beside it, the Provenance log of the Run (ADR 0047), which the engine's
 //! `run_trace` writes masked by the Run's `Mask`: one JSON
@@ -12,17 +12,11 @@
 //! a fetch tier did, such as a hedge it sent or a response two requests
 //! shared (ADR 0040).
 
-use std::fs::OpenOptions;
-use std::io::{self, Write as _};
-use std::path::{Path, PathBuf};
+use std::io;
 
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_engine::run_trace::RunTrace;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::tasks::TaskOwner;
-use tokio::sync::mpsc;
-
-/// The log's file in the Run's folder.
-pub(crate) const FILE: &str = goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
 
 /// Records `entry`, one Provenance entry of `run`, such as of one of its
 /// pages or of a request a fetch tier sent for it, as a line of
@@ -50,45 +44,31 @@ pub(crate) async fn counted_provenance(run: &Run, row: Row, entry: serde_json::V
     provenance(run, entry).await;
 }
 
-/// How many methods wait for the writer before a sender waits.
-const QUEUE: usize = 1024;
-
 /// A handle that records a command's method.
 #[derive(Clone, Debug)]
 pub(crate) struct CommandLog {
-    methods: mpsc::Sender<&'static str>,
+    /// The Run trace whose writer writes its lines.
+    trace: RunTrace,
     /// Where each send to its writer is counted (ADR 0140's C1).
     work: CountedWork,
 }
 
 impl CommandLog {
-    /// The log of the Run whose folder is `run_folder`, written by an actor
-    /// of `owner`, which waits for it once every handle is gone, counting
-    /// what it does on `work`.
-    pub(crate) fn start(
-        owner: &TaskOwner,
-        run_folder: &Path,
-        work: CountedWork,
-    ) -> io::Result<Self> {
-        let (methods, mailbox) = mpsc::channel(QUEUE);
-        let file: PathBuf = run_folder.join(FILE);
-        let writer_work = work.clone();
-        owner.actor("cdp command log", mailbox, move |methods: Vec<&'static str>| {
-            if let Err(error) = append(&file, &methods, &writer_work) {
-                tracing::warn!(%error, file = %file.display(), "the CDP command log cannot be written");
-            }
-        })?;
-        Ok(Self { methods, work })
+    /// The log `trace`'s writer writes, each send counted on `work`, both
+    /// its Run's; nothing starts before its first line.
+    pub(crate) fn new(trace: RunTrace, work: CountedWork) -> Self {
+        Self { trace, work }
     }
 
-    /// A log that writes nothing, for a test's browser that no Run holds.
-    #[cfg(test)]
-    pub(crate) fn unwritten() -> Self {
-        let (methods, _) = mpsc::channel(1);
-        Self {
-            methods,
-            work: CountedWork::default(),
-        }
+    /// The log `trace`'s writer writes, as [`CommandLog::new`]'s, that
+    /// writer started.
+    ///
+    /// # Errors
+    ///
+    /// When the writer cannot start.
+    pub(crate) async fn start(trace: &RunTrace, work: &CountedWork) -> io::Result<Self> {
+        trace.start().await?;
+        Ok(Self::new(trace.clone(), work.clone()))
     }
 
     /// The Counted work of the Run whose commands it records.
@@ -103,27 +83,6 @@ impl CommandLog {
     /// Dropping the future may lose the line.
     pub(crate) async fn record(&self, method: &'static str) {
         self.work.count(Row::CdpLogSendsOff);
-        let _ = self.methods.send(method).await;
+        self.trace.cdp_command(method).await;
     }
-}
-
-/// Appends `methods`' lines to `file`, creating its folder, each opening
-/// counted on `C1.file_opens` through [`CountedWork`] (ADR 0140). It runs on
-/// the log's actor, on the tasks module's dedicated thread, never on an async
-/// worker.
-fn append(file: &Path, methods: &[&'static str], work: &CountedWork) -> io::Result<()> {
-    if let Some(folder) = file.parent() {
-        work.create_dir_all(Row::CdpFileOpens, folder)?;
-    }
-    let mut lines = Vec::new();
-    for method in methods {
-        serde_json::to_writer(&mut lines, &serde_json::json!({ "method": method }))?;
-        lines.push(b'\n');
-    }
-    work.open_file(
-        Row::CdpFileOpens,
-        OpenOptions::new().create(true).append(true),
-        file,
-    )?
-    .write_all(&lines)
 }

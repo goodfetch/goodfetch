@@ -86,10 +86,12 @@ impl Invariants {
     /// `run`'s run-state writer and of its readers, once, as its crawl
     /// starts or resumes, so that no page's admission, redirect hop (which
     /// a reader judges at `batch`) or sitemap read prepares one
-    /// (ADR 0140, `F3.prepares`). One that is not prepared here is at its
-    /// first use.
-    pub(crate) async fn prepare(&self, run: &Run) {
-        let statements = goodfetch_frontier::admission_statements(&self.frontier);
+    /// (ADR 0140, `F3.prepares`), with `beside`, the work items' own
+    /// statements a sitemap read shares with a page's end. One that is not
+    /// prepared here is at its first use.
+    pub(crate) async fn prepare(&self, run: &Run, beside: &[&'static str]) {
+        let mut statements = goodfetch_frontier::admission_statements(&self.frontier);
+        statements.extend_from_slice(beside);
         if let Err(error) = run.state().prepare(statements).await {
             tracing::warn!(%error, run_id = %run.id(), "the crawl's admission statements were not prepared as it started");
         }

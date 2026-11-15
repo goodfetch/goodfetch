@@ -127,6 +127,21 @@ const FAILED: &str = "failed";
 const SKIPPED: &str = "skipped";
 const BLOCKED: &str = "blocked";
 
+/// Whether a work item is still leased to an attempt, which every end of an
+/// attempt checks first.
+const STILL_LEASED: &str =
+    "SELECT 1 FROM work_items WHERE id = ?1 AND status = 'leased' AND lease_epoch = ?2";
+
+/// A work item's end with no error code: a page's, a sitemap's read and a
+/// skip's.
+const ENDED: &str = "UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2";
+
+/// The statements a sitemap's read runs beside the Frontier's, which a
+/// page's end runs too: the Run prepares them as it starts or resumes, so
+/// that the sitemap read never prepares one, whether or not a page ended
+/// before it (ADR 0140, `F3.prepares.sitemap`).
+pub(crate) const SITEMAP_READ: [&str; 2] = [STILL_LEASED, ENDED];
+
 /// A work item leased to one attempt.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Leased {
@@ -369,7 +384,7 @@ pub(crate) fn read_sitemap(
         |url, adding| add(connection, &mut positions, url, from_sitemap(adding)),
     )?;
     connection
-        .prepare_cached("UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2")
+        .prepare_cached(ENDED)
         .and_then(|mut cached| cached.execute((SUCCEEDED, id)))?;
     changed.fetches_ended += 1;
     Ok(Some(changed.adds(&mut positions)))
@@ -1219,9 +1234,7 @@ fn leased_rows(
 /// Whether the work item `id` is still leased under `lease_epoch`.
 fn still_leased(connection: &Connection, id: &str, lease_epoch: u64) -> rusqlite::Result<bool> {
     Ok(connection
-        .prepare_cached(
-            "SELECT 1 FROM work_items WHERE id = ?1 AND status = 'leased' AND lease_epoch = ?2",
-        )
+        .prepare_cached(STILL_LEASED)
         .and_then(|mut cached| cached.query_row((id, integer(lease_epoch)), |_| Ok(())))
         .optional()?
         .is_some())
@@ -1336,7 +1349,7 @@ pub(crate) fn commit(
         Vec::new()
     };
     connection
-        .prepare_cached("UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2")
+        .prepare_cached(ENDED)
         .and_then(|mut cached| cached.execute((SUCCEEDED, id)))?;
     let nothing_committed = if !keeps_records {
         Some(NothingCommitted::RecordsOff)
@@ -1488,7 +1501,7 @@ pub(crate) fn end_merged(
     let mut ended = Vec::new();
     for (id, (_, _, url, key, _)) in pending {
         connection
-            .prepare_cached("UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2")
+            .prepare_cached(ENDED)
             .and_then(|mut cached| cached.execute((SKIPPED, &id)))?;
         write_outcome(
             connection,

@@ -26,7 +26,8 @@ use goodfetch_protocol::page::{BLOCKED, BlockedDetails, LOCATOR_CLICK, PageOpene
 use serde_json::{Value, json};
 
 use super::navigation::url_on;
-use super::{Checks, Site, commands_logged, finish_run, new_page, run_trace, start_run};
+use super::run_trace::commands_logged;
+use super::{Checks, Site, finish_run, new_page, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone, responded_with};
 use crate::protocol::hello_as;
 use crate::protocol::target::EngineTarget;

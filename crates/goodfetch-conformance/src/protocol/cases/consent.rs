@@ -26,7 +26,8 @@ use serde_json::{Value, json};
 
 use super::clean_up::{self, AD, ANNOYANCE, TRACKER};
 use super::navigation::call;
-use super::{Checks, Site, commands_logged, new_page, poll, run_trace, start_run};
+use super::run_trace::commands_logged;
+use super::{Checks, Site, new_page, poll, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone};
 
 pub(super) mod walls;

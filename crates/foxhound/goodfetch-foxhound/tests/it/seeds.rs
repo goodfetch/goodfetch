@@ -27,13 +27,19 @@ fn record_the_page(params: &Value) -> Value {
 
 /// Starts the keep-alive crawl `run_id` from `seed`.
 fn start_keep_alive(engine: &mut Attached, run_id: &str, seed: &str) {
+    start_keep_alive_with(engine, run_id, seed, &json!({}));
+}
+
+/// Starts the keep-alive crawl `run_id` from `seed`, its Run state set by
+/// `run_state`.
+fn start_keep_alive_with(engine: &mut Attached, run_id: &str, seed: &str, run_state: &Value) {
     let started = engine.call(
         "start",
         "crawl.start",
         &json!({
             "run_id": run_id,
             "seeds": [{ "url": seed, "label": "page" }],
-            "settings": { "crawl": { "keep_alive": true } },
+            "settings": { "crawl": { "keep_alive": true }, "run_state": run_state },
         }),
         &mut |_| None,
     );
@@ -451,6 +457,12 @@ fn resident_bytes(env: &TestEnv, pid: u32) -> Option<u64> {
 /// memory once they are all added is within 64 MiB of what it was after the
 /// first tenth, where buffering the stream would take hundreds.
 ///
+/// The Run keeps the seeds it admitted in memory up to its
+/// `run_state.memory.budget`, since a seed list counts against that budget
+/// (ADR 0142), so the crawl runs with a 16 MiB budget: the 64 MiB bound
+/// covers it beside the credits' share, where the default 64 MiB budget
+/// alone would fill the bound.
+///
 /// Covers: story:6-209, operation:run.add_seeds
 #[test]
 fn a_million_seeds_stream_through_add_seeds_with_the_engines_memory_bounded_by_its_credits() {
@@ -461,7 +473,12 @@ fn a_million_seeds_stream_through_add_seeds_with_the_engines_memory_bounded_by_i
     };
     let site = Site::start(&env);
     let mut engine = site.engine(&env);
-    start_keep_alive(&mut engine, "million", &site.url("many.test", "/0"));
+    start_keep_alive_with(
+        &mut engine,
+        "million",
+        &site.url("many.test", "/0"),
+        &json!({ "memory": { "budget": 16 * 1024 * 1024 } }),
+    );
     let mut unanswered = |_: &Value| None;
     engine.send(&json!({
         "jsonrpc": "2.0", "id": STREAM, "method": "run.add_seeds",

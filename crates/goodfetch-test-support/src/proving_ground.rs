@@ -275,6 +275,29 @@ impl ProvingGround {
             .map(|observations| ReceivedRequests::of(&observations))
     }
 
+    /// `GET /requests-of-the-case?host=<host>` on its own address: how many
+    /// recorded requests to `host` the case is about, as
+    /// [`ReceivedRequests::of_the_case`] counts them, for a test whose
+    /// observations are too large to read whole, such as a soak's
+    /// thousands of requests.
+    ///
+    /// # Errors
+    ///
+    /// `Observations` when it gave no count.
+    pub fn requests_of_the_case(&self, host: &str) -> Result<u64, ProvingGroundError> {
+        /// What the route answers.
+        #[derive(serde::Deserialize)]
+        struct Count {
+            requests: u64,
+        }
+        ureq::get(format!("http://{}/requests-of-the-case", self.address))
+            .query("host", host)
+            .call()
+            .and_then(|mut response| response.body_mut().read_json::<Count>())
+            .map(|count| count.requests)
+            .map_err(|error| ProvingGroundError::Observations(error.to_string()))
+    }
+
     /// `PUT /time-step` on its own address: the time step its pages answer
     /// at from now on, such as the `pacing` family's latency.
     ///

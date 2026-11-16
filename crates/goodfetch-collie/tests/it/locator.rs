@@ -417,6 +417,7 @@ fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
         "session".to_owned(),
         json!({ "page_check": { "login_page": { "kind": "glob", "pattern": "**/login" } } }),
     );
+    settings.insert("browser".to_owned(), json!({ "cdp_command_log": true }));
     let mut page = OnTask::open_with(
         &env,
         &cache,

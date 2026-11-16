@@ -10,10 +10,16 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::home::{RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS, RUNS};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::Checks;
 use crate::protocol::target::EngineTarget;
+
+/// The settings of a Run whose commands a case reads from its CDP command
+/// log, which they turn on, off by default (ADR 0140's C1).
+pub(super) fn commands_logged() -> Value {
+    json!({ "browser": { "cdp_command_log": true } })
+}
 
 /// Why a case has no Run trace to judge.
 #[derive(Debug, thiserror::Error)]

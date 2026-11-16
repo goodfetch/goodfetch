@@ -44,7 +44,7 @@ type Pipe = Driver<ReadHalf<DuplexStream>, WriteHalf<DuplexStream>>;
 fn connected() -> (Connection, Pipe, Browser) {
     let (client, browser) = tokio::io::duplex(1 << 16);
     let (reader, writer) = tokio::io::split(client);
-    let (connection, driver) = Connection::new(reader, writer, CountedWork::default());
+    let (connection, driver) = Connection::new(reader, writer, CountedWork::default(), None);
     (
         connection,
         driver,
@@ -74,7 +74,7 @@ fn each_command_counts_its_encodes_and_one_send_on_the_work_it_was_given() {
     let work = CountedWork::default();
     let (client, browser) = tokio::io::duplex(1 << 16);
     let (reader, writer) = tokio::io::split(client);
-    let (connection, driver) = Connection::new(reader, writer, work.clone());
+    let (connection, driver) = Connection::new(reader, writer, work.clone(), None);
     let mut browser = Browser {
         stream: browser,
         framer: Framer::default(),
@@ -117,7 +117,7 @@ fn each_fetch_message_and_each_answer_to_a_paused_request_counts_on_the_work() {
     let work = CountedWork::default();
     let (client, browser) = tokio::io::duplex(1 << 16);
     let (reader, writer) = tokio::io::split(client);
-    let (connection, driver) = Connection::new(reader, writer, work.clone());
+    let (connection, driver) = Connection::new(reader, writer, work.clone(), None);
     let mut browser = Browser {
         stream: browser,
         framer: Framer::default(),
@@ -358,7 +358,7 @@ const HUNG: Duration = Duration::from_secs(600);
 fn wedged(room: usize) -> (Connection, Pipe, DuplexStream) {
     let (client, browser) = tokio::io::duplex(room);
     let (reader, writer) = tokio::io::split(client);
-    let (connection, driver) = Connection::new(reader, writer, CountedWork::default());
+    let (connection, driver) = Connection::new(reader, writer, CountedWork::default(), None);
     (connection, driver, browser)
 }
 

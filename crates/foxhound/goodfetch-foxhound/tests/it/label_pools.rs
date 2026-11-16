@@ -171,6 +171,8 @@ fn a_blocked_pool_session_is_retired_and_its_replacement_is_a_new_session_withou
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
     let set = |_: &str, served: usize| (served == 0).then(|| "kept=1".to_owned());
+    let mut settings = settings(&proving_ground, "browser");
+    settings["browser"]["cdp_command_log"] = json!(true);
 
     let mut seen = Vec::new();
     let mut sessions = Vec::new();
@@ -183,7 +185,7 @@ fn a_blocked_pool_session_is_retired_and_its_replacement_is_a_new_session_withou
             seed(&proving_ground, "/corpus/vendor-script", "page"),
         ],
         &json!({ "page": {} }),
-        &settings(&proving_ground, "browser"),
+        &settings,
         &mut |inside, handle| {
             sessions.push(handle["session"].clone());
             handler(&mut seen, &set)(inside, handle)

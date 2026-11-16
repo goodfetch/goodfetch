@@ -1806,9 +1806,9 @@ pub(crate) fn ended_counts(
 
 /// Makes pending again each work item of `ids` that a rule the Frontier
 /// had learned ended `skipped` with `duplicate` before any fetch, once a
-/// contradicting pair stopped that rule (ADR 0005), and answers those it
-/// gave back, each with the domain key it waits under, if keyed: each one
-/// still `skipped` whose latest outcome is that ending. Each keeps its ID,
+/// contradicting pair stopped that rule (ADR 0005), and answers the IDs of
+/// those it gave back: each one still `skipped` whose latest outcome is
+/// that ending. Each keeps its ID,
 /// position and domain key, and its outcome leaves the ended requests'
 /// counts until it ends again, as a re-admitted one's does ([`readmit`]),
 /// which `changed` counts.
@@ -1816,15 +1816,15 @@ pub(crate) fn give_back(
     connection: &Connection,
     ids: &[String],
     changed: &mut Changed,
-) -> rusqlite::Result<Vec<(String, Option<String>)>> {
+) -> rusqlite::Result<Vec<String>> {
     let mut given = Vec::new();
     for id in ids {
         let skipped: Option<Option<String>> = connection
             .prepare_cached("SELECT domain_key FROM work_items WHERE id = ?1 AND status = ?2")
             .and_then(|mut cached| cached.query_row((id, SKIPPED), |row| row.get(0)).optional())?;
-        let Some(key) = skipped else {
+        if skipped.is_none() {
             continue;
-        };
+        }
         let Some(outcome) = latest_outcome(connection, id)? else {
             continue;
         };
@@ -1842,7 +1842,7 @@ pub(crate) fn give_back(
             .and_then(|mut cached| cached.execute((PENDING, id)))?;
         count(connection, &outcome.ending, -1)?;
         changed.reopened.push(counted_as(&outcome.ending));
-        given.push((id.clone(), key));
+        given.push(id.clone());
     }
     Ok(given)
 }

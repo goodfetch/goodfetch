@@ -14,10 +14,11 @@ use std::sync::atomic::AtomicU64;
 
 use goodfetch_engine::run_state::WriteWatch as _;
 
-use super::{RAN, RunFile, commit, record, run_file, seeds, within};
+use super::{RAN, RunFile, commit, record, run_file, seeds, staged, within};
 use crate::identity::{merge_learned, unmerge};
 use crate::invariants::Invariants;
 use crate::rules::Merging;
+use crate::staged::Staged;
 
 /// Commits, on `file`'s writer, the rule that `parameter` has no effect on
 /// the shop, as learning writes it, and re-keys the shop's visited set as
@@ -108,6 +109,37 @@ fn memory_holds_the_learned_identities_once_the_first_admission_that_writes_read
             (answers(&["Duplicate", "Duplicate", "added"]), 0),
             (answers(&["Duplicate", "added"]), 0),
         )
+    );
+}
+
+/// Once memory holds the learned identities, an attempt's staged call
+/// answers a URL a duplicate whose learned identity its own earlier
+/// admission visited: memory never holds what a staging visits, so the
+/// call's own learned identities are read beside it (#2681).
+#[test]
+fn a_staged_call_merges_a_url_into_one_it_admitted_itself_once_memory_holds_the_learned_identities()
+{
+    let file = run_file();
+    utm(&file);
+    let commits = Arc::new(AtomicU64::new(0));
+    let invariants = within(1 << 20, &commits);
+
+    file.writer.execute_batch("BEGIN").unwrap();
+    let written = admitted(&file, &invariants, &["q?utm=1"]);
+    file.writer.execute_batch("SAVEPOINT stage").unwrap();
+    let (_, call) = staged(
+        &file,
+        &invariants,
+        Staged::default(),
+        &["p?utm=1", "p?utm=2"],
+    );
+    file.writer
+        .execute_batch("ROLLBACK TO stage; RELEASE stage")
+        .unwrap();
+
+    assert_eq!(
+        (written, call),
+        ((answers(&["added"]), 1), answers(&["added", "Duplicate"]))
     );
 }
 

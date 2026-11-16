@@ -473,7 +473,7 @@ fn admit_measured(
     match seen(
         connection,
         &identities,
-        admitting.earlier(),
+        admitting.staged_visits(),
         holding.as_ref(),
     )? {
         Seen::New => {}

@@ -26,7 +26,7 @@ use url::{Position, Url};
 
 use crate::rules;
 use crate::scope::{Narrowing, Scope};
-use crate::staged::Staged;
+use crate::staged::StagedVisits;
 use crate::unwritten::{Holding, LearnedRules, Lookup, UnwrittenVisits};
 
 /// The Frontier's visited set: each identity admitted, with the ID of the
@@ -255,7 +255,8 @@ impl<'a> Identities<'a> {
 }
 
 /// Whether the visited set holds `identities`, or `staged`, what an
-/// attempt's earlier staged admissions visited, or `held`, the visits a
+/// attempt's staged admissions visited, its earlier calls' and this
+/// call's own, which memory never holds (#2681), or `held`, the visits a
 /// batching writer has not committed (#2168), does: its own identity, or,
 /// in a Run that learns, its learned one as visited or as a visited one's
 /// learned identity.
@@ -266,11 +267,12 @@ impl<'a> Identities<'a> {
 pub(crate) fn seen(
     connection: &Connection,
     identities: &Identities<'_>,
-    staged: Option<&Staged>,
+    staged: Option<StagedVisits<'_>>,
     held: Option<&Holding<'_>>,
 ) -> rusqlite::Result<Seen> {
     // Memory first: a hit there reads nothing, nor a miss while it holds
-    // every visit the file holds (#2169).
+    // every visit the file holds (#2169). Memory never holds what a staging
+    // visits, so its visits are read after it, its own call's too (#2681).
     let visitor = |identity: &str| -> rusqlite::Result<Option<String>> {
         let read = || visitor(connection, identity);
         let read = held.map_or_else(read, |held| held.visitor_or(identity, read))?;

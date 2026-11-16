@@ -1483,6 +1483,84 @@ fn a_row_two_families_count_is_held_on_each_to_its_own_figure(
     );
 }
 
+/// A row whose register figure names one cell of a family (#2639): B1 and
+/// B4 copy the tree once a page, and B4's `single_attempt` cell twice.
+const TREE_COPIES_ROW: &str = "\
+| `F1.tree_copies` | copies of the page's tree per page | ≤ 1 (2 in B4's `single_attempt` cell) | B1 1, B4 1, B4 single_attempt 2 | B1, B4 | must not grow | `just counts` | implementer done |
+";
+
+/// A benchmark of `family` that counts each `(cell, copies)` over 13 pages.
+fn tree_copies_benchmark(workspace: &Workspace, family: &str, cells: &[(&str, u64)]) -> String {
+    let lines: Vec<String> = cells
+        .iter()
+        .map(|(cell, copies)| {
+            format!(
+                "echo '{{\"cell\":\"{cell}\",\"units\":{{\"pages\":13}},\"counts\":{{\"F1.tree_copies\":{copies}}}}}'"
+            )
+        })
+        .collect();
+    let path = executable_script(
+        workspace,
+        &format!("{family}.sh"),
+        &format!("#!/bin/sh\n{}\n", lines.join("\n")),
+    );
+    format!("{family}={}", path.display())
+}
+
+/// A cell the register names is held to its own figure, and every other
+/// cell of its family to the family's: B4's `single_attempt` passes at two
+/// copies a page and fails at three, and its default cell fails at two.
+#[rstest]
+#[case::each_at_its_figure(13, 26, 0)]
+#[case::the_named_cell_past_its_figure(13, 39, 1)]
+#[case::the_default_cell_at_the_named_cells_figure(26, 26, 1)]
+fn a_cell_the_register_names_is_held_to_its_own_figure(
+    #[case] default: u64,
+    #[case] single_attempt: u64,
+    #[case] code: i32,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        "TESTING.md",
+        format!("{}{TREE_COPIES_ROW}", register("8")).as_bytes(),
+    );
+    let on_b1 = tree_copies_benchmark(&workspace, "B1", &[("default", 13)]);
+    let on_b4 = tree_copies_benchmark(
+        &workspace,
+        "B4",
+        &[("default", default), ("single_attempt", single_attempt)],
+    );
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--row",
+        "F1.tree_copies",
+        "--executable",
+        &on_b1,
+        "--executable",
+        &on_b4,
+    ]);
+
+    assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        if code == 0 {
+            Vec::new()
+        } else {
+            vec![finding("over-limit", "F1.tree_copies")]
+        }
+    );
+    if code == 0 {
+        assert!(
+            outcome
+                .stdout
+                .contains("F1.tree_copies [single_attempt]: 2 per page, limit 2 (26 over 13)"),
+            "{}",
+            outcome.stdout
+        );
+    }
+}
+
 /// The clean-up's instructions, the selectors' compilations' and the generic
 /// set's build's are read under Callgrind by B4's own run, and vary a little from run to run: each
 /// row is held within the 0.5 % of a figure read under Valgrind (the

@@ -193,11 +193,8 @@ pub(crate) fn read(connection: &Connection, path: &Path) -> Result<Held, RunStat
         message,
     };
     let found: String = connection
-        .query_row(
-            "SELECT version FROM format WHERE name = ?1",
-            [RUN_STATE.name],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT version FROM format WHERE name = ?1")
+        .and_then(|mut statement| statement.query_row([RUN_STATE.name], |row| row.get(0)))
         .map_err(|error| damaged(error.to_string()))?;
     sqlite_store::check_format(&RUN_STATE, &found)?;
     let (run_id, needs, lifecycle, binding, run_epoch): (
@@ -207,10 +204,9 @@ pub(crate) fn read(connection: &Connection, path: &Path) -> Result<Held, RunStat
         Option<String>,
         i64,
     ) = connection
-        .query_row(
-            "SELECT run_id, needs, lifecycle, binding, epoch FROM run",
-            [],
-            |row| {
+        .prepare_cached("SELECT run_id, needs, lifecycle, binding, epoch FROM run")
+        .and_then(|mut statement| {
+            statement.query_row([], |row| {
                 Ok((
                     row.get(0)?,
                     row.get(1)?,
@@ -218,8 +214,8 @@ pub(crate) fn read(connection: &Connection, path: &Path) -> Result<Held, RunStat
                     row.get(3)?,
                     row.get(4)?,
                 ))
-            },
-        )
+            })
+        })
         .map_err(|error| damaged(error.to_string()))?;
     let text = |value: &str| serde_json::Value::String(value.to_owned());
     Ok(Held {
@@ -281,14 +277,13 @@ fn copy_into(reader: &Connection, source: &Path, into: &Path) -> Result<(u64, u6
         .map_err(failed)?;
     // A Checkpoint holds one commit's whole state, so it is never "unclean"
     // (ADR 0138): a Run at `off` resumes from it.
-    copy.execute("DELETE FROM unclean", []).map_err(failed)?;
+    sqlite_store::run_cached(&copy, "DELETE FROM unclean").map_err(failed)?;
     if let Some(folder) = source.parent() {
         run_files::pack(&copy, folder).map_err(|error| carry_failed(error, source))?;
     }
     let (epoch, position): (i64, i64) = copy
-        .query_row("SELECT epoch, journal_position FROM run", [], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })
+        .prepare_cached("SELECT epoch, journal_position FROM run")
+        .and_then(|mut statement| statement.query_row([], |row| Ok((row.get(0)?, row.get(1)?))))
         .map_err(|error| {
             WriteError::Source(RunStateError::Sqlite {
                 path: source.to_owned(),

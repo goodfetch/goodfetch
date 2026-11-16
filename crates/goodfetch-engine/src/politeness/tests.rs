@@ -6,7 +6,7 @@
 //! format, and a take whose transaction meets a full disk.
 #![expect(
     clippy::disallowed_methods,
-    reason = "a test reads the wall clock as its rules' reading, and opens the file to look at it"
+    reason = "a test reads the wall clock as its rules' reading, and opens the file to look at it; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::path::Path;

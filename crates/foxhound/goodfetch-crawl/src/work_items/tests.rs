@@ -16,7 +16,7 @@
 //! suite (`proptest_config`).
 #![expect(
     clippy::disallowed_methods,
-    reason = "the queues' readings may start from any moment (ADR 0059)"
+    reason = "the queues' readings may start from any moment (ADR 0059); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::collections::BTreeMap;

@@ -8,7 +8,7 @@
 )]
 #![expect(
     clippy::disallowed_methods,
-    reason = "tests run on the test Clock and Entropy (ADR 0059)"
+    reason = "tests run on the test Clock and Entropy (ADR 0059); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 mod call_input;

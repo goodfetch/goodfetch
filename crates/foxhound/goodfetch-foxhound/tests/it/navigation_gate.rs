@@ -12,7 +12,7 @@
 //! is the work item's lease: past it, the handler's page sends nothing more.
 #![expect(
     clippy::disallowed_methods,
-    reason = "the handler, the test's own code, waits in real time for the popup the browser navigates"
+    reason = "the handler, the test's own code, waits in real time for the popup the browser navigates; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 #![expect(
     clippy::disallowed_types,

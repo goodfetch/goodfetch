@@ -44,7 +44,7 @@
 //! (`proptest_config`).
 #![expect(
     clippy::disallowed_methods,
-    reason = "the model reads the test Clock and the seeded Entropy (ADR 0059)"
+    reason = "the model reads the test Clock and the seeded Entropy (ADR 0059); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::collections::BTreeMap;

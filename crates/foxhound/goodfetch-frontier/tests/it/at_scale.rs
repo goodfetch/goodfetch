@@ -9,6 +9,11 @@
 //! No engine runs here, so no Resource governor sheds load (ADR 0040):
 //! the Frontier's own memory is what grows.
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use std::fmt::Write as _;
 
 use goodfetch_engine::egress::Policy;

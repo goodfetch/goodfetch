@@ -6,7 +6,7 @@
 //! left at `off` is discarded and starts again.
 #![expect(
     clippy::disallowed_methods,
-    reason = "the tests write the Goodfetch home's settings files themselves"
+    reason = "the tests write the Goodfetch home's settings files themselves; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use goodfetch_protocol::catalog::{

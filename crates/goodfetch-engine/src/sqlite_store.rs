@@ -228,22 +228,19 @@ impl Schema<'_> {
                 .flat_map(|statements| statements.iter().copied()),
         );
         for statement in statements {
-            transaction
-                .execute(statement, [])
-                .map_err(OpenError::Sqlite)?;
+            run_cached(&transaction, statement).map_err(OpenError::Sqlite)?;
         }
         transaction
-            .execute(
+            .prepare_cached(
                 "INSERT INTO format (name, version) VALUES (?1, ?2) ON CONFLICT (name) DO NOTHING",
-                (self.format.name, self.format.version.to_string()),
             )
+            .and_then(|mut statement| {
+                statement.execute((self.format.name, self.format.version.to_string()))
+            })
             .map_err(OpenError::Sqlite)?;
         let found: String = transaction
-            .query_row(
-                "SELECT version FROM format WHERE name = ?1",
-                [self.format.name],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT version FROM format WHERE name = ?1")
+            .and_then(|mut statement| statement.query_row([self.format.name], |row| row.get(0)))
             .map_err(OpenError::Sqlite)?;
         check_format(self.format, &found).map_err(OpenError::Format)?;
         transaction.commit().map_err(OpenError::Sqlite)

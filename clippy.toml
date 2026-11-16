@@ -94,6 +94,10 @@ disallowed-methods = [
   { path = "tokio::fs::File::open", reason = "open through CountedWork::open_file on a blocking owner (ADR 0140)", allow-invalid = true },
   { path = "tokio::fs::File::create", reason = "open through CountedWork::open_file on a blocking owner (ADR 0140)", allow-invalid = true },
   { path = "tokio::fs::create_dir_all", reason = "create through CountedWork::create_dir_all on a blocking owner (ADR 0140)", allow-invalid = true },
+  # A statement is prepared once, through `prepare_cached` (ADR 0140): these
+  # prepare it again on each call.
+  { path = "rusqlite::Connection::execute", reason = "this prepares its statement on each call: use prepare_cached (ADR 0140)", allow-invalid = true },
+  { path = "rusqlite::Connection::query_row", reason = "this prepares its statement on each call: use prepare_cached (ADR 0140)", allow-invalid = true },
   # A validator build goes through one counted function (ADR 0140).
   { path = "jsonschema::validator_for", reason = "a validator build goes through its one counted function (ADR 0140)", allow-invalid = true },
   # Blocking calls in async crates go through the `tasks` module's blocking policy.

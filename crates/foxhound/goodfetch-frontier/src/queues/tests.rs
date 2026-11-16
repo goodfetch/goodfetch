@@ -3,7 +3,7 @@
 //! and their journal through a run file in memory.
 #![expect(
     clippy::disallowed_methods,
-    reason = "pure rules' readings may start from any moment (ADR 0059)"
+    reason = "pure rules' readings may start from any moment (ADR 0059); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 #![expect(
     clippy::doc_markdown,

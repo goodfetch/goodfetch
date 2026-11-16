@@ -239,15 +239,14 @@ pub(crate) fn record(
     sha256: &str,
     size: u64,
 ) -> rusqlite::Result<u64> {
-    connection.execute(
-        "INSERT INTO run_files (kind, name, sha256, size) VALUES (?1, ?2, ?3, ?4)",
-        (
+    connection
+        .prepare_cached("INSERT INTO run_files (kind, name, sha256, size) VALUES (?1, ?2, ?3, ?4)")?
+        .execute((
             kind.as_str(),
             name,
             sha256,
             i64::try_from(size).unwrap_or(i64::MAX),
-        ),
-    )?;
+        ))?;
     Ok(u64::try_from(connection.last_insert_rowid()).unwrap_or_default())
 }
 
@@ -262,18 +261,15 @@ pub(crate) fn find(connection: &Connection, position: u64) -> rusqlite::Result<O
         return Ok(None);
     };
     connection
-        .query_row(
-            "SELECT kind, name, sha256, size FROM run_files WHERE position = ?1",
-            [position],
-            |row| {
-                Ok(Record {
-                    kind: row.get(0)?,
-                    name: row.get(1)?,
-                    sha256: row.get(2)?,
-                    size: u64::try_from(row.get::<_, i64>(3)?).unwrap_or_default(),
-                })
-            },
-        )
+        .prepare_cached("SELECT kind, name, sha256, size FROM run_files WHERE position = ?1")?
+        .query_row([position], |row| {
+            Ok(Record {
+                kind: row.get(0)?,
+                name: row.get(1)?,
+                sha256: row.get(2)?,
+                size: u64::try_from(row.get::<_, i64>(3)?).unwrap_or_default(),
+            })
+        })
         .optional()
 }
 
@@ -289,11 +285,8 @@ pub(crate) fn unrecord(connection: &Connection, position: u64) -> rusqlite::Resu
         return Ok(None);
     };
     connection
-        .query_row(
-            "DELETE FROM run_files WHERE position = ?1 RETURNING sha256",
-            [position],
-            |row| row.get(0),
-        )
+        .prepare_cached("DELETE FROM run_files WHERE position = ?1 RETURNING sha256")?
+        .query_row([position], |row| row.get(0))
         .optional()
 }
 
@@ -313,11 +306,9 @@ pub(crate) fn unrecord(connection: &Connection, position: u64) -> rusqlite::Resu
     reason = "it runs in the run state's writer, a blocking actor of its own"
 )]
 pub(crate) fn forget(connection: &Connection, folder: &Path, sha256: &str) -> rusqlite::Result<()> {
-    let named: bool = connection.query_row(
-        "SELECT EXISTS (SELECT 1 FROM run_files WHERE sha256 = ?1)",
-        [sha256],
-        |row| row.get(0),
-    )?;
+    let named: bool = connection
+        .prepare_cached("SELECT EXISTS (SELECT 1 FROM run_files WHERE sha256 = ?1)")?
+        .query_row([sha256], |row| row.get(0))?;
     if let (false, Some(kept)) = (named, file(folder, sha256)) {
         match std::fs::remove_file(&kept) {
             Ok(()) => {}

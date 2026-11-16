@@ -5,7 +5,7 @@
 //! wrapped data key (ADRs 0015 and 0031).
 #![expect(
     clippy::disallowed_methods,
-    reason = "tests run on the test Clock and a seeded Entropy (ADR 0059)"
+    reason = "tests run on the test Clock and a seeded Entropy (ADR 0059); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::fs::OpenOptions;

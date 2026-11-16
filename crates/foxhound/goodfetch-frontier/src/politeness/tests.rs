@@ -9,6 +9,11 @@
 //! from a seeded `Entropy` (ADR 0118); and a host's Crawl-delay folded
 //! into its domain key's delay up to `site_preferences.max_crawl_delay`,
 //! for every run sharing the key (ADR 0086).
+
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"

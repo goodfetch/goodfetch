@@ -2,6 +2,11 @@
 //! pure rules and run state in process): what a staged admission answers,
 //! the ID it keeps through the commit, and the refusal inside a declared
 //! Effect's body.
+
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"

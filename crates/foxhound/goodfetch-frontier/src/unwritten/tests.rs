@@ -28,6 +28,7 @@ use crate::identity::{
 use crate::invariants::Invariants;
 use crate::scope::{self, Scope};
 use crate::staged::{Admitting, Staged};
+use crate::unwritten::SharedBudget;
 
 /// A run file on disk in WAL mode, with the writer's connection and a
 /// reader's, as a Run's writer and readers hold it.
@@ -77,7 +78,7 @@ fn within(budget: u64, commits: &Arc<AtomicU64>) -> Invariants {
     let invariants = Invariants::new(Scope::default(), Bounds::default()).unwrap();
     let commits = Arc::clone(commits);
     invariants.hold_unwritten(
-        budget,
+        SharedBudget::new(budget),
         move || commits.load(Ordering::SeqCst),
         &Metrics::none(),
     );
@@ -370,6 +371,36 @@ fn a_visit_a_committed_batch_wrote_is_looked_up_in_memory_within_the_budget() {
     assert!(matches!(found, Ok(Seen::Visited(visitor)) if visitor == "1"));
 }
 
+/// The Run state's pending work items share the budget: what they hold
+/// leaves the visits less of it, so a visit a committed batch wrote leaves
+/// memory once they hold the whole budget, and a lookup of it reads the
+/// run file.
+#[test]
+fn the_pending_work_items_bytes_leave_the_visits_less_of_the_budget() {
+    let file = run_file();
+    let commits = Arc::new(AtomicU64::new(0));
+    let invariants = within(1 << 20, &commits);
+    invariants
+        .unwritten()
+        .unwrap()
+        .budget()
+        .pending_hold(1 << 20);
+
+    file.writer.execute_batch("BEGIN").unwrap();
+    seed(&file.writer, &invariants, "http://shop.test/a", "1");
+    commit(&file, &commits, 1);
+    let from_memory = looked_up(&no_file(), &file.writer, &invariants, "http://shop.test/a");
+    let from_the_file = looked_up(
+        &file.writer,
+        &file.writer,
+        &invariants,
+        "http://shop.test/a",
+    );
+
+    assert!(from_memory.is_err(), "memory kept a visit past its share");
+    assert!(matches!(from_the_file, Ok(Seen::Visited(visitor)) if visitor == "1"));
+}
+
 /// Past the budget, the visits the oldest written batches made leave
 /// memory first, and what stays is within the budget; one that left is
 /// read from the run file.
@@ -523,7 +554,7 @@ fn bounded(bounds: Bounds, commits: &Arc<AtomicU64>) -> Invariants {
     let invariants = Invariants::new(Scope::default(), bounds).unwrap();
     let commits = Arc::clone(commits);
     invariants.hold_unwritten(
-        1 << 20,
+        SharedBudget::new(1 << 20),
         move || commits.load(Ordering::SeqCst),
         &Metrics::none(),
     );
@@ -748,6 +779,41 @@ fn staged_admissions_count_beside_memory_and_leave_it_unchanged() {
     );
 }
 
+/// A request an attempt staged that another admission adds meanwhile
+/// counts once against the bounds: the attempt's commit will not add it
+/// again, so its later calls count it as the run file does, and not again
+/// as their own (#2169).
+#[test]
+fn a_staged_request_another_admission_adds_meanwhile_counts_once() {
+    let file = run_file();
+    let commits = Arc::new(AtomicU64::new(0));
+    let invariants = bounded(bounds(4), &commits);
+
+    file.writer.execute_batch("BEGIN").unwrap();
+    let written = seeds(&file, &invariants, &["a"]);
+    file.writer.execute_batch("SAVEPOINT stage").unwrap();
+    let (earlier, first_call) = staged(&file, &invariants, Staged::default(), &["c"]);
+    file.writer
+        .execute_batch("ROLLBACK TO stage; RELEASE stage")
+        .unwrap();
+    let meanwhile = seeds(&file, &invariants, &["c"]);
+    file.writer.execute_batch("SAVEPOINT stage").unwrap();
+    let (_, second_call) = staged(&file, &invariants, earlier, &["d", "e"]);
+    file.writer
+        .execute_batch("ROLLBACK TO stage; RELEASE stage")
+        .unwrap();
+
+    assert_eq!(
+        (written, first_call, meanwhile, second_call),
+        (
+            vec!["added".to_owned()],
+            vec!["added".to_owned()],
+            vec!["added".to_owned()],
+            vec!["added".to_owned(), "MaxRequests".to_owned()],
+        )
+    );
+}
+
 /// The Run's invariants under the scope `strategy`, holding the visits and
 /// seeds its writer has not committed against `commits`, and keeping those
 /// it wrote within `budget` bytes.
@@ -760,7 +826,7 @@ fn scoped(strategy: scope::Strategy, budget: u64, commits: &Arc<AtomicU64>) -> I
     let invariants = Invariants::new(scope, Bounds::default()).unwrap();
     let commits = Arc::clone(commits);
     invariants.hold_unwritten(
-        budget,
+        SharedBudget::new(budget),
         move || commits.load(Ordering::SeqCst),
         &Metrics::none(),
     );

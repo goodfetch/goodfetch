@@ -48,6 +48,7 @@ use goodfetch_protocol::run::{AxisReason, Completeness};
 use rusqlite::{Connection, OptionalExtension as _};
 use url::{Position, Url};
 
+use crate::identity::{Identities, Seen, seen};
 use crate::staged::{Admitting, Staged};
 use crate::unwritten::{Counts, Holding};
 
@@ -278,12 +279,12 @@ impl Bounds {
             return Ok(Some(NotAddedReason::MaxDepth));
         }
         if let Some(max) = self.max_requests
-            && so_far.admitted()? >= max
+            && so_far.reached(max, None)?
         {
             return Ok(Some(NotAddedReason::MaxRequests));
         }
         if let Some(budget) = budget
-            && so_far.path_admitted(&budget.pattern)? >= budget.max_requests
+            && so_far.reached(budget.max_requests, Some(&budget.pattern))?
         {
             return Ok(Some(NotAddedReason::PathBudget));
         }
@@ -361,10 +362,48 @@ pub(crate) struct SoFar<'h, 'a> {
     /// The Frontier's memory, held for the admission, at a batching level.
     pub(crate) holding: Option<&'h mut Holding<'a>>,
     /// What the admission adds to the run file.
-    pub(crate) admitting: &'h Admitting,
+    pub(crate) admitting: &'h mut Admitting,
+    /// Whether the Run learns (`frontier.learning`).
+    pub(crate) learning: bool,
 }
 
 impl SoFar<'_, '_> {
+    /// Whether the requests admitted reached `max`, the Run's or, with
+    /// `pattern`, the path budget's: counted with the attempt's staged
+    /// admissions, less those another admission added since, which count
+    /// once (#2169). Those are read only when the count with them reaches
+    /// `max`.
+    fn reached(&mut self, max: u64, pattern: Option<&str>) -> rusqlite::Result<bool> {
+        let admitted = match pattern {
+            Some(pattern) => self.path_admitted(pattern)?,
+            None => self.admitted()?,
+        };
+        if admitted < max {
+            return Ok(false);
+        }
+        let overtaken = self.overtaken()?.map_or(0, |overtaken| match pattern {
+            Some(pattern) => overtaken.path_admitted(pattern),
+            None => overtaken.admitted(),
+        });
+        Ok(admitted.saturating_sub(overtaken) >= max)
+    }
+
+    /// What the attempt's earlier staged admissions counted that another
+    /// admission added since, as the run file and memory show it.
+    fn overtaken(&mut self) -> rusqlite::Result<Option<&Counts>> {
+        let Self {
+            connection,
+            holding,
+            admitting,
+            learning,
+        } = self;
+        admitting.overtaken(|plain, learned| {
+            let identities = Identities::staged(plain, learned, *learning);
+            let seen = seen(connection, &identities, None, holding.as_deref())?;
+            Ok(!matches!(seen, Seen::New))
+        })
+    }
+
     /// The requests admitted.
     fn admitted(&mut self) -> rusqlite::Result<u64> {
         if let Some(holding) = &mut self.holding

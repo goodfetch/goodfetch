@@ -1,0 +1,323 @@
+{
+  "description": "A Collie Client's hello accepted, then a Run started, a page opened in it, twenty of its fields read in one `page.read`, one of them absent and one row's price not a number, and the Run finished; the Client then closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {}
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.new_page",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "page_id": "page-1",
+          "session_id": "session-1"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.read",
+        "params": {
+          "page_id": "page-1",
+          "fields": {
+            "title": {
+              "locator": {
+                "kind": "css",
+                "selector": "h1"
+              }
+            },
+            "price": {
+              "locator": {
+                "kind": "css",
+                "selector": ".price"
+              },
+              "transform": {
+                "kind": "number",
+                "locale": "en"
+              }
+            },
+            "currency": {
+              "locator": {
+                "kind": "css",
+                "selector": ".price"
+              },
+              "attribute": "data-currency"
+            },
+            "sku": {
+              "locator": {
+                "kind": "xpath",
+                "selector": "//span[@itemprop='sku']"
+              }
+            },
+            "brand": {
+              "locator": {
+                "kind": "css",
+                "selector": ".brand"
+              }
+            },
+            "rating": {
+              "locator": {
+                "kind": "css",
+                "selector": ".rating"
+              },
+              "transform": {
+                "kind": "number",
+                "locale": "en"
+              }
+            },
+            "reviews": {
+              "locator": {
+                "kind": "css",
+                "selector": ".reviews"
+              },
+              "match": {
+                "pattern": "(\\d+) reviews",
+                "group": 1
+              },
+              "transform": {
+                "kind": "number",
+                "locale": "en"
+              }
+            },
+            "released": {
+              "locator": {
+                "kind": "css",
+                "selector": "time.released"
+              },
+              "transform": {
+                "kind": "date",
+                "locale": "en"
+              }
+            },
+            "updated": {
+              "locator": {
+                "kind": "css",
+                "selector": "time.updated"
+              },
+              "transform": {
+                "kind": "date_time",
+                "locale": "en",
+                "time_zone": "Europe/Paris"
+              }
+            },
+            "image": {
+              "locator": {
+                "kind": "css",
+                "selector": "img.main"
+              },
+              "attribute": "src"
+            },
+            "canonical": {
+              "locator": {
+                "kind": "css",
+                "selector": "link[rel=canonical]"
+              },
+              "attribute": "href"
+            },
+            "description": {
+              "locator": {
+                "kind": "css",
+                "selector": ".description"
+              }
+            },
+            "availability": {
+              "locator": {
+                "kind": "css",
+                "selector": ".stock"
+              }
+            },
+            "weight": {
+              "locator": {
+                "kind": "css",
+                "selector": ".weight"
+              },
+              "transform": {
+                "kind": "number",
+                "locale": "en"
+              }
+            },
+            "color": {
+              "locator": {
+                "kind": "css",
+                "selector": ".color"
+              }
+            },
+            "material": {
+              "locator": {
+                "kind": "css",
+                "selector": ".material"
+              }
+            },
+            "warranty": {
+              "locator": {
+                "kind": "css",
+                "selector": ".warranty"
+              }
+            },
+            "tags": {
+              "list": {
+                "locator": {
+                  "kind": "css",
+                  "selector": ".tag"
+                }
+              }
+            },
+            "thumbnails": {
+              "list": {
+                "locator": {
+                  "kind": "css",
+                  "selector": "img.thumb"
+                },
+                "attribute": "src"
+              }
+            },
+            "offers": {
+              "rows": {
+                "kind": "css",
+                "selector": ".offer"
+              },
+              "fields": {
+                "seller": {
+                  "locator": {
+                    "kind": "css",
+                    "selector": ".seller"
+                  }
+                },
+                "price": {
+                  "locator": {
+                    "kind": "css",
+                    "selector": ".offer-price"
+                  },
+                  "transform": {
+                    "kind": "number",
+                    "locale": "en"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "values": {
+            "title": "Blue kettle",
+            "price": 12.34,
+            "currency": "EUR",
+            "sku": "P-0001",
+            "brand": "Acme",
+            "rating": 4.5,
+            "reviews": 128,
+            "released": "2026-01-15",
+            "updated": "2026-02-01T09:30:00+01:00",
+            "image": "https://20.actionability.test/kettle.png",
+            "canonical": "https://20.actionability.test/kettle",
+            "description": "A kettle that boils water.",
+            "availability": "In stock",
+            "weight": 1.2,
+            "color": "Blue",
+            "material": "Steel",
+            "warranty": null,
+            "tags": ["kitchen", "kettle"],
+            "thumbnails": [
+              "https://20.actionability.test/kettle-1.png",
+              "https://20.actionability.test/kettle-2.png"
+            ],
+            "offers": [
+              {
+                "seller": "Shop A",
+                "price": 12.34
+              },
+              {
+                "seller": "Shop B",
+                "price": null
+              }
+            ]
+          },
+          "unread": [
+            {
+              "field": "/warranty",
+              "reason": "no_element"
+            },
+            {
+              "field": "/offers/1/price",
+              "reason": "not_parsed",
+              "text": "call us"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    }
+  ]
+}

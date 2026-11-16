@@ -202,7 +202,7 @@ impl Counts {
 
     /// Counts one request admitted, against the path budget of `pattern`
     /// when one counts it.
-    fn count(&mut self, pattern: Option<&str>) {
+    pub(crate) fn count(&mut self, pattern: Option<&str>) {
         self.admitted = self.admitted.saturating_add(1);
         if let Some(pattern) = pattern {
             let path = self.paths.entry(pattern.into()).or_default();

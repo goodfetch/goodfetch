@@ -498,6 +498,7 @@ fn admit_measured(
         connection,
         holding: holding.as_mut(),
         admitting,
+        learning: bounds.learning,
     };
     if let Some(reason) = bounds.past(depth, budget, &mut so_far)?.or(*shape) {
         count_refused(connection, reason, budget)?;

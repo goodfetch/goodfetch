@@ -512,6 +512,7 @@ fn admit_fetch(
             connection,
             holding: holding.as_mut(),
             admitting,
+            learning: nested.invariants.bounds().learning,
         };
         if let Some(reason) = nested.refuses(&url, budget, &mut so_far)? {
             count_refused(connection, reason, budget)?;

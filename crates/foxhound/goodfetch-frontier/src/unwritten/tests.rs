@@ -748,6 +748,41 @@ fn staged_admissions_count_beside_memory_and_leave_it_unchanged() {
     );
 }
 
+/// A request an attempt staged that another admission adds meanwhile
+/// counts once against the bounds: the attempt's commit will not add it
+/// again, so its later calls count it as the run file does, and not again
+/// as their own (#2169).
+#[test]
+fn a_staged_request_another_admission_adds_meanwhile_counts_once() {
+    let file = run_file();
+    let commits = Arc::new(AtomicU64::new(0));
+    let invariants = bounded(bounds(4), &commits);
+
+    file.writer.execute_batch("BEGIN").unwrap();
+    let written = seeds(&file, &invariants, &["a"]);
+    file.writer.execute_batch("SAVEPOINT stage").unwrap();
+    let (earlier, first_call) = staged(&file, &invariants, Staged::default(), &["c"]);
+    file.writer
+        .execute_batch("ROLLBACK TO stage; RELEASE stage")
+        .unwrap();
+    let meanwhile = seeds(&file, &invariants, &["c"]);
+    file.writer.execute_batch("SAVEPOINT stage").unwrap();
+    let (_, second_call) = staged(&file, &invariants, earlier, &["d", "e"]);
+    file.writer
+        .execute_batch("ROLLBACK TO stage; RELEASE stage")
+        .unwrap();
+
+    assert_eq!(
+        (written, first_call, meanwhile, second_call),
+        (
+            vec!["added".to_owned()],
+            vec!["added".to_owned()],
+            vec!["added".to_owned()],
+            vec!["added".to_owned(), "MaxRequests".to_owned()],
+        )
+    );
+}
+
 /// The Run's invariants under the scope `strategy`, holding the visits and
 /// seeds its writer has not committed against `commits`, and keeping those
 /// it wrote within `budget` bytes.

@@ -63,6 +63,7 @@ pub(crate) mod admission;
 mod asks;
 mod stored;
 mod tally;
+pub(crate) mod teacher;
 
 pub(crate) use asks::{Asked, Asking, Escalated, Question, mailbox};
 pub(crate) use stored::{QueuedEnd, Stored, Unkeyed, Within};

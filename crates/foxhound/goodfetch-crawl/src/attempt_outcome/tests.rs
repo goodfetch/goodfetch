@@ -1,12 +1,14 @@
-//! An attempt's outcome on a real run file: its learning fails alone, a
-//! failed attempt keeps what it learned, and one page's failing outcome
-//! rolls back alone in its group. Its crash model is the lease's
-//! (`lease::tests::model`), whose commits are outcomes.
+//! An attempt's outcome on a real run file, its page's lesson taught at
+//! the end of its batch (#2169): learning fails alone, a failed attempt
+//! keeps what it learned, and one page's failing outcome rolls back alone
+//! in its group. Its crash model is the lease's (`lease::tests::model`),
+//! whose commits are outcomes.
 #![expect(
     clippy::disallowed_methods,
     reason = "tests read the test Clock (ADR 0059)"
 )]
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_engine::clock::Clock;
@@ -21,20 +23,24 @@ use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 use serde_json::json;
 
-use super::{Document, Ended, Ending, Learning, Outcome, Written};
+use super::{Ended, Ending, Outcome, Written};
 use crate::invariants::fixture;
 use crate::lease::{Leases, WorkItemLease};
+use crate::run_state::teacher::Teacher;
 use crate::staging::Staging;
 use crate::work_items::{self, Failure, Leased, Unsuccessful};
 
 /// Two pages' work items leased in a run file under `env`, with their
-/// leases, which stage in `staging`; `without_lessons`, the table of the
-/// pages the Frontier learned from is gone, so no page can teach it.
+/// leases, which stage in `staging`, and the Frontier's invariants their
+/// lessons are noted with, which the end of each batch teaches;
+/// `without_lessons`, the table of the pages the Frontier learned from is
+/// gone, so no page can teach it.
 struct Pages {
     state: RunState,
     owner: TaskOwner,
     staging: Staging,
     leased: Vec<(Leased, WorkItemLease)>,
+    lessons: Arc<goodfetch_frontier::Invariants>,
 }
 
 /// Every table a crawl's outcome writes in.
@@ -109,6 +115,7 @@ async fn pages(env: &TestEnv, without_lessons: bool) -> Pages {
         })
         .await
         .unwrap();
+    let lessons = teaching(&state, env).await;
     let staging = Staging::default();
     let granting = Leases::new(Clock::paused(env.start_time()), "outcome", 1)
         .checking_against(datasets)
@@ -129,31 +136,52 @@ async fn pages(env: &TestEnv, without_lessons: bool) -> Pages {
         owner,
         staging,
         leased,
+        lessons,
     }
 }
 
-/// What the page of `leased` teaches the Frontier.
-fn learning(leased: &Leased, signature: u8) -> Learning {
-    Learning {
-        request: leased.crawl_request.clone(),
-        redirects: Vec::new().into(),
-        document: Some(Document {
-            url: goodfetch_frontier::Url::parse(&leased.crawl_request.url).unwrap(),
-            signature: [signature; 32],
-            canonical: None,
-        }),
-        ended_at: ended_at(),
-        work: goodfetch_counted_work::CountedWork::default(),
-    }
+/// The Frontier's invariants of the run file `state` writes under `env`,
+/// learning behind: the end of each batch `state` commits teaches what is
+/// noted with them, as a crawl's Run state has it do.
+async fn teaching(state: &RunState, env: &TestEnv) -> Arc<goodfetch_frontier::Invariants> {
+    let invariants = state
+        .read(|connection| fixture::within(connection, goodfetch_frontier::Scope::default()))
+        .await
+        .unwrap()
+        .shared_frontier();
+    invariants.learn_behind();
+    state.end_batches_with(Arc::new(Teacher::new(
+        Arc::clone(&invariants),
+        Clock::paused(env.start_time()),
+        goodfetch_counted_work::CountedWork::default(),
+    )));
+    invariants
 }
 
-/// `leased`'s outcome under `lease`: one Record committed, with what its
-/// page taught.
+/// Notes with `lessons` what the page of `leased` teaches the Frontier,
+/// read with `signature`.
+fn noted(lessons: &goodfetch_frontier::Invariants, leased: &Leased, signature: u8) {
+    let url = goodfetch_frontier::Url::parse(&leased.crawl_request.url).unwrap();
+    let mut lesson = goodfetch_frontier::Lesson::default();
+    lesson.page(goodfetch_frontier::PageSeen {
+        crawl_request: &leased.crawl_request.id,
+        url: &url,
+        method: &leased.crawl_request.method,
+        body: None,
+        signature: [signature; 32],
+        canonical: None,
+    });
+    lessons.note(lesson);
+}
+
+/// `leased`'s outcome under `lease`: one Record committed.
 fn committing(
     state: &RunState,
     (leased, lease): &(Leased, WorkItemLease),
+    lessons: &goodfetch_frontier::Invariants,
     signature: u8,
 ) -> Outcome {
+    noted(lessons, leased, signature);
     let records = vec![PushedRecord {
         dataset: "pages".to_owned(),
         data: json!({ "page": leased.crawl_request.id }),
@@ -161,7 +189,6 @@ fn committing(
     Outcome {
         scored: goodfetch_session_pool::Changes::default(),
         chosen: None,
-        learning: Some(learning(leased, signature)),
         ending: Ending::Commit {
             commit: lease
                 .committing(state, &Masks::new(), records, ended_at())
@@ -201,7 +228,7 @@ fn stored(env: &TestEnv, with_rules: bool) -> (Vec<(String, String)>, Vec<String
 
 /// A page whose lesson the run file cannot take, here for want of the
 /// table of the pages the Frontier learned from, still commits its
-/// outcome: learning fails alone.
+/// outcome: learning, at its batch's end, fails alone.
 ///
 /// Covers: story:3-41
 #[test]
@@ -209,7 +236,7 @@ fn an_outcome_whose_learning_fails_still_commits() {
     let env = TestEnv::new();
     goodfetch_test_support::runtime().block_on(async {
         let pages = pages(&env, true).await;
-        let outcome = committing(&pages.state, &pages.leased[0], 1);
+        let outcome = committing(&pages.state, &pages.leased[0], &pages.lessons, 1);
 
         let written = pages
             .state
@@ -244,7 +271,7 @@ fn an_outcome_whose_learning_fails_still_commits() {
 }
 
 /// An attempt that failed after its page was fetched keeps what its page
-/// taught the Frontier.
+/// noted for the Frontier: its batch's end teaches it.
 ///
 /// Covers: story:3-41
 #[test]
@@ -253,10 +280,10 @@ fn a_failed_attempt_still_commits_what_it_learned() {
     goodfetch_test_support::runtime().block_on(async {
         let pages = pages(&env, false).await;
         let (leased, _) = &pages.leased[0];
+        noted(&pages.lessons, leased, 1);
         let outcome = Outcome {
             scored: goodfetch_session_pool::Changes::default(),
             chosen: None,
-            learning: Some(learning(leased, 1)),
             ending: Ending::End {
                 work_item: leased.crawl_request.id.clone(),
                 lease_epoch: leased.lease_epoch,
@@ -293,8 +320,9 @@ fn a_failed_attempt_still_commits_what_it_learned() {
 }
 
 /// Two pages' outcomes queued together, so the writer groups them: the
-/// first's link cannot be admitted, and its outcome rolls back whole, its
-/// lesson with it, while the second's commits.
+/// first's link cannot be admitted, and its outcome rolls back whole while
+/// the second's commits. Each page's lesson, which no outcome holds, is
+/// taught at the group's end.
 ///
 /// Covers: story:3-41
 #[test]
@@ -308,8 +336,8 @@ fn one_pages_failing_outcome_rolls_back_alone() {
                 Err(rusqlite::Error::InvalidQuery)
             })
             .unwrap();
-        let first = committing(&pages.state, &pages.leased[0], 1);
-        let second = committing(&pages.state, &pages.leased[1], 2);
+        let first = committing(&pages.state, &pages.leased[0], &pages.lessons, 1);
+        let second = committing(&pages.state, &pages.leased[1], &pages.lessons, 2);
 
         let first = pages
             .state
@@ -347,7 +375,7 @@ fn one_pages_failing_outcome_rolls_back_alone() {
                 ("1".to_owned(), "leased".to_owned()),
                 ("2".to_owned(), "succeeded".to_owned())
             ],
-            vec!["2".to_owned()],
+            vec!["1".to_owned(), "2".to_owned()],
             1
         )
     );
@@ -364,13 +392,15 @@ async fn leased(state: &RunState, id: usize) -> Leased {
 }
 
 /// Teaches the Frontier in `state` the page of `leased`, read with
-/// `signature`.
-async fn taught(state: &RunState, leased: &Leased, signature: u8) {
-    let learning = learning(leased, signature);
-    state
-        .write(move |connection| learning.teach(connection))
-        .await
-        .unwrap();
+/// `signature`: noted with `lessons`, and taught at the end of a batch.
+async fn taught(
+    state: &RunState,
+    lessons: &goodfetch_frontier::Invariants,
+    leased: &Leased,
+    signature: u8,
+) {
+    noted(lessons, leased, signature);
+    state.write(|_| Ok(())).await.unwrap();
 }
 
 /// A pending work item that a learned parameter ended `skipped` with
@@ -435,18 +465,19 @@ fn a_work_item_a_stopped_rule_had_ended_is_pending_again() {
             })
             .await
             .unwrap();
+        let lessons = teaching(&state, &env).await;
         // Item 7 is fetched, and item 7 under `ref` in flight, while three
         // pairs that read alike teach that `ref` has no effect, which ends
         // item 8 under `ref`, pending beside item 8.
-        taught(&state, &leased(&state, 1).await, 7).await;
+        taught(&state, &lessons, &leased(&state, 1).await, 7).await;
         let in_flight = leased(&state, 2).await;
         for (id, signature) in [(5, 1), (6, 1), (7, 2), (8, 2), (9, 3), (10, 3)] {
-            taught(&state, &leased(&state, id).await, signature).await;
+            taught(&state, &lessons, &leased(&state, id).await, signature).await;
         }
         let learned = state.read(read).await.unwrap();
 
         // Item 7 under `ref` reads otherwise than item 7: the rule stops.
-        taught(&state, &in_flight, 70).await;
+        taught(&state, &lessons, &in_flight, 70).await;
         let stopped = state.read(read).await.unwrap();
         drop(state);
         owner.wait().await;

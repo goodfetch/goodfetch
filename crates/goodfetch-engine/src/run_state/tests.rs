@@ -19,7 +19,7 @@ use goodfetch_test_support::{CrashKind, CrashVfs, IoFault, TestEnv};
 use rusqlite::Connection;
 
 use super::{
-    Charges, DEFERRED_CHARGES, Durability, PAGE_CACHE_KIB, RunState, RunStateError,
+    BatchEnd, Charges, DEFERRED_CHARGES, Durability, PAGE_CACHE_KIB, RunState, RunStateError,
     RunStateOptions, RunStateTables, Syncing, WriteWatch, open_reader, unclean,
 };
 use crate::tasks::{BlockingPolicy, TaskOwner};
@@ -461,6 +461,85 @@ fn a_watch_of_the_writes_is_told_as_each_begins_and_when_one_fails(#[case] durab
     assert_eq!(
         *told.0.lock().unwrap(),
         ["began", "began", "failed", "began"]
+    );
+}
+
+/// What runs at the end of each batch in the tests: once armed, it writes
+/// `1000 + n` at its `n`th run, and fails after writing when told to.
+#[derive(Debug, Default)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the test's batch end, armed by the test and run on the writer's thread, one flag at a time"
+)]
+struct Ends {
+    armed: std::sync::atomic::AtomicBool,
+    failing: std::sync::atomic::AtomicBool,
+    ran: std::sync::atomic::AtomicI64,
+}
+
+impl Ends {
+    fn arm(&self, failing: bool) {
+        self.failing
+            .store(failing, std::sync::atomic::Ordering::SeqCst);
+        self.armed.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl BatchEnd for Ends {
+    fn waiting(&self) -> bool {
+        self.armed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn ending(&self, connection: &Connection) -> rusqlite::Result<()> {
+        self.armed.store(false, std::sync::atomic::Ordering::SeqCst);
+        let ran = self.ran.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        insert(1000 + ran)(connection)?;
+        if self.failing.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        Ok(())
+    }
+}
+
+/// What a Run writes at the end of each batch rides that batch's commit,
+/// whether the writer commits each group or batches attempts, as a write
+/// of its own: told to the watch of the writes, and when it fails, its own
+/// changes roll back and the batch commits without them (#2169).
+#[rstest::rstest]
+#[case::full(Durability::FULL)]
+#[case::batch(Durability::BATCH)]
+fn the_end_of_a_batch_rides_its_commit_and_fails_alone(#[case] durability: Durability) {
+    let env = TestEnv::new();
+    let options = RunStateOptions {
+        durability,
+        ..RunStateOptions::default()
+    };
+    let ends = std::sync::Arc::new(Ends::default());
+    let told = std::sync::Arc::new(Told::default());
+
+    let committed = with_writer_options(&env, &options, async |state| {
+        state.watch_writes(std::sync::Arc::clone(&told) as std::sync::Arc<dyn WriteWatch>);
+        state.end_batches_with(std::sync::Arc::clone(&ends) as std::sync::Arc<dyn BatchEnd>);
+        ends.arm(false);
+        state.write(insert(1)).await.unwrap();
+        let first = state.read(items).await.unwrap();
+        ends.arm(true);
+        state.write(insert(2)).await.unwrap();
+        let failed = state.read(items).await.unwrap();
+        ends.arm(false);
+        state.write(insert(3)).await.unwrap();
+        let again = state.read(items).await.unwrap();
+        (first, failed, again)
+    });
+
+    assert_eq!(
+        (committed, told.0.lock().unwrap().clone()),
+        (
+            (vec![1, 1001], vec![1, 2, 1001], vec![1, 2, 3, 1001, 1003]),
+            vec![
+                "began", "began", "began", "began", "failed", "began", "began"
+            ]
+        )
     );
 }
 

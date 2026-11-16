@@ -248,6 +248,10 @@ rows! {
     /// `F2.admission_evidence`: a row of the evidence the Frontier learns
     /// its rules from, read or written for a URL it admitted.
     AdmissionEvidence => "F2.admission_evidence", "run_state", "admission_evidence";
+    /// `F2.page_learning`: a lesson the Frontier learned on a page's path,
+    /// outside the end of a batch the writer commits: a fetched page's, a
+    /// redirect's, or the evidence of a URL it admitted (#2169).
+    PageLearning => "F2.page_learning", "run_state", "page_learning";
     /// `F2.configuration_reads`: a read of the machine's settings files.
     ConfigurationReads => "F2.configuration_reads", "run_state", "configuration_reads";
     /// `F2.prunes`: a prune pass.

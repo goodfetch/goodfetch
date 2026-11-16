@@ -182,7 +182,7 @@ fn hop(connection: &Connection, invariants: &Invariants, crawl_request: &str, ur
     let get = HttpMethod::get();
     admit_hop(
         connection,
-        invariants,
+        (invariants.scope(), invariants.unwritten()),
         &every_host(),
         crawl_request,
         (&Url::parse(url).unwrap(), &get, None),
@@ -303,10 +303,10 @@ fn a_visited_chain_end_is_held_until_its_batch_commits() {
         panic!("a key no request holds is followed");
     };
     file.writer.execute_batch("BEGIN").unwrap();
-    visit_pending(&file.writer, &invariants, pending).unwrap();
+    visit_pending(&file.writer, invariants.unwritten(), pending).unwrap();
     let on_the_writer = admit_reached(
         &file.writer,
-        &invariants,
+        invariants.unwritten(),
         "2",
         (&Url::parse("http://shop.test/d").unwrap(), &get, None),
     )

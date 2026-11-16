@@ -975,7 +975,7 @@ impl Subject {
                     staging: staging.clone(),
                     intake: Intake::default(),
                 },
-                keys.clone(),
+                (keys.clone(), Clock::paused(start_time)),
                 &Metrics::none(),
             );
             stored.fill_memory().await.unwrap();
@@ -1174,7 +1174,6 @@ impl Subject {
         let outcome = Outcome {
             scored: goodfetch_session_pool::Changes::default(),
             chosen: None,
-            learning: None,
             ending,
         };
         let stored = crawl.stored();

@@ -186,7 +186,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 119] = [
+const ROWS: [Row; 120] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -352,6 +352,16 @@ const ROWS: [Row; 119] = [
     // learning runs (#2169): none with `frontier.learning` off.
     Row {
         name: "F2.admission_evidence",
+        family: "B1",
+        unit: "pages",
+        happens: false,
+        valgrind: None,
+    },
+    // The lessons the Frontier learns on a page's path, outside the end of
+    // a batch the writer commits (#2169): none, as a crawl's pages and
+    // admissions note them for that end.
+    Row {
+        name: "F2.page_learning",
         family: "B1",
         unit: "pages",
         happens: false,

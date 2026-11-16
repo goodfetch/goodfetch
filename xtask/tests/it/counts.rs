@@ -718,6 +718,7 @@ const OTHER_B1_ROWS: &str = "\
 | `F2.batches` | its work | ≤ 2 | 2 | B1 | must not grow | `just counts` | implementer done |
 | `F2.evidence_reads` | its work | 1 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F2.admission_evidence` | its work | 1 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F2.page_learning` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F2.learning_off_evidence` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F2.configuration_reads` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F2.prunes` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
@@ -796,6 +797,7 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F2.batches", 2),
         ("F2.evidence_reads", 0),
         ("F2.admission_evidence", 0),
+        ("F2.page_learning", 0),
         ("F2.learning_off_evidence", 0),
         ("F2.configuration_reads", 1),
         ("F2.prunes", 0),
@@ -1238,6 +1240,7 @@ fn effectless() -> (Workspace, String) {
         "batches",
         "evidence_reads",
         "admission_evidence",
+        "page_learning",
         "learning_off_evidence",
         "configuration_reads",
         "prunes",
@@ -1252,7 +1255,7 @@ fn effectless() -> (Workspace, String) {
          | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\
          |---|---|---|---|---|---|---|---|\n{rows}"
     );
-    let line = "{\"cell\":\"default\",\"units\":{\"pages\":13,\"added_pages\":6,\"attempts\":13,\"runs\":1,\"effects\":0,\"batched_pages\":13,\"full_pages\":0,\"learning_off_pages\":0},\"counts\":{\"F2.transactions\":13,\"F2.syncs\":13,\"F2.prepares\":0,\"F2.writer_reads\":0,\"F2.page_waits\":0,\"F2.page_waits.full\":0,\"F2.batches\":1,\"F2.evidence_reads\":0,\"F2.admission_evidence\":0,\"F2.learning_off_evidence\":0,\"F2.configuration_reads\":1,\"F2.prunes\":0,\"F2.effect_syncs\":'$extra'}}";
+    let line = "{\"cell\":\"default\",\"units\":{\"pages\":13,\"added_pages\":6,\"attempts\":13,\"runs\":1,\"effects\":0,\"batched_pages\":13,\"full_pages\":0,\"learning_off_pages\":0},\"counts\":{\"F2.transactions\":13,\"F2.syncs\":13,\"F2.prepares\":0,\"F2.writer_reads\":0,\"F2.page_waits\":0,\"F2.page_waits.full\":0,\"F2.batches\":1,\"F2.evidence_reads\":0,\"F2.admission_evidence\":0,\"F2.page_learning\":0,\"F2.learning_off_evidence\":0,\"F2.configuration_reads\":1,\"F2.prunes\":0,\"F2.effect_syncs\":'$extra'}}";
     let script =
         format!("#!/bin/sh\nextra=0\n[ \"$2\" = F2.effect_syncs ] && extra=13\necho '{line}'\n");
     let (workspace, executable) = workspace("8", &script);

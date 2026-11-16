@@ -1213,6 +1213,10 @@ fn the_report_shows_the_load_each_trial_started_at() {
     {
         trial["load"] = json!(if index == 0 { 6.5 } else { 1.25 });
     }
+    // The report counts every trial the file holds, so the fixture's own
+    // count follows a cell that joins or leaves the matrix.
+    let timed = trials["trials"].as_array().unwrap().len();
+    let unquiet = format!("1 of the {timed} timed trials started above a 1-minute load of 4.");
 
     let outcome = report(&workspace, &trials);
 
@@ -1223,7 +1227,7 @@ fn the_report_shows_the_load_each_trial_started_at() {
          Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
-        "1 of the 127 timed trials started above a 1-minute load of 4.",
+        unquiet.as_str(),
     ] {
         assert!(
             markdown.contains(expected),

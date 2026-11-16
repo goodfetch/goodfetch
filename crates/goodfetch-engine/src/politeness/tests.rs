@@ -10,7 +10,6 @@
 )]
 
 use std::path::Path;
-use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::formats::Compatibility;
@@ -20,47 +19,59 @@ use rusqlite::{Connection, OpenFlags};
 use tokio::sync::broadcast;
 
 use super::{
-    Ending, Holder, Permit, PermitRule, Politeness, PolitenessError, PolitenessOptions, Taken,
-    Verdict, Wake,
+    Ending, Holder, KeyState, Permit, PermitRule, Politeness, PolitenessError, PolitenessOptions,
+    SharedRule, Step, Taken, Verdict, Wake,
 };
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// A run's own cap on the count in flight under a key, and nothing else.
 struct Cap(u64);
 
-impl PermitRule for Cap {
-    fn admit(
-        &self,
-        _connection: &Connection,
-        _key: &str,
-        in_flight: u64,
-        _now: SystemTime,
-    ) -> rusqlite::Result<Verdict> {
-        Ok(if in_flight < self.0 {
-            Verdict::Go
-        } else {
-            Verdict::Busy
-        })
+/// The state of a rule that keeps none.
+struct Stateless;
+
+impl KeyState for Stateless {
+    type Key = str;
+    type Reads = ();
+    type Writes = ();
+
+    fn load(_: &Connection, _: &str, (): ()) -> rusqlite::Result<Self> {
+        Ok(Self)
     }
 
-    fn started(&self, _: &Connection, _: &str, _: SystemTime) -> rusqlite::Result<()> {
+    fn save(&self, _: &Connection, _: &str, (): &()) -> rusqlite::Result<()> {
         Ok(())
-    }
-
-    fn ended(
-        &self,
-        _: &Connection,
-        _: &str,
-        _: u64,
-        _: Ending,
-        _: SystemTime,
-    ) -> rusqlite::Result<Option<SystemTime>> {
-        Ok(None)
     }
 }
 
-fn cap(cap: u64) -> Arc<dyn PermitRule> {
-    Arc::new(Cap(cap))
+impl PermitRule for Cap {
+    type State = Stateless;
+
+    fn reads(&self, _: Step) {}
+
+    fn admit(&self, _: &Stateless, in_flight: u64, _: SystemTime) -> Verdict {
+        if in_flight < self.0 {
+            Verdict::Go
+        } else {
+            Verdict::Busy
+        }
+    }
+
+    fn started(&self, _: &mut Stateless, _: SystemTime) {}
+
+    fn ended(
+        &self,
+        _: &mut Stateless,
+        _: u64,
+        _: Ending,
+        _: SystemTime,
+    ) -> (Option<SystemTime>, ()) {
+        (None, ())
+    }
+}
+
+fn cap(cap: u64) -> SharedRule {
+    SharedRule::new(Cap(cap))
 }
 
 /// A Run of the test's: live unless its folder's name says it is gone.

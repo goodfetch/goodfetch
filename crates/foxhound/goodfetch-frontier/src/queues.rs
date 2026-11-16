@@ -2,9 +2,12 @@
 //! in admission Foxhound fills: each domain key's waiting requests in a
 //! queue bounded at [`BOUND`], a `forefront` request ahead of every request
 //! its domain held when it came, then highest priority first and then in
-//! their order in the crawl, served round-robin, one request per domain per
-//! turn, so a heavy domain never starves the others and neither a priority
-//! nor `forefront` crosses domains. A full queue keeps the requests that go
+//! their order in the crawl. A free request slot goes to the ready domain
+//! with the fewest of the Run's requests in flight, the first in turn among
+//! those with as few, or at `crawl.domain_order: round_robin` to each ready
+//! domain in turn, one request each (the `order` module): either way a
+//! heavy domain never starves the others, and neither a priority nor
+//! `forefront` crosses domains. A full queue keeps the requests that go
 //! first: one that goes ahead of its last takes that one's place, which
 //! waits in the run file until the queue drains and fills again in order.
 //! A domain waiting out a `Retry-After` or a backoff is not ready: it keeps
@@ -24,7 +27,7 @@
 //! `Retry-After`, and a 429's halving of the count in flight.
 
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -32,7 +35,7 @@ use goodfetch_engine::admission::{
     Admitted, Ended, Gate, Gates, Held, Journal, Keys, QueuedGroup, Waiting,
 };
 use goodfetch_engine::entropy::Entropy;
-use goodfetch_engine::politeness::{Ending, PermitRule, milliseconds};
+use goodfetch_engine::politeness::{Ending, SharedRule, milliseconds};
 use goodfetch_engine::run_state::{BatchRows, BatchWriter, RunStateTables, SealedBatch};
 use goodfetch_engine::settings::Resolved;
 use rusqlite::Connection;
@@ -40,6 +43,10 @@ use tokio::time::Instant;
 
 use crate::domain_key::DomainKeys;
 use crate::politeness::{self, DomainRule, Limits, SharedEntropy};
+
+mod order;
+
+use order::{DomainOrder, Standing, Turns};
 
 /// How many requests one domain's queue holds at most; the rest wait in
 /// the run file until it drains.
@@ -151,18 +158,16 @@ impl Domain {
             .is_some_and(|ceiling| u64::try_from(self.in_flight).unwrap_or(u64::MAX) >= ceiling)
     }
 
-    /// The first moment from `now` it is ready; `None` while it is full,
-    /// until one of its requests ends.
-    fn ready_from(&self, now: Instant) -> Option<Instant> {
+    /// When it is ready, whatever the moment: once its hold and its wait
+    /// are over, and only once one of its requests ends while it is full.
+    fn standing(&self) -> Standing {
         if self.is_full() {
-            return None;
+            return Standing::Full;
         }
-        Some(
-            [self.ready_at, self.held_until]
-                .into_iter()
-                .flatten()
-                .fold(now, Instant::max),
-        )
+        match [self.ready_at, self.held_until].into_iter().flatten().max() {
+            Some(from) => Standing::From(from),
+            None => Standing::Ready,
+        }
     }
 
     /// Whether it holds nothing more at `now`: no request waiting or in
@@ -203,7 +208,8 @@ pub struct DomainQueues {
     keys: DomainKeys,
     bound: usize,
     domains: BTreeMap<String, Domain>,
-    turns: VecDeque<String>,
+    /// The turns of the domains with a request waiting.
+    turns: Turns,
     idle: BTreeSet<String>,
     ids: BTreeSet<String>,
     changed: BTreeSet<String>,
@@ -233,7 +239,7 @@ impl DomainQueues {
             keys,
             bound,
             domains: BTreeMap::new(),
-            turns: VecDeque::new(),
+            turns: Turns::new(DomainOrder::default()),
             idle: BTreeSet::new(),
             ids: BTreeSet::new(),
             changed: BTreeSet::new(),
@@ -255,6 +261,13 @@ impl DomainQueues {
             wall + (at - read)
         } else {
             wall.checked_sub(read - at).unwrap_or(wall)
+        }
+    }
+
+    /// `key` keeps its turn, as its state now stands.
+    fn stand(&mut self, key: &str) {
+        if let Some(domain) = self.domains.get(key) {
+            self.turns.stand(key, domain.in_flight, domain.standing());
         }
     }
 
@@ -369,7 +382,8 @@ impl Gate for DomainQueues {
         let before = domain.waiting.len();
         if before == 0 {
             self.idle.remove(&request.key);
-            self.turns.push_back(request.key.clone());
+            self.turns
+                .join(&request.key, domain.in_flight, domain.standing());
         }
         self.ids.insert(place.1.clone());
         domain.waiting.insert(place);
@@ -398,7 +412,7 @@ impl Gate for DomainQueues {
         let after = domain.waiting.len();
         if after == 0 {
             domain.outside = false;
-            self.turns.retain(|turn| turn != key);
+            self.turns.leave(key);
             if domain.in_flight == 0 {
                 self.idle.insert(key.to_owned());
             }
@@ -407,22 +421,11 @@ impl Gate for DomainQueues {
     }
 
     fn ready_at(&self, now: Instant) -> Option<Instant> {
-        self.turns
-            .iter()
-            .filter_map(|key| self.domains.get(key))
-            .filter_map(|domain| domain.ready_from(now))
-            .min()
+        self.turns.ready_at(now)
     }
 
     fn next_key(&self, now: Instant) -> Option<String> {
-        self.turns
-            .iter()
-            .find(|key| {
-                self.domains
-                    .get(*key)
-                    .is_some_and(|domain| domain.is_ready(now))
-            })
-            .cloned()
+        self.turns.next(now).map(str::to_owned)
     }
 
     fn hold(&mut self, key: &str, until: Instant, held: Held) {
@@ -430,6 +433,7 @@ impl Gate for DomainQueues {
             domain.held_until = Some(until);
             domain.held = Some(held);
             self.recount.insert(key.to_owned());
+            self.stand(key);
         }
     }
 
@@ -438,6 +442,7 @@ impl Gate for DomainQueues {
             domain.held_until = None;
             domain.held = None;
             self.recount.insert(key.to_owned());
+            self.stand(key);
         }
     }
 
@@ -484,21 +489,16 @@ impl Gate for DomainQueues {
         self.waiting
     }
 
-    fn rule(&self, settings: &Resolved) -> Option<Arc<dyn PermitRule>> {
-        Some(Arc::new(DomainRule::of(
+    fn rule(&self, settings: &Resolved) -> Option<SharedRule> {
+        Some(SharedRule::new(DomainRule::of(
             settings,
             Arc::clone(&self.entropy),
         )))
     }
 
     fn admit(&mut self, now: Instant) -> Option<Admitted> {
-        let turn = self.turns.iter().position(|key| {
-            self.domains
-                .get(key)
-                .is_some_and(|domain| domain.is_ready(now))
-        })?;
+        let key = self.turns.take(now)?;
         self.release_drained(now);
-        let key = self.turns.remove(turn)?;
         let domain = self.domains.get_mut(&key)?;
         let before = domain.waiting.len();
         let (_, id) = domain.waiting.pop_first()?;
@@ -507,7 +507,7 @@ impl Gate for DomainQueues {
         if drained {
             domain.outside = false;
         } else {
-            self.turns.push_back(key.clone());
+            self.turns.join(&key, domain.in_flight, domain.standing());
         }
         self.queue_changed(&key, before, before - 1);
         self.ids.remove(&id);
@@ -592,6 +592,7 @@ impl Gate for DomainQueues {
             self.changed.insert(key.to_owned());
         }
         self.recount.insert(key.to_owned());
+        self.stand(key);
         self.release_drained(now);
     }
 
@@ -644,7 +645,8 @@ impl BatchRows for JournalRows {
 }
 
 /// The gates Foxhound's composition passes in: each crawl's per-domain
-/// queues, keyed under its `crawl.domain_keys`.
+/// queues, keyed under its `crawl.domain_keys` and served in its
+/// `crawl.domain_order`.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct DomainGates;
 
@@ -664,6 +666,7 @@ impl Gates for DomainGates {
     ) -> rusqlite::Result<Box<dyn Gate>> {
         let mut queues = DomainQueues::new(DomainKeys::of(settings), BOUND, entropy);
         queues.waiting_for = politeness::Waits::of(settings);
+        queues.turns = Turns::new(DomainOrder::of(settings));
         queues.anchor = Some((wall, now));
         let wall = milliseconds(wall);
         let mut rows = journal.prepare_cached("SELECT key, ready_at, backoffs FROM domains")?;

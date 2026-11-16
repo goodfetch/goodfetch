@@ -4745,6 +4745,25 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": "fewest_in_flight",
+      "description": "Which ready site gets the next free request slot. `fewest_in_flight` picks the site with the fewest of this Run's requests in flight, so a slow site never holds every slot. `round_robin` takes each ready site in turn, one request each.",
+      "name": "crawl.domain_order",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "fewest_in_flight",
+          "round_robin"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": [],
       "description": "Statuses whose responses go to the handler as they are: a redirect status listed here is not followed, and the handler gets the 3xx as its response. None by default.",
       "name": "crawl.handle_statuses",

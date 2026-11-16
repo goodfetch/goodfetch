@@ -21,3 +21,6 @@ staged = ["unwritten"]
 trap_links = ["admit", "identity", "unwritten"]
 unwritten = []
 url = []
+
+[submodules.queues]
+order = []

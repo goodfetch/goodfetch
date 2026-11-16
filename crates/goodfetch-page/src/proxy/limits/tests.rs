@@ -12,12 +12,11 @@
 )]
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::politeness::{
-    Ending, Hold, Holder, PermitRule, Politeness, PolitenessOptions, Verdict,
+    Ending, Hold, Holder, Politeness, PolitenessOptions, SharedRule, Verdict,
 };
 use goodfetch_engine::settings::{Layers, Values, resolve};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
@@ -29,6 +28,74 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::{ProxyRule, TABLES, taken};
+
+/// A rule's steps on a Politeness file's connection, each loading the
+/// key's state and saving it as a Permit's take and give-back do.
+mod on_file {
+    use std::time::SystemTime;
+
+    use goodfetch_engine::politeness::{Ending, KeyState, PermitRule, Verdict};
+    use rusqlite::Connection;
+
+    use super::ProxyRule;
+    use crate::proxy::limits::Limits;
+
+    pub(super) trait OnFile {
+        fn admit(
+            &self,
+            file: &Connection,
+            key: &str,
+            in_flight: u64,
+            now: SystemTime,
+        ) -> rusqlite::Result<Verdict>;
+
+        fn started(&self, file: &Connection, key: &str, now: SystemTime) -> rusqlite::Result<()>;
+
+        fn ended(
+            &self,
+            file: &Connection,
+            key: &str,
+            in_flight: u64,
+            ending: Ending,
+            now: SystemTime,
+        ) -> rusqlite::Result<Option<SystemTime>>;
+    }
+
+    impl OnFile for ProxyRule {
+        fn admit(
+            &self,
+            file: &Connection,
+            key: &str,
+            in_flight: u64,
+            now: SystemTime,
+        ) -> rusqlite::Result<Verdict> {
+            let limits = Limits::load(file, key, ())?;
+            Ok(PermitRule::admit(self, &limits, in_flight, now))
+        }
+
+        fn started(&self, file: &Connection, key: &str, now: SystemTime) -> rusqlite::Result<()> {
+            let mut limits = Limits::load(file, key, ())?;
+            PermitRule::started(self, &mut limits, now);
+            limits.save(file, key, &())
+        }
+
+        fn ended(
+            &self,
+            file: &Connection,
+            key: &str,
+            in_flight: u64,
+            ending: Ending,
+            now: SystemTime,
+        ) -> rusqlite::Result<Option<SystemTime>> {
+            let mut limits = Limits::load(file, key, ())?;
+            let (retry_at, ()) = PermitRule::ended(self, &mut limits, in_flight, ending, now);
+            limits.save(file, key, &())?;
+            Ok(retry_at)
+        }
+    }
+}
+
+use on_file::OnFile as _;
 
 const KEY: &str = "proxy http://127.0.0.1:3128 ";
 
@@ -264,7 +331,7 @@ async fn a_wait_for_room_through_a_proxy_ends_once_its_run_is_cancelled() {
         epoch: 1,
         run_folder: PathBuf::from("waiting"),
     };
-    let rule: Arc<dyn PermitRule> = Arc::new(concurrency(1));
+    let rule = SharedRule::new(concurrency(1));
     let ending = CancellationToken::new();
     let held = taken(&politeness, KEY, &holder, &rule, &clock, &ending).await;
 

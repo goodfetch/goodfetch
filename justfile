@@ -1237,6 +1237,28 @@ compare profile="release" *args:
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-collie-arms
     "$xtask" compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile {{ profile }} "${@:2}"
 
+# Admission's time per URL at 1 and 10 million URLs (#2318), with no bar
+# until the owner sets one: the Frontier's `admission` example at the Run
+# state's default memory budget, and Spider with its `disk` feature on (the
+# main rows' build, in spider/) and off (spider-without-disk/), each the
+# only child of `xtask rss probe`, with every answer checked so each
+# visited set is exact. `--urls <n>`, repeated, sets the counts and
+# `--side <name>` the sides. It writes target/compare/admission/, gates
+# nothing and is no Live check; run it when the 1-minute load is under 4.
+# Spider with `disk` on writes each URL past its first 15,000 to SQLite one
+# statement at a time, so its 10 million take hours.
+# Times admission per URL at scale, Foxhound's against Spider's.
+[positional-arguments]
+compare-admission *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build --quiet --locked --bin xtask
+    cargo build --quiet --locked --release -p goodfetch-frontier --example admission
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --release --target-dir {{ compare_spider_builds }}/spider
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --release --no-default-features --target-dir {{ compare_spider_builds }}/spider-without-disk
+    target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
+    "$target/debug/xtask" compare admission --foxhound "$target/release/examples/admission" --spider {{ compare_spider_builds }}/spider/release/goodfetch-compare-spider --spider-without-disk {{ compare_spider_builds }}/spider-without-disk/release/goodfetch-compare-spider "$@"
+
 # The Kennel (ADR 0141), from the repository. On macOS: its release
 # executable in `Kennel.app`, signed ad hoc under the stable bundle
 # identifier `dev.goodfetch.kennel` (a rebuild keeps the desktop-notice
@@ -1301,10 +1323,39 @@ musl-toolchain:
 targets:
     {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
     cargo run --quiet --bin xtask -- test-tools build --cargo-profile release --shipped-target --out "$PWD/target/targets/test-tools.json"
+    cargo run --quiet --bin xtask -- pgo check --tools target/targets/test-tools.json
     rm -f target/targets/peaks.jsonl target/targets/startup-*.json
     cargo run --quiet --bin xtask -- targets startup --tools target/targets/test-tools.json --out target/targets
     cargo run --quiet --bin xtask -- rss measure idle-attached-engine idle-daemon crawl-100 crawl-1000 crawl-10000 --runs 5 --tools target/targets/test-tools.json --out target/targets/peaks.jsonl
     cargo run --quiet --bin xtask -- targets report --measured target/targets
+
+# The profile-guided release build of the Linux musl executables (ADR
+# 0057's note of 2026-11-14): trains the profile on both Products' training
+# workloads with an instrumented build, then rewrites the committed
+# ci/pgo/<target>/merged.profdata.zst and order.txt.zst, the order widened by
+# the pages the training crawls touch (`sudo -n` sets the kernel's
+# fault-around to one page for them). Run it when the Products' code has
+# moved enough that `just targets` or a comparison reads slower, and commit
+# both files. `--order-only` maps the pages again and writes the order file on
+# the guided build the last refresh recorded: run it in a quiet window, since
+# the map's order depends on timing.
+# Retrains the release build's committed profile and order file.
+pgo-refresh *arguments:
+    ci/musl/install.sh
+    pnpm install --frozen-lockfile --reporter=silent --filter goodfetch-compare-collie...
+    cargo run --quiet --bin xtask -- pgo refresh {{ arguments }}
+
+# Times a plain release build against the profile-guided one on scenario 1
+# and each Product's held-out workload (ADR 0057's note of 2026-11-14),
+# trial by trial in turn: the plain one built into target/pgo/plain-target.
+# Run it in a quiet window; `trials` is per build and workload.
+# Times the profile-guided release build against a plain one.
+pgo-validate trials="9":
+    ci/musl/install.sh
+    pnpm install --frozen-lockfile --reporter=silent --filter goodfetch-compare-collie...
+    cargo run --quiet --bin xtask -- test-tools build --cargo-profile release --shipped-target --out "$PWD/target/pgo/guided-tools.json" --tool collie --tool foxhound --tool proving_ground
+    GOODFETCH_PGO=off CARGO_TARGET_DIR="$PWD/target/pgo/plain-target" cargo run --quiet --bin xtask -- test-tools build --cargo-profile release --shipped-target --out "$PWD/target/pgo/plain-tools.json" --tool collie --tool foxhound
+    cargo run --quiet --bin xtask -- pgo validate --plain target/pgo/plain-tools.json --guided target/pgo/guided-tools.json --proving-ground target/pgo/guided-tools.json --trials {{ trials }}
 
 # The Counted work of each row of the Quality register on its benchmark,
 # against its limit (ADR 0140; TESTING.md, Quality register); `--prove` plants

@@ -3,9 +3,10 @@
 //! Standard; `admit(candidate, context)`, which answers every seed and
 //! enqueue added or not added with its reason; each seed's answer, which
 //! `run.seeds` reads; the domain key of each crawl request; the bounded
-//! per-domain queues that fill the engine's gate in admission, served
-//! round-robin, one request per domain per turn, priority and `forefront`
-//! ordering requests within a domain only; and the per-domain Politeness
+//! per-domain queues that fill the engine's gate in admission, a free slot
+//! going to the ready domain with the fewest requests in flight or, at
+//! `crawl.domain_order: round_robin`, to each in turn, priority and
+//! `forefront` ordering requests within a domain only; and the per-domain Politeness
 //! their keys follow in the per-user Politeness file, shared by every run of
 //! the user (the per-domain cap, delay, backoff, `Retry-After` and 429
 //! halving); and the rules it learns from the pages a crawl fetched

@@ -17,7 +17,7 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
-use goodfetch_engine::politeness::{Politeness, PolitenessOptions, PolitenessTables};
+use goodfetch_engine::politeness::{KeyState, Politeness, PolitenessOptions, PolitenessTables};
 use goodfetch_engine::robots_txt::{Answer, Copies as _};
 use goodfetch_engine::run_state::{RunState, RunStateOptions, RunStateTables};
 use goodfetch_engine::settings::{HostDefaults, HostSearch, Settings, SettingsFiles};
@@ -217,6 +217,38 @@ fn politeness(work: &CountedWork) -> (&'static Runtime, Politeness) {
     (runtime, file)
 }
 
+/// A planted key's state on a Politeness file: loading it prepares one
+/// statement more when its change asks, and saving it writes one row more
+/// when its change wrote.
+struct Planted;
+
+impl KeyState for Planted {
+    type Key = str;
+    /// Whether loading it prepares a statement.
+    type Reads = bool;
+    /// Whether saving it writes a row.
+    type Writes = bool;
+
+    fn load(connection: &rusqlite::Connection, _: &str, prepares: bool) -> rusqlite::Result<Self> {
+        if prepares {
+            connection.prepare("SELECT 1").map(drop)?;
+        }
+        Ok(Self)
+    }
+
+    fn save(
+        &self,
+        connection: &rusqlite::Connection,
+        _: &str,
+        writes: &bool,
+    ) -> rusqlite::Result<()> {
+        if *writes {
+            connection.execute("INSERT INTO planted VALUES (1)", [])?;
+        }
+        Ok(())
+    }
+}
+
 /// The plant of the row named `name`, one of the Politeness permit's (E6).
 pub(crate) fn politeness_plant(name: &str, work: &CountedWork) -> Plant {
     match name {
@@ -225,11 +257,8 @@ pub(crate) fn politeness_plant(name: &str, work: &CountedWork) -> Plant {
         "E6.transactions" | "E6.off_work" => {
             let (runtime, file) = politeness(work);
             Arc::new(move |_: &str| {
-                let insert = |connection: &rusqlite::Connection| {
-                    connection.execute("INSERT INTO planted VALUES (1)", [])
-                };
-                beside(runtime, file.transact(insert))
-                    .expect("invariant: the planted file takes a write");
+                let insert = file.change("planted", false, |_: &mut Planted| ((), true));
+                beside(runtime, insert).expect("invariant: the planted file takes a write");
             })
         }
         // One statement prepared more on a Politeness file's connection,
@@ -237,10 +266,8 @@ pub(crate) fn politeness_plant(name: &str, work: &CountedWork) -> Plant {
         "E6.opens" => {
             let (runtime, file) = politeness(work);
             Arc::new(move |_: &str| {
-                let prepare =
-                    |connection: &rusqlite::Connection| connection.prepare("SELECT 1").map(drop);
-                beside(runtime, file.transact(prepare))
-                    .expect("invariant: the planted file prepares a statement");
+                let prepare = file.change("planted", true, |_: &mut Planted| ((), false));
+                beside(runtime, prepare).expect("invariant: the planted file prepares a statement");
             })
         }
         // No Politeness store sends a script until one lands: its counted

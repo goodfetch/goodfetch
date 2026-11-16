@@ -17995,6 +17995,13 @@
                     "description": "Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.",
                     "type": "object"
                   },
+                  "domain_order": {
+                    "description": "Which ready site gets the next free request slot. `fewest_in_flight` picks the site with the fewest of this Run's requests in flight, so a slow site never holds every slot. `round_robin` takes each ready site in turn, one request each.",
+                    "enum": [
+                      "fewest_in_flight",
+                      "round_robin"
+                    ]
+                  },
                   "handle_statuses": {
                     "description": "Statuses whose responses go to the handler as they are: a redirect status listed here is not followed, and the handler gets the 3xx as its response. None by default.",
                     "items": {
@@ -20756,6 +20763,13 @@
                     },
                     "description": "Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.",
                     "type": "object"
+                  },
+                  "domain_order": {
+                    "description": "Which ready site gets the next free request slot. `fewest_in_flight` picks the site with the fewest of this Run's requests in flight, so a slow site never holds every slot. `round_robin` takes each ready site in turn, one request each.",
+                    "enum": [
+                      "fewest_in_flight",
+                      "round_robin"
+                    ]
                   },
                   "handle_statuses": {
                     "description": "Statuses whose responses go to the handler as they are: a redirect status listed here is not followed, and the handler gets the 3xx as its response. None by default.",
@@ -23534,6 +23548,13 @@
                     },
                     "description": "Host names, each with the domain key its requests and those of the hosts under it share, the longest name winning, in place of the registrable domain under the Public Suffix List: a Recipe's override of the key its per-domain queues use. None by default.",
                     "type": "object"
+                  },
+                  "domain_order": {
+                    "description": "Which ready site gets the next free request slot. `fewest_in_flight` picks the site with the fewest of this Run's requests in flight, so a slow site never holds every slot. `round_robin` takes each ready site in turn, one request each.",
+                    "enum": [
+                      "fewest_in_flight",
+                      "round_robin"
+                    ]
                   },
                   "handle_statuses": {
                     "description": "Statuses whose responses go to the handler as they are: a redirect status listed here is not followed, and the handler gets the 3xx as its response. None by default.",

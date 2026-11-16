@@ -7883,6 +7883,16 @@
       ]
     },
     {
+      "id": "setting:crawl.domain_order",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:crawl.handle_statuses",
       "kind": "setting",
       "area": 6,

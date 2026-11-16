@@ -3,9 +3,12 @@
 # ci/musl/toolchain.sh pins (ADR 0024's note of 2026-11-06): Zig's release
 # archive for this host, checked against its SHA-256 from ziglang.org's
 # index, and cargo-zigbuild from crates.io with its lockfile, both into one
-# folder outside the checkout. `just musl-toolchain`
-# runs it on a developer's Linux machine, the host-tools action on a musl
-# cell. An install already there is kept. Both are free.
+# folder outside the checkout; and rustup's llvm-tools component of the
+# checkout's toolchain, whose llvm-objcopy and llvm-objdump ci/musl/link-cc
+# orders a profile-guided build with (ADR 0057's note of 2026-11-14).
+# `just musl-toolchain` runs it on a developer's Linux machine, the
+# host-tools action on a musl cell. An install already there is kept. All
+# are free.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -36,5 +39,10 @@ if [[ ! -x "$musl_toolchain/zig/zig" ]]; then
 fi
 if [[ ! -x "$musl_toolchain/bin/cargo-zigbuild" ]]; then
   cargo install --quiet --locked --root "$musl_toolchain" "cargo-zigbuild@$CARGO_ZIGBUILD_VERSION"
+fi
+# rustup reads the checkout's rust-toolchain.toml from the working folder.
+llvm_tools="$(cd "$here/../.." && rustc --print sysroot)/lib/rustlib/$(cd "$here/../.." && rustc --print host-tuple)/bin"
+if [[ ! -x "$llvm_tools/llvm-objcopy" ]]; then
+  (cd "$here/../.." && rustup component add llvm-tools)
 fi
 echo "Zig $("$musl_toolchain/zig/zig" version) and $("$musl_toolchain/bin/cargo-zigbuild" --version) in $musl_toolchain."

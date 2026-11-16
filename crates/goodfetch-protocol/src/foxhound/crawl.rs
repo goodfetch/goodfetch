@@ -711,6 +711,28 @@ pub const CRAWL_DOMAIN_KEYS: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// The orders a free request slot can go to a crawl's ready domain keys
+/// in (ADR 0004's note of spec #2194).
+pub const DOMAIN_ORDERS: &[&str] = &["fewest_in_flight", "round_robin"];
+
+/// `crawl.domain_order` (ADR 0004's note of spec #2194).
+pub const CRAWL_DOMAIN_ORDER: Setting = Setting {
+    name: "crawl.domain_order",
+    description: "Which ready site gets the next free request slot. `fewest_in_flight` picks the site with the fewest of this Run's requests in flight, so a slow site never holds every slot. `round_robin` takes each ready site in turn, one request each.",
+    kind: ValueKind::Choice(DOMAIN_ORDERS),
+    default: fewest_in_flight,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn fewest_in_flight() -> Value {
+    Value::from("fewest_in_flight")
+}
+
 fn empty_table() -> Value {
     Value::Object(serde_json::Map::new())
 }
@@ -800,6 +822,7 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_MAX_STAGED_ENQUEUES,
         CRAWL_HANDLER_CONCURRENCY,
         CRAWL_DOMAIN_KEYS,
+        CRAWL_DOMAIN_ORDER,
         CRAWL_KEEP_ALIVE,
     ],
     hook_stages: &[],

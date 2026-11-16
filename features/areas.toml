@@ -483,6 +483,11 @@ prefix = "crawl.domain_keys"
 [[area]]
 number = 3
 kind = "setting"
+prefix = "crawl.domain_order"
+
+[[area]]
+number = 3
+kind = "setting"
 prefix = "crawl.keep_alive"
 
 [[area]]

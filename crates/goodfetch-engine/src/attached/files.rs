@@ -39,8 +39,10 @@ impl PrivateFiles {
         let folder = transport::socket_folder("goodfetch-engine-", SOCKET)?;
         let token = new_token().map_err(|error| io::Error::other(error.to_string()))?;
         let mut file = owner_only(&folder.path().join(TOKEN_FILE))?;
+        // Not synced to disk: the file lives no longer than this process,
+        // and its readers, on the same machine, read it from the page cache.
+        // A sync here held the Attached engine's `hello` for a disk flush.
         file.write_all(token.as_bytes())?;
-        file.sync_all()?;
         Ok(Self { folder, token })
     }
 

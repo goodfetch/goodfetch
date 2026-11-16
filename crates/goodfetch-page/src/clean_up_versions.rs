@@ -65,7 +65,6 @@ use serde_json::{Value, json};
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
-use crate::interception::run_needs_lists;
 use crate::trace;
 
 mod daily;
@@ -100,6 +99,9 @@ const STATE_FILE: &str = "clean-up-rules.json";
 pub(crate) struct Versions {
     /// Itself, for the loads it starts on a Run's tasks.
     this: Weak<Versions>,
+    /// Whether a Run's own settings turn a Filter list on, so that its
+    /// lists start loading as it starts: the interception's choice.
+    needs_lists: fn(&Run) -> bool,
     home: OnceLock<Home>,
     /// Each version loaded or loading, by digest: the loads of one digest
     /// wait on its cell, never on a lock held while it compiles; a load that
@@ -482,10 +484,13 @@ async fn within<T>(
 }
 
 impl Versions {
-    /// The engine's versions, none loaded yet.
-    pub(crate) fn new() -> Arc<Self> {
+    /// The engine's versions, none loaded yet, which start loading a
+    /// Run's lists as it starts when `needs_lists` says its settings turn
+    /// one on.
+    pub(crate) fn new(needs_lists: fn(&Run) -> bool) -> Arc<Self> {
         Arc::new_cyclic(|this| Self {
             this: Weak::clone(this),
+            needs_lists,
             home: OnceLock::new(),
             loaded: Mutex::default(),
             kept: Mutex::default(),
@@ -638,7 +643,7 @@ impl Versions {
     /// that turns one on in a Run that turns them all off loads them on its
     /// first page.
     fn load_ahead(&self, run: &Run) {
-        if !run_needs_lists(run) {
+        if !(self.needs_lists)(run) {
             return;
         }
         let Some(versions) = self.this.upgrade() else {

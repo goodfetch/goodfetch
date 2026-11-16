@@ -35,6 +35,7 @@ use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
 use super::super::{Versions, lock};
+use crate::interception::run_needs_lists;
 
 /// The test's own operation.
 const STARTED_LISTS: Operation = Operation {
@@ -214,7 +215,7 @@ fn a_runs_start_loads_its_filter_lists_when_its_settings_turn_one_on(
     #[case] loaded: bool,
 ) {
     let env = TestEnv::new();
-    let versions = Versions::new();
+    let versions = Versions::new(run_needs_lists);
 
     let answer = call(&env, &versions, json!({ "settings": settings }));
 

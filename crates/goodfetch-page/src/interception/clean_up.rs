@@ -65,7 +65,7 @@ impl Default for CleanUp {
     fn default() -> Self {
         Self {
             never_block: OnceCell::new(),
-            versions: Versions::new(),
+            versions: Versions::new(run_needs_lists),
         }
     }
 }

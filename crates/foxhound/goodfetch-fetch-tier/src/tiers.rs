@@ -1036,6 +1036,16 @@ impl FetchTiers {
         Ok(())
     }
 
+    /// Starts reading what the formats of `run`'s served documents take
+    /// beside their markup, once the engine's pages were handed over
+    /// ([`BrowserPages::prepare_served_formats`]): a crawl whose pages read
+    /// a format calls it as it starts (#2573).
+    pub fn prepare_served_formats(&self, run: &Run) {
+        if let Some(pages) = self.served.browser.get() {
+            pages.prepare_served_formats(run);
+        }
+    }
+
     /// The Run's own `fetch.tier`: the tier it forces, else `auto`, set or
     /// the built-in default, under which the engine chooses each request's
     /// tier.

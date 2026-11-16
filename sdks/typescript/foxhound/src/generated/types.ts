@@ -940,8 +940,8 @@ export interface CrawlRequestOutcomes {
   outcomes: CrawlRequestOutcome[];
 }
 /**
- * What `crawl_request.push` takes: one Record an attempt pushes into one
- * of its crawl's Datasets.
+ * What `crawl_request.push` takes: the Records of one push of an
+ * attempt into one of its crawl's Datasets, one or several (ADR 0147).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "CrawlRequestPushParams".
@@ -952,12 +952,6 @@ export interface CrawlRequestPushParams {
    */
   crawl_request_id: string;
   /**
-   * The Record.
-   */
-  data: {
-    [k: string]: unknown;
-  };
-  /**
    * The Dataset's name.
    */
   dataset: string;
@@ -966,12 +960,19 @@ export interface CrawlRequestPushParams {
    */
   lease_epoch: number;
   /**
+   * The Records, at least one, in the order pushed: a Record's position
+   * in this list is how `record_invalid` names it.
+   *
+   * @minItems 1
+   */
+  records: [unknown, ...unknown[]];
+  /**
    * The crawl's Run.
    */
   run_id: RunId;
 }
 /**
- * What `crawl_request.push` answers once the Record is staged.
+ * What `crawl_request.push` answers once every Record is staged.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "CrawlRequestPushed".

@@ -76,7 +76,7 @@ fn push(inside: &mut Inside<'_>, handle: &Value, data: &Value) {
             "crawl_request_id": handle["crawl_request"]["id"],
             "lease_epoch": handle["lease_epoch"],
             "dataset": "pages",
-            "data": data,
+            "records": [data],
         }),
     );
     assert!(reply.get("result").is_some(), "{reply}");

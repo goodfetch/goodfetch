@@ -61,7 +61,7 @@ use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::clean_up_rules::{CleanUpRulesManifest, MANIFEST_FILE, RulesSource};
 use goodfetch_protocol::formats::{CLEAN_UP_RULES, Compatibility};
 use goodfetch_protocol::run::warning::{CLEAN_UP_RULES_FALLBACK, CLEAN_UP_RULES_STALE};
-use goodfetch_protocol::run::{RunId, RunWarning};
+use goodfetch_protocol::run::{RunId, RunKind, RunWarning};
 use goodfetch_protocol::settings::{
     CLEAN_UP_CHANNEL, CLEAN_UP_FETCH_TIMEOUT, CLEAN_UP_LISTS, CLEAN_UP_UPDATE, CLEAN_UP_VERSION,
     SettingsLayer, UPSTREAM_LISTS,
@@ -597,7 +597,11 @@ impl Versions {
             }
         };
         self.hold(run, &version.digest, artifact);
-        self.load_ahead(run);
+        // A program's pages all match the lists; a crawl's may read none of
+        // them, so its crawl asks for them once it knows (#2573).
+        if context.kind == RunKind::Collie {
+            self.load_ahead(run);
+        }
         let mut entry = json!({
             "action": "clean_up_rules",
             "digest": version.digest,

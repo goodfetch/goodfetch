@@ -16,6 +16,8 @@ use std::process::{Command, ExitCode, Stdio};
 use anyhow::{Context as _, Result, bail};
 use clap::Args;
 
+#[cfg(target_os = "linux")]
+use super::guided;
 use super::{ORDER, PROFILE, committed, order};
 use crate::compare::training::{self, Executables};
 use crate::environment::Environment;
@@ -28,6 +30,13 @@ pub(crate) struct Arguments {
     /// manifests.
     #[arg(long, default_value = "target/pgo")]
     work: PathBuf,
+    /// Only maps the pages the training crawls touch and writes the order
+    /// file, on the guided build an earlier refresh left in the work
+    /// folder: refused unless that build was made from the merged profile
+    /// and hot order there as they are now, so the files written are those
+    /// a whole refresh would write.
+    #[arg(long)]
+    order_only: bool,
 }
 
 #[derive(Args)]
@@ -62,31 +71,15 @@ pub(crate) fn refresh(arguments: &Arguments, environment: &Environment) -> Resul
     };
     let work = std::path::absolute(environment.path(&arguments.work))
         .context("finding the work folder's absolute path")?;
-    let raw = work.join("raw");
-    let guided = work.join("guided");
-    for folder in [&raw, &guided] {
-        if folder.exists() {
-            std::fs::remove_dir_all(folder)
-                .with_context(|| format!("removing {}", folder.display()))?;
-        }
-        std::fs::create_dir_all(folder)
-            .with_context(|| format!("creating {}", folder.display()))?;
-    }
     let proving_ground = work.join("proving-ground.json");
-    let hot = profile(environment, &work, &proving_ground)?;
-    let profile = guided.join(PROFILE);
-
-    output::line("pgo: building the Products guided by the profile");
     let guided_tools = work.join("guided.json");
-    build(
-        environment,
-        &guided_tools,
-        &PRODUCTS,
-        &[(
-            "GOODFETCH_PGO",
-            format!("use={}", guided.display()).as_ref(),
-        )],
-    )?;
+    let hot = if arguments.order_only {
+        let tools = ToolManifest::read(&guided_tools)?;
+        guided::recorded_hot(&work, tools.path(Tool::Foxhound)?)?
+    } else {
+        build_guided(environment, &work, &proving_ground, &guided_tools)?
+    };
+    let profile = work.join("guided").join(PROFILE);
     let guided_tools = ToolManifest::read(&guided_tools)?;
     let foxhound = guided_tools.path(Tool::Foxhound)?;
     let Some(map) = super::link_map(foxhound)? else {
@@ -123,11 +116,6 @@ pub(crate) fn refresh(arguments: &Arguments, environment: &Environment) -> Resul
     let ordered = work.join(ORDER);
     write_lines(&ordered, &order)?;
     commit(&ordered, &committed, ORDER)?;
-    // The instrumented build is the largest; the next refresh builds it
-    // again from sccache.
-    let instrumented_target = work.join(INSTRUMENTED_TARGET);
-    std::fs::remove_dir_all(&instrumented_target)
-        .with_context(|| format!("removing {}", instrumented_target.display()))?;
     output::line(&format!(
         "pgo: {} profiled functions; the crawls touched {:.1} MiB of Foxhound's image; {} entries ordered in {}",
         hot.len(),
@@ -136,6 +124,49 @@ pub(crate) fn refresh(arguments: &Arguments, environment: &Environment) -> Resul
         committed.join(format!("{ORDER}.zst")).display()
     ));
     Ok(ExitCode::SUCCESS)
+}
+
+/// Trains the profile and builds the Products guided by it, the build's
+/// manifest written to `guided_tools` and recorded against the profile:
+/// the profile's functions, hottest first.
+#[cfg(target_os = "linux")]
+fn build_guided(
+    environment: &Environment,
+    work: &Path,
+    proving_ground: &Path,
+    guided_tools: &Path,
+) -> Result<Vec<String>> {
+    let guided = work.join("guided");
+    for folder in [&work.join("raw"), &guided] {
+        if folder.exists() {
+            std::fs::remove_dir_all(folder)
+                .with_context(|| format!("removing {}", folder.display()))?;
+        }
+        std::fs::create_dir_all(folder)
+            .with_context(|| format!("creating {}", folder.display()))?;
+    }
+    let hot = profile(environment, work, proving_ground)?;
+    // The instrumented build is the largest; the next refresh builds it
+    // again from sccache.
+    let instrumented_target = work.join(INSTRUMENTED_TARGET);
+    std::fs::remove_dir_all(&instrumented_target)
+        .with_context(|| format!("removing {}", instrumented_target.display()))?;
+
+    output::line("pgo: building the Products guided by the profile");
+    build(
+        environment,
+        guided_tools,
+        &PRODUCTS,
+        &[(
+            "GOODFETCH_PGO",
+            format!("use={}", guided.display()).as_ref(),
+        )],
+    )?;
+    guided::record(
+        work,
+        ToolManifest::read(guided_tools)?.path(Tool::Foxhound)?,
+    )?;
+    Ok(hot)
 }
 
 /// The instrumented build's profile of the training workloads, merged into

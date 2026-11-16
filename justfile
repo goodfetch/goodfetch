@@ -1314,12 +1314,14 @@ targets:
 # the pages the training crawls touch (`sudo -n` sets the kernel's
 # fault-around to one page for them). Run it when the Products' code has
 # moved enough that `just targets` or a comparison reads slower, and commit
-# both files.
+# both files. `--order-only` maps the pages again and writes the order file on
+# the guided build the last refresh recorded: run it in a quiet window, since
+# the map's order depends on timing.
 # Retrains the release build's committed profile and order file.
-pgo-refresh:
+pgo-refresh *arguments:
     ci/musl/install.sh
     pnpm install --frozen-lockfile --reporter=silent --filter goodfetch-compare-collie...
-    cargo run --quiet --bin xtask -- pgo refresh
+    cargo run --quiet --bin xtask -- pgo refresh {{ arguments }}
 
 # Times a plain release build against the profile-guided one on scenario 1
 # and each Product's held-out workload (ADR 0057's note of 2026-11-14),

@@ -20,6 +20,8 @@ use crate::check::{self, Finding};
 use crate::environment::Environment;
 use crate::test_tools::{self, Tool, ToolManifest};
 
+#[cfg(target_os = "linux")]
+mod guided;
 mod order;
 mod refresh;
 #[cfg(target_os = "linux")]
@@ -46,7 +48,8 @@ pub(crate) enum Command {
     /// training crawls, and the order lists the code they touched first,
     /// the profile's hottest first, then the profile's other hot functions,
     /// then the data they touched. Linux on x86-64 alone, with `sudo -n` for
-    /// the touch map.
+    /// the touch map. `--order-only` makes only the touch map and the order
+    /// file, on the guided build the last refresh recorded.
     Refresh(refresh::Arguments),
     /// Runs the training workloads on the executables of the manifest,
     /// each instrumented one writing its profile where

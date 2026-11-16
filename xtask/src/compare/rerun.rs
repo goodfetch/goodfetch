@@ -57,6 +57,9 @@ pub(super) fn of(arguments: &RunArguments) -> String {
     for setting in &arguments.foxhound_settings {
         give("--foxhound-setting", Some(setting.clone()));
     }
+    for cell in &arguments.cells {
+        give("--cell", Some(cell.clone()));
+    }
     if let Some(browser) = &arguments.browser {
         give("--browser", Some(browser.display().to_string()));
     }

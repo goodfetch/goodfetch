@@ -3,10 +3,16 @@
 //! as a prepared `GOODFETCH_BROWSERS_PATH` copy holds it, in the test's own
 //! folder, its files taken from the same build Playwright installs for the
 //! repository's own browser tests (`pnpm exec playwright install`), so no
-//! test downloads a browser. Its files are hard links where the folders
-//! share a file system, copies otherwise, so a launch's digest check reads
-//! the pinned bytes and a clean-up that deletes the build never touches
-//! Playwright's.
+//! test downloads a browser. Its files are hard links, so a launch's digest
+//! check reads the pinned bytes, a clean-up that deletes the build never
+//! touches Playwright's, and a test's folder, kept when the test fails,
+//! holds no bytes of the build of its own: links to Playwright's files where
+//! the system allows them, else to one copy of the build laid out beside the
+//! tests' folders, which every test's cache then links (#2664: where
+//! Playwright's files belong to another user, as root's `/ms-playwright` on
+//! the gate host, Linux's `protected_hardlinks` refuses the link, and each
+//! test's folder held a 400 MB copy). A file is copied only where neither
+//! link can be made.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support lays out the cache in the test's thread, never on an async worker"
@@ -103,7 +109,13 @@ fn playwright_browsers(variables: &Variables) -> Option<PathBuf> {
 /// When Playwright has not installed the build, the platform has none, or
 /// the folder cannot be written.
 pub fn browser_cache(env: &TestEnv) -> Result<PathBuf, BrowserCacheError> {
-    chrome_for_testing_at(env.folder().join("browsers"))
+    chrome_for_testing_at(env.folder().join("browsers"), tests_folder(env))
+}
+
+/// The folder `env`'s folder is in, where the tests' folders go, and the
+/// build's copy their caches link.
+fn tests_folder(env: &TestEnv) -> &Path {
+    env.folder().parent().unwrap_or(env.folder())
 }
 
 /// The Browser cache's folder in a Goodfetch home, where an engine started
@@ -120,7 +132,7 @@ const HOME_BROWSERS: &str = "browsers";
 ///
 /// As [`browser_cache`].
 pub fn browser_cache_in_home(env: &TestEnv) -> Result<PathBuf, BrowserCacheError> {
-    chrome_for_testing_at(env.home().join(HOME_BROWSERS))
+    chrome_for_testing_at(env.home().join(HOME_BROWSERS), tests_folder(env))
 }
 
 /// The folder of the Browser cache at `cache` where [`browser_cache`] lays
@@ -284,8 +296,9 @@ fn chrome_for_testing_entry(cache: &Path) -> PathBuf {
 }
 
 /// A Browser cache at `root` holding the pinned Chrome for Testing build,
-/// as [`browser_cache`] describes it; `root`.
-fn chrome_for_testing_at(root: PathBuf) -> Result<PathBuf, BrowserCacheError> {
+/// as [`browser_cache`] describes it, its files linked from Playwright's or
+/// from the build's copy in `tests_folder`; `root`.
+fn chrome_for_testing_at(root: PathBuf, tests_folder: &Path) -> Result<PathBuf, BrowserCacheError> {
     let platform = platform_folder().ok_or(BrowserCacheError::NoBuild)?;
     let source = playwright_browsers(&Variables::from_process())
         .unwrap_or_default()
@@ -295,7 +308,8 @@ fn chrome_for_testing_at(root: PathBuf) -> Result<PathBuf, BrowserCacheError> {
         return Err(BrowserCacheError::NotInstalled(source));
     }
     let entry = chrome_for_testing_entry(&root);
-    link_tree(&source, &chrome_for_testing_files(&root).join(platform))?;
+    let build = linkable_build(&source, tests_folder, platform)?;
+    link_tree(&build, &chrome_for_testing_files(&root).join(platform))?;
     fs::write(entry.join("lock"), "")?;
     let installed = serde_json::json!({
         "format_version": "0.1",
@@ -407,6 +421,86 @@ pub fn browser_cache_with_lightpanda(env: &TestEnv) -> Result<PathBuf, BrowserCa
     Ok(root)
 }
 
+/// The tree of the build at `source` that a cache in `tests_folder` can
+/// hard-link: `source` itself when the system allows a link to its files
+/// there, else the build's copy in `tests_folder`, as [`build_copy`] lays
+/// it out.
+fn linkable_build(source: &Path, tests_folder: &Path, platform: &str) -> io::Result<PathBuf> {
+    if links_allowed(source, tests_folder)? {
+        return Ok(source.to_owned());
+    }
+    build_copy(source, tests_folder, platform)
+}
+
+/// The copy of the build at `source` in `tests_folder`,
+/// `goodfetch-chrome-for-testing-<build>-<platform>`: laid out by the first
+/// test that needs it and kept for the others and for later runs. One test
+/// at a time lays it out, under a lock beside it, so tests that start
+/// together hold one copy, not one each; it is laid out in a folder of its
+/// own and renamed in place once whole, so a test never links a part of one,
+/// and a part left by a test killed while laying it out goes with the next
+/// layout.
+fn build_copy(source: &Path, tests_folder: &Path, platform: &str) -> io::Result<PathBuf> {
+    let name = format!("goodfetch-chrome-for-testing-{CHROME_FOR_TESTING_BUILD}-{platform}");
+    let copy = tests_folder.join(&name);
+    if copy.is_dir() {
+        return Ok(copy);
+    }
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(tests_folder.join(format!("{name}.lock")))?;
+    lock.lock()?;
+    if copy.is_dir() {
+        return Ok(copy);
+    }
+    let part = format!(".{name}-");
+    for entry in fs::read_dir(tests_folder)? {
+        let entry = entry?;
+        if entry.file_name().to_string_lossy().starts_with(&part) {
+            fs::remove_dir_all(entry.path())?;
+        }
+    }
+    let laying_out = tempfile::Builder::new()
+        .prefix(&part)
+        .tempdir_in(tests_folder)?;
+    let whole = laying_out.path().join(platform);
+    link_tree(source, &whole)?;
+    fs::rename(&whole, &copy)?;
+    Ok(copy)
+}
+
+/// Whether a file of the tree at `source` can be hard-linked into
+/// `tests_folder`: tried on its first file, in a folder of its own that
+/// goes with the answer. A tree with no file has nothing to link.
+fn links_allowed(source: &Path, tests_folder: &Path) -> io::Result<bool> {
+    let Some(first) = first_file(source)? else {
+        return Ok(true);
+    };
+    let probe = tempfile::Builder::new()
+        .prefix(".goodfetch-link-probe-")
+        .tempdir_in(tests_folder)?;
+    Ok(fs::hard_link(&first, probe.path().join("file")).is_ok())
+}
+
+/// The first regular file of the tree at `folder`, in its folders' order.
+fn first_file(folder: &Path) -> io::Result<Option<PathBuf>> {
+    for entry in fs::read_dir(folder)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_file() {
+            return Ok(Some(entry.path()));
+        }
+        if kind.is_dir()
+            && let Some(file) = first_file(&entry.path())?
+        {
+            return Ok(Some(file));
+        }
+    }
+    Ok(None)
+}
+
 /// `source`'s tree at `target`: each file as [`link_file`] lays it out,
 /// and each symbolic link the same link unless one is already there.
 fn link_tree(source: &Path, target: &Path) -> io::Result<()> {
@@ -480,3 +574,6 @@ pub fn lay_out_browser_entry(root: &Path, build: &str, used_at: &str) -> PathBuf
     written.unwrap_or_else(|error| panic!("the entry of `{build}` cannot be laid out: {error}"));
     folder
 }
+
+#[cfg(test)]
+mod tests;

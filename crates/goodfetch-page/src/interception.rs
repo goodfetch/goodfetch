@@ -116,6 +116,8 @@ use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
 use self::clean_up::CleanUp;
 pub(crate) use self::clean_up::SESSION_KEYS;
+#[cfg(test)]
+pub(crate) use self::clean_up::run_needs_lists;
 use self::hosts::HostCaches;
 pub(crate) use self::lookups::{HeldBrowser, Lookups};
 use self::navigations::{NavigatingPage, Pending};

@@ -22,6 +22,8 @@ use goodfetch_protocol::formats::CLEAN_UP_RULES;
 use goodfetch_test_support::TestEnv;
 use serde_json::json;
 
+mod ahead;
+
 use super::upstream::Fetches;
 use super::{
     KEPT_VERSIONS, Kept, Sources, Unobtained, Version, Versions, manifest_file, now_of, replace,
@@ -199,7 +201,7 @@ async fn runs_starting_together_share_one_fetch_of_the_lists() {
 /// failure; a page asking later tries again.
 #[tokio::test(start_paused = true)]
 async fn concurrent_loads_of_a_version_that_does_not_read_fail_together() {
-    let versions = Versions::default();
+    let versions = Versions::new(|_| false);
     let clock = clock();
     let loads = AtomicUsize::new(0);
     let load = || async {
@@ -257,7 +259,7 @@ fn digest_of(n: usize) -> String {
 /// that holds to it: the engine keeps it, within its bound.
 #[tokio::test]
 async fn the_next_run_on_a_version_no_run_holds_reuses_its_lists() {
-    let versions = Versions::default();
+    let versions = Versions::new(|_| false);
     let loads = AtomicUsize::new(0);
     let load = || std::future::ready(Ok::<_, Unobtained>(empty_lists(&loads)));
 
@@ -272,7 +274,7 @@ async fn the_next_run_on_a_version_no_run_holds_reuses_its_lists() {
 /// most recently used: an older one is loaded again.
 #[tokio::test]
 async fn versions_no_run_holds_are_kept_within_their_bound() {
-    let versions = Versions::default();
+    let versions = Versions::new(|_| false);
     let loads = AtomicUsize::new(0);
     let load = || std::future::ready(Ok::<_, Unobtained>(empty_lists(&loads)));
 

@@ -13,7 +13,8 @@ use super::{NOT_RUN_YET, ROWS};
 /// E6's sum over its off cell, the evidence rows' sum over the cell with
 /// learning off, and the page waits at `full`, which `F2.page_waits`'
 /// counter counts in the cells at that level.
-const READ_ELSEWHERE: [&str; 14] = [
+const READ_ELSEWHERE: [&str; 15] = [
+    "E2.log_prepares",
     "E2.prepares",
     "E3.prepares",
     "E6.off_work",

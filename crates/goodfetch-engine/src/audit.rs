@@ -234,11 +234,14 @@ struct Store {
 const WRITER: &str = "audit-log-writer";
 
 /// What the writer holds between its writes: its connection, opened by its
-/// first, and the tail its last commit left.
+/// first, the tail its last commit left, and whether it opened the store
+/// before, so an open after a failure counts as an entry's work, not the
+/// log's (ADR 0140's E2).
 #[derive(Debug, Default)]
 struct Held {
     connection: Option<Connection>,
     tail: Option<Tail>,
+    opened: bool,
 }
 
 /// Where the chain ends: the sequence the next entry takes, the hash a
@@ -489,7 +492,10 @@ impl AuditLog {
             .run(move |held| {
                 let written = work(&store, held);
                 if written.is_err() {
-                    *held = Held::default();
+                    *held = Held {
+                        opened: held.opened,
+                        ..Held::default()
+                    };
                 }
                 written
             })
@@ -535,7 +541,7 @@ impl Store {
     ) -> Result<Vec<AuditEntry>, AuditError> {
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
         let cached = held.tail;
-        let connection = self.connection(&mut held.connection)?;
+        let connection = self.connection(&mut held.connection, &mut held.opened)?;
         let committed = self.immediate(connection, |transaction| {
             let mut tail = self.after_last(transaction, cached)?;
             let time = PointInTime::from_rfc3339(now.to_string());
@@ -595,7 +601,7 @@ impl Store {
         };
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
         let cached = held.tail;
-        let connection = self.connection(&mut held.connection)?;
+        let connection = self.connection(&mut held.connection, &mut held.opened)?;
         let committed = self.immediate(connection, |transaction| {
             let Some((through, last_pruned_hash)) = self.older_than(transaction, cutoff)? else {
                 return Ok(None);
@@ -686,15 +692,18 @@ impl Store {
         }
     }
 
-    /// The writer's connection, the store opened now if it is not yet.
+    /// The writer's connection, the store opened now if it is not yet:
+    /// once a log, or again after a failure, as `opened` says.
     fn connection<'held>(
         &self,
         held: &'held mut Option<Connection>,
+        opened: &mut bool,
     ) -> Result<&'held mut Connection, AuditError> {
-        match held {
-            Some(connection) => Ok(connection),
-            None => Ok(held.insert(self.open()?)),
-        }
+        let connection = match held.take() {
+            Some(connection) => connection,
+            None => self.open(!std::mem::replace(opened, true))?,
+        };
+        Ok(held.insert(connection))
     }
 
     /// The `audit.retention` the engine's snapshot of the machine's
@@ -865,7 +874,7 @@ impl Store {
             });
         }
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let connection = self.open()?;
+        let connection = self.open(false)?;
         let mut statement = connection
             .prepare("SELECT sequence, entry, hash FROM entries ORDER BY sequence")
             .map_err(|error| failed(&error))?;
@@ -909,7 +918,7 @@ impl Store {
             return Ok(Vec::new());
         }
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let connection = self.open()?;
+        let connection = self.open(false)?;
         let mut statement = connection
             .prepare("SELECT sequence, entry, hash FROM entries ORDER BY sequence")
             .map_err(|error| failed(&error))?;
@@ -943,21 +952,28 @@ impl Store {
     /// and refuses one of another major. A new log's tables, and its WAL's
     /// header, commit unsynced: no entry is in them yet, and the commit of
     /// its first entry syncs them too (#2117). An existing log's commit
-    /// there writes nothing.
-    fn open(&self) -> Result<Connection, AuditError> {
-        self.work.count(Row::AuditOpens);
-        File::new(&self.path, self.vfs.as_deref())
+    /// there writes nothing. The writer's `first` open and its set-up's
+    /// commits count once a log; any other, the writer's again after a
+    /// failure or a reader's, counts on the entry's rows (ADR 0140's E2).
+    fn open(&self, first: bool) -> Result<Connection, AuditError> {
+        let (opens, set_up) = if first {
+            (Row::AuditLogOpens, Row::AuditLogTransactions)
+        } else {
+            (Row::AuditOpens, Row::AuditTransactions)
+        };
+        self.work.count(opens);
+        let connection = File::new(&self.path, self.vfs.as_deref())
             .open(&Opening {
                 folder: Folder::Make,
                 access: Access::Create,
                 wait: Wait::Busy(BUSY_TIMEOUT),
                 durability: DURABILITY,
-                // Beneath every caller, so a commit beside the append's
-                // counts too (ADR 0140).
+                // Beneath every caller, so the set-up's commits count too
+                // (ADR 0140), on the log's row or the entry's.
                 counting: Some(Counting {
                     work: &self.work,
                     opens: None,
-                    transactions: Row::AuditTransactions,
+                    transactions: set_up,
                     counts_switch: true,
                 }),
                 schema: Some(Schema {
@@ -971,7 +987,17 @@ impl Store {
                     compatibility: refusal.compatibility,
                 },
                 other => self.failed(&other),
-            })
+            })?;
+        // Every commit after the set-up is an entry's or a prune's.
+        Counting {
+            work: &self.work,
+            opens: None,
+            transactions: Row::AuditTransactions,
+            counts_switch: true,
+        }
+        .count_commits(&connection)
+        .map_err(|error| self.failed(&error))?;
+        Ok(connection)
     }
 
     /// Replaces the head file with `head`, through a file renamed over it,

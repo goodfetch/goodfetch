@@ -274,41 +274,31 @@ fn a_take_that_meets_a_full_disk_is_rolled_back_and_reported_as_a_storage_failur
 #[test]
 fn a_politeness_file_opened_under_inline_blocking_takes_no_thread_of_the_runtime() {
     let env = TestEnv::new();
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .max_blocking_threads(1)
-        .build()
-        .unwrap();
-    let (release, held) = std::sync::mpsc::channel::<()>();
-    let (holding, holds) = std::sync::mpsc::channel::<()>();
 
-    let opened = runtime.block_on(async {
-        let owner = TaskOwner::root(BlockingPolicy::Inline);
-        let pool = tokio::runtime::Handle::current().spawn_blocking(move || {
-            holding.send(()).unwrap();
-            let _ = held.recv();
-        });
-        holds.recv().unwrap();
-        let opened = tokio::time::timeout(
-            Duration::from_secs(5),
-            Politeness::open(
+    let (opened, held_throughout) = goodfetch_test_support::runtime_with_one_blocking_thread()
+        .block_on(async {
+            let owner = TaskOwner::root(BlockingPolicy::Inline);
+            let held = goodfetch_test_support::with_the_blocking_pool_held(Politeness::open(
                 env.home().join(POLITENESS_FILE),
                 &PolitenessOptions::default(),
                 Vec::new(),
                 gone_unless_live,
                 "inline".to_owned(),
                 &owner,
-            ),
-        )
-        .await
-        .map(|opened| opened.map(drop).map_err(|error| error.to_string()));
-        release.send(()).unwrap();
-        pool.await.unwrap();
-        owner.cancel();
-        opened
-    });
+            ))
+            .await;
+            owner.cancel();
+            held
+        });
 
-    assert_eq!(opened, Ok(Ok(())), "the open waited for the blocking pool");
+    assert_eq!(
+        (
+            opened.map(drop).map_err(|error| error.to_string()),
+            held_throughout
+        ),
+        (Ok(()), true),
+        "the open waited for the blocking pool"
+    );
 }
 
 /// Covers: story:3-80

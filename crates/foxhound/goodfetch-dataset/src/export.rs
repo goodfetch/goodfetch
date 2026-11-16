@@ -16,7 +16,7 @@ use std::io::{self, Read};
 
 use goodfetch_engine::run::{run_error, settings_error};
 use goodfetch_engine::run_files::export_file;
-use goodfetch_engine::run_files_operations::{keep_error, save_kept, send_kept};
+use goodfetch_engine::run_files_operations::{keep_error, kept_size, save_kept, send_kept};
 use goodfetch_engine::runs::{RunError, RunReader};
 use goodfetch_engine::settings::{Opening, Resolved};
 use goodfetch_engine::{CallContext, CallError, Handler};
@@ -308,10 +308,9 @@ async fn kept_export(
         .await
         .map_err(failed)?;
     let file = export_file(&folder, sha256).ok_or_else(|| no_export(export_id))?;
-    let size = tokio::fs::metadata(&file)
+    let size = kept_size(context, &file)
         .await
-        .map_err(|_| no_export(export_id))?
-        .len();
+        .map_err(|_| no_export(export_id))?;
     Ok((folder, file, size, sha256.to_owned()))
 }
 

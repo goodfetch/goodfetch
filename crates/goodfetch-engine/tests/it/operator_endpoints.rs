@@ -14,6 +14,7 @@ use std::path::Path;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::otlp::{Collector, ExportFailure};
 use goodfetch_engine::settings::{Layers, Policy, Resolved, Values, resolve};
+use goodfetch_engine::tasks::{BlockingPolicy, BlockingThreads, TaskOwner};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::egress::{EgressRefusedDetails, EgressRule};
 use goodfetch_protocol::settings::SettingsLayer;
@@ -110,6 +111,11 @@ fn no_private_endpoints(set: bool) -> Value {
     }
 }
 
+/// Blocking threads that run their work inline, as a test's are.
+fn inline() -> BlockingThreads {
+    TaskOwner::root(BlockingPolicy::Inline).blocking_threads()
+}
+
 /// Exports an empty batch to the collector at `url`: the collector's
 /// status, or why it gave none.
 fn export(collector: &Collector, url: &str) -> Result<u16, ExportFailure> {
@@ -143,6 +149,7 @@ fn a_collector_on_loopback_is_reached_unless_the_operator_policy_refuses_private
     let collector = Collector::of(
         &machine_settings(no_private_endpoints(refused), json!({})),
         Clock::system(),
+        inline(),
     );
 
     let exported = export(&collector, &url);
@@ -182,8 +189,13 @@ fn an_endpoints_reply_past_network_max_body_size_is_too_long() {
     let limited = Collector::of(
         &machine_settings(json!({}), json!({ "network": { "max_body_size": 1 } })),
         Clock::system(),
+        inline(),
     );
-    let unlimited = Collector::of(&machine_settings(json!({}), json!({})), Clock::system());
+    let unlimited = Collector::of(
+        &machine_settings(json!({}), json!({})),
+        Clock::system(),
+        inline(),
+    );
 
     let cut = export(&limited, &url);
     let whole = export(&unlimited, &url);
@@ -221,6 +233,7 @@ fn run_case(proving_ground: &ProvingGround, case: &SsrfCase, refusing: bool) -> 
             json!({ "network": { "resolve": resolve } }),
         ),
         Clock::system(),
+        inline(),
     );
     let url = at_port(&case.url, target.port());
     // A URL no URI holds is no endpoint a collector can be given: nothing
@@ -385,6 +398,7 @@ fn an_endpoint_takes_its_own_trusted_authority_and_no_certificate_exception(
     let collector = Collector::of(
         &machine_settings(json!({}), at_catalog(&proving_ground, &tls)),
         Clock::system(),
+        inline(),
     );
     let url = format!(
         "https://catalog.test:{}/v1/traces",

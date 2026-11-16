@@ -11,6 +11,7 @@
 //! 0127).
 
 use std::fmt::{self, Write as _};
+use std::io::Write as _;
 use std::path::Path;
 use std::str::FromStr;
 
@@ -21,13 +22,13 @@ use hyper::body::Bytes;
 use hyper::{Request, StatusCode, Uri};
 use rustls::pki_types::CertificateDer;
 use sha2::{Digest as _, Sha256};
-use tokio::io::AsyncWriteExt as _;
 
 use crate::clock::Clock;
 use crate::dns::HostMapping;
 use crate::happy_eyeballs::Delays;
 use crate::http_client::{self, Server};
 use crate::settings::Resolved;
+use crate::tasks::BlockingThreads;
 use crate::tls::Trust;
 
 /// The user agent of every pinned download: the same for every install and
@@ -296,21 +297,19 @@ pub(crate) enum Failure {
 }
 
 /// Downloads `url` into the file at `into`, reporting `(received, total)` as
-/// bytes arrive, and checks that what it received has the digest `pinned`.
+/// bytes arrive, and checks that what it received has the digest `pinned`;
+/// the file is created, written and synced on `blocking` (issue 2106).
 ///
 /// # Cancel safety
 ///
 /// Dropping the future closes the connection and leaves `into` partly
 /// written, for its caller to remove.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
 pub(crate) async fn download(
     url: &PinnedUrl,
     pinned: Digest,
     fetching: &Fetching,
     into: &Path,
+    blocking: &BlockingThreads,
     progress: &mut (dyn FnMut(u64, Option<u64>) + Send),
 ) -> Result<(), Failure> {
     if let Some(layer) = fetching.offline {
@@ -349,15 +348,33 @@ pub(crate) async fn download(
         return Err(Failure::Status(response.status.as_u16()));
     }
     let total = response.content_length;
-    let mut file = tokio::fs::File::create(into).await.map_err(Failure::File)?;
+    let created = into.to_owned();
+    let mut file = blocking
+        .run(move || {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "ADR 0140: a file opened on no counted row yet, on the tasks module's blocking policy (issue 2106); the Shared paths audit moves it onto its counted function"
+            )]
+            std::fs::File::create(created)
+        })
+        .await
+        .map_err(Failure::File)?;
     let mut hasher = Sha256::new();
     let mut received = 0_u64;
     let mut reported = 0_u64;
     progress(0, total);
     while let Some(bytes) = response.chunk().await.map_err(|_| Failure::Network)? {
         hasher.update(&bytes);
-        file.write_all(&bytes).await.map_err(Failure::File)?;
-        received += u64::try_from(bytes.len()).expect("invariant: a frame fits in u64");
+        let length = bytes.len();
+        let written;
+        (file, written) = blocking
+            .run(move || {
+                let written = file.write_all(&bytes);
+                (file, written)
+            })
+            .await;
+        written.map_err(Failure::File)?;
+        received += u64::try_from(length).expect("invariant: a frame fits in u64");
         if received - reported >= PROGRESS_STEP {
             reported = received;
             progress(received, total);
@@ -366,7 +383,10 @@ pub(crate) async fn download(
     if total.is_some_and(|total| total != received) {
         return Err(Failure::Network);
     }
-    file.sync_all().await.map_err(Failure::File)?;
+    blocking
+        .run(move || file.sync_all())
+        .await
+        .map_err(Failure::File)?;
     if reported != received {
         progress(received, total);
     }

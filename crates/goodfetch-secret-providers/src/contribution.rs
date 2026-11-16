@@ -43,6 +43,7 @@ pub fn contribution() -> Contribution {
                     inputs.settings,
                     inputs.environment,
                     inputs.clock,
+                    inputs.blocking.clone(),
                 ))
             }),
         ),
@@ -53,6 +54,7 @@ pub fn contribution() -> Contribution {
                     inputs.settings,
                     inputs.environment,
                     inputs.clock,
+                    inputs.blocking.clone(),
                 ))
             }),
         ),
@@ -63,6 +65,7 @@ pub fn contribution() -> Contribution {
                     inputs.settings,
                     inputs.environment,
                     inputs.clock,
+                    inputs.blocking.clone(),
                 ))
             }),
         ),
@@ -73,6 +76,7 @@ pub fn contribution() -> Contribution {
                     inputs.settings,
                     inputs.environment,
                     inputs.clock,
+                    inputs.blocking.clone(),
                 ))
             }),
         ),

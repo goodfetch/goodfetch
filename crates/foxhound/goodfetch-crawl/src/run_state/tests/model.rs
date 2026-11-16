@@ -20,12 +20,15 @@
 //! A reference model of the work items says what each step answers and
 //! leaves. After every step the run file holds the model's work items,
 //! each page once whatever gave it again (the exact duplicate check),
-//! each counted once against `crawl.max_requests` and a path budget, both
-//! set at as many pages as a case may give, so a page counted twice would
-//! refuse the last (#2169), and the requests by state the Run state
-//! counted in memory are the run file's and the model's. A clean stop
-//! leaves exactly the model; after a
-//! process crash the resumed crawl goes on from every write, each attempt
+//! each counted once against `crawl.max_requests` and a path budget, and
+//! the requests by state the Run state counted in memory are the run
+//! file's and the model's. Each case draws its bound (#2169): both at as
+//! many pages as a case may give, so a page counted twice would refuse the
+//! last, or one of them at fewer, down to its start's seeds, so a seed, an
+//! attempt's staged page and its commit, with other attempts' staged pages
+//! in flight and across crashes and resumes, are refused once the count
+//! reaches it, each with its reason. A clean stop leaves exactly the
+//! model; after a process crash the resumed crawl goes on from every write, each attempt
 //! in flight counted as `handler_lost`; after a power cut the file the
 //! next process opens passes `PRAGMA integrity_check` (in `after_crash`)
 //! and holds the model as one of its writes left it, from the last synced
@@ -66,9 +69,11 @@ use goodfetch_engine::run_state::{Durability, RunStateOptions, RunStateTables, S
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{RequestSeed, Seed};
 use goodfetch_protocol::foxhound::frontier::{
-    CrawlRequestEnqueueParams, Enqueued, HttpMethod, NotAddedReason,
+    CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, Enqueued, EnqueuedLink,
+    EnqueuedLinks, HttpMethod, NotAddedReason,
 };
 use goodfetch_protocol::foxhound::outcomes::OutcomeKind;
+use goodfetch_protocol::page::{Locator, PageId};
 use goodfetch_protocol::run::durability::BatchThreshold;
 use goodfetch_protocol::run::{PointInTime, RunId};
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
@@ -80,12 +85,13 @@ use tokio::runtime::Runtime;
 
 use crate::attempt_outcome::{Ended, Ending, Outcome};
 use crate::intake::Intake;
-use crate::invariants::fixture;
+use crate::invariants::{Invariants, fixture};
 use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::CrawlPolicy;
-use crate::run_state::admission::Enqueue;
+use crate::run_state::admission::{Enqueue, Link, LinksBatch, LinksRequest};
+use crate::run_state::asks::{Ask, Queued, Staged};
 use crate::run_state::{
-    Asked, Asking, RunState, StateError, Stored, Tally, Unkeyed, Within, mailbox,
+    Asked, Asking, Question, RunState, StateError, Stored, Tally, Unkeyed, Within, mailbox,
 };
 use crate::staging::Staging;
 use crate::tier_choice::TierChoices;
@@ -235,15 +241,45 @@ struct Attempt {
     over: bool,
 }
 
+/// The case's bound, in pages: `crawl.max_requests`, and the path
+/// budget of `/p/*`, which counts every page.
+#[derive(Clone, Copy, Debug)]
+struct Bound {
+    max_requests: usize,
+    path_budget: usize,
+}
+
+impl Bound {
+    /// Both at as many pages as a case may give: only a page counted
+    /// twice reaches it.
+    const LOOSE: Self = Self {
+        max_requests: PAGES,
+        path_budget: PAGES,
+    };
+
+    /// Why a page the crawl does not hold is not added while `counted`
+    /// requests count against the bound: `crawl.max_requests`, checked
+    /// before the path budget.
+    fn past(self, counted: usize) -> Option<NotAddedReason> {
+        if counted >= self.max_requests {
+            Some(NotAddedReason::MaxRequests)
+        } else if counted >= self.path_budget {
+            Some(NotAddedReason::PathBudget)
+        } else {
+            None
+        }
+    }
+}
+
 /// What a step answered.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 enum Answer {
     /// It asked nothing.
     #[default]
     Nothing,
-    /// Whether each page given was added; `None` once the crawl's intake
-    /// closed, or the attempt that gave it ended.
-    Admitted(Option<Vec<bool>>),
+    /// Why each page given was not added, `None` for one added; `None`
+    /// once the crawl's intake closed, or the attempt that gave it ended.
+    Admitted(Option<Vec<Option<NotAddedReason>>>),
     /// The pages keyed, in order.
     Keyed(Vec<usize>),
     /// The pages leased, in order.
@@ -278,6 +314,7 @@ struct Model {
     batching: bool,
     /// The Run's memory budget (`run_state.memory.budget`).
     budget: u64,
+    bound: Bound,
     /// The work items as the last commit left them: what a reader sees.
     written: Vec<Item>,
 }
@@ -363,14 +400,18 @@ impl Model {
     }
 
     /// Adds `page` at the next place, keyed as every admission of a
-    /// running crawl keys what it adds; answers whether it was added.
-    fn add(&mut self, page: usize) -> bool {
+    /// running crawl keys what it adds, unless the crawl holds it or its
+    /// work items reached the bound; answers why it was not added.
+    fn add(&mut self, page: usize) -> Option<NotAddedReason> {
         if self.holds(page) {
-            return false;
+            return Some(NotAddedReason::Duplicate);
+        }
+        if let Some(reason) = self.bound.past(self.items.len()) {
+            return Some(reason);
         }
         self.items.push(Item::added(page, self.next_place, true));
         self.next_place += 1;
-        true
+        None
     }
 
     /// A write left the work items as they are now: `synced`, it is the
@@ -423,10 +464,11 @@ impl Model {
             self.committed();
             return Answer::Admitted(None);
         }
-        let added: Vec<bool> = pages.iter().map(|page| self.add(*page)).collect();
-        self.wrote(added.contains(&true));
+        let refused: Vec<Option<NotAddedReason>> =
+            pages.iter().map(|page| self.add(*page)).collect();
+        self.wrote(refused.contains(&None));
         self.committed();
-        Answer::Admitted(Some(added))
+        Answer::Admitted(Some(refused))
     }
 
     /// Keys the next unkeyed work items, a sealed batch of them, in a
@@ -464,20 +506,31 @@ impl Model {
         Answer::Leased(pages)
     }
 
-    /// An attempt's enqueue, which rides its attempt's batch at `batch`.
+    /// An attempt's enqueue, which rides its attempt's batch at `batch`:
+    /// the bound counts the work items and the pages the attempt staged
+    /// that no other admission added since, not other attempts' staged
+    /// pages, which their commits count.
     fn enqueue(&mut self, index: usize, page: usize) -> Answer {
         let attempt = &self.attempts[index];
         if attempt.over {
             return Answer::Admitted(None);
         }
         if self.holds(page) || attempt.staged.iter().any(|(staged, _)| *staged == page) {
-            return Answer::Admitted(Some(vec![false]));
+            return Answer::Admitted(Some(vec![Some(NotAddedReason::Duplicate)]));
+        }
+        let staged = attempt
+            .staged
+            .iter()
+            .filter(|(staged, _)| !self.holds(*staged))
+            .count();
+        if let Some(reason) = self.bound.past(self.items.len() + staged) {
+            return Answer::Admitted(Some(vec![Some(reason)]));
         }
         // Its place is reserved at once, in a write synced at `full`.
         self.attempts[index].staged.push((page, self.next_place));
         self.next_place += 1;
         self.wrote(true);
-        Answer::Admitted(Some(vec![true]))
+        Answer::Admitted(Some(vec![None]))
     }
 
     fn end(&mut self, index: usize, how: How) -> Answer {
@@ -490,9 +543,10 @@ impl Model {
             How::Commit => {
                 self.item(attempt.page).status = Status::Succeeded;
                 // A page another admission added meanwhile is not added
-                // again.
+                // again, and the commit admits each page again, in order,
+                // against the bound the other commits brought it nearer.
                 for (page, place) in attempt.staged {
-                    if !self.holds(page) {
+                    if !self.holds(page) && self.bound.past(self.items.len()).is_none() {
                         self.items.push(Item::added(page, place, true));
                     }
                 }
@@ -596,6 +650,31 @@ impl Model {
     }
 }
 
+impl Model {
+    /// A crawl started with the seeds of the first `count` pages, which
+    /// batches attempts or not, within `budget` bytes of memory, under
+    /// `bound`.
+    fn started(count: usize, (batching, budget): (bool, u64), bound: Bound) -> Self {
+        // The seeds the start wrote, which no gate had keyed.
+        let items: Vec<Item> = (0..count)
+            .map(|page| Item::added(page, u64::try_from(page).unwrap(), false))
+            .collect();
+        Self {
+            unsynced: vec![items.clone()],
+            written: items.clone(),
+            items,
+            next_place: u64::try_from(count).unwrap(),
+            attempts: Vec::new(),
+            closed: false,
+            answered: Answer::Nothing,
+            crashed: false,
+            batching,
+            budget,
+            bound,
+        }
+    }
+}
+
 impl ReferenceStateMachine for Model {
     type State = Self;
     type Transition = Transition;
@@ -607,23 +686,23 @@ impl ReferenceStateMachine for Model {
             Just(RunStateOptions::default().memory_budget),
         ];
         (1_usize..4, any::<bool>(), budget)
-            .prop_map(|(count, batching, budget)| {
-                // The seeds the start wrote, which no gate had keyed.
-                let items: Vec<Item> = (0..count)
-                    .map(|page| Item::added(page, u64::try_from(page).unwrap(), false))
-                    .collect();
-                Self {
-                    unsynced: vec![items.clone()],
-                    written: items.clone(),
-                    items,
-                    next_place: u64::try_from(count).unwrap(),
-                    attempts: Vec::new(),
-                    closed: false,
-                    answered: Answer::Nothing,
-                    crashed: false,
-                    batching,
-                    budget,
-                }
+            .prop_flat_map(|(count, batching, budget)| {
+                // Loose, or one bound at fewer pages, down to the seeds.
+                let bound = prop_oneof![
+                    Just(Bound::LOOSE),
+                    (count..=PAGES).prop_map(|max_requests| Bound {
+                        max_requests,
+                        path_budget: PAGES,
+                    }),
+                    (count..=PAGES).prop_map(|path_budget| Bound {
+                        max_requests: PAGES,
+                        path_budget,
+                    }),
+                ];
+                (Just((count, batching, budget)), bound)
+            })
+            .prop_map(|((count, batching, budget), bound)| {
+                Self::started(count, (batching, budget), bound)
             })
             .boxed()
     }
@@ -699,6 +778,12 @@ struct Crawl {
     attempts: Vec<Running>,
     /// How many attempts hold their lease.
     in_flight: usize,
+    /// What its attempts' links batches are keyed under, as their pages'
+    /// tasks key them.
+    invariants: Invariants,
+    egress: Arc<Policy>,
+    /// Its counted work.
+    work: CountedWork,
 }
 
 /// One attempt of the subject's crawl: its lease, and whether the loop
@@ -744,6 +829,8 @@ struct Subject {
     durability: Durability,
     /// The Run's memory budget.
     budget: u64,
+    /// The bound its start records.
+    bound: Bound,
     crawl: Option<Crawl>,
     finished: bool,
 }
@@ -767,18 +854,19 @@ fn durability(batching: bool) -> Durability {
 }
 
 /// Bounds the crawl in the run file `connection` holds at as many
-/// requests as it may be given pages, its whole and under `/p/*`: each
-/// page counted once is never refused, and a page counted twice refuses
-/// the last (#2169).
-fn bound(connection: &Connection) -> rusqlite::Result<()> {
-    let max = i64::try_from(PAGES).unwrap();
+/// requests as `bound` says, its whole and under `/p/*` (#2169).
+fn record(connection: &Connection, bound: Bound) -> rusqlite::Result<()> {
+    let max = |pages: usize| i64::try_from(pages).unwrap();
     connection.execute(
         "INSERT INTO bounds (id, max_requests, learning) VALUES (1, ?1, ?2)",
-        (max, goodfetch_frontier::Bounds::default().learning),
+        (
+            max(bound.max_requests),
+            goodfetch_frontier::Bounds::default().learning,
+        ),
     )?;
     connection.execute(
         "INSERT INTO bounds_path_budgets (position, pattern, max_requests) VALUES (0, '/p/*', ?1)",
-        [max],
+        [max(bound.path_budget)],
     )?;
     Ok(())
 }
@@ -835,17 +923,21 @@ fn failure(code: &str) -> Failure {
     Failure::new(code, "the model's failure")
 }
 
-/// Whether each of `answers` says its request was added; one not added is
-/// a duplicate, the only refusal the model's pages meet.
-fn added(answers: &[Enqueued]) -> Vec<bool> {
+/// Why each of `answers` says its request was not added, `None` for one
+/// added: a duplicate, or past the bound, the only refusals the model's
+/// pages meet.
+fn refused(answers: &[Enqueued]) -> Vec<Option<NotAddedReason>> {
     answers
         .iter()
         .map(|answer| match answer {
-            Enqueued::Added { .. } => true,
+            Enqueued::Added { .. } => None,
             Enqueued::NotAdded {
-                reason: NotAddedReason::Duplicate,
+                reason:
+                    reason @ (NotAddedReason::Duplicate
+                    | NotAddedReason::MaxRequests
+                    | NotAddedReason::PathBudget),
                 ..
-            } => false,
+            } => Some(*reason),
             Enqueued::NotAdded { .. } => panic!("a page was refused: {answer:?}"),
         })
         .collect()
@@ -896,8 +988,8 @@ fn counts(tally: &Tally) -> Counts {
 impl Subject {
     /// A crawl started with the seeds of `pages` on a run file of its
     /// own, at the level of a model that batches attempts or not, within
-    /// `budget` bytes of memory.
-    fn new((batching, budget): (bool, u64), pages: &[usize]) -> Self {
+    /// `budget` bytes of memory, under `bound`.
+    fn new((batching, budget): (bool, u64), bound: Bound, pages: &[usize]) -> Self {
         let env = TestEnv::new();
         let folder = env
             .folder()
@@ -914,6 +1006,7 @@ impl Subject {
             path,
             durability: durability(batching),
             budget,
+            bound,
             crawl: None,
             finished: false,
         };
@@ -966,7 +1059,7 @@ impl Subject {
             memory_budget: self.budget,
             ..RunStateOptions::default()
         };
-        let start_time = self.env.start_time();
+        let (start_time, bound) = (self.env.start_time(), self.bound);
         let crawl = self.runtime.block_on(async {
             let owner = TaskOwner::root(BlockingPolicy::Inline);
             let writer = goodfetch_engine::run_state::RunState::open(
@@ -984,7 +1077,7 @@ impl Subject {
             let invariants = writer
                 .write(move |connection| {
                     if start.is_some() {
-                        bound(connection)?;
+                        record(connection, bound)?;
                     }
                     let invariants =
                         fixture::within(connection, goodfetch_frontier::Scope::default())?;
@@ -1012,16 +1105,17 @@ impl Subject {
                 .unwrap();
             let staging = Staging::default();
             let keys = Keys::new(|_| KEY.to_owned());
+            let metrics = Metrics::none();
             let stored = Stored::new(
                 writer.clone(),
                 Within {
-                    egress,
-                    invariants,
+                    egress: Arc::clone(&egress),
+                    invariants: invariants.clone(),
                     staging: staging.clone(),
                     intake: Intake::default(),
                 },
                 (keys.clone(), Clock::paused(start_time)),
-                &Metrics::none(),
+                &metrics,
             );
             stored.fill_memory().await.unwrap();
             if resumed {
@@ -1051,14 +1145,17 @@ impl Subject {
                     .keyed_by(keys),
                 attempts: Vec::new(),
                 in_flight: 0,
+                invariants,
+                egress,
+                work: metrics.counted_work().clone(),
             }
         });
         self.crawl = Some(crawl);
     }
 
     /// Gives `pages` as seeds to the running crawl, as another task does;
-    /// answers whether each was added, `None` once the intake closed.
-    fn seeds(&mut self, pages: &[usize]) -> Option<Vec<bool>> {
+    /// answers why each was not added, `None` once the intake closed.
+    fn seeds(&mut self, pages: &[usize]) -> Option<Vec<Option<NotAddedReason>>> {
         let seeds = pages.iter().copied().map(seed).collect();
         let crawl = self
             .crawl
@@ -1067,11 +1164,11 @@ impl Subject {
         let asking = crawl.asking.clone();
         self.runtime
             .block_on(crawl.asks(asking.seeds(seeds)))
-            .map(|answers| added(&answers.expect("the model's seeds are valid")))
+            .map(|answers| refused(&answers.expect("the model's seeds are valid")))
     }
 
     /// The attempt at `index` enqueues `page`.
-    fn enqueue(&mut self, index: usize, page: usize) -> Option<Vec<bool>> {
+    fn enqueue(&mut self, index: usize, page: usize) -> Option<Vec<Option<NotAddedReason>>> {
         let crawl = self
             .crawl
             .as_mut()
@@ -1098,7 +1195,103 @@ impl Subject {
         let asking = crawl.asking.clone();
         self.runtime
             .block_on(crawl.asks(asking.enqueue(enqueue)))
-            .map(|answer| added(&[answer.expect("the model's pages are valid")]))
+            .map(|answer| refused(&[answer.expect("the model's pages are valid")]))
+    }
+
+    /// The attempt at `index` asks the loop to stage the links to `pages`
+    /// as a program's batch, as its page's task asks: the job the loop
+    /// answers, which the task has not polled yet.
+    fn links(&mut self, index: usize, pages: &[usize]) -> Queued<Staged<EnqueuedLinks>> {
+        let crawl = self
+            .crawl
+            .as_mut()
+            .expect("invariant: the crawl runs until the case ends");
+        let leased = &crawl.attempts[index].leased;
+        let params = CrawlRequestEnqueueLinksParams {
+            run_id: RunId::parse("model").unwrap(),
+            crawl_request_id: leased.crawl_request.id.clone(),
+            lease_epoch: leased.lease_epoch,
+            locator: Locator {
+                page_id: PageId("model".to_owned()),
+                selector: "a".to_owned(),
+            },
+            label: "page".to_owned(),
+            payload: None,
+            payloads: None,
+            include: Vec::new(),
+            exclude: Vec::new(),
+            limit: None,
+            priority: 0,
+        };
+        let base = goodfetch_frontier::Url::parse(&leased.crawl_request.url).unwrap();
+        let encoding = goodfetch_frontier::Encoding::for_label(b"utf-8").unwrap();
+        let links = pages
+            .iter()
+            .map(|&page| {
+                let href = url(page);
+                let keyed = goodfetch_frontier::key_link(
+                    crawl.invariants.frontier(),
+                    &crawl.egress,
+                    goodfetch_frontier::Link {
+                        href: &href,
+                        base: &base,
+                        encoding,
+                        keeps_fragment: false,
+                        narrowing: goodfetch_frontier::Narrowing::none(),
+                    },
+                );
+                Link::Keyed {
+                    href,
+                    keyed,
+                    payload: None,
+                    trap: None,
+                }
+            })
+            .collect();
+        let batch = LinksBatch {
+            request: LinksRequest::of(&params),
+            invariants: crawl.invariants.clone(),
+            links,
+            refused_payload: None,
+        };
+        let (answer, answered) = tokio::sync::oneshot::channel();
+        let ask = Box::new(Question::Stored(Ask::Links {
+            links: batch,
+            answer,
+        }));
+        self.runtime
+            .block_on(async {
+                crawl.state.answer(ask).await;
+                answered.await
+            })
+            .expect("the loop answers a links batch")
+    }
+
+    /// The page's task waits for `queued`, its links batch's job: why the
+    /// crawl did not add each link, `None` for added.
+    fn linked(&self, queued: Queued<Staged<EnqueuedLinks>>) -> Vec<Option<NotAddedReason>> {
+        let answered = self.runtime.block_on(queued).unwrap();
+        answered
+            .expect("the attempt holds its lease")
+            .expect("the batch is valid")
+            .links
+            .into_iter()
+            .map(|link| match link {
+                EnqueuedLink::Added { .. } => None,
+                EnqueuedLink::NotAdded { reason, .. } => Some(reason),
+                link => panic!("a link was not judged: {link:?}"),
+            })
+            .collect()
+    }
+
+    /// How many reads of the Frontier's state its admissions made from
+    /// the run file (`F3.state_reads`).
+    fn state_reads(&self) -> u64 {
+        self.crawl
+            .as_ref()
+            .expect("invariant: the crawl runs until the case ends")
+            .work
+            .read(goodfetch_counted_work::Row::StateReads)
     }
 
     /// The loop claims the next `count` pending work items, in a write
@@ -1377,7 +1570,8 @@ impl Subject {
     /// The power goes, and the crawl resumes: the file holds the work
     /// items as one of `unsynced` has them, the model's after each write
     /// from the last synced one on, and the resumed crawl, given every
-    /// page again, adds each one it does not hold, once.
+    /// page again, adds each one it does not hold, once, until its work
+    /// items reach the bound.
     fn power_cut(&mut self, unsynced: &[Vec<Item>]) {
         let landed = self.crash(CrashKind::PowerCut);
         let survived = unsynced
@@ -1392,17 +1586,28 @@ impl Subject {
         let resumed = keyed(recovered(survived.clone()));
         self.holds(&resumed, &resumed);
         let pages: Vec<usize> = (0..PAGES).collect();
+        let mut held: Vec<usize> = resumed.iter().map(|item| item.page).collect();
         let new = pages
             .iter()
-            .map(|page| !resumed.iter().any(|item| item.page == *page))
+            .map(|page| {
+                if held.contains(page) {
+                    return Some(NotAddedReason::Duplicate);
+                }
+                let past = self.bound.past(held.len());
+                if past.is_none() {
+                    held.push(*page);
+                }
+                past
+            })
             .collect();
+        held.sort_unstable();
         let again = self.seeds(&pages);
         let mut all: Vec<usize> = view(&self.reader())
             .into_iter()
             .map(|(page, ..)| page)
             .collect();
         all.sort_unstable();
-        assert_eq!((again, all), (Some(new), pages));
+        assert_eq!((again, all), (Some(new), held));
     }
 
     /// Checks that the run file holds the work items `written`, the last
@@ -1445,7 +1650,7 @@ impl StateMachineTest for Subject {
 
     fn init_test(model: &Model) -> Self {
         let pages: Vec<usize> = model.items.iter().map(|item| item.page).collect();
-        Self::new((model.batching, model.budget), &pages)
+        Self::new((model.batching, model.budget), model.bound, &pages)
     }
 
     fn apply(mut subject: Self, model: &Model, transition: Transition) -> Self {
@@ -1510,7 +1715,11 @@ prop_state_machine! {
 /// comes after, leaves it pending to the loop's reads (#2679).
 #[test]
 fn a_work_item_readmitted_before_its_failed_attempt_settles_stays_pending() {
-    let mut subject = Subject::new((true, RunStateOptions::default().memory_budget), &[0]);
+    let mut subject = Subject::new(
+        (true, RunStateOptions::default().memory_budget),
+        Bound::LOOSE,
+        &[0],
+    );
     assert_eq!(subject.seal(), vec![0]);
     assert_eq!(subject.lease(1), vec![0]);
     let crawl = subject
@@ -1565,4 +1774,172 @@ fn a_work_item_readmitted_before_its_failed_attempt_settles_stays_pending() {
     // The writer closes once nothing holds it.
     drop((stored, lease));
     subject.close();
+}
+
+/// The model and the subject, stepped together by hand: each step's
+/// answer is the model's, which the test states, and leaves the run file
+/// and the counts as the model's work items.
+struct Lockstep {
+    model: Model,
+    subject: Subject,
+}
+
+impl Lockstep {
+    /// A crawl started with the seeds of the first `count` pages under
+    /// `bound`, at `level`, keyed and its work items all leased, an
+    /// attempt each, in the order of their pages.
+    fn leased(count: usize, level: (bool, u64), bound: Bound) -> Self {
+        let mut model = Model::started(count, level, bound);
+        let pages: Vec<usize> = (0..count).collect();
+        let mut subject = Subject::new(level, bound, &pages);
+        // The loop keys them a few at a time.
+        for keyed in pages.chunks(KEYED_AT_ONCE) {
+            assert_eq!(subject.seal(), keyed);
+            assert_eq!(model.seal(), keyed);
+        }
+        assert_eq!(subject.lease(count), pages);
+        assert_eq!(model.claim(count), Answer::Leased(pages));
+        let lockstep = Self { model, subject };
+        lockstep.holds();
+        lockstep
+    }
+
+    fn holds(&self) {
+        self.subject.holds(&self.model.items, &self.model.written);
+    }
+
+    /// The attempt at `index` enqueues `page`, which `refused` says why
+    /// the crawl did not add, `None` for added.
+    fn enqueue(&mut self, index: usize, page: usize, refused: Option<NotAddedReason>) {
+        let answer = Answer::Admitted(Some(vec![refused]));
+        assert_eq!(self.model.enqueue(index, page), answer);
+        assert_eq!(Answer::Admitted(self.subject.enqueue(index, page)), answer);
+        self.holds();
+    }
+
+    /// The attempt at `index` commits, which adds the pages of `added`.
+    fn commits(&mut self, index: usize, added: &[usize]) {
+        let held: Vec<usize> = self.model.items.iter().map(|item| item.page).collect();
+        assert_eq!(self.model.end(index, How::Commit), Answer::Ended(true));
+        assert!(self.subject.end(index, How::Commit));
+        let pages: Vec<usize> = self
+            .model
+            .items
+            .iter()
+            .map(|item| item.page)
+            .filter(|page| !held.contains(page))
+            .collect();
+        assert_eq!(pages, added);
+        self.holds();
+    }
+
+    fn close(mut self) {
+        self.subject.close();
+    }
+}
+
+/// While memory does not hold every visit, a program's links batch looks
+/// its new URLs up in the run file on a reader before its job (G-11 Q6,
+/// #2169): another batch that holds one of them, asked while that read is
+/// pending, waits for its answer instead of reading it again, and the two
+/// make one work item; a batch whose URLs memory holds is answered before
+/// that read returns.
+#[test]
+fn a_batch_whose_urls_memory_holds_is_answered_while_another_batchs_lookup_is_pending() {
+    let mut both = Lockstep::leased(4, (true, 0), Bound::LOOSE);
+    // Page 5, which the open batch holds, is in memory at a budget of 0.
+    both.enqueue(3, 5, None);
+    both.commits(3, &[5]);
+    // The pages' tasks have not polled their jobs yet: page 4's lookup is
+    // pending.
+    let first = both.subject.links(0, &[4]);
+    let second = both.subject.links(1, &[4]);
+    let duplicate = Some(NotAddedReason::Duplicate);
+    assert_eq!(
+        both.model.enqueue(2, 5),
+        Answer::Admitted(Some(vec![duplicate]))
+    );
+    let third = both.subject.links(2, &[5]);
+    assert_eq!(both.subject.linked(third), vec![duplicate]);
+    // The first batch reads page 4 from the file, the second its answer.
+    let before = both.subject.state_reads();
+    assert_eq!(both.subject.linked(first), vec![None]);
+    let read = both.subject.state_reads() - before;
+    assert_eq!(both.subject.linked(second), vec![None]);
+    let reused = both.subject.state_reads() - before - read;
+    // A lone batch that holds page 4 once both were written reads it as
+    // the first did, and the second batch read one identity fewer.
+    let fourth = both.subject.links(2, &[4]);
+    let before = both.subject.state_reads();
+    assert_eq!(both.subject.linked(fourth), vec![None]);
+    let lone = both.subject.state_reads() - before;
+    assert_eq!(
+        (read, reused + 1),
+        (lone, lone),
+        "the second batch waits for the first's read of page 4"
+    );
+    for index in [0, 1, 2] {
+        assert_eq!(
+            both.model.enqueue(index, 4),
+            Answer::Admitted(Some(vec![None]))
+        );
+    }
+    both.holds();
+    both.commits(0, &[4]);
+    both.commits(1, &[]);
+    both.close();
+}
+
+/// Each level of the model, at each of its memory budgets.
+fn levels() -> Vec<(bool, u64)> {
+    [false, true]
+        .into_iter()
+        .flat_map(|batching| {
+            [0, SMALL_BUDGET, RunStateOptions::default().memory_budget]
+                .map(|budget| (batching, budget))
+        })
+        .collect()
+}
+
+/// An attempt's staged pages count against `crawl.max_requests` with the
+/// work items, less those another commit added since, which count once,
+/// and another attempt's staged pages do not count (#2169).
+#[test]
+fn an_attempts_staged_pages_count_against_the_bound_once() {
+    for level in levels() {
+        let bound = Bound {
+            max_requests: 5,
+            path_budget: PAGES,
+        };
+        let mut both = Lockstep::leased(2, level, bound);
+        both.enqueue(0, 2, None);
+        both.enqueue(1, 2, None);
+        both.enqueue(1, 3, None);
+        both.commits(1, &[2, 3]);
+        // 4 work items, and page 2, which the commit added, counts once.
+        both.enqueue(0, 4, None);
+        both.enqueue(0, 5, Some(NotAddedReason::MaxRequests));
+        both.commits(0, &[4]);
+        both.close();
+    }
+}
+
+/// A commit admits its attempt's staged pages again, each against the
+/// path budget the other commits brought nearer, and adds none past it
+/// (#2169).
+#[test]
+fn a_commit_adds_no_staged_page_past_the_bound() {
+    for level in levels() {
+        let bound = Bound {
+            max_requests: PAGES,
+            path_budget: 4,
+        };
+        let mut both = Lockstep::leased(2, level, bound);
+        both.enqueue(0, 2, None);
+        both.enqueue(0, 3, None);
+        both.enqueue(1, 4, None);
+        both.commits(1, &[4]);
+        both.commits(0, &[2]);
+        both.close();
+    }
 }

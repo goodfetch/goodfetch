@@ -73,7 +73,6 @@ where
         let (network, _dialer) = transport::in_memory();
         let (daemon_listener, _) = Network::InMemory(network)
             .listen(std::path::Path::new("daemon.sock"))
-            .await
             .unwrap();
         let engine = engine(Product::Collie);
         let (_, answered) = tokio::join!(

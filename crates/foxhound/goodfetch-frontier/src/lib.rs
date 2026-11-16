@@ -55,7 +55,8 @@ pub use bounds::{Bounds, TABLES as BOUNDS_TABLES, completeness_reasons};
 pub use domain_key::DomainKeys;
 pub use identity::{
     Declared, Hop, PendingVisit, Reached, TABLES as VISITED_TABLES, admit_hop, admit_reached,
-    fuzz_url_key, hold_reached, redirect_hop, redirect_reached, rewrite, url_key, visit_pending,
+    fuzz_url_key, hold_reached, read_lookup, redirect_hop, redirect_reached, rewrite, url_key,
+    visit_pending,
 };
 pub use invariants::Invariants;
 pub use learn::{
@@ -71,7 +72,7 @@ pub use robots_txt::{SharedRobotsTxt, TABLES as ROBOTS_TXT_TABLES};
 pub use rules::{TABLES as RULES_TABLES, learned_rules};
 pub use scope::{Narrowing, Patterns, Scope, Strategy as ScopeStrategy, TABLES as SCOPE_TABLES};
 pub use staged::{Admitting, Refused, Staged};
-pub use unwritten::{SharedBudget, UnwrittenVisits};
+pub use unwritten::{Lookup, SharedBudget, UnwrittenVisits};
 pub use url::{document_base, resolve_link};
 
 /// A URL as the WHATWG URL Standard parsed it.

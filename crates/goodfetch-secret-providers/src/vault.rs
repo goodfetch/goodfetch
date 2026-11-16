@@ -22,6 +22,7 @@ use goodfetch_engine::secrets::{
     ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider,
 };
 use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::tasks::BlockingThreads;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::SECRET_PROVIDERS_VAULT_ADDRESS;
 use hyper::Request;
@@ -54,17 +55,19 @@ impl Vault {
     /// The provider `secret_providers.vault.address` configures in
     /// `resolved`, which also gives how the server is reached, signed in by
     /// the token in the engine's `environment`.
+    /// Its endpoint reads the `tls.trusted_cas` files on `blocking`.
     pub fn configured(
         resolved: &Resolved,
         environment: &BTreeMap<OsString, OsString>,
         clock: Clock,
+        blocking: BlockingThreads,
     ) -> Self {
         Self::new(
             resolved
                 .get::<Option<&str>>(&SECRET_PROVIDERS_VAULT_ADDRESS)
                 .map(str::to_owned),
             environment,
-            SecretProviderEndpoint::of(resolved, clock),
+            SecretProviderEndpoint::of(resolved, clock, blocking),
         )
     }
 

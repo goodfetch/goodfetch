@@ -930,10 +930,10 @@ fn pagesifts_cells_report_every_metric_with_their_mapping_and_its_pin() {
     }
 }
 
-/// OpenSpider joins the matrix (#2216): its raw, durable, extraction and
-/// browser cells are measured with every metric, its polite cell is not
-/// supported with the reason, and the report names its pinned commit and
-/// its settings.
+/// OpenSpider joins the matrix (#2216): its raw, extraction and browser
+/// cells are measured with every metric, its durable and polite cells are
+/// not supported with the reasons, and the report names its pinned commit
+/// and its settings.
 #[test]
 fn openspiders_cells_report_every_metric_with_their_mapping_and_its_pin() {
     let workspace = Workspace::from_fixture("empty");
@@ -948,7 +948,7 @@ fn openspiders_cells_report_every_metric_with_their_mapping_and_its_pin() {
             .map(|metrics| metrics.keys().cloned().collect::<Vec<_>>())
     };
     let foxhound = names(cell(&report, 0, "foxhound"));
-    for scenario in [0, 1, 3, 4] {
+    for scenario in [0, 3, 4] {
         let cell = cell(&report, scenario, "openspider");
         assert_eq!(
             (&cell["status"], names(cell)),
@@ -957,14 +957,17 @@ fn openspiders_cells_report_every_metric_with_their_mapping_and_its_pin() {
         );
     }
     assert_eq!(
-        cell(&report, 2, "openspider")["status"],
-        json!("not_supported")
+        (
+            &cell(&report, 1, "openspider")["status"],
+            &cell(&report, 2, "openspider")["status"]
+        ),
+        (&json!("not_supported"), &json!("not_supported"))
     );
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
         "OpenSpider at commit `2d25a7d627df4cedeb5ec657243765c0e09b4239`,",
         "- **openspider**: its engine's spider crawl (`os_engine::start_crawl`)",
-        "- **openspider**: scenario 1's crawl killed with SIGKILL",
+        "  - not supported: OpenSpider's writer commits its crawl file in groups",
         "- **openspider**: scenario 1's crawl with one custom extractor",
         "- **openspider**: scenario 1's crawl with each page rendered",
         "  - not supported: OpenSpider spaces its fetches with one rate for its whole crawl",

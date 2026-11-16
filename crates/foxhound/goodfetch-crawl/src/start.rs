@@ -191,7 +191,8 @@ async fn start(
     pages: code_free::Pages,
 ) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
-    let pages = code_free::declare(&mut params, &pages).await?;
+    let work = context.runs().metrics().counted_work().clone();
+    let pages = code_free::declare(&mut params, &pages, &work).await?;
     let (settings, _) = context
         .engine()
         .settings()
@@ -219,7 +220,6 @@ async fn start(
     // Each seed is keyed in the write that adds it, as its gate will key
     // it, so the crawl opens with no work item to key (#2168).
     let keys = context.runs().keys(settings.resolved());
-    let work = context.runs().metrics().counted_work().clone();
     let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
     let inputs = seed_inputs(&seeds);
     // A Run that exists goes on with its seeds admitted once (ADR 0102).

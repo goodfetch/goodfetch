@@ -23,6 +23,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
+use goodfetch_counted_work::CountedWork;
 use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallError;
 use goodfetch_engine::run_state::RunStateTables;
@@ -156,19 +157,26 @@ pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Option<CrawlExtr
 /// Declares in `params` what a code-free crawl commits into, when it
 /// takes an extraction: the Label `page`, beside any the start declares,
 /// and the Dataset `pages`, the start's only one, which it answers built,
-/// as `pages` keeps it for the extraction; none for a crawl whose program
-/// handles its requests. `invalid_params` when the start declares a
-/// Dataset of its own.
+/// as `pages` keeps it for the extraction, its fields checked on `work`,
+/// the engine's Counted work; none for a crawl whose program handles its
+/// requests. `invalid_params` when the start declares a Dataset of its own.
 pub(crate) async fn declare(
     params: &mut CrawlStartParams,
     pages: &Pages,
+    work: &CountedWork,
 ) -> Result<Option<Datasets>, CallError> {
     let Some(extraction) = &params.extraction else {
         return Ok(None);
     };
-    declare_into(extraction, &mut params.labels, &mut params.datasets, pages)
-        .await
-        .map(Some)
+    declare_into(
+        extraction,
+        &mut params.labels,
+        &mut params.datasets,
+        pages,
+        work,
+    )
+    .await
+    .map(Some)
 }
 
 async fn declare_into(
@@ -176,6 +184,7 @@ async fn declare_into(
     labels: &mut BTreeMap<String, LabelDeclaration>,
     datasets: &mut Vec<DatasetDeclaration>,
     pages: &Pages,
+    work: &CountedWork,
 ) -> Result<Datasets, CallError> {
     if let Some(declared) = datasets.first() {
         return Err(CallError::protocol(
@@ -186,7 +195,7 @@ async fn declare_into(
             ),
         ));
     }
-    let built = pages.of(extraction).await?;
+    let built = pages.of(extraction, work).await?;
     labels.entry(CODE_FREE_LABEL.to_owned()).or_default();
     datasets.push(built.declaration.clone());
     Ok(built.datasets.clone())
@@ -194,13 +203,17 @@ async fn declare_into(
 
 /// The Dataset `pages` of a crawl reading `extraction`: keyed by `url`,
 /// its schema [`page_schema`]'s, generated once, with each of its fields,
-/// its transform's type or null, required beside them.
+/// its transform's type or null, required beside them; its fields checked
+/// on `work`, the engine's Counted work.
 ///
 /// # Errors
 ///
 /// `invalid_params` for a field whose name a property of every Record
 /// takes, or one the engine could never read.
-pub(crate) fn dataset(extraction: &CrawlExtraction) -> Result<DatasetDeclaration, CallError> {
+pub(crate) fn dataset(
+    extraction: &CrawlExtraction,
+    work: &CountedWork,
+) -> Result<DatasetDeclaration, CallError> {
     let mut schema = page_schema(&extraction.formats);
     for (name, field) in &extraction.fields {
         let refused = if schema["properties"].get(name).is_some() {
@@ -208,7 +221,7 @@ pub(crate) fn dataset(extraction: &CrawlExtraction) -> Result<DatasetDeclaration
                 "The field `{name}` takes the name of a property every Record of `{CODE_FREE_DATASET}` holds: name it otherwise."
             ))
         } else {
-            fields::check(name, field)
+            fields::check(name, field, work)
         };
         refused.map_err(|message| CallError::protocol(ProtocolFailure::InvalidParams, message))?;
     }
@@ -253,12 +266,16 @@ pub(crate) struct Pages(Arc<Mutex<Kept>>);
 
 impl Pages {
     /// The Dataset `pages` of a crawl reading `extraction`, built as
-    /// [`dataset`] declares it unless kept.
+    /// [`dataset`] declares it on `work` unless kept.
     ///
     /// # Errors
     ///
     /// Those of [`dataset`] and of [`Datasets::declare`].
-    pub(crate) async fn of(&self, extraction: &CrawlExtraction) -> Result<Arc<Built>, CallError> {
+    pub(crate) async fn of(
+        &self,
+        extraction: &CrawlExtraction,
+        work: &CountedWork,
+    ) -> Result<Arc<Built>, CallError> {
         let mut kept = self.0.lock().await;
         let read = |(formats, fields): &Read| {
             *formats == extraction.formats && *fields == extraction.fields
@@ -271,7 +288,7 @@ impl Pages {
             kept.push_back(found);
             return Ok(built);
         }
-        let declaration = dataset(extraction)?;
+        let declaration = dataset(extraction, work)?;
         let datasets = Datasets::declare(std::slice::from_ref(&declaration))?;
         let built = Arc::new(Built {
             declaration,

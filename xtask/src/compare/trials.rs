@@ -16,8 +16,14 @@ pub(crate) const TRIALS: u32 = 10;
 /// The 1-minute load average under which a machine counts as quiet: each
 /// timed trial waits for it before it starts.
 pub(crate) const QUIET_LOAD: f64 = 4.0;
-/// The longest a timed trial waits for a quiet machine before it starts
-/// anyway, its load recorded.
+/// The 1-minute load average under which a run under strace starts: its
+/// counts hold under some load, but a crawl slowed by a loaded machine is
+/// stopped as stalled, and its cell is not measured (#2521: a run started
+/// at 19.3 lost its cell). Half the threads of the 16-thread machine the
+/// comparison runs on.
+pub(crate) const STRACE_QUIET_LOAD: f64 = 8.0;
+/// The longest a timed trial or a run under strace waits for a quiet
+/// machine before it starts anyway, its load recorded.
 pub(crate) const QUIET_WAIT_SECONDS: u64 = 30 * 60;
 /// The statistic each figure is reported as, with its spread.
 pub(crate) const STATISTIC: &str = "median, with the lowest and highest trial";
@@ -172,6 +178,26 @@ pub(crate) struct Machine {
     /// OS gives one: a quiet machine is under 4.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) load: Option<f64>,
+}
+
+impl Machine {
+    /// Whether `other` is this machine: the same OS, architecture, CPU,
+    /// threads and memory, whatever its name or load.
+    pub(crate) fn is(&self, other: &Self) -> bool {
+        (
+            &self.os,
+            &self.arch,
+            &self.cpu,
+            self.threads,
+            self.memory_bytes,
+        ) == (
+            &other.os,
+            &other.arch,
+            &other.cpu,
+            other.threads,
+            other.memory_bytes,
+        )
+    }
 }
 
 /// What the Proving ground saw a crawl do on the site, the same-work check's
@@ -354,6 +380,10 @@ pub(crate) struct CountedRun {
     pub(crate) tool: Tool,
     /// Its number among the cell's runs, from 1.
     pub(crate) number: u32,
+    /// The 1-minute load average when it started, where the OS gives one:
+    /// a run under strace waits for one under [`STRACE_QUIET_LOAD`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) load: Option<f64>,
     /// Callgrind's instructions, or strace's system calls.
     pub(crate) count: u64,
     /// strace's calls of `fsync`, `fdatasync`, `sync_file_range`,
@@ -762,6 +792,21 @@ pub(crate) struct Comparison {
     /// The Collie scenario: Collie against Playwright and the arms on one
     /// browser.
     pub(crate) collie: CollieScenario,
+    /// Each later run that measured cells of this file again, in place of
+    /// what they measured before (`compare run --redo`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) redone: Vec<Redone>,
+}
+
+/// A later run of the comparison's commit, on its machine, that measured
+/// some of its cells again: their trials and runs in every part are this
+/// run's.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct Redone {
+    /// The cells measured again, each as `<scenario>/<cell>`.
+    pub(crate) cells: Vec<String>,
+    /// The seed of this run's order of their trials.
+    pub(crate) order_seed: u64,
 }
 
 /// One run of a hostile pages' cell: the rules its tool broke on each task

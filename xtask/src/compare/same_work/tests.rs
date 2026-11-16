@@ -403,6 +403,7 @@ fn counted(
                 cell: cell.name.to_owned(),
                 tool: config.tool(),
                 number,
+                load: None,
                 count: 9,
                 syncs: 0,
                 work: on_site(cell.scenario, work(cell.scenario, cell.name, number)),

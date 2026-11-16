@@ -88,5 +88,6 @@ pub(crate) fn comparison(site_pages: u64, measured: impl Fn(&Cell, u32) -> Measu
         },
         rules: Vec::new(),
         auto: Vec::new(),
+        redone: Vec::new(),
     }
 }

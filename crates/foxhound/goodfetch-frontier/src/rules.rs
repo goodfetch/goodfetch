@@ -403,7 +403,8 @@ pub(crate) const HELD: &str =
 
 /// Brings the rules `holding`, memory under its lock, holds up to those
 /// the writer's connection `connection` holds, for an admission that
-/// writes (#2169).
+/// writes (#2169); answers the hosts whose URLs the rules that merge among
+/// those that changed read, whose learned identities changed with them.
 ///
 /// # Errors
 ///
@@ -411,8 +412,8 @@ pub(crate) const HELD: &str =
 pub(crate) fn keep_held(
     connection: &Connection,
     holding: &mut unwritten::Holding<'_>,
-) -> rusqlite::Result<()> {
-    holding.keep_rules(connection, "learned_rules", |from| {
+) -> rusqlite::Result<Vec<String>> {
+    let changed = holding.keep_rules(connection, "learned_rules", |from| {
         connection
             .prepare_cached(HELD)?
             .query_map([from], |row| {
@@ -429,7 +430,23 @@ pub(crate) fn keep_held(
                 ))
             })?
             .collect()
-    })
+    })?;
+    let mut hosts = BTreeSet::new();
+    for (host, rule) in changed {
+        let subject = match &*rule.kind {
+            NO_EFFECT_PARAMETER => Subject::Parameter(&rule.parameter),
+            EQUIVALENT_FORM => match forms::FORMS
+                .into_iter()
+                .find(|form| forms::name(*form) == &*rule.form)
+            {
+                Some(form) => Subject::Form(form),
+                None => continue,
+            },
+            _ => continue,
+        };
+        hosts.extend(subject.hosts(&host));
+    }
+    Ok(hosts.into_iter().collect())
 }
 
 /// The rules that merge on each host and still hold, read once per host

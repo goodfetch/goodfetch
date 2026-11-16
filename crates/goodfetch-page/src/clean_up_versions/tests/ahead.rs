@@ -1,8 +1,9 @@
-//! A Run's Filter lists load as the Run starts, off its first page's path,
-//! when its own settings turn a list on (#2688), against an in-process
-//! engine on the test `Clock` and `Entropy` with blocking work inline,
-//! whose test operation starts a Run and reports what the versions loaded
-//! before any page asked.
+//! A program's Run's Filter lists load as the Run starts, off its first
+//! page's path, when its own settings turn a list on (#2688), and a
+//! crawl's are left to its crawl, which knows whether its pages read them
+//! (#2573), against an in-process engine on the test `Clock` and `Entropy`
+//! with blocking work inline, whose test operation starts a Run and
+//! reports what the versions loaded before any page asked.
 #![expect(
     clippy::disallowed_methods,
     reason = "tests run on the test Clock and Entropy (ADR 0059)"
@@ -66,14 +67,16 @@ fn embedded_loaded(versions: &Versions) -> bool {
         .is_some_and(|loaded| loaded.is_ok_and(|lists| lists.strong_count() > 0))
 }
 
-/// `test.started_lists`: starts a Run under the run layer `settings`, lets
-/// its tasks run, and answers whether `versions` loaded its lists.
+/// `test.started_lists`: starts a Run of the kind `kind` under the run
+/// layer `settings`, lets its tasks run, and answers whether `versions`
+/// loaded its lists.
 async fn started_lists(
     versions: Arc<Versions>,
     params: Value,
     context: CallContext,
 ) -> Result<Value, CallError> {
     let settings: Map<String, Value> = serde_json::from_value(params["settings"].clone()).unwrap();
+    let kind: RunKind = serde_json::from_value(params["kind"].clone()).unwrap();
     let (settings, _) = context
         .engine()
         .settings()
@@ -89,7 +92,7 @@ async fn started_lists(
         .start(Start {
             run_id: Some(RunId::parse("ahead").unwrap()),
             tags: Tags::default(),
-            kind: RunKind::Collie,
+            kind,
             needs: Product::Collie,
             inputs: BTreeMap::new(),
             ended_by: EndedBy::Driver,
@@ -217,7 +220,28 @@ fn a_runs_start_loads_its_filter_lists_when_its_settings_turn_one_on(
     let env = TestEnv::new();
     let versions = Versions::new(run_needs_lists);
 
-    let answer = call(&env, &versions, json!({ "settings": settings }));
+    let answer = call(
+        &env,
+        &versions,
+        json!({ "settings": settings, "kind": RunKind::Collie }),
+    );
 
     assert_eq!(answer["result"], json!({ "loaded": loaded }), "{answer:?}");
+}
+
+/// A crawl's Run loads no Filter list as it starts, even when its settings
+/// turn them all on: its crawl asks for them once it knows its pages read
+/// a format, and a crawl whose pages read none never holds them (#2573).
+#[test]
+fn a_crawls_start_leaves_its_filter_lists_to_its_crawl() {
+    let env = TestEnv::new();
+    let versions = Versions::new(run_needs_lists);
+
+    let answer = call(
+        &env,
+        &versions,
+        json!({ "settings": {}, "kind": RunKind::Crawl }),
+    );
+
+    assert_eq!(answer["result"], json!({ "loaded": false }), "{answer:?}");
 }

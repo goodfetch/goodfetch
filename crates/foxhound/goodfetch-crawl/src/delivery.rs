@@ -220,6 +220,13 @@ pub(crate) async fn drive(
         in_flight: 0,
         gone: false,
     }];
+    // Its pages' formats find their Filter lists loaded, or loading, at
+    // its first document (#2688); a code-free crawl that reads no format
+    // never loads them for its pages (#2573). A program's handler may read
+    // any format of any page.
+    if code_free.as_ref().is_none_or(CodeFree::reads_formats) {
+        tiers.prepare_served_formats(&run);
+    }
     let run_tier = FetchTiers::run_tier(settings.resolved());
     let races: bool = settings.resolved().get(&FETCH_TIER_RACE);
     // One HTTP tier for the Run, so its hops share connections (#763); the

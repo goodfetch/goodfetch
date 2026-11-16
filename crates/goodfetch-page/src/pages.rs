@@ -1040,6 +1040,13 @@ impl BrowserPages for Opener {
         })
     }
 
+    fn prepare_served_formats(&self, run: &Run) {
+        let (pages, preparing) = (self.pages.clone(), run.clone());
+        run.spawn(async move {
+            drop(pages.interception.served_cosmetic(&preparing).await);
+        });
+    }
+
     fn classify(&self, response: &PageResponse, markup: &str) -> Option<Block> {
         self.pages.blocks.classify(response, markup)
     }
@@ -1590,7 +1597,13 @@ impl Pages {
             );
             let measure =
                 clean_up::ShareMeasure::of(served.run.settings().map(RunSettings::resolved));
-            let cosmetic = self.interception.served_cosmetic(&served.run).await;
+            // A request that reads nothing takes no cosmetic rule, so it
+            // loads no Filter list (#2573).
+            let cosmetic = if clean_up::reads_nothing(&request) {
+                None
+            } else {
+                self.interception.served_cosmetic(&served.run).await
+            };
             let work = served.run.metrics().counted_work().clone();
             let read = move |kept: Option<&ParsedHtml>| {
                 clean_up::read(

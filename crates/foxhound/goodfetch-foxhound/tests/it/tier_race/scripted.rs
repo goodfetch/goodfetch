@@ -55,6 +55,7 @@ use goodfetch_protocol::page::{
 use goodfetch_protocol::run::RunId;
 use goodfetch_test_client::Hello;
 use goodfetch_test_support::TestEnv;
+use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 
@@ -96,6 +97,9 @@ struct Asked {
     in_session: Vec<(String, SessionId)>,
     /// How many times the document request was asked for.
     document_requests: usize,
+    /// How many times a crawl started reading what its served documents'
+    /// formats take beside their markup (#2573).
+    prepared: usize,
 }
 
 /// The scripted browser.
@@ -271,6 +275,10 @@ impl BrowserPages for Scripted {
         Box::pin(std::future::ready(None))
     }
 
+    fn prepare_served_formats(&self, _run: &Run) {
+        self.ask(|asked| asked.prepared += 1);
+    }
+
     fn classify(&self, _response: &PageResponse, _markup: &str) -> Option<Block> {
         None
     }
@@ -328,6 +336,7 @@ pub(super) struct Ended {
     logged_in: Vec<String>,
     in_session: Vec<(String, SessionId)>,
     document_requests: usize,
+    prepared: usize,
     /// `run.finish`'s result, none when it never answered.
     finished: Option<Value>,
     /// Whether the engine ended once its Connection closed.
@@ -413,6 +422,12 @@ fn crawl_unread(
     seeding: (&[Value], &Value),
     settings: &Value,
 ) -> Ended {
+    crawl_started(env, site, unread, &start(seeding, settings))
+}
+
+/// As [`crawl_unread`], the Run started by `start`, a `crawl.start` of the
+/// Run `race`.
+fn crawl_started(env: &TestEnv, site: Site, unread: Option<Unread>, start: &Value) -> Ended {
     let scripted = Arc::new(Scripted {
         site,
         unread,
@@ -424,7 +439,6 @@ fn crawl_unread(
     // as the engine is composed, are ignored.
     tiers.opened(Arc::clone(&scripted) as Arc<dyn BrowserPages>);
     let engine = engine(&tiers);
-    let start = start(seeding, settings);
     let (finished, exited) = goodfetch_test_support::runtime().block_on(async {
         let clock = Clock::paused(env.start_time());
         let _subscriber =
@@ -475,6 +489,7 @@ fn crawl_unread(
         logged_in: asked.logged_in,
         in_session: asked.in_session,
         document_requests: asked.document_requests,
+        prepared: asked.prepared,
         finished,
         exited,
         left_open,
@@ -703,6 +718,68 @@ fn a_crawl_forced_onto_http_asks_its_browser_for_its_document_request_alone() {
                 .map(|report| report["lifecycle"].clone()),
         ),
         (1, Vec::new(), Vec::new(), Some(json!("finished"))),
+        "{ended:?}"
+    );
+}
+
+/// The `crawl.start` of the code-free crawl `race` of `seeds` reading
+/// `extraction`, forced onto `http` with no delay, the site's host mapped
+/// as a racing Run's is.
+fn code_free(seeds: &[Value], extraction: &Value) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": "start",
+        "method": "crawl.start",
+        "params": {
+            "run_id": "race",
+            "seeds": seeds,
+            "datasets": [],
+            "extraction": extraction,
+            "settings": {
+                "fetch": { "tier": "http" },
+                "politeness": { "domain": { "delay": 0 } },
+                "network": { "resolve": { HOST: ["127.0.0.1"] } },
+                "egress": { "private_ranges": [HOST] },
+            },
+        },
+    })
+}
+
+/// A crawl starts reading what its served documents' formats take beside
+/// their markup, their Filter lists' cosmetic rules, as it starts when its
+/// pages may read a format: a program's, whose handler may read any, and a
+/// code-free crawl's that reads one. A code-free crawl that reads none
+/// never does, so no page of it loads its lists (#2573). The scripted
+/// browser reads no formats, so a code-free crawl's pages fail here; its
+/// Run still finishes.
+#[rstest]
+#[case::a_programs(None, 1)]
+#[case::a_code_free_one_reading_markdown(Some(json!({ "formats": { "markdown": true }, "follow": "none" })), 1)]
+#[case::a_code_free_one_reading_none(Some(json!({ "formats": {}, "follow": "none" })), 0)]
+fn a_crawl_starts_reading_its_filter_lists_only_when_its_pages_may_read_a_format(
+    #[case] extraction: Option<Value>,
+    #[case] prepared: usize,
+) {
+    let env = TestEnv::new();
+    let start = extraction.map_or_else(
+        || {
+            let seeds = [seed("/one", "list"), seed("/two", "list")];
+            start((&seeds, &labels()), &forced())
+        },
+        |extraction| code_free(&[seed("/one", "page"), seed("/two", "page")], &extraction),
+    );
+
+    let ended = crawl_started(&env, forced_site(), None, &start);
+
+    assert_eq!(
+        (
+            ended.prepared,
+            ended
+                .finished
+                .as_ref()
+                .map(|report| report["lifecycle"].clone()),
+        ),
+        (prepared, Some(json!("finished"))),
         "{ended:?}"
     );
 }

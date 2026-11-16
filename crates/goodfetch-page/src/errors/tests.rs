@@ -67,7 +67,7 @@ fn failure(browser: Browser) -> Failure {
     runtime().block_on(async {
         let (client, end) = tokio::io::duplex(1 << 16);
         let (reader, writer) = tokio::io::split(client);
-        let (connection, driver) = Connection::new(reader, writer, CountedWork::default());
+        let (connection, driver) = Connection::new(reader, writer, CountedWork::default(), None);
         let (_, failure, ()) = tokio::join!(
             driver.run(),
             async {

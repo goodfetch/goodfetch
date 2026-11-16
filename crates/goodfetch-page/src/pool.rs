@@ -69,7 +69,6 @@ use crate::egress_relay::application_settings::ApplicationSettings;
 use crate::egress_relay::authority::Authority;
 use crate::egress_relay::{Local, RelayTls};
 use crate::launch::Launcher;
-use crate::trace::CommandLog;
 pub(crate) use rules::Placement;
 use rules::{Limits, Opens, Seats, Stage, Use};
 
@@ -143,8 +142,6 @@ struct Shared {
     /// The engine's resolution its Sessions with local addresses resolve
     /// through, read from the system's configuration once.
     dns: OnceCell<Result<Dns, String>>,
-    /// The Run trace's CDP log, which its browsers share.
-    log: Arc<OnceCell<CommandLog>>,
     browsers: SyncMutex<Browsers>,
     /// Where each browser that quit or crashed goes, for its Sessions.
     losses: mpsc::Sender<BrowserLoss>,
@@ -272,7 +269,6 @@ impl Pool {
                 trust: OnceCell::new(),
                 rotation,
                 dns: OnceCell::new(),
-                log: Arc::default(),
                 browsers: SyncMutex::default(),
                 losses,
             }),
@@ -445,11 +441,7 @@ impl Pool {
     /// never enters the pool: it is neither recycled, nor counted, nor
     /// closed (ADR 0056).
     pub(crate) fn borrowed_seat(&self, cdp_url: CdpUrl) -> Seat {
-        let browser = BorrowedBrowser::new(
-            self.shared.run.clone(),
-            cdp_url,
-            Arc::clone(&self.shared.log),
-        );
+        let browser = BorrowedBrowser::new(self.shared.run.clone(), cdp_url);
         self.seat_of(
             Placement::Shared,
             SessionEgress::default(),
@@ -516,7 +508,6 @@ impl Pool {
                         self.shared.home.clone(),
                         self.shared.pins.clone(),
                         number,
-                        Arc::clone(&self.shared.log),
                         self.shared.authority.clone(),
                     )),
                     own: seat.placement == Placement::OwnProcess,

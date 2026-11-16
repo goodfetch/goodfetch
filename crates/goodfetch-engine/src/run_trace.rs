@@ -15,8 +15,9 @@
 //!   failure it knows (`RequestFailed`). A request a site's service worker
 //!   sent itself, which belongs to no page, is recorded as
 //!   `service_worker.request` whether it went on or was refused (ADR 0121).
-//! - **The CDP command log** (spec #577), `trace/cdp-commands.jsonl`: one
-//!   JSON line per command the engine sends a browser, its method only.
+//! - **The CDP command log** (spec #577), `trace/cdp-commands.jsonl`, while
+//!   the Run's `browser.cdp_command_log` is on: one JSON line per command the
+//!   engine sends a browser, its method only.
 //!
 //! Every Provenance and request-log line passes through the Run's `Mask` as
 //! a kept output (spec #564): no value a Run resolved is written, unless the

@@ -7687,6 +7687,17 @@
       ]
     },
     {
+      "id": "setting:browser.cdp_command_log",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:browser.headless",
       "kind": "setting",
       "area": 5,

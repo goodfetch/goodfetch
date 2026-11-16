@@ -29,8 +29,7 @@ use tokio::sync::oneshot;
 
 use super::{
     Answer, AttemptFailure, BLOCKED, BROWSER, FETCHED, Found, On, PAGE_CHECK_FAILED, Served,
-    Taught, Tiering, failed, judged, learn, reached_through_trap, read_by_browser, record_tier,
-    refused_type,
+    Tiering, failed, judged, reached_through_trap, read_by_browser, record_tier, refused_type,
 };
 use crate::lease::WorkItemLease;
 use crate::tier_race::Raced;
@@ -41,21 +40,20 @@ impl On<'_> {
     /// first page that can win handed to the handler, the other cancelled
     /// (the module's doc). A handler that escalates the first request's
     /// page runs again in the browser, in the attempt's Session, as on
-    /// `http`. Answers how it ended, the pending requests the page's rules
-    /// merged, `raced` with its first request's latency once its document
-    /// arrived, and whether the attempt's answer is that of a first request
-    /// sent from a Session's own transport.
+    /// `http`. Answers how it ended, `raced` with its first request's
+    /// latency once its document arrived, and whether the attempt's answer
+    /// is that of a first request sent from a Session's own transport.
     pub(super) async fn race(
         &self,
         tiering: &Tiering,
         http: &HttpTier,
         raced: &Raced,
-    ) -> (Answer, Taught, (Option<(Raced, Duration)>, bool)) {
+    ) -> (Answer, (Option<(Raced, Duration)>, bool)) {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let tiers = &tiering.tiers;
         let (first, http) = match self.sent_from(tiering, http) {
             Ok(sent_from) => sent_from,
-            Err(answer) => return (answer, Taught::default(), (None, false)),
+            Err(answer) => return (answer, (None, false)),
         };
         let started = run.clock().now();
         let hand_over = self.hand_over;
@@ -141,11 +139,11 @@ impl On<'_> {
         )
         .await;
         let latency = ended.latency;
-        let (answer, merged, by_first) = self.after_race(&first, (tiers, sent_on), ended).await;
+        let (answer, by_first) = self.after_race(&first, (tiers, sent_on), ended).await;
         drop(handed_over);
         let from_transport = by_first && first.sends_from == SendsFrom::Transport;
         let latency = latency.map(|latency| (raced.clone(), latency));
-        (answer, merged, (latency, from_transport))
+        (answer, (latency, from_transport))
     }
 
     /// The attempt once its race ended as `ended` says: the winner's page
@@ -158,10 +156,10 @@ impl On<'_> {
         first: &On<'_>,
         (tiers, sent_on): (&FetchTiers, FetchTier),
         ended: RaceEnded<'_>,
-    ) -> (Answer, Taught, bool) {
+    ) -> (Answer, bool) {
         let (run, leased) = (self.run, self.leased);
         match ended.won {
-            Won::Ended(answer) => (answer, Taught::default(), false),
+            Won::Ended(answer) => (answer, false),
             Won::Neither => {
                 let (answer, by_first) = match ended.navigation_lost {
                     Some(Lost::Failed(answer) | Lost::Decoy(answer)) => (Some(answer), false),
@@ -169,7 +167,6 @@ impl On<'_> {
                 };
                 (
                     answer.expect("invariant: a race neither run won ended with a failure"),
-                    Taught::default(),
                     by_first,
                 )
             }
@@ -180,7 +177,9 @@ impl On<'_> {
                 // page as it drops, so the page never holds the Run's
                 // handles past the Run.
                 let page_id = served.page_id();
-                let merged = learn(run, tiers, page_id, leased, self.code_free.is_some()).await;
+                self.lessons
+                    .learn(tiers, page_id, &leased.crawl_request)
+                    .await;
                 record_tier(
                     run,
                     leased,
@@ -219,11 +218,11 @@ impl On<'_> {
                     }
                     _ => (answer, true),
                 };
-                (answer, merged, by_first)
+                (answer, by_first)
             }
             Won::Navigation(page_id, response) => {
                 if let Some(refused) = refused_type(tiers, &page_id, run, leased).await {
-                    return (refused, Taught::default(), false);
+                    return (refused, false);
                 }
                 let encoding = read_by_browser(tiers, &page_id, response.as_ref());
                 let certificate_exception = match &response {
@@ -241,7 +240,7 @@ impl On<'_> {
                 .await;
                 let answer = self.handle(&page_id, FetchTier::Browser, response).await;
                 tiers.close_browser(&page_id).await;
-                (answer, Taught::default(), false)
+                (answer, false)
             }
         }
     }

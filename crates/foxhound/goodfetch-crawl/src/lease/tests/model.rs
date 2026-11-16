@@ -4,13 +4,14 @@
 //! the paused `Clock`, whose attempts commit, renew, release and end as the
 //! generated steps say while the clock advances, and which may crash or
 //! lose power. Each commit is an attempt's outcome, its one job of the
-//! writer (ADR 0138): what its page taught the Frontier, the link its
-//! attempt left to it, keyed as it is added, and its Records. A reference
+//! writer (ADR 0138): the link its attempt left to it, keyed as it is
+//! added, and its Records; what its page taught the Frontier is no part of
+//! it, taught at a batch's end whether the commit counts or not (#2169). A reference
 //! model of the leases says whether each commit counts: only one made
 //! while its lease holds, unreleased, and while the run file still holds
 //! that lease of its work item; a late commit is refused with
 //! `lease_lost`. After every step the run file holds each counted
-//! commit's Records once, its link and its lesson, and nothing of a
+//! commit's Records once and its link, and nothing of a
 //! refused one, and each work item's status is the model's. A lease is
 //! taken as an attempt's claim is, in a write that needs no sync of its
 //! own (ADR 0138's note of #1926); after a crash, the file the next process
@@ -44,7 +45,7 @@ use serde_json::{Value, json};
 use tokio::runtime::Runtime;
 
 use super::DEFAULT_LEASE;
-use crate::attempt_outcome::{Document, Ended, Ending, Learning, Outcome};
+use crate::attempt_outcome::{Ended, Ending, Outcome};
 use crate::invariants::fixture;
 use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::staging::Staging;
@@ -116,9 +117,6 @@ struct Model {
     items: Vec<Item>,
     attempts: Vec<Attempt>,
     committed: Vec<Value>,
-    /// The work items whose page a counted commit taught the Frontier, by
-    /// position, in order.
-    learned: Vec<usize>,
     last_commit: Option<bool>,
     crashed: bool,
 }
@@ -144,7 +142,6 @@ impl ReferenceStateMachine for Model {
                 ],
                 attempts: Vec::new(),
                 committed: Vec::new(),
-                learned: Vec::new(),
                 last_commit: None,
                 crashed: false,
             })
@@ -237,10 +234,6 @@ impl ReferenceStateMachine for Model {
                             status: Status::Pending,
                             epoch: 0,
                         });
-                        if !model.learned.contains(&attempt.item) {
-                            model.learned.push(attempt.item);
-                            model.learned.sort_unstable();
-                        }
                     }
                     model.last_commit = Some(counts);
                 }
@@ -285,23 +278,14 @@ impl Subject {
     }
 }
 
-/// The work items, by position from 0, whose page the Frontier learned, in
-/// order, and whether every link a commit added is keyed.
-fn lessons(connection: &Connection) -> (Vec<usize>, bool) {
-    let mut learned: Vec<usize> = connection
-        .prepare("SELECT crawl_request FROM rules_pages")
-        .unwrap()
-        .query_map([], |row| row.get::<_, String>(0))
-        .unwrap()
-        .map(|id| id.unwrap().parse::<usize>().unwrap() - 1)
-        .collect();
-    learned.sort_unstable();
+/// Whether every link a commit added is keyed.
+fn keyed(connection: &Connection) -> bool {
     let unkeyed: i64 = connection
         .prepare("SELECT count(*) FROM work_items WHERE url LIKE '%/link/%' AND domain_key IS NOT 'shop.test'")
         .unwrap()
         .query_row([], |row| row.get(0))
         .unwrap();
-    (learned, unkeyed == 0)
+    unkeyed == 0
 }
 
 /// Each Record's data, and each work item's status, as the file holds them.
@@ -501,11 +485,8 @@ impl StateMachineTest for Subject {
                 let connection = after_crash(&subject.vfs, &subject.path).unwrap();
                 let (records, statuses) = stored(&connection);
                 assert_eq!(
-                    (sorted(records), lessons(&connection)),
-                    (
-                        sorted(model.committed.clone()),
-                        (model.learned.clone(), true)
-                    )
+                    (sorted(records), keyed(&connection)),
+                    (sorted(model.committed.clone()), true)
                 );
                 assert_eq!(statuses.len(), model.items.len(), "{statuses:?}");
                 for (stored, item) in statuses.iter().zip(&model.items) {
@@ -539,12 +520,8 @@ impl StateMachineTest for Subject {
             .map(|item| item.status.as_str().to_owned())
             .collect();
         assert_eq!(
-            (sorted(records), statuses, lessons(&connection)),
-            (
-                sorted(model.committed.clone()),
-                expected,
-                (model.learned.clone(), true)
-            )
+            (sorted(records), statuses, keyed(&connection)),
+            (sorted(model.committed.clone()), expected, true)
         );
     }
 
@@ -635,17 +612,6 @@ fn commit(
             let outcome = Outcome {
                 scored: goodfetch_session_pool::Changes::default(),
                 chosen: None,
-                learning: Some(Learning {
-                    redirects: Vec::new().into(),
-                    document: Some(Document {
-                        url: goodfetch_frontier::Url::parse(&leased.crawl_request.url).unwrap(),
-                        signature: [u8::try_from(attempt.item).unwrap(); 32],
-                        canonical: None,
-                    }),
-                    ended_at: ended_at(),
-                    request: leased.crawl_request.clone(),
-                    work: goodfetch_counted_work::CountedWork::default(),
-                }),
                 ending: Ending::Commit {
                     commit,
                     refused: Box::new(|refused| panic!("a Record was refused: {refused:?}")),

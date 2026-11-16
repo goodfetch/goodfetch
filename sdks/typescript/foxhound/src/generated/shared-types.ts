@@ -30,6 +30,7 @@ export type BlockCause = CollieBlockCause | "decoy";
  * - `crawl.max_url_length`: `crawl.max_url_length` refused URLs the crawl would otherwise have admitted, counted: `unverified`.
  * - `crawl.path_budgets`: One entry of `crawl.path_budgets` refused URLs past its count, named with its pattern and counted: `incomplete`.
  * - `cursor_pagination`: Learned cursors refused offset URLs of listings the crawl pages by their cursor instead, counted: `unverified`.
+ * - `failed_requests`: Requests ended `failed` with an Error code other than `response_unavailable`, counted by code: `incomplete`, since neither their pages nor the pages only they link are in the results; `retryFailed()` re-admits them.
  * - `learned_rule_stopped`: A learned rule that a contradicting pair stopped had merged URLs the crawl did not get back, counted per rule: `unverified`.
  * - `model_allowance`: The Model allowance skipped requests the crawl would otherwise have handled, counted: `incomplete`.
  * - `offset_pagination`: Listings were paged only by an offset parameter, counted: `unverified`.
@@ -37,7 +38,7 @@ export type BlockCause = CollieBlockCause | "decoy";
  * - `response_unavailable`: Requests failed with `response_unavailable`, a site asking to wait longer than `politeness.retry_after.max`, counted: `incomplete`.
  * - `trap_path`: Learned traps refused URLs the crawl would otherwise have admitted, counted: `unverified`.
  */
-export type CompletenessReasonCode = CollieCompletenessReasonCode | "consent_required" | "crawl.max_depth" | "crawl.max_path_segments" | "crawl.max_requests" | "crawl.max_segment_repeats" | "crawl.max_sitemap_nesting" | "crawl.max_url_length" | "crawl.path_budgets" | "cursor_pagination" | "learned_rule_stopped" | "model_allowance" | "offset_pagination" | "payment_required" | "response_unavailable" | "trap_path";
+export type CompletenessReasonCode = CollieCompletenessReasonCode | "consent_required" | "crawl.max_depth" | "crawl.max_path_segments" | "crawl.max_requests" | "crawl.max_segment_repeats" | "crawl.max_sitemap_nesting" | "crawl.max_url_length" | "crawl.path_budgets" | "cursor_pagination" | "failed_requests" | "learned_rule_stopped" | "model_allowance" | "offset_pagination" | "payment_required" | "response_unavailable" | "trap_path";
 
 /**
  * A `limit_scope`, a type both Products share (ADR 0095): Collie's values and Foxhound's own below; a value this package does not know is kept as received (ADR 0079).

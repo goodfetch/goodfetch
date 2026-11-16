@@ -1,6 +1,6 @@
 //! B3's Audit entry scenario, which `examples/counts.rs` and `xtask counts`
 //! read: the work it counts happens, a plant adds one unit per entry, an
-//! `audit.retention` prunes at each append and a counting VFS sees the
+//! `audit.retention` adds no prune to an append and a counting VFS sees the
 //! store's syncs (ADR 0140).
 
 use std::sync::Arc;
@@ -40,8 +40,9 @@ fn run(audit: Audit, planted: Option<Row>) -> ([u64; 5], u64) {
 /// Each entry reads no settings file, its retention coming from the
 /// engine's snapshot of them (#1885), commits its append and writes the
 /// head file, which the store syncs; the store opens and commits its schema
-/// set-up once, for every entry (#1886); a retention adds a prune pass per
-/// entry, on the same connection; a plant adds one per entry.
+/// set-up once, for every entry (#1886); a retention adds nothing, the
+/// engine pruning as it starts and once a day (#1887); a plant adds one per
+/// entry.
 #[test]
 fn an_audit_entry_counts_its_reads_opens_transactions_and_head_writes_and_a_plant_adds_one_an_entry()
  {
@@ -59,9 +60,8 @@ fn an_audit_entry_counts_its_reads_opens_transactions_and_head_writes_and_a_plan
     let (unchained, _) = run(Audit::Unchained, None);
     assert_eq!(unchained, [reads, opens, prunes, transactions, head_writes]);
 
-    let ([_, retained_opens, retained_prunes, _, _], _) = run(Audit::Retained, None);
-    assert_eq!(retained_prunes, ENTRIES);
-    assert_eq!(retained_opens, opens);
+    let (retained, _) = run(Audit::Retained, None);
+    assert_eq!(retained, [reads, opens, prunes, transactions, head_writes]);
 
     for (index, row) in ROWS.into_iter().enumerate() {
         let (planted, _) = run(Audit::Chained, Some(row));

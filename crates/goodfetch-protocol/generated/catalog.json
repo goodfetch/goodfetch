@@ -4361,7 +4361,7 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
-      "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only.",
+      "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, the engine prunes the entries older than it as it starts and then once a day, so an entry may stay up to a day longer, from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only.",
       "name": "audit.retention",
       "product": "collie",
       "products": [
@@ -9300,6 +9300,13 @@
       "description": "An error ended it before its end, `incomplete`.",
       "name": "failed",
       "product": "collie",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Requests ended `failed` with an Error code other than `response_unavailable`, counted by code: `incomplete`, since neither their pages nor the pages only they link are in the results; `retryFailed()` re-admits them.",
+      "name": "failed_requests",
+      "product": "foxhound",
       "type": "completeness_reason_code"
     },
     {

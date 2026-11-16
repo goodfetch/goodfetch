@@ -9287,6 +9287,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Requests ended `failed` with an Error code other than `response_unavailable`, counted by code: `incomplete`, since neither their pages nor the pages only they link are in the results; `retryFailed()` re-admits them.",
+      "name": "failed_requests",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A run switched off a per-page feature that is on by default, `provenance.log`, `dataset.records`, `fetch.block_classification` or the browser-fetch of `fetch.http_from` (its values `learned` and `transport`), once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0138): no page of the run does that feature's work.",
       "name": "feature_switched_off",
       "product": "foxhound",

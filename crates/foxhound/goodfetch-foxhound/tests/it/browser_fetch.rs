@@ -179,6 +179,7 @@ fn a_session_on_the_browser_fetch_tier_moves_off_its_recycled_browser(#[case] li
     let mut engine = engine(&env);
     let mut settings = settings(&proving_ground, "browser_fetch");
     settings["governor"] = json!({ "browser": limit });
+    settings["browser"]["cdp_command_log"] = json!(true);
 
     let finished = crawl_declaring(
         &mut engine,

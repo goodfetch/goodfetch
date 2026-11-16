@@ -454,14 +454,9 @@ fn a_request_while_a_navigation_is_in_flight_moves_no_session() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut engine = started_with(
-        &env,
-        &cache,
-        &proving_ground,
-        "racing",
-        &pool(json!({ "recycle_pages": 1 })),
-        |_| {},
-    );
+    let mut settings = pool(json!({ "recycle_pages": 1 }));
+    settings.insert("browser".to_owned(), json!({ "cdp_command_log": true }));
+    let mut engine = started_with(&env, &cache, &proving_ground, "racing", &settings, |_| {});
     let session = new_session(&mut engine, 2, "racing");
     let page = page_in(&mut engine, 3, &session);
     engine.send(&json!({
@@ -563,6 +558,7 @@ fn a_session_closed_while_its_robots_txt_read_waits_leaves_its_browser_idle() {
     let cache = browser_cache(&env).unwrap();
     let mut settings = pool(json!({ "recycle_idle": 500 }));
     settings.insert("timeout".to_owned(), json!({ "navigation": 120_000 }));
+    settings.insert("browser".to_owned(), json!({ "cdp_command_log": true }));
     let mut engine = started_with(&env, &cache, &proving_ground, "stalled", &settings, |_| {});
 
     let session = new_session(&mut engine, 2, "stalled");

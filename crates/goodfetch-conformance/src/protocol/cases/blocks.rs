@@ -26,6 +26,7 @@ use goodfetch_protocol::page::{BLOCKED, BlockedDetails, LOCATOR_CLICK, PageOpene
 use serde_json::{Value, json};
 
 use super::navigation::url_on;
+use super::run_trace::commands_logged;
 use super::{Checks, Site, finish_run, new_page, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone, responded_with};
 use crate::protocol::hello_as;
@@ -240,7 +241,7 @@ fn rate_limit(
 ) -> Result<(), Gone> {
     let run_id = "conformance-blocked-rate-limit";
     let mark = "rate-limit";
-    start_run(connection, site, run_id, &json!({}), checks)?;
+    start_run(connection, site, run_id, &commands_logged(), checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
     };
@@ -319,7 +320,7 @@ fn next_call(
         );
         return Ok(());
     };
-    start_run(connection, site, run_id, &json!({}), checks)?;
+    start_run(connection, site, run_id, &commands_logged(), checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
     };
@@ -533,7 +534,7 @@ fn meets_blocks(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = format!("conformance-blocked-{owner}");
-    start_run(connection, site, &run_id, &json!({}), checks)?;
+    start_run(connection, site, &run_id, &commands_logged(), checks)?;
     let Some(page) = new_page(connection, &run_id, checks)? else {
         return finish_run(connection, &run_id);
     };
@@ -600,7 +601,7 @@ fn access_policy(
         checks.check("the Proving ground serves the access-policy shelves", false);
         return Ok(());
     }
-    start_run(connection, site, run_id, &json!({}), checks)?;
+    start_run(connection, site, run_id, &commands_logged(), checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
     };

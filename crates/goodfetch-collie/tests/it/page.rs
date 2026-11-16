@@ -518,7 +518,9 @@ fn the_browser_runs_over_a_pipe_never_enables_runtime_and_hides_the_guards_world
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut engine = started(&env, &cache, &proving_ground, "probe");
+    let mut settings = Map::new();
+    settings.insert("browser".to_owned(), json!({ "cdp_command_log": true }));
+    let mut engine = started_with(&env, &cache, &proving_ground, "probe", &settings, |_| {});
 
     let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "probe" })));
     let went = engine.ask(

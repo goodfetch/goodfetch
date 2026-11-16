@@ -3,14 +3,17 @@
 //! latest outcome is a skip for the Model allowance make it `incomplete`,
 //! counted, a request skipped for it and then handled counting none; no
 //! fetch tier or AI verb raises the skip on Foxhound's executable yet
-//! (#1102), so this is where the reason is pinned (ADR 0107).
+//! (#1102), so this is where the reason is pinned (ADR 0107). The requests
+//! whose latest outcome is `failed` make it `incomplete` too, counted by
+//! Error code, those failed with `response_unavailable` under their own
+//! reason (#2509).
 
 use std::collections::BTreeMap;
 
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_frontier::{BOUNDS_TABLES, RULES_TABLES};
 use goodfetch_protocol::foxhound::outcomes::{
-    CrawlRequestOutcome, DatasetRecords, Ending, OutcomeRequest, SkipReason,
+    AttemptError, CrawlRequestOutcome, DatasetRecords, Ending, OutcomeRequest, SkipReason,
 };
 use goodfetch_protocol::run::{AxisReason, Completeness, PointInTime};
 use rusqlite::Connection;
@@ -69,6 +72,17 @@ fn skipped(reason: SkipReason) -> Ending {
     }
 }
 
+fn failed(code: &str) -> Ending {
+    Ending::Failed {
+        error: AttemptError {
+            attempt: 3,
+            code: code.to_owned(),
+            message: format!("It failed with `{code}`."),
+            details: serde_json::Map::new(),
+        },
+    }
+}
+
 fn succeeded() -> Ending {
     Ending::Succeeded {
         records: vec![DatasetRecords {
@@ -114,4 +128,48 @@ fn a_crawl_nothing_cut_has_no_reason() {
     let file = run_file(&[("1", succeeded()), ("2", skipped(SkipReason::Handler))]);
 
     assert_eq!(short_of_scope(&file).unwrap(), Vec::new());
+}
+
+/// A request that ended `failed`, such as a browser page whose attempts
+/// each outlasted their lease, is a page the results miss, and so are the
+/// pages only it linked: the crawl is `incomplete`, its failed requests
+/// counted by Error code, those failed with `response_unavailable` keeping
+/// their own reason, and a request failed then handled counting none.
+///
+/// Covers: story:6-309
+#[test]
+fn failed_requests_leave_the_crawl_incomplete_counted() {
+    let file = run_file(&[
+        ("1", failed("handler_lost")),
+        ("2", failed("handler_lost")),
+        ("3", failed("handler_failed")),
+        ("4", failed("response_unavailable")),
+        ("5", failed("handler_lost")),
+        ("5", succeeded()),
+        ("6", succeeded()),
+    ]);
+
+    assert_eq!(
+        short_of_scope(&file).unwrap(),
+        vec![
+            CompletenessReason {
+                completeness: Completeness::Incomplete,
+                reason: AxisReason {
+                    code: "failed_requests".to_owned(),
+                    message: "3 requests in the crawl's scope ended `failed` (`handler_failed`: 1, `handler_lost`: 2), so the pages only they link were never reached; `failedRequests()` lists them and `retryFailed()` re-admits them.".to_owned(),
+                    count: Some(3),
+                    call_id: None,
+                },
+            },
+            CompletenessReason {
+                completeness: Completeness::Incomplete,
+                reason: AxisReason {
+                    code: "response_unavailable".to_owned(),
+                    message: "A site asked to wait longer than `politeness.retry_after.max` allows, so some of its requests failed with `response_unavailable`; `retryFailed()` re-admits them.".to_owned(),
+                    count: Some(1),
+                    call_id: None,
+                },
+            },
+        ]
+    );
 }

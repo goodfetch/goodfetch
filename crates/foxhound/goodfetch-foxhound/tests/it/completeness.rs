@@ -2,8 +2,9 @@
 //! executable over stdio (spec #581's crawl conformance cases; ADRs 0005,
 //! 0045, 0048, 0107 and 0120; pain 10): a crawl with no reason is
 //! `complete`; pages left `blocked` at `payment_required` or
-//! `consent_required` leave it `unverified`, a bound's cutoff or a stop
-//! `incomplete`, and both kinds at once `incomplete`; each reason is listed
+//! `consent_required` leave it `unverified`, a bound's cutoff, a request
+//! that ended `failed` or a stop `incomplete`, and both kinds at once
+//! `incomplete`; each reason is listed
 //! in the report with its count, the same when an engine started afterwards
 //! reads the report back. A crawl of nothing says why it did nothing.
 #![expect(
@@ -22,10 +23,16 @@ fn seed(site: &Site, path: &str) -> Value {
     json!({ "url": site.page(&format!("/{path}")), "label": "page" })
 }
 
-/// The handler's answer for `params`'s page: a Record, or the `blocked`
-/// failure with the cause its path names.
+/// The handler's answer for `params`'s page: a Record, the `blocked`
+/// failure with the cause its path names, or its own failure for a path
+/// naming `handler_failed`.
 fn answer(params: &Value) -> Value {
     let url = params["crawl_request"]["url"].as_str().unwrap();
+    if url.contains("handler_failed") {
+        return json!({ "error": { "code": -32003, "message": "my bug", "data": {
+            "code": "handler_failed", "retryable": false,
+        } } });
+    }
     let cause = ["payment_required", "consent_required"]
         .into_iter()
         .find(|cause| url.contains(cause));
@@ -123,6 +130,17 @@ fn finished(
     json!([left_at("payment_required", 2)]),
 )]
 #[case::consent_required(&["consent_required", "a"], json!({}), "unverified", json!([left_at("consent_required", 1)]))]
+/// Covers: error:handler_failed
+#[case::failed(
+    &["handler_failed", "a"],
+    json!({}),
+    "incomplete",
+    json!([reason(
+        "failed_requests",
+        "1 request in the crawl's scope ended `failed` (`handler_failed`: 1), so the pages only it links were never reached; `failedRequests()` lists it and `retryFailed()` re-admits it.",
+        1,
+    )]),
+)]
 /// Covers: setting:crawl.max_requests
 #[case::both(
     &["payment_required", "consent_required", "a"],

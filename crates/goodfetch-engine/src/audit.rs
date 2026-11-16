@@ -57,6 +57,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
+use crate::clock::Clock;
 use crate::durable;
 use crate::home::Home;
 use crate::settings::Settings;
@@ -64,6 +65,9 @@ use crate::sqlite_store::{
     Access, Counting, Durability, File, Folder, OpenError, Opening, Schema, Synchronous, Wait,
 };
 use crate::tasks::{StateActor, TaskOwner};
+
+/// How often the log prunes, after its pass as the engine starts.
+const PRUNE_EVERY: Duration = Duration::from_hours(24);
 
 /// How long an append waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -320,10 +324,11 @@ impl AuditLog {
         self
     }
 
-    /// The same, each append first pruning what the `audit.retention` of
-    /// the snapshot `settings` keeps of the machine's settings prunes, as
-    /// the snapshot is then: no append reads a settings file (ADR 0140);
-    /// without it, nothing is ever pruned but through [`AuditLog::prune`].
+    /// The same, its passes started by [`AuditLog::start_pruning`] pruning
+    /// what the `audit.retention` of the snapshot `settings` keeps of the
+    /// machine's settings prunes, as the snapshot is at each pass: no pass
+    /// reads a settings file (ADR 0140); without it, nothing is ever pruned
+    /// but through [`AuditLog::prune`].
     #[must_use]
     pub fn retained_under(mut self, settings: Settings) -> Self {
         self.configured().retained_under = Some(settings);
@@ -344,14 +349,12 @@ impl AuditLog {
     /// holding `details`, from `origin`, recorded at `now`, chained to the
     /// last chained entry, or unchained when its Run is (see
     /// [`AuditLog::unchain`]), then writes the head file; answers the
-    /// entry. Under an `audit.retention`, it first prunes what it prunes at
-    /// `now`.
+    /// entry. It prunes nothing: [`AuditLog::start_pruning`] does (ADR 0140).
     ///
     /// # Errors
     ///
     /// When the store or the head file cannot be written, the store is of
-    /// another major, the `audit.retention` it is retained under cannot be
-    /// read, or its writer is not running.
+    /// another major, or its writer is not running.
     ///
     /// # Cancel safety
     ///
@@ -375,8 +378,7 @@ impl AuditLog {
     /// Appends `entries` in their order, in one transaction with one sync,
     /// each chained as [`AuditLog::record`] chains it unless it is
     /// `always_chained`, then writes the head file once after the last;
-    /// answers them. Under an `audit.retention`, it first prunes what it
-    /// prunes at `now`, once. A Run's switched-off controls are recorded so
+    /// answers them. A Run's switched-off controls are recorded so
     /// as it starts (#2110): together, rather than a commit, a sync and a
     /// connection's close each.
     ///
@@ -412,9 +414,42 @@ impl AuditLog {
         if entries.is_empty() {
             return Ok(Vec::new());
         }
-        let retention = self.store.retention().await;
-        self.write(move |store, held| store.commit_entries(held, entries, retention, now))
+        self.write(move |store, held| store.commit_entries(held, entries, now))
             .await
+    }
+
+    /// Starts its pruning, a task of `owner` until `owner` stops: a pass
+    /// now, as the engine starts, then one a day on `clock`, each pruning
+    /// what the `audit.retention` it is retained under sets then, at the
+    /// time `clock` reads (ADR 0140). No append prunes, so an entry past the
+    /// retention may stay up to a day longer. A pass that fails is logged,
+    /// and the next day's tries again.
+    pub fn start_pruning(&self, clock: Clock, owner: &TaskOwner) {
+        let log = self.clone();
+        let token = owner.token().clone();
+        owner.spawn(async move {
+            tokio::select! {
+                () = token.cancelled() => {}
+                () = log.prune_daily(clock) => {}
+            }
+        });
+    }
+
+    /// Prunes as `audit.retention` sets it now, then again each day, for
+    /// ever.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the log pruned.
+    async fn prune_daily(&self, clock: Clock) {
+        loop {
+            if let Some((retention, layer)) = self.store.retention().await
+                && let Err(error) = self.prune(retention, Some(layer), clock.timestamp()).await
+            {
+                tracing::warn!(%error, "the Audit log could not be pruned; it tries again in a day");
+            }
+            clock.sleep(PRUNE_EVERY).await;
+        }
     }
 
     /// Prunes the entries older than `retention` at `now`, which `layer`
@@ -491,19 +526,13 @@ impl Store {
     /// Appends each of `entries` in one transaction, on the writer's
     /// connection, chained after the tail it holds while the store's
     /// `data_version` says no other connection committed since, then writes
-    /// the head file after the last and sends each to the events. Under a
-    /// `retention`, with the layer that set it, it first prunes what it
-    /// prunes at `now`.
+    /// the head file after the last and sends each to the events.
     fn commit_entries(
         &self,
         held: &mut Held,
         entries: Vec<Appended>,
-        retention: Option<(Duration, SettingsLayer)>,
         now: Timestamp,
     ) -> Result<Vec<AuditEntry>, AuditError> {
-        if let Some((retention, layer)) = retention {
-            self.prune(held, retention, Some(layer), now)?;
-        }
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
         let cached = held.tail;
         let connection = self.connection(&mut held.connection)?;
@@ -671,8 +700,8 @@ impl Store {
     /// The `audit.retention` the engine's snapshot of the machine's
     /// settings sets now, with the layer that set it; none when unset, when
     /// the log is retained under no settings, or when they cannot be read,
-    /// which says nothing of the entry being appended, so it is kept and
-    /// nothing is pruned on this pass.
+    /// which says nothing of the log's entries, so nothing is pruned on
+    /// this pass.
     async fn retention(&self) -> Option<(Duration, SettingsLayer)> {
         let machine = self.retained_under.as_ref()?.snapshot().await;
         let resolved = machine

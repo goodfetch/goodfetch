@@ -64,6 +64,10 @@ pub const LEARNED_RULE_STOPPED: &str = "learned_rule_stopped";
 /// The Completeness reason of the requests the Model allowance skipped
 /// (ADR 0107).
 pub const MODEL_ALLOWANCE: &str = "model_allowance";
+/// The Completeness reason of the requests that ended `failed` with an
+/// Error code other than `response_unavailable`, which has its own (ADRs
+/// 0005 and 0102).
+pub const FAILED_REQUESTS: &str = "failed_requests";
 /// The Completeness reason of the pages left `blocked` with
 /// `payment_required` (ADR 0045).
 pub const PAYMENT_REQUIRED: &str = "payment_required";
@@ -399,6 +403,10 @@ pub const ENTRIES: Entries = Entries {
         reason(
             MODEL_ALLOWANCE,
             "The Model allowance skipped requests the crawl would otherwise have handled, counted: `incomplete`.",
+        ),
+        reason(
+            FAILED_REQUESTS,
+            "Requests ended `failed` with an Error code other than `response_unavailable`, counted by code: `incomplete`, since neither their pages nor the pages only they link are in the results; `retryFailed()` re-admits them.",
         ),
         reason(
             RESPONSE_UNAVAILABLE.name,

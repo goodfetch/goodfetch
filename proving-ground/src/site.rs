@@ -413,6 +413,15 @@ impl Site {
                 StatusCode::OK,
                 &serde_json::json!({ "requests": self.observations.request_count() }),
             ),
+            (&Method::GET, "/requests-of-the-case") => match request.parameter("host") {
+                Some(host) => Reply::json(
+                    StatusCode::OK,
+                    &serde_json::json!({
+                        "requests": self.observations.requests_of_the_case(&host)
+                    }),
+                ),
+                None => Reply::error(StatusCode::BAD_REQUEST, "malformed_requests_of_the_case"),
+            },
             (&Method::GET, path)
                 if let Some(size) = path
                     .strip_prefix(ROUTES.article_answers)

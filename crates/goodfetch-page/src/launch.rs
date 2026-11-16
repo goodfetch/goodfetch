@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use goodfetch_cdp::Connection;
+use goodfetch_cdp::{CommandLog, Connection};
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::{
@@ -46,6 +46,8 @@ use tokio::io::DuplexStream;
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
+
+use crate::trace;
 
 /// The folder of the Run's Browser data folders, in its folder: one per
 /// browser, by its number in the Run's browser pool.
@@ -229,6 +231,22 @@ fn notice_of(notice: Option<PlatformNotice>) {
     }
 }
 
+/// The CDP command log of `run`'s browsers, as [`trace::command_log`]
+/// gives it, for the browser at `executable`.
+///
+/// # Errors
+///
+/// `browser_launch_failed` when the Run trace's writer cannot start.
+async fn command_log(run: &Run, executable: &Path) -> Result<Option<CommandLog>, CallError> {
+    trace::command_log(run).await.map_err(|error| {
+        launch_failed(
+            executable,
+            None,
+            &format!("the Run trace's CDP log cannot start: {error}"),
+        )
+    })
+}
+
 fn launch_failed(executable: &Path, exit: Option<BrowserExit>, reason: &str) -> CallError {
     CallError::new(
         &BROWSER_LAUNCH_FAILED,
@@ -324,7 +342,8 @@ pub(crate) async fn launch(
     if browsers != temporary {
         command.env("TMPDIR", browsers);
     }
-    let (connection, driver, mut child) = start(command, run.metrics().counted_work().clone())
+    let log = command_log(run, &executable).await?;
+    let (connection, driver, mut child) = start(command, run.metrics().counted_work().clone(), log)
         .map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
     let process = child.child.id();
     // Under AppArmor's restriction, the label the browser started under
@@ -385,8 +404,9 @@ async fn launch_scripted(
         .await
         .map_err(|_| launch_failed(executable, None, "no one plays the scripted browser"))?;
     let (reader, writer) = tokio::io::split(engine);
+    let log = command_log(run, executable).await?;
     let (connection, driver) =
-        Connection::new(reader, writer, run.metrics().counted_work().clone());
+        Connection::new(reader, writer, run.metrics().counted_work().clone(), log);
     let (exits, exit) = watch::channel(None);
     let released = CancellationToken::new();
     run.spawn(supervise_scripted(
@@ -534,11 +554,13 @@ pub(crate) struct Process {
 }
 
 /// Starts `command` with its debugging pipe: the browser's connection,
-/// its driver, and its process.
+/// which records each command's method in `log`, if any, its driver, and
+/// its process.
 #[cfg(unix)]
 fn start(
     mut command: Command,
     work: CountedWork,
+    log: Option<CommandLog>,
 ) -> std::io::Result<(Connection, Driving, Process)> {
     let (engine, browser) = pipe::attach(&mut command)?;
     let mut group = Children::new()?;
@@ -546,7 +568,7 @@ fn start(
     // The parent's copies of the browser's ends close now, so its end of the
     // pipe closes when it exits.
     drop(browser);
-    let (connection, driver) = Connection::new(engine.reader, engine.writer, work);
+    let (connection, driver) = Connection::new(engine.reader, engine.writer, work, log);
     Ok((
         connection,
         Box::pin(driver.run()),
@@ -558,7 +580,11 @@ fn start(
 }
 
 #[cfg(not(unix))]
-fn start(_command: Command, _work: CountedWork) -> std::io::Result<(Connection, Driving, Process)> {
+fn start(
+    _command: Command,
+    _work: CountedWork,
+    _log: Option<CommandLog>,
+) -> std::io::Result<(Connection, Driving, Process)> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "the debugging pipe is not built on this OS yet",

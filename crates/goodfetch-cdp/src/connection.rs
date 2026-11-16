@@ -20,6 +20,8 @@
 )]
 
 use std::collections::BTreeMap;
+use std::fmt::Debug;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -195,6 +197,30 @@ fn lock(subscribers: &Shared) -> MutexGuard<'_, Subscribers> {
     subscribers.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Where a connection records the method of each command it sends: the
+/// Run trace's CDP command log (spec #577), given to the connection once,
+/// and only while that log is on (ADR 0140's C1).
+#[derive(Clone, Debug)]
+pub struct CommandLog(Arc<dyn CommandLogImpl>);
+
+impl CommandLog {
+    /// The log `log` keeps.
+    pub fn new(log: impl CommandLogImpl + 'static) -> Self {
+        Self(Arc::new(log))
+    }
+}
+
+/// What keeps a [`CommandLog`]: the Run trace's writer, which lives above
+/// this crate (ADR 0140's note of #1891).
+pub trait CommandLogImpl: Debug + Send + Sync {
+    /// Records that a command whose method is `method` is being sent.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may lose the record.
+    fn record(&self, method: &'static str) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+}
+
 /// A handle to the browser's connection, which any task may clone.
 #[derive(Clone, Debug)]
 pub struct Connection {
@@ -203,6 +229,9 @@ pub struct Connection {
     /// The work a typed command's params serialization counts on: C1's
     /// encodes, beside the driver's frame (ADR 0140).
     work: CountedWork,
+    /// Where each command's method is recorded before it is sent; none
+    /// while the CDP command log is off, so no command sends its method.
+    log: Option<CommandLog>,
 }
 
 /// How the connection ended.
@@ -233,8 +262,14 @@ pub struct Driver<R, W> {
 impl Connection {
     /// A connection over the browser's end of the pipe `reader` (what it
     /// writes) and `writer` (what it reads), and its driver, which counts
-    /// each command's work on `work`.
-    pub fn new<R, W>(reader: R, writer: W, work: CountedWork) -> (Self, Driver<R, W>)
+    /// each command's work on `work`; each command's method is recorded in
+    /// `log`, if any, before it is sent.
+    pub fn new<R, W>(
+        reader: R,
+        writer: W,
+        work: CountedWork,
+        log: Option<CommandLog>,
+    ) -> (Self, Driver<R, W>)
     where
         R: AsyncRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
@@ -246,6 +281,7 @@ impl Connection {
                 requests,
                 subscribers: Arc::clone(&subscribers),
                 work: work.clone(),
+                log,
             },
             Driver {
                 reader,
@@ -303,6 +339,10 @@ impl Connection {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, Failure> {
+        if let Some(log) = &self.log {
+            self.work.count(Row::CdpLogSendsOff);
+            log.0.record(method).await;
+        }
         let (answer, answered) = oneshot::channel();
         let request = Request {
             method,
@@ -606,6 +646,7 @@ pub fn fuzz_pipe(data: &[u8]) {
         tokio::io::empty(),
         tokio::io::sink(),
         CountedWork::default(),
+        None,
     );
     let mut subscriptions = [None, Some(&session)].map(|on| (on, connection.subscribe(on)));
     let mut pending = BTreeMap::new();

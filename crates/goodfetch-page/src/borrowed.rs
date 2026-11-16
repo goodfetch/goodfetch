@@ -113,10 +113,20 @@ pub(crate) async fn connect(run: &Run, cdp_url: &CdpUrl) -> Result<Connection, C
     )
     .await
     .map_err(|error| unreachable(&address, &error.to_string()))?;
+    let log = crate::trace::command_log(run).await.map_err(|error| {
+        CallError::new(
+            &BROWSER_LAUNCH_FAILED,
+            format!("the Run trace's CDP log cannot start: {error}"),
+            &BrowserLaunchFailedDetails {
+                executable: address.clone(),
+                exit: None,
+            },
+        )
+    })?;
     let (engine, bridge_end) = tokio::io::duplex(BUFFER);
     let (reader, writer) = tokio::io::split(engine);
     let (connection, driver) =
-        Connection::new(reader, writer, run.metrics().counted_work().clone());
+        Connection::new(reader, writer, run.metrics().counted_work().clone(), log);
     run.spawn(async move {
         let ended = driver.run().await;
         tracing::debug!(?ended, "a Borrowed browser's connection ended");

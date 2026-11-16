@@ -216,7 +216,8 @@ rows! {
     /// Run, on `E5.file_opens` (ADR 0140), so no command does.
     CdpFileOpens => "C1.file_opens", "cdp_command", "file_opens";
     /// `C1.log_sends_off`: a CDP command's method sent to the CDP command
-    /// log's writer. The log has no off yet, so every send counts (X9).
+    /// log's writer, which happens only while `browser.cdp_command_log` is
+    /// on: with it off, as B2 runs, none is sent.
     CdpLogSendsOff => "C1.log_sends_off", "cdp_command", "log_sends_off";
     /// `C3.script_sends`: a send of `check.js`'s source for a guard's check.
     ActionScriptSends => "C3.script_sends", "action", "script_sends";

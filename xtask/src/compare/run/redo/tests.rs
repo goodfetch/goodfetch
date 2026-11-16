@@ -172,7 +172,7 @@ fn a_redo_names_its_cells_by_scenario_and_cell() {
                 "`foxhound` names no cell: name one as <scenario>/<cell>, such as browser/foxhound"
                     .to_owned()
             ),
-            Err("the trials file's run asked for no scenario `long`".to_owned()),
+            Err("the run asked for no scenario `long`".to_owned()),
         )
     );
 }
@@ -199,6 +199,7 @@ fn a_redo_is_refused_at_another_commit_or_on_another_machine() {
             &crate::compare::recipe_arguments(&[]),
             &crate::environment::Environment::of(&[]),
         )
+        .expect("invariant: the recipe's arguments name no cell")
     };
     let refused = |earlier: Comparison, commit: &str| {
         redo(&executables, commit, &options, earlier, &mut |_| Ok(()))

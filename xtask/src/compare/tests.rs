@@ -72,3 +72,39 @@ fn a_redo_at_another_profile_than_the_runs_is_refused() {
         "the trials file's run built its tools with the `dev` profile: redo it with `just compare dev --redo`"
     );
 }
+
+/// A run given `--cell` measures only the cells it names, as a fresh run
+/// of the full trials, Foxhound's settings allowed with it (#2200).
+#[test]
+fn a_run_measures_only_the_cells_it_names() {
+    let arguments = recipe_arguments(&[
+        "--cell",
+        "browser/foxhound",
+        "--cell",
+        "raw/foxhound",
+        "--foxhound-setting",
+        "governor.worker_threads = \"per_core\"",
+    ]);
+
+    let options = options(&arguments, &Environment::of(&[])).expect("the cells are named");
+
+    assert_eq!(
+        (options.only, options.trials),
+        (
+            vec![(Scenario::Browser, "foxhound"), (Scenario::Raw, "foxhound")],
+            trials::TRIALS
+        )
+    );
+}
+
+/// A run's `--cell` names a cell of a scenario the run asks for.
+#[test]
+fn a_run_refuses_a_cell_of_a_scenario_it_does_not_ask_for() {
+    let arguments = recipe_arguments(&["--scenario", "raw", "--cell", "browser/foxhound"]);
+
+    let error = options(&arguments, &Environment::of(&[]))
+        .map(|_| ())
+        .expect_err("refused");
+
+    assert_eq!(error.to_string(), "the run asked for no scenario `browser`");
+}

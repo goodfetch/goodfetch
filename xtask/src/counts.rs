@@ -187,7 +187,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 122] = [
+const ROWS: [Row; 124] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -690,6 +690,22 @@ const ROWS: [Row; 122] = [
         family: "B1",
         unit: "entries",
         happens: false,
+        valgrind: None,
+    },
+    // The Run's one writer: its start, its trace's folder and each file's
+    // first open, once a Run.
+    Row {
+        name: "E5.run_file_opens",
+        family: "B1",
+        unit: "runs",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E5.run_spawns",
+        family: "B1",
+        unit: "runs",
+        happens: true,
         valgrind: None,
     },
     Row {

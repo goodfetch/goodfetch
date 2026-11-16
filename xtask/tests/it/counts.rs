@@ -746,6 +746,8 @@ const OTHER_B1_ROWS: &str = "\
 | `F3.counted_work_constructions` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.file_opens` | folders created and files opened per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.spawns` | tasks spawned per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `E5.run_file_opens` | folders created and files opened per Run | ≤ 4 | 2 | B1 | must not grow | `just counts` | implementer done |
+| `E5.run_spawns` | tasks spawned per Run | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `E5.formatting_off` | entries formatted per entry of a kind off | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E6.transactions` | Politeness-file transactions per attempt | ≤ 2 | 2 | B1 | must not grow | `just counts` | implementer done |
 | `E6.opens` | opens and statement preparations per permit | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
@@ -826,6 +828,8 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F3.counted_work_constructions", 0),
         ("E5.file_opens", 0),
         ("E5.spawns", 0),
+        ("E5.run_file_opens", 2),
+        ("E5.run_spawns", 1),
         ("E5.formatting_off", 0),
         ("E6.transactions", 2),
         ("E6.opens", 0),
@@ -1634,7 +1638,7 @@ fn traced_benchmark(blind: bool) -> String {
          sync --data \"$d/run.sqlite\"\n\
          cat \"$d/trace/requests.jsonl\" > /dev/null\n\
          {bypass}\
-         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13}},\"counts\":{{\"E5.file_opens\":3,\"C1.file_opens\":1,\"F2.syncs\":2}},\"vfs_files\":[\"'$d'/run.sqlite\"]}}'\n\
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13}},\"counts\":{{\"E5.run_file_opens\":2,\"E5.file_opens\":1,\"C1.file_opens\":1,\"F2.syncs\":2}},\"vfs_files\":[\"'$d'/run.sqlite\"]}}'\n\
          rm -rf \"$d\"\n"
     )
 }
@@ -1663,7 +1667,7 @@ fn the_strace_cell_passes_when_strace_sees_what_the_counters_count() {
         outcome.stderr
     );
     for line in [
-        "B1 opens and folders: strace 4, counted 4 (E5.file_opens, C1.file_opens)",
+        "B1 opens and folders: strace 4, counted 4 (E5.run_file_opens, E5.file_opens, C1.file_opens)",
         "B1 syncs: strace 2, counted 2 (F2.syncs)",
     ] {
         assert!(outcome.stdout.contains(line), "{line}: {}", outcome.stdout);

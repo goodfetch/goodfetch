@@ -107,11 +107,11 @@ fn the_provenance_log_writes_a_resolved_value_only_when_its_runs_redaction_is_of
 }
 
 /// The Run's one writer holds its Provenance log's file (ADR 0140's E5):
-/// its folder is created and its file opened once, at the first entry, on
-/// `E5.file_opens` and never on a page's `F1.file_opens`, its one task is
-/// started then, and each entry is on file once it is recorded, so a read
-/// straight after the Call that wrote it sees it and a process killed then
-/// has written it.
+/// its folder is created and its file opened once, at the first entry, the
+/// Run's work on `E5.run_file_opens`, never an entry's `E5.file_opens` or a
+/// page's `F1.file_opens`, its one task is started then, on `E5.run_spawns`,
+/// and each entry is on file once it is recorded, so a read straight after
+/// the Call that wrote it sees it and a process killed then has written it.
 #[test]
 fn the_provenance_log_opens_its_file_once_and_each_entry_is_on_file_once_recorded() {
     let env = TestEnv::new();
@@ -132,9 +132,14 @@ fn the_provenance_log_opens_its_file_once_and_each_entry_is_on_file_once_recorde
     assert_eq!(
         (
             read,
-            work.read(Row::RunTraceFileOpens),
-            work.read(Row::PageFileOpens),
-            work.read(Row::RunTraceSpawns),
+            [
+                Row::RunTraceRunFileOpens,
+                Row::RunTraceFileOpens,
+                Row::PageFileOpens,
+                Row::RunTraceRunSpawns,
+                Row::RunTraceSpawns,
+            ]
+            .map(|row| work.read(row)),
         ),
         (
             vec![
@@ -143,18 +148,16 @@ fn the_provenance_log_opens_its_file_once_and_each_entry_is_on_file_once_recorde
                 "{\"action\":\"step\",\"step\":1}\n{\"action\":\"step\",\"step\":2}\n{\"action\":\"step\",\"step\":3}\n"
                     .to_owned(),
             ],
-            2,
-            0,
-            1,
+            [2, 0, 0, 1, 0],
         )
     );
 }
 
 /// Every kind of entry goes through the Run's one writer (ADR 0140's E5): the
 /// Run trace's folder is created once and each file opened once a Run, at its
-/// first entry, its one task started then, and no entry opens, creates or
-/// spawns anything more; a CDP command's line, which no one waits for, is on
-/// file once the Run ends.
+/// first entry, its one task started then, all the Run's work, and no entry
+/// opens, creates or spawns anything more; a CDP command's line, which no one
+/// waits for, is on file once the Run ends.
 #[test]
 fn every_kind_of_entry_goes_through_one_writer_that_opens_each_file_once() {
     let env = TestEnv::new();
@@ -193,6 +196,8 @@ fn every_kind_of_entry_goes_through_one_writer_that_opens_each_file_once() {
             ]
             .map(lines),
             [
+                Row::RunTraceRunFileOpens,
+                Row::RunTraceRunSpawns,
                 Row::RunTraceFileOpens,
                 Row::RunTraceSpawns,
                 Row::InterceptedFileOpens,
@@ -202,7 +207,7 @@ fn every_kind_of_entry_goes_through_one_writer_that_opens_each_file_once() {
             ]
             .map(|row| work.read(row)),
         ),
-        ([3, 3, 3], [4, 1, 0, 0, 0, 3])
+        ([3, 3, 3], [4, 1, 0, 0, 0, 0, 0, 3])
     );
 }
 
@@ -229,15 +234,21 @@ fn a_run_with_its_provenance_log_off_writes_no_provenance_entry() {
     assert_eq!(
         (
             env.folder().join(RUN_TRACE_PROVENANCE).exists(),
-            work.read(Row::RunTraceFileOpens),
-            work.read(Row::RunTraceSpawns),
+            [
+                Row::RunTraceRunFileOpens,
+                Row::RunTraceFileOpens,
+                Row::RunTraceRunSpawns,
+                Row::RunTraceSpawns,
+            ]
+            .map(|row| work.read(row)),
         ),
-        (false, 0, 0)
+        (false, [0, 0, 0, 0])
     );
 }
 
 /// A file the writer cannot write is closed: the entry that failed reports
-/// it, and the next entry opens the file again and is on file.
+/// it, and the next entry opens the file again and is on file. That open is
+/// the entry's work, on `E5.file_opens`, beside the Run's first one.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_file_that_failed_a_write_is_opened_again_by_the_next_entry() {
@@ -259,7 +270,12 @@ fn a_file_that_failed_a_write_is_opened_again_by_the_next_entry() {
         .unwrap();
 
     assert_eq!(
-        (failed, std::fs::read_to_string(&path).unwrap()),
-        (true, "{\"action\":\"step\",\"step\":2}\n".to_owned())
+        (
+            failed,
+            std::fs::read_to_string(&path).unwrap(),
+            work.read(Row::RunTraceRunFileOpens),
+            work.read(Row::RunTraceFileOpens),
+        ),
+        (true, "{\"action\":\"step\",\"step\":2}\n".to_owned(), 2, 1)
     );
 }

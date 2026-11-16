@@ -5,8 +5,9 @@
 //! work done beside a counted function, by a raw call, fails the cell:
 //!
 //! - **Opens and folders:** each creation of a Run trace's folder, and each
-//!   open for writing of a file in it, against `E5.file_opens` and
-//!   `C1.file_opens`, which count both at the one function each goes through.
+//!   open for writing of a file in it, against `E5.run_file_opens`,
+//!   `E5.file_opens` and `C1.file_opens`, which count both at the one
+//!   function each goes through.
 //!   The Provenance log's, which its Run holds, are the Run's and no page's
 //!   `F1.file_opens`. A read of a
 //!   trace file is no row's work: the benchmark reads the entries it divides
@@ -48,7 +49,7 @@ pub(super) const SYNC: &str = "sync";
 const CALLS: &str = "trace=open,openat,openat2,creat,mkdir,mkdirat,fsync,fdatasync";
 
 /// The rows that count a Run trace's folders and the opens of its files.
-const TRACE_ROWS: [&str; 2] = ["E5.file_opens", "C1.file_opens"];
+const TRACE_ROWS: [&str; 3] = ["E5.run_file_opens", "E5.file_opens", "C1.file_opens"];
 
 /// The row that counts the syncs of the files the counting VFS holds.
 const SYNC_ROW: &str = "F2.syncs";

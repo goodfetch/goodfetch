@@ -202,9 +202,12 @@ pub(crate) struct RunArguments {
         ]
     )]
     redo: bool,
-    /// A cell `--redo` measures again, `<scenario>/<cell>`, such as
-    /// `browser/foxhound`; repeatable.
-    #[arg(long = "cell", requires = "redo")]
+    /// A cell the run measures, `<scenario>/<cell>`, such as
+    /// `browser/foxhound`, of a scenario it asks for; repeatable. Every
+    /// cell by default. A run that names cells measures them alone, in
+    /// every part, with the full trials and the quiet machine a whole run
+    /// waits for (#2200); with `--redo`, the cells it measures again.
+    #[arg(long = "cell")]
     cells: Vec<String>,
 }
 
@@ -374,7 +377,11 @@ fn measure(given: &RunArguments, environment: &Environment) -> Result<ExitCode> 
     let proving_ground = tools.path(Tool::ProvingGround)?;
     let profile_folder = run::profile_folder(&arguments.spider_profile);
     let spider_builds = environment.path(&arguments.spider_builds);
-    let collie = (Asked::collie(&arguments.scenarios) && earlier.is_none())
+    // A run that names cells names crawl cells alone, and a redo never runs
+    // the Collie scenario again.
+    let runs_collie =
+        Asked::collie(&arguments.scenarios) && arguments.cells.is_empty() && earlier.is_none();
+    let collie = runs_collie
         .then(|| -> Result<_> {
             Ok(collie::Tools {
                 proving_ground,
@@ -412,7 +419,7 @@ fn measure(given: &RunArguments, environment: &Environment) -> Result<ExitCode> 
         None => run::run(
             &executables,
             commit,
-            &options(arguments, environment),
+            &options(arguments, environment)?,
             &mut keep,
         )?,
     };
@@ -420,23 +427,30 @@ fn measure(given: &RunArguments, environment: &Environment) -> Result<ExitCode> 
     report(&mut trials, &out, environment)
 }
 
-/// What a run of `arguments` is asked for: every cell of its scenarios,
-/// the Callgrind cell's outputs kept beside its trials file.
-fn options(arguments: &RunArguments, environment: &Environment) -> run::Options {
+/// What a run of `arguments` is asked for: the cells it names, or every
+/// cell of its scenarios, the Callgrind cell's outputs kept beside its
+/// trials file.
+fn options(arguments: &RunArguments, environment: &Environment) -> Result<run::Options> {
     let out = environment.path(&arguments.out);
-    run::Options {
+    let scenarios = Asked::crawls(&arguments.scenarios);
+    let only = arguments
+        .cells
+        .iter()
+        .map(|named| run::named(named, &scenarios))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(run::Options {
         machine: arguments.machine.clone(),
         command: rerun::of(arguments),
         trials: arguments.trials,
         growth: arguments.growth,
         spider_pages: arguments.spider_pages,
-        scenarios: Asked::crawls(&arguments.scenarios),
+        scenarios,
         callgrind_outputs: out
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join(CALLGRIND_OUTPUTS),
-        only: Vec::new(),
-    }
+        only,
+    })
 }
 
 /// What a redo into `earlier`, the trials file whose bytes are `text`,
@@ -476,7 +490,7 @@ fn redo_options(
         command: earlier.declared.command.clone(),
         scenarios,
         only,
-        ..options(arguments, environment)
+        ..options(arguments, environment)?
     })
 }
 

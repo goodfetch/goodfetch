@@ -9,6 +9,7 @@ use std::pin::Pin;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::run::RunKind;
 
 use super::Run;
 use crate::CallError;
@@ -22,6 +23,8 @@ use crate::tasks::TaskOwner;
 pub struct RulesContext<'a> {
     /// The Run's resolved settings, when its start resolved them.
     pub settings: Option<&'a RunSettings>,
+    /// The Run's kind.
+    pub kind: RunKind,
     /// The Goodfetch home.
     pub home: &'a Home,
     /// The engine's clock.

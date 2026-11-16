@@ -224,6 +224,14 @@ pub trait BrowserPages: Send + Sync {
         label: Option<BuiltIn>,
     ) -> Opening<'a, Option<Arc<dyn ServedFormatsAhead>>>;
 
+    /// Starts reading, on one of `run`'s tasks, what the readers
+    /// [`BrowserPages::served_formats`] answers for `run` take beside each
+    /// document, its Filter lists' cosmetic rules, so that its first
+    /// document finds them read or being read (#2688). A crawl calls it as
+    /// it starts when its pages read a format; the lists of a crawl whose
+    /// pages read none are never loaded for them (#2573).
+    fn prepare_served_formats(&self, run: &Run);
+
     /// The Block cause of a document a fetch tier served, which `response`
     /// answered with the markup `markup`, as the Product's Block
     /// classification tells it (ADR 0035): the rules a browser page's

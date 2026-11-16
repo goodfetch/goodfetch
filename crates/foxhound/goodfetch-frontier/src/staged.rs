@@ -157,11 +157,46 @@ pub struct Refused {
     pub duplicate_of: Option<String>,
 }
 
+/// The identities an attempt's staged admissions visited, its earlier
+/// calls' and this call's own, while it stages. The Frontier's memory never
+/// holds them, since a staging is rolled back, so an admission that finds
+/// no visit there, or in the file, reads them here (#2681).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct StagedVisits<'a> {
+    earlier: &'a Staged,
+    now: &'a Staged,
+}
+
+impl<'a> StagedVisits<'a> {
+    /// The crawl request `identity` was admitted for.
+    pub(crate) fn visitor(self, identity: &str) -> Option<&'a str> {
+        self.earlier
+            .visitor(identity)
+            .or_else(|| self.now.visitor(identity))
+    }
+
+    /// The rule and crawl request of the learned identity `identity`.
+    pub(crate) fn learned(self, identity: &str) -> Option<(i64, &'a str)> {
+        self.earlier
+            .learned(identity)
+            .or_else(|| self.now.learned(identity))
+    }
+}
+
 impl Admitting {
     /// What the attempt's earlier admissions did, while it stages.
     pub(crate) fn earlier(&self) -> Option<&Staged> {
         match self {
             Self::Staging { earlier, .. } => Some(earlier),
+            Self::RunFile | Self::Commit { .. } => None,
+        }
+    }
+
+    /// The identities the attempt's staged admissions visited, its
+    /// earlier calls' and this one's, while it stages.
+    pub(crate) fn staged_visits(&self) -> Option<StagedVisits<'_>> {
+        match self {
+            Self::Staging { earlier, now } => Some(StagedVisits { earlier, now }),
             Self::RunFile | Self::Commit { .. } => None,
         }
     }

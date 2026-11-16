@@ -164,10 +164,11 @@ pub(crate) fn identities(
 
 /// The identities of a request whose URL's key is `key` and whose fixed
 /// identity is `fixed`, under the learned rules as the run file
-/// `connection` holds them now, or as memory holds them, `held`, while it
-/// does (#2169): the rules are the Run's state, which a rule learned or
+/// `connection` holds them now, or as memory, `holding`, holds them, while
+/// it does (#2169): the rules are the Run's state, which a rule learned or
 /// stopped changes, so a request keyed before either has the learned
-/// identity of the moment it is admitted (#2244).
+/// identity of the moment it is admitted (#2244). A read of the file's
+/// while memory holds the visits counts in `F3.state_reads`.
 ///
 /// # Errors
 ///
@@ -176,8 +177,14 @@ pub(crate) fn under_rules<'a>(
     connection: &Connection,
     key: &Key,
     fixed: &'a Fixed,
-    held: Option<&LearnedRules>,
+    holding: Option<&Holding<'_>>,
 ) -> rusqlite::Result<Identities<'a>> {
+    let held = holding.and_then(Holding::rules);
+    if held.is_none()
+        && let Some(holding) = holding
+    {
+        holding.reads_state();
+    }
     Ok(Identities {
         plain: Cow::Borrowed(&fixed.plain),
         learned: learned_of(connection, key, fixed, held)?,

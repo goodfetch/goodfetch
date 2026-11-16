@@ -158,6 +158,7 @@ impl Holding<'_> {
             }
             from
         };
+        self.visits.reads_state(self.admitting);
         let rows = read(from).inspect_err(|_| {
             changed.fetch_min(from, Ordering::SeqCst);
         })?;

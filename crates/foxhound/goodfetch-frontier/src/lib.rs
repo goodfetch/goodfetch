@@ -45,6 +45,7 @@ use std::sync::Arc;
 use goodfetch_engine::Contribution;
 use goodfetch_protocol::foxhound::frontier::{FRONTIER_LEARNING, LEARNING_SWITCHED_OFF};
 use goodfetch_protocol::foxhound::settings::{POLITENESS_WEAKENED, PRESSING_HARDER};
+use rusqlite::Connection;
 
 pub use admit::{
     Candidate, Entering, Keyed, Link, admit, admit_in, admit_keyed, key_candidate, key_link,
@@ -114,6 +115,24 @@ pub fn contribution() -> Contribution {
         .fold(contribution, |contribution, key| {
             contribution.with_recorded_weakening(key.setting, &POLITENESS_WEAKENED, key.built_in)
         })
+}
+
+/// Has the Frontier's memory, when the Run holds the batches' visits
+/// ([`Invariants::hold_unwritten`]), read on `connection`, the writer's,
+/// the Frontier's state an admission would read otherwise, as the crawl
+/// opens, after [`Invariants::fill_memory`]: the learned rules and
+/// identities, the Bounds' counts and whether a trap mark is held. An
+/// admission below the memory budget then reads none of it from the file
+/// (#2169, ADR 0140's `F3.state_reads`).
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub fn keep_memory(invariants: &Invariants, connection: &Connection) -> rusqlite::Result<()> {
+    admit::keep_memory(connection, invariants)?;
+    invariants.unwritten().map_or(Ok(()), |unwritten| {
+        trap_links::keep_marks(connection, unwritten)
+    })
 }
 
 /// The statements a Run under `invariants` prepares once, as it starts or

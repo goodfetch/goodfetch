@@ -20,6 +20,7 @@ use serde_json::{Value, json};
 
 use crate::admit::Keyed;
 use crate::identity::{Seen as Visited, seen, under_rules};
+use crate::unwritten::UnwrittenVisits;
 
 /// The page function that reads what a person sees of each element a
 /// selector matches, called with [`read_params`] and `cosmetic`, the
@@ -245,18 +246,51 @@ pub enum Mark {
 }
 
 /// Marks the work item `id` as added through a link suspected a trap, as
-/// `mark` says.
+/// `mark` says, and tells `unwritten`, the visits memory holds when it
+/// holds them, that the file may hold a mark.
 ///
 /// # Errors
 ///
 /// The run state's.
-pub fn suspect(connection: &Connection, id: &str, mark: Mark) -> rusqlite::Result<()> {
+pub fn suspect(
+    connection: &Connection,
+    unwritten: Option<&UnwrittenVisits>,
+    id: &str,
+    mark: Mark,
+) -> rusqlite::Result<()> {
     connection
         .prepare_cached(
             "INSERT OR IGNORE INTO trap_link_suspected (work_item, revealable) VALUES (?1, ?2)",
         )
         .and_then(|mut cached| cached.execute(rusqlite::params![id, mark == Mark::Revealable]))?;
+    if let Some(unwritten) = unwritten {
+        unwritten.lock().mark();
+    }
     Ok(())
+}
+
+/// Has `unwritten`, the visits memory holds, read whether the file on
+/// `connection`, the writer's, holds a trap mark, as the crawl opens, so
+/// no admission's [`seen_again`] asks the file while it holds none.
+///
+/// # Errors
+///
+/// The run state's.
+pub(crate) fn keep_marks(
+    connection: &Connection,
+    unwritten: &UnwrittenVisits,
+) -> rusqlite::Result<()> {
+    unwritten.opening().marked_or(|| any_marked(connection))?;
+    Ok(())
+}
+
+/// Whether the file on `connection` holds a trap mark.
+fn any_marked(connection: &Connection) -> rusqlite::Result<bool> {
+    Ok(connection
+        .prepare_cached(SEEN_AGAIN[0])
+        .and_then(|mut cached| cached.query_row([], |_| Ok(())))
+        .optional()?
+        .is_some())
 }
 
 /// The statements [`seen_again`] runs, which [`crate::admission_statements`]
@@ -278,43 +312,69 @@ pub(crate) const SEEN_AGAIN: [&str; 3] = [
 /// as [`Mark::Revealable`]: the request is reached through a link a person
 /// opens, which a browser tier follows. Run inside the admission that
 /// answered the link, so the clear commits or is discarded with it. A link
-/// to a URL the Frontier never admitted clears nothing.
+/// to a URL the Frontier never admitted clears nothing. While `unwritten`,
+/// the visits memory holds, knows the file holds no mark, nothing is read;
+/// once it knows the file may hold one, the request is keyed and looked up
+/// in memory, under the rules it holds, and the clear runs whether or not
+/// a mark is there, so no admission reads the file while memory holds the
+/// Frontier (#2169).
 ///
 /// # Errors
 ///
 /// The run state's.
 pub fn seen_again(
     connection: &Connection,
+    unwritten: Option<&UnwrittenVisits>,
     keyed: &Keyed,
     revealable: bool,
 ) -> rusqlite::Result<()> {
-    let any_marked = connection
-        .prepare_cached(SEEN_AGAIN[0])
-        .and_then(|mut cached| cached.query_row([], |_| Ok(())))
-        .optional()?
-        .is_some();
-    if !any_marked {
+    let Some(unwritten) = unwritten else {
+        if !any_marked(connection)? {
+            return Ok(());
+        }
+        let Some((key, fixed)) = keyed.identity() else {
+            return Ok(());
+        };
+        let identities = under_rules(connection, key, fixed, None)?;
+        // The run file only: a request an attempt staged holds no mark
+        // until its commit, which admits this link again in order on the
+        // run file.
+        return clear(
+            connection,
+            seen(connection, &identities, None, None)?,
+            revealable,
+        );
+    };
+    let mut holding = unwritten.lock();
+    if !holding.marked_or(|| any_marked(connection))? {
         return Ok(());
     }
     let Some((key, fixed)) = keyed.identity() else {
         return Ok(());
     };
-    let identities = under_rules(connection, key, fixed, None)?;
-    // The run file only: a request an attempt staged holds no mark until
-    // its commit, which admits this link again in order on the run file.
-    let reached = match seen(connection, &identities, None, None)? {
+    let identities = under_rules(connection, key, fixed, Some(&holding))?;
+    // Memory holds the run file's visits as the writer sees them; a
+    // request an attempt staged is not among them.
+    let reached = seen(connection, &identities, None, Some(&holding))?;
+    clear(connection, reached, revealable)
+}
+
+/// Clears the mark of the request a link seen again `reached`, or makes
+/// it [`Mark::Revealable`] when the link is `revealable`; nothing for a
+/// link to a URL the Frontier never admitted.
+fn clear(connection: &Connection, reached: Visited, revealable: bool) -> rusqlite::Result<()> {
+    let reached = match reached {
         Visited::New => return Ok(()),
         Visited::Visited(crawl_request) | Visited::Merged { crawl_request, .. } => crawl_request,
     };
-    if revealable {
-        connection
-            .prepare_cached(SEEN_AGAIN[1])
-            .and_then(|mut cached| cached.execute([reached]))?;
+    let statement = if revealable {
+        SEEN_AGAIN[1]
     } else {
-        connection
-            .prepare_cached(SEEN_AGAIN[2])
-            .and_then(|mut cached| cached.execute([reached]))?;
-    }
+        SEEN_AGAIN[2]
+    };
+    connection
+        .prepare_cached(statement)
+        .and_then(|mut cached| cached.execute([reached]))?;
     Ok(())
 }
 

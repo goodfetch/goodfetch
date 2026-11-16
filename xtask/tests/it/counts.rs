@@ -750,6 +750,7 @@ const OTHER_B1_ROWS: &str = "\
 | `F3.in_flight_serializations` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F3.lease_reads` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F3.lease_reads.spilled` | its work | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
+| `F3.state_reads` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F3.counted_work_constructions` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.file_opens` | folders created and files opened per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.spawns` | tasks spawned per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
@@ -833,6 +834,7 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F3.in_flight_serializations", 0),
         ("F3.lease_reads", 0),
         ("F3.lease_reads.spilled", 0),
+        ("F3.state_reads", 0),
         ("F3.counted_work_constructions", 0),
         ("E5.file_opens", 0),
         ("E5.spawns", 0),
@@ -851,7 +853,7 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
     .collect();
     let script = format!(
         "#!/bin/sh\nplant=$2\nplanted() {{ if [ \"$1\" = \"$plant\" ]; then echo 13; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"added_pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"attempts_ended\":1,\"runs\":1,\"effects\":0,\"entries\":13,\"permits\":1,\"requests\":1,\"origins\":1,\"off_attempts\":0,\"learning_off_pages\":0,\"batched_pages\":13,\"batched_leases\":1,\"spilled_leases\":0,\"full_pages\":0}},\"counts\":{{{}{extra}}}}}'\n",
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"added_pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"attempts_ended\":1,\"runs\":1,\"effects\":0,\"entries\":13,\"permits\":1,\"requests\":1,\"origins\":1,\"off_attempts\":0,\"learning_off_pages\":0,\"batched_pages\":13,\"batched_leases\":1,\"spilled_leases\":0,\"held_links_batches\":1,\"full_pages\":0}},\"counts\":{{{}{extra}}}}}'\n",
         counts.join(",")
     );
     let path = executable_script(&workspace, "benchmark.sh", &script);
@@ -1009,7 +1011,7 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
 }
 
 /// Every F3 row, in what a benchmark prints and the register holds.
-const FRONTIER_ROWS: [&str; 22] = [
+const FRONTIER_ROWS: [&str; 23] = [
     "F3.invariant_reads",
     "F3.invariant_reads.hop",
     "F3.invariant_reads.sitemap",
@@ -1031,6 +1033,7 @@ const FRONTIER_ROWS: [&str; 22] = [
     "F3.in_flight_serializations",
     "F3.lease_reads",
     "F3.lease_reads.spilled",
+    "F3.state_reads",
     "F3.counted_work_constructions",
 ];
 
@@ -1058,7 +1061,7 @@ fn frontier_benchmark(counted: &str) -> String {
         .map(|name| format!("\"{name}\":{}", if *name == counted { 5 } else { 1 }))
         .collect();
     format!(
-        "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts_ended\":1,\"added_pages\":1,\"batched_leases\":1,\"spilled_leases\":1}},\"counts\":{{{}}}}}'\n",
+        "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts_ended\":1,\"added_pages\":1,\"batched_leases\":1,\"spilled_leases\":1,\"held_links_batches\":1}},\"counts\":{{{}}}}}'\n",
         counts.join(",")
     )
 }

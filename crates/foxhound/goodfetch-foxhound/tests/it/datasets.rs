@@ -24,7 +24,7 @@
 
 use goodfetch_test_client::Attached;
 use goodfetch_test_client::HomeLayout;
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{DISPATCH_TARGET, TestEnv};
 use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -122,16 +122,29 @@ fn declared() -> Value {
 /// `ctx.push(dataset, record)` from the attempt `handle` gave: its result,
 /// else its Error code and details, each issue's message left out.
 fn push(inside: &mut Inside<'_>, handle: &Value, dataset: &str, data: &Value) -> Value {
-    push_under(inside, handle, &handle["lease_epoch"], dataset, data)
+    pushed(
+        inside,
+        handle,
+        &handle["lease_epoch"],
+        dataset,
+        std::slice::from_ref(data),
+    )
 }
 
-/// [`push`] naming the lease epoch `lease_epoch`.
-fn push_under(
+/// `ctx.push(dataset, records)` of a list from the attempt `handle` gave,
+/// as [`push`] answers it.
+fn push_all(inside: &mut Inside<'_>, handle: &Value, dataset: &str, records: &[Value]) -> Value {
+    pushed(inside, handle, &handle["lease_epoch"], dataset, records)
+}
+
+/// The reply of one `crawl_request.push` of `records` under
+/// `lease_epoch`, as [`push`] answers it.
+fn pushed(
     inside: &mut Inside<'_>,
     handle: &Value,
     lease_epoch: &Value,
     dataset: &str,
-    data: &Value,
+    records: &[Value],
 ) -> Value {
     let reply = inside.call(
         "crawl_request.push",
@@ -140,22 +153,53 @@ fn push_under(
             "crawl_request_id": handle["crawl_request"]["id"],
             "lease_epoch": lease_epoch,
             "dataset": dataset,
-            "data": data,
+            "records": records,
         }),
     );
     if let Some(result) = reply.get("result") {
         return result.clone();
     }
     let mut refused = refusal(&reply);
-    if let Some(issues) = refused["details"]
-        .get_mut("issues")
+    for record in refused["details"]
+        .get_mut("records")
         .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
     {
-        for issue in issues {
+        for issue in record["issues"].as_array_mut().unwrap() {
             issue.as_object_mut().unwrap().remove("message");
         }
     }
     refused
+}
+
+/// The `record_invalid` [`push`] answers for the Records at each position
+/// with the issues at each path of the Dataset `dataset`.
+fn invalid(dataset: &str, records: &[(u64, &[&str])]) -> Value {
+    json!({
+        "code": "record_invalid",
+        "details": {
+            "dataset": dataset,
+            "records": records
+                .iter()
+                .map(|(position, paths)| json!({
+                    "position": position,
+                    "issues": paths.iter().map(|path| json!({ "path": path })).collect::<Vec<_>>(),
+                }))
+                .collect::<Vec<_>>(),
+        },
+    })
+}
+
+/// How many `crawl_request.push` requests the engines `env` started
+/// recorded they dispatched.
+fn pushes_dispatched(env: &TestEnv) -> usize {
+    env.exercise_lines()
+        .iter()
+        .filter(|line| {
+            line["target"] == DISPATCH_TARGET && line["fields"]["method"] == "crawl_request.push"
+        })
+        .count()
 }
 
 /// Each committed Record of the run file of `run_id`, in Dataset and
@@ -257,15 +301,6 @@ fn a_pushed_record_is_checked_against_its_dataset_and_only_one_that_holds_is_sta
     let read = outcomes(&mut engine, "pushed");
     assert!(engine.finished());
 
-    let invalid = |dataset: &str, paths: &[&str]| {
-        json!({
-            "code": "record_invalid",
-            "details": {
-                "dataset": dataset,
-                "issues": paths.iter().map(|path| json!({ "path": path })).collect::<Vec<_>>(),
-            },
-        })
-    };
     assert_eq!(
         (
             &report["result"]["lifecycle"],
@@ -277,9 +312,9 @@ fn a_pushed_record_is_checked_against_its_dataset_and_only_one_that_holds_is_sta
             &json!("finished"),
             vec![
                 json!({}),
-                invalid("books", &["", "/price"]),
-                invalid("notes", &["/id"]),
-                invalid("notes", &[""]),
+                invalid("books", &[(0, &["", "/price"])]),
+                invalid("notes", &[(0, &["/id"])]),
+                invalid("notes", &[(0, &[""])]),
                 json!({
                     "code": "dataset_unknown",
                     "details": { "dataset": "bokks", "declared": ["books", "notes"] },
@@ -304,6 +339,103 @@ fn a_pushed_record_is_checked_against_its_dataset_and_only_one_that_holds_is_sta
                 }),
             ],
         )
+    );
+}
+
+/// A push of a list is one request: of fifty Records, the forty-eight
+/// that hold are staged and commit with the attempt, and the
+/// `record_invalid` it answers names the two that do not by their
+/// position in the list, each issue by its path; their rejections are
+/// staged in their place (ADR 0147).
+///
+/// Covers: story:6-267, story:6-268, operation:crawl_request.push, error:record_invalid
+#[test]
+fn a_push_of_fifty_records_is_one_request_staging_those_that_hold_and_naming_each_other_by_position()
+ {
+    let env = TestEnv::new();
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    let books: Vec<Value> = (0..50)
+        .map(|n| match n {
+            7 => json!({ "title": "No isbn" }),
+            31 => json!({ "title": "Cheap", "isbn": "31", "price": "cheap" }),
+            n => json!({ "title": format!("Book {n}"), "isbn": n.to_string() }),
+        })
+        .collect();
+
+    let mut answer = Value::Null;
+    let report = crawl_from(
+        &mut engine,
+        &json!({
+            "run_id": "listed",
+            "seeds": [{ "url": site.page("/book"), "label": "page" }],
+            "datasets": declared(),
+        }),
+        &mut |inside, handle| {
+            answer = push_all(inside, handle, "books", &books);
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let read = outcomes(&mut engine, "listed");
+    assert!(engine.finished());
+
+    let staged: Vec<Value> = books
+        .iter()
+        .enumerate()
+        .filter(|(position, _)| ![7, 31].contains(position))
+        .map(|(_, book)| book.clone())
+        .collect();
+    let committed: Vec<Value> = committed(&env, "listed")
+        .into_iter()
+        .map(|(_, _, _, data)| data)
+        .collect();
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            answer,
+            pushes_dispatched(&env),
+            committed,
+            &read[0]["records"],
+        ),
+        (
+            &json!("finished"),
+            invalid("books", &[(7, &[""]), (31, &["/price"])]),
+            1,
+            staged,
+            &json!([{ "dataset": "books", "committed": 48, "dropped": 0, "rejected": 2 }]),
+        )
+    );
+}
+
+/// A push of no Record is refused with `invalid_params`, and the crawl
+/// still finishes.
+///
+/// Covers: story:6-267, operation:crawl_request.push
+#[test]
+fn a_push_of_no_record_is_refused_as_invalid_params() {
+    let env = TestEnv::new();
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+
+    let mut answer = Value::Null;
+    let report = crawl_from(
+        &mut engine,
+        &json!({
+            "run_id": "empty",
+            "seeds": [{ "url": site.page("/book"), "label": "page" }],
+            "datasets": declared(),
+        }),
+        &mut |inside, handle| {
+            answer = push_all(inside, handle, "books", &[]);
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finished());
+
+    assert_eq!(
+        (&report["result"]["lifecycle"], &answer["code"]),
+        (&json!("finished"), &json!("invalid_params")),
+        "{answer}"
     );
 }
 
@@ -400,12 +532,12 @@ fn records_of_a_retried_request_commit_once_numbered_from_one_in_commit_order() 
                 } });
             }
             if a {
-                late = push_under(
+                late = pushed(
                     inside,
                     handle,
                     &first_epoch,
                     "notes",
-                    &json!({ "id": "late" }),
+                    &[json!({ "id": "late" })],
                 );
             }
             json!({ "result": { "records": [] } })

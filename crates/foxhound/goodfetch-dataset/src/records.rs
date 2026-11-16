@@ -50,11 +50,15 @@ impl Checked {
         }
     }
 
-    /// The rejection of a Record the check refused.
-    pub(crate) fn rejected(rejection: Rejection) -> Self {
+    /// Records the check found holding, as [`Checked::new`] takes them,
+    /// and the rejections of those it refused.
+    pub(crate) fn with_rejected(
+        checked: Vec<(PushedRecord, Option<Arc<str>>)>,
+        rejected: Vec<Rejection>,
+    ) -> Self {
         Self {
-            rejected: vec![rejection],
-            ..Self::default()
+            rejected,
+            ..Self::new(checked)
         }
     }
 

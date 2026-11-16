@@ -1,7 +1,8 @@
 //! A handler's calls on a document tier read the attempt's kept tree (spec
 //! #1577's #1918; ADR 0138), on Foxhound's composition with its fetch tiers
 //! serving one page from memory, on the paused current-thread runtime with
-//! blocking work inline: the page is parsed once for its attempt, whatever
+//! blocking work inline, or on a running clock with blocking work on
+//! threads, as in production: the page is parsed once for its attempt, whatever
 //! the handler calls on it and however many calls it has out at once, and
 //! a program's selectors read the page as it was served after
 //! `page.formats` read its main content.
@@ -359,9 +360,10 @@ fn a_handlers_calls_read_its_pages_one_tree_untouched() {
 }
 
 /// With blocking work on threads, as in production, a page's document is
-/// read on an analysis thread, which keeps its tree there, off the async
-/// runtime, and the handler's calls still read it: every call is answered
-/// with its result (issue 2673, a regression from issue 2189).
+/// read in its one hand-off to the analysis pool, which parses its tree
+/// and keeps it there, off the async runtime, and the handler's calls
+/// still read it: every call is answered with its result (issue 2673, a
+/// regression from issue 2189).
 ///
 /// Covers: story:5-115, operation:locator.wait_for,
 /// operation:locator.wait_for_count, operation:page.formats
@@ -369,7 +371,10 @@ fn a_handlers_calls_read_its_pages_one_tree_untouched() {
 fn a_tree_kept_on_an_analysis_thread_answers_the_handlers_calls() {
     let env = TestEnv::new();
 
-    let Handled { mut at_once, after } = crawled(&env, Metrics::none(), BlockingPolicy::Threads);
+    let metrics = Metrics::none();
+    let work = metrics.counted_work().clone();
+
+    let Handled { mut at_once, after } = crawled(&env, metrics, BlockingPolicy::Threads);
 
     at_once.sort_by(|(left, _), (right, _)| left.cmp(right));
     let answered = |reply: &Value| reply.get("result").is_some();
@@ -380,10 +385,14 @@ fn a_tree_kept_on_an_analysis_thread_answers_the_handlers_calls() {
                 .map(|(id, reply)| (id.as_str(), answered(reply)))
                 .collect::<Vec<_>>(),
             after.iter().map(answered).collect::<Vec<_>>(),
+            work.read(Row::PageAnalysisHandoffs),
+            work.read(Row::PageParses),
         ),
         (
             vec![("formats", true), ("heading", true), ("links", true)],
             vec![true, true],
+            1,
+            1,
         ),
         "{at_once:?} {after:?}"
     );

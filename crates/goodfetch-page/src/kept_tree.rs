@@ -7,19 +7,21 @@
 //! pool with the tree lent to it, so no read waits for a parse of its own
 //! and none changes the tree. The first read starts the owner, on the
 //! async runtime it is awaited on, as the tree is kept where the document
-//! was read, often on the CPU pool, whose threads can start no task (issue
-//! 2673); a page whose handler reads nothing of its tree starts none. A read that changes a page, as the clean-up
-//! and the main-content step of `page.formats` do, reads a copy it takes
-//! inside its read. The owner parses the document's HTML at its first read
-//! when it was handed no tree (a document the streaming path read), so a
-//! page whose handler reads nothing of its tree is never parsed for it.
+//! was read, often on the CPU pool, whose threads can start no task
+//! (issue 2673); a page whose handler reads nothing of its tree starts
+//! none. A read that changes a page, as the clean-up and the main-content
+//! step of `page.formats` do, reads a copy it takes inside its read. The
+//! owner parses the document's HTML at its first read when it was handed
+//! no tree (a document the streaming path read), so a page whose handler
+//! reads nothing of its tree is never parsed for it.
 //!
 //! The tree is gone once every holder of the page dropped its handle,
 //! which the attempt's end does as it closes the page: the owner's channel
 //! closes then, and the owner ends, dropping the tree, or, when no read
 //! started it, the last handle drops the tree with the owner never
-//! started; the owner ends too as its Run stops. While a handler runs, its page holds one tree, or the HTML
-//! it will parse, and at most [`READS_QUEUED`] reads wait for it, each a
+//! started; the owner ends too as its Run stops. While a handler runs,
+//! its page holds one tree, or the HTML it will parse, and at most
+//! [`READS_QUEUED`] reads wait for it, each a
 //! closure holding its call's params; a read past them waits for room, so
 //! what a handler's calls hold beside the tree is bounded whatever it
 //! sends.

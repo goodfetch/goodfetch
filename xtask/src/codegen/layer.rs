@@ -315,66 +315,71 @@ impl Layer {
                     collie_types: BTreeSet::new(),
                 })
             }
-            Product::Foxhound => {
-                let mut all: Projection =
-                    Projection::deserialize(foxhound).context("reading Foxhound's projection")?;
-                without_meta(&mut all.definitions);
-                let own = |entry_product: Product| entry_product == Product::Foxhound;
-                let operations: Vec<Operation> = all
-                    .operations
-                    .into_iter()
-                    .filter(|entry| own(entry.product) && entry.offered())
-                    .collect();
-                let events: Vec<Event> = all
-                    .events
-                    .into_iter()
-                    .filter(|entry| own(entry.product))
-                    .collect();
-                let error_codes: Vec<ErrorCode> = all
-                    .error_codes
-                    .into_iter()
-                    .filter(|entry| own(entry.product))
-                    .collect();
-                let plugin_kinds: Vec<PluginKind> = all
-                    .plugin_kinds
-                    .into_iter()
-                    .filter(|entry| own(entry.product))
-                    .collect();
-                let shared_types = shared_types(&all.shared_type_values, own, |name| {
-                    collie
-                        .shared_type_values
-                        .iter()
-                        .any(|value| value.shared_type == name)
-                });
-                let handler_requests: Vec<HandlerRequest> = all
-                    .handler_requests
-                    .into_iter()
-                    .filter(|entry| own(entry.product))
-                    .collect();
-                let roots = roots(&operations, &events, &plugin_kinds, &handler_requests);
-                let reached = projection::reached(&roots, &all.definitions)?;
-                let (collie_types, own_types): (BTreeSet<String>, BTreeSet<String>) = reached
-                    .into_iter()
-                    .partition(|name| collie.definitions.contains_key(name));
-                Ok(Self {
-                    product,
-                    protocol_version: all.protocol_version,
-                    product_version: product_version.to_owned(),
-                    operations,
-                    events,
-                    error_groups: Vec::new(),
-                    error_codes,
-                    plugin_kinds,
-                    shared_types,
-                    definitions: all
-                        .definitions
-                        .into_iter()
-                        .filter(|(name, _)| own_types.contains(name))
-                        .collect(),
-                    collie_types,
-                })
-            }
+            Product::Foxhound => Self::foxhound(&collie, foxhound, product_version),
         }
+    }
+
+    /// Foxhound's layer: its own entries, and the types they reach that
+    /// Collie's projection does not define, those it does taken from
+    /// Collie's client package.
+    fn foxhound(collie: &Projection, foxhound: &Value, product_version: &str) -> Result<Self> {
+        let mut all: Projection =
+            Projection::deserialize(foxhound).context("reading Foxhound's projection")?;
+        without_meta(&mut all.definitions);
+        let own = |entry_product: Product| entry_product == Product::Foxhound;
+        let operations: Vec<Operation> = all
+            .operations
+            .into_iter()
+            .filter(|entry| own(entry.product) && entry.offered())
+            .collect();
+        let events: Vec<Event> = all
+            .events
+            .into_iter()
+            .filter(|entry| own(entry.product))
+            .collect();
+        let error_codes: Vec<ErrorCode> = all
+            .error_codes
+            .into_iter()
+            .filter(|entry| own(entry.product))
+            .collect();
+        let plugin_kinds: Vec<PluginKind> = all
+            .plugin_kinds
+            .into_iter()
+            .filter(|entry| own(entry.product))
+            .collect();
+        let shared_types = shared_types(&all.shared_type_values, own, |name| {
+            collie
+                .shared_type_values
+                .iter()
+                .any(|value| value.shared_type == name)
+        });
+        let handler_requests: Vec<HandlerRequest> = all
+            .handler_requests
+            .into_iter()
+            .filter(|entry| own(entry.product))
+            .collect();
+        let roots = roots(&operations, &events, &plugin_kinds, &handler_requests);
+        let reached = projection::reached(&roots, &all.definitions)?;
+        let (collie_types, own_types): (BTreeSet<String>, BTreeSet<String>) = reached
+            .into_iter()
+            .partition(|name| collie.definitions.contains_key(name));
+        Ok(Self {
+            product: Product::Foxhound,
+            protocol_version: all.protocol_version,
+            product_version: product_version.to_owned(),
+            operations,
+            events,
+            error_groups: Vec::new(),
+            error_codes,
+            plugin_kinds,
+            shared_types,
+            definitions: all
+                .definitions
+                .into_iter()
+                .filter(|(name, _)| own_types.contains(name))
+                .collect(),
+            collie_types,
+        })
     }
 
     /// Whether `name` is a type of Collie's client package rather than this

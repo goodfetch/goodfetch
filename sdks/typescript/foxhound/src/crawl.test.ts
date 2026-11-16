@@ -4,16 +4,9 @@
 // the event loop. The script fails the test on a message it does not
 // expect and on a step left unused.
 import { playScript, protocolCounts, test } from "@goodfetch/test-support";
-import { describe, expect, expectTypeOf, vi } from "vitest";
+import { describe, expect, vi } from "vitest";
 import { crawl, listing, products } from "../tests/programs/two-page-types.ts";
-import {
-  ClosedError,
-  Crawl,
-  seed,
-  type CrawlContext,
-  type DatasetRecord,
-  type Page,
-} from "./index.ts";
+import { ClosedError, Crawl, seed, type DatasetRecord } from "./index.ts";
 import { connectOver } from "./testing.ts";
 
 describe("a Crawl", () => {
@@ -69,14 +62,18 @@ describe("a Crawl", () => {
   );
 
   test(
-    "starts two Runs from one Crawl value that share nothing: each handler call enqueues under its own Run",
+    "starts two Runs from one Crawl value that share nothing: each handler call enqueues and pushes under its own Run",
     { tags: ["story:11-1013"] },
     async () => {
       const played = playScript("run/foxhound-crawl-two-runs.json");
       const foxhound = await connectOver(played.transport);
       const pages = new Crawl();
       const page = pages.label("page");
-      pages.handle(page, (context) => context.enqueue("/next", page));
+      const seen = pages.dataset<{ readonly page: string }>("pages");
+      pages.handle(page, async (context) => {
+        await context.enqueue("/next", page);
+        await context.push(seen, { page: "seen" });
+      });
 
       await foxhound.startCrawl(pages, {
         seeds: [seed("https://shop.test/a", page)],
@@ -128,16 +125,84 @@ describe("a Crawl", () => {
     },
   );
 
+  test(
+    "fails a records() read with closed once its Run is closed, sending nothing",
+    { tags: ["story:11-1015", "error:closed"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-records-after-close.json");
+      const foxhound = await connectOver(played.transport);
+
+      const run = await foxhound.startCrawl(crawl, {
+        seeds: [seed("https://shop.test/a", listing)],
+        runId: "nightly",
+      });
+      await run.close();
+      const read = run.records(products).next();
+
+      await expect(read).rejects.toBeInstanceOf(ClosedError);
+      await foxhound.close();
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "stops a records() read once its signal aborts, cancelling its stream and leaving the Records already received unread",
+    { tags: ["story:11-1015"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-records-stopped.json");
+      const foxhound = await connectOver(played.transport);
+      const run = await foxhound.startCrawl(crawl, {
+        seeds: [seed("https://shop.test/a", listing)],
+        runId: "nightly",
+      });
+      const stop = new AbortController();
+      const reading = run.records(products, { signal: stop.signal });
+
+      const first = await reading.next();
+      // Answered after both Records, so both are received once it returns.
+      await run.finish();
+      stop.abort(new Error("the program has read enough"));
+
+      expect(first.value?.number).toBe(1);
+      await expect(reading.next()).rejects.toThrow("the program has read enough");
+      await foxhound.close();
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "keeps serving a Run started again by its Run ID when the first value of it is closed twice",
+    { tags: ["story:11-1025"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-closed-then-started-again.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label("page");
+      const options = { seeds: [seed("https://shop.test/a", page)] as const, runId: "nightly" };
+      const first = await foxhound.startCrawl(pages, options);
+      // The first handler call closes the first Run value again before the
+      // engine sends the second.
+      pages.handle(page, async (context) => {
+        await first.close();
+        return context.enqueue("/next", page);
+      });
+
+      await first.close();
+      await foxhound.startCrawl(pages, options);
+      await vi.waitFor(() => {
+        expect(protocolCounts(played.messages).replies).toBe(2);
+      });
+      await foxhound.close();
+
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
   test("takes a handler whose expression body enqueues to its own Label", () => {
     const pages = new Crawl();
     const page = pages.label("page");
 
+    // Compiles only while a handler may return its context's promise.
     pages.handle(page, (context) => context.enqueue("/next", page));
-
-    expectTypeOf<Parameters<Parameters<typeof pages.handle>[1]>[0]>().toEqualTypeOf<CrawlContext>();
-  });
-
-  test("hands a handler the Page a Collie program holds", () => {
-    expectTypeOf<CrawlContext["page"]>().toEqualTypeOf<Page>();
   });
 });

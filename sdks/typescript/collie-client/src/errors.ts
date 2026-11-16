@@ -77,8 +77,12 @@ export function replyOfError(error: unknown): ErrorReply {
           retryable: false,
           cause: error,
         });
+  const wireClass = wireClassOfGroup.get(failure.group);
+  if (wireClass === undefined) {
+    throw new TypeError(`invariant: the catalog gives the group ${failure.group} a wire class`);
+  }
   return {
-    code: wireClassOfGroup.get(failure.group) ?? INTERNAL_WIRE_CLASS,
+    code: wireClass,
     message: failure.message,
     data: {
       ...failure.details,
@@ -88,6 +92,3 @@ export function replyOfError(error: unknown): ErrorReply {
     },
   };
 }
-
-/** The wire class of `internal`, a bug in Goodfetch. */
-const INTERNAL_WIRE_CLASS = -32_007;

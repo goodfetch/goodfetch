@@ -13,7 +13,12 @@ import {
   type Page,
 } from "@goodfetch/collie-client";
 import type { Caller, RunStarted } from "@goodfetch/collie-client/generated";
-import { pageOf, type ClientConnection, type RunHost } from "@goodfetch/collie-client/runtime";
+import {
+  ensureRunOpen,
+  pageOf,
+  type ClientConnection,
+  type RunHost,
+} from "@goodfetch/collie-client/runtime";
 import {
   handlerOf,
   payloadOf,
@@ -68,6 +73,8 @@ export class CrawlRun extends Run {
   readonly #crawlHost: CrawlHost;
   /** The attempts running, each stopped when the Run is closed. */
   readonly #attempts = new Set<AbortController>();
+  /** Whether `close()` was called: it stops the attempts and forgets the Run once. */
+  #closed = false;
 
   /** @internal `Foxhound.startCrawl` opens a crawl's Run; a program never constructs one. */
   constructor(host: RunHost, started: RunStarted, crawl: Crawl, crawlHost: CrawlHost) {
@@ -80,12 +87,14 @@ export class CrawlRun extends Run {
    * Reads `dataset`'s committed Records in number order (ADR 0103), each
    * as the engine streams it: while the Run is live it follows the Run,
    * and once the Run has ended and every Record is read, the iteration
-   * ends. Leaving the loop early cancels the stream.
+   * ends. Leaving the loop early cancels the stream. On a closed Run it
+   * fails with `closed`.
    */
   async *records<I extends object>(
     dataset: Dataset<I>,
     options: RecordsOptions = {},
   ): AsyncGenerator<DatasetRecord, void, undefined> {
+    ensureRunOpen(this, "run.records");
     const stop = new AbortController();
     const signal =
       options.signal === undefined ? stop.signal : AbortSignal.any([options.signal, stop.signal]);
@@ -115,6 +124,8 @@ export class CrawlRun extends Run {
     let read = 0;
     try {
       for (;;) {
+        // Records already received are not read once the program stops reading.
+        options.signal?.throwIfAborted();
         const record = received.shift();
         if (record !== undefined) {
           yield record;
@@ -148,6 +159,8 @@ export class CrawlRun extends Run {
    * stops any Run.
    */
   override close(): Promise<void> {
+    if (this.#closed) return super.close();
+    this.#closed = true;
     for (const attempt of this.#attempts) {
       attempt.abort(
         new ClosedError(`the Run ${this.id()} is closed, which stopped the handler's attempt`, {

@@ -75,7 +75,10 @@ export class Foxhound implements Connection {
     this.#crawlHost = {
       connection,
       calls,
-      forget: (run) => this.#crawlRuns.delete(run.id()),
+      forget: (run) => {
+        // A later start of the same Run ID holds its own entry.
+        if (this.#crawlRuns.get(run.id()) === run) this.#crawlRuns.delete(run.id());
+      },
     };
     connection.serve("crawl_request.handle", async (params, signal) =>
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the engine's requests are not validated beyond `hello`'s protocol version (STYLE.md): `crawl_request.handle` carries its params as the catalog types them.

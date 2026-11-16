@@ -5,7 +5,8 @@
 // frees the value and, while the Run is still running, stops it as an abort
 // by its Client, resumable by its Run ID. Any other call on a closed Run
 // fails with `closed`. A Product's package also builds, with `pageOf`, the
-// page the engine lends a handler of the Run for one attempt.
+// page the engine lends a handler of the Run for one attempt, and fails its
+// own Run type's calls on a closed Run with `ensureRunOpen`.
 import type { CallOptions, Caller, OperationTypes } from "./caller.ts";
 import {
   ClosedError,
@@ -160,6 +161,7 @@ function signalled<Types extends Record<keyof Types, OperationTypes>>(
 }
 
 let pageIn: (run: Run, pageId: PageId, signal: AbortSignal) => Page;
+let openIn: (run: Run, operation: string) => void;
 
 /**
  * The page of ID `pageId` the engine lends a handler of `run` for one
@@ -170,9 +172,21 @@ export function pageOf(run: Run, pageId: PageId, signal: AbortSignal): Page {
   return pageIn(run, pageId, signal);
 }
 
+/**
+ * Fails `operation` with `closed` once `run` is closed, as each of a Run's
+ * own calls does: for a call a Product's Run type adds, such as a crawl's
+ * `records()`.
+ */
+export function ensureRunOpen(run: Run, operation: string): void {
+  openIn(run, operation);
+}
+
 /** A Run its program drives, opened by `start()` on a Connection. */
 export class Run extends RunMembers implements AsyncDisposable {
   static {
+    openIn = (run, operation) => {
+      ensureOpen(run.#scope, operation);
+    };
     pageIn = (run, pageId, signal) =>
       new Page(
         hostIn(

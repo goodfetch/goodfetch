@@ -1,5 +1,5 @@
 {
-  "description": "A Foxhound Client starts two Runs from one Crawl value, `run-a` and `run-b`: the engine leases `run-b`'s seed first, and its handler enqueues under `run-b`, then `run-a`'s, whose handler enqueues under `run-a`; each handler call is answered `{}`. Closing the Connection then aborts both Runs, in the order they started.",
+  "description": "A Foxhound Client starts two Runs from one Crawl value, `run-a` and `run-b`: the engine leases `run-b`'s seed first, and its handler enqueues and pushes a Record into the Dataset `pages` under `run-b`, then `run-a`'s, whose handler does both under `run-a`; each handler call is answered `{}`. Closing the Connection then aborts both Runs, in the order they started.",
   "steps": [
     {
       "expect": {
@@ -29,6 +29,11 @@
           "labels": {
             "page": {}
           },
+          "datasets": [
+            {
+              "name": "pages"
+            }
+          ],
           "seeds": [
             {
               "url": "https://shop.test/a",
@@ -56,6 +61,11 @@
           "labels": {
             "page": {}
           },
+          "datasets": [
+            {
+              "name": "pages"
+            }
+          ],
           "seeds": [
             {
               "url": "https://shop.test/b",
@@ -123,6 +133,25 @@
       }
     },
     {
+      "expect": {
+        "method": "crawl_request.push",
+        "params": {
+          "run_id": "run-b",
+          "crawl_request_id": "1",
+          "lease_epoch": 1,
+          "dataset": "pages",
+          "data": {
+            "page": "seen"
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {}
+      }
+    },
+    {
       "await_reply": {
         "result": {}
       }
@@ -171,6 +200,25 @@
           "id": "2",
           "url": "https://shop.test/next"
         }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl_request.push",
+        "params": {
+          "run_id": "run-a",
+          "crawl_request_id": "1",
+          "lease_epoch": 1,
+          "dataset": "pages",
+          "data": {
+            "page": "seen"
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {}
       }
     },
     {

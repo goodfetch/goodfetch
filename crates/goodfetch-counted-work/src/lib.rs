@@ -201,6 +201,10 @@ rows! {
     SitemapCompilations => "F3.compilations.sitemap", "frontier_sitemap", "compilations";
     /// `F3.transactions`, of a sitemap's read.
     SitemapTransactions => "F3.transactions.sitemap", "frontier_sitemap", "transactions";
+    /// `F3.lease_reads`: a read transaction on the run file the crawl's Run
+    /// state runs to lease a work item or find the pending ones, at a
+    /// Durability level that batches attempts (#2169).
+    LeaseReads => "F3.lease_reads", "frontier_lease", "reads";
     /// `F3.compilations`: a validator built for one URL's Payload.
     PayloadCompilations => "F3.compilations.payload", "frontier_payload", "compilations";
     /// `F3.payload_serializations`: one URL's Payload serialized.

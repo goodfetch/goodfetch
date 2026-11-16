@@ -7,7 +7,7 @@
 //! rule, the `head/` set included.
 #![expect(
     clippy::disallowed_methods,
-    reason = "the tests read the corpus files and edit the store's rows as a damaged disk would"
+    reason = "the tests read the corpus files and edit the store's rows as a damaged disk would; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::sync::Arc;

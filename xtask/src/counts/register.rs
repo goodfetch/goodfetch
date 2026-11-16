@@ -5,7 +5,8 @@
 //! A row measured per kind holds a figure for each, as `click 6, fill 2`, and
 //! each kind's limit goes by `<row>.<kind>`, as `C3.commands.click`. A row two
 //! families count, each to a figure of its own, holds a figure for each, as
-//! `B1 4, B4 3`, and [`limit`] reads each family's.
+//! `B1 4, B4 3`, and [`limit`] reads each family's. A figure may name one
+//! cell of its family, as `B4 single_attempt 2`, which holds that cell alone.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -167,8 +168,8 @@ fn read_table(table: &Table<'_>, enforced: bool, register: &mut Register) -> Res
             counted_as: vec![name.to_owned()],
         };
         if let Some(families) = per_family(today) {
-            for (family, limit) in families {
-                register.limits.insert(on_family(name, family), limit);
+            for (family, cell, limit) in families {
+                register.limits.insert(on_family(name, family, cell), limit);
             }
             register.rows.push(held);
             continue;
@@ -217,41 +218,57 @@ fn per_kind(today: &str) -> Option<Vec<(&str, Limit)>> {
 }
 
 /// Each family's figure a "Today" cell holds before any `;`, as `B1 4, B4
-/// 3; until #2189`: none unless every part is a family, as ADR 0140 names
-/// one, and its figure.
-fn per_family(today: &str) -> Option<Vec<(&str, Limit)>> {
+/// 3; until #2189`, with the cell a figure names, as `B4 single_attempt 2`:
+/// none unless every part is a family, as ADR 0140 names one, an optional
+/// cell, and its figure.
+fn per_family(today: &str) -> Option<Vec<(&str, Option<&str>, Limit)>> {
     let figures = today.split(';').next()?;
     figures
         .split(',')
         .map(|part| {
-            let (family, figure) = part.trim().split_once(' ')?;
+            let (family, rest) = part.trim().split_once(' ')?;
+            let (cell, figure) = match rest.split_once(' ') {
+                Some((cell, figure)) if is_cell(cell) => (Some(cell), figure),
+                _ => (None, rest),
+            };
             let named = family.strip_prefix('B').is_some_and(|number| {
                 !number.is_empty() && number.chars().all(|c| c.is_ascii_digit())
             }) && figure.starts_with(|c: char| c.is_ascii_digit());
             named
                 .then(|| Limit::first_number(figure))
                 .flatten()
-                .map(|limit| (family, limit))
+                .map(|limit| (family, cell, limit))
         })
         .collect()
 }
 
-/// The name `family`'s own figure of the row `name` goes by in
-/// [`Register::limits`]: no row's name holds an `@`.
-fn on_family(name: &str, family: &str) -> String {
-    format!("{name}@{family}")
+/// Whether `word` is a benchmark cell's name, as `single_attempt`.
+fn is_cell(word: &str) -> bool {
+    !word.is_empty() && word.chars().all(|c| c.is_ascii_lowercase() || c == '_')
 }
 
-/// The limit `family`'s count of the row `name` is held to: the family's
-/// own figure where the row's Today holds one for each family, else the
-/// row's.
+/// The name `family`'s own figure of the row `name` goes by in
+/// [`Register::limits`], or that of one `cell` of it: no row's name holds an
+/// `@`.
+fn on_family(name: &str, family: &str, cell: Option<&str>) -> String {
+    match cell {
+        Some(cell) => format!("{name}@{family}/{cell}"),
+        None => format!("{name}@{family}"),
+    }
+}
+
+/// The limit the count of the row `name` in `family`'s `cell` is held to:
+/// the cell's own figure where the row's Today names it, else the family's
+/// where the Today holds one for each family, else the row's.
 pub(super) fn limit<'a>(
     limits: &'a BTreeMap<String, Limit>,
     name: &str,
     family: &str,
+    cell: &str,
 ) -> Option<&'a Limit> {
     limits
-        .get(&on_family(name, family))
+        .get(&on_family(name, family, Some(cell)))
+        .or_else(|| limits.get(&on_family(name, family, None)))
         .or_else(|| limits.get(name))
 }
 

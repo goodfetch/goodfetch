@@ -3,6 +3,11 @@
 //! streams, the browser and the site BoringSSL ends of their own, the site's
 //! certificates made by a test authority. The oracles are what the site
 //! received, what the browser was shown and the Run's pins.
+
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"

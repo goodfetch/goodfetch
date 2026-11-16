@@ -200,10 +200,8 @@ pub struct StoredKey {
 /// SQLite's, and a constraint failure when the file holds a key already.
 pub fn store(connection: &rusqlite::Connection, stored: &StoredKey) -> rusqlite::Result<()> {
     connection
-        .execute(
-            "INSERT INTO run_key (id, wrapped, key_reference) VALUES (1, ?1, ?2)",
-            (stored.wrapped.as_bytes(), stored.key_reference.as_str()),
-        )
+        .prepare_cached("INSERT INTO run_key (id, wrapped, key_reference) VALUES (1, ?1, ?2)")?
+        .execute((stored.wrapped.as_bytes(), stored.key_reference.as_str()))
         .map(drop)
 }
 

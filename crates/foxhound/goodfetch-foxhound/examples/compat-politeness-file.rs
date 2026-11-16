@@ -21,7 +21,7 @@
 //! the only argument: `politeness-file.sql`. `xtask compat write` runs it.
 #![expect(
     clippy::disallowed_methods,
-    reason = "a synchronous corpus writer that builds its runtime, writes files and runs on the test Clock (ADRs 0059 and 0066)"
+    reason = "a synchronous corpus writer that builds its runtime, writes files and runs on the test Clock (ADRs 0059 and 0066); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::path::{Path, PathBuf};

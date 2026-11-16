@@ -137,7 +137,8 @@ struct Row {
     /// families is counted on the one its entry names (`E5.file_opens`, on
     /// B1), or has an entry for each, which holds each family's count to
     /// that family's own figure (`F1.analysis_handoffs` and `F1.parses`, on
-    /// B1 and B4).
+    /// B1 and B4), or to one cell's where the register names it
+    /// (`F1.tree_copies` in B4's `single_attempt`).
     family: &'static str,
     /// The key of the units of the outcome that does the work, in its
     /// benchmark's line.
@@ -186,7 +187,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 122] = [
+const ROWS: [Row; 124] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -265,6 +266,9 @@ const ROWS: [Row; 122] = [
     // A code-free crawl that asks for a format reads it in its page's one
     // hand-off, on a copy of the tree its untouched readers parsed (#2189).
     b4("F1.parses", "pages", true),
+    // The read ahead's copy for the landmarks fallback, once a page, and
+    // twice in `single_attempt`, a cell the register names (#2639).
+    b4("F1.tree_copies", "pages", true),
     b4("F1.rule_list_builds", "pages", true),
     b4("F1.rule_tests", "pages", true),
     // Read as each cell's crawl ended.
@@ -418,6 +422,11 @@ const ROWS: [Row; 122] = [
     b1("F3.hop_round_trips", HOPS, true),
     b1("F3.hop_round_trips.end", CHAINS, true),
     b1("F3.in_flight_serializations", ATTEMPTS_ENDED, false),
+    // The read transactions on the run file per lease, at the levels that
+    // batch attempts, within the memory budget (#2169): none, as the Run
+    // state holds every pending work item. Its unit is those cells'
+    // leases, a page's and a sitemap's, none elsewhere.
+    b1("F3.lease_reads", BATCHED_LEASES, false),
     // What each page more builds, read as `F2.prepares` is: the whole
     // site's run less a run on half its pages, over the pages it adds.
     b1("F3.counted_work_constructions", ADDED_PAGES, false),
@@ -1052,6 +1061,10 @@ const PAYLOADS: &str = "payloads";
 /// The attempts that ended in it: a page's, and each sitemap's read.
 const ATTEMPTS_ENDED: &str = "attempts_ended";
 
+/// The leases of a cell at a level that batches attempts, a page's and a
+/// sitemap's: none in any other cell.
+const BATCHED_LEASES: &str = "batched_leases";
+
 const fn b1(name: &'static str, unit: &'static str, happens: bool) -> Row {
     Row {
         name,
@@ -1598,6 +1611,7 @@ fn one_of(unit: &str) -> &str {
         "batched_pages" | "full_pages" | CALLGRIND_PAGES => "page",
         ADDED_PAGES => "page added",
         ATTEMPTS_ENDED => "attempt",
+        BATCHED_LEASES => "lease",
         CALLGRIND_CRAWLS => "crawl",
         unit => unit.trim_end_matches('s'),
     }
@@ -1611,9 +1625,9 @@ fn verdict(
 ) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
     for row in rows {
-        let limit = register::limit(limits, row.name, row.family)
-            .with_context(|| format!("the Quality register has no row {}", row.name))?;
         for cell in cells {
+            let limit = register::limit(limits, row.name, row.family, &cell.name)
+                .with_context(|| format!("the Quality register has no row {}", row.name))?;
             let (Some(count), Some(units)) = (cell.counts.get(row.name), cell.units.get(row.unit))
             else {
                 findings.push(Finding::new(

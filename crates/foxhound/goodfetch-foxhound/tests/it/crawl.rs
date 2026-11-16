@@ -5,6 +5,11 @@
 //! Goodfetch home's per-major folder, a retryable failure tried again, and
 //! `$/cancel` ending a `run.finish` that waits. Read through `StrictStdout`
 //! with the engine's logs at `trace`.
+
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"

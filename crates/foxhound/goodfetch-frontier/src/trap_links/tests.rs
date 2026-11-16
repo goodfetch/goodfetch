@@ -3,6 +3,11 @@
 //! the honeypot forms of the Proving ground's `traps` family and the links
 //! a person sees.
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use goodfetch_engine::egress::Policy;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
 use rstest::rstest;

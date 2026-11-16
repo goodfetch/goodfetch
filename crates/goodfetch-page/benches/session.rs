@@ -1307,7 +1307,7 @@ fn engine(metrics: Metrics, launcher: Launcher) -> Engine {
 /// `metrics` is the engine's, whose [`CountedWork`] counts it all.
 #[expect(
     clippy::disallowed_methods,
-    reason = "a benchmark builds its own runtime, with real time as the browser's socket needs (ADR 0060)"
+    reason = "a benchmark builds its own runtime, with real time as the browser's socket needs (ADR 0060); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 pub(crate) fn counted(
     browsers: Browsers,

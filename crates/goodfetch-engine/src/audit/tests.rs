@@ -13,7 +13,7 @@
 //! open or are refused under the Usage ledger family's rule.
 #![expect(
     clippy::disallowed_methods,
-    reason = "the tests edit the Audit log's files as someone tampering with them would"
+    reason = "the tests edit the Audit log's files as someone tampering with them would; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use goodfetch_protocol::audit::Actor;

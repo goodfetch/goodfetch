@@ -6,6 +6,11 @@
 //! the Runs' engine, is area 6's (#1005), so no engine-level case can
 //! re-admit yet.
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use goodfetch_dataset::Checked;
 use goodfetch_protocol::foxhound::outcomes::{
     CrawlRequestOutcome, Ending, OutcomeKind, SkipReason,

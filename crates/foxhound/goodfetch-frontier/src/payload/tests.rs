@@ -1,6 +1,11 @@
 //! A Payload's checks as pure rules of the Payload, its Label's schema and
 //! the cap (spec #581's Testing Decisions: pure rules in process), and the
 //! schema hash a resume compares, on a run file in memory.
+
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"

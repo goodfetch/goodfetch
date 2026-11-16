@@ -2,7 +2,7 @@
 //! as the global allocator, as the executables ship (ADR 0071).
 #![expect(
     clippy::disallowed_methods,
-    reason = "bench targets run on the test Clock and Entropy (ADR 0071)"
+    reason = "bench targets run on the test Clock and Entropy (ADR 0071); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 #[expect(

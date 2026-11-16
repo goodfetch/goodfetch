@@ -2,6 +2,11 @@
 //! ADR 0002): an Attached engine hands its Runs to the Daemon, which keeps
 //! them in the install database, and a killed Daemon leaves every Run
 //! resumable.
+
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"

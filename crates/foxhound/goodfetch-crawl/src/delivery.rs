@@ -2,66 +2,65 @@
 //! which admits pending work items through the Run's admission, the
 //! per-domain queues Foxhound's composition passes in as the gate in
 //! admission under the Run's rate cap, and leases them to the handler of
-//! each Connection serving the crawl (the one that started it, and each `workers=N` handler process
-//! that joined it with `crawl.serve`), at most `crawl.handler.concurrency`
-//! at once on each, each lease committed in run state
-//! before its `crawl_request.handle` request is sent, served by a Session
-//! the crawl's Session pool draws, which the attempt's ending then scores
-//! (ADRs 0006 and 0021); commits an answered
-//! attempt's Records once, through its lease, while the lease holds; and
-//! ends an attempt whose handler failed, or that got no answer before its
-//! lease ended, with nothing committed, its work item retried under the
-//! Run's policy, which each admission point reads again from the Run's
-//! settings; a handler's skip ends its work item `skipped`, and a failure
-//! with the Error code `blocked` ends it `blocked`. Each ending's outcome
-//! is committed with it. When a lease ends first, the attempt's request is cancelled
-//! with `$/cancel`, and an answer that still comes is a late commit,
-//! refused with `lease_lost`. An attempt whose Connection ended is
-//! `client_gone`, never the handler's own `handler_failed`, and is retried
-//! on a Connection still serving. Each admission also takes a Permit of its
-//! domain key from the Politeness the Run shares with the other runs of
-//! its user, given back once its attempt ended, with what the attempt met:
-//! a site that did not answer in time backs the domain off, and a handler
-//! failing with `blocked` for a `rate_limit` (a 429) halves its concurrency,
-//! for every sharing run (ADR 0053), as one failing with
-//! `response_unavailable` for a 502, 503 or 504 backs it off; the time a
-//! failure's `retry_after` names holds the domain until then (ADR 0118).
-//! The site's own answer to the request's document, which the engine
-//! fetched on any tier, does the same whatever the handler made of the
-//! page, as does a fetch the site refused, timed out or reset with
-//! `ENHANCE_YOUR_CALM` (frontier's `backoff_classes`); a proxy's own
-//! answer backs no domain off (ADR 0053). A
-//! domain the Politeness holds for want of room waits for the wake of a
+//! each Connection serving the crawl (the one that started it, and each
+//! `workers=N` handler process that joined it with `crawl.serve`), at most
+//! `crawl.handler.concurrency` at once on each, each lease committed in run
+//! state before its `crawl_request.handle` request is sent, served by a
+//! Session the crawl's Session pool draws, which the attempt's ending then
+//! scores (ADRs 0006 and 0021); commits an answered attempt's Records once,
+//! through its lease, while the lease holds; and ends an attempt whose
+//! handler failed, or that got no answer before its lease ended, with
+//! nothing committed, its work item retried under the Run's policy, which
+//! each admission point reads again from the Run's settings; a handler's
+//! skip ends its work item `skipped`, and a failure with the Error code
+//! `blocked` ends it `blocked`. Each ending's outcome is committed with it.
+//! When a lease ends first, the attempt's request is cancelled with
+//! `$/cancel`, and an answer that still comes is a late commit, refused
+//! with `lease_lost`. An attempt whose Connection ended is `client_gone`,
+//! never the handler's own `handler_failed`, and is retried on a Connection
+//! still serving. Each admission also takes a Permit of its domain key from
+//! the Politeness the Run shares with the other runs of its user, given
+//! back once its attempt ended, with what the attempt met: a site that did
+//! not answer in time backs the domain off, and a handler failing with
+//! `blocked` for a `rate_limit` (a 429) halves its concurrency, for every
+//! sharing run (ADR 0053), as one failing with `response_unavailable` for a
+//! 502, 503 or 504 backs it off; the time a failure's `retry_after` names
+//! holds the domain until then (ADR 0118). The site's own answer to the
+//! request's document, which the engine fetched on any tier, does the same
+//! whatever the handler made of the page, as does a fetch the site refused,
+//! timed out or reset with `ENHANCE_YOUR_CALM` (frontier's
+//! `backoff_classes`); a proxy's own answer backs no domain off (ADR 0053).
+//! A domain the Politeness holds for want of room waits for the wake of a
 //! Permit given back. When that time is further away than the Run waits
 //! (`politeness.retry_after.max`), the request whose response asked ends
 //! `failed` with no retry spent, and each request of the domain admitted
 //! meanwhile ends `failed` with `response_unavailable`, unsent: no handler
 //! request goes for it. That time is measured from when the request's
-//! handler request went out, and the Run refuses the domain until then,
-//! so however late the failure arrives, nothing waits for it. Once every
-//! work item is done, it finishes the Run; with `crawl.keep_alive` (RT-12) it waits
-//! for new work instead until `run.finish` lets the Run finish, so its idle
-//! time counts toward its `timeout.run`. A seed added to the running crawl
-//! (`run.add_seed`, `run.add_seeds`) is admitted by it, idle or not, as
-//! every other task's question of the crawl's Run state is answered by it
-//! (ADR 0142; `run_state`), and queued under its domain as it is written. When the Run is asked to stop at its next safe point,
+//! handler request went out, and the Run refuses the domain until then, so
+//! however late the failure arrives, nothing waits for it. Once every work
+//! item is done, it finishes the Run; with `crawl.keep_alive` (RT-12) it
+//! waits for new work instead until `run.finish` lets the Run finish, so
+//! its idle time counts toward its `timeout.run`. A seed added to the
+//! running crawl (`run.add_seed`, `run.add_seeds`) is admitted by it, idle
+//! or not, as every other task's question of the crawl's Run state is
+//! answered by it (ADR 0142; `run_state`), and queued under its domain as
+//! it is written. When the Run is asked to stop at its next safe point,
 //! such as once its `timeout.run` passed, it admits nothing new, lets each
 //! attempt in flight commit or be abandoned under its lease, and then stops
 //! the Run. When the Run stops at once, by an abort, the attempts in flight
 //! are abandoned and their work items return to pending without counting;
-//! when
-//! no Connection serves the crawl any more, the driver delivers nothing
-//! more and waits for the Run to stop or a Connection to join. Each attempt
-//! counts in `goodfetch.work_item.leased` until it ends, and each retry in
-//! `goodfetch.work_item.retried`, on the meter the Run hands out (ADR 0050).
-//! A pending work item a rule the Frontier learned later, at the end of a
-//! batch the run state's writer commits (#2169), merged leaves its
-//! domain's queue, and one the gate already took gives its turn back
-//! unsent; one that rule's stop made pending again joins its domain's
-//! queue as that queue is filled again. Each attempt runs on the tier the crawl's tier choice plans for
-//! its Label on its domain (`tier_choice`); a sample's outcome is
-//! classified, and the choice written in the run file, as its attempt
-//! settles, before the next admission.
+//! when no Connection serves the crawl any more, the driver delivers
+//! nothing more and waits for the Run to stop or a Connection to join. Each
+//! attempt counts in `goodfetch.work_item.leased` until it ends, and each
+//! retry in `goodfetch.work_item.retried`, on the meter the Run hands out
+//! (ADR 0050). A pending work item a rule the Frontier learned later, at
+//! the end of a batch the run state's writer commits (#2169), merged leaves
+//! its domain's queue, and one the gate already took gives its turn back
+//! unsent; one that rule's stop made pending again joins its domain's queue
+//! as that queue is filled again. Each attempt runs on the tier the crawl's
+//! tier choice plans for its Label on its domain (`tier_choice`); a
+//! sample's outcome is classified, and the choice written in the run file,
+//! as its attempt settles, before the next admission.
 //!
 //! Size: one delivery loop, the admission, leases, attempts and settling it
 //! drives, kept whole so every work item's way from pending to its ending
@@ -131,8 +130,8 @@ use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::run_state::{
-    Asking, Chosen, Drawing, Drawn, DrawnSession, Local, Question, QueuedEnd, Ran, RunState,
-    StateError, Stored, Tally, Unkeyed, Within,
+    Asking, Chosen, Drawing, Drawn, DrawnSession, Local, Opening, Question, QueuedEnd, Ran,
+    RunState, StateError, Stored, Unkeyed, Within,
 };
 use crate::serving::{Crawls, Opened, Server};
 use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices, Unit};
@@ -1115,22 +1114,21 @@ enum Waited {
 
 /// Finishes a crawl with no work item left, with what its bounds and caps
 /// cut as its Completeness reasons, unless `crawl.keep_alive`, one of the
-/// settings the Run resolved as it opened, holds it until
-/// `run.finish` lets it finish: until then it waits for new work, as the
-/// Run's own timeout and a stop still end it (RT-12). Before it finishes,
-/// it closes its intake in a job of the Run state's writer that looks once
-/// more for a pending work item: a re-admission or a seed added since its
-/// last look is delivered, and one coming later is refused (#914, #1005).
-/// That job first gives back each work item still leased, whose attempt
-/// ended with its outcome unwritten: retried, it is delivered, and the
-/// crawl does not finish over it. That job, or a batch of its own while
-/// the crawl is kept alive, also
-/// writes the tier choices' counts `state` holds that the run file has not
-/// heard of: no lease follows the last draws to carry them (ADR 0142).
-/// A crawl kept alive seals the open batch before it waits, so what it
-/// did is in the file while it waits (ADR 0142).
-/// What that job changed of the crawl's requests by state is counted and
-/// shown with the requests `in_flight`.
+/// settings the Run resolved as it opened, holds it until `run.finish` lets
+/// it finish: until then it waits for new work, as the Run's own timeout
+/// and a stop still end it (RT-12). Before it finishes, it closes its
+/// intake in a job of the Run state's writer that looks once more for a
+/// pending work item: a re-admission or a seed added since its last look is
+/// delivered, and one coming later is refused (#914, #1005). That job first
+/// gives back each work item still leased, whose attempt ended with its
+/// outcome unwritten: retried, it is delivered, and the crawl does not
+/// finish over it. That job, or a batch of its own while the crawl is kept
+/// alive, also writes the tier choices' counts `state` holds that the run
+/// file has not heard of: no lease follows the last draws to carry them
+/// (ADR 0142). A crawl kept alive seals the open batch before it waits, so
+/// what it did is in the file while it waits (ADR 0142). What that job
+/// changed of the crawl's requests by state is counted and shown with the
+/// requests `in_flight`.
 async fn drained(
     run: &Run,
     resolved: &Resolved,
@@ -1176,8 +1174,8 @@ async fn drained(
                 match short {
                     Some(reasons) => Ending::Finished(reasons),
                     // A work item it gave back is pending in a batch the
-                    // next reads must see (ADR 0142).
-                    None => match state.seal().await {
+                    // next reads must see (ADR 0142), and memory missed it.
+                    None => match state.spill().seal().await {
                         Ok(()) => return Waited::Again,
                         Err(error) => failed(run, &error),
                     },
@@ -1246,9 +1244,9 @@ enum Idle {
 
 /// What a crawl with no attempt in flight does next: its queues filled
 /// again from the pending work items when they hold none ready, once any
-/// work item an admission left with no domain key is keyed. Its reads
-/// decide with no seal: each work item an answered write changed in the
-/// open batch is known in memory beside them (ADR 0142).
+/// work item an admission left with no domain key is keyed, which lets
+/// the pending work items go from memory (#2169). Its reads decide with no
+/// seal, knowing in memory each change of the open batch (ADR 0142).
 async fn when_idle(
     run: &Run,
     admission: &mut Admission,
@@ -1257,7 +1255,9 @@ async fn when_idle(
     if admission.ready_at(run.clock().now()).is_some() {
         return Ok(Idle::Wait);
     }
-    key_new(state.stored(), admission, Unkeyed::Running).await?;
+    if key_new(state.stored(), admission, Unkeyed::Running).await? {
+        state.spill();
+    }
     fill(state, admission, None).await?;
     if admission.ready_at(run.clock().now()).is_some() {
         return Ok(Idle::Admit);
@@ -1336,13 +1336,12 @@ async fn settled(
 /// attempt's place on its Connection, which its page holds until then so
 /// that a Connection's handler concurrency counts the pages it has not
 /// settled and a retried work item goes back before its place is leased
-/// again; counts what they
-/// changed of the crawl's requests by state and shows it with the
-/// attempts out of the requests in flight, as one change of the Run's
-/// progress (#2167); then returns each one's domain turn and puts each
-/// retried work item back in its queue, in their order, offers its
-/// domain's queue each work item an outcome added, keyed as it was added,
-/// and journals what the queues changed.
+/// again; counts what they changed of the crawl's requests by state and
+/// shows it with the attempts out of the requests in flight, as one change
+/// of the Run's progress (#2167); then returns each one's domain turn and
+/// puts each retried work item back in its queue, in their order, offers
+/// its domain's queue each work item an outcome added, keyed as it was
+/// added, and journals what the queues changed.
 async fn completed(
     run: &Run,
     (admission, servers): (&mut Admission, &mut [Serving]),
@@ -1376,11 +1375,11 @@ async fn abandoned(settling: &mut Settlements) {
 }
 
 /// Marks the Connection of each attempt of `ended` gone when its client
-/// went, and scores its Session in
-/// `state`'s pool under what the loop `read`, in their order, answering
-/// them with what each one's settling keeps and what its outcome writes of
-/// its score and tier choice. Each stays among the requests in flight its
-/// Run's progress shows until its outcome is written.
+/// went, and scores its Session in `state`'s pool under what the loop
+/// `read`, in their order, answering them with what each one's settling
+/// keeps and what its outcome writes of its score and tier choice. Each
+/// stays among the requests in flight its Run's progress shows until its
+/// outcome is written.
 fn scored(
     run: &Run,
     read: Read,
@@ -1520,8 +1519,8 @@ async fn opened(
     arrivals: &Opened,
 ) -> Option<(Admission, RunState)> {
     match open(run, settings, arrivals).await {
-        Ok((admission, (pool, tally), stored)) => {
-            Some((admission, RunState::new(pool, choices, tally, stored)))
+        Ok((admission, (pool, opening), stored)) => {
+            Some((admission, RunState::new(pool, choices, opening, stored)))
         }
         Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the crawl's admission could not open");
@@ -1535,13 +1534,13 @@ async fn opened(
 /// and what its Run state reads and writes of the run file, each work
 /// item it adds with no attempt keyed as that gate keys it; keys the work
 /// items not keyed yet and fills each domain's queue; and opens its
-/// Session pool from the run file, on an `Entropy` of its own, with the
-/// requests by state its Run state counts on from.
+/// Session pool from the run file, on an `Entropy` of its own, with what
+/// else its Run state starts from ([`Opening`]).
 async fn open(
     run: &Run,
     settings: &RunSettings,
     arrivals: &Opened,
-) -> Result<(Admission, (SessionPool, Tally), Stored), String> {
+) -> Result<(Admission, (SessionPool, Opening), Stored), String> {
     let resolved = settings.resolved();
     let mut admission = run
         .admission(resolved)
@@ -1576,7 +1575,7 @@ async fn open(
     {
         admission.enqueue(waiting);
     }
-    let (pool, tally) = stored
+    let (pool, opening) = stored
         .open(run.fork_entropy().await)
         .await
         .map_err(|error| error.to_string())?;
@@ -1592,7 +1591,7 @@ async fn open(
         )),
         None => pool,
     };
-    Ok((admission, (pool, tally), stored))
+    Ok((admission, (pool, opening), stored))
 }
 
 /// The interface `egress.local_addresses` names, if it names one.
@@ -1653,32 +1652,33 @@ async fn warn_rotated(run: &Run, rotated: Rotated) {
 const KEYED_AT_ONCE: usize = 1024;
 
 /// Keys each work item not keyed yet, `found` as the crawl opens or once
-/// it is idle. A start keys its seeds in the write that adds them, as its
-/// gate keys them (#2168), and every work item added once the crawl runs
-/// is keyed in the write that adds it, a seed, a re-admission, an
-/// attempt's links and a sitemap's entries (#2167), so a crawl finds none
-/// unless a start ran with no gate; one an admission left so would wait
-/// outside every domain's queue for ever, and is keyed here, in a write
-/// the Run state counts. It offers each to its domain's queue, which
-/// takes it unless full; one it refuses waits in run state until its queue
-/// fills again. At a level that batches attempts a round's keys ride the
-/// open batch, which the next read would not see, so each round that keyed
-/// any seals it (ADR 0142): the next round and the reads after it see them.
+/// it is idle, and answers whether it keyed any. A start keys its seeds in
+/// the write that adds them, as its gate keys them (#2168), and every work
+/// item added once the crawl runs is keyed in the write that adds it, a
+/// seed, a re-admission, an attempt's links and a sitemap's entries
+/// (#2167), so a crawl finds none unless a start ran with no gate; one an
+/// admission left so would wait outside every domain's queue for ever, and
+/// is keyed here, in a write the Run state counts. It offers each to its
+/// domain's queue, which takes it unless full; one it refuses waits in run
+/// state until its queue fills again. At a level that batches attempts a
+/// round's keys ride the open batch, which the next read would not see, so
+/// each round that keyed any seals it (ADR 0142): later reads see them.
 async fn key_new(
     stored: &Stored,
     admission: &mut Admission,
     found: Unkeyed,
-) -> Result<(), StateError> {
+) -> Result<bool, StateError> {
+    let mut keyed = false;
     loop {
         let unkeyed = stored.unkeyed(KEYED_AT_ONCE).await?;
         let read = unkeyed.len();
-        if read == 0 {
-            return Ok(());
+        if read > 0 {
+            key(stored, admission, unkeyed, found).await?;
+            stored.seal().await?;
+            keyed = true;
         }
-        key(stored, admission, unkeyed, found).await?;
-        stored.seal().await?;
         if read < KEYED_AT_ONCE {
-            return Ok(());
+            return Ok(keyed);
         }
     }
 }

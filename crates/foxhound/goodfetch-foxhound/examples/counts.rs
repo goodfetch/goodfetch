@@ -305,6 +305,11 @@ const SYNCS: &str = "F2.syncs";
 const PAGE_WAITS: &str = "F2.page_waits";
 const PAGE_WAITS_FULL: &str = "F2.page_waits.full";
 
+/// The Run state's read transactions on the run file per lease, held at
+/// the levels that batch attempts, within the memory budget (#2169): none
+/// counts in the other cells, whose leases read their rows.
+const LEASE_READS: &str = "F3.lease_reads";
+
 /// The batches the writer sealed before their plan, less the one each of
 /// the crawl's [`BARRIER_CALLS`] may write: what is left is the Run's own,
 /// at most its start's and its end's.
@@ -1303,6 +1308,7 @@ fn main() {
             "off_attempts": if off { cell.attempts } else { 0 },
             "learning_off_pages": if cell.name == LEARNING_OFF { cell.pages } else { 0 },
             "batched_pages": if batched { cell.pages } else { 0 },
+            "batched_leases": if batched { cell.attempts + cell.sitemaps } else { 0 },
             "full_pages": if full { cell.pages } else { 0 },
         });
         println!(
@@ -1358,6 +1364,11 @@ fn counts_of(cell: &Counted) -> Map<String, Value> {
     counts.insert(
         PAGE_WAITS_FULL.to_owned(),
         json!(if full { page_waits } else { 0 }),
+    );
+    let lease_reads = cell.count(Row::LeaseReads);
+    counts.insert(
+        LEASE_READS.to_owned(),
+        json!(if batched { lease_reads } else { 0 }),
     );
     let early = cell.count(Row::RunBatches);
     counts.insert(

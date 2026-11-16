@@ -5,8 +5,9 @@
 //! ends each pending request it merges `skipped` with `duplicate`, and
 //! makes pending again each one a rule it stopped had ended so; the
 //! delivery loop hears of them through [`Taught`], takes them out of their
-//! domains' queues and fills those queues again. The loop may hear of them
-//! before their batch commits: a read that starts once it has sees them.
+//! domains' queues, or keeps them pending as their next lease takes them,
+//! and fills those queues again. The loop may hear of them before their
+//! batch commits: a read that starts once it has sees them.
 
 #![expect(
     clippy::disallowed_types,
@@ -24,14 +25,24 @@ use goodfetch_protocol::run::PointInTime;
 use rusqlite::Connection;
 use tokio::sync::{Notify, watch};
 
-use crate::work_items::{self, Changed};
+use crate::work_items::{self, Changed, Leased};
 
 /// What the Frontier's rules moved of the crawl's pending requests: each
-/// one a rule taught merged and each one a rule it stopped gave back, by
-/// ID with the domain key it waits under and the commits the writer had
-/// acknowledged when its batch's end moved it (#2679), and what that
-/// changed of the crawl's requests by state.
-pub(crate) type Moved = (Vec<(String, String, u64)>, Changed);
+/// one a rule taught merged and each one a rule it stopped gave back, with
+/// the commits the writer had acknowledged when its batch's end moved it
+/// (#2679), and what that changed of the crawl's requests by state.
+pub(crate) type Moved = (Vec<(Move, u64)>, Changed);
+
+/// A pending request a rule moved.
+#[derive(Debug)]
+pub(crate) enum Move {
+    /// A rule taught merged it: its ID, with the domain key it waited
+    /// under.
+    Merged(String, String),
+    /// A rule stopped gave it back: pending again, as its next lease takes
+    /// it.
+    Given(Box<Leased>),
+}
 
 /// What the batches' ends moved and the delivery loop has not taken yet,
 /// gathered into one: its size is bounded by the crawl's requests, each
@@ -134,7 +145,7 @@ impl Teacher {
         let moved = merged
             .moved
             .into_iter()
-            .map(|(id, key)| (id, key, commits))
+            .map(|moving| (moving, commits))
             .collect();
         self.taught.add((moved, changed));
         Ok(())
@@ -177,12 +188,11 @@ impl BatchEnd for Teacher {
 }
 
 /// The crawl's side of a rule taught: the pending requests it merged,
-/// ended at `ended_at`, and those its stop made pending again, by ID with
-/// their domain key, and what both changed of the crawl's requests by
-/// state.
+/// ended at `ended_at`, and those its stop made pending again, and what
+/// both changed of the crawl's requests by state.
 struct Merged {
     ended_at: PointInTime,
-    moved: Vec<(String, String)>,
+    moved: Vec<Move>,
     changed: Changed,
 }
 
@@ -202,7 +212,7 @@ impl EndMerged for Merged {
             .into_iter()
             .map(|(id, url, key)| {
                 if let Some(key) = key {
-                    self.moved.push((id.clone(), key));
+                    self.moved.push(Move::Merged(id.clone(), key));
                 }
                 goodfetch_frontier::Ended {
                     crawl_request: id,
@@ -218,14 +228,11 @@ impl EndMerged for Merged {
         crawl_requests: &[String],
     ) -> rusqlite::Result<Vec<String>> {
         let given = work_items::give_back(connection, crawl_requests, &mut self.changed)?;
-        Ok(given
-            .into_iter()
-            .map(|(id, key)| {
-                if let Some(key) = key {
-                    self.moved.push((id.clone(), key));
-                }
-                id
-            })
-            .collect())
+        self.moved.extend(
+            work_items::leasable(connection, &given)?
+                .into_iter()
+                .map(|leased| Move::Given(Box::new(leased))),
+        );
+        Ok(given)
     }
 }

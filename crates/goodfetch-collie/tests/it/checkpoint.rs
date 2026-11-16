@@ -11,7 +11,7 @@
 )]
 #![expect(
     clippy::disallowed_methods,
-    reason = "a test outside any async worker, which makes, fills and reads real filesystems (ADR 0062)"
+    reason = "a test outside any async worker, which makes, fills and reads real filesystems (ADR 0062); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::io::Write as _;

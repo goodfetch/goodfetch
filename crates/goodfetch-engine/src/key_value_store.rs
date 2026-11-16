@@ -126,11 +126,10 @@ type Row = (Option<String>, Option<Vec<u8>>, Option<String>, Option<i64>);
 /// or for bytes whose kept file the Run has no record of.
 pub fn get(connection: &Connection, key: &str) -> rusqlite::Result<Option<Stored>> {
     let row: Option<Row> = connection
-        .query_row(
-            "SELECT value, content, content_type, file FROM key_values WHERE key = ?1",
-            [key],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
+        .prepare_cached("SELECT value, content, content_type, file FROM key_values WHERE key = ?1")?
+        .query_row([key], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
         .optional()?;
     let damaged = |what: &str| {
         rusqlite::Error::FromSqlConversionFailure(
@@ -176,11 +175,8 @@ pub fn get(connection: &Connection, key: &str) -> rusqlite::Result<Option<Stored
 /// file.
 fn take(connection: &Connection, key: &str) -> rusqlite::Result<Removed> {
     let removed: Option<Option<i64>> = connection
-        .query_row(
-            "DELETE FROM key_values WHERE key = ?1 RETURNING file",
-            [key],
-            |row| row.get(0),
-        )
+        .prepare_cached("DELETE FROM key_values WHERE key = ?1 RETURNING file")?
+        .query_row([key], |row| row.get(0))
         .optional()?;
     let file = match removed
         .flatten()
@@ -203,10 +199,9 @@ fn take(connection: &Connection, key: &str) -> rusqlite::Result<Removed> {
 /// SQLite's.
 pub fn set(connection: &Connection, key: &str, value: &Value) -> rusqlite::Result<Removed> {
     let removed = take(connection, key)?;
-    connection.execute(
-        "INSERT INTO key_values (key, value) VALUES (?1, ?2)",
-        (key, value.to_string()),
-    )?;
+    connection
+        .prepare_cached("INSERT INTO key_values (key, value) VALUES (?1, ?2)")?
+        .execute((key, value.to_string()))?;
     Ok(removed)
 }
 
@@ -226,20 +221,22 @@ pub fn set_bytes(
 ) -> rusqlite::Result<Removed> {
     let removed = take(connection, key)?;
     match content {
-        Content::Inline(bytes) => connection.execute(
-            "INSERT INTO key_values (key, content, content_type) VALUES (?1, ?2, ?3)",
-            (key, bytes, content_type),
-        )?,
+        Content::Inline(bytes) => connection
+            .prepare_cached(
+                "INSERT INTO key_values (key, content, content_type) VALUES (?1, ?2, ?3)",
+            )?
+            .execute((key, bytes, content_type))?,
         Content::File { sha256, size } => {
             let position = run_files::record(connection, FileKind::KeyValue, key, sha256, *size)?;
-            connection.execute(
-                "INSERT INTO key_values (key, content_type, file) VALUES (?1, ?2, ?3)",
-                (
+            connection
+                .prepare_cached(
+                    "INSERT INTO key_values (key, content_type, file) VALUES (?1, ?2, ?3)",
+                )?
+                .execute((
                     key,
                     content_type,
                     i64::try_from(position).unwrap_or(i64::MAX),
-                ),
-            )?
+                ))?
         }
     };
     Ok(removed)

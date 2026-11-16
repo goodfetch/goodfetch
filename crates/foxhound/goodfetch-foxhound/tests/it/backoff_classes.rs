@@ -17,7 +17,7 @@
 )]
 #![expect(
     clippy::disallowed_methods,
-    reason = "the test reads the times the Politeness file holds a domain until against the wall clock, and bounds its own wait for them"
+    reason = "the test reads the times the Politeness file holds a domain until against the wall clock, and bounds its own wait for them; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::collections::BTreeSet;

@@ -1,7 +1,7 @@
 //! What the governor reads from a folder laid out as Linux's `/proc`, with
 //! the cgroup file system its `mountinfo` names (spec #213's Seam 4): the
 //! Memory allowance, the host's pressure, the footprint of the engine and
-//! its children, and its CPU time.
+//! its children and of each browser, its CPU time and the CPUs it may use.
 #![expect(
     clippy::disallowed_methods,
     reason = "the test writes the folder the governor reads, outside any runtime"
@@ -81,13 +81,24 @@ impl Proc {
         System::linux_files(self.root().join("proc"))
     }
 
+    /// One sample of a governor started now, reading the memory of
+    /// `browsers`.
+    fn sample(&self, setting: Option<u64>, browsers: &[u32]) -> super::SystemReading {
+        let system = self.system();
+        system.read(&system.locate(), &inputs(setting), browsers)
+    }
+
     fn read(&self, setting: Option<u64>) -> super::SystemReading {
-        self.system().read(&Inputs {
-            memory_allowance: setting,
-            pressure: 85,
-            critical: 95,
-            host_memory: true,
-        })
+        self.sample(setting, &[])
+    }
+}
+
+fn inputs(setting: Option<u64>) -> Inputs {
+    Inputs {
+        memory_allowance: setting,
+        pressure: 85,
+        critical: 95,
+        host_memory: true,
     }
 }
 
@@ -174,16 +185,11 @@ fn a_limit_changed_since_the_last_sample_is_seen() {
     proc.file("self/cgroup", "0::/pod.scope\n");
     write(&mount.join("pod.scope/memory.max"), "268435456\n");
     let system = proc.system();
-    let inputs = Inputs {
-        memory_allowance: None,
-        pressure: 85,
-        critical: 95,
-        host_memory: true,
-    };
-    let before = system.read(&inputs).allowance;
+    let cgroup = system.locate();
+    let before = system.read(&cgroup, &inputs(None), &[]).allowance;
 
     write(&mount.join("pod.scope/memory.max"), "536870912\n");
-    let after = system.read(&inputs).allowance;
+    let after = system.read(&cgroup, &inputs(None), &[]).allowance;
 
     assert_eq!((before, after), (256 * MIB, 512 * MIB));
 }
@@ -312,6 +318,75 @@ fn the_footprint_is_the_pss_of_the_engine_and_every_descendant() {
     let reading = proc.read(None);
 
     assert_eq!(reading.used, (100 + 300 + 50) * MIB);
+}
+
+#[test]
+fn each_browser_counts_its_own_tree_whether_or_not_the_engine_started_it() {
+    let proc = Proc::new();
+    proc.file("self/task/4242/children", "5000");
+    proc.file("5000/smaps_rollup", &rollup(300 * MIB));
+    proc.file("5000/task/5000/children", "6000");
+    proc.file("6000/smaps_rollup", &rollup(50 * MIB));
+    proc.file("6000/task/6000/children", "");
+    // A Borrowed browser, no descendant of the engine's.
+    proc.file("7000/smaps_rollup", &rollup(200 * MIB));
+    proc.file("7000/task/7000/children", "");
+
+    let reading = proc.sample(None, &[5000, 7000, 8000]);
+
+    assert_eq!(
+        (reading.used, reading.browsers),
+        ((100 + 300 + 50) * MIB, vec![350 * MIB, 200 * MIB, 0])
+    );
+}
+
+#[test]
+fn a_cgroup_v2_cpu_quota_bounds_the_cpus_and_a_changed_one_is_seen() {
+    let proc = Proc::new();
+    let mount = proc.cgroup2();
+    proc.file("self/cgroup", "0::/pod.scope\n");
+    write(&mount.join("pod.scope/cpu.max"), "150000 100000\n");
+    let system = proc.system();
+    let cgroup = system.locate();
+    let before = (
+        cgroup.cpu_quota(),
+        system.read(&cgroup, &inputs(None), &[]).parallelism,
+    );
+
+    write(&mount.join("pod.scope/cpu.max"), "max 100000\n");
+    let after = (
+        cgroup.cpu_quota(),
+        system.read(&cgroup, &inputs(None), &[]).parallelism,
+    );
+
+    assert_eq!(
+        (before, after),
+        ((Some(1), 1), (None, super::cpus::allowed()))
+    );
+}
+
+#[test]
+fn a_cgroup_v1_cpu_quota_bounds_the_cpus() {
+    let proc = Proc::new();
+    let mount = proc.root().join("cpu");
+    proc.file(
+        "self/mountinfo",
+        &format!(
+            "30 22 0:26 / {} rw,nosuid - cgroup cgroup rw,cpu,cpuacct\n",
+            mount.display()
+        ),
+    );
+    proc.file("self/cgroup", "5:cpu,cpuacct:/docker/abc\n0::/\n");
+    write(&mount.join("docker/abc/cpu.cfs_quota_us"), "50000\n");
+    write(&mount.join("docker/abc/cpu.cfs_period_us"), "100000\n");
+    write(&mount.join("cpu.cfs_quota_us"), "-1\n");
+    write(&mount.join("cpu.cfs_period_us"), "100000\n");
+    let system = proc.system();
+    let cgroup = system.locate();
+
+    let reading = system.read(&cgroup, &inputs(None), &[]);
+
+    assert_eq!((cgroup.cpu_quota(), reading.parallelism), (Some(1), 1));
 }
 
 #[test]

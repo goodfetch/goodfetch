@@ -68,9 +68,11 @@ use goodfetch_engine::run_state::WriteWatch;
 use goodfetch_protocol::ops::{RUN_STATE_MEMORY, RUN_STATE_SPILLED_LOOKUPS};
 use rusqlite::Connection;
 
+pub use self::budget::SharedBudget;
 pub(crate) use self::learned::{EVERY_LEARNED, LEARNED_WITHIN};
 pub(crate) use self::rules::{HeldRule, LearnedRules};
 
+mod budget;
 mod learned;
 mod rules;
 
@@ -125,8 +127,9 @@ struct Held {
     /// The bytes the entries held allocate, as [`cost`] counts them; the
     /// tables and queues holding them add theirs ([`Held::bytes`]).
     entries: u64,
-    /// The most bytes kept of what the file holds.
-    budget: u64,
+    /// The most bytes kept of what the file holds, less what the Run
+    /// state's pending work items hold.
+    budget: SharedBudget,
     /// The commits acknowledged as a seed last widened the scope.
     widened: Option<u64>,
     /// Whether memory holds every visit the file holds.
@@ -479,11 +482,11 @@ impl Held {
     /// Room grows by doubling, so a table can outgrow the budget while its
     /// entries fit.
     fn fit(&mut self) {
-        if self.bytes() <= self.budget {
+        if self.bytes() <= self.budget.room() {
             return;
         }
         self.evict();
-        if self.bytes() > self.budget {
+        if self.bytes() > self.budget.room() {
             self.visited.shrink_to(ample(self.visited.len()));
             self.learned.shrink_to(ample(self.learned.len()));
             self.seeds.shrink_to(ample(self.seeds.len()));
@@ -500,7 +503,7 @@ impl Held {
             .entries
             .saturating_add(self.kept())
             .saturating_add(self.containers().min(self.least(0)))
-            > self.budget
+            > self.budget.room()
             && let Some((tag, space, identity)) = self.resident.pop_front()
         {
             if self
@@ -617,7 +620,7 @@ impl Held {
                 .entries
                 .saturating_add(self.kept())
                 .saturating_add(self.least(queued + read.len() + 1))
-                > self.budget
+                > self.budget.room()
             {
                 self.remove(space, &identity);
                 return Ok((read, false));
@@ -834,12 +837,13 @@ impl Drop for Pending {
 }
 
 impl UnwrittenVisits {
-    /// None held yet, keeping at most `budget` bytes of what the file
-    /// holds, against a writer that has acknowledged `committed` commits
-    /// as it is called, measured on `metrics`. Until it reads the file's
-    /// seeds and visits ([`Self::read`]), a miss reads the file.
+    /// None held yet, keeping of what the file holds at most `budget`'s
+    /// bytes less what the pending work items hold, against a writer that
+    /// has acknowledged `committed` commits as it is called, measured on
+    /// `metrics`. Until it reads the file's seeds and visits
+    /// ([`Self::read`]), a miss reads the file.
     pub(crate) fn new(
-        budget: u64,
+        budget: SharedBudget,
         committed: impl Fn() -> u64 + Send + Sync + 'static,
         metrics: &Metrics,
     ) -> Self {
@@ -908,6 +912,13 @@ impl UnwrittenVisits {
     #[must_use]
     pub fn bytes(&self) -> u64 {
         self.lock().held.bytes()
+    }
+
+    /// The memory budget these share with the Run state's pending work
+    /// items.
+    #[must_use]
+    pub fn budget(&self) -> SharedBudget {
+        self.lock().held.budget.clone()
     }
 
     /// The watch the run-state writer tells as each of its jobs begins

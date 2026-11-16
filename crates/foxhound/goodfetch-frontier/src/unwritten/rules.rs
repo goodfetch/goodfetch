@@ -138,7 +138,7 @@ impl Holding<'_> {
         read: impl FnOnce(i64) -> rusqlite::Result<Vec<(String, HeldRule)>>,
     ) -> rusqlite::Result<Vec<(Box<str>, HeldRule)>> {
         let held = &mut *self.held;
-        if held.budget == 0 {
+        if held.budget.bytes() == 0 {
             return Ok(Vec::new());
         }
         let changed = &held.rules_changed;

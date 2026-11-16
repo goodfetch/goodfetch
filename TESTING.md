@@ -1476,6 +1476,7 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `E6.robots_parses` | robots.txt parses per origin per Run | 1 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `E6.robots_reads` | reads of a robots.txt copy per origin per Run | 1 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `E6.off_work` | Politeness work per attempt with Politeness and robots.txt off | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `E6.private_transactions` | Politeness transactions and opens per attempt of a Run's own Politeness (`politeness.sharing: run`) | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
 
 ### Measured, not yet enforced
 

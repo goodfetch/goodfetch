@@ -205,7 +205,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 131] = [
+const ROWS: [Row; 132] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -819,6 +819,16 @@ const ROWS: [Row; 131] = [
         name: "E6.off_work",
         family: "B1",
         unit: "off_attempts",
+        happens: false,
+        valgrind: None,
+    },
+    // Its unit is the attempts of the cell whose Run keeps its Politeness
+    // to itself (`politeness.sharing: run`), in memory: none in any other
+    // cell, where its count is 0 (#2171).
+    Row {
+        name: "E6.private_transactions",
+        family: "B1",
+        unit: "private_attempts",
         happens: false,
         valgrind: None,
     },

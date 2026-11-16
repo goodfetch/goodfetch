@@ -60,7 +60,7 @@
     reason = "the rule runs inside the Politeness file's transaction, a blocking call that may run inline on a runtime thread: one Mutex guards a gate's Entropy for one draw, never held with another lock or across an await, so there is no lock order to test under loom"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 
@@ -68,8 +68,8 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::{
-    Ending, Hold, KeyState, PermitRule, Politeness, PolitenessError, PolitenessTables, Step,
-    Verdict, milliseconds, moment,
+    Ending, Hold, KeyState, MemoryTables, PermitRule, Politeness, PolitenessError,
+    PolitenessTables, Step, Verdict, milliseconds, moment,
 };
 use goodfetch_engine::settings::{Resolved, catalog_default};
 use goodfetch_protocol::catalog::Setting;
@@ -649,6 +649,17 @@ pub(crate) struct DomainState {
     crawl_delays: BTreeMap<String, Duration>,
 }
 
+/// The domain keys' states a Run's own Politeness keeps in memory, by key.
+#[derive(Default)]
+pub(crate) struct Domains(HashMap<String, DomainState>);
+
+impl Domains {
+    /// The state kept under `key`, or none yet.
+    fn of<'a>(tables: &'a MemoryTables, key: &str) -> Option<&'a DomainState> {
+        tables.get::<Self>().and_then(|domains| domains.0.get(key))
+    }
+}
+
 impl KeyState for DomainState {
     type Key = str;
     type Reads = Parts;
@@ -696,6 +707,49 @@ impl KeyState for DomainState {
             };
         }
         Ok(())
+    }
+
+    fn load_from(tables: &MemoryTables, key: &str, reads: Parts) -> Self {
+        let Some(kept) = Domains::of(tables, key) else {
+            return Self::default();
+        };
+        Self {
+            limits: if reads.limits {
+                kept.limits
+            } else {
+                Limits::default()
+            },
+            pacing: if reads.pacing {
+                kept.pacing
+            } else {
+                Pacing::default()
+            },
+            crawl_delays: if reads.crawl_delays {
+                kept.crawl_delays.clone()
+            } else {
+                BTreeMap::new()
+            },
+        }
+    }
+
+    fn save_to(&self, tables: &mut MemoryTables, key: &str, wrote: &Wrote) {
+        let kept = tables
+            .get_mut::<Domains>()
+            .0
+            .entry(key.to_owned())
+            .or_default();
+        if wrote.limits {
+            kept.limits = self.limits;
+        }
+        if wrote.pacing {
+            kept.pacing = self.pacing;
+        }
+        if let Some(location) = &wrote.crawl_delay {
+            match self.crawl_delays.get(location) {
+                Some(delay) => kept.crawl_delays.insert(location.clone(), *delay),
+                None => kept.crawl_delays.remove(location),
+            };
+        }
     }
 }
 
@@ -907,6 +961,42 @@ impl KeyState for DocumentStart {
             self.limits.write(connection, key)?;
         }
         Ok(())
+    }
+
+    fn load_from(
+        tables: &MemoryTables,
+        (key, location): &(String, String),
+        reads: DocumentReads,
+    ) -> Self {
+        let copy_fetched_at = match reads.fetched {
+            Some(_) => None,
+            None => robots_txt::kept_in(tables, location).map(|copy| copy.fetched_at),
+        };
+        let limits = match document_waits(
+            Self::after(reads.fetched, copy_fetched_at),
+            reads.spacing,
+            reads.now,
+        ) {
+            Some(_) => Domains::of(tables, key)
+                .map(|kept| kept.limits)
+                .unwrap_or_default(),
+            None => Limits::default(),
+        };
+        Self {
+            copy_fetched_at,
+            limits,
+        }
+    }
+
+    fn save_to(&self, tables: &mut MemoryTables, (key, _): &(String, String), took: &bool) {
+        if *took {
+            tables
+                .get_mut::<Domains>()
+                .0
+                .entry(key.clone())
+                .or_default()
+                .limits = self.limits;
+        }
     }
 }
 

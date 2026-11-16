@@ -31,7 +31,9 @@ use std::time::Duration;
 use ::url::Url;
 use goodfetch_counted_work::Row;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::politeness::{KeyState, Politeness, PolitenessTables, milliseconds};
+use goodfetch_engine::politeness::{
+    KeyState, MemoryTables, Politeness, PolitenessTables, milliseconds,
+};
 use goodfetch_engine::robots_txt::{Answer, Copied, Copies, Fetch, Fetched, MAX_SIZE};
 use rusqlite::{Connection, OptionalExtension as _};
 use tokio::sync::OnceCell;
@@ -148,6 +150,18 @@ pub(crate) fn store(connection: &Connection, location: &str, copy: &Copy) -> rus
     Ok(())
 }
 
+/// The robots.txt copies a Run's own Politeness keeps in memory, by
+/// location.
+#[derive(Default)]
+struct KeptCopies(HashMap<String, Copy>);
+
+/// The copy a Run's own Politeness keeps in `tables` for `location`.
+pub(crate) fn kept_in<'a>(tables: &'a MemoryTables, location: &str) -> Option<&'a Copy> {
+    tables
+        .get::<KeptCopies>()
+        .and_then(|copies| copies.0.get(location))
+}
+
 /// The robots.txt copy kept for a location, as a plain value the
 /// Politeness file loads and saves.
 struct RobotsCopy(Option<Copy>);
@@ -172,6 +186,21 @@ impl KeyState for RobotsCopy {
         match &self.0 {
             Some(copy) if *wrote => store(connection, location, copy),
             _ => Ok(()),
+        }
+    }
+
+    fn load_from(tables: &MemoryTables, location: &str, reads: bool) -> Self {
+        Self(reads.then(|| kept_in(tables, location).cloned()).flatten())
+    }
+
+    fn save_to(&self, tables: &mut MemoryTables, location: &str, wrote: &bool) {
+        if let Some(copy) = &self.0
+            && *wrote
+        {
+            tables
+                .get_mut::<KeptCopies>()
+                .0
+                .insert(location.to_owned(), copy.clone());
         }
     }
 }

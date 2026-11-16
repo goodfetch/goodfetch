@@ -128,7 +128,9 @@
 //! beneath its functions in the `--callgrind` run, its opening's left out,
 //! and goes unprinted without Valgrind too. `E6.off_work` is what the E6
 //! counters counted in the cell with Politeness and robots.txt off, over its
-//! attempts.
+//! attempts. `E6.private_transactions` is the Politeness transactions and
+//! opens counted in the cell whose Run keeps its Politeness to itself
+//! (`politeness.sharing: run`), over its attempts.
 //!
 //! `--strace` runs the cells as `xtask counts --strace` watches them, under
 //! `strace`, with nothing beside them: no run under Callgrind, so their
@@ -349,6 +351,14 @@ const CALLERS: u32 = 32;
 /// The row of the cell with Politeness and robots.txt off, and that cell.
 const OFF_WORK: &str = "E6.off_work";
 const OFF_CELL: &str = "politeness_and_robots_txt_off";
+
+/// The row of the cell whose Run keeps its Politeness to itself, and that
+/// cell.
+const PRIVATE_TRANSACTIONS: &str = "E6.private_transactions";
+const PRIVATE_CELL: &str = "politeness_sharing_run";
+
+/// The rows a Run's own Politeness, in memory, counts none of (#2171).
+const PRIVATE_ROWS: [Row; 2] = [Row::PolitenessTransactions, Row::PolitenessOpens];
 
 /// The rows a cell with robots.txt off, and so pacing nothing under the
 /// fixture's delay of 0, counts fewer of: no robots.txt read or parsed
@@ -847,6 +857,17 @@ fn cells() -> Vec<Cell> {
             }),
             frontier: None,
             removes: OFF_REMOVES,
+            removes_syncs: false,
+            handler: false,
+            limit: false,
+        },
+        // A Run that keeps its Politeness to itself takes its Permits and
+        // reads its robots.txt copy in memory, with no SQLite (#2171).
+        Cell {
+            name: PRIVATE_CELL,
+            settings: json!({ "politeness": { "sharing": "run" } }),
+            frontier: None,
+            removes: &[],
             removes_syncs: false,
             handler: false,
             limit: false,
@@ -1583,6 +1604,7 @@ fn main() {
             "requests": cell.requests,
             "origins": ORIGINS,
             "off_attempts": if off { cell.attempts } else { 0 },
+            "private_attempts": if cell.name == PRIVATE_CELL { cell.attempts } else { 0 },
             "learning_off_pages": if cell.name == LEARNING_OFF { cell.pages } else { 0 },
             "batched_pages": if batched { cell.pages } else { 0 },
             "batched_leases": if batched && !cell.spills() { leases } else { 0 },
@@ -1631,6 +1653,12 @@ fn counts_of(cell: &Counted) -> Map<String, Value> {
     let off = cell.name == OFF_CELL;
     let off_work: u64 = POLITENESS_ROWS.iter().map(|row| cell.count(*row)).sum();
     counts.insert(OFF_WORK.to_owned(), json!(if off { off_work } else { 0 }));
+    let private = cell.name == PRIVATE_CELL;
+    let private_work: u64 = PRIVATE_ROWS.iter().map(|row| cell.count(*row)).sum();
+    counts.insert(
+        PRIVATE_TRANSACTIONS.to_owned(),
+        json!(if private { private_work } else { 0 }),
+    );
     let evidence: u64 = EVIDENCE_ROWS.iter().map(|row| cell.count(*row)).sum();
     let learning_off = cell.name == LEARNING_OFF;
     counts.insert(

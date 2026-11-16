@@ -23,9 +23,10 @@
 //! The file holds nothing to keep, so it skips `fsync`; it opens through a
 //! VFS named by a value (ADR 0060). Its format is of the Usage ledger's
 //! family (ADR 0066): its major never changes and newer minors only add. A
-//! Run with `politeness.sharing = run` takes its Permits from a file of its
-//! own in memory, under the same rules, its waiters woken within the
-//! engine.
+//! Run with `politeness.sharing = run` takes its Permits from a store of
+//! its own in memory, without SQLite ([`MemoryTables`]), under the same
+//! rules, its waiters woken within the engine: it opens nothing and runs
+//! no transaction (ADR 0140's `E6.private_transactions`).
 //!
 //! Size: one file's protocol, its Permits, waiters, wakes and reclaim, each
 //! in one transaction, kept whole so the rules that guard the count in
@@ -49,6 +50,10 @@ use crate::sqlite_store::{
 };
 use crate::tasks::TaskOwner;
 use crate::transport;
+
+mod memory;
+
+pub use memory::MemoryTables;
 
 /// How many jobs wait for the file's actor before their callers wait.
 const MAILBOX: usize = 256;
@@ -268,6 +273,15 @@ pub trait KeyState: Sized + Send + 'static {
         key: &Self::Key,
         writes: &Self::Writes,
     ) -> rusqlite::Result<()>;
+
+    /// The values `reads` names, kept under `key` in `tables`, the store
+    /// of a Run's own Politeness: as [`load`](KeyState::load) reads them
+    /// from a file.
+    fn load_from(tables: &MemoryTables, key: &Self::Key, reads: Self::Reads) -> Self;
+
+    /// Saves under `key` in `tables` the values `writes` names, as
+    /// [`save`](KeyState::save) writes them to a file.
+    fn save_to(&self, tables: &mut MemoryTables, key: &Self::Key, writes: &Self::Writes);
 }
 
 /// Loads the state kept under `key` in `connection` as `reads` says, runs
@@ -384,6 +398,23 @@ trait Erased: Send + Sync {
         ending: Ending,
         now: SystemTime,
     ) -> rusqlite::Result<(Option<SystemTime>, Option<Turn>)>;
+
+    fn taken_in_memory(
+        &self,
+        store: &mut memory::Store,
+        key: &str,
+        holder: &Holder,
+        now: SystemTime,
+        in_turn: bool,
+    ) -> (Taken, Option<Turn>);
+
+    fn given_back_in_memory(
+        &self,
+        store: &mut memory::Store,
+        permit: &Permit,
+        ending: Ending,
+        now: SystemTime,
+    ) -> (Option<SystemTime>, Option<Turn>);
 }
 
 impl<R: PermitRule> Erased for R {
@@ -411,6 +442,27 @@ impl<R: PermitRule> Erased for R {
         now: SystemTime,
     ) -> rusqlite::Result<(Option<SystemTime>, Option<Turn>)> {
         given_back_in(transaction, permit, self, ending, now)
+    }
+
+    fn taken_in_memory(
+        &self,
+        store: &mut memory::Store,
+        key: &str,
+        holder: &Holder,
+        now: SystemTime,
+        in_turn: bool,
+    ) -> (Taken, Option<Turn>) {
+        store.taken(key, holder, self, now, in_turn)
+    }
+
+    fn given_back_in_memory(
+        &self,
+        store: &mut memory::Store,
+        permit: &Permit,
+        ending: Ending,
+        now: SystemTime,
+    ) -> (Option<SystemTime>, Option<Turn>) {
+        store.given_back(permit, self, ending, now)
     }
 }
 
@@ -510,7 +562,14 @@ struct Context {
     holder_gone: HolderGone,
 }
 
-type Job = Box<dyn FnOnce(&mut Connection, &Context) + Send>;
+/// What a Politeness keeps its Permits, waiters and contributions' values
+/// in: the per-user file, or a Run's own store in memory.
+enum Backend {
+    File(Connection),
+    Memory(memory::Store),
+}
+
+type Job = Box<dyn FnOnce(&mut Backend, &Context) + Send>;
 
 /// A waiter whose turn it is, to wake.
 #[derive(Debug)]
@@ -615,7 +674,7 @@ impl Politeness {
             holder_gone,
         };
         Self::start(
-            connection,
+            Backend::File(connection),
             context,
             wakes,
             Some(endpoint),
@@ -625,44 +684,28 @@ impl Politeness {
         )
     }
 
-    /// A Politeness file of one Run's own, in memory, for a Run with
+    /// A Politeness of one Run's own, in memory, for a Run with
     /// `politeness.sharing = run`: the same rules, shared with no other
-    /// Run, counting on `options`' Counted work (its VFS is the memory's).
+    /// Run, kept as plain values without SQLite, so it opens nothing and
+    /// runs no transaction; `options`' VFS is not used. Its actor is
+    /// `owner`'s.
     ///
     /// # Errors
     ///
-    /// `Sqlite` when SQLite cannot create its tables or prepare its
-    /// statements.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future drops the file.
-    pub async fn in_memory(
+    /// `Sqlite` when `owner` no longer starts tasks.
+    pub fn in_memory(
         options: &PolitenessOptions,
-        tables: Vec<PolitenessTables>,
         owner: &TaskOwner,
     ) -> Result<Self, PolitenessError> {
-        let path = PathBuf::from(":memory:");
-        let opened = path.clone();
-        let work = options.work.clone();
-        let connection = owner
-            .blocking(move || {
-                let mut connection =
-                    Connection::open_in_memory().map_err(|error| sqlite_error(&opened, &error))?;
-                counting(&connection, &work).map_err(|error| sqlite_error(&opened, &error))?;
-                create_tables(&mut connection, &opened, &tables)?;
-                Ok::<_, PolitenessError>(connection)
-            })
-            .await?;
         let (wakes, _) = broadcast::channel(WAKES);
         let context = Context {
-            path,
+            path: PathBuf::from(":memory:"),
             engine: String::new(),
             endpoint: Some(IN_MEMORY_ENDPOINT.to_owned()),
             holder_gone: |_, _| false,
         };
         Self::start(
-            connection,
+            Backend::Memory(memory::Store::default()),
             context,
             wakes,
             Some(IN_MEMORY_ENDPOINT.to_owned()),
@@ -673,7 +716,7 @@ impl Politeness {
     }
 
     fn start(
-        mut connection: Connection,
+        mut backend: Backend,
         context: Context,
         wakes: broadcast::Sender<Wake>,
         endpoint: Option<String>,
@@ -686,7 +729,7 @@ impl Politeness {
         owner
             .actor("politeness-file", jobs, move |group: Vec<Job>| {
                 for job in group {
-                    job(&mut connection, &context);
+                    job(&mut backend, &context);
                 }
             })
             .map_err(|error| sqlite_error(&failed, &error))?;
@@ -747,9 +790,7 @@ impl Politeness {
         let key = key.to_owned();
         let holder = holder.clone();
         let (taken, turn) = self
-            .run(move |connection, context| {
-                take_in(connection, context, &key, &holder, &rule, now, true)
-            })
+            .run(move |backend, context| take_in(backend, context, &key, &holder, &rule, now, true))
             .await?;
         if let Some(turn) = turn {
             self.wake_turn(turn).await;
@@ -782,8 +823,8 @@ impl Politeness {
         let key = key.to_owned();
         let holder = holder.clone();
         let (taken, _) = self
-            .run(move |connection, context| {
-                take_in(connection, context, &key, &holder, &rule, now, false)
+            .run(move |backend, context| {
+                take_in(backend, context, &key, &holder, &rule, now, false)
             })
             .await?;
         Ok(taken)
@@ -811,8 +852,8 @@ impl Politeness {
         now: SystemTime,
     ) -> Result<Option<SystemTime>, PolitenessError> {
         let (ready_at, turn) = self
-            .run(move |connection, context| {
-                give_back_in(connection, context, &permit, &rule, ending, now)
+            .run(move |backend, context| {
+                give_back_in(backend, context, &permit, &rule, ending, now)
             })
             .await?;
         if let Some(turn) = turn {
@@ -832,14 +873,18 @@ impl Politeness {
     /// Dropping the future does not withdraw it once queued.
     pub async fn stop_waiting(&self, holder: &Holder) -> Result<(), PolitenessError> {
         let run_id = holder.run_id.clone();
-        self.run(move |connection, context| {
-            connection
+        self.run(move |backend, context| match backend {
+            Backend::File(connection) => connection
                 .prepare_cached(STOP_WAITING)
                 .and_then(|mut cached| {
                     cached.execute((&run_id, context.endpoint.as_deref().unwrap_or_default()))
                 })
                 .map(drop)
-                .map_err(|error| sqlite_error(&context.path, &error))
+                .map_err(|error| sqlite_error(&context.path, &error)),
+            Backend::Memory(store) => {
+                store.stop_waiting(&run_id);
+                Ok(())
+            }
         })
         .await
     }
@@ -870,11 +915,12 @@ impl Politeness {
         T: Send + 'static,
         F: FnOnce(&mut S) -> (T, S::Writes) + Send + 'static,
     {
-        self.run(move |connection, context| {
-            sqlite_store::immediate(connection, |transaction| {
+        self.run(move |backend, context| match backend {
+            Backend::File(connection) => sqlite_store::immediate(connection, |transaction| {
                 changed(transaction, key.borrow(), reads, change)
             })
-            .map_err(|error| sqlite_error(&context.path, &error))
+            .map_err(|error| sqlite_error(&context.path, &error)),
+            Backend::Memory(store) => Ok(store.change(key.borrow(), reads, change)),
         })
         .await
     }
@@ -883,11 +929,11 @@ impl Politeness {
     async fn run<T, F>(&self, work: F) -> Result<T, PolitenessError>
     where
         T: Send + 'static,
-        F: FnOnce(&mut Connection, &Context) -> Result<T, PolitenessError> + Send + 'static,
+        F: FnOnce(&mut Backend, &Context) -> Result<T, PolitenessError> + Send + 'static,
     {
         let (answer, answered) = oneshot::channel();
-        let job: Job = Box::new(move |connection, context| {
-            let _ = answer.send(work(connection, context));
+        let job: Job = Box::new(move |backend, context| {
+            let _ = answer.send(work(backend, context));
         });
         self.0
             .mailbox
@@ -925,7 +971,12 @@ impl Politeness {
                     let generation = turn.generation;
                     let now = turn.now;
                     let next = self
-                        .run(move |connection, context| {
+                        .run(move |backend, context| {
+                            // A Run's own store wakes its waiters within the
+                            // engine: none of its endpoints is ever gone.
+                            let Backend::File(connection) = backend else {
+                                return Ok(None);
+                            };
                             connection
                                 .prepare_cached(GONE_WAITERS)
                                 .and_then(|mut cached| cached.execute([&gone]))
@@ -985,19 +1036,6 @@ fn sqlite_error(path: &Path, error: &(dyn std::error::Error + 'static)) -> Polit
     }
 }
 
-/// Counts `connection`'s opening and each transaction it commits on `work`,
-/// beneath every owner, so a contribution's transaction counts too (ADR
-/// 0140's E6): one Run's own file in memory, as [`open_file`] counts the
-/// user's file's.
-fn counting(connection: &Connection, work: &CountedWork) -> rusqlite::Result<()> {
-    work.count(Row::PolitenessOpens);
-    let work = work.clone();
-    connection.commit_hook(Some(move || {
-        work.count(Row::PolitenessTransactions);
-        false
-    }))
-}
-
 /// Opens the file, skips `fsync`, creates its tables and prepares its
 /// statements.
 fn open_file(
@@ -1045,22 +1083,6 @@ fn prepare_statements(
         .copied()
         .collect();
     sqlite_store::prepare_immediate(connection, &prepared)
-}
-
-/// Creates the tables of the file `connection` holds, one Run's own in
-/// memory, checks its format version and prepares its statements.
-fn create_tables(
-    connection: &mut Connection,
-    path: &Path,
-    tables: &[PolitenessTables],
-) -> Result<(), PolitenessError> {
-    Schema {
-        format: &POLITENESS_FILE,
-        statements: &statements(tables),
-    }
-    .create(connection)
-    .map_err(|error| open_failed(path, error))?;
-    prepare_statements(connection, tables).map_err(|error| sqlite_error(path, &error))
 }
 
 /// The engine's own tables' statements, then each contribution's.
@@ -1176,7 +1198,7 @@ fn reclaim(connection: &Connection, context: &Context, key: &str) -> rusqlite::R
 }
 
 fn take_in(
-    connection: &Connection,
+    backend: &mut Backend,
     context: &Context,
     key: &str,
     holder: &Holder,
@@ -1184,11 +1206,14 @@ fn take_in(
     now: SystemTime,
     in_turn: bool,
 ) -> Result<(Taken, Option<Turn>), PolitenessError> {
-    sqlite_store::immediate(connection, |transaction| {
-        rule.0
-            .taken(transaction, context, key, holder, now, in_turn)
-    })
-    .map_err(|error| sqlite_error(&context.path, &error))
+    match backend {
+        Backend::File(connection) => sqlite_store::immediate(connection, |transaction| {
+            rule.0
+                .taken(transaction, context, key, holder, now, in_turn)
+        })
+        .map_err(|error| sqlite_error(&context.path, &error)),
+        Backend::Memory(store) => Ok(rule.0.taken_in_memory(store, key, holder, now, in_turn)),
+    }
 }
 
 /// [`take_in`]'s work, in its transaction: the key's state is loaded once,
@@ -1281,17 +1306,20 @@ fn wait_in_turn(
 }
 
 fn give_back_in(
-    connection: &Connection,
+    backend: &mut Backend,
     context: &Context,
     permit: &Permit,
     rule: &SharedRule,
     ending: Ending,
     now: SystemTime,
 ) -> Result<(Option<SystemTime>, Option<Turn>), PolitenessError> {
-    sqlite_store::immediate(connection, |transaction| {
-        rule.0.given_back(transaction, permit, ending, now)
-    })
-    .map_err(|error| sqlite_error(&context.path, &error))
+    match backend {
+        Backend::File(connection) => sqlite_store::immediate(connection, |transaction| {
+            rule.0.given_back(transaction, permit, ending, now)
+        })
+        .map_err(|error| sqlite_error(&context.path, &error)),
+        Backend::Memory(store) => Ok(rule.0.given_back_in_memory(store, permit, ending, now)),
+    }
 }
 
 /// [`give_back_in`]'s work, in its transaction.

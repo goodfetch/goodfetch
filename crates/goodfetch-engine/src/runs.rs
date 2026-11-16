@@ -1925,10 +1925,8 @@ impl Run {
                     // tasks, the file's actor among them.
                     return Politeness::in_memory(
                         &self.admitting.politeness.options,
-                        self.admitting.politeness.tables.clone(),
                         &self.admitting.politeness.owner,
-                    )
-                    .await;
+                    );
                 }
                 let file = self.admitting.politeness.file().await?;
                 self.stop_on_failures(

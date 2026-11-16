@@ -19,8 +19,8 @@ use rusqlite::{Connection, OpenFlags};
 use tokio::sync::broadcast;
 
 use super::{
-    Ending, Holder, KeyState, Permit, PermitRule, Politeness, PolitenessError, PolitenessOptions,
-    SharedRule, Step, Taken, Verdict, Wake,
+    Ending, Holder, KeyState, MemoryTables, Permit, PermitRule, Politeness, PolitenessError,
+    PolitenessOptions, SharedRule, Step, Taken, Verdict, Wake,
 };
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -42,6 +42,12 @@ impl KeyState for Stateless {
     fn save(&self, _: &Connection, _: &str, (): &()) -> rusqlite::Result<()> {
         Ok(())
     }
+
+    fn load_from(_: &MemoryTables, _: &str, (): ()) -> Self {
+        Self
+    }
+
+    fn save_to(&self, _: &mut MemoryTables, _: &str, (): &()) {}
 }
 
 impl PermitRule for Cap {
@@ -361,9 +367,7 @@ fn a_permit_given_back_to_a_runs_own_politeness_wakes_its_waiter_within_the_engi
     let now = SystemTime::now();
 
     let woken = run(async |owner| {
-        let own = Politeness::in_memory(&PolitenessOptions::default(), Vec::new(), owner)
-            .await
-            .unwrap();
+        let own = Politeness::in_memory(&PolitenessOptions::default(), owner).unwrap();
         let mut wakes = own.wakes();
         let held = granted(
             own.take("proxy", &holder(&env, "own"), cap(1), now)

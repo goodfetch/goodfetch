@@ -162,15 +162,15 @@ async fn start(writer: &mut ConnectionWriter) {
 }
 
 /// The engine's dependencies on `env`, its clock paused and its blocking
-/// work inline.
-fn dependencies(env: &TestEnv) -> Dependencies {
+/// work run as `blocking` says.
+fn dependencies(env: &TestEnv, blocking: BlockingPolicy) -> Dependencies {
     Dependencies {
         environment: std::collections::BTreeMap::new(),
         keychain: goodfetch_engine::secrets::Keychain::absent(),
         home: Home::new(env.home().to_owned()),
         clock: Clock::paused(env.start_time()),
         entropy: Entropy::seeded(env.seed()),
-        blocking: BlockingPolicy::Inline,
+        blocking,
         run_state_location: RunStateLocation::PerMajor,
         run_state: RunStateOptions::default(),
         politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
@@ -180,8 +180,9 @@ fn dependencies(env: &TestEnv) -> Dependencies {
 /// Crawls the page once on the `http` tier, its handler sending
 /// [`at_once`]'s calls together, then, once they were all answered, its
 /// count of the navigation's links and a wait for the footer's link, on an
-/// engine whose counted work is `metrics`'.
-fn crawled(env: &TestEnv, metrics: Metrics) -> Handled {
+/// engine whose counted work is `metrics`' and whose blocking work runs as
+/// `blocking` says.
+fn crawled(env: &TestEnv, metrics: Metrics, blocking: BlockingPolicy) -> Handled {
     let tiers = FetchTiers::serving(Arc::new(Site));
     let identity = Identity {
         product: Product::Foxhound,
@@ -192,7 +193,17 @@ fn crawled(env: &TestEnv, metrics: Metrics) -> Handled {
     let engine = Engine::new(identity, &composition)
         .unwrap()
         .with_metrics(metrics);
-    goodfetch_test_support::runtime().block_on(async {
+    // Blocking work on threads runs on a runtime whose time moves with the
+    // real clock, as the paused one would move past the engine's timeouts
+    // while the analysis threads work.
+    let runtime = match blocking {
+        BlockingPolicy::Inline => goodfetch_test_support::runtime(),
+        BlockingPolicy::Threads => tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap(),
+    };
+    runtime.block_on(async {
         // The dispatch records go into the test's exercise record (ADR
         // 0072), which the Feature audit reads for the operations the test
         // covers, timed by the engine's Clock.
@@ -269,7 +280,7 @@ fn crawled(env: &TestEnv, metrics: Metrics) -> Handled {
             while let Ok(Some(_)) = lines.next_line().await {}
             handled
         };
-        let dependencies = dependencies(env);
+        let dependencies = dependencies(env, blocking);
         let (served, handled) = tokio::join!(
             engine.run_attached(Network::InMemory(network), dependencies),
             client
@@ -295,7 +306,7 @@ fn a_handlers_calls_read_its_pages_one_tree_untouched() {
     let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
 
-    let Handled { mut at_once, after } = crawled(&env, metrics);
+    let Handled { mut at_once, after } = crawled(&env, metrics, BlockingPolicy::Inline);
 
     at_once.sort_by(|(left, _), (right, _)| left.cmp(right));
     let read: Vec<(String, Value)> = at_once
@@ -344,5 +355,36 @@ fn a_handlers_calls_read_its_pages_one_tree_untouched() {
             1,
             3,
         )
+    );
+}
+
+/// With blocking work on threads, as in production, a page's document is
+/// read on an analysis thread, which keeps its tree there, off the async
+/// runtime, and the handler's calls still read it: every call is answered
+/// with its result (issue 2673, a regression from issue 2189).
+///
+/// Covers: story:5-115, operation:locator.wait_for,
+/// operation:locator.wait_for_count, operation:page.formats
+#[test]
+fn a_tree_kept_on_an_analysis_thread_answers_the_handlers_calls() {
+    let env = TestEnv::new();
+
+    let Handled { mut at_once, after } = crawled(&env, Metrics::none(), BlockingPolicy::Threads);
+
+    at_once.sort_by(|(left, _), (right, _)| left.cmp(right));
+    let answered = |reply: &Value| reply.get("result").is_some();
+    assert_eq!(
+        (
+            at_once
+                .iter()
+                .map(|(id, reply)| (id.as_str(), answered(reply)))
+                .collect::<Vec<_>>(),
+            after.iter().map(answered).collect::<Vec<_>>(),
+        ),
+        (
+            vec![("formats", true), ("heading", true), ("links", true)],
+            vec![true, true],
+        ),
+        "{at_once:?} {after:?}"
     );
 }

@@ -276,17 +276,25 @@ pub(crate) fn seen(
         }
         None => (&*identities.plain, None),
     };
-    let learned = match connection
-        .prepare_cached(LEARNED)?
-        .query_row([probe], |row| Ok((row.get::<_, i64>(0)?, row.get(1)?)))
-        .optional()?
-    {
-        Some(learned) => Some(learned),
-        None => staged
-            .and_then(|staged| staged.learned(probe))
-            .or_else(|| held.and_then(|held| held.learned(probe)))
-            .map(|(rule, crawl_request)| (rule, crawl_request.to_owned())),
+    // Memory first again: it answers while it holds the learned
+    // identities as the writer last changed them (#2169).
+    let read = || {
+        connection
+            .prepare_cached(LEARNED)?
+            .query_row([probe], |row| Ok((row.get::<_, i64>(0)?, row.get(1)?)))
+            .optional()
     };
+    let learned = held
+        .map_or_else(read, |held| held.learned_or(probe, read))?
+        .or_else(|| {
+            staged
+                .and_then(|staged| staged.learned(probe))
+                .map(|(rule, crawl_request)| (rule, crawl_request.to_owned()))
+        })
+        .or_else(|| {
+            held.and_then(|held| held.learned(probe))
+                .map(|(rule, crawl_request)| (rule, crawl_request.to_owned()))
+        });
     Ok(match learned {
         Some((rule, crawl_request)) => {
             // The rules on either side merged it: its own, and the one
@@ -775,7 +783,7 @@ pub use chain_end::{PendingVisit, Reached, hold_reached, visit_pending};
 use chain_end::{duplicate, reached_identities};
 #[cfg(test)]
 pub(crate) use merging::SLICE;
-pub(crate) use merging::{merge_learned, unmerge};
+pub(crate) use merging::{FIRST_VISITED, keep_learned, merge_learned, unmerge};
 
 #[cfg(test)]
 mod tests;

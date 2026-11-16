@@ -107,7 +107,7 @@ pub(crate) fn counting(work: &CountedWork, row: Row) -> Plant {
 }
 
 /// The Run the scenario starts.
-const RUN: &str = "session-counts";
+pub(crate) const RUN: &str = "session-counts";
 
 /// The browser's one page's target and frame, and the session its events
 /// are written on: each attachment gets a session of its own, as Chromium

@@ -111,7 +111,37 @@ pub(crate) const TABLES: PolitenessTables = PolitenessTables {
             theoretical_send INTEGER
         ) STRICT",
     ],
+    prepared: &[
+        READ_LIMITS,
+        WRITE_LIMITS,
+        READ_PACING,
+        WRITE_PACING,
+        ASK_CRAWL_DELAY,
+        DROP_CRAWL_DELAY,
+        CRAWL_DELAYS,
+    ],
 };
+
+// The statements the rule runs on the Politeness file, prepared when it opens.
+const READ_LIMITS: &str =
+    "SELECT ready_at, backoff, ceiling, ceiling_changed_at, last_start, last_send
+    FROM domain_limits WHERE key = ?1";
+const WRITE_LIMITS: &str = "INSERT INTO domain_limits
+    (key, ready_at, backoff, ceiling, ceiling_changed_at, last_start, last_send)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+    ON CONFLICT (key) DO UPDATE SET ready_at = ?2, backoff = ?3, ceiling = ?4,
+    ceiling_changed_at = ?5, last_start = ?6, last_send = ?7";
+const READ_PACING: &str = "SELECT latency, theoretical_start, interval, theoretical_send
+    FROM domain_pacing WHERE key = ?1";
+const WRITE_PACING: &str =
+    "INSERT INTO domain_pacing (key, latency, theoretical_start, interval, theoretical_send)
+    VALUES (?1, ?2, ?3, ?4, ?5)
+    ON CONFLICT (key) DO UPDATE SET latency = ?2, theoretical_start = ?3, interval = ?4,
+    theoretical_send = ?5";
+const ASK_CRAWL_DELAY: &str = "INSERT INTO crawl_delays (key, location, delay) VALUES (?1, ?2, ?3)
+    ON CONFLICT (key, location) DO UPDATE SET delay = ?3";
+const DROP_CRAWL_DELAY: &str = "DELETE FROM crawl_delays WHERE key = ?1 AND location = ?2";
+const CRAWL_DELAYS: &str = "SELECT delay FROM crawl_delays WHERE key = ?1";
 
 /// The `Entropy` a crawl's gate draws its backoffs from, shared by the
 /// rules it names.
@@ -185,10 +215,7 @@ impl Limits {
 
     fn read(connection: &Connection, key: &str) -> rusqlite::Result<Self> {
         Ok(connection
-            .prepare_cached(
-                "SELECT ready_at, backoff, ceiling, ceiling_changed_at, last_start, last_send
-                 FROM domain_limits WHERE key = ?1",
-            )
+            .prepare_cached(READ_LIMITS)
             .and_then(|mut cached| {
                 cached.query_row([key], |row| {
                     Ok(Self {
@@ -209,13 +236,7 @@ impl Limits {
 
     fn write(&self, connection: &Connection, key: &str) -> rusqlite::Result<()> {
         connection
-            .prepare_cached(
-                "INSERT INTO domain_limits
-                 (key, ready_at, backoff, ceiling, ceiling_changed_at, last_start, last_send)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT (key) DO UPDATE SET ready_at = ?2, backoff = ?3, ceiling = ?4,
-                 ceiling_changed_at = ?5, last_start = ?6, last_send = ?7",
-            )
+            .prepare_cached(WRITE_LIMITS)
             .and_then(|mut cached| {
                 cached.execute((
                     key,
@@ -343,10 +364,7 @@ struct Pacing {
 impl Pacing {
     fn read(connection: &Connection, key: &str) -> rusqlite::Result<Self> {
         Ok(connection
-            .prepare_cached(
-                "SELECT latency, theoretical_start, interval, theoretical_send
-                 FROM domain_pacing WHERE key = ?1",
-            )
+            .prepare_cached(READ_PACING)
             .and_then(|mut cached| {
                 cached.query_row([key], |row| {
                     Ok(Self {
@@ -362,16 +380,17 @@ impl Pacing {
     }
 
     fn write(&self, connection: &Connection, key: &str) -> rusqlite::Result<()> {
-        connection.prepare_cached("INSERT INTO domain_pacing (key, latency, theoretical_start, interval, theoretical_send)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT (key) DO UPDATE SET latency = ?2, theoretical_start = ?3, interval = ?4,
-                 theoretical_send = ?5").and_then(|mut cached| cached.execute((
-                key,
-                self.latency,
-                self.theoretical_start,
-                self.interval,
-                self.theoretical_send,
-            )))?;
+        connection
+            .prepare_cached(WRITE_PACING)
+            .and_then(|mut cached| {
+                cached.execute((
+                    key,
+                    self.latency,
+                    self.theoretical_start,
+                    self.interval,
+                    self.theoretical_send,
+                ))
+            })?;
         Ok(())
     }
 }
@@ -834,13 +853,10 @@ pub(crate) fn crawl_delay_asked(
 ) -> rusqlite::Result<()> {
     match delay {
         Some(delay) => connection
-            .prepare_cached(
-                "INSERT INTO crawl_delays (key, location, delay) VALUES (?1, ?2, ?3)
-             ON CONFLICT (key, location) DO UPDATE SET delay = ?3",
-            )
+            .prepare_cached(ASK_CRAWL_DELAY)
             .and_then(|mut cached| cached.execute((key, location, duration_milliseconds(delay))))?,
         None => connection
-            .prepare_cached("DELETE FROM crawl_delays WHERE key = ?1 AND location = ?2")
+            .prepare_cached(DROP_CRAWL_DELAY)
             .and_then(|mut cached| cached.execute((key, location)))?,
     };
     Ok(())
@@ -848,8 +864,7 @@ pub(crate) fn crawl_delay_asked(
 
 /// The Crawl-delays the robots.txt of `key`'s hosts ask for.
 fn crawl_delays(connection: &Connection, key: &str) -> rusqlite::Result<Vec<Duration>> {
-    let mut statement =
-        connection.prepare_cached("SELECT delay FROM crawl_delays WHERE key = ?1")?;
+    let mut statement = connection.prepare_cached(CRAWL_DELAYS)?;
     statement
         .query_map([key], |row| row.get::<_, i64>(0))?
         .map(|delay| delay.map(|delay| Duration::from_millis(u64::try_from(delay).unwrap_or(0))))

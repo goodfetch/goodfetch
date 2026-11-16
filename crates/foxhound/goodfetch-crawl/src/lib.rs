@@ -11,7 +11,7 @@
 //! from inside its attempt through the Frontier, as
 //! `crawl_request.enqueue_links` adds every link a locator matches on the
 //! attempt's page, answering each element, a handler's
-//! `crawl_request.push` checks and stages a Record with its attempt,
+//! `crawl_request.push` checks and stages the Records it gives with its attempt,
 //! `run.add_seed` and
 //! `run.add_seeds` add seeds to the running crawl, and what the crawl adds
 //! to its Run's report goes in as the Run ends. Its own crate under

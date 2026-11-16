@@ -202,8 +202,8 @@ class CrawlRequestLinksParams(BaseModel):
 
 class CrawlRequestPushParams(BaseModel):
     """
-    What `crawl_request.push` takes: one Record an attempt pushes into one
-    of its crawl's Datasets.
+    What `crawl_request.push` takes: the Records of one push of an
+    attempt into one of its crawl's Datasets, one or several (ADR 0147).
     """
 
     model_config = ConfigDict(
@@ -212,18 +212,21 @@ class CrawlRequestPushParams(BaseModel):
     )
     crawl_request_id: str
     """The ID of the crawl request whose attempt pushes."""
-    data: Any
-    """The Record."""
     dataset: str
     """The Dataset's name."""
     lease_epoch: Annotated[int, Field(ge=0)]
     """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+    records: Annotated[list[Any], Field(min_length=1)]
+    """
+    The Records, at least one, in the order pushed: a Record's position
+    in this list is how `record_invalid` names it.
+    """
     run_id: RunId
     """The crawl's Run."""
 
 
 class CrawlRequestPushed(BaseModel):
-    """What `crawl_request.push` answers once the Record is staged."""
+    """What `crawl_request.push` answers once every Record is staged."""
 
     model_config = ConfigDict(
         extra="allow",

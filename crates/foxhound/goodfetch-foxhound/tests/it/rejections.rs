@@ -50,7 +50,7 @@ fn push(inside: &mut Inside<'_>, handle: &Value, dataset: &str, data: &Value) ->
             "crawl_request_id": handle["crawl_request"]["id"],
             "lease_epoch": handle["lease_epoch"],
             "dataset": dataset,
-            "data": data,
+            "records": [data],
         }),
     )
 }
@@ -68,7 +68,7 @@ fn entry(number: u64, data: &Value, refused: &Value, request: &str, url: &str) -
         "number": number,
         "data": data,
         "reason": refused["error"]["message"],
-        "issues": refused["error"]["data"]["issues"],
+        "issues": refused["error"]["data"]["records"][0]["issues"],
         "request_id": request,
         "url": url,
     })

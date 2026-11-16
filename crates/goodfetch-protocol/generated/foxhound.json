@@ -1806,7 +1806,7 @@
     },
     "CrawlRequestPushParams": {
       "additionalProperties": false,
-      "description": "What `crawl_request.push` takes: one Record an attempt pushes into one\nof its crawl's Datasets.",
+      "description": "What `crawl_request.push` takes: the Records of one push of an\nattempt into one of its crawl's Datasets, one or several (ADR 0147).",
       "properties": {
         "_meta": {
           "$ref": "#/$defs/TraceContext",
@@ -1816,10 +1816,6 @@
           "arrived_in": "0.1",
           "description": "The ID of the crawl request whose attempt pushes.",
           "type": "string"
-        },
-        "data": {
-          "arrived_in": "0.1",
-          "description": "The Record."
         },
         "dataset": {
           "arrived_in": "0.1",
@@ -1833,6 +1829,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "The Records, at least one, in the order pushed: a Record's position\nin this list is how `record_invalid` names it.",
+          "items": true,
+          "minItems": 1,
+          "type": "array"
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
@@ -1844,12 +1847,12 @@
         "crawl_request_id",
         "lease_epoch",
         "dataset",
-        "data"
+        "records"
       ],
       "type": "object"
     },
     "CrawlRequestPushed": {
-      "description": "What `crawl_request.push` answers once the Record is staged.",
+      "description": "What `crawl_request.push` answers once every Record is staged.",
       "type": "object"
     },
     "CrawlRunReport": {
@@ -14569,7 +14572,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each issue by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.",
+      "description": "A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each such Record by its position, from 0, among the Records pushed together, or the first such Record by its position among those of the handler's answer, with each of its issues by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.",
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -16319,7 +16322,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Pushes one Record into a Dataset the crawl declares from inside a handler's attempt, a handler context's `push`, and answers once it is staged: it commits once with the attempt's other outputs when the handler returns, and is discarded with them when the attempt ends any other way. The Record is checked first: a Dataset the crawl does not declare fails with `dataset_unknown`; a Record that is no JSON object, fails its Dataset's JSON Schema or lacks one of its key's fields fails with `record_invalid`, naming each issue's path, and is not staged: its rejection is staged instead, entering the Dataset's rejection table (`run.rejected_records`) if the attempt commits, while the attempt keeps what it staged before. An attempt that already ended fails with `attempt_ended`.",
+      "description": "Pushes one Record or several, in one message, into a Dataset the crawl declares from inside a handler's attempt, a handler context's `push`, and answers once they are staged: they commit once with the attempt's other outputs when the handler returns, and are discarded with them when the attempt ends any other way. Each Record is checked first. A push of no Record fails with `invalid_params`. A Dataset the crawl does not declare fails with `dataset_unknown`, and none of the Records is staged. A Record that is no JSON object, fails its Dataset's JSON Schema or lacks one of its key's fields is not staged: its rejection is staged instead, entering the Dataset's rejection table (`run.rejected_records`) if the attempt commits, while the Records that hold are staged and the attempt keeps what it staged before; the call then fails with `record_invalid`, naming each such Record by its position in the list and each of its issues by its path. An attempt that already ended fails with `attempt_ended`.",
       "events": [],
       "kind": "round_trip",
       "name": "crawl_request.push",

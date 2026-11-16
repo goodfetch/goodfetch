@@ -124,11 +124,11 @@ fn read_the_list(kind: &'static str) -> impl FnMut(&mut Inside<'_>, &Value) -> V
                 "crawl_request_id": handle["crawl_request"]["id"],
                 "lease_epoch": handle["lease_epoch"],
                 "dataset": "pages",
-                "data": {
+                "records": [{
                     "list": handle["crawl_request"]["url"],
                     "items": items,
                     "first": [first["url"], first["status"]],
-                },
+                }],
             }),
         );
         assert!(reply.get("result").is_some(), "{reply}");
@@ -307,7 +307,7 @@ fn read_the_second_call(inside: &mut Inside<'_>, handle: &Value) -> Value {
             "crawl_request_id": handle["crawl_request"]["id"],
             "lease_epoch": handle["lease_epoch"],
             "dataset": "pages",
-            "data": { "list": handle["crawl_request"]["url"], "told": told },
+            "records": [{ "list": handle["crawl_request"]["url"], "told": told }],
         }),
     );
     assert!(reply.get("result").is_some(), "{reply}");

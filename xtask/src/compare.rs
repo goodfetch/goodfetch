@@ -49,6 +49,7 @@
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
 )]
 
+mod admission;
 mod auto;
 mod collie;
 mod extracted;
@@ -108,6 +109,10 @@ pub(crate) enum Command {
     /// through it.
     #[command(hide = true)]
     Trial(TrialArguments),
+    /// Times admission per URL at 1 and 10 million URLs, Foxhound's
+    /// Frontier against Spider with its `disk` feature on and off, and
+    /// writes the report (#2318).
+    Admission(admission::AdmissionArguments),
 }
 
 #[derive(Args)]
@@ -540,6 +545,10 @@ fn recipe_arguments(given: &[&str]) -> RunArguments {
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
     match command {
         Command::Run(arguments) => measure(&arguments, environment),
+        Command::Admission(arguments) => {
+            admission::run(&arguments, environment)?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Report(arguments) => {
             let path = environment.path(&arguments.trials);
             let text =

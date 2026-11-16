@@ -1237,6 +1237,28 @@ compare profile="release" *args:
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-collie-arms
     "$xtask" compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile {{ profile }} "${@:2}"
 
+# Admission's time per URL at 1 and 10 million URLs (#2318), with no bar
+# until the owner sets one: the Frontier's `admission` example at the Run
+# state's default memory budget, and Spider with its `disk` feature on (the
+# main rows' build, in spider/) and off (spider-without-disk/), each the
+# only child of `xtask rss probe`, with every answer checked so each
+# visited set is exact. `--urls <n>`, repeated, sets the counts and
+# `--side <name>` the sides. It writes target/compare/admission/, gates
+# nothing and is no Live check; run it when the 1-minute load is under 4.
+# Spider with `disk` on writes each URL past its first 15,000 to SQLite one
+# statement at a time, so its 10 million take hours.
+# Times admission per URL at scale, Foxhound's against Spider's.
+[positional-arguments]
+compare-admission *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build --quiet --locked --bin xtask
+    cargo build --quiet --locked --release -p goodfetch-frontier --example admission
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --release --target-dir {{ compare_spider_builds }}/spider
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --release --no-default-features --target-dir {{ compare_spider_builds }}/spider-without-disk
+    target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
+    "$target/debug/xtask" compare admission --foxhound "$target/release/examples/admission" --spider {{ compare_spider_builds }}/spider/release/goodfetch-compare-spider --spider-without-disk {{ compare_spider_builds }}/spider-without-disk/release/goodfetch-compare-spider "$@"
+
 # The Kennel (ADR 0141), from the repository. On macOS: its release
 # executable in `Kennel.app`, signed ad hoc under the stable bundle
 # identifier `dev.goodfetch.kennel` (a rebuild keeps the desktop-notice

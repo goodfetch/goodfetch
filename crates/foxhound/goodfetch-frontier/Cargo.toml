@@ -43,6 +43,12 @@ goodfetch-workspace-hack.workspace = true
 flate2.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
+# The admission example (#2318) reads `goodfetch.run_state.spilled_lookups`
+# as the ops listener renders it.
+opentelemetry = { workspace = true, features = ["metrics"] }
+opentelemetry_sdk = { workspace = true, features = ["metrics"] }
+opentelemetry-prometheus.workspace = true
+prometheus.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true
 # The learned rules' tests read the statements a re-keying runs (trace_v2).

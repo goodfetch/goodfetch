@@ -10,6 +10,7 @@
     reason = "the scenario's count of acknowledged commits, which memory reads on the one thread it runs: there is no lock order for loom to test"
 )]
 
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -212,7 +213,7 @@ fn create_tables(connection: &Connection) {
 const SEED: &str = "https://shop.test/";
 
 /// How many admissions one transaction of the run file holds.
-const BATCH: usize = 1_000;
+pub(crate) const BATCH: usize = 1_000;
 
 /// Writes the `link`th synthetic link of [`SEED`]'s site into `into`: a
 /// distinct page under one of 64 aisles, with no query, so no learned rule
@@ -224,95 +225,146 @@ fn synthetic(link: usize, into: &mut String) {
         .expect("invariant: writing to a String never fails");
 }
 
-/// Admits [`SEED`] into a run file on disk, opened as a crawl's is (WAL,
-/// unsynced between batches, the writer's bounded page cache), then `urls`
-/// synthetic links found on it, each written in turn into one reused
-/// buffer, so the scenario holds no URL itself, in batches of [`BATCH`];
-/// answers how many were added, the seed included. Its heap is the
-/// Frontier's: the page cache over an exact visited set on disk (ADR 0134),
-/// and, with a `budget`, the visits memory holds within it beside the
-/// file, as the default Durability level, `batch`, holds them (ADR 0142):
-/// memory reads the empty file as the crawl opens, and each batch is
-/// acknowledged once committed. With none, memory holds nothing, as at
-/// the levels that write each attempt as a batch of its own.
-pub(crate) fn enqueue(urls: usize, budget: Option<u64>) -> usize {
-    let folder = tempfile::tempdir().expect("invariant: a temporary folder is created");
-    let mut connection = Connection::open(folder.path().join("run.sqlite"))
-        .expect("invariant: SQLite opens a run file in a new folder");
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the bench's own new run file, which no other connection opens"
-    )]
-    connection
-        .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
-        .expect("invariant: the run file takes WAL");
-    connection
-        .pragma_update(None, "synchronous", "NORMAL")
-        .expect("invariant: the run file takes its durability");
-    connection
-        .pragma_update(None, "cache_size", -i64::from(PAGE_CACHE_KIB))
-        .expect("invariant: the run file takes its page cache");
-    create_tables(&connection);
-    let invariants = unbounded();
-    let commits = Arc::new(AtomicU64::new(0));
-    if let Some(bytes) = budget {
-        let acknowledged = Arc::clone(&commits);
-        invariants.hold_unwritten(
-            SharedBudget::new(bytes),
-            move || acknowledged.load(Ordering::SeqCst),
-            &Metrics::none(),
-        );
-        invariants
-            .fill_memory(&connection)
-            .expect("invariant: memory reads the new run file");
-    }
-    let policy =
-        Policy::new(&["*"], &[] as &[&str]).expect("invariant: the default domain policy reads");
-    let get = HttpMethod::get();
-    let base = Url::parse(SEED).expect("invariant: the seed parses");
-    let mut added = 0_usize;
-    let mut admit_one = |connection: &Connection, candidate: Candidate<'_>| {
-        let answer = admit(connection, &invariants, &policy, candidate, |_| {
-            Ok((added + 1).to_string())
-        })
+/// A run file on disk, opened as a crawl's is (WAL, unsynced between
+/// batches, the writer's bounded page cache), with the Frontier's tables
+/// and [`SEED`] admitted, into which synthetic links found on the seed are
+/// admitted in batches. Its heap is the Frontier's: the page cache over an
+/// exact visited set on disk (ADR 0134), and, with a budget, the visits
+/// memory holds within it beside the file, as the default Durability
+/// level, `batch`, holds them (ADR 0142): memory reads the empty file as
+/// the crawl opens, and each batch is acknowledged once committed. With
+/// none, memory holds nothing, as at the levels that write each attempt as
+/// a batch of its own.
+pub(crate) struct RunFile {
+    /// The run file's connection, the crawl's writer.
+    pub(crate) connection: Connection,
+    /// The Run's invariants, with the visits memory holds.
+    pub(crate) invariants: Invariants,
+    /// The batches committed so far, which memory reads as acknowledged.
+    commits: Arc<AtomicU64>,
+    policy: Policy,
+    base: Url,
+    /// The crawl requests added so far, the seed included, which also
+    /// numbers the next one.
+    added: usize,
+    /// The folder the run file is in, removed once it drops.
+    _folder: tempfile::TempDir,
+}
+
+impl RunFile {
+    /// Opens a new run file, with memory holding visits within `budget`
+    /// when given, counted on `metrics`, and admits [`SEED`].
+    pub(crate) fn open(budget: Option<u64>, metrics: &Metrics) -> Self {
+        let folder = tempfile::tempdir().expect("invariant: a temporary folder is created");
+        let connection = Connection::open(folder.path().join("run.sqlite"))
+            .expect("invariant: SQLite opens a run file in a new folder");
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the bench's own new run file, which no other connection opens"
+        )]
+        connection
+            .pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
+            .expect("invariant: the run file takes WAL");
+        connection
+            .pragma_update(None, "synchronous", "NORMAL")
+            .expect("invariant: the run file takes its durability");
+        connection
+            .pragma_update(None, "cache_size", -i64::from(PAGE_CACHE_KIB))
+            .expect("invariant: the run file takes its page cache");
+        create_tables(&connection);
+        let invariants = unbounded();
+        let commits = Arc::new(AtomicU64::new(0));
+        if let Some(bytes) = budget {
+            let acknowledged = Arc::clone(&commits);
+            invariants.hold_unwritten(
+                SharedBudget::new(bytes),
+                move || acknowledged.load(Ordering::SeqCst),
+                metrics,
+            );
+            invariants
+                .fill_memory(&connection)
+                .expect("invariant: memory reads the new run file");
+        }
+        let mut file = Self {
+            connection,
+            invariants,
+            commits,
+            policy: Policy::new(&["*"], &[] as &[&str])
+                .expect("invariant: the default domain policy reads"),
+            base: Url::parse(SEED).expect("invariant: the seed parses"),
+            added: 0,
+            _folder: folder,
+        };
+        let get = HttpMethod::get();
+        let seed = Candidate::Seed {
+            url: SEED,
+            declared: Declared {
+                method: &get,
+                body: None,
+                key: None,
+                keeps_fragment: false,
+            },
+        };
+        let answer = admit(
+            &file.connection,
+            &file.invariants,
+            &file.policy,
+            seed,
+            |_| Ok((file.added + 1).to_string()),
+        )
         .expect("invariant: the run file is written");
         if matches!(answer, Enqueued::Added { .. }) {
-            added += 1;
+            file.added += 1;
         }
-    };
-    let seed = Candidate::Seed {
-        url: SEED,
-        declared: Declared {
-            method: &get,
-            body: None,
-            key: None,
-            keeps_fragment: false,
-        },
-    };
-    admit_one(&connection, seed);
-    commits.fetch_add(1, Ordering::SeqCst);
-    let mut link = String::new();
-    for batch in (0..urls).step_by(BATCH) {
-        let transaction = connection
+        file.commits.fetch_add(1, Ordering::SeqCst);
+        file
+    }
+
+    /// Admits the synthetic links numbered `links`, each written in turn
+    /// into one reused buffer, so the batch holds no URL itself, in one
+    /// transaction, acknowledged once committed; `answered` reads each
+    /// admission's answer.
+    pub(crate) fn admit_batch(&mut self, links: Range<usize>, mut answered: impl FnMut(&Enqueued)) {
+        let transaction = self
+            .connection
             .transaction()
             .expect("invariant: the run file starts a transaction");
-        for each in batch..urls.min(batch + BATCH) {
+        let mut link = String::new();
+        for each in links {
             synthetic(each, &mut link);
             let href = Candidate::Href {
                 href: &link,
-                base: &base,
+                base: &self.base,
                 encoding: encoding_rs::UTF_8,
-                from: &base,
+                from: &self.base,
                 narrowing: Narrowing::none(),
                 depth: 1,
                 keeps_fragment: false,
             };
-            admit_one(&transaction, href);
+            let added = self.added;
+            let answer = admit(&transaction, &self.invariants, &self.policy, href, |_| {
+                Ok((added + 1).to_string())
+            })
+            .expect("invariant: the run file is written");
+            if matches!(answer, Enqueued::Added { .. }) {
+                self.added += 1;
+            }
+            answered(&answer);
         }
         transaction
             .commit()
             .expect("invariant: the run file commits a batch");
-        commits.fetch_add(1, Ordering::SeqCst);
+        self.commits.fetch_add(1, Ordering::SeqCst);
     }
-    added
+}
+
+/// Admits `urls` synthetic links found on [`SEED`] into a new [`RunFile`],
+/// in batches of [`BATCH`], memory holding visits within `budget` when
+/// given; answers how many were added, the seed included.
+pub(crate) fn enqueue(urls: usize, budget: Option<u64>) -> usize {
+    let mut file = RunFile::open(budget, &Metrics::none());
+    for batch in (0..urls).step_by(BATCH) {
+        file.admit_batch(batch..urls.min(batch + BATCH), |_| ());
+    }
+    file.added
 }

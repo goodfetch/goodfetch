@@ -38,8 +38,13 @@
 //! fetched; the comparison's same-work check reads the Proving ground's own
 //! observations instead.
 //!
+//! `--scenario admission`, given first, crawls nothing: it times Spider's
+//! admission of links alone (#2318), as `admission.rs` says.
+//!
 //!   goodfetch-compare-spider --url http://127.0.0.1:<port>/sites/1000/1 \
 //!     --host scale.test:<port> --concurrency 16 --scenario raw --capacity 64
+
+mod admission;
 
 use std::io::Write as _;
 use std::process::ExitCode;
@@ -381,6 +386,15 @@ async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    if admission::asked() {
+        return match admission::run().await {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("goodfetch-compare-spider: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let fetched = match arguments() {
         Ok(arguments) => crawl(&arguments).await,
         Err(usage) => Err(usage),

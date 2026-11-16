@@ -37,6 +37,7 @@ use rusqlite::Connection;
 
 use super::admission::{self, Enqueue, LinksBatch};
 use super::asks::{self, Answering, Ask, HopAsk, Queued};
+use super::kept::Whole;
 use super::tally::Tally;
 use super::teacher::{Taught, Teacher};
 use super::{Counted, StateError};
@@ -47,16 +48,32 @@ use crate::invariants::Invariants;
 use crate::staging::Staging;
 use crate::work_items::{self, Changed, Failure, Leased, Positions, Unsuccessful};
 
-/// What an outcome's job answers: how its work item ended, each pending
-/// request a rule its page taught merged, by ID with its domain key, and
-/// what it changed of the crawl's requests by state.
-pub(crate) type EndWritten = Result<Written, StateError>;
+/// What an outcome's job answers: how its work item ended and what it
+/// changed of the crawl's requests by state, with the commits the writer
+/// had acknowledged when it ran.
+pub(crate) type EndWritten = Result<Ran<Written>, StateError>;
+
+/// What a job of the run file's writer answered, with how many commits
+/// the writer had acknowledged when it ran: what it wrote is in the commit
+/// after them, which a read sees once that many and one more are
+/// acknowledged (ADR 0142). The loop may hear the answer after that commit,
+/// so the count it reads then could be one too many (#2679).
+#[derive(Debug)]
+pub(crate) struct Ran<T> {
+    pub(crate) answer: T,
+    pub(crate) commits: u64,
+}
 
 /// What a write the loop waited for gave the crawl: the work items it
 /// added, each keyed as it was added and as its first lease takes it, for
 /// the loop to offer their domains' queues, and what it changed of the crawl's requests by state,
 /// for the Run state to count.
 pub(crate) type Given = (Vec<Leased>, Changed);
+
+/// What the crawl's Run state opens with beside its Session pool: its
+/// requests by state, and its pending work items whole when they fit
+/// within the Run's memory budget (#2169).
+pub(crate) type Opening = (Tally, Option<Whole>);
 
 /// An outcome's job, queued, which answers once it is written.
 pub(crate) type QueuedEnd = Pin<Box<dyn Future<Output = EndWritten> + Send>>;
@@ -156,7 +173,7 @@ impl Stored {
         }
         let teacher = Arc::new(Teacher::new(
             invariants.shared_frontier(),
-            clock,
+            (clock, writer.commits()),
             work.clone(),
         ));
         writer.end_batches_with(Arc::clone(&teacher) as _);
@@ -232,16 +249,9 @@ impl Stored {
                 return Some(answered(answer, written.await));
             }
             Ask::Readmit { blocked, answer } => {
-                let written = self.writer.write(move |connection| {
-                    let mut changed = Changed::default();
-                    let readmitted = this
-                        .intake
-                        .admitting(|| work_items::readmit(connection, blocked, &mut changed))?
-                        .map(|readmitted| u64::try_from(readmitted.len()).unwrap_or(u64::MAX));
-                    // Each keeps its domain key: its queue takes it when
-                    // it is filled again.
-                    Ok((readmitted, (Vec::new(), changed)))
-                });
+                let written = self
+                    .writer
+                    .write(move |connection| this.readmit(connection, blocked));
                 return Some(answered(answer, written.await));
             }
             Ask::StagedSeed {
@@ -330,6 +340,27 @@ impl Stored {
     pub(crate) fn waited(&self, pages: usize) {
         self.work
             .count_many(Row::RunPageWaits, u64::try_from(pages).unwrap_or(u64::MAX));
+    }
+
+    /// Re-admits the failures, the blocked ones too when `blocked`, unless
+    /// the intake closed: how many, `None` then, with their rows, each
+    /// under the domain key its queue takes it by, as its next lease does,
+    /// and what that changed of the crawl's requests by state.
+    fn readmit(
+        &self,
+        connection: &Connection,
+        blocked: bool,
+    ) -> rusqlite::Result<(Option<u64>, Given)> {
+        let mut changed = Changed::default();
+        let readmitted = self
+            .intake
+            .admitting(|| work_items::readmit(connection, blocked, &mut changed))?;
+        let rows = match &readmitted {
+            Some(ids) => work_items::leasable(connection, ids)?,
+            None => Vec::new(),
+        };
+        let count = readmitted.map(|ids| u64::try_from(ids.len()).unwrap_or(u64::MAX));
+        Ok((count, (rows, changed)))
     }
 
     /// Stages `enqueue` with its attempt.
@@ -490,22 +521,48 @@ impl Stored {
     }
 
     /// What the crawl's Run state starts from as it opens: the Session
-    /// pool the run file holds, drawing on `entropy`, and its requests by
-    /// state, which it counts in memory from then on.
+    /// pool the run file holds, drawing on `entropy`, its requests by
+    /// state, which it counts in memory from then on, and, at a level that
+    /// batches attempts, its pending work items whole when they fit within
+    /// the Run's memory budget beside the Frontier's visits (#2169).
     ///
     /// # Errors
     ///
     /// The run file's.
-    pub(crate) async fn open(&self, entropy: Entropy) -> Result<(SessionPool, Tally), StateError> {
+    pub(crate) async fn open(
+        &self,
+        entropy: Entropy,
+    ) -> Result<(SessionPool, Opening), StateError> {
+        let budget = (!self.writer.per_attempt()).then(|| self.writer.memory_budget());
+        let beside = self.frontier_bytes();
         Ok(self
             .writer
             .read(move |connection| {
+                let whole = match budget {
+                    Some(budget) => Whole::read(connection, budget, beside)?,
+                    None => None,
+                };
                 Ok((
                     SessionPool::open(connection, entropy)?,
-                    Tally::read(connection)?,
+                    (Tally::read(connection)?, whole),
                 ))
             })
             .await?)
+    }
+
+    /// The bytes the Frontier holds of the visits not in the run file yet,
+    /// which share the Run's memory budget with the pending work items.
+    pub(super) fn frontier_bytes(&self) -> u64 {
+        self.invariants
+            .frontier()
+            .unwritten()
+            .map_or(0, goodfetch_frontier::UnwrittenVisits::bytes)
+    }
+
+    /// Counts one read of the pending work items for a lease
+    /// (`F3.lease_reads`): they no longer fit in memory.
+    pub(super) fn lease_read(&self) {
+        self.work.count(Row::LeaseReads);
     }
 
     /// The first `at_once` work items not keyed yet, in order: each one's
@@ -687,8 +744,10 @@ impl Stored {
     pub(crate) async fn end(&self, outcome: Outcome) -> QueuedEnd {
         match self.writer.reserve().await {
             Ok(place) => {
-                let written =
-                    place.write_with(ATTEMPT_ENDED, move |connection| outcome.write(connection));
+                let written = place.write_with(
+                    ATTEMPT_ENDED,
+                    self.ran(move |connection| outcome.write(connection)),
+                );
                 Box::pin(async move { written.await.map_err(StateError::from) })
             }
             Err(error) => Box::pin(std::future::ready(Err(error.into()))),
@@ -708,20 +767,23 @@ impl Stored {
         (work_item, lease_epoch): (String, u64),
         unsuccessful: Unsuccessful,
         ended_at: PointInTime,
-    ) -> Result<(Ended, Changed), StateError> {
+    ) -> Result<Ran<(Ended, Changed)>, StateError> {
         Ok(self
             .writer
-            .write_with(ATTEMPT_ENDED, move |connection| {
-                let mut changed = Changed::default();
-                let ended = attempt_outcome::end(
-                    connection,
-                    (&work_item, lease_epoch),
-                    unsuccessful,
-                    &ended_at,
-                    &mut changed,
-                )?;
-                Ok((ended, changed.with_sitemaps(connection)?))
-            })
+            .write_with(
+                ATTEMPT_ENDED,
+                self.ran(move |connection| {
+                    let mut changed = Changed::default();
+                    let ended = attempt_outcome::end(
+                        connection,
+                        (&work_item, lease_epoch),
+                        unsuccessful,
+                        &ended_at,
+                        &mut changed,
+                    )?;
+                    Ok((ended, changed.with_sitemaps(connection)?))
+                }),
+            )
             .await?)
     }
 
@@ -738,30 +800,49 @@ impl Stored {
         &self,
         unsent: Vec<(String, Failure)>,
         ended_at: PointInTime,
-    ) -> Result<Changed, StateError> {
+    ) -> Result<Ran<Changed>, StateError> {
         let ended = Syncing::Attempt {
             ended: u64::try_from(unsent.len()).unwrap_or(u64::MAX),
             bytes: 0,
         };
         Ok(self
             .writer
-            .write_with(ended, move |connection| {
-                let mut changed = Changed::default();
-                for (id, failure) in unsent {
-                    for leased in work_items::lease(connection, std::slice::from_ref(&id))? {
-                        work_items::end(
-                            connection,
-                            &id,
-                            leased.lease_epoch,
-                            Unsuccessful::Failed(failure.clone()),
-                            &ended_at,
-                            &mut changed,
-                        )?;
+            .write_with(
+                ended,
+                self.ran(move |connection| {
+                    let mut changed = Changed::default();
+                    for (id, failure) in unsent {
+                        for leased in work_items::lease(connection, std::slice::from_ref(&id))? {
+                            work_items::end(
+                                connection,
+                                &id,
+                                leased.lease_epoch,
+                                Unsuccessful::Failed(failure.clone()),
+                                &ended_at,
+                                &mut changed,
+                            )?;
+                        }
                     }
-                }
-                changed.with_sitemaps(connection)
-            })
+                    changed.with_sitemaps(connection)
+                }),
+            )
             .await?)
+    }
+
+    /// `job`, answering with how many commits the writer had acknowledged
+    /// as it began to run (#2679).
+    fn ran<T>(
+        &self,
+        job: impl FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    ) -> impl FnOnce(&Connection) -> rusqlite::Result<Ran<T>> + Send + 'static {
+        let commits = self.writer.commits();
+        move |connection| {
+            let commits = *commits.borrow();
+            Ok(Ran {
+                answer: job(connection)?,
+                commits,
+            })
+        }
     }
 
     /// Writes `counted`, the tier choices' counts the run file has not

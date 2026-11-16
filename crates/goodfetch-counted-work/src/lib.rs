@@ -201,6 +201,10 @@ rows! {
     SitemapCompilations => "F3.compilations.sitemap", "frontier_sitemap", "compilations";
     /// `F3.transactions`, of a sitemap's read.
     SitemapTransactions => "F3.transactions.sitemap", "frontier_sitemap", "transactions";
+    /// `F3.lease_reads`: a read transaction on the run file the crawl's Run
+    /// state runs to lease a work item or find the pending ones, at a
+    /// Durability level that batches attempts (#2169).
+    LeaseReads => "F3.lease_reads", "frontier_lease", "reads";
     /// `F3.compilations`: a validator built for one URL's Payload.
     PayloadCompilations => "F3.compilations.payload", "frontier_payload", "compilations";
     /// `F3.payload_serializations`: one URL's Payload serialized.
@@ -321,11 +325,16 @@ rows! {
     /// `C6.seals`: a seal of a fragment of a relayed viewer's frame.
     LiveViewSeals => "C6.seals", "live_view_frame", "seals";
     /// `E5.file_opens`: a file opened or a folder created for a Run-trace
-    /// entry, as the Run's one writer does once a Run for each file.
+    /// entry, as an entry does only to open again a file that failed.
     RunTraceFileOpens => "E5.file_opens", "run_trace", "file_opens";
-    /// `E5.spawns`: a task spawned for a Run-trace entry, as the Run's one
-    /// writer is, once a Run.
+    /// `E5.spawns`: a task spawned for a Run-trace entry, as an entry does
+    /// only to start again a writer whose start failed.
     RunTraceSpawns => "E5.spawns", "run_trace", "spawns";
+    /// `E5.run_file_opens`: the Run's own creation of its trace's folder and
+    /// first open of each of its files, by the Run's one writer.
+    RunTraceRunFileOpens => "E5.run_file_opens", "run_trace", "run_file_opens";
+    /// `E5.run_spawns`: the Run's one writer's start, once a Run.
+    RunTraceRunSpawns => "E5.run_spawns", "run_trace", "run_spawns";
     /// `E5.formatting_off`: a Run-trace entry formatted though its kind is
     /// switched off.
     RunTraceFormattingOff => "E5.formatting_off", "run_trace", "formatting_off";

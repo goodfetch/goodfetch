@@ -5,7 +5,7 @@
 //! whose commits are outcomes.
 #![expect(
     clippy::disallowed_methods,
-    reason = "tests read the test Clock (ADR 0059)"
+    reason = "tests read the test Clock (ADR 0059); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::sync::Arc;
@@ -152,7 +152,7 @@ async fn teaching(state: &RunState, env: &TestEnv) -> Arc<goodfetch_frontier::In
     invariants.learn_behind();
     state.end_batches_with(Arc::new(Teacher::new(
         Arc::clone(&invariants),
-        Clock::paused(env.start_time()),
+        (Clock::paused(env.start_time()), state.commits()),
         goodfetch_counted_work::CountedWork::default(),
     )));
     invariants

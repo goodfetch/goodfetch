@@ -900,10 +900,8 @@ impl Sessions {
             .state()
             .write(move |connection| {
                 connection
-                    .execute(
-                        "UPDATE page_sessions SET closed = 1 WHERE position = ?1",
-                        [position],
-                    )
+                    .prepare_cached("UPDATE page_sessions SET closed = 1 WHERE position = ?1")?
+                    .execute([position])
                     .map(drop)
             })
             .await
@@ -1244,10 +1242,14 @@ impl Sessions {
         run.state()
             .write(move |connection| {
                 connection
-                    .execute(
-                        "INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed, source) VALUES (?1, ?2, 0, ?3, ?4, ?5)",
-                        rusqlite::params![position, is_default, settings, seed, source],
-                    )
+                    .prepare_cached(
+                        "INSERT INTO page_sessions \
+                         (position, is_default, closed, settings, identity_seed, source) \
+                         VALUES (?1, ?2, 0, ?3, ?4, ?5)",
+                    )?
+                    .execute(rusqlite::params![
+                        position, is_default, settings, seed, source
+                    ])
                     .map(drop)
             })
             .await
@@ -1877,11 +1879,9 @@ async fn ended_with_its_run(session: &SessionId, context: &CallContext) -> bool 
     };
     reader
         .read(move |connection| {
-            connection.query_row(
-                "SELECT count(*) FROM page_sessions WHERE position = ?1",
-                [position],
-                |row| row.get::<_, i64>(0),
-            )
+            connection
+                .prepare_cached("SELECT count(*) FROM page_sessions WHERE position = ?1")?
+                .query_row([position], |row| row.get::<_, i64>(0))
         })
         .await
         .is_ok_and(|recorded| recorded > 0)

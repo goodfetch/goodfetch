@@ -15,7 +15,7 @@
 //! job.
 #![expect(
     clippy::disallowed_methods,
-    reason = "each Client is a thread of the test's own, and the test reads the files the engines wrote"
+    reason = "each Client is a thread of the test's own, and the test reads the files the engines wrote; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 #![expect(
     clippy::doc_markdown,

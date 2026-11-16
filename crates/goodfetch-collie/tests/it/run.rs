@@ -3,6 +3,11 @@
 //! usual folders when `GOODFETCH_HOME` is unset (ADR 0059), in WAL mode
 //! under its writer's lock, listed in the Run index, with its three axes
 //! when it ends, and its stop once its `timeout.run` passed.
+
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"

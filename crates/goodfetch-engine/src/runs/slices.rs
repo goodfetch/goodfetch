@@ -152,15 +152,15 @@ pub(super) fn reclaimed_beyond(
     connection: &Connection,
     epoch: u64,
 ) -> rusqlite::Result<Option<OverCharge>> {
-    let charged: bool = connection.query_row(
-        "SELECT EXISTS (SELECT 1 FROM usage WHERE epoch < ?1)",
-        [i64::try_from(epoch).unwrap_or(i64::MAX)],
-        |row| row.get(0),
-    )?;
+    let charged: bool = connection
+        .prepare_cached("SELECT EXISTS (SELECT 1 FROM usage WHERE epoch < ?1)")?
+        .query_row([i64::try_from(epoch).unwrap_or(i64::MAX)], |row| row.get(0))?;
     if !charged {
         return Ok(None);
     }
-    let declared: String = connection.query_row("SELECT charges FROM run", [], |row| row.get(0))?;
+    let declared: String = connection
+        .prepare_cached("SELECT charges FROM run")?
+        .query_row([], |row| row.get(0))?;
     Ok(match beyond(&declared) {
         0 => None,
         u64::MAX => Some(OverCharge::WholeSlices),

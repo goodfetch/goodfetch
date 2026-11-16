@@ -4,6 +4,11 @@
 //! that merges, so an admission asks whether a visited request's learned
 //! identity is its own with no read of the file.
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 

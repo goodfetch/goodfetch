@@ -38,7 +38,7 @@ pub fn wal_of(path: &Path) -> PathBuf {
 /// When the file cannot be read or written, or holds no such table.
 #[expect(
     clippy::disallowed_methods,
-    reason = "the test damages its own store's file, as a failing disk would, beneath every counted function"
+    reason = "the test damages its own store's file, as a failing disk would, beneath every counted function; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 pub fn damage_table(path: &Path, table: &str) -> Result<(), DamageTableError> {
     let connection = Connection::open(path)?;

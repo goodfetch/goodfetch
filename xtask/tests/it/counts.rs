@@ -742,9 +742,12 @@ const OTHER_B1_ROWS: &str = "\
 | `F3.hop_round_trips` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F3.hop_round_trips.end` | its work | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F3.in_flight_serializations` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `F3.lease_reads` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F3.counted_work_constructions` | its work | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.file_opens` | folders created and files opened per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E5.spawns` | tasks spawned per entry | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `E5.run_file_opens` | folders created and files opened per Run | ≤ 4 | 2 | B1 | must not grow | `just counts` | implementer done |
+| `E5.run_spawns` | tasks spawned per Run | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `E5.formatting_off` | entries formatted per entry of a kind off | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E6.transactions` | Politeness-file transactions per attempt | ≤ 2 | 2 | B1 | must not grow | `just counts` | implementer done |
 | `E6.opens` | opens and statement preparations per permit | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
@@ -821,9 +824,12 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F3.hop_round_trips", 1),
         ("F3.hop_round_trips.end", 1),
         ("F3.in_flight_serializations", 0),
+        ("F3.lease_reads", 0),
         ("F3.counted_work_constructions", 0),
         ("E5.file_opens", 0),
         ("E5.spawns", 0),
+        ("E5.run_file_opens", 2),
+        ("E5.run_spawns", 1),
         ("E5.formatting_off", 0),
         ("E6.transactions", 2),
         ("E6.opens", 0),
@@ -837,7 +843,7 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
     .collect();
     let script = format!(
         "#!/bin/sh\nplant=$2\nplanted() {{ if [ \"$1\" = \"$plant\" ]; then echo 13; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"added_pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"attempts_ended\":1,\"runs\":1,\"effects\":0,\"entries\":13,\"permits\":1,\"requests\":1,\"origins\":1,\"off_attempts\":0,\"learning_off_pages\":0,\"batched_pages\":13,\"full_pages\":0}},\"counts\":{{{}{extra}}}}}'\n",
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"added_pages\":13,\"records\":13,\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts\":1,\"attempts_ended\":1,\"runs\":1,\"effects\":0,\"entries\":13,\"permits\":1,\"requests\":1,\"origins\":1,\"off_attempts\":0,\"learning_off_pages\":0,\"batched_pages\":13,\"batched_leases\":1,\"full_pages\":0}},\"counts\":{{{}{extra}}}}}'\n",
         counts.join(",")
     );
     let path = executable_script(&workspace, "benchmark.sh", &script);
@@ -995,7 +1001,7 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
 }
 
 /// Every F3 row, in what a benchmark prints and the register holds.
-const FRONTIER_ROWS: [&str; 20] = [
+const FRONTIER_ROWS: [&str; 21] = [
     "F3.invariant_reads",
     "F3.invariant_reads.hop",
     "F3.invariant_reads.sitemap",
@@ -1015,6 +1021,7 @@ const FRONTIER_ROWS: [&str; 20] = [
     "F3.hop_round_trips",
     "F3.hop_round_trips.end",
     "F3.in_flight_serializations",
+    "F3.lease_reads",
     "F3.counted_work_constructions",
 ];
 
@@ -1042,7 +1049,7 @@ fn frontier_benchmark(counted: &str) -> String {
         .map(|name| format!("\"{name}\":{}", if *name == counted { 5 } else { 1 }))
         .collect();
     format!(
-        "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts_ended\":1,\"added_pages\":1}},\"counts\":{{{}}}}}'\n",
+        "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"links_batches\":1,\"hops\":1,\"chains\":1,\"sitemaps\":1,\"payloads\":1,\"attempts_ended\":1,\"added_pages\":1,\"batched_leases\":1}},\"counts\":{{{}}}}}'\n",
         counts.join(",")
     )
 }
@@ -1486,6 +1493,84 @@ fn a_row_two_families_count_is_held_on_each_to_its_own_figure(
     );
 }
 
+/// A row whose register figure names one cell of a family (#2639): B1 and
+/// B4 copy the tree once a page, and B4's `single_attempt` cell twice.
+const TREE_COPIES_ROW: &str = "\
+| `F1.tree_copies` | copies of the page's tree per page | ≤ 1 (2 in B4's `single_attempt` cell) | B1 1, B4 1, B4 single_attempt 2 | B1, B4 | must not grow | `just counts` | implementer done |
+";
+
+/// A benchmark of `family` that counts each `(cell, copies)` over 13 pages.
+fn tree_copies_benchmark(workspace: &Workspace, family: &str, cells: &[(&str, u64)]) -> String {
+    let lines: Vec<String> = cells
+        .iter()
+        .map(|(cell, copies)| {
+            format!(
+                "echo '{{\"cell\":\"{cell}\",\"units\":{{\"pages\":13}},\"counts\":{{\"F1.tree_copies\":{copies}}}}}'"
+            )
+        })
+        .collect();
+    let path = executable_script(
+        workspace,
+        &format!("{family}.sh"),
+        &format!("#!/bin/sh\n{}\n", lines.join("\n")),
+    );
+    format!("{family}={}", path.display())
+}
+
+/// A cell the register names is held to its own figure, and every other
+/// cell of its family to the family's: B4's `single_attempt` passes at two
+/// copies a page and fails at three, and its default cell fails at two.
+#[rstest]
+#[case::each_at_its_figure(13, 26, 0)]
+#[case::the_named_cell_past_its_figure(13, 39, 1)]
+#[case::the_default_cell_at_the_named_cells_figure(26, 26, 1)]
+fn a_cell_the_register_names_is_held_to_its_own_figure(
+    #[case] default: u64,
+    #[case] single_attempt: u64,
+    #[case] code: i32,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write(
+        "TESTING.md",
+        format!("{}{TREE_COPIES_ROW}", register("8")).as_bytes(),
+    );
+    let on_b1 = tree_copies_benchmark(&workspace, "B1", &[("default", 13)]);
+    let on_b4 = tree_copies_benchmark(
+        &workspace,
+        "B4",
+        &[("default", default), ("single_attempt", single_attempt)],
+    );
+
+    let outcome = workspace.xtask(&[
+        "counts",
+        "--row",
+        "F1.tree_copies",
+        "--executable",
+        &on_b1,
+        "--executable",
+        &on_b4,
+    ]);
+
+    assert_eq!(outcome.code, code, "{}\n{}", outcome.stdout, outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        if code == 0 {
+            Vec::new()
+        } else {
+            vec![finding("over-limit", "F1.tree_copies")]
+        }
+    );
+    if code == 0 {
+        assert!(
+            outcome
+                .stdout
+                .contains("F1.tree_copies [single_attempt]: 2 per page, limit 2 (26 over 13)"),
+            "{}",
+            outcome.stdout
+        );
+    }
+}
+
 /// The clean-up's instructions, the selectors' compilations' and the generic
 /// set's build's are read under Callgrind by B4's own run, and vary a little from run to run: each
 /// row is held within the 0.5 % of a figure read under Valgrind (the
@@ -1553,7 +1638,7 @@ fn traced_benchmark(blind: bool) -> String {
          sync --data \"$d/run.sqlite\"\n\
          cat \"$d/trace/requests.jsonl\" > /dev/null\n\
          {bypass}\
-         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13}},\"counts\":{{\"E5.file_opens\":3,\"C1.file_opens\":1,\"F2.syncs\":2}},\"vfs_files\":[\"'$d'/run.sqlite\"]}}'\n\
+         echo '{{\"cell\":\"default\",\"units\":{{\"pages\":13}},\"counts\":{{\"E5.run_file_opens\":2,\"E5.file_opens\":1,\"C1.file_opens\":1,\"F2.syncs\":2}},\"vfs_files\":[\"'$d'/run.sqlite\"]}}'\n\
          rm -rf \"$d\"\n"
     )
 }
@@ -1582,7 +1667,7 @@ fn the_strace_cell_passes_when_strace_sees_what_the_counters_count() {
         outcome.stderr
     );
     for line in [
-        "B1 opens and folders: strace 4, counted 4 (E5.file_opens, C1.file_opens)",
+        "B1 opens and folders: strace 4, counted 4 (E5.run_file_opens, E5.file_opens, C1.file_opens)",
         "B1 syncs: strace 2, counted 2 (F2.syncs)",
     ] {
         assert!(outcome.stdout.contains(line), "{line}: {}", outcome.stdout);

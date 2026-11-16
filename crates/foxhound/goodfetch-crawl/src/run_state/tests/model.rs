@@ -1018,12 +1018,12 @@ impl Subject {
                     stored.seal().await.unwrap();
                 }
             }
-            let (pool, tally) = stored.open(Entropy::seeded(seed)).await.unwrap();
+            let (pool, opening) = stored.open(Entropy::seeded(seed)).await.unwrap();
             let (asking, asked) = mailbox(CountedWork::default());
             Crawl {
                 owner,
                 writer,
-                state: RunState::new(pool, TierChoices::default(), tally, stored),
+                state: RunState::new(pool, TierChoices::default(), opening, stored),
                 asking,
                 asked,
                 leases: Leases::new(Clock::paused(start_time), "model", 1)
@@ -1231,8 +1231,9 @@ impl Subject {
     }
 
     /// The loop keys the next unkeyed work items, in a sealed batch that
-    /// needs no sync of its own, and seals it when it keyed any, as
-    /// `key_new` does; answers their pages.
+    /// needs no sync of its own, and seals it when it keyed any, letting
+    /// the whole index of pending work items go, as `key_new` does; answers
+    /// their pages.
     fn seal(&mut self) -> Vec<usize> {
         let stored = self.crawl().stored();
         let unkeyed = self
@@ -1252,7 +1253,7 @@ impl Subject {
                 .crawl
                 .as_mut()
                 .expect("invariant: the crawl runs until the case ends");
-            self.runtime.block_on(crawl.state.seal()).unwrap();
+            self.runtime.block_on(crawl.state.spill().seal()).unwrap();
         }
         pages
     }
@@ -1308,7 +1309,11 @@ impl Subject {
             .runtime
             .block_on(stored.close_if_drained(counted, unwritten, ended_at()))
             .unwrap();
-        self.crawl().state.changed(changed);
+        let state = &mut self.crawl().state;
+        state.changed(changed);
+        if short.is_none() {
+            state.spill();
+        }
         Some(short.is_some())
     }
 

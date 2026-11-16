@@ -186,7 +186,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 120] = [
+const ROWS: [Row; 121] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -418,6 +418,11 @@ const ROWS: [Row; 120] = [
     b1("F3.hop_round_trips", HOPS, true),
     b1("F3.hop_round_trips.end", CHAINS, true),
     b1("F3.in_flight_serializations", ATTEMPTS_ENDED, false),
+    // The read transactions on the run file per lease, at the levels that
+    // batch attempts, within the memory budget (#2169): none, as the Run
+    // state holds every pending work item. Its unit is those cells'
+    // leases, a page's and a sitemap's, none elsewhere.
+    b1("F3.lease_reads", BATCHED_LEASES, false),
     // What each page more builds, read as `F2.prepares` is: the whole
     // site's run less a run on half its pages, over the pages it adds.
     b1("F3.counted_work_constructions", ADDED_PAGES, false),
@@ -1036,6 +1041,10 @@ const PAYLOADS: &str = "payloads";
 /// The attempts that ended in it: a page's, and each sitemap's read.
 const ATTEMPTS_ENDED: &str = "attempts_ended";
 
+/// The leases of a cell at a level that batches attempts, a page's and a
+/// sitemap's: none in any other cell.
+const BATCHED_LEASES: &str = "batched_leases";
+
 const fn b1(name: &'static str, unit: &'static str, happens: bool) -> Row {
     Row {
         name,
@@ -1582,6 +1591,7 @@ fn one_of(unit: &str) -> &str {
         "batched_pages" | "full_pages" | CALLGRIND_PAGES => "page",
         ADDED_PAGES => "page added",
         ATTEMPTS_ENDED => "attempt",
+        BATCHED_LEASES => "lease",
         CALLGRIND_CRAWLS => "crawl",
         unit => unit.trim_end_matches('s'),
     }

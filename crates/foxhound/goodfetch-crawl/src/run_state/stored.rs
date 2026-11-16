@@ -37,6 +37,7 @@ use rusqlite::Connection;
 
 use super::admission::{self, Enqueue, LinksBatch};
 use super::asks::{self, Answering, Ask, HopAsk, Queued};
+use super::kept::Whole;
 use super::tally::Tally;
 use super::teacher::{Taught, Teacher};
 use super::{Counted, StateError};
@@ -68,6 +69,11 @@ pub(crate) struct Ran<T> {
 /// the loop to offer their domains' queues, and what it changed of the crawl's requests by state,
 /// for the Run state to count.
 pub(crate) type Given = (Vec<Leased>, Changed);
+
+/// What the crawl's Run state opens with beside its Session pool: its
+/// requests by state, and its pending work items whole when they fit
+/// within the Run's memory budget (#2169).
+pub(crate) type Opening = (Tally, Option<Whole>);
 
 /// An outcome's job, queued, which answers once it is written.
 pub(crate) type QueuedEnd = Pin<Box<dyn Future<Output = EndWritten> + Send>>;
@@ -243,16 +249,9 @@ impl Stored {
                 return Some(answered(answer, written.await));
             }
             Ask::Readmit { blocked, answer } => {
-                let written = self.writer.write(move |connection| {
-                    let mut changed = Changed::default();
-                    let readmitted = this
-                        .intake
-                        .admitting(|| work_items::readmit(connection, blocked, &mut changed))?
-                        .map(|readmitted| u64::try_from(readmitted.len()).unwrap_or(u64::MAX));
-                    // Each keeps its domain key: its queue takes it when
-                    // it is filled again.
-                    Ok((readmitted, (Vec::new(), changed)))
-                });
+                let written = self
+                    .writer
+                    .write(move |connection| this.readmit(connection, blocked));
                 return Some(answered(answer, written.await));
             }
             Ask::StagedSeed {
@@ -341,6 +340,27 @@ impl Stored {
     pub(crate) fn waited(&self, pages: usize) {
         self.work
             .count_many(Row::RunPageWaits, u64::try_from(pages).unwrap_or(u64::MAX));
+    }
+
+    /// Re-admits the failures, the blocked ones too when `blocked`, unless
+    /// the intake closed: how many, `None` then, with their rows, each
+    /// under the domain key its queue takes it by, as its next lease does,
+    /// and what that changed of the crawl's requests by state.
+    fn readmit(
+        &self,
+        connection: &Connection,
+        blocked: bool,
+    ) -> rusqlite::Result<(Option<u64>, Given)> {
+        let mut changed = Changed::default();
+        let readmitted = self
+            .intake
+            .admitting(|| work_items::readmit(connection, blocked, &mut changed))?;
+        let rows = match &readmitted {
+            Some(ids) => work_items::leasable(connection, ids)?,
+            None => Vec::new(),
+        };
+        let count = readmitted.map(|ids| u64::try_from(ids.len()).unwrap_or(u64::MAX));
+        Ok((count, (rows, changed)))
     }
 
     /// Stages `enqueue` with its attempt.
@@ -501,22 +521,48 @@ impl Stored {
     }
 
     /// What the crawl's Run state starts from as it opens: the Session
-    /// pool the run file holds, drawing on `entropy`, and its requests by
-    /// state, which it counts in memory from then on.
+    /// pool the run file holds, drawing on `entropy`, its requests by
+    /// state, which it counts in memory from then on, and, at a level that
+    /// batches attempts, its pending work items whole when they fit within
+    /// the Run's memory budget beside the Frontier's visits (#2169).
     ///
     /// # Errors
     ///
     /// The run file's.
-    pub(crate) async fn open(&self, entropy: Entropy) -> Result<(SessionPool, Tally), StateError> {
+    pub(crate) async fn open(
+        &self,
+        entropy: Entropy,
+    ) -> Result<(SessionPool, Opening), StateError> {
+        let budget = (!self.writer.per_attempt()).then(|| self.writer.memory_budget());
+        let beside = self.frontier_bytes();
         Ok(self
             .writer
             .read(move |connection| {
+                let whole = match budget {
+                    Some(budget) => Whole::read(connection, budget, beside)?,
+                    None => None,
+                };
                 Ok((
                     SessionPool::open(connection, entropy)?,
-                    Tally::read(connection)?,
+                    (Tally::read(connection)?, whole),
                 ))
             })
             .await?)
+    }
+
+    /// The bytes the Frontier holds of the visits not in the run file yet,
+    /// which share the Run's memory budget with the pending work items.
+    pub(super) fn frontier_bytes(&self) -> u64 {
+        self.invariants
+            .frontier()
+            .unwritten()
+            .map_or(0, goodfetch_frontier::UnwrittenVisits::bytes)
+    }
+
+    /// Counts one read of the pending work items for a lease
+    /// (`F3.lease_reads`): they no longer fit in memory.
+    pub(super) fn lease_read(&self) {
+        self.work.count(Row::LeaseReads);
     }
 
     /// The first `at_once` work items not keyed yet, in order: each one's

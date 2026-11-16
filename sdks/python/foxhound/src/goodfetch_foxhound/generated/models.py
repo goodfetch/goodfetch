@@ -19,6 +19,8 @@ from goodfetch_collie_client.generated.models import (
     Locator,
     NothingDone,
     PageField,
+    PageId,
+    PageResponse,
     PlanReport,
     PluginRun,
     PointInTime,
@@ -28,6 +30,7 @@ from goodfetch_collie_client.generated.models import (
     RunUsage,
     RunWarning,
     SampleEchoed,
+    SessionId,
     StopReason,
     Tags,
     UncertainEffect,
@@ -634,6 +637,16 @@ class ForcedBy(StrEnum):
     """The setting of the request's Label."""
 
 
+class HandlerSkip(BaseModel):
+    """A handler's skip of its request: `ctx.skip(message)` (ADR 0093)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    message: str
+    """The handler's own text."""
+
+
 class HttpBody(RootModel[str]):
     root: Annotated[str, Field(json_schema_extra={"contentEncoding": "base64"})]
     """The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding)."""
@@ -864,6 +877,37 @@ class PaymentMark(BaseModel):
     """The domain paid."""
     scheme: str
     """The payment scheme the site asked through."""
+
+
+class ProxyTier(StrEnum):
+    """
+    A proxy tier of ADR 0021's ladder, from the cheapest up: a Session
+    binds one proxy of its tier, and a block that escalates moves its
+    domain one tier up, its replacement opening there.
+    """
+
+    none = "none"
+    """No proxy: the machine's own address."""
+    datacenter = "datacenter"
+    """A datacenter proxy."""
+    isp = "isp"
+    """An ISP proxy."""
+    residential = "residential"
+    """A residential proxy."""
+    mobile = "mobile"
+    """A mobile proxy, the top of the ladder."""
+
+
+class PushedRecord(BaseModel):
+    """One Record a handler pushed into a Dataset (ADR 0103)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    data: Any
+    """The Record."""
+    dataset: str
+    """The Dataset's name."""
 
 
 class QueryColumn(BaseModel):
@@ -1327,6 +1371,24 @@ class SeedAttempt(BaseModel):
     """The attempt's lease epoch, as `crawl_request.handle` gave it."""
 
 
+class ServingSession(BaseModel):
+    """The Session of the crawl's Session pool that serves one attempt."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    id: SessionId
+    """Its ID within the Run."""
+    proxy_tier: ProxyTier
+    """The proxy tier it opened at."""
+    revalidate: bool
+    """
+    Whether this is its first page since the crawl resumed, which
+    revalidates the Session's login before the page is trusted.
+    """
+
+
 class SinkStatus(StrEnum):
     """A Sink's delivery status (ADRs 0026 and 0103)."""
 
@@ -1612,6 +1674,26 @@ class CrawlExtraction(BaseModel):
     """The formats each page's Record holds, as `page.formats` takes them."""
 
 
+class CrawlRequest(BaseModel):
+    """One work item of a crawl as its handler receives it (ADR 0093)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    body: HttpBody | None = None
+    """The body it is sent with, if any."""
+    id: str
+    """Its ID within the Run."""
+    label: str
+    """Its Label."""
+    method: HttpMethod
+    """The method it is sent with."""
+    payload: Any | None = None
+    """Its Payload."""
+    url: str
+    """Its URL."""
+
+
 class CrawlRequestEnqueueParams(BaseModel):
     """
     What `crawl_request.enqueue` takes: one request to add, from one attempt
@@ -1661,6 +1743,64 @@ class CrawlRequestEnqueueParams(BaseModel):
     """The crawl's Run."""
     url: str
     """The URL to add, absolute or relative to the document's base URL."""
+
+
+class CrawlRequestHandleParams(BaseModel):
+    """
+    What `crawl_request.handle` gives the handler: one attempt of one work
+    item, under its lease.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    attempt: Annotated[int, Field(ge=0)]
+    """Which attempt this is, from 1."""
+    crawl_request: CrawlRequest
+    """The work item."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The lease's epoch, which only goes up (ADR 0003)."""
+    page_id: PageId | None = None
+    """
+    The page served from the fetched document, which the handler reads
+    as any page; every request names one.
+    """
+    response: PageResponse | None = None
+    """
+    The response of the request's own document, when the engine
+    fetched it: its final URL, status and headers as the site sent
+    them, the encoding its document was decoded with, and the
+    `request_id` whose body `response.body` reads (ADRs 0093 and 0119).
+    None when the browser's navigation answered none.
+    """
+    run_id: RunId
+    """The crawl's Run."""
+    session: ServingSession
+    """The Session of the crawl's Session pool that serves the attempt."""
+    tier: FetchTier | None = None
+    """
+    The tier that serves the request's page (`fetch.tier`): the engine
+    fetches every request's document, so every request names one.
+    """
+
+
+class CrawlRequestHandled(BaseModel):
+    """
+    What a handler answers once its attempt returned: the outputs it staged,
+    which commit once, under the attempt's lease (ADR 0003), or its skip.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    records: Annotated[list[PushedRecord] | None, Field(validate_default=True)] = []
+    """The Records it pushed, in order."""
+    skipped: HandlerSkip | None = None
+    """
+    Its handler's skip: the request ends `skipped` with the reason
+    `handler`, and the attempt's Records are discarded.
+    """
 
 
 class CrawlRequestLinks(BaseModel):

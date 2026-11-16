@@ -4,36 +4,9 @@
 // (`withBrowser`). The form program is the one the unit tests run on the
 // Scripted engine.
 import { Collie } from "@goodfetch/collie";
-import {
-  failure,
-  provingGroundRoutes,
-  test,
-  type ProvingGroundDescription,
-} from "@goodfetch/test-support";
+import { failure, judgeTask, taskStartUrl, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 import { fillTheForm } from "./programs/form.ts";
-
-/** The URL the Proving ground's task `id` starts at. */
-async function startUrl(provingGround: ProvingGroundDescription, id: string): Promise<string> {
-  const answer = await fetch(`http://${provingGround.address}${provingGroundRoutes().tasks}`);
-  const list: unknown = await answer.json();
-  if (typeof list === "object" && list !== null && "tasks" in list && Array.isArray(list.tasks)) {
-    const tasks: unknown[] = list.tasks;
-    for (const task of tasks) {
-      if (
-        typeof task === "object" &&
-        task !== null &&
-        "id" in task &&
-        task.id === id &&
-        "start_url" in task &&
-        typeof task.start_url === "string"
-      ) {
-        return task.start_url;
-      }
-    }
-  }
-  throw new TypeError(`the Proving ground's task list has no ${id}`);
-}
 
 describe("a program's pages on an Attached engine", () => {
   test.override("provingGroundSeed", 2400);
@@ -43,7 +16,7 @@ describe("a program's pages on an Attached engine", () => {
     "runs the form program on the Proving ground's form page and reads its Markdown",
     { tags: ["client_case/page-form-program", "attached", "story:11-77"] },
     async ({ env, provingGround, clientCase }) => {
-      const form = await startUrl(provingGround, "actionability/20");
+      const form = await taskStartUrl(provingGround, "actionability/20");
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
       const collie = await Collie.connect({ env });
 
@@ -63,7 +36,7 @@ describe("a program's pages on an Attached engine", () => {
     "returns the Response of a 404 from goto",
     { tags: ["client_case/goto-404-returns-the-response", "attached", "story:11-84"] },
     async ({ env, provingGround, clientCase }) => {
-      const missing = new URL("/errors/404", await startUrl(provingGround, "statuses/1")).href;
+      const missing = new URL("/errors/404", await taskStartUrl(provingGround, "statuses/1")).href;
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
       await using collie = await Collie.connect({ env });
       const run = await collie.start();
@@ -81,7 +54,7 @@ describe("a program's pages on an Attached engine", () => {
     "opens a second page of a Run in the same Session, and a new Session's page in another",
     { tags: ["client_case/second-new-page-in-the-default-session", "attached", "story:11-77"] },
     async ({ env, provingGround, clientCase }) => {
-      const form = await startUrl(provingGround, "actionability/20");
+      const form = await taskStartUrl(provingGround, "actionability/20");
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
       await using collie = await Collie.connect({ env });
       const run = await collie.start();
@@ -108,7 +81,7 @@ describe("a program's pages on an Attached engine", () => {
     "reads a product page's fields in one call, typed by their declaration",
     { tags: ["client_case/page-read-fields", "attached", "story:11-77", "operation:page.read"] },
     async ({ env, provingGround, clientCase }) => {
-      const product = await startUrl(provingGround, "catalog/2");
+      const product = await taskStartUrl(provingGround, "catalog/2");
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
       await using collie = await Collie.connect({ env });
       const run = await collie.start();
@@ -126,13 +99,11 @@ describe("a program's pages on an Attached engine", () => {
         missing: { locator: { kind: "css", selector: ".no-such-element" } },
       });
       const { missing, ...record } = read.values;
-      const judged = await fetch(`http://${provingGround.address}${provingGroundRoutes().oracle}`, {
-        method: "POST",
-        body: JSON.stringify({ task: "catalog/2", status: "success", records: [record] }),
-      });
+      const answer = await judgeTask(provingGround, { task: "catalog/2", records: [record] });
+      clientCase.oracleAnswer(answer);
 
-      await clientCase.check("the oracle verifies the Record the fields answer", async () =>
-        expect(await judged.json()).toMatchObject({ task: "catalog/2", outcome: "verified" }),
+      await clientCase.check("the oracle verifies the Record the fields answer", () =>
+        expect(answer.outcome).toBe("verified"),
       );
       await clientCase.check("the number field answers a number", () =>
         expect(typeof record.price).toBe("number"),
@@ -148,7 +119,7 @@ describe("a program's pages on an Attached engine", () => {
     "refuses a call on a closed page, and on a Locator built on it, with closed",
     { tags: ["client_case/closed-page-raises-closed", "attached", "error:closed"] },
     async ({ env, provingGround, clientCase }) => {
-      const form = await startUrl(provingGround, "actionability/20");
+      const form = await taskStartUrl(provingGround, "actionability/20");
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
       await using collie = await Collie.connect({ env });
       const run = await collie.start();

@@ -1,11 +1,16 @@
 // Request correlation and cancellation over one transport (ADR 0038): any
 // number of calls in flight, each answered by its id; an aborted call's
-// `$/cancel`; and the end of the transport, which fails every call still
-// waiting with the reason the Connection gives. What waits is bounded
+// `$/cancel`; the requests the engine sends its Client, such as Foxhound's
+// `crawl_request.handle`, each answered by what its owner serves, and
+// stopped by the engine's `$/cancel`; and the end of the transport, which
+// fails every call still waiting with the reason the Connection gives and
+// stops every request still served. What waits is bounded
 // (ADR 0081: no SDK keeps a queue of calls): past its bound on calls waiting
 // or on bytes waiting to be written, a new call is refused at once.
+import { replyOfError } from "./errors.ts";
 import { encodeMessage, readLines, type Message, type MessageId } from "./framing.ts";
 import {
+  CallCancelledError,
   ConnectionOverloadedError,
   SettingInvalidError,
   type GoodfetchError,
@@ -38,6 +43,17 @@ export interface ChannelOwner {
   ended(end: TransportEnd): Promise<GoodfetchError>;
   /** The error a JSON-RPC `error` reply raises. */
   failure(error: unknown): GoodfetchError;
+  /**
+   * Serves a request the engine sent, such as Foxhound's
+   * `crawl_request.handle`: answers its result, or rejects with the error
+   * its reply carries. `signal` aborts once the engine cancels the request
+   * or the transport ends. Answers `undefined` for a method the Client does
+   * not serve, which is replied to as JSON-RPC's unknown method; when left
+   * out, every request is.
+   */
+  readonly serve?:
+    | ((method: string, params: unknown, signal: AbortSignal) => Promise<unknown> | undefined)
+    | undefined;
 }
 
 /** What a Connection lets wait before it refuses a new call with `connection_overloaded`. */
@@ -115,6 +131,8 @@ export class Channel {
   readonly #reader: ReadableStreamDefaultReader<Uint8Array>;
   readonly #owner: ChannelOwner;
   readonly #waiting = new Map<MessageId, Waiting>();
+  /** The engine's requests being served, each stopped by its `$/cancel`. */
+  readonly #serving = new Map<MessageId, AbortController>();
   #nextId = 0;
   #failure: GoodfetchError | undefined;
   /** The first write the engine's side rejected, which ends the transport. */
@@ -321,6 +339,58 @@ export class Channel {
       waiting.reject(failure);
     }
     this.#waiting.clear();
+    // No answer reaches the engine any more: what serves its requests stops.
+    for (const serving of this.#serving.values()) {
+      serving.abort(failure);
+    }
+    this.#serving.clear();
+  }
+
+  /**
+   * Serves the engine's request `id` through the owner, and replies with
+   * its answer, unless the engine cancelled it first. A method the owner
+   * does not serve is answered as JSON-RPC's unknown method, so the engine
+   * never waits on it.
+   */
+  #serve(id: MessageId, method: string, params: unknown): void {
+    const serving = new AbortController();
+    const served = this.#owner.serve?.(method, params, serving.signal);
+    if (served === undefined) {
+      this.#send({ id, error: { code: -32601, message: `this Client serves no \`${method}\`` } });
+      return;
+    }
+    this.#serving.set(id, serving);
+    void served.then(
+      (result: unknown) => this.#answerServed(id, serving, { id, result }),
+      (error: unknown) => this.#answerServed(id, serving, { id, error: replyOfError(error) }),
+    );
+  }
+
+  /** Sends a served request's answer, unless it was cancelled or the transport ended first. */
+  #answerServed(
+    id: MessageId,
+    serving: AbortController,
+    answer: Readonly<Record<string, unknown>>,
+  ): void {
+    if (this.#serving.get(id) !== serving) {
+      return;
+    }
+    this.#serving.delete(id);
+    this.#send(answer);
+  }
+
+  /** Stops the served request the engine cancelled, and answers it `call_cancelled` (ADR 0038). */
+  #cancelServed(id: MessageId): void {
+    const serving = this.#serving.get(id);
+    if (serving === undefined) {
+      return;
+    }
+    this.#serving.delete(id);
+    const cancelled = new CallCancelledError("the engine cancelled its request", {
+      details: { by: "engine" },
+    });
+    serving.abort(cancelled);
+    this.#send({ id, error: replyOfError(cancelled) });
   }
 
   #receive(message: Message): void {
@@ -340,20 +410,23 @@ export class Channel {
         return;
       }
       case "request":
-        // No handler request reaches a Collie Connection yet: answer it as
-        // JSON-RPC's unknown method, so the engine never waits on it.
-        this.#send({
-          id: message.id,
-          error: { code: -32601, message: `this Client serves no \`${message.method}\`` },
-        });
+        this.#serve(message.id, message.method, message.params);
         return;
       case "notification": {
         const params = message.params;
-        const id =
+        const named =
           typeof params === "object" && params !== null && "id" in params ? params.id : undefined;
-        const waiting =
-          typeof id === "number" || typeof id === "string" ? this.#waiting.get(id) : undefined;
-        waiting?.notified?.(message.method, params);
+        const id = typeof named === "number" || typeof named === "string" ? named : undefined;
+        if (id === undefined) {
+          return;
+        }
+        // The engine's `$/cancel` names a request of its own, whose ids are
+        // counted apart from the Client's calls.
+        if (message.method === CANCEL) {
+          this.#cancelServed(id);
+          return;
+        }
+        this.#waiting.get(id)?.notified?.(message.method, params);
         return;
       }
       default: {

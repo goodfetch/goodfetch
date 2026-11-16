@@ -2407,6 +2407,42 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1013
+title = "As a developer coming from Crawlee or Scrapy, I want to declare a crawl on a `Crawl` value that holds no connection and does no I/O (`new Crawl()`; Python `AsyncCrawl()` with `async def` handlers or `Crawl()` with plain functions; Rust `Crawl::new()` or `blocking::Crawl`), so that it can sit at module load and serve every call of a service (ADRs 0078, 0093; RT-07; P49)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1014
+title = "As a developer, I want `crawl.label(name, { payload, settings, login })` to return a typed `Label<P>` (Python overloads for a type or a JSON Schema; Rust `crawl.label::<P>(name)` or a `LabelDeclaration`), so that a Label names one kind of Crawl request, its Payload's shape and its settings in one place (ADRs 0082, 0093, 0099; RT-07; P21)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1015
+title = "As a developer, I want to attach exactly one handler to each Label with `crawl.handle(label, handler)` (a Python decorator returning the function unchanged), declared in two steps, so that a handler can enqueue to its own Label, a test calls the function as it is, and no default handler hides a missing one (ADR 0093; P49)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1025
+title = "As a developer, I want handlers to run on the TypeScript event loop, in the connection's thread pool for sync Python, as tasks in the Run's task group for async Python, and inside `serve` in Rust, so that the SDK spawns nothing of its own on my executor (ADRs 0081, 0093; K04)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1130
 title = "As a developer, I want `goodfetch-foxhound` to carry every command of Collie's unchanged, with the same flags, `--json` output and exit codes, and to add Foxhound's generated commands (a code-free crawl started with `catalog-run start` of kind `crawl`, outcomes and failed requests as `--follow` NDJSON, Records, rejected Records, Exports), so that a script moves between Products by changing the executable (ADRs 0095, 0099; SDK-05)."
 milestone = "M1 Core"

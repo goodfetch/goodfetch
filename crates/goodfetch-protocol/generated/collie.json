@@ -10785,6 +10785,7 @@
             "messages_no_hook",
             "opening_commands",
             "opens",
+            "page_learning",
             "page_waits",
             "parses",
             "plugin_answer_parses",

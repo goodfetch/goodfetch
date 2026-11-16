@@ -125,6 +125,13 @@ pub(crate) fn run_state_plant(name: &str, counted: &Counted<'_>) -> Plant {
             let work = counted.work.clone();
             Arc::new(move |_: &str| work.count(Row::AdmissionEvidence))
         }
+        // The Frontier learns on a page's path only where its Run does not
+        // learn behind, which no crawl's Run is: the row's counted seam is
+        // the count alone.
+        "F2.page_learning" => {
+            let work = counted.work.clone();
+            Arc::new(move |_: &str| work.count(Row::PageLearning))
+        }
         "F2.configuration_reads" => {
             let (runtime, folder) = beside_the_crawl();
             let version = ProductVersion::parse("1.4.0").expect("invariant: a literal version");

@@ -9,6 +9,7 @@
     reason = "a test's own statements, on no Shared path (ADR 0140)"
 )]
 
+mod behind;
 mod model;
 mod settled;
 

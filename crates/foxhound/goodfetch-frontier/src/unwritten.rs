@@ -70,7 +70,7 @@ use goodfetch_engine::run_state::WriteWatch;
 use goodfetch_protocol::ops::{RUN_STATE_MEMORY, RUN_STATE_SPILLED_LOOKUPS};
 use rusqlite::Connection;
 
-pub use self::budget::SharedBudget;
+pub use self::budget::{SharedBudget, hash_table_bytes};
 pub(crate) use self::counts::Counts;
 use self::counts::CountsBefore;
 use self::entries::{Before, Entries, Id, State};

@@ -2,7 +2,7 @@
 // of the shared corpus over the in-memory transport. The script fails the
 // test on a message it does not expect and on a step left unused, so a
 // member that sent a second request, or none, fails here.
-import { failure, playScript, test, type PlayedMessage } from "@goodfetch/test-support";
+import { failure, playScript, protocolCounts, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 import { fillTheForm } from "../tests/programs/form.ts";
 import type { Collie } from "./collie.ts";
@@ -15,40 +15,6 @@ async function collieOn(
   const played = playScript(script);
   const collie = await connectOver(played.transport);
   return { collie, played };
-}
-
-/** Whether `message` is an object that has `key`. */
-function has(message: unknown, key: string): boolean {
-  return typeof message === "object" && message !== null && key in message;
-}
-
-/**
- * The play's protocol counts: the method of each request the Client sent,
- * in order, and how many answers and events the engine sent. Bytes join
- * with the SDKs' protocol-count seam (issue 1706).
- */
-function protocolCounts(messages: readonly PlayedMessage[]): {
-  requests: string[];
-  answers: number;
-  events: number;
-} {
-  const counts = { requests: [] as string[], answers: 0, events: 0 };
-  for (const played of messages) {
-    if (!("message" in played)) continue;
-    const { message } = played;
-    if (played.from === "engine") {
-      if (has(message, "method")) counts.events += 1;
-      else counts.answers += 1;
-    } else if (
-      typeof message === "object" &&
-      message !== null &&
-      "method" in message &&
-      typeof message.method === "string"
-    ) {
-      counts.requests.push(message.method);
-    }
-  }
-  return counts;
 }
 
 describe("a Run's page", () => {
@@ -70,6 +36,7 @@ describe("a Run's page", () => {
         {
           "answers": 11,
           "events": 0,
+          "replies": 0,
           "requests": [
             "hello",
             "run.start",
@@ -83,6 +50,7 @@ describe("a Run's page", () => {
             "page.close",
             "run.finish",
           ],
+          "served": [],
         }
       `);
     },

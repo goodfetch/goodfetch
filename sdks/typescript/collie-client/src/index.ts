@@ -33,6 +33,7 @@ export type {
   Navigated,
   PageClosed,
   PageFormats,
+  PageRead,
   PageResponse,
   Product,
   RunReport,

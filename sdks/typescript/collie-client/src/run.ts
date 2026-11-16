@@ -4,15 +4,18 @@
 // started, read without a call, its Key-value store, and `close()`, which
 // frees the value and, while the Run is still running, stops it as an abort
 // by its Client, resumable by its Run ID. Any other call on a closed Run
-// fails with `closed`.
-import type { CallOptions, Caller } from "./caller.ts";
+// fails with `closed`. A Product's package also builds, with `pageOf`, the
+// page the engine lends a handler of the Run for one attempt.
+import type { CallOptions, Caller, OperationTypes } from "./caller.ts";
 import {
   ClosedError,
   Run as RunMembers,
   type CollieOperationTypes,
+  type PageId,
   type RunStarted,
   type StartedAs,
 } from "./generated/index.ts";
+import { Page } from "./generated/handles.ts";
 import type { HandleHost } from "./handle.ts";
 import { KeyValueStore, type KeyValueStoreHost } from "./key-value-store.ts";
 import { holdInRealm } from "./realm.ts";
@@ -138,8 +141,49 @@ function hostIn<Id>(
   };
 }
 
+/** `calls`, each of which also stops when `signal` aborts. */
+function signalled<Types extends Record<keyof Types, OperationTypes>>(
+  calls: Caller<Types>,
+  signal: AbortSignal,
+): Caller<Types> {
+  return {
+    call<Name extends keyof Types & string>(
+      operation: Name,
+      params: Types[Name]["params"],
+      options: CallOptions,
+    ): Promise<Types[Name]["result"]> {
+      const stops =
+        options.signal === undefined ? signal : AbortSignal.any([options.signal, signal]);
+      return calls.call(operation, params, { signal: stops });
+    },
+  };
+}
+
+let pageIn: (run: Run, pageId: PageId, signal: AbortSignal) => Page;
+
+/**
+ * The page of ID `pageId` the engine lends a handler of `run` for one
+ * attempt (ADR 0093): a Collie `Page`, whose calls fail with `closed` once
+ * the Run is, and each of which stops when `signal`, the attempt's, aborts.
+ */
+export function pageOf(run: Run, pageId: PageId, signal: AbortSignal): Page {
+  return pageIn(run, pageId, signal);
+}
+
 /** A Run its program drives, opened by `start()` on a Connection. */
 export class Run extends RunMembers implements AsyncDisposable {
+  static {
+    pageIn = (run, pageId, signal) =>
+      new Page(
+        hostIn(
+          signalled(run.#host.calls, signal),
+          run.#scope,
+          { parent: undefined, closed: false, closing: undefined },
+          pageId,
+        ),
+      );
+  }
+
   readonly #host: RunHost;
   readonly #scope: RunScope;
   readonly #startedAs: StartedAs;

@@ -1,7 +1,7 @@
 // Where the main types live (ADR 0117): `@goodfetch/collie` holds `Collie`;
 // the Collie client package holds `Run`, `Session`, `Page` and `Locator`;
-// `@goodfetch/foxhound` holds `Foxhound`, and will hold `Crawl`, `Label`,
-// `Dataset` and `CrawlContext`.
+// `@goodfetch/foxhound` holds `Foxhound`, `Crawl`, `Label`, `Dataset` and
+// `CrawlContext`.
 //
 // `@goodfetch/foxhound/testing` (ADR 0069): opens Foxhound's Connection over
 // a transport the test holds, such as the Scripted engine's in-memory

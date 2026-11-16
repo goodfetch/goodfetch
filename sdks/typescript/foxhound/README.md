@@ -1,6 +1,6 @@
 # @goodfetch/foxhound
 
-Foxhound's TypeScript SDK package (ADRs 0090 and 0095). It re-exports [`@goodfetch/collie-client`](../collie-client/README.md), the only Collie package it depends on, and adds `Foxhound`, the Connection. Area 11 fills the rest: `Crawl`, `Label`, `Dataset` and `CrawlContext`.
+Foxhound's TypeScript SDK package (ADRs 0090 and 0095). It re-exports [`@goodfetch/collie-client`](../collie-client/README.md), the only Collie package it depends on, and adds `Foxhound`, the Connection, and a crawl's declaration and Run: `Crawl`, `Label`, `Dataset`, `CrawlContext` and `CrawlRun` (ADRs 0093, 0102 and 0103).
 
 ```ts
 import { Foxhound } from "@goodfetch/foxhound";
@@ -11,10 +11,31 @@ const report = await run.finish();
 await foxhound.close();
 ```
 
+```ts
+import { Crawl, Foxhound, seed } from "@goodfetch/foxhound";
+
+// Declared at module scope: a Crawl holds no connection and does no I/O.
+const crawl = new Crawl();
+const listing = crawl.label("listing");
+const products = crawl.dataset<{ id: string; name: string }>("products", { key: ["id"] });
+crawl.handle(listing, async (context) => {
+  const { values } = await context.page.read({ id: { locator: { kind: "css", selector: "[data-id]" }, attribute: "data-id" } });
+  await context.push(products, { id: String(values["id"]), name: "…" });
+  await context.enqueue("/catalog/2", listing);
+});
+
+const foxhound = await Foxhound.connect();
+const run = await foxhound.startCrawl(crawl, { seeds: [seed("https://shop.example/catalog/1", listing)] });
+const report = await run.finish();
+for await (const record of run.records(products)) console.log(record.value);
+await foxhound.close();
+```
+
 - `Foxhound.connect({ env, logger, signal, maxPendingCalls, maxQueuedWriteBytes })` starts Foxhound's executable as an Attached engine and finishes `hello`, naming Foxhound, before it returns. A Collie engine refuses it there with `not_in_product` (`NotInProductError`), before any other call: its `details` name the engine's Product and version (`product`, `product_version`), what the Client needs (`needs`) and the install command (`install`), and its `fix` says what to do. A missing executable fails with `engine_not_found` and a refused protocol version with `protocol_version_unsupported`, each with a `fix`. It reads `GOODFETCH_FOXHOUND_ENGINE_PATH` from `env` (the process's environment when left out), else the platform package `@goodfetch/foxhound-<platform>-<arch>`, and gives the engine exactly `env` as its environment; Collie's variable is never read.
 - A `Foxhound` carries every member of a `Collie` under the same name (`engine`, `start`, `close`), and both implement the client package's `Connection`, so a helper typed for `Connection` takes either. Its Run, results and error classes are the client package's own: a Collie error class catches the error from either Connection. The classes of the Error codes only Foxhound carries (`HandlerFailedError`, `ClientGoneError` and the rest of `./generated`'s `errors.ts`) are exported beside them, each under a group class of the client package.
+- `new Crawl()` declares a crawl: `crawl.label(name, { settings })` returns a `Label`, `crawl.handle(label, handler)` attaches its one handler in a second step, so a handler can enqueue to its own Label, and `crawl.dataset<I>(name, { key })` returns a typed `Dataset<I>`. `foxhound.startCrawl(crawl, { seeds, runId, tags, settings })` sends `crawl.start` and returns a `CrawlRun` once started; two Runs started from one `Crawl` share nothing. The engine leases each work item to its Label's handler with a `crawl_request.handle` request, which the handler answers on the event loop with a `CrawlContext`: `page` (a Collie `Page`), `enqueue(url, label, payload?, options?)` and `push(dataset, record)`, both staged with the attempt; a thrown error fails the attempt, with `handler_failed` unless it is a Goodfetch error. `run.records(dataset)` reads the Dataset's committed Records as the engine streams them; `run.close()` stops every attempt still running, whose calls then fail with `closed`.
 - A Connection belongs to the realm that opened it, many may be open in one process, and nothing is read, patched or logged at import: no signal handler is installed (ADRs 0078 and 0081).
 - `@goodfetch/foxhound/testing` holds `connectOver(transport)`, which opens the same Connection over a transport a test holds, such as the Scripted engine's in-memory player (ADR 0069).
 - `./generated` is the layer `xtask codegen` writes from Foxhound's part of the catalog, with `FOXHOUND_ENGINE_PATH_VARIABLE` and `FOXHOUND_EXECUTABLE`; never edited by hand.
 
-Its tests: `src/*.test.ts` on the Scripted engine over the in-memory transport (Quick), `tests/` on the Scripted engine's process, started as `Foxhound.connect()` starts an Attached engine (Pre-merge), both running the tracer program in `tests/programs/`, which is typed for `Connection`. Its hand-written members are listed in [`../manifest.toml`](../manifest.toml).
+Its tests: `src/*.test.ts` on the Scripted engine over the in-memory transport (Quick), `tests/` on the Scripted engine's process, started as `Foxhound.connect()` starts an Attached engine (Pre-merge), the Run tests running the tracer program in `tests/programs/`, which is typed for `Connection`, and the crawl tests the two-page-types program there; `tests/crawl.test.ts` crawls the Proving ground's `catalog` family on Foxhound's executable with `tests/programs/catalog.ts` and has the oracle judge its Records. Its hand-written members are listed in [`../manifest.toml`](../manifest.toml).

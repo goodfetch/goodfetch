@@ -3,7 +3,12 @@
 // sent fails alone.
 import { describe, expect, test } from "vitest";
 import { encodeMessage } from "./framing.ts";
-import { CallCancelledError, ClosedError, ConnectionOverloadedError } from "./generated/index.ts";
+import {
+  CallCancelledError,
+  ClosedError,
+  ConnectionOverloadedError,
+  RunNotFoundError,
+} from "./generated/index.ts";
 import { Channel, type ChannelOwner, type Transport, type TransportEnd } from "./rpc.ts";
 
 /** The engine's side of an in-memory transport: what the Client wrote, and what it reads next. */
@@ -261,5 +266,132 @@ describe("a Channel", () => {
       error: expect.objectContaining({ code: "closed" }),
       ends: [{ kind: "write_failed", cause: refused }],
     });
+  });
+});
+
+/** A Channel to `engine` whose owner serves `crawl_request.handle` with `served`, and no other method. */
+function servingChannel(
+  engine: PlayedEngine,
+  served: (params: unknown, signal: AbortSignal) => Promise<unknown>,
+): Channel {
+  return new Channel(engine.transport, {
+    ...owner,
+    serve: (method, params, signal) =>
+      method === "crawl_request.handle" ? served(params, signal) : undefined,
+  });
+}
+
+describe("a Channel serving the engine's requests", () => {
+  test("answers a request with what its owner serves, and a method it does not serve as JSON-RPC's unknown method", async () => {
+    const engine = playedEngine();
+    servingChannel(engine, (params) => Promise.resolve({ handled: params }));
+
+    engine.send({ id: 1, method: "crawl_request.handle", params: { attempt: 1 } });
+    await expect
+      .poll(() => engine.written)
+      .toEqual([{ jsonrpc: "2.0", id: 1, result: { handled: { attempt: 1 } } }]);
+    engine.send({ id: 2, method: "route.handle", params: {} });
+
+    await expect.poll(() => engine.written).toHaveLength(2);
+    expect(engine.written[1]).toEqual({
+      jsonrpc: "2.0",
+      id: 2,
+      error: { code: -32601, message: "this Client serves no `route.handle`" },
+    });
+  });
+
+  test("answers a request whose serving failed with the error's wire class, code, fix and details", async () => {
+    const engine = playedEngine();
+    const failures = [
+      new RunNotFoundError("no Run has this Run ID", {
+        fix: "Start the Run first.",
+        details: { run_id: "nightly" },
+      }),
+      new TypeError("a bug"),
+    ];
+    servingChannel(engine, () => Promise.reject(failures.shift()));
+
+    engine.send({ id: 1, method: "crawl_request.handle", params: {} });
+    await expect.poll(() => engine.written).toHaveLength(1);
+    engine.send({ id: 2, method: "crawl_request.handle", params: {} });
+    await expect.poll(() => engine.written).toHaveLength(2);
+
+    expect(engine.written).toEqual([
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        error: {
+          code: -32001,
+          message: "no Run has this Run ID",
+          data: {
+            code: "run_not_found",
+            retryable: false,
+            fix: "Start the Run first.",
+            run_id: "nightly",
+          },
+        },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        error: { code: -32007, message: "a bug", data: { code: "internal", retryable: false } },
+      },
+    ]);
+  });
+
+  test(
+    "stops a request the engine cancels, answers it call_cancelled, and sends nothing when its serving ends after",
+    { tags: ["error:call_cancelled"] },
+    async () => {
+      const engine = playedEngine();
+      const signals: AbortSignal[] = [];
+      let finish: ((result: unknown) => void) | undefined;
+      servingChannel(
+        engine,
+        (_params, signal) =>
+          new Promise((resolve) => {
+            signals.push(signal);
+            finish = resolve;
+          }),
+      );
+
+      engine.send({ id: 0, method: "crawl_request.handle", params: {} });
+      await expect.poll(() => signals).toHaveLength(1);
+      engine.send({ method: "$/cancel", params: { id: 0 } });
+      await expect.poll(() => engine.written).toHaveLength(1);
+      finish?.({});
+      await settled();
+
+      expect({ reason: signals[0]?.reason, written: engine.written }).toEqual({
+        reason: expect.objectContaining({ code: "call_cancelled", details: { by: "engine" } }),
+        written: [
+          {
+            jsonrpc: "2.0",
+            id: 0,
+            error: {
+              code: -32006,
+              message: "the engine cancelled its request",
+              data: { code: "call_cancelled", retryable: false, by: "engine" },
+            },
+          },
+        ],
+      });
+    },
+  );
+
+  test("stops what serves a request once the engine's side ends", async () => {
+    const engine = playedEngine();
+    const signals: AbortSignal[] = [];
+    const channel = servingChannel(engine, (_params, signal) => {
+      signals.push(signal);
+      return new Promise(() => undefined);
+    });
+
+    engine.send({ id: 0, method: "crawl_request.handle", params: {} });
+    await expect.poll(() => signals).toHaveLength(1);
+    engine.end();
+    await channel.ended;
+
+    expect(signals[0]?.reason).toMatchObject({ code: "closed" });
   });
 });

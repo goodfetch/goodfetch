@@ -1,0 +1,247 @@
+{
+  "description": "A Foxhound Client starts a crawl of two page types into a Dataset (the golden scenario \"Crawl two page types into a Dataset\"): the engine leases the listing seed to its handler, which reads the page and enqueues the product it links to, then the product page, whose handler reads it and pushes one Record; each handler call is answered `{}`. The Client then finishes the Run, reads the Dataset's one Record through run.records with 64 credits, and closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "foxhound",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "labels": { "listing": {}, "product": {} },
+          "datasets": [{ "name": "products", "key": ["id"] }],
+          "seeds": [{ "url": "https://shop.test/catalog/1", "label": "listing" }]
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "running",
+          "needs": "foxhound",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "send": {
+        "request": {
+          "method": "crawl_request.handle",
+          "params": {
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "crawl_request": {
+              "id": "1",
+              "label": "listing",
+              "method": "GET",
+              "url": "https://shop.test/catalog/1"
+            },
+            "attempt": 1,
+            "lease_epoch": 1,
+            "page_id": "page-1",
+            "session": { "id": "session-1", "proxy_tier": "none", "revalidate": false },
+            "tier": "http"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.read",
+        "params": {
+          "page_id": "page-1",
+          "fields": {
+            "products": {
+              "list": {
+                "locator": { "kind": "css", "selector": "li.product a" },
+                "attribute": "href"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": { "values": { "products": ["/products/P-0001"] } }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl_request.enqueue",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "crawl_request_id": "1",
+          "lease_epoch": 1,
+          "url": "/products/P-0001",
+          "label": "product"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": { "kind": "added", "id": "2", "url": "https://shop.test/products/P-0001" }
+      }
+    },
+    {
+      "await_reply": {
+        "result": {}
+      }
+    },
+    {
+      "send": {
+        "request": {
+          "method": "crawl_request.handle",
+          "params": {
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "crawl_request": {
+              "id": "2",
+              "label": "product",
+              "method": "GET",
+              "url": "https://shop.test/products/P-0001"
+            },
+            "attempt": 1,
+            "lease_epoch": 1,
+            "page_id": "page-2",
+            "session": { "id": "session-1", "proxy_tier": "none", "revalidate": false },
+            "tier": "http"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.read",
+        "params": {
+          "page_id": "page-2",
+          "fields": {
+            "id": { "locator": { "kind": "css", "selector": "span.id" } },
+            "name": { "locator": { "kind": "css", "selector": "h1.name" } },
+            "price": {
+              "locator": { "kind": "css", "selector": "span.price" },
+              "attribute": "data-price"
+            }
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": { "values": { "id": "P-0001", "name": "Blue kettle", "price": "12.34" } }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl_request.push",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "crawl_request_id": "2",
+          "lease_epoch": 1,
+          "dataset": "products",
+          "data": { "id": "P-0001", "name": "Blue kettle", "price": "12.34" }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {}
+      }
+    },
+    {
+      "await_reply": {
+        "result": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 2
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.records",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "dataset": "products"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 7,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/record",
+          "params": {
+            "id": 7,
+            "record": {
+              "number": 1,
+              "value": { "id": "P-0001", "name": "Blue kettle", "price": "12.34" },
+              "request_id": "2",
+              "url": "https://shop.test/products/P-0001",
+              "committed_at": "2026-01-01T00:00:00Z",
+              "provenance": { "request_id": "2" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "count": 1,
+          "last": 1
+        }
+      }
+    }
+  ]
+}

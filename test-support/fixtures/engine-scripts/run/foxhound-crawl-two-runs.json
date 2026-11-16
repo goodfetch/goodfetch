@@ -1,0 +1,248 @@
+{
+  "description": "A Foxhound Client starts two Runs from one Crawl value, `run-a` and `run-b`: the engine leases `run-b`'s seed first, and its handler enqueues under `run-b`, then `run-a`'s, whose handler enqueues under `run-a`; each handler call is answered `{}`. Closing the Connection then aborts both Runs, in the order they started.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "foxhound",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "labels": {
+            "page": {}
+          },
+          "seeds": [
+            {
+              "url": "https://shop.test/a",
+              "label": "page"
+            }
+          ],
+          "run_id": "run-a"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "run-a",
+          "lifecycle": "running",
+          "needs": "foxhound",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "labels": {
+            "page": {}
+          },
+          "seeds": [
+            {
+              "url": "https://shop.test/b",
+              "label": "page"
+            }
+          ],
+          "run_id": "run-b"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "run-b",
+          "lifecycle": "running",
+          "needs": "foxhound",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "send": {
+        "request": {
+          "method": "crawl_request.handle",
+          "params": {
+            "run_id": "run-b",
+            "crawl_request": {
+              "id": "1",
+              "label": "page",
+              "method": "GET",
+              "url": "https://shop.test/b"
+            },
+            "attempt": 1,
+            "lease_epoch": 1,
+            "page_id": "page-b",
+            "session": {
+              "id": "session-1",
+              "proxy_tier": "none",
+              "revalidate": false
+            },
+            "tier": "http"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl_request.enqueue",
+        "params": {
+          "run_id": "run-b",
+          "crawl_request_id": "1",
+          "lease_epoch": 1,
+          "url": "/next",
+          "label": "page"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "kind": "added",
+          "id": "2",
+          "url": "https://shop.test/next"
+        }
+      }
+    },
+    {
+      "await_reply": {
+        "result": {}
+      }
+    },
+    {
+      "send": {
+        "request": {
+          "method": "crawl_request.handle",
+          "params": {
+            "run_id": "run-a",
+            "crawl_request": {
+              "id": "1",
+              "label": "page",
+              "method": "GET",
+              "url": "https://shop.test/a"
+            },
+            "attempt": 1,
+            "lease_epoch": 1,
+            "page_id": "page-a",
+            "session": {
+              "id": "session-1",
+              "proxy_tier": "none",
+              "revalidate": false
+            },
+            "tier": "http"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl_request.enqueue",
+        "params": {
+          "run_id": "run-a",
+          "crawl_request_id": "1",
+          "lease_epoch": 1,
+          "url": "/next",
+          "label": "page"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "kind": "added",
+          "id": "2",
+          "url": "https://shop.test/next"
+        }
+      }
+    },
+    {
+      "await_reply": {
+        "result": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "run.abort",
+        "params": {
+          "run_id": "run-a"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "run-a",
+          "lifecycle": "stopped",
+          "verdict": "verified",
+          "completeness": "incomplete",
+          "stop_reason": {
+            "kind": "abort",
+            "by": "client"
+          },
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 1
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.abort",
+        "params": {
+          "run_id": "run-b"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "run-b",
+          "lifecycle": "stopped",
+          "verdict": "verified",
+          "completeness": "incomplete",
+          "stop_reason": {
+            "kind": "abort",
+            "by": "client"
+          },
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 1
+          }
+        }
+      }
+    }
+  ]
+}

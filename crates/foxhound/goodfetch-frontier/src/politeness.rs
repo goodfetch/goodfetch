@@ -49,6 +49,11 @@
 //! (ADR 0138): its per-domain queues back its domains off themselves, by
 //! the same rule over a domain's state they keep in memory, so the backoff,
 //! a `Retry-After` and a 429's halving stay their own features.
+//!
+//! Size: one concern, a domain key's shared state and the rule over it:
+//! its limits, pacing and Crawl-delays as plain values, how the Politeness
+//! file loads and saves them, and the steps that change them, which read
+//! side by side so the rule and the state it reads change together.
 
 #![expect(
     clippy::disallowed_types,

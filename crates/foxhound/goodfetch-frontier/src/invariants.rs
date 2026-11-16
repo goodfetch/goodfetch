@@ -32,7 +32,7 @@ use crate::bounds::Bounds;
 use crate::learn::EndMerged;
 use crate::rules;
 use crate::scope::Scope;
-use crate::unwritten::UnwrittenVisits;
+use crate::unwritten::{SharedBudget, UnwrittenVisits};
 
 /// What every admission of a Run measures a candidate against, built once.
 pub struct Invariants {
@@ -125,13 +125,13 @@ impl Invariants {
 
     /// Holds, from now on, the visits the Run's writer has not committed
     /// (#2168), against `committed`, how many commits it acknowledged, and
-    /// keeps those it wrote within `budget` bytes (#2169), measured on
-    /// `metrics`: a Run whose writer batches its writes holds them, so a
-    /// redirect hop is judged on a reader. Once is enough; a second call
-    /// changes nothing.
+    /// keeps those it wrote within `budget`, less what the Run state's
+    /// pending work items hold (#2169), measured on `metrics`: a Run whose
+    /// writer batches its writes holds them, so a redirect hop is judged on
+    /// a reader. Once is enough; a second call changes nothing.
     pub fn hold_unwritten(
         &self,
-        budget: u64,
+        budget: SharedBudget,
         committed: impl Fn() -> u64 + Send + Sync + 'static,
         metrics: &Metrics,
     ) -> &UnwrittenVisits {

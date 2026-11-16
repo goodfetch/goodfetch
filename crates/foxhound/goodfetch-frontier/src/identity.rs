@@ -216,7 +216,18 @@ fn learned_of(
     Ok(fixed.learned(&merged).map(|learned| (learned, rules)))
 }
 
-impl Identities<'_> {
+impl<'a> Identities<'a> {
+    /// The identities an attempt's staged admission visited: `plain`, and
+    /// `learned` with the rule that took its last parameter away, in a Run
+    /// that learns when `learning`.
+    pub(crate) fn staged(plain: &'a str, learned: Option<(&str, i64)>, learning: bool) -> Self {
+        Self {
+            plain: Cow::Borrowed(plain),
+            learned: learned.map(|(learned, rule)| (learned.to_owned(), vec![rule])),
+            learning,
+        }
+    }
+
     /// The identity its fixed rules make.
     pub(crate) fn plain(&self) -> &str {
         &self.plain

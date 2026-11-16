@@ -11,6 +11,7 @@ use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashMap};
 
 use goodfetch_engine::admission::Waiting;
+use goodfetch_frontier::SharedBudget;
 use rusqlite::Connection;
 use serde_json::Value;
 
@@ -239,18 +240,26 @@ fn value_bytes(value: &Value) -> usize {
 }
 
 /// Every pending work item that is not leased, as its next lease takes it,
-/// each in its domain's queue, within the Run's memory budget.
+/// each in its domain's queue, within the Run's memory budget, which it
+/// shares with the Frontier's visits: it tells the budget the bytes it
+/// holds as they change, and none once it is dropped.
 pub(crate) struct Whole {
     rows: HashMap<String, Leased>,
     queues: HashMap<String, BTreeSet<Place>>,
     bytes: u64,
-    budget: u64,
+    budget: SharedBudget,
+}
+
+impl Drop for Whole {
+    fn drop(&mut self) {
+        self.budget.pending_hold(0);
+    }
 }
 
 impl Whole {
     /// Every pending work item the run file holds as the crawl opens, when
-    /// they fit within `budget` bytes beside the Frontier's visits, which
-    /// hold `beside`; `None` when they do not, or when one has no domain
+    /// they fit within `budget` beside the Frontier's visits, which hold
+    /// `beside` bytes; `None` when they do not, or when one has no domain
     /// key yet.
     ///
     /// # Errors
@@ -258,10 +267,11 @@ impl Whole {
     /// The run file's.
     pub(crate) fn read(
         connection: &Connection,
-        budget: u64,
+        budget: SharedBudget,
         beside: u64,
     ) -> rusqlite::Result<Option<Self>> {
-        let room = budget.saturating_sub(beside) / u64::try_from(ROW_BYTES).unwrap_or(u64::MAX);
+        let room =
+            budget.bytes().saturating_sub(beside) / u64::try_from(ROW_BYTES).unwrap_or(u64::MAX);
         // One more than fit tells that they do not.
         let most = usize::try_from(room)
             .unwrap_or(usize::MAX)
@@ -294,13 +304,14 @@ impl Whole {
         }
         self.remove(&leased.crawl_request.id);
         self.bytes = self.bytes.saturating_add(bytes(leased));
+        self.budget.pending_hold(self.bytes);
         self.queues
             .entry(key.clone())
             .or_default()
             .insert(place(&leased.waiting));
         self.rows
             .insert(leased.crawl_request.id.clone(), leased.clone());
-        self.bytes <= self.budget
+        self.bytes <= self.budget.bytes()
     }
 
     /// Lets `id` go: it is no longer pending.
@@ -309,6 +320,7 @@ impl Whole {
             return;
         };
         self.bytes = self.bytes.saturating_sub(bytes(&leased));
+        self.budget.pending_hold(self.bytes);
         let key = &leased.waiting.key;
         if let Some(queue) = self.queues.get_mut(key) {
             queue.remove(&place(&leased.waiting));
@@ -320,7 +332,7 @@ impl Whole {
 
     /// Whether they all fit within the budget beside `beside` bytes.
     fn within(&self, beside: u64) -> bool {
-        self.bytes.saturating_add(beside) <= self.budget
+        self.bytes.saturating_add(beside) <= self.budget.bytes()
     }
 
     /// The pending work items of `key`, or of every key when `None`, at

@@ -40,8 +40,11 @@
 //! those it made pending there, a retry or a page an attempt added. The
 //! loop settles each attempt once, as delivery's settlement does; a later
 //! end of an attempt that ended is a late answer, which settles nothing
-//! (#2660). 16 cases in the Quick suite and 256 in the Pre-merge suite
-//! (`proptest_config`).
+//! (#2660). Each case also draws its memory budget, which the pending
+//! work items share with the Frontier's visits (#2169): 0, where the
+//! pending work items are never whole in memory, a small one they outgrow
+//! and spill from, or the default. 16 cases in the Quick suite and 256 in
+//! the Pre-merge suite (`proptest_config`).
 #![expect(
     clippy::disallowed_methods,
     reason = "the model reads the test Clock and the seeded Entropy (ADR 0059); its SQL statements are its own, on no Shared path (ADR 0140)"
@@ -273,6 +276,8 @@ struct Model {
     /// Whether the Run state batches attempts (`batch`), or writes each
     /// write as it is answered (`full`).
     batching: bool,
+    /// The Run's memory budget (`run_state.memory.budget`).
+    budget: u64,
     /// The work items as the last commit left them: what a reader sees.
     written: Vec<Item>,
 }
@@ -596,8 +601,13 @@ impl ReferenceStateMachine for Model {
     type Transition = Transition;
 
     fn init_state() -> BoxedStrategy<Self> {
-        (1_usize..4, any::<bool>())
-            .prop_map(|(count, batching)| {
+        let budget = prop_oneof![
+            Just(0),
+            Just(SMALL_BUDGET),
+            Just(RunStateOptions::default().memory_budget),
+        ];
+        (1_usize..4, any::<bool>(), budget)
+            .prop_map(|(count, batching, budget)| {
                 // The seeds the start wrote, which no gate had keyed.
                 let items: Vec<Item> = (0..count)
                     .map(|page| Item::added(page, u64::try_from(page).unwrap(), false))
@@ -612,6 +622,7 @@ impl ReferenceStateMachine for Model {
                     answered: Answer::Nothing,
                     crashed: false,
                     batching,
+                    budget,
                 }
             })
             .boxed()
@@ -731,9 +742,15 @@ struct Subject {
     /// The Run state's level: `full`, or `batch` with no threshold, so
     /// only a barrier, a seal or the writer's end writes the open batch.
     durability: Durability,
+    /// The Run's memory budget.
+    budget: u64,
     crawl: Option<Crawl>,
     finished: bool,
 }
+
+/// A memory budget that holds a few pending work items, which a case's
+/// crawl outgrows as its pages add more: they spill from memory.
+const SMALL_BUDGET: u64 = 2 << 10;
 
 /// The level of a model that batches attempts or not.
 fn durability(batching: bool) -> Durability {
@@ -878,8 +895,9 @@ fn counts(tally: &Tally) -> Counts {
 
 impl Subject {
     /// A crawl started with the seeds of `pages` on a run file of its
-    /// own, at the level of a model that batches attempts or not.
-    fn new(batching: bool, pages: &[usize]) -> Self {
+    /// own, at the level of a model that batches attempts or not, within
+    /// `budget` bytes of memory.
+    fn new((batching, budget): (bool, u64), pages: &[usize]) -> Self {
         let env = TestEnv::new();
         let folder = env
             .folder()
@@ -895,6 +913,7 @@ impl Subject {
             vfs,
             path,
             durability: durability(batching),
+            budget,
             crawl: None,
             finished: false,
         };
@@ -944,6 +963,7 @@ impl Subject {
         let options = RunStateOptions {
             vfs: Some(self.vfs.name().to_owned()),
             durability: self.durability,
+            memory_budget: self.budget,
             ..RunStateOptions::default()
         };
         let start_time = self.env.start_time();
@@ -1425,7 +1445,7 @@ impl StateMachineTest for Subject {
 
     fn init_test(model: &Model) -> Self {
         let pages: Vec<usize> = model.items.iter().map(|item| item.page).collect();
-        Self::new(model.batching, &pages)
+        Self::new((model.batching, model.budget), &pages)
     }
 
     fn apply(mut subject: Self, model: &Model, transition: Transition) -> Self {
@@ -1490,7 +1510,7 @@ prop_state_machine! {
 /// comes after, leaves it pending to the loop's reads (#2679).
 #[test]
 fn a_work_item_readmitted_before_its_failed_attempt_settles_stays_pending() {
-    let mut subject = Subject::new(true, &[0]);
+    let mut subject = Subject::new((true, RunStateOptions::default().memory_budget), &[0]);
     assert_eq!(subject.seal(), vec![0]);
     assert_eq!(subject.lease(1), vec![0]);
     let crawl = subject

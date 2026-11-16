@@ -98,7 +98,7 @@ impl Holding<'_> {
     ) -> rusqlite::Result<()> {
         let tag = self.committed;
         let held = &mut *self.held;
-        if held.budget == 0 {
+        if held.budget.bytes() == 0 {
             return Ok(());
         }
         let inside = |identity: &str| {
@@ -171,7 +171,7 @@ impl Held {
                 .entries
                 .saturating_add(self.kept())
                 .saturating_add(self.least(0))
-                > self.budget
+                > self.budget.room()
             {
                 self.written.pop_back();
                 self.remove(Space::Learned, &identity);

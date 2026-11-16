@@ -22,13 +22,15 @@ use std::sync::Arc;
 use goodfetch_protocol::foxhound::frontier::NotAddedReason;
 use url::Url;
 
+use crate::unwritten::Counts;
+
 /// What an attempt's staged admissions did beside the run file: the
 /// identities they visited, the requests they counted and the seeds and
 /// sitemaps they added.
 #[derive(Clone, Debug, Default)]
 pub struct Staged {
-    /// Each identity visited, with the crawl request it was admitted for.
-    visited: BTreeMap<String, String>,
+    /// Each identity visited, with the request admitted under it.
+    visited: BTreeMap<String, Added>,
     /// Each learned identity, with the rule that took its last parameter
     /// away and its crawl request.
     learned: BTreeMap<String, (i64, String)>,
@@ -44,6 +46,22 @@ pub struct Staged {
     /// bound's refusal, counted, and a learned rule's merge or refusal,
     /// recorded.
     left: u64,
+    /// What the attempt's earlier admissions counted that another
+    /// admission added since, read once a bound nears in this call
+    /// ([`Admitting::overtaken`]); never absorbed.
+    overtaken: Option<Counts>,
+}
+
+/// A request an attempt's staged admission added.
+#[derive(Clone, Debug)]
+struct Added {
+    /// Its crawl request.
+    crawl_request: String,
+    /// Its learned identity, with the rule that took its last parameter
+    /// away, when the learned rules changed it.
+    learned: Option<(String, i64)>,
+    /// The pattern of the path budget that counted it.
+    budget: Option<String>,
 }
 
 impl Staged {
@@ -68,7 +86,9 @@ impl Staged {
 
     /// The crawl request `identity` was admitted for.
     pub(crate) fn visitor(&self, identity: &str) -> Option<&str> {
-        self.visited.get(identity).map(String::as_str)
+        self.visited
+            .get(identity)
+            .map(|added| added.crawl_request.as_str())
     }
 
     /// The rule and crawl request of the learned identity `identity`.
@@ -166,6 +186,40 @@ impl Admitting {
         }
     }
 
+    /// What the attempt's earlier staged admissions counted against the
+    /// bounds that another admission added since, while it stages: the
+    /// attempt's commit will not add those again, so they count once, as
+    /// the run file counts them (#2169). `taken` answers whether another
+    /// admission took a request's identities, its own and its learned one.
+    /// Read once per call, on the first bound that nears, since nothing
+    /// else admits on the writer while the call runs.
+    ///
+    /// # Errors
+    ///
+    /// `taken`'s.
+    pub(crate) fn overtaken(
+        &mut self,
+        mut taken: impl FnMut(&str, Option<(&str, i64)>) -> rusqlite::Result<bool>,
+    ) -> rusqlite::Result<Option<&Counts>> {
+        let Self::Staging { earlier, now } = self else {
+            return Ok(None);
+        };
+        if now.overtaken.is_none() {
+            let mut overtaken = Counts::default();
+            for (identity, added) in &earlier.visited {
+                let learned = added
+                    .learned
+                    .as_ref()
+                    .map(|(learned, rule)| (learned.as_str(), *rule));
+                if taken(identity, learned)? {
+                    overtaken.count(added.budget.as_deref());
+                }
+            }
+            now.overtaken = Some(overtaken);
+        }
+        Ok(now.overtaken.as_ref())
+    }
+
     /// Whether what it admits stays in the run file: a staging's is rolled
     /// back.
     pub(crate) const fn writes(&self) -> bool {
@@ -185,7 +239,11 @@ impl Admitting {
         if let Self::Staging { now, .. } = self {
             now.visited
                 .entry(identity.to_owned())
-                .or_insert_with(|| crawl_request.to_owned());
+                .or_insert_with(|| Added {
+                    crawl_request: crawl_request.to_owned(),
+                    learned: learned.map(|(learned, rule)| (learned.to_owned(), rule)),
+                    budget: budget.map(str::to_owned),
+                });
             if let Some((learned, rule)) = learned {
                 now.learned
                     .entry(learned.to_owned())

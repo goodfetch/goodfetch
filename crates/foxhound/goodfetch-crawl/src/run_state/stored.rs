@@ -30,7 +30,7 @@ use goodfetch_engine::run_state::{
 };
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_fetch_tier::ChainHop;
-use goodfetch_frontier::sitemap;
+use goodfetch_frontier::{SharedBudget, sitemap};
 use goodfetch_protocol::run::PointInTime;
 use goodfetch_session_pool::{Changes, SessionPool};
 use rusqlite::Connection;
@@ -159,9 +159,10 @@ impl Stored {
             // Frontier holds them until then, so a redirect hop is judged
             // on a reader (#2168), and keeps those written within the
             // memory budget, told of each write that fails (#2169).
+            // The pending work items share the budget (#2169).
             let commits = writer.commits();
             let _unwritten = invariants.frontier().hold_unwritten(
-                writer.memory_budget(),
+                SharedBudget::new(writer.memory_budget()),
                 move || *commits.borrow(),
                 metrics,
             );
@@ -533,7 +534,7 @@ impl Stored {
         &self,
         entropy: Entropy,
     ) -> Result<(SessionPool, Opening), StateError> {
-        let budget = (!self.writer.per_attempt()).then(|| self.writer.memory_budget());
+        let budget = self.shared_budget();
         let beside = self.frontier_bytes();
         Ok(self
             .writer
@@ -548,6 +549,15 @@ impl Stored {
                 ))
             })
             .await?)
+    }
+
+    /// The Run's memory budget, which the Frontier's visits share with the
+    /// pending work items, at a level that batches attempts.
+    fn shared_budget(&self) -> Option<SharedBudget> {
+        self.invariants
+            .frontier()
+            .unwritten()
+            .map(goodfetch_frontier::UnwrittenVisits::budget)
     }
 
     /// The bytes the Frontier holds of the visits not in the run file yet,

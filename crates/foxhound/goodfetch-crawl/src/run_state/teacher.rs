@@ -22,15 +22,16 @@ use goodfetch_engine::run_state::BatchEnd;
 use goodfetch_frontier::EndMerged;
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::Connection;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 
 use crate::work_items::{self, Changed};
 
 /// What the Frontier's rules moved of the crawl's pending requests: each
 /// one a rule taught merged and each one a rule it stopped gave back, by
-/// ID with the domain key it waits under, and what that changed of the
-/// crawl's requests by state.
-pub(crate) type Moved = (Vec<(String, String)>, Changed);
+/// ID with the domain key it waits under and the commits the writer had
+/// acknowledged when its batch's end moved it (#2679), and what that
+/// changed of the crawl's requests by state.
+pub(crate) type Moved = (Vec<(String, String, u64)>, Changed);
 
 /// What the batches' ends moved and the delivery loop has not taken yet,
 /// gathered into one: its size is bounded by the crawl's requests, each
@@ -81,21 +82,24 @@ impl Taught {
 pub(crate) struct Teacher {
     invariants: Arc<goodfetch_frontier::Invariants>,
     clock: Clock,
+    commits: watch::Receiver<u64>,
     work: CountedWork,
     taught: Arc<Taught>,
 }
 
 impl Teacher {
     /// Teaches what is noted with `invariants`, a merged request ended at
-    /// `clock`'s time, the evidence's rows counted on `work`.
+    /// `clock`'s time, in a batch of the writer whose acknowledged
+    /// `commits` it reads, the evidence's rows counted on `work`.
     pub(crate) fn new(
         invariants: Arc<goodfetch_frontier::Invariants>,
-        clock: Clock,
+        (clock, commits): (Clock, watch::Receiver<u64>),
         work: CountedWork,
     ) -> Self {
         Self {
             invariants,
             clock,
+            commits,
             work,
             taught: Arc::default(),
         }
@@ -125,7 +129,14 @@ impl Teacher {
         self.invariants
             .teach_behind(connection, &mut merged, &self.work)?;
         let changed = merged.changed.with_sitemaps(connection)?;
-        self.taught.add((merged.moved, changed));
+        // What it moved is in the commit after those acknowledged now.
+        let commits = *self.commits.borrow();
+        let moved = merged
+            .moved
+            .into_iter()
+            .map(|(id, key)| (id, key, commits))
+            .collect();
+        self.taught.add((moved, changed));
         Ok(())
     }
 

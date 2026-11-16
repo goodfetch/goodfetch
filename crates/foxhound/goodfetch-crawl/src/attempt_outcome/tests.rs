@@ -152,7 +152,7 @@ async fn teaching(state: &RunState, env: &TestEnv) -> Arc<goodfetch_frontier::In
     invariants.learn_behind();
     state.end_batches_with(Arc::new(Teacher::new(
         Arc::clone(&invariants),
-        Clock::paused(env.start_time()),
+        (Clock::paused(env.start_time()), state.commits()),
         goodfetch_counted_work::CountedWork::default(),
     )));
     invariants

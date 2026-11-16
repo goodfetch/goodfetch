@@ -81,7 +81,6 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::local_addresses::{BlockSizes, LocalAddresses, Rotation, System};
-use goodfetch_engine::mask::Scope;
 use goodfetch_engine::metrics::Level;
 use goodfetch_engine::runs::{ChargeError, Ending, Run, UnjournaledCharges};
 use goodfetch_engine::settings::{Resolved, RunSettings};
@@ -132,8 +131,8 @@ use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::run_state::{
-    Asking, Chosen, Drawing, Drawn, DrawnSession, Local, Question, QueuedEnd, RunState, StateError,
-    Stored, Tally, Unkeyed, Within,
+    Asking, Chosen, Drawing, Drawn, DrawnSession, Local, Question, QueuedEnd, Ran, RunState,
+    StateError, Stored, Tally, Unkeyed, Within,
 };
 use crate::serving::{Crawls, Opened, Server};
 use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices, Unit};
@@ -145,7 +144,7 @@ mod attempt;
 mod failure;
 mod merged;
 
-use failure::{AttemptFailure, Why};
+use failure::{AttemptFailure, Why, kept_failure, retried_or_failed};
 mod pages;
 mod politeness;
 mod watch;
@@ -1354,8 +1353,8 @@ async fn completed(
     let mut keyed = Vec::new();
     for (outcome, settling) in finished.into_iter().zip(&settlings) {
         servers[settling.server].in_flight -= 1;
-        state.settled(outcome.leased, outcome.retried);
-        keyed.extend(state.added(outcome.keyed));
+        state.settled(outcome.leased, outcome.retried, outcome.commits);
+        keyed.extend(state.added(outcome.keyed, outcome.commits));
         retried.push(outcome.retried);
         state.changed(outcome.changed);
     }
@@ -1771,9 +1770,11 @@ async fn admit(
             .iter()
             .map(|(admitted, _)| admitted.id.clone())
             .collect();
-        let changed = end_unsent(run, pooled.state.stored(), admission, refused).await?;
-        pooled.state.changed(changed);
-        pooled.state.gone(unsent);
+        let ran = end_unsent(run, pooled.state.stored(), admission, refused).await?;
+        pooled.state.changed(ran.answer);
+        pooled
+            .state
+            .gone(unsent.into_iter().map(|id| (id, ran.commits)));
         show_counted(run, pooled.state, &pooled.fetching.in_flight, []).await;
     }
     let asked: Vec<(String, String)> = ids.into_iter().zip(keys).collect();
@@ -1868,12 +1869,14 @@ struct QueuedOutcome {
 /// What an attempt's outcome left the delivery to do once it was written:
 /// its work item as its lease took it, each work item it added keyed, in
 /// order, as its first lease takes it, whether its work item waits again
-/// for a retry, and what its job changed of the crawl's requests by state.
+/// for a retry, and what its job changed of the crawl's requests by state,
+/// with the commits the writer had acknowledged when that job ran (#2679).
 struct Finished {
     leased: Leased,
     keyed: Vec<Leased>,
     retried: bool,
     changed: Changed,
+    commits: u64,
 }
 
 /// Queues `attempt`'s outcome as one job of the run state's writer (ADR
@@ -2022,17 +2025,8 @@ impl QueuedOutcome {
             commits,
             written,
         } = self;
-        let mut finished = Finished {
-            leased: leased.clone(),
-            keyed: Vec::new(),
-            retried: false,
-            changed: Changed::default(),
-        };
-        let ended = match written.await {
-            Ok(written) => {
-                finished.changed = written.changed;
-                written.ended
-            }
+        let written = match written.await {
+            Ok(written) => written,
             Err(error) => {
                 let cause = error.to_string();
                 if commits {
@@ -2045,13 +2039,27 @@ impl QueuedOutcome {
                 } else {
                     tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
                 }
-                (finished.retried, finished.changed) =
-                    outcome_lost((&run, stored), policy, &leased, &cause).await;
+                let lost = outcome_lost((&run, stored), policy, &leased, &cause).await;
                 lease.release();
-                return finished;
+                let ((retried, changed), keyed) = (lost.answer, Vec::new());
+                let commits = lost.commits;
+                return Finished {
+                    leased,
+                    keyed,
+                    retried,
+                    changed,
+                    commits,
+                };
             }
         };
-        match ended {
+        let mut finished = Finished {
+            leased: leased.clone(),
+            keyed: Vec::new(),
+            retried: false,
+            changed: written.answer.changed,
+            commits: written.commits,
+        };
+        match written.answer.ended {
             attempt_outcome::Ended::Committed(committed) => {
                 let committed = lease
                     .committed(Ok(Some(Ok(committed))))
@@ -2110,7 +2118,7 @@ async fn outcome_lost(
     policy: CrawlPolicy,
     leased: &Leased,
     cause: &str,
-) -> (bool, Changed) {
+) -> Ran<(bool, Changed)> {
     let lost = AttemptFailure::outcome_not_written(cause);
     let (why, retryable) = (lost.why().clone(), lost.retryable);
     let masks = run.secrets().mask().masks().clone();
@@ -2120,46 +2128,33 @@ async fn outcome_lost(
     let ended = stored
         .end_lost(attempt, unsuccessful, run.point_in_time())
         .await;
-    match ended {
-        Ok((
-            attempt_outcome::Ended::Unsuccessful {
-                ended: true,
-                recorded,
-                retried,
-            },
-            changed,
-        )) => {
+    let Ran {
+        answer: (ended, changed),
+        commits,
+    } = match ended {
+        Ok(ran) => ran,
+        Err(error) => {
+            tracing::warn!(%error, run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt whose outcome was not committed was not ended: its work item stays leased until the crawl's finish");
+            // No job ran: its work item stays leased, out of every read.
+            let (answer, commits) = ((false, Changed::default()), stored.commits());
+            return Ran { answer, commits };
+        }
+    };
+    let retried = match ended {
+        attempt_outcome::Ended::Unsuccessful {
+            ended: true,
+            recorded,
+            retried,
+        } => {
             if let Some(code) = recorded {
                 run.record_outcome(&code);
             }
-            (retried, changed)
+            retried
         }
-        Ok((_, changed)) => (false, changed),
-        Err(error) => {
-            tracing::warn!(%error, run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt whose outcome was not committed was not ended: its work item stays leased until the crawl's finish");
-            (false, Changed::default())
-        }
-    }
-}
-
-/// A handler's failure as the Run's state keeps it: no value of `masks`,
-/// those the Run resolved, stays in its message or details (spec #564).
-fn kept_failure(
-    masks: &goodfetch_engine::mask::Masks,
-    code: String,
-    message: &str,
-    details: Map<String, Value>,
-) -> Failure {
-    let mut kept = Value::Object(details);
-    masks.apply_value(&mut kept, Scope::Kept);
-    let Value::Object(details) = kept else {
-        unreachable!("invariant: masking an object leaves an object")
+        _ => false,
     };
-    Failure {
-        code,
-        message: masks.apply(message, Scope::Kept).into_owned(),
-        details,
-    }
+    let answer = (retried, changed);
+    Ran { answer, commits }
 }
 
 /// The failure of a commit the run file refused with `refusal`, as the
@@ -2185,31 +2180,6 @@ fn refused(reason: SkipReason) -> Unsuccessful {
     Unsuccessful::Skipped {
         reason,
         message: None,
-    }
-}
-
-/// How `failure`, which failed for `why`, on a work item's `attempt`th
-/// attempt since its latest admission ends it under `policy`: retried
-/// while it is `retryable` and retries are left, failed otherwise; a
-/// handler's own failure is retryable only as `crawl.retry.handler_failed`
-/// says, and one the engine's panic ended only as
-/// `crawl.retry.engine_panicked` says (ADR 0148).
-fn retried_or_failed(
-    policy: CrawlPolicy,
-    attempt: u32,
-    failure: Failure,
-    why: &Why,
-    retryable: bool,
-) -> Unsuccessful {
-    let retryable = match why {
-        Why::Handler => policy.retry_handler_failed,
-        Why::Panicked => policy.retry_engine_panicked,
-        _ => retryable,
-    };
-    if retryable && policy.may_retry(attempt) {
-        Unsuccessful::Retried(failure)
-    } else {
-        Unsuccessful::Failed(failure)
     }
 }
 

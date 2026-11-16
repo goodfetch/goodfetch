@@ -28,7 +28,7 @@ use super::matrix::{
 use super::sampler::{CORE_WINDOW_SAMPLES, INTERVAL_MILLISECONDS};
 use super::trials::{
     Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES, Machine,
-    QUIET_LOAD, TRIALS, Trial,
+    QUIET_LOAD, STRACE_QUIET_LOAD, TRIALS, Trial,
 };
 
 mod auto;
@@ -1284,6 +1284,27 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             text,
             "{unquiet} of the {} timed trials started above a 1-minute load of {QUIET_LOAD}.\n",
             trials.trials.len()
+        );
+    }
+    if let CountedCell::Measured { runs, .. } = &trials.syscalls {
+        let unquiet = runs
+            .iter()
+            .filter(|run| run.load.is_some_and(|load| load >= STRACE_QUIET_LOAD))
+            .count();
+        if unquiet > 0 {
+            let _ = writeln!(
+                text,
+                "{unquiet} of the {} runs under strace started above a 1-minute load of {STRACE_QUIET_LOAD}.\n",
+                runs.len()
+            );
+        }
+    }
+    for redone in &trials.redone {
+        let _ = writeln!(
+            text,
+            "Measured again by a later run at the same commit on the same machine, its trials in their own order (seed {}): {}.\n",
+            redone.order_seed,
+            redone.cells.join(", ")
         );
     }
     text.push_str(

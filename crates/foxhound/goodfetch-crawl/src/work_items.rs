@@ -552,10 +552,8 @@ pub(crate) fn admit_keyed(
     } = &enqueued
         && let Some(revealable) = reaching_again(suspected)
     {
-        positions.decide(|| Decided::SeenAgain {
-            keyed: Box::new(keyed.clone()),
-            revealable,
-        });
+        let frontier = invariants.shared_frontier();
+        positions.decide(|| Decided::SeenAgain(Box::new((frontier, keyed.clone(), revealable))));
     }
     Ok(enqueued)
 }
@@ -630,7 +628,7 @@ impl Coming<'_> {
         match &enqueued {
             Enqueued::Added { id, .. } => {
                 if let Some(mark) = suspected {
-                    trap_links::suspect(connection, id, mark)?;
+                    trap_links::suspect(connection, invariants.unwritten(), id, mark)?;
                 }
             }
             Enqueued::NotAdded {
@@ -638,7 +636,8 @@ impl Coming<'_> {
                 ..
             } => {
                 if let Some(revealable) = reaching_again(suspected) {
-                    trap_links::seen_again(connection, self.keyed, revealable)?;
+                    let unwritten = invariants.unwritten();
+                    trap_links::seen_again(connection, unwritten, self.keyed, revealable)?;
                 }
             }
             Enqueued::NotAdded { .. } => {}
@@ -685,7 +684,7 @@ pub(crate) enum Decided {
     Sitemap(Box<(Arc<goodfetch_frontier::Invariants>, Policy, SitemapSeed)>),
     /// A request the visited set holds that a link of the attempt's page
     /// reached again, seen as `revealable` says (ADR 0035).
-    SeenAgain { keyed: Box<Keyed>, revealable: bool },
+    SeenAgain(Box<(Arc<goodfetch_frontier::Invariants>, Keyed, bool)>),
 }
 
 /// A candidate an attempt's commit judges again, with all it adds it
@@ -755,8 +754,9 @@ impl Decided {
                 let (invariants, policy, seed) = &**seed;
                 admit_sitemap_seed(connection, positions, invariants, policy, seed).map(drop)
             }
-            Self::SeenAgain { keyed, revealable } => {
-                trap_links::seen_again(connection, keyed, *revealable)
+            Self::SeenAgain(seen) => {
+                let (invariants, keyed, revealable) = &**seen;
+                trap_links::seen_again(connection, invariants.unwritten(), keyed, *revealable)
             }
         }
     }

@@ -620,9 +620,10 @@ impl Stored {
     }
 
     /// Has the Frontier's memory read the Scope's seeds and the visits the
-    /// run file holds, as the crawl opens, within the memory budget, when
-    /// it holds the batches' visits: a lookup it then answers reads
-    /// nothing (#2169).
+    /// run file holds, then, on the writer, the learned rules and
+    /// identities, the Bounds' counts and whether a trap mark is held, as
+    /// the crawl opens, within the memory budget, when it holds the
+    /// batches' visits: a lookup it then answers reads nothing (#2169).
     ///
     /// # Errors
     ///
@@ -632,9 +633,15 @@ impl Stored {
             return Ok(());
         }
         let invariants = self.invariants.clone();
+        self.writer
+            .read(move |connection| invariants.frontier().fill_memory(connection))
+            .await?;
+        let invariants = self.invariants.clone();
         Ok(self
             .writer
-            .read(move |connection| invariants.frontier().fill_memory(connection))
+            .write_deferred(move |connection| {
+                goodfetch_frontier::keep_memory(invariants.frontier(), connection)
+            })
             .await?)
     }
 

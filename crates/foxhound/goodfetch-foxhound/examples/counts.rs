@@ -70,6 +70,10 @@
 //! `memory_budget_1mib` runs at the test budget of 1 MiB, which the site
 //! fits in.
 //!
+//! `F3.state_reads` divides by the links batches of the same cells within
+//! their budget, the unit `held_links_batches`: once the crawl opened, an
+//! admission reads none of the Frontier's state from the run file (#2169).
+//!
 //! `F3.hop_round_trips.end` divides by the redirected chains that ended on
 //! their document, the unit `chains`: the site's redirects are one hop
 //! each, so its chains are its hops.
@@ -325,6 +329,11 @@ const LEASE_READS: &str = "F3.lease_reads";
 /// pending work item ([`MEMORY_BUDGET_0`]): at most one a lease (ADR
 /// 0140's F3 contract), from the first page.
 const LEASE_READS_SPILLED: &str = "F3.lease_reads.spilled";
+
+/// The Frontier's state an admission reads from the run file per links
+/// batch, held at the levels that batch attempts, within the memory budget
+/// (#2169): none counts in the other cells, whose admissions read it.
+const STATE_READS: &str = "F3.state_reads";
 
 /// The batches the writer sealed before their plan, less the one each of
 /// the crawl's [`BARRIER_CALLS`] may write: what is left is the Run's own,
@@ -1356,6 +1365,11 @@ fn main() {
             "batched_pages": if batched { cell.pages } else { 0 },
             "batched_leases": if batched && !cell.spills() { leases } else { 0 },
             "spilled_leases": if batched && cell.spills() { leases } else { 0 },
+            "held_links_batches": if batched && !cell.spills() && !cell.handler {
+                cell.pages
+            } else {
+                0
+            },
             "full_pages": if full { cell.pages } else { 0 },
         });
         println!(
@@ -1425,6 +1439,15 @@ fn counts_of(cell: &Counted) -> Map<String, Value> {
         LEASE_READS_SPILLED.to_owned(),
         json!(if batched && cell.spills() {
             lease_reads
+        } else {
+            0
+        }),
+    );
+    let state_reads = cell.count(Row::StateReads);
+    counts.insert(
+        STATE_READS.to_owned(),
+        json!(if batched && !cell.spills() {
+            state_reads
         } else {
             0
         }),

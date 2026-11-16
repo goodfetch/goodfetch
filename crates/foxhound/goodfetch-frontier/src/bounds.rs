@@ -406,22 +406,26 @@ impl SoFar<'_, '_> {
 
     /// The requests admitted.
     fn admitted(&mut self) -> rusqlite::Result<u64> {
-        if let Some(holding) = &mut self.holding
-            && let Some(counts) =
+        if let Some(holding) = &mut self.holding {
+            if let Some(counts) =
                 holding.counts(self.admitting.writes(), || counts(self.connection))?
-        {
-            return Ok(counts.admitted() + self.admitting.staged_admitted());
+            {
+                return Ok(counts.admitted() + self.admitting.staged_admitted());
+            }
+            holding.reads_state();
         }
         Ok(admitted(self.connection)? + self.admitting.earlier().map_or(0, Staged::admitted))
     }
 
     /// The requests the path budget of `pattern` admitted.
     fn path_admitted(&mut self, pattern: &str) -> rusqlite::Result<u64> {
-        if let Some(holding) = &mut self.holding
-            && let Some(counts) =
+        if let Some(holding) = &mut self.holding {
+            if let Some(counts) =
                 holding.counts(self.admitting.writes(), || counts(self.connection))?
-        {
-            return Ok(counts.path_admitted(pattern) + self.admitting.staged_budget(pattern));
+            {
+                return Ok(counts.path_admitted(pattern) + self.admitting.staged_budget(pattern));
+            }
+            holding.reads_state();
         }
         Ok(path_admitted(self.connection, pattern)?
             + self
@@ -429,6 +433,24 @@ impl SoFar<'_, '_> {
                 .earlier()
                 .map_or(0, |staged| staged.budget(pattern)))
     }
+}
+
+/// Has `holding`, the Frontier's memory under its lock, read the Bounds'
+/// counts from the file on `connection`, the writer's, as the crawl opens,
+/// when `bounds` caps the requests or a path's (#2169).
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub(crate) fn keep_counts(
+    connection: &Connection,
+    bounds: &Bounds,
+    holding: &mut Holding<'_>,
+) -> rusqlite::Result<()> {
+    if bounds.max_requests.is_some() || !bounds.path_budgets.is_empty() {
+        holding.counts(true, || counts(connection))?;
+    }
+    Ok(())
 }
 
 /// The Bounds' counts the run file `connection` holds, for the Frontier's

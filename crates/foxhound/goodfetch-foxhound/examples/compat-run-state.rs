@@ -712,6 +712,7 @@ fn bound() -> Contribution {
                         // document's markup hides (#1153).
                         goodfetch_frontier::trap_links::suspect(
                             connection,
+                            None,
                             "2",
                             goodfetch_frontier::trap_links::Mark::Hidden,
                         )

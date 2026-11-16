@@ -205,6 +205,12 @@ rows! {
     /// state runs to lease a work item or find the pending ones, at a
     /// Durability level that batches attempts (#2169).
     LeaseReads => "F3.lease_reads", "frontier_lease", "reads";
+    /// `F3.state_reads`: a read of the run file an admission makes for the
+    /// Frontier's state, the Scope's seeds, the learned rules and
+    /// identities, the visited set, the Bounds' counts or the trap marks,
+    /// while the Frontier holds its memory at a Durability level that
+    /// batches attempts (#2169).
+    StateReads => "F3.state_reads", "frontier_admission", "state_reads";
     /// `F3.compilations`: a validator built for one URL's Payload.
     PayloadCompilations => "F3.compilations.payload", "frontier_payload", "compilations";
     /// `F3.payload_serializations`: one URL's Payload serialized.

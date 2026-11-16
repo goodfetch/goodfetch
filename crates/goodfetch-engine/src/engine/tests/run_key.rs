@@ -10,7 +10,7 @@
 //! `run_state.key_reference`, and the Checkpoint holds no key.
 #![expect(
     clippy::disallowed_methods,
-    reason = "the tests read the run files and the encrypted local file the engine wrote"
+    reason = "the tests read the run files and the encrypted local file the engine wrote; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::collections::BTreeMap;

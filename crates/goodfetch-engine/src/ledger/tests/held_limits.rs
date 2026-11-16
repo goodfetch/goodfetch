@@ -3,6 +3,11 @@
 //! changes reach its next charge, whichever engine of the process made
 //! them, and a ledger no engine created is not tried again at each charge.
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use goodfetch_counted_work::{CountedWork, Row as CountedRow};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::{Period, PeriodLength};

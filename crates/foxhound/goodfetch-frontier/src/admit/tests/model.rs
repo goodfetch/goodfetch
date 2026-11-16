@@ -13,6 +13,11 @@
 //! on from there; `after_crash` checks `PRAGMA integrity_check`. 16 cases
 //! in the Quick suite and 256 in the Pre-merge suite (`proptest_config`).
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use std::collections::BTreeMap;
 
 use goodfetch_engine::egress::Policy;

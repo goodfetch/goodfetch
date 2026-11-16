@@ -8,7 +8,7 @@
 //! in-memory Politeness file, on Tokio's paused clock, ending with its Run.
 #![expect(
     clippy::disallowed_methods,
-    reason = "a wait's test runs on the test Clock and Tokio's paused clock (ADR 0059)"
+    reason = "a wait's test runs on the test Clock and Tokio's paused clock (ADR 0059); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::path::PathBuf;

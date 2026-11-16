@@ -12,6 +12,11 @@
 //! terminal, and over the protocol from any surface but the CLI's, as an
 //! agent's or a program's, they are refused with `person_required` and the
 //! pin stays.
+
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"

@@ -7,7 +7,7 @@
 //! as missing and an erased one erased.
 #![expect(
     clippy::disallowed_methods,
-    reason = "the tests start processes and read and change the Run index and run folders themselves"
+    reason = "the tests start processes and read and change the Run index and run folders themselves; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::io::{BufRead as _, BufReader};

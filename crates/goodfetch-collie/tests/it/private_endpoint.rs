@@ -8,7 +8,7 @@
 //! the Daemon forwards an abort of such a Run there.
 #![expect(
     clippy::disallowed_methods,
-    reason = "the tests read the engine's files, logs and Run index themselves"
+    reason = "the tests read the engine's files, logs and Run index themselves; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::path::{Path, PathBuf};

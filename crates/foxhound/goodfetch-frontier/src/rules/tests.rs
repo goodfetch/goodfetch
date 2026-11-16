@@ -2,6 +2,11 @@
 //! numeric, date-like and hexadecimal segments generalized, every other
 //! segment kept as written.
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use rstest::rstest;
 
 use super::pattern;

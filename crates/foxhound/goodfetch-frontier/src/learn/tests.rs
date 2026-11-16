@@ -3,6 +3,12 @@
 //! `admit`, each page fetched through `learn` with its page signature, and
 //! what the Frontier then answers, reports and says of the Run's
 //! Completeness, in a run file in memory; no owned code is mocked.
+
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 mod behind;
 mod model;
 mod settled;

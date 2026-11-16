@@ -143,7 +143,9 @@ pub(crate) fn unpack(checkpoint: &Connection, folder: &Path) -> Result<(), Carry
 /// SQLite's.
 pub(crate) fn drop_chunks(connection: &Connection) -> rusqlite::Result<()> {
     if has_table(connection, "run_file_chunks")? {
-        connection.execute("DELETE FROM run_file_chunks", [])?;
+        connection
+            .prepare_cached("DELETE FROM run_file_chunks")?
+            .execute([])?;
     }
     Ok(())
 }
@@ -151,11 +153,8 @@ pub(crate) fn drop_chunks(connection: &Connection) -> rusqlite::Result<()> {
 /// Whether `connection`'s database has the table `name`.
 fn has_table(connection: &Connection, name: &str) -> rusqlite::Result<bool> {
     Ok(connection
-        .query_row(
-            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1",
-            [name],
-            |_| Ok(()),
-        )
+        .prepare_cached("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1")?
+        .query_row([name], |_| Ok(()))
         .optional()?
         .is_some())
 }

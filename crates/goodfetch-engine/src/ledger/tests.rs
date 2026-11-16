@@ -4,6 +4,11 @@
 //! runs, the rows a newer engine or Foxhound wrote, and the format's
 //! versions. The model-based test of crashes is in `model`.
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use std::collections::BTreeMap;
 
 use goodfetch_counted_work::{CountedWork, Row as CountedRow};

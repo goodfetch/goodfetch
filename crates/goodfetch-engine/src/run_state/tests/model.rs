@@ -28,6 +28,11 @@
 //! a new run folder; below it, no file holds the mark. 16 cases in the Quick
 //! suite and 256 in the Pre-merge suite (`proptest_config`).
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};

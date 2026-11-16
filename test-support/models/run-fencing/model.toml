@@ -1,13 +1,17 @@
-# Run fencing (ADRs 0002, 0003 and 0060): the leases and the run epoch the
+# Run fencing (ADRs 0002, 0003, 0060 and 0142): the leases and the run epoch the
 # engine traces under `goodfetch::lease`, Checkpoints and resumes, and the
-# compare-and-set of the destinations writes leaving the engine reach.
+# compare-and-set of the destinations writes leaving the engine reach, and
+# the Run-state batch boundary at each level (ADR 0142).
 # `zombie.cfg` is a variant that must fail, showing the model reaches a
 # zombie copy: the TLC job's self-test runs it (`just tlc-self-test`).
 spec = "RunFencing.tla"
 traces = [
   "crates/foxhound/goodfetch-crawl/src/lease.rs",
+  "crates/foxhound/goodfetch-crawl/src/run_state.rs",
+  "crates/foxhound/goodfetch-crawl/src/run_state/",
   "crates/goodfetch-engine/src/checkpoint.rs",
   "crates/goodfetch-engine/src/run_state.rs",
+  "crates/goodfetch-engine/src/run_state/",
   "crates/goodfetch-engine/src/runs.rs",
   "crates/goodfetch-engine/src/runs/takeover.rs",
 ]

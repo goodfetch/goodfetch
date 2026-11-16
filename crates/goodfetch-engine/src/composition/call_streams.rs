@@ -7,17 +7,18 @@
     reason = "a poll cannot await: one Mutex guards a call's input receiver, held only while one poll of it runs, with nothing else under it, so there is no lock order for loom to test (ADR 0060)"
 )]
 
+use std::io::Read as _;
 use std::sync::{Mutex, PoisonError};
 
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use goodfetch_protocol::page::{CHUNK, CHUNK_BYTES, Chunk};
 use serde::Serialize;
-use tokio::io::AsyncReadExt as _;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::call_error::CallError;
 use crate::events::Credits;
+use crate::tasks::TaskOwner;
 use crate::wire::{Line, Received, notification_line};
 
 /// The way back to a call's Client: the notifications that name the call,
@@ -107,8 +108,9 @@ impl CallStream {
 
     /// Sends `file`, from where it is to its end, in `$/chunk`
     /// notifications of at most [`CHUNK_BYTES`], one per credit, each with
-    /// its offset; answers how many bytes it sent, fewer than the file's
-    /// rest once the Connection's writer is gone.
+    /// its offset, each chunk read on `owner`'s blocking work (issue 2106);
+    /// answers how many bytes it sent, fewer than the file's rest once the
+    /// Connection's writer is gone.
     ///
     /// # Errors
     ///
@@ -117,11 +119,22 @@ impl CallStream {
     /// # Cancel safety
     ///
     /// Dropping the future stops the chunks; those sent stay sent.
-    pub async fn send_file(&self, file: &mut tokio::fs::File) -> std::io::Result<u64> {
+    pub async fn send_file(
+        &self,
+        mut file: std::fs::File,
+        owner: &TaskOwner,
+    ) -> std::io::Result<u64> {
         let mut offset: u64 = 0;
         let mut chunk = vec![0; CHUNK_BYTES];
         loop {
-            let read = read_chunk(file, &mut chunk).await?;
+            let read;
+            (file, chunk, read) = owner
+                .blocking(move || {
+                    let read = read_chunk(&mut file, &mut chunk);
+                    (file, chunk, read)
+                })
+                .await;
+            let read = read?;
             if read == 0 {
                 return Ok(offset);
             }
@@ -146,10 +159,10 @@ impl CallStream {
 
 /// Fills `chunk` from `file` as far as it goes, and answers how many bytes
 /// it read: fewer than its length only at the file's end.
-async fn read_chunk(file: &mut tokio::fs::File, chunk: &mut [u8]) -> std::io::Result<usize> {
+fn read_chunk(file: &mut std::fs::File, chunk: &mut [u8]) -> std::io::Result<usize> {
     let mut filled = 0;
     while filled < chunk.len() {
-        let read = file.read(&mut chunk[filled..]).await?;
+        let read = file.read(&mut chunk[filled..])?;
         if read == 0 {
             break;
         }

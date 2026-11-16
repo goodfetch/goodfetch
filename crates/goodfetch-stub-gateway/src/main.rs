@@ -91,7 +91,16 @@ fn main() -> ExitCode {
 /// Serves until the process is killed or interrupted; interrupted, it
 /// kills and reaps its engines before it returns.
 async fn serve(arguments: Arguments, environment: Vec<(OsString, OsString)>) -> Result<(), String> {
-    let token = tokio::fs::read_to_string(&arguments.token_file)
+    let owner = Arc::new(TaskOwner::root(BlockingPolicy::Threads));
+    let token_file = arguments.token_file.clone();
+    let token = owner
+        .blocking(move || {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "it runs on the tasks module's blocking policy"
+            )]
+            std::fs::read_to_string(token_file)
+        })
         .await
         .map_err(|error| format!("reading the token file: {error}"))?
         .trim()
@@ -102,7 +111,6 @@ async fn serve(arguments: Arguments, environment: Vec<(OsString, OsString)>) -> 
     let listener = transport::listen_gateway(loopback)
         .await
         .map_err(|error| format!("listening for Clients: {error}"))?;
-    let owner = Arc::new(TaskOwner::root(BlockingPolicy::Threads));
     let engines = Engines::new(
         Executables {
             collie: arguments.collie,
@@ -117,7 +125,15 @@ async fn serve(arguments: Arguments, environment: Vec<(OsString, OsString)>) -> 
     let site = Site::new(Arc::clone(&gateway), &listener)
         .map_err(|error| format!("reading the listener's address: {error}"))?;
     let ready = serde_json::json!({ "address": site.address() });
-    tokio::fs::write(&arguments.ready, ready.to_string())
+    let ready_file = arguments.ready.clone();
+    owner
+        .blocking(move || {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "it runs on the tasks module's blocking policy"
+            )]
+            std::fs::write(ready_file, ready.to_string())
+        })
         .await
         .map_err(|error| format!("writing the ready file: {error}"))?;
     owner.spawn(Arc::new(site).serve(listener, Arc::clone(&owner)));

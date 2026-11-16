@@ -22,6 +22,7 @@ use goodfetch_engine::secrets::{
     ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider,
 };
 use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::tasks::BlockingThreads;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
     SECRET_PROVIDERS_AZURE_KV_AUTHORITY, SECRET_PROVIDERS_AZURE_KV_ENDPOINT,
@@ -77,17 +78,19 @@ impl AzureKeyVault {
     /// The provider `secret_providers.azure_kv.*` configure in `resolved`,
     /// which also gives how the vault and the authority are reached, for
     /// the service principal in the engine's `environment`.
+    /// Its endpoint reads the `tls.trusted_cas` files on `blocking`.
     pub fn configured(
         resolved: &Resolved,
         environment: &BTreeMap<OsString, OsString>,
         clock: Clock,
+        blocking: BlockingThreads,
     ) -> Self {
         let text = |setting| resolved.get::<&str>(setting).to_owned();
         Self::new(
             text(&SECRET_PROVIDERS_AZURE_KV_ENDPOINT),
             text(&SECRET_PROVIDERS_AZURE_KV_AUTHORITY),
             environment,
-            SecretProviderEndpoint::of(resolved, clock),
+            SecretProviderEndpoint::of(resolved, clock, blocking),
         )
     }
 

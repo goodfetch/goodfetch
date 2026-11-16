@@ -81,10 +81,6 @@ struct Batch<'a> {
     events: &'a [Envelope],
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
 async fn read_body(
     params: PageBodyParams,
     context: CallContext,
@@ -108,7 +104,15 @@ async fn read_body(
         .await
         .map_err(|_| not_found())?;
     let file = body::file(&folder, &params.body).ok_or_else(not_found)?;
-    let mut file = tokio::fs::File::open(&file)
+    let owner = context.engine().owner();
+    let file = owner
+        .blocking(move || {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "ADR 0140: a file opened on no counted row yet, on the tasks module's blocking policy (issue 2106); the Shared paths audit moves it onto its counted function"
+            )]
+            std::fs::File::open(file)
+        })
         .await
         .map_err(|error| match error.kind() {
             std::io::ErrorKind::NotFound => not_found(),
@@ -120,7 +124,7 @@ async fn read_body(
         })?;
     let size = context
         .stream()
-        .send_file(&mut file)
+        .send_file(file, owner)
         .await
         .map_err(|error| {
             CallError::protocol(

@@ -1052,15 +1052,20 @@ pub(crate) const CELLS: [Cell; 123] = [
         scenario: Scenario::Durable,
         tool: Tool::OpenSpider,
         name: "openspider",
-        mapping: "scenario 1's crawl killed with SIGKILL once half the site is served, then the same \
-                  command in a new process on the same folder, which resumes the crawl file the \
-                  killed one left (`os_engine::resume_crawl`, its command line's `--resume`) once \
-                  that file's heartbeat is older than OpenSpider's 10 s, before which it holds \
-                  the crawl as still running and refuses to resume it, so the trial's time holds \
-                  that wait",
+        mapping: "none: its crawl file holds nothing yet when a kill lands halfway",
         pending: &[],
         row: Row::Main,
-        status: Status::Measured(Config::OpenSpider),
+        status: Status::NotSupported(
+            "OpenSpider's writer commits its crawl file in groups and, while pages come faster \
+             than it writes them, gathers up to 4,000 pages or 500 ms into one transaction, so \
+             on the Proving ground it fetches about 500 pages before its first commit, and a \
+             SIGKILL once half the site is served leaves the file with no page and an empty \
+             queue; the process started again on it (`os_engine::resume_crawl`, its command \
+             line's `--resume`), once the file's 10 s heartbeat has gone stale, ends at once \
+             with nothing to fetch, and does not start again from its first page. On \
+             2026-11-16 (#2216), 3 of 3 crawls of the 1,000-page site so killed fetched 526 to \
+             610 pages, which no same-work check passes",
+        ),
     },
     Cell {
         scenario: Scenario::Durable,

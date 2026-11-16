@@ -1,10 +1,16 @@
 # cargo-audit's ignores for OpenSpider's side of `just compare`: the IDs of
 # `../deny.toml`'s `[advisories] ignore`, each with its reason and what
-# removes it there.
+# removes it there. OpenSpider is a comparison-only tool, run locally by the
+# harness and never linked into a Product; the owner accepted these five
+# advisories on 2026-11-16 (issue 2216).
 [advisories]
 ignore = [
+  # json, unmaintained: through os-parse's XPath engine.
   "RUSTSEC-2022-0081",
+  # proc-macro-error, unmaintained: a build-time proc-macro.
   "RUSTSEC-2024-0370",
+  # zvariant, zbus_names, zvariant_derive, unmaintained: zbus 5's, through
+  # os-fetch's keyring.
   "RUSTSEC-2026-0370",
   "RUSTSEC-2026-0371",
   "RUSTSEC-2026-0372",

@@ -241,7 +241,7 @@ export class CrawlRun extends Run {
         signal.throwIfAborted();
         await calls.call(
           "crawl_request.push",
-          { ...attempt, dataset: dataset.name, data: wireObject(record) },
+          { ...attempt, dataset: dataset.name, records: [wireObject(record)] },
           options,
         );
       },

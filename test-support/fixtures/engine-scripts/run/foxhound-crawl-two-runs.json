@@ -140,9 +140,11 @@
           "crawl_request_id": "1",
           "lease_epoch": 1,
           "dataset": "pages",
-          "data": {
-            "page": "seen"
-          }
+          "records": [
+            {
+              "page": "seen"
+            }
+          ]
         }
       }
     },
@@ -210,9 +212,11 @@
           "crawl_request_id": "1",
           "lease_epoch": 1,
           "dataset": "pages",
-          "data": {
-            "page": "seen"
-          }
+          "records": [
+            {
+              "page": "seen"
+            }
+          ]
         }
       }
     },

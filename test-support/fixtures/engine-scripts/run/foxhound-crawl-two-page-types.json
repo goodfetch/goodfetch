@@ -156,7 +156,7 @@
           "crawl_request_id": "2",
           "lease_epoch": 1,
           "dataset": "products",
-          "data": { "id": "P-0001", "name": "Blue kettle", "price": "12.34" }
+          "records": [{ "id": "P-0001", "name": "Blue kettle", "price": "12.34" }]
         }
       }
     },

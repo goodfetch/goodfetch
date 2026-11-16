@@ -69,9 +69,11 @@ use goodfetch_engine::run_state::{Durability, RunStateOptions, RunStateTables, S
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{RequestSeed, Seed};
 use goodfetch_protocol::foxhound::frontier::{
-    CrawlRequestEnqueueParams, Enqueued, HttpMethod, NotAddedReason,
+    CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, Enqueued, EnqueuedLink,
+    EnqueuedLinks, HttpMethod, NotAddedReason,
 };
 use goodfetch_protocol::foxhound::outcomes::OutcomeKind;
+use goodfetch_protocol::page::{Locator, PageId};
 use goodfetch_protocol::run::durability::BatchThreshold;
 use goodfetch_protocol::run::{PointInTime, RunId};
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
@@ -83,12 +85,13 @@ use tokio::runtime::Runtime;
 
 use crate::attempt_outcome::{Ended, Ending, Outcome};
 use crate::intake::Intake;
-use crate::invariants::fixture;
+use crate::invariants::{Invariants, fixture};
 use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::CrawlPolicy;
-use crate::run_state::admission::Enqueue;
+use crate::run_state::admission::{Enqueue, Link, LinksBatch, LinksRequest};
+use crate::run_state::asks::{Ask, Queued, Staged};
 use crate::run_state::{
-    Asked, Asking, RunState, StateError, Stored, Tally, Unkeyed, Within, mailbox,
+    Asked, Asking, Question, RunState, StateError, Stored, Tally, Unkeyed, Within, mailbox,
 };
 use crate::staging::Staging;
 use crate::tier_choice::TierChoices;
@@ -775,6 +778,12 @@ struct Crawl {
     attempts: Vec<Running>,
     /// How many attempts hold their lease.
     in_flight: usize,
+    /// What its attempts' links batches are keyed under, as their pages'
+    /// tasks key them.
+    invariants: Invariants,
+    egress: Arc<Policy>,
+    /// Its counted work.
+    work: CountedWork,
 }
 
 /// One attempt of the subject's crawl: its lease, and whether the loop
@@ -1096,16 +1105,17 @@ impl Subject {
                 .unwrap();
             let staging = Staging::default();
             let keys = Keys::new(|_| KEY.to_owned());
+            let metrics = Metrics::none();
             let stored = Stored::new(
                 writer.clone(),
                 Within {
-                    egress,
-                    invariants,
+                    egress: Arc::clone(&egress),
+                    invariants: invariants.clone(),
                     staging: staging.clone(),
                     intake: Intake::default(),
                 },
                 (keys.clone(), Clock::paused(start_time)),
-                &Metrics::none(),
+                &metrics,
             );
             stored.fill_memory().await.unwrap();
             if resumed {
@@ -1135,6 +1145,9 @@ impl Subject {
                     .keyed_by(keys),
                 attempts: Vec::new(),
                 in_flight: 0,
+                invariants,
+                egress,
+                work: metrics.counted_work().clone(),
             }
         });
         self.crawl = Some(crawl);
@@ -1183,6 +1196,102 @@ impl Subject {
         self.runtime
             .block_on(crawl.asks(asking.enqueue(enqueue)))
             .map(|answer| refused(&[answer.expect("the model's pages are valid")]))
+    }
+
+    /// The attempt at `index` asks the loop to stage the links to `pages`
+    /// as a program's batch, as its page's task asks: the job the loop
+    /// answers, which the task has not polled yet.
+    fn links(&mut self, index: usize, pages: &[usize]) -> Queued<Staged<EnqueuedLinks>> {
+        let crawl = self
+            .crawl
+            .as_mut()
+            .expect("invariant: the crawl runs until the case ends");
+        let leased = &crawl.attempts[index].leased;
+        let params = CrawlRequestEnqueueLinksParams {
+            run_id: RunId::parse("model").unwrap(),
+            crawl_request_id: leased.crawl_request.id.clone(),
+            lease_epoch: leased.lease_epoch,
+            locator: Locator {
+                page_id: PageId("model".to_owned()),
+                selector: "a".to_owned(),
+            },
+            label: "page".to_owned(),
+            payload: None,
+            payloads: None,
+            include: Vec::new(),
+            exclude: Vec::new(),
+            limit: None,
+            priority: 0,
+        };
+        let base = goodfetch_frontier::Url::parse(&leased.crawl_request.url).unwrap();
+        let encoding = goodfetch_frontier::Encoding::for_label(b"utf-8").unwrap();
+        let links = pages
+            .iter()
+            .map(|&page| {
+                let href = url(page);
+                let keyed = goodfetch_frontier::key_link(
+                    crawl.invariants.frontier(),
+                    &crawl.egress,
+                    goodfetch_frontier::Link {
+                        href: &href,
+                        base: &base,
+                        encoding,
+                        keeps_fragment: false,
+                        narrowing: goodfetch_frontier::Narrowing::none(),
+                    },
+                );
+                Link::Keyed {
+                    href,
+                    keyed,
+                    payload: None,
+                    trap: None,
+                }
+            })
+            .collect();
+        let batch = LinksBatch {
+            request: LinksRequest::of(&params),
+            invariants: crawl.invariants.clone(),
+            links,
+            refused_payload: None,
+        };
+        let (answer, answered) = tokio::sync::oneshot::channel();
+        let ask = Box::new(Question::Stored(Ask::Links {
+            links: batch,
+            answer,
+        }));
+        self.runtime
+            .block_on(async {
+                crawl.state.answer(ask).await;
+                answered.await
+            })
+            .expect("the loop answers a links batch")
+    }
+
+    /// The page's task waits for `queued`, its links batch's job: why the
+    /// crawl did not add each link, `None` for added.
+    fn linked(&self, queued: Queued<Staged<EnqueuedLinks>>) -> Vec<Option<NotAddedReason>> {
+        let answered = self.runtime.block_on(queued).unwrap();
+        answered
+            .expect("the attempt holds its lease")
+            .expect("the batch is valid")
+            .links
+            .into_iter()
+            .map(|link| match link {
+                EnqueuedLink::Added { .. } => None,
+                EnqueuedLink::NotAdded { reason, .. } => Some(reason),
+                link => panic!("a link was not judged: {link:?}"),
+            })
+            .collect()
+    }
+
+    /// How many reads of the Frontier's state its admissions made from
+    /// the run file (`F3.state_reads`).
+    fn state_reads(&self) -> u64 {
+        self.crawl
+            .as_ref()
+            .expect("invariant: the crawl runs until the case ends")
+            .work
+            .read(goodfetch_counted_work::Row::StateReads)
     }
 
     /// The loop claims the next `count` pending work items, in a write
@@ -1680,17 +1789,17 @@ impl Lockstep {
     /// `bound`, at `level`, keyed and its work items all leased, an
     /// attempt each, in the order of their pages.
     fn leased(count: usize, level: (bool, u64), bound: Bound) -> Self {
-        let model = Model::started(count, level, bound);
+        let mut model = Model::started(count, level, bound);
         let pages: Vec<usize> = (0..count).collect();
         let mut subject = Subject::new(level, bound, &pages);
-        assert_eq!(subject.seal(), pages);
+        // The loop keys them a few at a time.
+        for keyed in pages.chunks(KEYED_AT_ONCE) {
+            assert_eq!(subject.seal(), keyed);
+            assert_eq!(model.seal(), keyed);
+        }
         assert_eq!(subject.lease(count), pages);
-        let mut lockstep = Self { model, subject };
-        assert_eq!(
-            Answer::Keyed(lockstep.model.seal()),
-            Answer::Keyed(pages.clone())
-        );
-        assert_eq!(lockstep.model.claim(count), Answer::Leased(pages));
+        assert_eq!(model.claim(count), Answer::Leased(pages));
+        let lockstep = Self { model, subject };
         lockstep.holds();
         lockstep
     }
@@ -1727,6 +1836,58 @@ impl Lockstep {
     fn close(mut self) {
         self.subject.close();
     }
+}
+
+/// While memory does not hold every visit, a program's links batch looks
+/// its new URLs up in the run file on a reader before its job (G-11 Q6,
+/// #2169): another batch that holds one of them, asked while that read is
+/// pending, waits for its answer instead of reading it again, and the two
+/// make one work item; a batch whose URLs memory holds is answered before
+/// that read returns.
+#[test]
+fn a_batch_whose_urls_memory_holds_is_answered_while_another_batchs_lookup_is_pending() {
+    let mut both = Lockstep::leased(4, (true, 0), Bound::LOOSE);
+    // Page 5, which the open batch holds, is in memory at a budget of 0.
+    both.enqueue(3, 5, None);
+    both.commits(3, &[5]);
+    // The pages' tasks have not polled their jobs yet: page 4's lookup is
+    // pending.
+    let first = both.subject.links(0, &[4]);
+    let second = both.subject.links(1, &[4]);
+    let duplicate = Some(NotAddedReason::Duplicate);
+    assert_eq!(
+        both.model.enqueue(2, 5),
+        Answer::Admitted(Some(vec![duplicate]))
+    );
+    let third = both.subject.links(2, &[5]);
+    assert_eq!(both.subject.linked(third), vec![duplicate]);
+    // The first batch reads page 4 from the file, the second its answer.
+    let before = both.subject.state_reads();
+    assert_eq!(both.subject.linked(first), vec![None]);
+    let read = both.subject.state_reads() - before;
+    assert_eq!(both.subject.linked(second), vec![None]);
+    let reused = both.subject.state_reads() - before - read;
+    // A lone batch that holds page 4 once both were written reads it as
+    // the first did, and the second batch read one identity fewer.
+    let fourth = both.subject.links(2, &[4]);
+    let before = both.subject.state_reads();
+    assert_eq!(both.subject.linked(fourth), vec![None]);
+    let lone = both.subject.state_reads() - before;
+    assert_eq!(
+        (read, reused + 1),
+        (lone, lone),
+        "the second batch waits for the first's read of page 4"
+    );
+    for index in [0, 1, 2] {
+        assert_eq!(
+            both.model.enqueue(index, 4),
+            Answer::Admitted(Some(vec![None]))
+        );
+    }
+    both.holds();
+    both.commits(0, &[4]);
+    both.commits(1, &[]);
+    both.close();
 }
 
 /// Each level of the model, at each of its memory budgets.

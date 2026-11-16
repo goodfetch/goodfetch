@@ -55,12 +55,12 @@ fn a_records_check_validates_only_under_a_schema_and_builds_no_validator() {
     assert_eq!(counted(&work), (0, 1));
 
     datasets
-        .check_pushed(pushed("books", json!({ "title": "Emma" })), &work)
+        .check_pushed("books", vec![json!({ "title": "Emma" })], &work)
         .unwrap();
     assert_eq!(counted(&work), (0, 2));
 
     datasets
-        .check_pushed(pushed("free", json!({ "title": "Kim" })), &work)
+        .check_pushed("free", vec![json!({ "title": "Kim" })], &work)
         .unwrap();
     assert_eq!(counted(&work), (0, 2));
 }
@@ -71,7 +71,7 @@ fn a_records_check_validates_only_under_a_schema_and_builds_no_validator() {
 fn a_refused_push_validates_its_record_once() {
     let work = CountedWork::default();
 
-    let refused = declared().check_pushed(pushed("books", json!({})), &work);
+    let refused = declared().check_pushed("books", vec![json!({})], &work);
 
     assert!(refused.is_err());
     assert_eq!(counted(&work), (0, 1));

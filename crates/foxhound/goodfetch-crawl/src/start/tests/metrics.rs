@@ -605,7 +605,7 @@ fn a_pushed_record_costs_the_run_states_writer_no_job_of_its_own() {
                         "crawl_request_id": params["crawl_request"]["id"],
                         "lease_epoch": params["lease_epoch"],
                         "dataset": "pages",
-                        "data": data,
+                        "records": [data],
                     }),
                 )
             })

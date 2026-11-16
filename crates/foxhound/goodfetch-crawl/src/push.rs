@@ -1,17 +1,19 @@
-//! A handler's push (ADR 0103): `crawl_request.push` checks one Record
-//! against the Dataset it names, as the live crawl declares it, and stages
-//! it with its attempt while the attempt's lease holds; it commits once
-//! with the attempt or is discarded with it. A Record that does not hold
-//! is refused with `dataset_unknown` or `record_invalid` and not staged,
-//! the attempt keeping what it staged before; a `record_invalid` Record's
-//! rejection is staged in its place, so it enters its Dataset's rejection
-//! table if the attempt commits; an attempt that ended
-//! refuses it with `attempt_ended`, and a declared Effect's body with
-//! `effect_staging_refused`.
+//! A handler's push (ADRs 0103 and 0147): `crawl_request.push` checks the
+//! Records of one push, one or several, against the Dataset they name, as
+//! the live crawl declares it, and stages those that hold with their
+//! attempt while the attempt's lease holds, in one step; they commit once
+//! with the attempt or are discarded with it. A Dataset the crawl does not
+//! declare is refused with `dataset_unknown`, nothing staged; a Record that
+//! does not hold is not staged and the push fails with `record_invalid`,
+//! naming it by its position, the attempt keeping what it staged before
+//! and the push's other Records; its rejection is staged in its place, so
+//! it enters its Dataset's rejection table if the attempt commits; an
+//! attempt that ended refuses the push with `attempt_ended`, and a declared
+//! Effect's body with `effect_staging_refused`.
 
 use goodfetch_dataset::Refused;
 use goodfetch_engine::{CallContext, CallError, Handler};
-use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, PushedRecord};
+use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::dataset::{
     CRAWL_REQUEST_PUSH, CrawlRequestPushParams, CrawlRequestPushed,
 };
@@ -35,13 +37,13 @@ async fn push(
         crawl_request_id,
         lease_epoch,
         dataset,
-        data,
+        records,
     } = params;
     let ended = || {
         CallError::new(
             &ATTEMPT_ENDED,
             format!(
-                "Attempt {lease_epoch} of crawl request `{crawl_request_id}` of the crawl `{run_id}` already ended, so the Record was not staged."
+                "Attempt {lease_epoch} of crawl request `{crawl_request_id}` of the crawl `{run_id}` already ended, so no Record was staged."
             ),
             &(),
         )
@@ -67,11 +69,11 @@ async fn push(
             if !staging.holds(&work_item, lease_epoch) {
                 return None;
             }
-            match datasets.check_pushed(PushedRecord { dataset, data }, &work) {
+            match datasets.check_pushed(&dataset, records, &work) {
                 Ok(checked) => staging.push(&work_item, lease_epoch, checked),
-                Err(Refused { error, rejected }) => staging
-                    .push(&work_item, lease_epoch, rejected)
-                    .map(|staged| staged.and(Err(error))),
+                Err(Refused { error, staged }) => staging
+                    .push(&work_item, lease_epoch, staged)
+                    .map(|pushed| pushed.and(Err(error))),
             }
         })
         .await;

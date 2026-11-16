@@ -850,7 +850,7 @@ fn a_sample_compares_the_records_each_run_pushed() {
                     "crawl_request_id": handle["crawl_request"]["id"],
                     "lease_epoch": handle["lease_epoch"],
                     "dataset": "pages",
-                    "data": { "url": url, "tier": handle["tier"] },
+                    "records": [{ "url": url, "tier": handle["tier"] }],
                 }),
             );
             json!({ "result": { "records": [] } })

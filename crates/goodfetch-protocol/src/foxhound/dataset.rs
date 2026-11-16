@@ -1,8 +1,8 @@
 //! A crawl's Datasets and the Records its handlers push into them (ADRs
 //! 0082 and 0103): each Dataset a crawl declares at its start, with its
 //! JSON Schema and its key; `crawl_request.push`, a handler context's
-//! `push`, which checks one Record against its Dataset and stages it with
-//! the attempt; `run.records`, the cursor that reads a Dataset's committed
+//! `push`, which checks one Record or several against their Dataset in one
+//! message and stages those that hold with the attempt (ADR 0147); `run.records`, the cursor that reads a Dataset's committed
 //! Records from the first, or after a number, following the Run live under
 //! its Client's credits, so a reader never slows the crawl; and the Error
 //! codes of a declaration or a Record that does not hold. Foxhound's own.
@@ -43,8 +43,8 @@ pub struct DatasetDeclaration {
     pub key: Vec<String>,
 }
 
-/// What `crawl_request.push` takes: one Record an attempt pushes into one
-/// of its crawl's Datasets.
+/// What `crawl_request.push` takes: the Records of one push of an
+/// attempt into one of its crawl's Datasets, one or several (ADR 0147).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CrawlRequestPushParams {
@@ -60,19 +60,20 @@ pub struct CrawlRequestPushParams {
     /// The Dataset's name.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub dataset: String,
-    /// The Record.
+    /// The Records, in the order pushed: a Record's position in this list
+    /// is how `record_invalid` names it.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub data: Value,
+    pub records: Vec<Value>,
 }
 
-/// What `crawl_request.push` answers once the Record is staged.
+/// What `crawl_request.push` answers once every Record is staged.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct CrawlRequestPushed {}
 
 /// `crawl_request.push`.
 pub const CRAWL_REQUEST_PUSH: Operation = Operation {
     name: "crawl_request.push",
-    description: "Pushes one Record into a Dataset the crawl declares from inside a handler's attempt, a handler context's `push`, and answers once it is staged: it commits once with the attempt's other outputs when the handler returns, and is discarded with them when the attempt ends any other way. The Record is checked first: a Dataset the crawl does not declare fails with `dataset_unknown`; a Record that is no JSON object, fails its Dataset's JSON Schema or lacks one of its key's fields fails with `record_invalid`, naming each issue's path, and is not staged: its rejection is staged instead, entering the Dataset's rejection table (`run.rejected_records`) if the attempt commits, while the attempt keeps what it staged before. An attempt that already ended fails with `attempt_ended`.",
+    description: "Pushes one Record or several, in one message, into a Dataset the crawl declares from inside a handler's attempt, a handler context's `push`, and answers once they are staged: they commit once with the attempt's other outputs when the handler returns, and are discarded with them when the attempt ends any other way. Each Record is checked first. A Dataset the crawl does not declare fails with `dataset_unknown`, and none of the Records is staged. A Record that is no JSON object, fails its Dataset's JSON Schema or lacks one of its key's fields is not staged: its rejection is staged instead, entering the Dataset's rejection table (`run.rejected_records`) if the attempt commits, while the Records that hold are staged and the attempt keeps what it staged before; the call then fails with `record_invalid`, naming each such Record by its position in the list and each of its issues by its path. An attempt that already ended fails with `attempt_ended`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::SdkOnly,
@@ -235,7 +236,7 @@ pub const DATASET_KEY_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
 /// A Record that does not hold for its Dataset (ADRs 0082 and 0103).
 pub const RECORD_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "record_invalid",
-    description: "A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each issue by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.",
+    description: "A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each such Record by its position, from 0, among the Records pushed together or those of the handler's answer, with each of its issues by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,
@@ -312,7 +313,20 @@ pub struct RecordInvalidDetails {
     /// The Dataset's name.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub dataset: String,
-    /// Each way the Record does not hold, at least one.
+    /// Each Record that does not hold, in position order, at least one.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub records: Vec<InvalidRecord>,
+}
+
+/// One Record that does not hold for its Dataset, as `record_invalid`
+/// names it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct InvalidRecord {
+    /// Its position, from 0, among the Records pushed together, or among
+    /// those of the handler's answer.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub position: u64,
+    /// Each way it does not hold, at least one.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub issues: Vec<RecordIssue>,
 }

@@ -59,7 +59,7 @@ use crate::host_name;
 use crate::known_certificates::{ExceptionKind, KeyHash};
 use crate::mask::{Mask, Masks, Reach, Redaction};
 use crate::settings::{HostDefaults, Resolved};
-use crate::tasks::TaskOwner;
+use crate::tasks::{BlockingThreads, TaskOwner};
 
 /// A provider's answer to one reference, which the driver bounds by
 /// `timeout.secret`.
@@ -144,8 +144,8 @@ impl std::fmt::Debug for PartyText {
 
 /// What a Product's provider is built from for one Run: the Run's resolved
 /// settings, with its `secret_providers.<scheme>.*`, the engine's
-/// environment map (ADR 0083), where a provider's own sign-in is, and the
-/// engine's clock.
+/// environment map (ADR 0083), where a provider's own sign-in is, the
+/// engine's clock, and the blocking threads its reads of files run on.
 #[derive(Clone, Copy, Debug)]
 pub struct ProviderInputs<'a> {
     /// The Run's resolved settings.
@@ -154,6 +154,9 @@ pub struct ProviderInputs<'a> {
     pub environment: &'a BTreeMap<OsString, OsString>,
     /// The engine's clock.
     pub clock: Clock,
+    /// The blocking threads of the Secrets' owner, on which a provider
+    /// reads files, such as its endpoint's `tls.trusted_cas` (issue 2106).
+    pub blocking: &'a BlockingThreads,
 }
 
 /// Builds a Product's provider for each Run from [`ProviderInputs`], since
@@ -537,10 +540,12 @@ impl Secrets {
         let mut secrets = self.clone();
         if !self.0.configured.is_empty() {
             let shared = Arc::make_mut(&mut secrets.0);
+            let blocking = self.0.owner.blocking_threads();
             let inputs = ProviderInputs {
                 settings,
                 environment: &self.0.environment,
                 clock: self.0.clock,
+                blocking: &blocking,
             };
             for (provider, factory) in &self.0.configured {
                 shared
@@ -693,6 +698,14 @@ impl std::fmt::Debug for RunSecrets {
 }
 
 impl RunSecrets {
+    /// The owner whose blocking work runs the Secrets' reads and writes,
+    /// on which the files the Run's settings name beside a Secret
+    /// reference, such as a client certificate's, are read too
+    /// (issue 2106).
+    pub(crate) fn owner(&self) -> &TaskOwner {
+        &self.0.secrets.0.owner
+    }
+
     /// The hosts the Run reached through an invalid-certificate exception,
     /// which its Sessions' traffic adds to: none gets a value (ADR 0042).
     pub fn exception_hosts(&self) -> ExceptionHosts {

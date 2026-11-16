@@ -270,12 +270,23 @@ impl ClientCertificates {
             layer: self.layer,
             reason,
         };
-        let file = tokio::fs::read(&entry.certificate).await.map_err(|error| {
-            unusable(format!(
-                "its certificate file `{}` cannot be read: {error}",
-                entry.certificate
-            ))
-        })?;
+        let certificate = entry.certificate.clone();
+        let file = secrets
+            .owner()
+            .blocking(move || {
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "it runs on the tasks module's blocking policy"
+                )]
+                std::fs::read(certificate)
+            })
+            .await
+            .map_err(|error| {
+                unusable(format!(
+                    "its certificate file `{}` cannot be read: {error}",
+                    entry.certificate
+                ))
+            })?;
         let chain = read_certificates(&file).map_err(|error| {
             unusable(format!(
                 "its certificate file `{}`: {error}",

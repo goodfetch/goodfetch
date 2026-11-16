@@ -36,7 +36,6 @@
 //! Size: one client, whose lookup, egress judgement, connection race, TLS
 //! and request all serve the same request on the same connection.
 
-use std::collections::BTreeMap;
 use std::future::ready;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -58,6 +57,7 @@ use crate::happy_eyeballs::{Delays, Families, Race, RaceError};
 use crate::local_addresses::SessionAddresses;
 use crate::response_limits::Limits;
 use crate::settings::Resolved;
+use crate::tasks::BlockingThreads;
 use crate::tls::{self, CertificateInvalid, Trust, TrustedCas};
 
 #[cfg(test)]
@@ -409,13 +409,15 @@ impl ConfiguredEndpoint<'_> {
 /// What the machine's settings let every Operator-configured endpoint
 /// reach and trust: `egress.no_private_endpoints`, `network.resolve`,
 /// `tls.trusted_cas`, the race's delays and `network.max_body_size`, which
-/// caps every reply as each endpoint's own limit does. Each endpoint's
+/// caps every reply as each endpoint's own limit does, with the blocking
+/// threads its `tls.trusted_cas` files are read on. Each endpoint's
 /// module holds one and sends through it with its own kind.
 #[derive(Clone, Debug)]
 pub(crate) struct EndpointSettings {
     policy: EndpointPolicy,
     resolve: HostMapping,
     trusted_cas: TrustedCas,
+    blocking: BlockingThreads,
     clock: Clock,
     delays: Delays,
     max_body_size: u64,
@@ -435,12 +437,14 @@ pub(crate) enum WholeFailure {
 }
 
 impl EndpointSettings {
-    /// The settings `settings`, the machine's resolved ones, give.
-    pub(crate) fn of(settings: &Resolved, clock: Clock) -> Self {
+    /// The settings `settings`, the machine's resolved ones, give, whose
+    /// `tls.trusted_cas` files are read on `blocking` (issue 2106).
+    pub(crate) fn of(settings: &Resolved, clock: Clock, blocking: BlockingThreads) -> Self {
         Self {
             policy: EndpointPolicy::of(settings),
             resolve: HostMapping::of(settings),
             trusted_cas: TrustedCas::of(settings),
+            blocking,
             clock,
             delays: Delays::of(settings),
             max_body_size: Limits::of(settings).max_body_size,
@@ -499,19 +503,22 @@ impl EndpointSettings {
     }
 
     /// The trust of the endpoint's certificate: the authorities
-    /// `tls.trusted_cas` lists for each domain, read now, as
-    /// [`Trust::of`] reads them for a site; a file that cannot be read is
-    /// logged and trusts nothing.
+    /// `tls.trusted_cas` lists for each domain, read now on its blocking
+    /// threads, as [`Trust::of`] reads them for a site; a file that cannot
+    /// be read is logged and trusts nothing.
     async fn trust(&self) -> Trust {
-        let mut read = BTreeMap::new();
-        for file in self.trusted_cas.files() {
-            read.insert(file.to_owned(), tokio::fs::read(file).await);
-        }
-        self.trusted_cas.trust(|file| match read.get(file) {
-            Some(Ok(bytes)) => Ok(bytes.clone()),
-            Some(Err(error)) => Err(io::Error::new(error.kind(), error.to_string())),
-            None => Err(io::ErrorKind::NotFound.into()),
-        })
+        let listed = self.trusted_cas.clone();
+        self.blocking
+            .run(move || {
+                listed.trust(|file| {
+                    #[expect(
+                        clippy::disallowed_methods,
+                        reason = "it runs on the tasks module's blocking policy"
+                    )]
+                    std::fs::read(file)
+                })
+            })
+            .await
     }
 }
 

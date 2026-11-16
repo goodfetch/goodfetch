@@ -152,10 +152,6 @@ impl Engines {
     /// # Errors
     ///
     /// When it cannot start, or refuses or leaves unanswered the `hello`.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
-    )]
     pub(crate) async fn start(
         &self,
         product: Product,
@@ -167,7 +163,16 @@ impl Engines {
             *started
         };
         let home = self.state.join(format!("engine-{number}"));
-        tokio::fs::create_dir_all(&home).await?;
+        let created = home.clone();
+        self.owner
+            .blocking(move || {
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "ADR 0140: a folder created on no counted row yet, on the tasks module's blocking policy (issue 2106); the Shared paths audit moves it onto its counted function"
+                )]
+                std::fs::create_dir_all(created)
+            })
+            .await?;
         let executable =
             match product {
                 Product::Collie => &self.executables.collie,
@@ -259,7 +264,17 @@ impl Engine {
         let Some(private) = &self.private else {
             return Err(io::Error::other("the engine reported no private endpoint"));
         };
-        let token = tokio::fs::read_to_string(&private.token_file).await?;
+        let token_file = private.token_file.clone();
+        let token = self
+            .owner
+            .blocking(move || {
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "it runs on the tasks module's blocking policy"
+                )]
+                std::fs::read_to_string(token_file)
+            })
+            .await?;
         let connection = transport::connect_daemon(&private.address).await?;
         let (reader, writer) = connection.split();
         let line = Line::open(BufReader::new(reader), writer, Some(client), &self.owner);

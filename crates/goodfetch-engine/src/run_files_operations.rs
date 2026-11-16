@@ -5,9 +5,9 @@
 //! engine, under ADR 0116's rule, or, on any other engine, writes nothing
 //! on its own machine and sends the kept file in `$/chunk` notifications,
 //! one per credit, for the SDK to write. That save and that send are
-//! public, [`save_kept`] and [`send_kept`], for the files Foxhound's
-//! crates keep, such as an Export. And the Error code of a file a Run
-//! could not keep, for the areas that keep one.
+//! public, [`save_kept`] and [`send_kept`], with [`kept_size`], for the
+//! files Foxhound's crates keep, such as an Export. And the Error code of
+//! a file a Run could not keep, for the areas that keep one.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -177,10 +177,6 @@ async fn written(
 /// # Cancel safety
 ///
 /// Dropping the future stops the chunks; those sent stay sent.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a file opened on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
 pub async fn send_kept(
     context: &CallContext,
     folder: &Path,
@@ -197,13 +193,49 @@ pub async fn send_kept(
             folder,
         )
     };
-    let mut file = tokio::fs::File::open(source).await.map_err(unreadable)?;
+    let owner = context.engine().owner();
+    let source = source.to_owned();
+    let file = owner
+        .blocking(move || {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "ADR 0140: a file opened on no counted row yet, on the tasks module's blocking policy (issue 2106); the Shared paths audit moves it onto its counted function"
+            )]
+            std::fs::File::open(source)
+        })
+        .await
+        .map_err(unreadable)?;
     context
         .stream()
-        .send_file(&mut file)
+        .send_file(file, owner)
         .await
         .map_err(unreadable)?;
     Ok(())
+}
+
+/// The size of the kept file `source`, read on the engine's blocking work
+/// (issue 2106).
+///
+/// # Errors
+///
+/// When the file cannot be read, such as one no Run keeps.
+///
+/// # Cancel safety
+///
+/// Dropping the future loses only the answer.
+pub async fn kept_size(context: &CallContext, source: &Path) -> std::io::Result<u64> {
+    let source = source.to_owned();
+    context
+        .engine()
+        .owner()
+        .blocking(move || {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "it runs on the tasks module's blocking policy"
+            )]
+            std::fs::metadata(source).map(|metadata| metadata.len())
+        })
+        .await
 }
 
 /// The Error code of a save to the program's `path` that failed, the Run

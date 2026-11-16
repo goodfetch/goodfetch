@@ -25,11 +25,11 @@ pub(super) async fn merged(
     (moved, changed): Moved,
 ) {
     // Each change is in a batch a read may not see yet (ADR 0142).
-    state.gone(moved.iter().map(|(id, _)| id.clone()));
+    state.gone(moved.iter().map(|(id, _, commits)| (id.clone(), *commits)));
     state.changed(changed);
     show_counted(run, state, in_flight, []).await;
     let mut keys = BTreeSet::new();
-    for (id, key) in moved {
+    for (id, key, _) in moved {
         admission.withdraw(&key, &id);
         keys.insert(key);
     }

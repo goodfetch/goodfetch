@@ -23,7 +23,9 @@
 //! every visit, so a miss reads nothing either. Each lookup that reads the
 //! file because memory does not hold every visit counts in
 //! `goodfetch.run_state.spilled_lookups`, and what memory holds in
-//! `goodfetch.run_state.memory`.
+//! `goodfetch.run_state.memory`. A program's links batch makes its
+//! lookups of the visited set on a reader before its job (`lookups`), so
+//! the writer runs no read for them.
 //!
 //! The Bounds' counts, the requests admitted against `crawl.max_requests`
 //! and each path budget's, are held here too (#2169): read from the file
@@ -73,12 +75,15 @@ pub use self::budget::SharedBudget;
 pub(crate) use self::counts::Counts;
 use self::counts::CountsBefore;
 pub(crate) use self::learned::{EVERY_LEARNED, LEARNED_WITHIN};
+pub use self::lookups::Lookup;
+use self::lookups::Lookups;
 use self::marks::Marks;
 pub(crate) use self::rules::{HeldRule, LearnedRules};
 
 mod budget;
 mod counts;
 mod learned;
+mod lookups;
 mod marks;
 mod rules;
 
@@ -151,6 +156,8 @@ struct Held {
     learned_read: bool,
     /// Whether the file holds a trap mark, as far as memory knows.
     marks: Marks,
+    /// The visited identities links batches look up before their jobs.
+    lookups: Lookups,
     /// The bytes held, as `goodfetch.run_state.memory` counts them.
     reported: Level,
 }
@@ -328,7 +335,10 @@ impl Held {
             written,
         };
         match space {
-            Space::Visited => drop(self.visited.insert(Arc::clone(identity), visit)),
+            Space::Visited => {
+                self.lookups.visited(identity);
+                drop(self.visited.insert(Arc::clone(identity), visit));
+            }
             Space::Learned => drop(self.learned.insert(Arc::clone(identity), (rule, visit))),
             Space::Seed => drop(self.seeds.insert(Arc::clone(identity), visit)),
         }
@@ -626,8 +636,9 @@ impl Holding<'_> {
     }
 
     /// The crawl request `identity` was visited for: memory's answer when
-    /// it keeps the visit, or holds every visit the file holds; otherwise
-    /// `read`'s from the file, counted as a spilled lookup
+    /// it keeps the visit, or holds every visit the file holds, or the
+    /// answer a links batch's lookup read, while it stands ([`Lookup`]);
+    /// otherwise `read`'s from the file, counted as a spilled lookup
     /// (`goodfetch.run_state.spilled_lookups`).
     ///
     /// # Errors
@@ -643,6 +654,9 @@ impl Holding<'_> {
         }
         if self.held.every_visit.holds() {
             return Ok(None);
+        }
+        if let Some(answer) = self.held.lookups.answer(identity) {
+            return Ok(answer.map(String::from));
         }
         self.visits.spilled_lookups.add(1);
         self.reads_state();
@@ -801,6 +815,7 @@ impl UnwrittenVisits {
                 every_learned: Whole::default(),
                 learned_read: false,
                 marks: Marks::default(),
+                lookups: Lookups::default(),
                 reported: metrics.level(&RUN_STATE_MEMORY),
             })),
             spilled_lookups: metrics.occurrences(&RUN_STATE_SPILLED_LOOKUPS),
@@ -830,9 +845,6 @@ impl UnwrittenVisits {
         Ok(())
     }
 
-    /// The visits held, the ones the file holds by now forgotten or kept
-    /// within the budget. Taken before a reader's first read, so its
-    /// snapshot holds each one forgotten.
     /// Counts one read of the file for the Frontier's state, when an
     /// admission makes it (`F3.state_reads`).
     fn reads_state(&self, admitting: bool) {
@@ -841,6 +853,9 @@ impl UnwrittenVisits {
         }
     }
 
+    /// The visits held, the ones the file holds by now forgotten or kept
+    /// within the budget. Taken before a reader's first read, so its
+    /// snapshot holds each one forgotten.
     pub(crate) fn lock(&self) -> Holding<'_> {
         let committed = (self.committed)();
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);

@@ -48,6 +48,8 @@ use crate::invariants::Invariants;
 use crate::staging::Staging;
 use crate::work_items::{self, Changed, Failure, Leased, Positions, Unsuccessful};
 
+mod lookup;
+
 /// What an outcome's job answers: how its work item ended and what it
 /// changed of the crawl's requests by state, with the commits the writer
 /// had acknowledged when it ran.
@@ -294,6 +296,11 @@ impl Stored {
                 // for; a code-free page's batch rides its outcome's
                 // (#2245).
                 self.work.count(Row::BatchTransactions);
+                if let Some(lookup) = self.look_up(&links) {
+                    self.waited(1);
+                    drop(answer.send(self.links_after_lookup(links, lookup, unsynced)));
+                    return None;
+                }
                 self.queue(answer, unsynced, move |connection| {
                     this.links(connection, &links)
                 })

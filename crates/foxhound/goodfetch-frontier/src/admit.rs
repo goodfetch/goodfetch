@@ -243,6 +243,13 @@ impl Keyed {
             .ok()
             .map(|measured| (&measured.key, &measured.fixed))
     }
+
+    /// The identity its fixed rules make, when it was keyed: the one its
+    /// admission looks up in the visited set first.
+    #[must_use]
+    pub fn plain(&self) -> Option<&str> {
+        self.identity().map(|(_, fixed)| fixed.plain())
+    }
 }
 
 /// A candidate the first part of admission does not key.

@@ -27,7 +27,7 @@ use url::{Position, Url};
 use crate::rules;
 use crate::scope::{Narrowing, Scope};
 use crate::staged::Staged;
-use crate::unwritten::{Holding, LearnedRules, UnwrittenVisits};
+use crate::unwritten::{Holding, LearnedRules, Lookup, UnwrittenVisits};
 
 /// The Frontier's visited set: each identity admitted, with the ID of the
 /// crawl request it was admitted for, or that reached it by a redirect;
@@ -86,6 +86,11 @@ impl Fixed {
             key: at,
             keeps_fragment: declared.keeps_fragment,
         }
+    }
+
+    /// The identity its fixed rules make, which the visited set keys.
+    pub(crate) fn plain(&self) -> &str {
+        &self.plain
     }
 
     /// The identity with the key of `merged`, its URL's key as the learned
@@ -450,6 +455,21 @@ pub(crate) fn visitor(connection: &Connection, identity: &str) -> rusqlite::Resu
         .prepare_cached(VISITOR)?
         .query_row([identity], |row| row.get(0))
         .optional()
+}
+
+/// Reads from the visited set on `connection`, a reader's, in one
+/// transaction, each identity `lookup`, a links batch's, reads, and keeps
+/// their answers in `unwritten` for the batch's job (#2169).
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub fn read_lookup(
+    connection: &Connection,
+    unwritten: &UnwrittenVisits,
+    lookup: &Lookup,
+) -> rusqlite::Result<()> {
+    unwritten.read_lookup(lookup, |identity| visitor(connection, identity))
 }
 
 /// Adds `identity` to the visited set for `crawl_request`, unless it is

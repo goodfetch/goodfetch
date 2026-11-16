@@ -303,11 +303,20 @@ rows! {
     /// `E2.configuration_reads`: a read of the machine's settings files for
     /// an Audit entry.
     AuditConfigurationReads => "E2.configuration_reads", "audit_entry", "configuration_reads";
-    /// `E2.opens`: an open of the Audit log's store, with its schema set-up.
+    /// `E2.log_opens`: the first open of an Audit log's store by its
+    /// writer, with its schema set-up: once a log.
+    AuditLogOpens => "E2.log_opens", "audit_entry", "log_opens";
+    /// `E2.log_transactions`: a commit of the schema set-up of that first
+    /// open.
+    AuditLogTransactions => "E2.log_transactions", "audit_entry", "log_transactions";
+    /// `E2.opens`: any other open of the Audit log's store, with its schema
+    /// set-up: its writer's again, after it dropped its connection on a
+    /// failure, or a reader's.
     AuditOpens => "E2.opens", "audit_entry", "opens";
     /// `E2.prunes`: a prune pass over the Audit log.
     AuditPrunes => "E2.prunes", "audit_entry", "prunes";
-    /// `E2.transactions`: a transaction the Audit log's store committed.
+    /// `E2.transactions`: a transaction the Audit log's store committed,
+    /// other than the set-up of its writer's first open.
     AuditTransactions => "E2.transactions", "audit_entry", "transactions";
     /// `E2.syncs`: a write of the Audit log's head file; the store's own
     /// syncs are seen by a counting VFS, which no production store has.
@@ -325,11 +334,16 @@ rows! {
     /// `C6.seals`: a seal of a fragment of a relayed viewer's frame.
     LiveViewSeals => "C6.seals", "live_view_frame", "seals";
     /// `E5.file_opens`: a file opened or a folder created for a Run-trace
-    /// entry, as the Run's one writer does once a Run for each file.
+    /// entry, as an entry does only to open again a file that failed.
     RunTraceFileOpens => "E5.file_opens", "run_trace", "file_opens";
-    /// `E5.spawns`: a task spawned for a Run-trace entry, as the Run's one
-    /// writer is, once a Run.
+    /// `E5.spawns`: a task spawned for a Run-trace entry, as an entry does
+    /// only to start again a writer whose start failed.
     RunTraceSpawns => "E5.spawns", "run_trace", "spawns";
+    /// `E5.run_file_opens`: the Run's own creation of its trace's folder and
+    /// first open of each of its files, by the Run's one writer.
+    RunTraceRunFileOpens => "E5.run_file_opens", "run_trace", "run_file_opens";
+    /// `E5.run_spawns`: the Run's one writer's start, once a Run.
+    RunTraceRunSpawns => "E5.run_spawns", "run_trace", "run_spawns";
     /// `E5.formatting_off`: a Run-trace entry formatted though its kind is
     /// switched off.
     RunTraceFormattingOff => "E5.formatting_off", "run_trace", "formatting_off";

@@ -26,18 +26,16 @@
 //! the store's syncs through a counting VFS, added to its head-file writes,
 //! and statement preparations from Callgrind's call count of
 //! `sqlite3_prepare_v3`, for which each cell runs this example again as
-//! `--callgrind <cell>`, the Audit scenario alone. Without Valgrind
-//! `E2.prepares` goes unprinted, which `xtask counts` fails as a row not
-//! counted.
+//! `--callgrind <cell>`, the Audit scenario alone. Its first entry opens the
+//! store and prepares the statements its connection keeps, which count once
+//! a log on `E2.log_prepares`; what the later entries prepare counts on
+//! `E2.prepares`, read in a window of their own (ADR 0140's E2), and what
+//! the scenario reads back after its entries counts on neither.
 //!
 //! A new scenario of the family (`benches/<scenario>.rs`) adds one line to
 //! [`run`] that runs it and inserts its units and counts, and its rows' arms
 //! to its plant.
 #![expect(clippy::disallowed_methods, reason = "benchmark harness, ADR 0071")]
-#![expect(
-    clippy::print_stderr,
-    reason = "the counts harness (ADR 0140): why a row goes unprinted, which `xtask counts` fails, beside its finding"
-)]
 #![expect(
     clippy::print_stdout,
     reason = "the counts harness (ADR 0140): the benchmark's one output, which `xtask counts` reads"
@@ -83,9 +81,10 @@ const TRAFFIC: Traffic = Traffic {
     plugin: 10,
 };
 
-/// The Audit entry row Callgrind reads, and the C symbol it reads it from.
+/// The Audit rows Callgrind reads: the log's, of its first entry, and the
+/// entries' of the later ones.
+const LOG_PREPARES: &str = "E2.log_prepares";
 const PREPARES: &str = "E2.prepares";
-const PREPARE: &str = "sqlite3_prepare_v3";
 
 /// The row the counting VFS adds the Audit log's syncs to.
 const SYNCS: &str = "E2.syncs";
@@ -130,41 +129,65 @@ fn audit_plant(name: &str, work: &CountedWork, vfs: &str) -> audit::Plant {
         "E2.configuration_reads" => {
             let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
             let work = work.clone();
-            Arc::new(move |_: &AuditLog, _: &tokio::runtime::Runtime| {
+            Arc::new(move |_: &AuditLog, _: &tokio::runtime::Runtime, _: u64| {
                 work.count(Row::AuditConfigurationReads);
                 audit::settings_files(home.path())
                     .load(Product::Collie)
                     .expect("invariant: a home with no settings file reads as empty");
             })
         }
-        // One entry more, on a log of its own beside the scenario's, made
-        // anew for each so that its writer opens its store again: a store
-        // open, its transactions and a head-file write the store syncs.
-        "E2.opens" | "E2.transactions" | SYNCS => {
+        // One log more, beside the scenario's, at its first entry: its
+        // writer's first open of its store and its schema set-up's commits.
+        "E2.log_opens" | "E2.log_transactions" => {
             let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
             let (vfs, work) = (vfs.to_owned(), work.clone());
-            Arc::new(move |_: &AuditLog, runtime: &tokio::runtime::Runtime| {
-                let log = audit::log(home.path(), Some(&vfs), &work);
-                audit::run_one(&log, runtime, 0);
-            })
+            Arc::new(
+                move |_: &AuditLog, runtime: &tokio::runtime::Runtime, index: u64| {
+                    if index == 0 {
+                        audit::run_one(&audit::log(home.path(), Some(&vfs), &work), runtime, 0);
+                    }
+                },
+            )
+        }
+        // A reader's open of the log's store beside its writer's, with its
+        // schema set-up's commit.
+        "E2.opens" => Arc::new(|log: &AuditLog, _: &tokio::runtime::Runtime, _: u64| {
+            log.verify()
+                .expect("invariant: the scenario's log verifies");
+        }),
+        // One entry more, on a log of its own beside the scenario's, made
+        // anew for each: its append's commit and a head-file write the store
+        // syncs.
+        "E2.transactions" | SYNCS => {
+            let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+            let (vfs, work) = (vfs.to_owned(), work.clone());
+            Arc::new(
+                move |_: &AuditLog, runtime: &tokio::runtime::Runtime, _: u64| {
+                    let log = audit::log(home.path(), Some(&vfs), &work);
+                    audit::run_one(&log, runtime, 0);
+                },
+            )
         }
         // A prune pass with nothing old enough to prune.
-        "E2.prunes" => Arc::new(|log: &AuditLog, runtime: &tokio::runtime::Runtime| {
-            runtime
-                .block_on(log.prune(PLANTED_RETENTION, None, jiff::Timestamp::UNIX_EPOCH))
-                .expect("invariant: an Audit log with nothing to prune");
-        }),
-        // Callgrind counts the process's calls of SQLite's own function, on
-        // any connection.
-        PREPARES => Arc::new(|_: &AuditLog, _: &tokio::runtime::Runtime| {
-            let connection = rusqlite::Connection::open_in_memory()
-                .expect("invariant: SQLite opens an in-memory database");
-            let _ = connection
-                .prepare("SELECT 1")
-                .expect("invariant: a literal statement");
-        }),
+        "E2.prunes" => Arc::new(
+            |log: &AuditLog, runtime: &tokio::runtime::Runtime, _: u64| {
+                runtime
+                    .block_on(log.prune(PLANTED_RETENTION, None, jiff::Timestamp::UNIX_EPOCH))
+                    .expect("invariant: an Audit log with nothing to prune");
+            },
+        ),
         other => panic!("no plant for the row {other}"),
     }
+}
+
+/// One statement prepared, on a connection of its own: Callgrind counts the
+/// process's calls of SQLite's own function, on any connection.
+fn prepare_one() {
+    let connection = rusqlite::Connection::open_in_memory()
+        .expect("invariant: SQLite opens an in-memory database");
+    let _ = connection
+        .prepare("SELECT 1")
+        .expect("invariant: a literal statement");
 }
 
 /// One cell: a name, how it runs, whether a Limit holds its charges, how its
@@ -283,6 +306,7 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
         None => (None, None, None, None),
     };
     let audit_prepares = audit_prepares(cell.name, audit_planted);
+    let audit_planted = audit_planted.filter(|name| ![LOG_PREPARES, PREPARES].contains(name));
     let sent = messages::run(
         TRAFFIC,
         cell.logs,
@@ -349,6 +373,8 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
         ("slices", charged.slices),
         ("charges", charged.covered + charged.slices),
         ("audit_entries", entries),
+        ("audit_logs", 1),
+        ("later_audit_entries", entries - 1),
         ("samples", sampled.samples),
         ("process_samples", sampled.process_samples),
     ]);
@@ -362,9 +388,9 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
         ("E3.prepares", slice_prepares),
         (SYNCS, work.read(Row::AuditSyncs) + vfs.syncs()),
     ]);
-    if let Some(prepares) = audit_prepares.join().ok().flatten() {
-        by_row.insert(PREPARES, prepares);
-    }
+    let [log_prepares, prepares] = audit_prepares.join().expect("invariant: Callgrind read it");
+    by_row.insert(LOG_PREPARES, log_prepares);
+    by_row.insert(PREPARES, prepares);
     Counted {
         cell,
         units,
@@ -390,10 +416,11 @@ fn window(cell: &str, outcome: &str, planted: Option<&str>) {
     charges(folder.path(), limited, planted, Some(outcome));
 }
 
-/// The calls of `sqlite3_prepare_v3` in the windows of a Callgrind profile
-/// written in `folder` with `--compress-strings=no`, which writes each called
-/// function by its name: one part per dump, a window's dumped as it ends.
-fn prepares(folder: &Path) -> u64 {
+/// The calls of `sqlite3_prepare_v3` in the windows that end at the function
+/// `end` of a Callgrind profile written in `folder` with
+/// `--compress-strings=no`, which writes each called function by its name:
+/// one part per dump, a window's dumped as it ends.
+fn prepares(folder: &Path, end: &str) -> u64 {
     std::fs::read_dir(folder)
         .expect("invariant: Callgrind wrote its profile")
         .map(|part| std::fs::read_to_string(part.expect("invariant: a listed part").path()))
@@ -401,7 +428,7 @@ fn prepares(folder: &Path) -> u64 {
         .filter(|part| {
             part.lines()
                 .find(|line| line.starts_with("desc: Trigger:"))
-                .is_some_and(|trigger| trigger.contains("window_ends"))
+                .is_some_and(|trigger| trigger.contains(end))
         })
         .map(|part| calls_in(&part))
         .sum()
@@ -426,22 +453,31 @@ fn calls_in(text: &str) -> u64 {
 
 /// What Callgrind counts of `outcome`'s charges in `cell`.
 fn callgrind(cell: &str, outcome: &str, planted: Option<&str>) -> u64 {
+    let mut arguments = vec!["--window", cell, outcome];
+    arguments.extend(planted);
+    let [prepares] = windows(&arguments, &["window_starts"], ["window_ends"]);
+    prepares
+}
+
+/// The calls of `sqlite3_prepare_v3` this executable makes, run under
+/// Callgrind with `arguments`, in each window that ends as it enters one of
+/// the functions `ends`; a window starts at the previous dump: the start of
+/// the process, one of `ends` or one of the functions `starts`.
+fn windows<const N: usize>(arguments: &[&str], starts: &[&str], ends: [&str; N]) -> [u64; N] {
     let folder = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let profile = folder.path().join("callgrind.out");
     let mut command = Command::new("valgrind");
     command
-        .args([
-            "--tool=callgrind",
-            "--compress-strings=no",
-            "--dump-before=*window_starts*",
-            "--dump-before=*window_ends*",
-        ])
+        .args(["--tool=callgrind", "--compress-strings=no"])
+        .args(
+            starts
+                .iter()
+                .chain(&ends)
+                .map(|function| format!("--dump-before=*{function}*")),
+        )
         .arg(format!("--callgrind-out-file={}", profile.display()))
         .arg(std::env::current_exe().expect("invariant: this executable has a path"))
-        .args(["--window", cell, outcome]);
-    if let Some(planted) = planted {
-        command.arg(planted);
-    }
+        .args(arguments);
     let output = goodfetch_test_support::callgrind::bounded(|| command.output())
         .expect("invariant: Valgrind runs, as ADR 0071's benchmarks need it");
     assert!(
@@ -449,42 +485,69 @@ fn callgrind(cell: &str, outcome: &str, planted: Option<&str>) -> u64 {
         "Callgrind failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    prepares(folder.path())
+    ends.map(|end| prepares(folder.path(), end))
 }
 
-/// Runs `cell`'s Audit scenario under Callgrind and answers its statement
-/// preparations; none when Valgrind cannot run.
-fn audit_prepares(cell: &str, planted: Option<&str>) -> std::thread::JoinHandle<Option<u64>> {
+/// Callgrind dumps its profile as this is entered: its part holds the Audit
+/// log's first entry and all before it, the store's first open among them.
+#[inline(never)]
+fn first_entry_ends() {
+    std::hint::black_box(3);
+}
+
+/// Callgrind dumps its profile as this is entered: its part holds the Audit
+/// log's later entries, and not what the scenario reads back after them.
+#[inline(never)]
+fn later_entries_end() {
+    std::hint::black_box(4);
+}
+
+/// Runs `cell`'s Audit scenario under Callgrind on a thread of its own and
+/// answers its statement preparations: the log's, then the later entries'.
+fn audit_prepares(cell: &str, planted: Option<&str>) -> std::thread::JoinHandle<[u64; 2]> {
     let cell = cell.to_owned();
-    let planted = planted == Some(PREPARES);
+    let planted = [LOG_PREPARES, PREPARES]
+        .into_iter()
+        .find(|row| planted == Some(*row));
     std::thread::spawn(move || {
-        let executable = std::env::current_exe().expect("invariant: this process has a path");
         let mut arguments = vec!["--callgrind", cell.as_str()];
-        if planted {
-            arguments.extend(["--plant", PREPARES]);
-        }
-        match goodfetch_test_support::callgrind::calls(PREPARE, &executable, &arguments) {
-            Ok(calls) => Some(calls),
-            Err(error) => {
-                eprintln!("{PREPARES} is not read: {error}");
-                None
-            }
-        }
+        arguments.extend(planted.iter().flat_map(|name| ["--plant", name]));
+        windows(&arguments, &[], ["first_entry_ends", "later_entries_end"])
     })
 }
 
-/// Runs `cell`'s Audit scenario alone, as Callgrind counts it.
+/// Runs `cell`'s Audit scenario alone, as Callgrind counts it, with one
+/// statement more for the log or for each entry when `planted` names its row.
 fn audit_under_callgrind(cell: &str, planted: Option<&str>) {
     let cell = CELLS
         .iter()
         .find(|each| each.name == cell)
         .unwrap_or_else(|| panic!("no cell {cell}"));
+    if planted == Some(LOG_PREPARES) {
+        prepare_one();
+    }
+    let each_entry = planted == Some(PREPARES);
+    let marked: audit::Plant = Arc::new(
+        move |_: &AuditLog, _: &tokio::runtime::Runtime, index: u64| {
+            if index == 0 {
+                first_entry_ends();
+            }
+            if each_entry && index > 0 {
+                prepare_one();
+            }
+            if index + 1 == audit::ENTRIES {
+                later_entries_end();
+            }
+        },
+    );
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
-    let work = CountedWork::default();
-    let plant = planted
-        .filter(|name| *name == PREPARES)
-        .map(|name| audit_plant(name, &work, ""));
-    audit::run(home.path(), cell.audit, None, &work, plant.as_ref());
+    audit::run(
+        home.path(),
+        cell.audit,
+        None,
+        &CountedWork::default(),
+        Some(&marked),
+    );
 }
 
 fn main() {

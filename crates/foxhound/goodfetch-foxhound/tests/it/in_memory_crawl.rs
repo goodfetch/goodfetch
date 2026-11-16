@@ -121,8 +121,11 @@ fn a_planted_unit_of_a_page_analysis_row_adds_one_a_page(#[case] row: Row) {
 
 /// One extra unit of a Run-trace row's work per page served adds exactly its
 /// pages' worth, through its one counted function or at its seam (ADR 0140):
-/// each counter sees the work `xtask counts` holds to its limit per entry.
+/// each counter sees the work `xtask counts` holds to its limit per entry or
+/// per Run.
 #[rstest]
+#[case::run_file_opens(Row::RunTraceRunFileOpens)]
+#[case::run_spawns(Row::RunTraceRunSpawns)]
 #[case::file_opens(Row::RunTraceFileOpens)]
 #[case::spawns(Row::RunTraceSpawns)]
 #[case::formatting_off(Row::RunTraceFormattingOff)]
@@ -143,10 +146,10 @@ fn a_planted_unit_of_a_run_trace_row_adds_one_a_page(#[case] row: Row) {
 }
 
 /// The crawl writes Run-trace entries, all Provenance's, and each costs what
-/// the Run-trace rows count: nothing, its Run's one writer spawned once, its
-/// folder created and its file opened once a Run, and no page opens any. No
-/// kind of entry the crawl writes can be switched off, so none is formatted
-/// while off.
+/// the Run-trace rows count: nothing, as its Run's one writer is spawned
+/// once, its folder created and its file opened once, all the Run's work, and
+/// no page opens any. No kind of entry the crawl writes can be switched off,
+/// so none is formatted while off.
 #[test]
 fn the_crawl_s_run_trace_entries_go_through_one_writer_that_its_run_starts_once() {
     let env = TestEnv::new();
@@ -166,13 +169,16 @@ fn the_crawl_s_run_trace_entries_go_through_one_writer_that_its_run_starts_once(
     let entries = entries(env.home());
     assert!(entries > 0, "the crawl wrote no Run-trace entry");
     assert_eq!(
-        (
-            work.read(Row::RunTraceFileOpens),
-            work.read(Row::RunTraceSpawns),
-            work.read(Row::RunTraceFormattingOff),
-            work.read(Row::PageFileOpens),
-        ),
-        (2, 1, 0, 0)
+        [
+            Row::RunTraceRunFileOpens,
+            Row::RunTraceRunSpawns,
+            Row::RunTraceFileOpens,
+            Row::RunTraceSpawns,
+            Row::RunTraceFormattingOff,
+            Row::PageFileOpens,
+        ]
+        .map(|row| work.read(row)),
+        [2, 1, 0, 0, 0, 0]
     );
 }
 

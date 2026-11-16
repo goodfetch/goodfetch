@@ -2,12 +2,16 @@
 //! handles a program holds: a round trip with a required text, a required
 //! boolean and an optional parameter, a query, a waiter, a `new_` member
 //! that opens a page, a value built without a call (a locator, whose ID is
-//! its own value), a sub-object (`page.keyboard`) and a `close`. The
+//! its own value), a sub-object (`page.keyboard`), a `close` and a query
+//! whose result is typed by the fields its call declares (`page.read`). The
 //! `codegen` workspace takes this module when a test asks what each
 //! language's generator writes for them.
 
+use std::collections::BTreeMap;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use crate::catalog::{
     Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Stability,
@@ -133,6 +137,67 @@ pub struct KeyboardPressParams {
     pub key: String,
 }
 
+/// A field read from the page: the first element its selector finds, or
+/// each one's, for a list.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum Field {
+    /// The first element.
+    Value(ValueField),
+    /// Each element.
+    List(ListField),
+}
+
+/// A value field: its element's text, read by its transform.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ValueField {
+    /// A CSS selector.
+    pub selector: String,
+    /// Its transform: `text` by default.
+    #[serde(default)]
+    pub transform: Transform,
+}
+
+/// A list: its value field read from each element.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ListField {
+    /// The field read from each element.
+    pub list: ValueField,
+}
+
+/// A field's transform.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Transform {
+    /// The text read.
+    #[default]
+    Text,
+    /// A number.
+    Number,
+}
+
+/// What `page.read` reads.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReadParams {
+    /// The page.
+    pub page_id: PageId,
+    /// The fields, by name.
+    pub fields: BTreeMap<String, Field>,
+}
+
+/// What `page.read` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Read {
+    /// Each field's value, by name.
+    #[schemars(extend("typed_by" = "fields"))]
+    pub values: Map<String, Value>,
+    /// The names of the fields the page did not give.
+    pub unread: Vec<String>,
+}
+
 const fn operation(
     name: &'static str,
     description: &'static str,
@@ -201,6 +266,16 @@ pub const ENTRIES: Entries = Entries {
                 "page.wait_for_ready",
                 "Waits until the page's document has loaded.",
                 OperationKind::Waiter,
+                true,
+            )
+        },
+        Operation {
+            params: schema_of::<ReadParams>,
+            result: schema_of::<Read>,
+            ..operation(
+                "page.read",
+                "Reads the named fields from the page.",
+                OperationKind::Query,
                 true,
             )
         },

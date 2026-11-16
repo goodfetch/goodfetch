@@ -183,6 +183,7 @@ fn only_a_run_of_the_full_trials_waits_for_a_quiet_machine() {
             spider_pages: None,
             scenarios: crate::compare::matrix::Scenario::ALL.to_vec(),
             callgrind_outputs: Path::new("/t/compare/callgrind").to_owned(),
+            only: Vec::new(),
         })
     };
 
@@ -333,6 +334,7 @@ fn a_cell_whose_strace_run_missed_pages_runs_no_later_run() {
         cell: name.to_owned(),
         tool: Tool::Spider,
         number: 1,
+        load: None,
         count: 9,
         syncs: 0,
         work: Work {
@@ -369,14 +371,13 @@ fn handed_over(scenarios: Vec<Scenario>) -> (anyhow::Result<Comparison>, Vec<[St
         collie: None,
         foxhound_settings: &[],
     };
+    // `just compare`'s own arguments, its output paths included (#2521).
     let options = Options {
-        machine: None,
-        command: "just compare release".to_owned(),
-        trials: 1,
-        growth: false,
-        spider_pages: None,
         scenarios,
-        callgrind_outputs: nowhere.to_owned(),
+        ..crate::compare::options(
+            &crate::compare::recipe_arguments(&["--trials", "1"]),
+            &crate::environment::Environment::of(&[]),
+        )
     };
     let mut kept = Vec::new();
     let ended = run(
@@ -513,26 +514,20 @@ fn a_run_hands_over_its_trials_after_each_part_before_the_next() {
     );
 }
 
-/// The hostile pages' passes run after the counted parts, and fail when a
-/// run of theirs does (#2439): the trials file handed over before them
-/// holds the Callgrind cell as it ended, so their failure loses no part
-/// before them (#2607).
+/// A run whose tool cannot start fails in the pre-flight, before its first
+/// timed trial and before it hands over any trials (#2521: a Callgrind run
+/// failed hours in, after 220 timed trials and 207 strace runs).
 #[test]
-fn a_failed_hostile_pass_leaves_the_callgrind_cell_in_the_trials_handed_over() {
-    // The passes' first run cannot start its Proving ground; every part
-    // before them runs over no cell.
+fn a_run_whose_tool_cannot_start_fails_in_the_pre_flight() {
+    // The hostile pages' first probe cannot start its Proving ground.
     let (ended, kept) = handed_over(vec![Scenario::Hostile]);
 
-    let callgrind = kept.last().map(|[.., callgrind]| callgrind.clone());
-    assert_eq!(
-        (ended.is_err(), callgrind),
-        (
-            true,
-            Some(
-                "the run asked for no cell of scenario 1 or of the extraction scenario".to_owned()
-            )
-        )
+    let error = format!("{:#}", ended.expect_err("the pre-flight fails"));
+    assert!(
+        error.starts_with("the pre-flight's run of hostile "),
+        "{error}"
     );
+    assert_eq!(kept, Vec::<[String; 5]>::new());
 }
 
 /// The sizes cell runs Spider where its crawl holds: not at 1 request in
@@ -549,6 +544,7 @@ fn the_sizes_cell_runs_spider_at_16_and_at_64_on_a_wider_channel() {
         spider_pages: None,
         scenarios: vec![Scenario::Raw],
         callgrind_outputs: Path::new("/nowhere").to_owned(),
+        only: Vec::new(),
     };
 
     let mut points: Vec<(Tool, u32, Option<usize>)> = size_points(&options)

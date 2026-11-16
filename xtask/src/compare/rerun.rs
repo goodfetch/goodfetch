@@ -3,6 +3,7 @@
 
 use std::path::Path;
 
+use anyhow::{Result, bail};
 use clap::ValueEnum as _;
 
 use super::{
@@ -79,6 +80,39 @@ pub(super) fn of(arguments: &RunArguments) -> String {
         .map(|word| quoted(word))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// The words of `command`, a command [`of`] wrote, each read back as a
+/// POSIX shell reads it: split at spaces, a single-quoted span taken as it
+/// is and a backslash outside one taking the next character as it is, so
+/// `'\''` gives a quote.
+pub(super) fn words(command: &str) -> Result<Vec<String>> {
+    let mut words = Vec::new();
+    let mut word: Option<String> = None;
+    let mut quoted = false;
+    let mut characters = command.chars();
+    while let Some(character) = characters.next() {
+        match (quoted, character) {
+            (false, ' ') => words.extend(word.take()),
+            (false, '\'') => {
+                word.get_or_insert_default();
+                quoted = true;
+            }
+            (false, '\\') => {
+                let Some(escaped) = characters.next() else {
+                    bail!("the rerun command `{command}` ends in a backslash");
+                };
+                word.get_or_insert_default().push(escaped);
+            }
+            (true, '\'') => quoted = false,
+            (_, character) => word.get_or_insert_default().push(character),
+        }
+    }
+    if quoted {
+        bail!("the rerun command `{command}` leaves a quote open");
+    }
+    words.extend(word);
+    Ok(words)
 }
 
 #[cfg(test)]

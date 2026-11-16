@@ -1,7 +1,10 @@
-//! The CDP command log the Run trace keeps (spec #577): one JSON line per
-//! command the engine sends a browser, its method only, never its params,
-//! in `trace/cdp-commands.jsonl` of the Run's folder, written by the Run
-//! trace's one writer (the engine's `run_trace`, ADR 0140's E5).
+//! The CDP command log the Run trace keeps (spec #577) while the Run's
+//! `browser.cdp_command_log` is on: one JSON line per command the engine
+//! sends a browser, its method only, never its params, in
+//! `trace/cdp-commands.jsonl` of the Run's folder, written by the Run
+//! trace's one writer (the engine's `run_trace`, ADR 0140's E5). Each
+//! browser's connection records its commands there, the one place every
+//! command crosses, its last `Browser.close` included.
 //!
 //! Beside it, the Provenance log of the Run (ADR 0047), which the engine's
 //! `run_trace` writes masked by the Run's `Mask`: one JSON
@@ -13,10 +16,13 @@
 //! shared (ADR 0040).
 
 use std::io;
+use std::pin::Pin;
 
-use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_counted_work::Row;
 use goodfetch_engine::run_trace::RunTrace;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{Run, run_trace};
+use goodfetch_engine::settings::{RunSettings, get_or_default};
+use goodfetch_protocol::page::BROWSER_CDP_COMMAND_LOG;
 
 /// Records `entry`, one Provenance entry of `run`, such as of one of its
 /// pages or of a request a fetch tier sent for it, as a line of
@@ -44,45 +50,35 @@ pub(crate) async fn counted_provenance(run: &Run, row: Row, entry: serde_json::V
     provenance(run, entry).await;
 }
 
-/// A handle that records a command's method.
-#[derive(Clone, Debug)]
-pub(crate) struct CommandLog {
-    /// The Run trace whose writer writes its lines.
-    trace: RunTrace,
-    /// Where each send to its writer is counted (ADR 0140's C1).
-    work: CountedWork,
+/// The Run trace's CDP command log, as a browser's connection records each
+/// command's method in it.
+#[derive(Debug)]
+struct CommandLog(RunTrace);
+
+impl goodfetch_cdp::CommandLogImpl for CommandLog {
+    fn record(&self, method: &'static str) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(self.0.cdp_command(method))
+    }
 }
 
-impl CommandLog {
-    /// The log `trace`'s writer writes, each send counted on `work`, both
-    /// its Run's; nothing starts before its first line.
-    pub(crate) fn new(trace: RunTrace, work: CountedWork) -> Self {
-        Self { trace, work }
+/// The CDP command log every browser connection of `run` records its
+/// commands in, the Run trace's writer started, when the Run's
+/// `browser.cdp_command_log` is on; none while it is off, so no command's
+/// method goes to the writer (ADR 0140's C1).
+///
+/// # Errors
+///
+/// When the writer cannot start.
+pub(crate) async fn command_log(run: &Run) -> io::Result<Option<goodfetch_cdp::CommandLog>> {
+    if !get_or_default::<bool>(
+        run.settings().map(RunSettings::resolved),
+        &BROWSER_CDP_COMMAND_LOG,
+    ) {
+        return Ok(None);
     }
-
-    /// The log `trace`'s writer writes, as [`CommandLog::new`]'s, that
-    /// writer started.
-    ///
-    /// # Errors
-    ///
-    /// When the writer cannot start.
-    pub(crate) async fn start(trace: &RunTrace, work: &CountedWork) -> io::Result<Self> {
-        trace.start().await?;
-        Ok(Self::new(trace.clone(), work.clone()))
-    }
-
-    /// The Counted work of the Run whose commands it records.
-    pub(crate) fn work(&self) -> &CountedWork {
-        &self.work
-    }
-
-    /// Records that `method` is being sent.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future may lose the line.
-    pub(crate) async fn record(&self, method: &'static str) {
-        self.work.count(Row::CdpLogSendsOff);
-        self.trace.cdp_command(method).await;
-    }
+    let trace = run_trace(run);
+    trace.start().await?;
+    Ok(Some(goodfetch_cdp::CommandLog::new(CommandLog(
+        trace.clone(),
+    ))))
 }

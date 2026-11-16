@@ -91,6 +91,7 @@ accept_invalid_certs = { "example.test" = "example" }
 
 [settings.browser]
 headless = true
+cdp_command_log = true
 block_resources = ["image"]
 service_workers = "allow"
 
@@ -456,6 +457,7 @@ accept_invalid_certs = { "example.test" = "example" }
 
 [lock.browser]
 headless = true
+cdp_command_log = true
 block_resources = ["image"]
 service_workers = "allow"
 

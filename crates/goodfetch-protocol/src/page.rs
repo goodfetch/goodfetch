@@ -1000,6 +1000,24 @@ fn headless() -> serde_json::Value {
     serde_json::Value::Bool(true)
 }
 
+/// `browser.cdp_command_log` (spec #577; ADR 0140's C1, #1891).
+pub const BROWSER_CDP_COMMAND_LOG: Setting = Setting {
+    name: "browser.cdp_command_log",
+    description: "Whether the Run trace keeps its CDP command log, `trace/cdp-commands.jsonl`: one line for each command the engine sends a Session's browser, its method only, never its params, up to the launch's last `Browser.close`. Off by default: no command's method goes to the Run trace's writer and the file is never written. Turn it on to see every command the engine sent, such as to debug a Run. No result, Record or Provenance entry reads the log, so off weakens no guarantee.",
+    kind: ValueKind::Boolean,
+    default: cdp_command_log,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn cdp_command_log() -> serde_json::Value {
+    serde_json::Value::Bool(false)
+}
+
 /// The resource kinds `browser.block_resources` takes, a closed list (ADR
 /// 0117).
 pub const BLOCKABLE_RESOURCES: &[&str] = &["image", "media", "font", "stylesheet"];
@@ -1823,6 +1841,7 @@ pub const ENTRIES: Entries = Entries {
     metrics: &[],
     settings: &[
         BROWSER_HEADLESS,
+        BROWSER_CDP_COMMAND_LOG,
         BROWSER_BLOCK_RESOURCES,
         BROWSER_SERVICE_WORKERS,
         LIVE_VIEW_HIDING,

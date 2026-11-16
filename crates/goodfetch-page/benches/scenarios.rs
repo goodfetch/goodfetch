@@ -139,7 +139,7 @@ pub(crate) fn check_and_arm(count: usize) -> usize {
     runtime().block_on(async {
         let (client, end) = tokio::io::duplex(1 << 16);
         let (reader, writer) = tokio::io::split(client);
-        let (connection, driver) = Connection::new(reader, writer, CountedWork::default());
+        let (connection, driver) = Connection::new(reader, writer, CountedWork::default(), None);
         let (_, ready, ()) = tokio::join!(
             driver.run(),
             async {
@@ -308,7 +308,7 @@ pub(crate) fn intercept(count: usize, blocking: &steps::Blocking) -> usize {
     runtime().block_on(async {
         let (client, end) = tokio::io::duplex(1 << 16);
         let (reader, writer) = tokio::io::split(client);
-        let (connection, driver) = Connection::new(reader, writer, CountedWork::default());
+        let (connection, driver) = Connection::new(reader, writer, CountedWork::default(), None);
         let (_, sent_on, ()) = tokio::join!(
             driver.run(),
             async {

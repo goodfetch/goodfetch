@@ -7,7 +7,6 @@ use rusqlite::Connection;
 use url::Url;
 
 use super::{Declared, Identities, Key, Seen, identities, seen, visit_all};
-use crate::invariants::Invariants;
 use crate::unwritten::{self, UnwrittenVisits};
 
 /// What a redirect chain's end found, judged on a reader.
@@ -71,14 +70,16 @@ pub fn hold_reached(
 }
 
 /// Visits `pending`, a chain's end held as pending, on the writer's
-/// `connection`, as [`redirect_reached`](super::redirect_reached) visits it.
+/// `connection`, as [`redirect_reached`](super::redirect_reached) visits it,
+/// beside `unwritten`, the visits a batching writer has not committed,
+/// when the Run holds them.
 ///
 /// # Errors
 ///
 /// When the run file cannot be written.
 pub fn visit_pending(
     connection: &Connection,
-    invariants: &Invariants,
+    unwritten: Option<&UnwrittenVisits>,
     pending: PendingVisit,
 ) -> rusqlite::Result<()> {
     let PendingVisit {
@@ -86,7 +87,7 @@ pub fn visit_pending(
         crawl_request,
         identities,
     } = pending;
-    let mut holding = invariants.unwritten().map(UnwrittenVisits::lock);
+    let mut holding = unwritten.map(UnwrittenVisits::lock);
     visit_all(connection, &identities, &crawl_request)?;
     if let Some(holding) = &mut holding {
         holding.written(identities.plain(), identities.learned(), &crawl_request);

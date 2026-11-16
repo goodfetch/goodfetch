@@ -231,7 +231,9 @@ pub const OWN_TARGETS: [&str; 2] = ["/robots.txt", "/favicon.ico"];
 /// waits for (ADR 0086), and the icon Chromium asks for on its own.
 /// [`of_the_case`](Self::of_the_case) leaves them out; a claim that covers
 /// them reads [`every`](Self::every). `xtask received-requests` refuses a
-/// read of the observations' requests anywhere else.
+/// read of the observations' requests anywhere else. A test whose record is
+/// too large to read whole counts one host's requests of the case through
+/// `GET /requests-of-the-case` instead.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ReceivedRequests(Vec<ObservedRequest>);
 

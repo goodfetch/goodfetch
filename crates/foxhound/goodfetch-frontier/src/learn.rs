@@ -18,7 +18,7 @@
 
 use std::collections::BTreeSet;
 
-use goodfetch_counted_work::CountedWork;
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use rusqlite::Connection;
@@ -116,7 +116,9 @@ pub fn completeness_reasons(connection: &Connection) -> rusqlite::Result<Vec<Com
 
 /// Learns from `page` in the run file `connection` holds, once per crawl
 /// request, handing `pending` the requests a rule it teaches merges;
-/// `work` counts the rows of evidence it reads (`F2.evidence_reads`).
+/// `work` counts the rows of evidence it reads (`F2.evidence_reads`), and
+/// the lesson as one taught on a page's path (`F2.page_learning`): a Run
+/// that learns behind notes a [`crate::Lesson`] instead.
 ///
 /// # Errors
 ///
@@ -130,6 +132,7 @@ pub fn learn(
     if !is_evidence(page.method, page.body) {
         return Ok(());
     }
+    work.count(Row::PageLearning);
     let key = identity::keyed(page.url);
     let canonical = page.canonical.map(identity::keyed);
     let changes = rules::learn(
@@ -147,7 +150,7 @@ pub fn learn(
 
 /// Learns from `redirect` in the run file `connection` holds, handing
 /// `pending` the requests a rule it teaches merges; `work` counts the rows
-/// of evidence it reads.
+/// of evidence it reads, and the lesson as [`learn`]'s.
 ///
 /// # Errors
 ///
@@ -161,6 +164,7 @@ pub fn learn_redirect(
     if !is_evidence(redirect.method, redirect.body) {
         return Ok(());
     }
+    work.count(Row::PageLearning);
     let change = rules::learn_redirect(
         connection,
         &identity::keyed(redirect.from),
@@ -172,14 +176,14 @@ pub fn learn_redirect(
 
 /// Whether a request sent with `method` and `body` says anything of its
 /// URL alone: a `GET` with no body.
-fn is_evidence(method: &HttpMethod, body: Option<&[u8]>) -> bool {
+pub(crate) fn is_evidence(method: &HttpMethod, body: Option<&[u8]>) -> bool {
     method.as_str() == "GET" && body.is_none_or(<[u8]>::is_empty)
 }
 
 /// Merges the visited set under each rule learned, ending the pending
 /// requests it merged, and again without each rule stopped, whose ended
 /// requests the crawl is handed back.
-fn apply(
+pub(crate) fn apply(
     connection: &Connection,
     changes: Vec<Change>,
     pending: &mut dyn EndMerged,

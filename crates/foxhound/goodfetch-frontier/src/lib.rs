@@ -20,6 +20,7 @@
 
 mod admit;
 pub mod backoff_classes;
+mod behind;
 mod bounds;
 mod domain_key;
 mod forms;
@@ -48,6 +49,7 @@ use goodfetch_protocol::foxhound::settings::{POLITENESS_WEAKENED, PRESSING_HARDE
 pub use admit::{
     Candidate, Entering, Keyed, Link, admit, admit_in, admit_keyed, key_candidate, key_link,
 };
+pub use behind::Lesson;
 pub use bounds::{Bounds, TABLES as BOUNDS_TABLES, completeness_reasons};
 pub use domain_key::DomainKeys;
 pub use identity::{

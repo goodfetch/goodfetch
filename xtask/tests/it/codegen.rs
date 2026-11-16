@@ -1036,9 +1036,10 @@ fn workspace_with_the_forms_catalog() -> Workspace {
     workspace
 }
 
-/// A prefix keeps its one meaning and a query never waits (ADR 0099):
-/// `xtask codegen` refuses a catalog that says otherwise, naming the
-/// operation, in place of writing a member whose name or options lie.
+/// A prefix keeps its one meaning and a query never waits (ADR 0099), and a
+/// result is typed by fields a call declares (ADR 0147): `xtask codegen`
+/// refuses a catalog that says otherwise, naming the operation, in place of
+/// writing a member whose name, options or result lie.
 ///
 /// Covers: story:11-178
 #[rstest]
@@ -1068,6 +1069,26 @@ fn workspace_with_the_forms_catalog() -> Workspace {
     "\"page.is_ready\"",
     "\"page.get_by_ready\"",
     "operation `page.get_by_ready`"
+)]
+#[case::typed_by_no_parameter(
+    "extend(\"typed_by\" = \"fields\")",
+    "extend(\"typed_by\" = \"names\")",
+    "operation `page.read`"
+)]
+#[case::typed_by_an_optional_parameter(
+    "pub fields: BTreeMap<String, Field>,",
+    "pub fields: Option<BTreeMap<String, Field>>,",
+    "operation `page.read`"
+)]
+#[case::typed_by_on_two_properties(
+    "pub unread: Vec<String>,",
+    "#[schemars(extend(\"typed_by\" = \"fields\"))]\n    pub unread: Vec<String>,",
+    "operation `page.read`"
+)]
+#[case::typed_by_on_an_opened_value(
+    "pub struct PageOpened {\n    /// The page.\n",
+    "pub struct PageOpened {\n    /// The page.\n    #[schemars(extend(\"typed_by\" = \"run_id\"))]\n",
+    "operation `run.new_page`"
 )]
 #[case::a_handle_id_without_a_type(
     "pub page_id: PageId,\n    /// The URL to navigate to.",
@@ -1103,7 +1124,7 @@ fn each_declared_kind_generates_its_typescript_form_which_type_checks() {
     let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap();
-    for module in ["caller.ts", "handle.ts"] {
+    for module in ["caller.ts", "field-values.ts", "handle.ts"] {
         let contents =
             std::fs::read(repository.join(COLLIE_CLIENT).join("src").join(module)).unwrap();
         workspace.write(&format!("{COLLIE_CLIENT}/src/{module}"), &contents);
@@ -1161,6 +1182,7 @@ fn the_forms_catalog_leaves_pythons_layer_one_method_an_operation() {
             "page_goto",
             "page_is_ready",
             "page_keyboard_press",
+            "page_read",
             "page_wait_for_ready",
             "run_new_page",
             "run_start",

@@ -20,7 +20,7 @@
 
 [suite]
 name = "clients"
-version = "7"
+version = "8"
 
 [[capability]]
 name = "lifecycle"
@@ -83,6 +83,12 @@ modes = ["attached"]
 [[capability.case]]
 id = "second-new-page-in-the-default-session"
 covers = ["story:11-77"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "page-read-fields"
+covers = ["story:11-77", "operation:page.read"]
 surfaces = ["sdk-typescript"]
 modes = ["attached"]
 

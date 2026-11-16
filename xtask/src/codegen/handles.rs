@@ -24,6 +24,10 @@
 //!   by that handle, without a call, from the value's other fields.
 //! - `<handle>.<name>.<member>` is a member of the handle's sub-object
 //!   `<name>`, which takes the handle's ID.
+//! - A result property marked `typed_by` a parameter holds the values of
+//!   the fields that parameter declares (ADR 0147), so a member types it
+//!   from the fields its caller passes. The parameter is a required one of
+//!   the operation, and a result marks one property at most.
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
@@ -71,6 +75,18 @@ pub(super) enum Form {
     Closes,
 }
 
+/// The schema keyword that marks a result property typed by a parameter.
+const TYPED_BY: &str = "typed_by";
+
+/// A result property whose names and types follow the fields a parameter
+/// declares (ADR 0147).
+pub(super) struct TypedBy {
+    /// The positional parameter that declares the fields, such as `fields`.
+    pub(super) param: String,
+    /// The result's property that holds their values, such as `values`.
+    pub(super) property: String,
+}
+
 /// An operation as a member of a handle or of one of its sub-objects.
 pub(super) struct Member<'a> {
     pub(super) operation: &'a Operation,
@@ -78,6 +94,8 @@ pub(super) struct Member<'a> {
     pub(super) name: &'a str,
     pub(super) form: Form,
     pub(super) parameters: Parameters,
+    /// The result property its declared fields type, if any.
+    pub(super) typed_by: Option<TypedBy>,
 }
 
 /// A value a handle builds without a call.
@@ -203,6 +221,52 @@ fn parameters(schema: &Value, id: &str) -> Parameters {
     parameters
 }
 
+/// The property of `operation`'s result marked `typed_by` one of its
+/// `parameters`, if it has one.
+fn typed_by(
+    layer: &Layer,
+    operation: &Operation,
+    form: &Form,
+    parameters: &Parameters,
+) -> Result<Option<TypedBy>> {
+    let Some(result) = layer.definitions.get(&operation.result.0) else {
+        return Ok(None);
+    };
+    let mut marked = result["properties"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(property, schema)| Some((property, schema.get(TYPED_BY)?)));
+    let Some((property, param)) = marked.next() else {
+        return Ok(None);
+    };
+    if !matches!(form, Form::RoundTrip | Form::Query | Form::Waiter) {
+        bail!(
+            "operation `{}`: its result's `{property}` is `{TYPED_BY}`, which only a round trip, a query or a waiter answers: an opened or closed value answers no fields (ADR 0147)",
+            operation.name
+        );
+    }
+    if marked.next().is_some() {
+        bail!(
+            "operation `{}`: its result marks more than one property `{TYPED_BY}`, where a call declares one set of fields (ADR 0147)",
+            operation.name
+        );
+    }
+    let Some(param) = param
+        .as_str()
+        .filter(|param| parameters.positional.iter().any(|name| name == param))
+    else {
+        bail!(
+            "operation `{}`: its result's `{property}` is `{TYPED_BY}` {param}, which names no required parameter of it, so no call declares its fields (ADR 0147)",
+            operation.name
+        );
+    };
+    Ok(Some(TypedBy {
+        param: param.to_owned(),
+        property: property.clone(),
+    }))
+}
+
 /// The form `operation` takes as the member `name`, or `None` for a kind
 /// that has no form yet.
 fn form(operation: &Operation, name: &str, schema: &Value) -> Result<Option<Form>> {
@@ -254,6 +318,7 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
                 continue;
             };
             let parameters = parameters(schema, &id.param);
+            let typed_by = typed_by(layer, operation, &form, &parameters)?;
             // A handle's own `close` that takes nothing a caller must pass
             // and cannot be cancelled is how its program closes it.
             let closes = sub_object.is_none()
@@ -267,6 +332,7 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
                 name,
                 form: if closes { Form::Closes } else { form },
                 parameters,
+                typed_by,
             };
             let handle = found.get_or_insert_with(|| Handle {
                 namespace,

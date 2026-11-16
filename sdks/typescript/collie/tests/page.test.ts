@@ -105,6 +105,46 @@ describe("a program's pages on an Attached engine", () => {
   );
 
   test(
+    "reads a product page's fields in one call, typed by their declaration",
+    { tags: ["client_case/page-read-fields", "attached", "story:11-77", "operation:page.read"] },
+    async ({ env, provingGround, clientCase }) => {
+      const product = await startUrl(provingGround, "catalog/2");
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      await using collie = await Collie.connect({ env });
+      const run = await collie.start();
+      const page = await run.newPage();
+      await page.goto(product);
+
+      const read = await page.read({
+        id: { locator: { kind: "css", selector: "span.id" } },
+        name: { locator: { kind: "css", selector: "h1.name" } },
+        price: {
+          locator: { kind: "css", selector: "span.price" },
+          attribute: "data-price",
+          transform: { kind: "number", locale: "en" },
+        },
+        missing: { locator: { kind: "css", selector: ".no-such-element" } },
+      });
+      const { missing, ...record } = read.values;
+      const judged = await fetch(`http://${provingGround.address}${provingGroundRoutes().oracle}`, {
+        method: "POST",
+        body: JSON.stringify({ task: "catalog/2", status: "success", records: [record] }),
+      });
+
+      await clientCase.check("the oracle verifies the Record the fields answer", async () =>
+        expect(await judged.json()).toMatchObject({ task: "catalog/2", outcome: "verified" }),
+      );
+      await clientCase.check("the number field answers a number", () =>
+        expect(typeof record.price).toBe("number"),
+      );
+      await clientCase.check("a field with no element is null, with its reason", () => {
+        expect(missing).toBeNull();
+        expect(read.unread).toEqual([{ field: "/missing", reason: "no_element" }]);
+      });
+    },
+  );
+
+  test(
     "refuses a call on a closed page, and on a Locator built on it, with closed",
     { tags: ["client_case/closed-page-raises-closed", "attached", "error:closed"] },
     async ({ env, provingGround, clientCase }) => {

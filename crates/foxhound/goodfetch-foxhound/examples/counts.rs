@@ -86,9 +86,10 @@
 //! holds E3's rows. The other cells meet none, so the ledger's prepares stay
 //! out of the run-state cells' `F2.prepares`.
 //!
-//! The Run-trace rows count per entry: each cell prints, beside its pages,
-//! the entries its Run trace holds, read from the trace's files once its
-//! engine stopped, and fails if it wrote none.
+//! The Run-trace rows count per entry, and its writer's start and opens per
+//! Run: each cell prints, beside its pages, the entries its Run trace holds,
+//! read from the trace's files once its engine stopped, and fails if it
+//! wrote none.
 //!
 //! The site serves its robots.txt (E6). `E6.opens` is the Politeness file's
 //! opens after the first page and the statements Callgrind sees prepared
@@ -304,6 +305,11 @@ const SYNCS: &str = "F2.syncs";
 const PAGE_WAITS: &str = "F2.page_waits";
 const PAGE_WAITS_FULL: &str = "F2.page_waits.full";
 
+/// The Run state's read transactions on the run file per lease, held at
+/// the levels that batch attempts, within the memory budget (#2169): none
+/// counts in the other cells, whose leases read their rows.
+const LEASE_READS: &str = "F3.lease_reads";
+
 /// The batches the writer sealed before their plan, less the one each of
 /// the crawl's [`BARRIER_CALLS`] may write: what is left is the Run's own,
 /// at most its start's and its end's.
@@ -352,7 +358,7 @@ enum Watched<'a> {
 )]
 fn bypass(bypass: &str, home: &Path, work: &CountedWork, vfs: &str) -> Plant {
     let folder = home.join("bypass").join("trace");
-    work.create_dir_all(Row::RunTraceFileOpens, &folder)
+    work.create_dir_all(Row::RunTraceRunFileOpens, &folder)
         .expect("invariant: the bypass's Run trace is created");
     match bypass {
         "open" => Arc::new(move |_: &str| {
@@ -517,7 +523,7 @@ fn switched_off() -> [Cell; 4] {
             name: "provenance_off",
             settings: scoped(json!({ "provenance": { "log": false } })),
             frontier: FRONTIER,
-            removes: &[Row::RunTraceSpawns, Row::RunTraceFileOpens],
+            removes: &[Row::RunTraceRunSpawns, Row::RunTraceRunFileOpens],
             removes_syncs: false,
             handler: false,
             limit: false,
@@ -1302,6 +1308,7 @@ fn main() {
             "off_attempts": if off { cell.attempts } else { 0 },
             "learning_off_pages": if cell.name == LEARNING_OFF { cell.pages } else { 0 },
             "batched_pages": if batched { cell.pages } else { 0 },
+            "batched_leases": if batched { cell.attempts + cell.sitemaps } else { 0 },
             "full_pages": if full { cell.pages } else { 0 },
         });
         println!(
@@ -1357,6 +1364,11 @@ fn counts_of(cell: &Counted) -> Map<String, Value> {
     counts.insert(
         PAGE_WAITS_FULL.to_owned(),
         json!(if full { page_waits } else { 0 }),
+    );
+    let lease_reads = cell.count(Row::LeaseReads);
+    counts.insert(
+        LEASE_READS.to_owned(),
+        json!(if batched { lease_reads } else { 0 }),
     );
     let early = cell.count(Row::RunBatches);
     counts.insert(

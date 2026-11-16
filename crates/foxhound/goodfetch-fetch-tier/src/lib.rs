@@ -65,7 +65,9 @@ pub fn compile_served_call_selectors(work: &goodfetch_counted_work::CountedWork)
     tiers::calls::markup::compile_selectors(work);
 }
 
-pub use document::{FieldElement, Matched, SelectorInvalid, check_selector, check_xpath};
+pub use document::{
+    Matched, SelectorInvalid, check_fields, check_selector, check_xpath, value_locators,
+};
 pub use driver::{
     Body, FetchBounds, FetchFailure, Fetched, Hop, Reuse, Sending, Sent, Transport,
     TransportFailure, fetch, met,
@@ -90,7 +92,7 @@ pub use site_preferences::{
 };
 pub use sniffing::sniff;
 pub use tiers::{
-    Chosen, FetchTiers, FieldElements, HandedOver, HttpTier, Judged, Lesson, LinksUnread,
+    Chosen, FetchTiers, FieldsFound, HandedOver, HttpTier, Judged, Lesson, LinksUnread,
     PAGE_CHECK_CALL, PageFacts, Race, RaceEnd, ServedLinks, Signed, record_race, record_tier,
     tier_provenance,
 };

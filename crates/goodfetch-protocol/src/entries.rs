@@ -163,7 +163,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 86] = [
+    const COLLIE: [&str; 87] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -187,6 +187,7 @@ mod tests {
         "page.go_back",
         "page.go_forward",
         "page.formats",
+        "page.read",
         "page.body",
         "locator.click",
         "locator.fill",

@@ -9,7 +9,9 @@
 //! document lacks, escalates the request to the browser under `auto`,
 //! neither a retry nor a failure, and fails with `browser_required` under a
 //! forced tier, so a script-rendered page never ends as an empty success
-//! (pitfall H22). The Page formats cases read every Markdown page of the
+//! (pitfall H22). `page.read` answers a page's fields alike on a Label
+//! forced to `http` and on one forced to `browser` (ADR 0147). The Page
+//! formats cases read every Markdown page of the
 //! Proving ground's `extraction/7` on `http` and on `browser`, each judged
 //! by the oracle (ADR 0094).
 #![expect(
@@ -758,4 +760,121 @@ fn every_format_of_a_handlers_page_matches_the_oracle_on_its_tier(
 /// The page at `url` of `proving_ground`, fetched as a test reads it.
 fn ureq_get(proving_ground: &ProvingGround, url: &str) -> String {
     crate::frontier::fetch(proving_ground, url).body
+}
+
+/// The fields a handler reads of the catalog's product and listing pages
+/// in one `page.read`: value fields by CSS and `XPath`, a text and
+/// attributes, a list, rows, fields neither page has, and a row's field
+/// only the first row has.
+fn catalog_fields() -> Value {
+    let css = |selector: &str| json!({ "kind": "css", "selector": selector });
+    let xpath = |selector: &str| json!({ "kind": "xpath", "selector": selector });
+    json!({
+        "heading": { "locator": css("h1") },
+        "id": { "locator": xpath("//span[@class='id']") },
+        "price": { "locator": css("span.price"), "attribute": "data-price" },
+        "price_digits": {
+            "locator": css("span.price"),
+            "match": { "pattern": r"\$([0-9.]+)" },
+        },
+        "back": { "locator": css("main > a"), "attribute": "href" },
+        "rating": { "locator": css(".rating") },
+        "links": { "list": { "locator": css("a"), "attribute": "href" } },
+        "products": {
+            "rows": css("li.product"),
+            "fields": {
+                "name": { "locator": css("a") },
+                "price": { "locator": xpath("./span[@class='price']") },
+                "blurb": { "locator": css(".blurb") },
+                "lead": {
+                    "locator": xpath("self::li[not(preceding-sibling::li[@class='product'])]/a"),
+                },
+            },
+        },
+    })
+}
+
+/// `page.read` answers a page's fields alike on a Label forced to `http`
+/// and on one forced to `browser` (ADR 0147): the same fields of the
+/// catalog's product page and of its first listing page, crawled once on
+/// each Label, read the same values, the same nulls and the same reasons,
+/// a listing row keeping its other fields beside its missing blurb, and
+/// only the first row reading its lead.
+///
+/// Covers: operation:page.read, setting:fetch.tier
+#[test]
+fn a_pages_fields_read_the_same_on_a_label_forced_to_http_and_on_one_forced_to_browser() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let product = proving_ground.start_url("catalog/2").unwrap();
+    let listing = proving_ground.start_url("catalog/1").unwrap();
+    let run_id = "page-read-on-each-tier";
+    let seeds: Vec<Value> = [&product, &listing]
+        .into_iter()
+        .flat_map(|url| {
+            [
+                json!({ "url": url, "label": "on_http" }),
+                json!({ "url": format!("{url}?again"), "label": "on_browser" }),
+            ]
+        })
+        .collect();
+
+    let mut read = std::collections::BTreeMap::new();
+    crawl_declaring(
+        &mut engine,
+        run_id,
+        &seeds,
+        &json!({
+            "on_http": { "settings": { "fetch": { "tier": "http" } } },
+            "on_browser": { "settings": { "fetch": { "tier": "browser" } } },
+        }),
+        &settings(
+            &proving_ground,
+            &json!({ "politeness": { "domain": { "delay": 0 } } }),
+        ),
+        &mut |inside: &mut Inside<'_>, handle: &Value| {
+            let answer = inside.call(
+                "page.read",
+                &json!({ "page_id": handle["page_id"], "fields": catalog_fields() }),
+            );
+            let url = handle["crawl_request"]["url"].as_str().unwrap_or_default();
+            read.insert(
+                (
+                    url.trim_end_matches("?again").to_owned(),
+                    handle["tier"].as_str().unwrap_or_default().to_owned(),
+                ),
+                answer.get("result").cloned().unwrap_or(answer),
+            );
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let ended = ended(&mut engine, run_id);
+    assert!(engine.finished());
+
+    assert_eq!(ended.len(), 4, "{ended:?}");
+    for url in [&product, &listing] {
+        let on = |tier: &str| read.get(&(url.clone(), tier.to_owned())).cloned();
+        let (http, browser) = (on("http"), on("browser"));
+        assert!(
+            http.as_ref().is_some_and(|http| http["values"].is_object()),
+            "{url}: {http:?}"
+        );
+        assert_eq!(browser, http, "{url}");
+    }
+    let listed = &read[&(listing.clone(), "http".to_owned())];
+    let rows = listed["values"]["products"].as_array().unwrap();
+    assert!(
+        rows.len() > 1
+            && rows.iter().all(|row| {
+                row["name"].is_string() && row["price"].is_string() && row["blurb"].is_null()
+            }),
+        "{listed}"
+    );
+    let leads: Vec<bool> = rows.iter().map(|row| row["lead"].is_string()).collect();
+    assert_eq!(
+        (leads[0], leads[1..].iter().any(|lead| *lead)),
+        (true, false),
+        "{listed}"
+    );
 }

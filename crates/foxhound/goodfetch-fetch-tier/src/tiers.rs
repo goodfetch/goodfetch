@@ -51,6 +51,7 @@ use goodfetch_engine::tls::{
 };
 use goodfetch_engine::{Answered, CallContext, CallError, GuardAnswer, ReadParams};
 use goodfetch_extractor::BuiltIn;
+use goodfetch_extractor::fields::Found;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::document_request::{DocumentRequest, Unread};
 use goodfetch_page::page_value::{
@@ -60,9 +61,7 @@ use goodfetch_page::page_value::{
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::connection::CLOSED;
-use goodfetch_protocol::foxhound::crawl::{
-    CRAWL_CONTENT_TYPES, CRAWL_START, CrawlRequest, FieldLocator,
-};
+use goodfetch_protocol::foxhound::crawl::{CRAWL_CONTENT_TYPES, CRAWL_START, CrawlRequest};
 use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_HEDGE_ENABLED, FETCH_LIGHT_BROWSER, FETCH_REDIRECT_MAX, FETCH_TIER,
     FETCH_TIER_RACE, FetchTier, REDIRECT_MAX_LIMIT,
@@ -80,6 +79,7 @@ use goodfetch_protocol::foxhound::session_pool::SESSION_POOL_MAX_SIZE;
 use goodfetch_protocol::foxhound::settings::FETCH_BLOCK_CLASSIFICATION;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::proxy::{PROXY_KIND, PROXY_PROVIDER, PROXY_SERVER};
+use goodfetch_protocol::page::read::PageField;
 use goodfetch_protocol::page::{
     BLOCKED, BlockedDetails, BodyHandle, FormatsRequest, Navigated, PageFormats, PageId,
     PageResponse, SessionId,
@@ -104,7 +104,7 @@ use crate::choice::{
 use crate::content_types::{Accepts, ContentTypes, is_document, typed};
 use crate::cookies::{Jars, WithJar};
 use crate::discovered_api::Plan;
-use crate::document::{self, FieldElement, LocatorInvalid, Matched, SelectorInvalid, matched};
+use crate::document::{self, Matched, SelectorInvalid, matched};
 use crate::driver::{FetchBounds, Hop, OwnDocument, Transport, fetch_accepting, fetch_start};
 use crate::expected_page::{self, Verdict};
 use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
@@ -787,14 +787,14 @@ pub enum Judged {
 /// in place of a call: the setting.
 pub const PAGE_CHECK_CALL: &str = "session.page_check";
 
-/// The first element each of a code-free crawl's field locators found in
-/// a page, in order, with the document's base URL (ADR 0123).
+/// What each of a code-free crawl's fields found in a page, in the order of
+/// their names, with the document's base URL (ADRs 0123 and 0147).
 #[derive(Clone, Debug)]
-pub struct FieldElements {
+pub struct FieldsFound {
     /// The document's base URL.
     pub base_url: String,
-    /// The first element each locator found; `None` for one that found none.
-    pub elements: Vec<Option<FieldElement>>,
+    /// What each field found.
+    pub found: Vec<Found>,
 }
 
 /// What the Frontier learns from a served page (ADRs 0005 and 0120): the
@@ -1682,11 +1682,12 @@ impl FetchTiers {
         Some(read.map_err(LinksUnread::Selector))
     }
 
-    /// The first element each of `locators` finds in the page `page_id`'s
-    /// document: a served page's, read on its Run's blocking owner, by CSS
-    /// selectors and `XPath` 1.0 expressions alike, as a browser reads them;
-    /// a browser page's, read by the page itself (ADR 0123). `None` when no
-    /// tier serves that page, as a closed one.
+    /// What each of `fields` finds in the page `page_id`'s document, in
+    /// the order of their names: a served page's, read on its Run's
+    /// blocking owner, by CSS selectors and `XPath` 1.0 expressions alike,
+    /// as a browser reads them; a browser page's, read by the page itself
+    /// in one engine read (ADRs 0123 and 0147). `None` when no tier serves
+    /// that page, as a closed one.
     ///
     /// # Errors
     ///
@@ -1699,8 +1700,8 @@ impl FetchTiers {
     pub async fn field_elements(
         &self,
         page_id: &PageId,
-        locators: &[FieldLocator],
-    ) -> Option<Result<FieldElements, CallError>> {
+        fields: &BTreeMap<String, PageField>,
+    ) -> Option<Result<FieldsFound, CallError>> {
         let served = {
             let pages = lock(&self.served.pages);
             pages
@@ -1709,47 +1710,47 @@ impl FetchTiers {
                 .map(|page| (Arc::clone(&page.document), Arc::clone(&page.untouched)))
         };
         let Some((served, untouched)) = served else {
-            return self.browser_field_elements(page_id, locators).await;
+            return self.browser_field_elements(page_id, fields).await;
         };
-        let invalid = |invalid: LocatorInvalid| {
-            CallError::protocol(ProtocolFailure::InvalidParams, invalid.to_string())
-        };
-        // The readers of its untouched page read the fields the Run asked
-        // for as they read it.
-        if let Some(read) = untouched.fields(locators) {
+        let invalid =
+            |sentence: String| CallError::protocol(ProtocolFailure::InvalidParams, sentence);
+        // The readers of its untouched page read the value fields the Run
+        // asked for as they read it.
+        if let Some(locators) = document::value_locators(fields)
+            && let Some(read) = untouched.fields(&locators)
+        {
             return Some(
-                read.map(|elements| FieldElements {
+                read.map(|elements| FieldsFound {
                     base_url: served.base_url.clone(),
-                    elements,
+                    found: elements.into_iter().map(Found::One).collect(),
                 })
-                .map_err(invalid),
+                .map_err(|refused| invalid(refused.to_string())),
             );
         }
-        let locators = locators.to_vec();
+        let fields = fields.clone();
         let work = served.run.metrics().counted_work().clone();
         let base_url = served.base_url.clone();
         let read = calls::on_tree(&served, move |tree| {
-            document::first_elements(tree, &locators, &work)
-                .map(|elements| FieldElements { base_url, elements })
+            document::found(tree, &fields, &work).map(|found| FieldsFound { base_url, found })
         })
         .await?;
         Some(read.map_err(invalid))
     }
 
-    /// The first element each of `locators` finds in the browser page
-    /// `page_id`'s document, as [`FetchTiers::field_elements`] reads them;
-    /// `None` for a page no browser holds.
+    /// What each of `fields` finds in the browser page `page_id`'s
+    /// document, as [`FetchTiers::field_elements`] reads them; `None` for a
+    /// page no browser holds.
     async fn browser_field_elements(
         &self,
         page_id: &PageId,
-        locators: &[FieldLocator],
-    ) -> Option<Result<FieldElements, CallError>> {
+        fields: &BTreeMap<String, PageField>,
+    ) -> Option<Result<FieldsFound, CallError>> {
         let pages = self.served.browser.get()?;
         let answer = match pages
             .read(
                 page_id,
-                document::FIELDS_READ,
-                serde_json::json!({ "locators": locators }),
+                goodfetch_page::fields::READ,
+                goodfetch_page::fields::argument(fields),
                 CRAWL_START.name,
             )
             .await
@@ -1761,14 +1762,12 @@ impl FetchTiers {
             Err(error) => return Some(Err(error)),
         };
         Some(
-            document::browser_fields(&answer)
-                .map(|(base_url, elements)| FieldElements { base_url, elements })
-                .ok_or_else(|| {
-                    CallError::protocol(
-                        ProtocolFailure::InternalError,
-                        "the browser page's read of a code-free crawl's fields answered no list of elements",
-                    )
-                }),
+            goodfetch_page::fields::answered(&answer, fields, CRAWL_START.name).map(|answered| {
+                FieldsFound {
+                    base_url: answered.base_url,
+                    found: answered.found,
+                }
+            }),
         )
     }
 

@@ -5,11 +5,13 @@
 use goodfetch_frontier::trap_links::{Seen, Sight};
 use rstest::rstest;
 
-use goodfetch_protocol::foxhound::crawl::FieldLocator;
+use goodfetch_extractor::fields::{FieldElement, Found};
+use goodfetch_protocol::page::read::{FieldLocator, PageField};
+use serde_json::json;
 
 use super::{
-    FieldElement, LocatorInvalid, Matched, SelectorInvalid, check_selector, check_xpath,
-    first_elements, matched,
+    LocatorInvalid, Matched, SelectorInvalid, check_selector, check_xpath, first_elements_in,
+    found, locating, matched,
 };
 
 /// Counts no test of this file reads.
@@ -30,6 +32,20 @@ const ARTICLE: &str = r#"<!doctype html><html><body>
 <!-- price below --><span class="price" data-value="1099.98">1.099,98 €</span>
 <a class="manual" href="manuals/delta.pdf">Handbuch</a></article>
 </body></html>"#;
+
+/// The first element each of `locators` finds in `document`, as a value
+/// field's locator reads it.
+fn first_elements(
+    document: &goodfetch_counted_work::ParsedHtml,
+    locators: &[FieldLocator],
+    work: &goodfetch_counted_work::CountedWork,
+) -> Result<Vec<Option<FieldElement>>, LocatorInvalid> {
+    let locating = locators
+        .iter()
+        .map(|locator| locating(locator, work))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(first_elements_in(document, &locating))
+}
 
 fn xpath(selector: &str) -> FieldLocator {
     FieldLocator::Xpath {
@@ -243,4 +259,74 @@ fn an_xpath_a_browser_refuses_or_that_answers_a_value_is_refused(#[case] express
         ),
         "{expression}"
     );
+}
+
+/// The listing's products, as a served document holds them: the second
+/// lacks a price.
+const LISTING: &str = r#"<!doctype html><html><body><ul>
+<li class="product"><a href="/kites/delta">Delta</a><span class="price">12</span></li>
+<li class="product"><a href="/kites/box">Box</a></li>
+</ul><span class="price">99</span></body></html>"#;
+
+/// A list finds every element its locator finds, in document order, and
+/// rows find, under each row's element, the first element each of its
+/// fields' locators finds, an `XPath` expression read from the row: a row
+/// lacking one finds none for it and keeps the others (ADR 0147).
+#[test]
+fn a_list_finds_every_element_and_each_row_its_fields_under_it() {
+    let fields: std::collections::BTreeMap<String, PageField> = serde_json::from_value(json!({
+        "names": { "list": { "locator": { "kind": "css", "selector": "li a" } } },
+        "products": {
+            "rows": { "kind": "xpath", "selector": "//li[@class='product']" },
+            "fields": {
+                "name": { "locator": { "kind": "xpath", "selector": "./a" } },
+                "price": { "locator": { "kind": "css", "selector": ".price" } },
+            },
+        },
+    }))
+    .unwrap();
+    let (delta, boxed) = (
+        field("a", "Delta", &[("href", "/kites/delta")]),
+        field("a", "Box", &[("href", "/kites/box")]),
+    );
+
+    assert_eq!(
+        found(&tree(LISTING), &fields, &no_counts()),
+        Ok(vec![
+            Found::List(vec![delta.clone(), boxed.clone()]),
+            Found::Rows(vec![
+                vec![
+                    Some(delta),
+                    Some(field("span", "12", &[("class", "price")]))
+                ],
+                vec![Some(boxed), None],
+            ]),
+        ])
+    );
+}
+
+/// A field whose locator the engine does not read is refused by name, a
+/// row's field as `rows/field`, before the document is read.
+#[rstest]
+#[case::a_value_field(
+    json!({ "title": { "locator": { "kind": "css", "selector": "p[" } } }),
+    "The field `title`'s `p[` is no CSS selector.",
+)]
+#[case::a_row_field(
+    json!({ "products": {
+        "rows": { "kind": "css", "selector": "li" },
+        "fields": { "name": { "locator": { "kind": "xpath", "selector": "count(a)" } } },
+    } }),
+    "The field `products/name`'s",
+)]
+fn a_field_whose_locator_the_engine_does_not_read_is_refused_by_name(
+    #[case] declared: serde_json::Value,
+    #[case] refused: &str,
+) {
+    let fields: std::collections::BTreeMap<String, PageField> =
+        serde_json::from_value(declared).unwrap();
+
+    let sentence = found(&tree(LISTING), &fields, &no_counts()).unwrap_err();
+
+    assert!(sentence.starts_with(refused), "{sentence}");
 }

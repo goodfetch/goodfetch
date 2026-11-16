@@ -211,6 +211,7 @@ fn units(session: &session::Counted) -> Map<String, Value> {
         ("reads".to_owned(), json!(session.reads)),
         ("documents".to_owned(), json!(session.documents)),
         ("serializations".to_owned(), json!(session.serializations)),
+        ("field_reads".to_owned(), json!(session.field_reads)),
         ("pages_opened".to_owned(), json!(session.pages_opened)),
         ("requests".to_owned(), json!(session.requests)),
         ("pauses".to_owned(), json!(session.paused)),
@@ -225,6 +226,25 @@ fn units(session: &session::Counted) -> Map<String, Value> {
             .map(|(kind, count)| (format!("{kind}_attempts"), json!(count))),
     );
     units
+}
+
+/// Fails unless `cell` read fields, each read with a command at least, and
+/// counted on `C2.read_commands` the commands the browser read meanwhile.
+fn fields_read(cell: &Counted) {
+    let session = &cell.session;
+    let field_read_commands: u64 = session.field_read_commands.values().sum();
+    assert!(
+        session.field_reads > 0 && field_read_commands >= session.field_reads,
+        "the cell {} read fields {} times with {} commands",
+        cell.name,
+        session.field_reads,
+        field_read_commands
+    );
+    assert_eq!(
+        session.field_rows, session.field_read_commands,
+        "the cell {} counted other field-read commands than the browser read",
+        cell.name
+    );
 }
 
 fn main() {
@@ -276,6 +296,7 @@ fn main() {
             session.serializations,
             session.serialization_commands
         );
+        fields_read(cell);
         assert!(
             session.pages_opened > 0,
             "the cell {} opened no page",

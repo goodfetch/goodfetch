@@ -1,5 +1,5 @@
 //! The page suite (spec #577, tickets #695, #696, #697, #698, #699, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710 and #716; spec #580,
-//! tickets #783 and #789) against an Attached engine of Collie's executable, given by path, on
+//! tickets #783, #789 and #2402) against an Attached engine of Collie's executable, given by path, on
 //! the local Proving ground (ADR 0094): its browser from a Browser cache in
 //! the test's own folder, which its environment names (ADR 0059).
 //!
@@ -78,11 +78,12 @@ const PAGE_REQUEST: Part = (
 const DIALOGS: Part = ("dialogs", &["dialogs"]);
 const POPUPS: Part = ("popups", &["popups"]);
 const PAGE_FUNCTIONS: Part = ("page-functions", &["page_functions"]);
+const READ: Part = ("read", &["read"]);
 const WAITS: Part = ("waits", &["waits"]);
 const ROBOTS_TXT: Part = ("robots-txt", &["robots_txt"]);
 
 /// Every part.
-const PARTS: [Part; 20] = [
+const PARTS: [Part; 21] = [
     SESSIONS,
     PROXY_LIMITS,
     NAVIGATION,
@@ -101,6 +102,7 @@ const PARTS: [Part; 20] = [
     DIALOGS,
     POPUPS,
     PAGE_FUNCTIONS,
+    READ,
     WAITS,
     ROBOTS_TXT,
 ];
@@ -319,6 +321,12 @@ fn the_page_suite_proves_popups_against_collies_attached_engine() {
 #[test]
 fn the_page_suite_proves_page_functions_against_collies_attached_engine() {
     prove(PAGE_FUNCTIONS);
+}
+
+/// Covers: operation:page.read
+#[test]
+fn the_page_suite_proves_page_read_against_collies_attached_engine() {
+    prove(READ);
 }
 
 /// Covers: story:5-19, story:5-20, story:5-21, story:5-22, operation:page.wait_for_url, operation:page.wait_for_request, operation:page.wait_for_response, operation:page.wait_for_load_state, operation:page.wait_for_function, operation:locator.wait_for_function, operation:locator.wait_for, operation:locator.wait_for_count, operation:page.evaluate, operation:locator.click, error:deadline_exceeded, setting:timeout.wait, story:5-43, error:pattern_unsupported, operation:page.route

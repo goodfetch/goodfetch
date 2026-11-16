@@ -9,7 +9,6 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
-fixed_decimal.workspace = true
 # `join_all`: the delivery settles the attempts that ended together, so
 # their run-state writes queue as one group. `catch_unwind` (`std`): an
 # attempt's watch ends the attempt that panicked (ADR 0148).
@@ -17,17 +16,12 @@ futures-util = { workspace = true, features = ["alloc", "std"] }
 goodfetch-counted-work.workspace = true
 goodfetch-dataset.workspace = true
 goodfetch-engine.workspace = true
+goodfetch-extractor.workspace = true
 goodfetch-fetch-tier.workspace = true
 goodfetch-frontier.workspace = true
 goodfetch-protocol.workspace = true
 goodfetch-session-pool.workspace = true
-icu_calendar.workspace = true
-icu_datetime.workspace = true
-icu_decimal.workspace = true
-icu_locale_core.workspace = true
 icu_normalizer.workspace = true
-jiff.workspace = true
-regex.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -35,7 +29,6 @@ serde_json_canonicalizer.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros"] }
 tracing.workspace = true
-writeable.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]

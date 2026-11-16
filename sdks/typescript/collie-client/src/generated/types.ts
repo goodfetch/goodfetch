@@ -319,6 +319,72 @@ export type World = "main" | "isolated";
  */
 export type Product = "collie" | "foxhound";
 /**
+ * What finds a field's element, named by `kind`: a CSS selector or an
+ * `XPath` expression, each read alike on every tier, a page a fetch tier
+ * serves from its document reading it as a browser reads it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FieldLocator".
+ */
+export type FieldLocator =
+  | {
+      kind: "css";
+      /**
+       * The selector.
+       */
+      selector: string;
+    }
+  | {
+      kind: "xpath";
+      /**
+       * The expression.
+       */
+      selector: string;
+    };
+/**
+ * A field's Value transform (ADR 0123), named by `kind`, each
+ * locale-dependent one stating its locale, a BCP 47 tag. A `number`,
+ * `date` or `date_time` reads the machine-readable value of a `<time
+ * datetime>`, a `<data value>` or an element's `content` attribute in its
+ * invariant form (ISO 8601, a plain decimal with a dot), whatever the
+ * locale; a text printed for people is read under its locale's CLDR
+ * forms: a number in its digits, separators and grouping, a date or a
+ * date and time in one of its short, medium or long forms with a
+ * four-digit year; any other text is not a value.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FieldTransform".
+ */
+export type FieldTransform =
+  | {
+      kind: "text";
+    }
+  | {
+      kind: "number";
+      /**
+       * Its locale.
+       */
+      locale: string;
+    }
+  | {
+      kind: "date";
+      /**
+       * Its locale.
+       */
+      locale: string;
+    }
+  | {
+      kind: "date_time";
+      /**
+       * Its locale.
+       */
+      locale: string;
+      /**
+       * The time zone, an IANA name, of a text that states none.
+       */
+      time_zone?: string | null;
+    };
+/**
  * The form a Client's user writes names in (ADR 0099), which the engine
  * renders the names and targets of its messages in.
  *
@@ -663,6 +729,13 @@ export type PageEventName =
   | "close"
   | "popup";
 /**
+ * One named field (ADR 0147): a value field, a list or rows.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageField".
+ */
+export type PageField = ValueField1 | ListField1 | RowsField;
+/**
  * A page of a Run, named by the engine when it opens it.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -972,7 +1045,7 @@ export type Tags2 = Tag[];
  */
 export type TierChosen = "forced" | "compared" | "sample" | "escalation" | "race";
 /**
- * Why a field of a code-free crawl's Record is null.
+ * Why a field is null.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "UnreadReason".
@@ -2173,15 +2246,16 @@ export interface TierProvenance {
   tier: "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
 }
 /**
- * A field of a code-free crawl's Record that its page did not give, so
- * the Record holds null (ADR 0123).
+ * A field its page did not give, so its value is null (ADRs 0079 and
+ * 0123).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "UnreadField".
  */
 export interface UnreadField {
   /**
-   * The field, a JSON Pointer into the Record.
+   * The field, a JSON Pointer into the values read: `/price`, or
+   * `/offers/1/price` for a row's.
    */
   field: string;
   /**
@@ -2195,7 +2269,7 @@ export interface UnreadField {
   text?: string | null;
 }
 /**
- * How a Value transform gave one field of a Record (ADR 0123).
+ * How a Value transform gave one field (ADR 0123).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "TransformProvenance".
@@ -2771,6 +2845,24 @@ export interface SettingLimit {
   value: {
     [k: string]: unknown;
   };
+}
+/**
+ * The `match` before a field's transform (ADR 0123): a capture group of a
+ * regular expression, in the `regex` crate's syntax (ADR 0081), over the
+ * text read; that group's text is what the transform reads.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FieldMatch".
+ */
+export interface FieldMatch {
+  /**
+   * The capture group, 1 by default; 0 is the whole match.
+   */
+  group?: number;
+  /**
+   * The expression's source.
+   */
+  pattern: string;
 }
 /**
  * What `locator.fill` takes: the locator whose field it fills, and the
@@ -3583,6 +3675,79 @@ export interface Link {
    * URL Standard; `null` when it does not parse.
    */
   url?: string | null;
+}
+/**
+ * A list: the value field read from every element its locator finds, in
+ * document order.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ListField".
+ */
+export interface ListField {
+  list: ValueField;
+}
+/**
+ * The field read from each element.
+ */
+export interface ValueField {
+  /**
+   * The attribute read in place of the element's text.
+   */
+  attribute?: string | null;
+  /**
+   * What finds its element.
+   */
+  locator:
+    | {
+        kind: "css";
+        /**
+         * The selector.
+         */
+        selector: string;
+      }
+    | {
+        kind: "xpath";
+        /**
+         * The expression.
+         */
+        selector: string;
+      };
+  /**
+   * The `match` that picks the text its transform reads.
+   */
+  match?: FieldMatch | null;
+  /**
+   * Its Value transform: `text` by default.
+   */
+  transform?:
+    | {
+        kind: "text";
+      }
+    | {
+        kind: "number";
+        /**
+         * Its locale.
+         */
+        locale: string;
+      }
+    | {
+        kind: "date";
+        /**
+         * Its locale.
+         */
+        locale: string;
+      }
+    | {
+        kind: "date_time";
+        /**
+         * Its locale.
+         */
+        locale: string;
+        /**
+         * The time zone, an IANA name, of a text that states none.
+         */
+        time_zone?: string | null;
+      };
 }
 /**
  * A locator (ADR 0085): what an action looks for on a page, resolved
@@ -4673,6 +4838,175 @@ export interface PageResponse1 {
   url: string;
 }
 /**
+ * The first element its locator finds.
+ */
+export interface ValueField1 {
+  /**
+   * The attribute read in place of the element's text.
+   */
+  attribute?: string | null;
+  /**
+   * What finds its element.
+   */
+  locator:
+    | {
+        kind: "css";
+        /**
+         * The selector.
+         */
+        selector: string;
+      }
+    | {
+        kind: "xpath";
+        /**
+         * The expression.
+         */
+        selector: string;
+      };
+  /**
+   * The `match` that picks the text its transform reads.
+   */
+  match?: FieldMatch | null;
+  /**
+   * Its Value transform: `text` by default.
+   */
+  transform?:
+    | {
+        kind: "text";
+      }
+    | {
+        kind: "number";
+        /**
+         * Its locale.
+         */
+        locale: string;
+      }
+    | {
+        kind: "date";
+        /**
+         * Its locale.
+         */
+        locale: string;
+      }
+    | {
+        kind: "date_time";
+        /**
+         * Its locale.
+         */
+        locale: string;
+        /**
+         * The time zone, an IANA name, of a text that states none.
+         */
+        time_zone?: string | null;
+      };
+}
+/**
+ * Every element its locator finds.
+ */
+export interface ListField1 {
+  list: ValueField;
+}
+/**
+ * Fields read under each element a base locator finds.
+ */
+export interface RowsField {
+  /**
+   * Each row's fields, by name.
+   */
+  fields: {
+    [k: string]: ValueField2;
+  };
+  /**
+   * What finds each row's element.
+   */
+  rows:
+    | {
+        kind: "css";
+        /**
+         * The selector.
+         */
+        selector: string;
+      }
+    | {
+        kind: "xpath";
+        /**
+         * The expression.
+         */
+        selector: string;
+      };
+}
+/**
+ * A value field (ADRs 0123 and 0147): the first element its locator finds
+ * in the page, its text, its runs of white space read as one space and
+ * trimmed, or one of its attributes, an `href` or `src` resolved against
+ * the document's base URL; optionally a capture group of a regular
+ * expression over that text; then its Value transform. A field the page
+ * does not give is null, with why.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ValueField".
+ */
+export interface ValueField2 {
+  /**
+   * The attribute read in place of the element's text.
+   */
+  attribute?: string | null;
+  /**
+   * What finds its element.
+   */
+  locator:
+    | {
+        kind: "css";
+        /**
+         * The selector.
+         */
+        selector: string;
+      }
+    | {
+        kind: "xpath";
+        /**
+         * The expression.
+         */
+        selector: string;
+      };
+  /**
+   * The `match` that picks the text its transform reads.
+   */
+  match?: FieldMatch | null;
+  /**
+   * Its Value transform: `text` by default.
+   */
+  transform?:
+    | {
+        kind: "text";
+      }
+    | {
+        kind: "number";
+        /**
+         * Its locale.
+         */
+        locale: string;
+      }
+    | {
+        kind: "date";
+        /**
+         * Its locale.
+         */
+        locale: string;
+      }
+    | {
+        kind: "date_time";
+        /**
+         * Its locale.
+         */
+        locale: string;
+        /**
+         * The time zone, an IANA name, of a text that states none.
+         */
+        time_zone?: string | null;
+      };
+}
+/**
  * What `page.load`, `page.dom_content_loaded`, `page.crash` and
  * `page.close` report: the page whose main frame's document fired the
  * event, or that crashed or closed.
@@ -4933,6 +5267,46 @@ export interface PageOpened1 {
    * Its Session: the Run's default Session for `run.new_page`.
    */
   session_id: string;
+}
+/**
+ * What `page.read` answers: each field's value by its name, and each
+ * value the page did not give, with why.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageRead".
+ */
+export interface PageRead {
+  /**
+   * Each null the page did not give, in the order read; absent where
+   * every value was read.
+   */
+  unread?: UnreadField[];
+  /**
+   * Each field's value, by name: a value field's value or null, a
+   * list's array of values or nulls, rows' array of objects, each
+   * holding every field of its row, null where its row lacks it.
+   */
+  values: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * What `page.read` takes: the page and its named fields.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageReadParams".
+ */
+export interface PageReadParams {
+  /**
+   * The fields, by name.
+   */
+  fields: {
+    [k: string]: PageField;
+  };
+  /**
+   * The page.
+   */
+  page_id: string;
 }
 /**
  * A request of a page, ADR 0085's `Request`: one per hop of a redirect
@@ -5831,6 +6205,40 @@ export interface RouteRequest1 {
    * Its URL.
    */
   url: string;
+}
+/**
+ * Rows: for each element the base locator finds, in document order, one
+ * object of the named value fields, each read from the first element its
+ * locator finds under that element.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RowsField".
+ */
+export interface RowsField1 {
+  /**
+   * Each row's fields, by name.
+   */
+  fields: {
+    [k: string]: ValueField2;
+  };
+  /**
+   * What finds each row's element.
+   */
+  rows:
+    | {
+        kind: "css";
+        /**
+         * The selector.
+         */
+        selector: string;
+      }
+    | {
+        kind: "xpath";
+        /**
+         * The expression.
+         */
+        selector: string;
+      };
 }
 /**
  * What `run.abort` takes: the Run, and whether the abort was forwarded.

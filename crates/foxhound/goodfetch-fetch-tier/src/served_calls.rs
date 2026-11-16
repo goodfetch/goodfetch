@@ -37,6 +37,7 @@ use goodfetch_protocol::page::events::{PAGE_ON, PAGE_WAIT_FOR_REQUEST_FINISHED, 
 use goodfetch_protocol::page::functions::{
     LOCATOR_EVALUATE_ALL, PAGE_ADD_INIT_SCRIPT, PAGE_EVALUATE,
 };
+use goodfetch_protocol::page::read::PAGE_READ;
 use goodfetch_protocol::page::request::PAGE_REQUEST;
 use goodfetch_protocol::page::route::{
     PAGE_ROUTE, ROUTE_ABORT, ROUTE_CONTINUE, ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL,
@@ -54,8 +55,9 @@ use goodfetch_protocol::page::{
 };
 
 /// The row of each call the catalog's page entries hold.
-const ROWS: [(&Operation, Row); 41] = [
+const ROWS: [(&Operation, Row); 42] = [
     (&PAGE_FORMATS, Row::Read),
+    (&PAGE_READ, Row::Read),
     (&LOCATOR_WAIT_FOR, Row::StateWait),
     (&LOCATOR_WAIT_FOR_COUNT, Row::StateWait),
     (&PAGE_WAIT_FOR_URL, Row::StateWait),
@@ -109,8 +111,8 @@ const ROWS: [(&Operation, Row); 41] = [
 )]
 pub(crate) enum Row {
     /// Reads of the document's markup: locators, `count`, `all`,
-    /// `textContent`, `innerHTML`, `getAttribute`, `content()` and
-    /// `formats`.
+    /// `textContent`, `innerHTML`, `getAttribute`, `content()`, `formats`
+    /// and `read`.
     Read,
     /// Questions about an element's state: `isVisible`, `isHidden`,
     /// `isEnabled`, `isChecked`, answered at once and never waiting.

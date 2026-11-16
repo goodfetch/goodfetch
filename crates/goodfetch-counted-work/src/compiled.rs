@@ -1,5 +1,6 @@
 //! The engine's one bounded cache of compiled selectors, regular expressions
-//! and globs (ADRs 0138 and 0140): each is compiled through its counted
+//! and globs, and of what a reader builds of a text, such as a locale's
+//! printed forms (ADRs 0138 and 0140): each is compiled through its counted
 //! function the first time its text is asked for and kept, so a Run's pages,
 //! and the engine's later Runs, compile none of what an earlier page did. A
 //! selector of the Clean-up rules is keyed by its text and the digest of the
@@ -15,6 +16,7 @@
 //! rather than grows: an evicted text asked for again is compiled again, and
 //! counted again.
 
+use std::any::Any;
 use std::sync::{Arc, OnceLock};
 
 use moka::Equivalent;
@@ -25,12 +27,13 @@ use moka::Equivalent;
 /// so they stay under about 16 MB.
 pub(crate) const CAPACITY: u64 = 16_384;
 
-/// The most regular expressions, and apart the most globs, the cache keeps:
-/// a Run's fields, Scope and Payload rules hold a few dozen.
+/// The most regular expressions, apart the most globs, and apart the most
+/// built values, the cache keeps: a Run's fields, Scope and Payload rules
+/// hold a few dozen, and its fields a few locales.
 const PATTERN_CAPACITY: u64 = 1_024;
 
 /// A compilation's key: the Clean-up rules' digest for one of their
-/// selectors, and its text.
+/// selectors, or the type of a built value, and its text.
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct Key {
     rules: Option<Box<str>>,
@@ -112,6 +115,7 @@ pub(crate) struct Compiled {
     selectors: Part<Option<dom_query::Matcher>>,
     regexes: Part<Result<regex::Regex, regex::Error>>,
     globs: Part<Result<glob::Pattern, Arc<glob::PatternError>>>,
+    built: Part<Option<Arc<dyn Any + Send + Sync>>>,
 }
 
 impl Default for Compiled {
@@ -120,6 +124,7 @@ impl Default for Compiled {
             selectors: Part::bounded(CAPACITY),
             regexes: Part::bounded(PATTERN_CAPACITY),
             globs: Part::bounded(PATTERN_CAPACITY),
+            built: Part::bounded(PATTERN_CAPACITY),
         }
     }
 }
@@ -132,6 +137,7 @@ impl std::fmt::Debug for Compiled {
             .field("selectors", &self.selectors.count())
             .field("regexes", &self.regexes.count())
             .field("globs", &self.globs.count())
+            .field("built", &self.built.count())
             .finish()
     }
 }
@@ -166,6 +172,26 @@ impl Compiled {
         self.globs.kept(&Lookup { rules: None, text }, || {
             compile().map_err(Arc::new)
         })
+    }
+
+    /// The value of type `T` built of `text`, as `build` answers it, kept
+    /// apart from another type's of the same text.
+    pub(crate) fn built<T: Send + Sync + 'static>(
+        &self,
+        text: &str,
+        build: impl FnOnce() -> Option<T>,
+    ) -> Option<Arc<T>> {
+        let lookup = Lookup {
+            rules: Some(std::any::type_name::<T>()),
+            text,
+        };
+        self.built
+            .kept(&lookup, || {
+                build().map(|built| Arc::new(built) as Arc<dyn Any + Send + Sync>)
+            })
+            .map(|built| {
+                Arc::downcast(built).expect("invariant: a value is kept under its own type's name")
+            })
     }
 
     /// How many selectors it keeps now, its evictions done.

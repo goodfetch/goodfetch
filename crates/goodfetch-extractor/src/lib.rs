@@ -13,6 +13,7 @@ mod canonical;
 mod character_references;
 mod contacts;
 mod extractor;
+pub mod fields;
 mod formats;
 mod light;
 mod main_content;

@@ -28,6 +28,8 @@
 //!   Purpose raises `site_preferences_refused`, as a navigation's document
 //!   does, and any other's body is kept for `response.body`;
 //! - `page.close`, which closes the page;
+//! - `page.read`, each field found in the document's tree as a browser
+//!   finds it and read as on the browser tier (ADR 0147);
 //! - on `discovered_api`, `page.wait_for_response` and
 //!   `page.wait_for_request_finished`, answered from the calls the page's
 //!   next navigation replays (the `replayed` module).
@@ -55,12 +57,16 @@ use goodfetch_counted_work::{CountedWork, ParsedHtml, Row as CountedRow};
 use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallError, ReadParams};
+use goodfetch_extractor::fields::Fields;
 use goodfetch_page::page_value::{DocumentResponse, NavigationGate, ServedDocument};
 use goodfetch_page::url_pattern::UrlPattern;
+use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::fetch::{RESPONSE_NOT_DOCUMENT, ResponseNotDocumentDetails};
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::events::{
     PAGE_WAIT_FOR_REQUEST_FINISHED, RESPONSE_BODY, ResponseBodyParams, WaitForRequestFinishedParams,
 };
+use goodfetch_protocol::page::read::{PAGE_READ, PageRead, PageReadParams};
 use goodfetch_protocol::page::request::{MAX_REDIRECTS, PAGE_REQUEST, PageRequestParams};
 use goodfetch_protocol::page::route::UrlMatcher;
 use goodfetch_protocol::page::session_pages::PAGE_CLOSE;
@@ -122,6 +128,7 @@ pub(super) fn answer(
     }
     match operation {
         name if name == PAGE_FORMATS.name => None,
+        name if name == PAGE_READ.name => Some(fields_read(page, read(params)?)),
         name if name == PAGE_CLOSE.name => {
             tiers.close(page_id);
             Some(ready(Ok(encoded(&serde_json::Map::new()))))
@@ -368,6 +375,39 @@ fn ready(answer: Result<Box<RawValue>, CallError>) -> Served {
 /// `value` as a call's result, encoded into bytes once.
 fn encoded(value: &impl Serialize) -> Box<RawValue> {
     serde_json::value::to_raw_value(value).expect("invariant: a protocol type encodes as JSON")
+}
+
+/// `page.read` on the served page `page`: each field `params` declares
+/// found in its document's tree as a browser finds it, on its Run's
+/// blocking owner, and read by the extractor's `fields` module, as on the
+/// browser tier (ADR 0147). A field the engine could never read is
+/// `invalid_params`; `closed` once its Run stops.
+fn fields_read(page: Arc<ServedPage>, params: &PageReadParams) -> Served {
+    let fields = params.fields.clone();
+    let page_id = params.page_id.clone();
+    Box::pin(async move {
+        let document = Arc::clone(&page.document);
+        let work = document.run.metrics().counted_work().clone();
+        let findings = crate::document::findings(&fields, &work)
+            .map_err(|sentence| CallError::protocol(ProtocolFailure::InvalidParams, sentence))?;
+        let base_url = document.base_url.clone();
+        let read = on_tree(&document, move |tree| {
+            let found = crate::document::found_in(tree, &findings);
+            Fields::of(&fields, &work).read(found, &base_url)
+        })
+        .await
+        .ok_or_else(|| {
+            CallError::new(
+                &CLOSED,
+                format!("the page `{}` is closed, or its Run ended", page_id.0),
+                &serde_json::json!({ "page_id": page_id }),
+            )
+        })?;
+        Ok(encoded(&PageRead {
+            values: read.values,
+            unread: read.unread,
+        }))
+    })
 }
 
 /// What a locator wait on a static document waits for.

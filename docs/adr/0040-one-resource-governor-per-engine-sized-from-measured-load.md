@@ -27,6 +27,7 @@ Spider and Crawl4AI read only the host's memory ([detect_system.rs](https://gith
 **The governor.**
 - **Ownership.** It belongs to the engine process (an Attached engine, the Daemon, or an engine embedded through the Rust crate), sits under ADR 0038's cancellation tree, and serves every run of that process.
 - **Fairness.** Capacity goes round-robin to the live runs, then, within a run, to its domains as in ADR 0004. Each run keeps its own ceilings, and Operator policy can cap any run's share.
+  > Note (spec [#2194](https://github.com/goodfetch/goodfetch/issues/2194), decided with the owner on 2026-11-07), 2026-11-16, [#2197](https://github.com/goodfetch/goodfetch/issues/2197): within a run, capacity goes to its domains under `crawl.domain_order`, as ADR 0004's note of that day says: by default to the ready key with the fewest of the run's requests in flight. The governor's floors, ceilings and memory signal are unchanged.
 - **Kinds of work.** It admits three kinds separately, each with its own floor and ceiling: HTTP and discovered-API fetches, open browser pages, and model calls. All three share the engine's memory and CPU allowance:
   - Browser pages are held mainly by memory, from a running average of what a page costs on its route.
   - HTTP fetches are held by CPU and file descriptors.

@@ -77,6 +77,10 @@
 //! above the site, at 16 requests at once, so the row holds the Bounds'
 //! counts too, with several attempts' staged pages in flight.
 //!
+//! The cell `round_robin` gives its free request slots to the domain keys
+//! each in turn, `crawl.domain_order: round_robin`, at 16 requests at once,
+//! beside the default order's cells (#2197).
+//!
 //! `F3.hop_round_trips.end` divides by the redirected chains that ended on
 //! their document, the unit `chains`: the site's redirects are one hop
 //! each, so its chains are its hops.
@@ -545,6 +549,26 @@ fn bounded() -> Cell {
     }
 }
 
+/// The cell whose free request slots go to its domain keys each in turn,
+/// `crawl.domain_order: round_robin`, beside the default's
+/// `fewest_in_flight`, at 16 requests at once: either order takes the first
+/// key of one index, so it counts what the default cell does (#2197).
+fn round_robin() -> Cell {
+    let mut settings = scoped(json!({
+        "politeness": { "domain": { "delay": 0, "concurrency": 16 } },
+    }));
+    settings["crawl"]["domain_order"] = json!("round_robin");
+    Cell {
+        name: "round_robin",
+        settings,
+        frontier: FRONTIER,
+        removes: &[],
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
+
 /// The bound of the cell `bounded`, far above the site's requests: it
 /// refuses none, so the cell crawls the default cell's site.
 const BOUND: u64 = 1_000;
@@ -739,6 +763,7 @@ fn cells() -> Vec<Cell> {
         memory_budget("memory_budget_1mib", 1 << 20),
         memory_budget(MEMORY_BUDGET_0, 0),
         bounded(),
+        round_robin(),
         // robots.txt off reads and parses no robots.txt (#1919), and with
         // the fixture's delay of 0 waits out no Crawl-delay, so neither cell
         // paces its domains: admission consults no Politeness store and

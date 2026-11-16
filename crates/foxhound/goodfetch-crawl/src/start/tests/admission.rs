@@ -1,18 +1,23 @@
 //! A crawl's admission through the engine's public interface over the
 //! in-memory network (spec #213's Seam 3), on the paused clock: the order
-//! the per-domain queues give its work items, the rate cap's spacing and
+//! the per-domain queues give its work items under each
+//! `crawl.domain_order`, and the share of the requests in flight a slow
+//! domain holds under it (#2197), the rate cap's spacing and
 //! the queues' journal in the Run's file; the backoff and the `Retry-After`
 //! a handler met, which hold its domain in the Politeness the Run shares,
 //! and a `Retry-After` past `politeness.retry_after.max`, which ends the
 //! domain's requests `failed` unsent (ADR 0118).
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_test_support::TestEnv;
+use rstest::rstest;
 use serde_json::{Value, json};
+use tokio::time::Instant;
 
-use super::{Reply, crawl, dependencies, page_of, run_file};
+use super::{Reply, as_sent, crawl, default_dependencies, dependencies, page_of, run_file};
 
 fn seed(url: &str) -> Value {
     json!({ "url": url, "label": "page" })
@@ -80,9 +85,122 @@ fn sent(client: &super::Client) -> Vec<(String, Duration)> {
         .collect()
 }
 
-/// Covers: story:3-47
-#[test]
-fn a_heavy_domain_listed_first_lets_the_small_ones_take_their_turns() {
+/// One request in flight at a time leaves every domain key with none in
+/// flight at each choice, so both orders give the turns.
+///
+/// `settings` with `crawl.domain_order` at `order`, when one is given.
+fn ordered(mut settings: Value, order: Option<&str>) -> Value {
+    if let Some(order) = order {
+        settings["crawl"]["domain_order"] = json!(order);
+    }
+    settings
+}
+
+/// One handler request: its URL, and when it came and when it was
+/// answered, each as the paused clock's time since the first request.
+#[derive(Debug, PartialEq, Eq)]
+struct Answered {
+    url: String,
+    came: Duration,
+    ended: Duration,
+}
+
+/// Starts `seeds` under `settings` and finishes the crawl, answering each
+/// handler request once `took` of its URL passed on the paused clock while
+/// the others come and are answered meanwhile, as handlers that take that
+/// long. Returns the requests, as they came. A handler has the settings'
+/// default time, 60 s.
+fn answered_after(
+    env: &TestEnv,
+    seeds: &Value,
+    settings: &Value,
+    took: impl Fn(&str) -> Duration,
+) -> Vec<Answered> {
+    crawl(
+        || default_dependencies(env, RunStateOptions::default()),
+        async |client| {
+            let params = json!({ "run_id": "timed", "seeds": seeds, "settings": settings });
+            client
+                .send(&json!({ "jsonrpc": "2.0", "id": "start", "method": "crawl.start", "params": as_sent("crawl.start", params) }))
+                .await;
+            // Each request's answer, by when it is due and then by when
+            // the request came, with the request's place in `came`.
+            let mut due: BTreeMap<(Instant, usize), Value> = BTreeMap::new();
+            let mut came: Vec<(String, Instant, Option<Instant>)> = Vec::new();
+            loop {
+                let next = match due.first_key_value() {
+                    Some(((at, _), _)) => tokio::time::timeout_at(*at, client.next()).await,
+                    None => Ok(client.next().await),
+                };
+                let Ok(message) = next else {
+                    let Some(((_, index), id)) = due.pop_first() else {
+                        continue;
+                    };
+                    let (url, _, answered) = &mut came[index];
+                    *answered = Some(Instant::now());
+                    let records = json!([{ "dataset": "pages", "data": { "page": url } }]);
+                    client
+                        .send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "records": records } }))
+                        .await;
+                    continue;
+                };
+                let message = message.expect("the engine closed before the crawl finished");
+                if message["method"] == "crawl_request.handle" {
+                    let url = page_of(&message["params"]);
+                    let now = Instant::now();
+                    due.insert((now + took(&url), came.len()), message["id"].clone());
+                    came.push((url, now, None));
+                } else if message["id"] == "start" {
+                    client
+                        .send(&json!({ "jsonrpc": "2.0", "id": "finish", "method": "run.finish", "params": { "run_id": "timed" } }))
+                        .await;
+                } else if message["id"] == "finish" {
+                    assert_eq!(message["result"]["lifecycle"], "finished", "{message}");
+                    break;
+                }
+            }
+            let first = came.first().map(|(_, at, _)| *at).expect("a request came");
+            came.into_iter()
+                .map(|(url, at, answered)| Answered {
+                    url,
+                    came: at - first,
+                    ended: answered.expect("every request was answered") - first,
+                })
+                .collect()
+        },
+    )
+}
+
+/// The most requests to `host` in flight at once when one of them came
+/// while another host's requests were still to come.
+fn most_in_flight_while_others_wait(requests: &[Answered], host: &str) -> usize {
+    let of_host = |request: &&Answered| request.url.contains(&format!("://{host}/"));
+    let last_other = requests
+        .iter()
+        .filter(|request| !of_host(request))
+        .map(|request| request.came)
+        .max()
+        .unwrap_or_default();
+    requests
+        .iter()
+        .filter(of_host)
+        .filter(|request| request.came < last_other)
+        .map(|request| {
+            requests
+                .iter()
+                .filter(of_host)
+                .filter(|other| other.came <= request.came && request.came < other.ended)
+                .count()
+        })
+        .max()
+        .unwrap_or_default()
+}
+
+/// Covers: story:3-47, setting:crawl.domain_order
+#[rstest]
+#[case::by_default(None)]
+#[case::round_robin(Some("round_robin"))]
+fn a_heavy_domain_listed_first_lets_the_small_ones_take_their_turns(#[case] order: Option<&str>) {
     let env = TestEnv::new();
     let seeds = json!([
         seed("https://heavy.test/1"),
@@ -96,7 +214,10 @@ fn a_heavy_domain_listed_first_lets_the_small_ones_take_their_turns() {
     let handled = handled(
         &env,
         &seeds,
-        &json!({ "crawl": { "handler": { "concurrency": 1 } } }),
+        &ordered(
+            json!({ "crawl": { "handler": { "concurrency": 1 } } }),
+            order,
+        ),
     );
 
     assert_eq!(
@@ -695,5 +816,86 @@ fn a_retry_after_past_the_bound_is_judged_when_the_site_asked_however_late_its_f
                 (json!("https://heavy.test/2"), Value::Null),
             ]
         )
+    );
+}
+
+/// A slow domain among fast ones: `slow.test`'s handler takes 10 s and the
+/// others' 1 s, with 4 requests in flight at most.
+fn a_slow_domain_among_fast_ones() -> (Value, impl Fn(&str) -> Duration) {
+    let seeds: Vec<Value> = ["slow.test", "a.test", "b.test", "c.test"]
+        .into_iter()
+        .flat_map(|host| (1..=4).map(move |page| seed(&format!("https://{host}/{page}"))))
+        .collect();
+    let took = |url: &str| {
+        Duration::from_secs(if url.starts_with("https://slow.test/") {
+            10
+        } else {
+            1
+        })
+    };
+    (Value::Array(seeds), took)
+}
+
+/// A slow domain holds no more than its share of the requests in flight
+/// while the fast ones have requests waiting, one of four, since a free
+/// one goes to the domain with the fewest in flight; at `round_robin` it
+/// takes one each turn and comes to hold all four, today's order (#2197).
+///
+/// Covers: story:3-47, setting:crawl.domain_order
+#[rstest]
+#[case::by_default(None, 1)]
+#[case::fewest_in_flight(Some("fewest_in_flight"), 1)]
+#[case::round_robin(Some("round_robin"), 4)]
+fn a_slow_domain_holds_its_share_of_the_requests_in_flight(
+    #[case] order: Option<&str>,
+    #[case] most: usize,
+) {
+    let env = TestEnv::new();
+    let (seeds, took) = a_slow_domain_among_fast_ones();
+
+    let requests = answered_after(
+        &env,
+        &seeds,
+        &ordered(
+            json!({ "crawl": { "handler": { "concurrency": 4 } } }),
+            order,
+        ),
+        took,
+    );
+
+    assert_eq!(
+        (
+            requests.len(),
+            most_in_flight_while_others_wait(&requests, "slow.test")
+        ),
+        (16, most)
+    );
+}
+
+/// With one request in flight per domain key, a key with one in flight
+/// waits for it, so every key a free request goes to has none: both
+/// orders send the same requests at the same moments (#2197).
+///
+/// Covers: story:3-47, setting:crawl.domain_order, setting:politeness.domain.concurrency
+#[test]
+fn one_request_per_domain_key_in_flight_gives_the_same_order_either_way() {
+    let sent = |order: &str| {
+        let env = TestEnv::new();
+        let (seeds, took) = a_slow_domain_among_fast_ones();
+        let settings = json!({
+            "crawl": { "handler": { "concurrency": 4 }, "domain_order": order },
+            "politeness": { "domain": { "concurrency": 1 } },
+        });
+        answered_after(&env, &seeds, &settings, took)
+    };
+
+    let fewest = sent("fewest_in_flight");
+
+    assert_eq!(
+        (
+            most_in_flight_while_others_wait(&fewest, "slow.test"),
+            fewest
+        ),
+        (1, sent("round_robin"))
     );
 }

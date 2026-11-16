@@ -3,7 +3,9 @@
 //! flight at once, one per domain key per turn under the global cap, keys
 //! under the full Public Suffix List or a crawl's own `crawl.domain_keys`,
 //! priority within a domain only, the queues journaled in the run file and
-//! released once drained, and an Operator policy cap on the rate cap.
+//! released once drained, an Operator policy cap on the rate cap, and
+//! `crawl.domain_order`'s value, explained, refused when invalid and
+//! locked by an Operator policy (#2197).
 #![expect(
     clippy::disallowed_methods,
     reason = "a test writes the Operator policy itself; its SQL statements are its own, on no Shared path (ADR 0140)"
@@ -17,7 +19,8 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use goodfetch_test_client::HomeLayout;
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, cli};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::run_file;
@@ -135,9 +138,14 @@ fn urls(urls: &[&str]) -> BTreeSet<String> {
     urls.iter().map(|url| (*url).to_owned()).collect()
 }
 
-/// Covers: story:3-47, story:3-48, story:3-49, story:3-50, operation:crawl.start
-#[test]
-fn each_turn_leases_one_request_per_domain_key_under_the_global_cap() {
+/// The heavy domain's requests wait for the small ones, which hold none in
+/// flight, so both orders give the turns.
+///
+/// Covers: story:3-47, story:3-48, story:3-49, story:3-50, operation:crawl.start, setting:crawl.domain_order
+#[rstest]
+#[case::by_default(json!({ "crawl": { "handler": { "concurrency": 3 } } }))]
+#[case::round_robin(json!({ "crawl": { "handler": { "concurrency": 3 }, "domain_order": "round_robin" } }))]
+fn each_turn_leases_one_request_per_domain_key_under_the_global_cap(#[case] settings: Value) {
     let env = TestEnv::new();
     let site = Site::start(&env);
     let seeds = [
@@ -150,11 +158,7 @@ fn each_turn_leases_one_request_per_domain_key_under_the_global_cap() {
         seed(&site.url("bob.github.io", "/1"), 0),
     ];
 
-    let (turns, report) = in_flight_at_once(
-        (&env, &site),
-        &seeds,
-        &json!({ "crawl": { "handler": { "concurrency": 3 } } }),
-    );
+    let (turns, report) = in_flight_at_once((&env, &site), &seeds, &settings);
 
     let file = run_file(&env, "fair");
     let keys: Vec<String> = file
@@ -276,6 +280,101 @@ fn an_operator_policy_cap_bounds_the_rate_of_a_crawl_that_set_none() {
                 (site.url("a.test", "/1"), "succeeded".to_owned()),
                 (site.url("b.test", "/1"), "pending".to_owned()),
             ]
+        )
+    );
+}
+
+/// `crawl.domain_order` as `config explain` shows it: its value, its
+/// layer, and the Operator policy that locked it, if one did.
+fn domain_order_explained(env: &TestEnv) -> Value {
+    let printed = cli(env, env!("CARGO_BIN_EXE_goodfetch-foxhound"))
+        .args(["config", "explain", "crawl.domain_order", "--json"])
+        .run()
+        .unwrap();
+    let explained: Value = serde_json::from_str(&printed.stdout).unwrap();
+    let setting = &explained["settings"][0];
+    json!([
+        setting["key"],
+        setting["value"],
+        setting["layer"],
+        setting.get("locked_by")
+    ])
+}
+
+/// `crawl.domain_order` is `fewest_in_flight` by default; a crawl naming
+/// no order of the two is refused with `setting_invalid`; and an Operator
+/// policy that locks it at `round_robin` shows in `config explain` and
+/// refuses a crawl that sets it, even to the locked value, with
+/// `setting_locked`, while one that leaves it unset starts (positive
+/// control).
+///
+/// Covers: setting:crawl.domain_order, command:config.explain, error:setting_invalid, error:setting_locked, operation:crawl.start
+#[test]
+fn crawl_domain_order_is_explained_refused_when_invalid_and_locked_by_an_operator_policy() {
+    let env = TestEnv::new();
+    let by_default = domain_order_explained(&env);
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
+    std::fs::write(
+        layout.operator_policy(),
+        "version = \"0.1\"\n\n[lock.crawl]\ndomain_order = \"round_robin\"\n",
+    )
+    .unwrap();
+    let locked = domain_order_explained(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    let mut started = |run_id: &str, order: Option<&str>| {
+        let settings = order.map_or_else(
+            || json!({}),
+            |order| json!({ "crawl": { "domain_order": order } }),
+        );
+        let started = engine.call(
+            run_id,
+            "crawl.start",
+            &json!({
+                "run_id": run_id,
+                "seeds": [{ "url": site.url("ordered.test", "/1"), "label": "page" }],
+                "settings": settings,
+            }),
+            &mut |_| None,
+        );
+        if started.get("result").is_some() {
+            engine.call(
+                &format!("{run_id}-abort"),
+                "run.abort",
+                &json!({ "run_id": run_id }),
+                &mut |_| None,
+            );
+        }
+        started
+            .get("error")
+            .map(|error| error["data"]["code"].clone())
+    };
+
+    let refused = (
+        started("invalid", Some("nearest_first")),
+        started("other", Some("fewest_in_flight")),
+        started("same", Some("round_robin")),
+        started("unset", None),
+    );
+    assert!(engine.finished());
+
+    assert_eq!(
+        (by_default, locked, refused),
+        (
+            json!(["crawl.domain_order", "fewest_in_flight", "default", null]),
+            json!([
+                "crawl.domain_order",
+                "round_robin",
+                "operator_policy",
+                "operator_policy"
+            ]),
+            (
+                Some(json!("setting_invalid")),
+                Some(json!("setting_locked")),
+                Some(json!("setting_locked")),
+                None
+            ),
         )
     );
 }

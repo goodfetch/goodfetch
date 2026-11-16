@@ -65,26 +65,74 @@ fn admit_all(gate: &mut dyn Gate, now: Instant) -> Vec<String> {
     std::iter::from_fn(|| gate.admit(now).map(|admitted| admitted.id)).collect()
 }
 
-/// Covers: story:3-47
-#[test]
-fn one_heavy_domain_and_two_small_ones_take_one_request_each_per_turn() {
+/// While no request ends, both of `crawl.domain_order`'s orders give each
+/// domain one request per turn.
+///
+/// Covers: story:3-47, setting:crawl.domain_order
+#[rstest]
+#[case::by_default(json!({}))]
+#[case::round_robin(json!({ "crawl": { "domain_order": "round_robin" } }))]
+fn one_heavy_domain_and_two_small_ones_take_one_request_each_per_turn(#[case] run: Value) {
     let now = Instant::now();
-    let mut queues = queues();
+    let mut queues = queues_under(&settings(run), now);
     for page in 1..=4 {
         enqueue(
-            &mut queues,
+            &mut *queues,
             &format!("h{page}"),
             &format!("https://www.heavy.test/{page}"),
             0,
         );
     }
-    enqueue(&mut queues, "a1", "https://a.test/1", 0);
-    enqueue(&mut queues, "b1", "https://b.test/1", 0);
-    enqueue(&mut queues, "a2", "https://shop.a.test/2", 0);
+    enqueue(&mut *queues, "a1", "https://a.test/1", 0);
+    enqueue(&mut *queues, "b1", "https://b.test/1", 0);
+    enqueue(&mut *queues, "a2", "https://shop.a.test/2", 0);
 
-    let admitted = admit_all(&mut queues, now);
+    let admitted = admit_all(&mut *queues, now);
 
     assert_eq!(admitted, ["h1", "a1", "b1", "h2", "a2", "h3", "h4"]);
+}
+
+/// Under `crawl.domain_order: fewest_in_flight`, the default, a free slot
+/// goes to the ready domain with the fewest requests in flight though its
+/// turn comes later; under `round_robin`, to the domain whose turn comes
+/// first.
+///
+/// Covers: setting:crawl.domain_order
+#[rstest]
+#[case::by_default(json!({}), "fast.test", ["f2", "s2"])]
+#[case::fewest_in_flight(json!({ "crawl": { "domain_order": "fewest_in_flight" } }), "fast.test", ["f2", "s2"])]
+#[case::round_robin(json!({ "crawl": { "domain_order": "round_robin" } }), "slow.test", ["s2", "f2"])]
+fn a_free_slot_goes_to_the_domain_the_order_names(
+    #[case] run: Value,
+    #[case] key: &str,
+    #[case] next: [&str; 2],
+) {
+    let now = Instant::now();
+    let mut queues = queues_under(&settings(run), now);
+    for id in ["s1", "s2", "s3"] {
+        enqueue(&mut *queues, id, &format!("https://slow.test/{id}"), 0);
+    }
+    for id in ["f1", "f2", "f3"] {
+        enqueue(&mut *queues, id, &format!("https://fast.test/{id}"), 0);
+    }
+    let first: Vec<String> = (0..2)
+        .filter_map(|_| queues.admit(now).map(|admitted| admitted.id))
+        .collect();
+    queues.ended("fast.test", now, Ended::Done);
+
+    let named = queues.next_key(now);
+    let then: Vec<String> = (0..2)
+        .filter_map(|_| queues.admit(now).map(|admitted| admitted.id))
+        .collect();
+
+    assert_eq!(
+        (first, named, then),
+        (
+            vec!["s1".to_owned(), "f1".to_owned()],
+            Some(key.to_owned()),
+            next.map(str::to_owned).to_vec()
+        )
+    );
 }
 
 /// Covers: story:3-49
@@ -873,5 +921,163 @@ proptest! {
         let (kept, walked): (Vec<_>, Vec<_>) = seen.into_iter().unzip();
 
         prop_assert_eq!(kept, walked);
+    }
+}
+
+impl Modeled {
+    /// The first moment from `now` it is ready: once its hold and its wait
+    /// are over.
+    fn ready_from(&self, now: Instant) -> Instant {
+        [self.held.map(|(until, _)| until), self.ready_at]
+            .into_iter()
+            .flatten()
+            .fold(now, Instant::max)
+    }
+}
+
+/// The values of `crawl.domain_order`.
+fn domain_order() -> impl Strategy<Value = &'static str> {
+    prop_oneof![Just("fewest_in_flight"), Just("round_robin")]
+}
+
+/// The keys of the model's domains with a request waiting, `0` the first.
+fn waiting_keys(model: &BTreeMap<String, Modeled>) -> Vec<String> {
+    model
+        .iter()
+        .filter(|(_, domain)| !domain.waiting.is_empty())
+        .map(|(key, _)| key.clone())
+        .collect()
+}
+
+proptest! {
+    #![proptest_config(goodfetch_test_support::proptest_config())]
+
+    /// However requests come, are withdrawn, held, woken, admitted and
+    /// end, a free slot goes to a ready domain, never one held or waiting
+    /// out its wait: under `fewest_in_flight` the one with the fewest
+    /// requests in flight, the first in turn among those with as few, and
+    /// under `round_robin` the first ready in turn. A reference keeps the
+    /// turns by hand as today's queues kept them: a domain at the back when
+    /// its first request comes and after each of its requests admitted, out
+    /// once it has none waiting. The key named next is the key admitted,
+    /// and the first moment one is ready is the reference's.
+    ///
+    /// Covers: setting:crawl.domain_order, story:3-47
+    #[test]
+    fn a_free_slot_goes_to_the_ready_domain_the_order_names(
+        changes in proptest::collection::vec(change(), 1..80),
+        order in domain_order(),
+    ) {
+        let start = Instant::now();
+        let mut now = start;
+        let run = json!({ "crawl": { "domain_order": order } });
+        let mut queues = queues_under(&settings(run), now);
+        let mut model: BTreeMap<String, Modeled> = BTreeMap::new();
+        let mut turns: Vec<String> = Vec::new();
+        let mut in_flight: Vec<String> = Vec::new();
+        let mut serial = 0;
+        for change in changes {
+            match change {
+                Change::Enqueue(domain) => {
+                    serial += 1;
+                    let key = queues.key(&format!("https://d{domain}.test/"));
+                    let id = format!("r{serial}");
+                    let enqueued = queues.enqueue(Waiting {
+                        id: id.clone(),
+                        key: key.clone(),
+                        priority: 0,
+                        order: serial,
+                        forefront: false,
+                    });
+                    prop_assert!(enqueued);
+                    let modeled = model.entry(key.clone()).or_default();
+                    if modeled.waiting.is_empty() {
+                        turns.push(key);
+                    }
+                    modeled.waiting.push(id);
+                }
+                Change::Withdraw(at) => {
+                    let waiting: Vec<(String, String)> = model
+                        .iter()
+                        .flat_map(|(key, domain)| domain.waiting.iter().map(|id| (key.clone(), id.clone())))
+                        .collect();
+                    if !waiting.is_empty() {
+                        let (key, id) = at.get(&waiting).clone();
+                        queues.withdraw(&key, &id);
+                        let modeled = model.get_mut(&key).unwrap();
+                        modeled.waiting.retain(|waiting| *waiting != id);
+                        if modeled.waiting.is_empty() {
+                            turns.retain(|turn| *turn != key);
+                        }
+                    }
+                }
+                Change::Admit => {
+                    let mut ready = turns.iter().filter(|key| model[*key].waits(now).0.is_none());
+                    let expected = if order == "round_robin" {
+                        ready.next()
+                    } else {
+                        ready.min_by_key(|key| model[*key].in_flight)
+                    }
+                    .cloned();
+                    let named = queues.next_key(now);
+                    let admitted = queues.admit(now);
+                    prop_assert_eq!(&named, &expected);
+                    prop_assert_eq!(admitted.as_ref().map(|admitted| &admitted.key), expected.as_ref());
+                    if let Some(admitted) = admitted {
+                        let modeled = model.get_mut(&admitted.key).unwrap();
+                        prop_assert_eq!(modeled.waiting.first(), Some(&admitted.id));
+                        modeled.waiting.remove(0);
+                        modeled.in_flight += 1;
+                        turns.retain(|turn| *turn != admitted.key);
+                        if !modeled.waiting.is_empty() {
+                            turns.push(admitted.key.clone());
+                        }
+                        in_flight.push(admitted.key);
+                    }
+                }
+                Change::Hold(at, wait, held) => {
+                    let keys = waiting_keys(&model);
+                    if !keys.is_empty() {
+                        let key = at.get(&keys).clone();
+                        let until = now + Duration::from_millis(wait);
+                        queues.hold(&key, until, held);
+                        model.get_mut(&key).unwrap().held = Some((until, held));
+                    }
+                }
+                Change::Wake(at) => {
+                    let keys = waiting_keys(&model);
+                    if !keys.is_empty() {
+                        let key = at.get(&keys).clone();
+                        queues.wake(&key);
+                        model.get_mut(&key).unwrap().held = None;
+                    }
+                }
+                Change::Ended(at, wait) => {
+                    if !in_flight.is_empty() {
+                        let key = in_flight.remove(at.index(in_flight.len()));
+                        let domain = model.get_mut(&key).unwrap();
+                        domain.in_flight -= 1;
+                        if let Some(wait) = wait {
+                            let until = now + Duration::from_millis(wait);
+                            queues.ended(&key, now, Ended::Until(until));
+                            domain.ready_at = Some(domain.ready_at.map_or(until, |ready_at| ready_at.max(until)));
+                        } else {
+                            queues.ended(&key, now, Ended::Done);
+                            if domain.waits(now).0.is_none() {
+                                domain.ready_at = None;
+                            }
+                        }
+                    }
+                }
+                Change::Advance(wait) => now += Duration::from_millis(wait),
+            }
+            // A domain the queues released holds nothing more: the model
+            // forgets it too, as it holds no wait that lasts.
+            model.retain(|_, domain| {
+                !(domain.waiting.is_empty() && domain.in_flight == 0 && domain.waits(now).0.is_none())
+            });
+            let ready_at = turns.iter().map(|key| model[key].ready_from(now)).min();
+            prop_assert_eq!(queues.ready_at(now), ready_at);
+        }
     }
 }

@@ -3709,8 +3709,9 @@ impl Runs {
             let folder = reader.folder().to_owned();
             let (recorded, writer) = reader
                 .read(move |connection| {
-                    let recorded: i64 =
-                        connection.query_row("SELECT count(*) FROM run", [], |row| row.get(0))?;
+                    let recorded: i64 = connection
+                        .prepare_cached("SELECT count(*) FROM run")?
+                        .query_row([], |row| row.get(0))?;
                     Ok((recorded > 0, test_writer(&folder).ok()))
                 })
                 .await?;
@@ -5375,10 +5376,9 @@ impl Registry {
             .write_with(self.start_syncing(start.kind), move |connection| {
                 row.insert(connection)?;
                 for (position, tag) in tags.iter().enumerate() {
-                    connection.execute(
-                        "INSERT INTO tags (position, tag) VALUES (?1, ?2)",
-                        (i64::try_from(position).unwrap_or(i64::MAX), tag.as_str()),
-                    )?;
+                    connection
+                        .prepare_cached("INSERT INTO tags (position, tag) VALUES (?1, ?2)")?
+                        .execute((i64::try_from(position).unwrap_or(i64::MAX), tag.as_str()))?;
                 }
                 match initialize {
                     Some(initialize) => initialize(connection),
@@ -5537,7 +5537,8 @@ impl Registry {
         state
             .write(move |connection| {
                 connection
-                    .execute("UPDATE run SET progress_message = ?1", [text])
+                    .prepare_cached("UPDATE run SET progress_message = ?1")?
+                    .execute([text])
                     .map(drop)
             })
             .await
@@ -6320,11 +6321,11 @@ impl Registry {
         state
             .write(|connection| {
                 connection
-                    .execute(
+                    .prepare_cached(
                         "UPDATE run SET lifecycle = ?1, stop_reason = NULL, verdict = NULL,
                          completeness = NULL, ended_at = NULL",
-                        [Lifecycle::Running.as_str()],
-                    )
+                    )?
+                    .execute([Lifecycle::Running.as_str()])
                     .map(drop)
             })
             .await
@@ -6348,7 +6349,8 @@ impl Registry {
         if let Err(error) = state
             .write(move |connection| {
                 connection
-                    .execute("UPDATE run SET needs = ?1", [needs])
+                    .prepare_cached("UPDATE run SET needs = ?1")?
+                    .execute([needs])
                     .map(drop)
             })
             .await

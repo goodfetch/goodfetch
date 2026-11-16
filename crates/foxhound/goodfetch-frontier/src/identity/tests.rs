@@ -1,4 +1,8 @@
 #![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+#![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]

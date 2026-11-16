@@ -27,7 +27,7 @@ use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{Durability, RunStateError, sqlite_error};
-use crate::sqlite_store::{Access, File};
+use crate::sqlite_store::{self, Access, File};
 use crate::tasks::TaskOwner;
 
 /// What a discard found of a Run.
@@ -226,18 +226,13 @@ fn destroy_key(file: &Path, vfs: Option<&str>, installed: bool) -> Result<bool, 
         .pragma_update(None, "secure_delete", "ON")
         .map_err(failed)?;
     let keyed = connection
-        .query_row(
-            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'run_key'",
-            [],
-            |_| Ok(()),
-        )
+        .prepare_cached("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'run_key'")
+        .and_then(|mut statement| statement.query_row([], |_| Ok(())))
         .optional()
         .map_err(failed)?
         .is_some();
     if keyed {
-        connection
-            .execute("DELETE FROM run_key", [])
-            .map_err(failed)?;
+        sqlite_store::run_cached(&connection, "DELETE FROM run_key").map_err(failed)?;
     }
     Ok(true)
 }
@@ -255,7 +250,8 @@ fn truncate_wal(file: &Path, vfs: Option<&str>) -> Result<Option<()>, RunStateEr
         .busy_timeout(std::time::Duration::ZERO)
         .map_err(failed)?;
     let busy: i64 = connection
-        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))
+        .prepare_cached("PRAGMA wal_checkpoint(TRUNCATE)")
+        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
         .map_err(failed)?;
     Ok((busy == 0).then_some(()))
 }

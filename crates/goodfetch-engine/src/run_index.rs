@@ -448,9 +448,7 @@ impl StoreFile for IndexFile {
             })
             .map_err(|error| failed(&error))?;
         for statement in SCHEMA {
-            connection
-                .execute(statement, [])
-                .map_err(|error| failed(&error))?;
+            sqlite_store::run_cached(&connection, statement).map_err(|error| failed(&error))?;
         }
         let marked = lowest_minor::read_sqlite(&connection, RUN_INDEX.name)
             .map_err(|error| failed(&error))?;
@@ -459,14 +457,17 @@ impl StoreFile for IndexFile {
         }
         let created = self.opener.created();
         connection
-            .execute(
-                "INSERT INTO format (name, version, lowest_minor) VALUES (?1, ?2, ?3) ON CONFLICT (name) DO NOTHING",
-                (
+            .prepare_cached(
+                "INSERT INTO format (name, version, lowest_minor) VALUES (?1, ?2, ?3) \
+                 ON CONFLICT (name) DO NOTHING",
+            )
+            .and_then(|mut statement| {
+                statement.execute((
                     RUN_INDEX.name,
                     created.version.to_string(),
                     i64::from(created.lowest_minor),
-                ),
-            )
+                ))
+            })
             .map_err(|error| failed(&error))?;
         Ok(connection)
     }

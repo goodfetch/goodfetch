@@ -8,6 +8,11 @@
 //! entry with its hash per line, which `audit verify --file` verifies off
 //! the machine; under `audit.retention` the engine prunes its beginning
 //! behind an anchor, from which it still verifies.
+
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"

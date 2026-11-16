@@ -7,7 +7,7 @@
 //! namespace, a container's, and reaps every process orphaned there.
 #![expect(
     clippy::disallowed_methods,
-    reason = "the tests start processes, signal them, and read the Daemon's files and logs themselves"
+    reason = "the tests start processes, signal them, and read the Daemon's files and logs themselves; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 #![expect(
     clippy::doc_markdown,

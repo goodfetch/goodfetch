@@ -3,6 +3,11 @@
 //! stops one, so an admission keys a URL and asks whether a rule refuses
 //! it with no read of the file.
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 

@@ -6,7 +6,7 @@
 //! as long as the benchmark's process.
 #![expect(
     clippy::disallowed_methods,
-    reason = "benchmark harness: a plant blocks the crawl's one thread on its own work, on purpose"
+    reason = "benchmark harness: a plant blocks the crawl's one thread on its own work, on purpose; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::future::Future;

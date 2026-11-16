@@ -8,7 +8,7 @@
 //! dropped mid-command (ADRs 0024, 0067, 0069, 0073 and 0098).
 #![expect(
     clippy::disallowed_methods,
-    reason = "the tests start processes, read the Daemon's files and logs and write its configuration themselves"
+    reason = "the tests start processes, read the Daemon's files and logs and write its configuration themselves; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 #![expect(
     clippy::doc_markdown,

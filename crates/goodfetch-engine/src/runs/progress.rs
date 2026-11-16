@@ -353,19 +353,16 @@ pub(super) fn committed(
     at: PointInTime,
 ) -> rusqlite::Result<Option<RunProgress>> {
     let found = connection
-        .query_row(
-            "SELECT run_id, epoch, lifecycle, stop_reason, progress_message FROM run",
-            [],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                ))
-            },
-        )
+        .prepare_cached("SELECT run_id, epoch, lifecycle, stop_reason, progress_message FROM run")?
+        .query_row([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+            ))
+        })
         .optional()?;
     let Some((run_id, epoch, lifecycle, stop_reason, message)) = found else {
         return Ok(None);

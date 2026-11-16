@@ -892,11 +892,10 @@ impl Store {
             Some(head) if head.sequence < first => None,
             Some(head) if head.sequence <= last => {
                 let hash: Option<String> = connection
-                    .query_row(
-                        "SELECT hash FROM entries WHERE sequence = ?1",
-                        [stored(head.sequence)],
-                        |row| row.get(0),
-                    )
+                    .prepare_cached("SELECT hash FROM entries WHERE sequence = ?1")
+                    .and_then(|mut statement| {
+                        statement.query_row([stored(head.sequence)], |row| row.get(0))
+                    })
                     .optional()
                     .ok()
                     .flatten();

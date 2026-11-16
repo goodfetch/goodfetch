@@ -12,7 +12,7 @@
 //! `site_preferences.max_crawl_delay` skips the host's requests.
 #![expect(
     clippy::disallowed_methods,
-    reason = "the test measures, from outside the engine's process, how long its first page waited, and writes the Operator policy itself"
+    reason = "the test measures, from outside the engine's process, how long its first page waited, and writes the Operator policy itself; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 #![expect(
     clippy::doc_markdown,

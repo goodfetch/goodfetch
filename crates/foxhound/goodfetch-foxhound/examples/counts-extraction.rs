@@ -29,18 +29,18 @@
 //!   through a page: more hosts than the cache's default bound.
 //!
 //! The rows are those B4 holds: `F1.rule_list_builds`, `F1.rule_tests`,
-//! `F1.analysis_handoffs` and `F1.parses` per page, and
+//! `F1.analysis_handoffs`, `F1.parses` and `F1.tree_copies` per page, and
 //! `F1.host_cache_entries` and `F1.host_cache_bytes` per crawl, read as the
 //! crawl ended. A code-free crawl that asks for a format reads its formats
 //! ahead in its page's one hand-off, on a copy of the tree its untouched
 //! readers parsed (#2189): one parse a page. It prints no
 //! `F1.readability_runs`, 2 a page here, the formats' main-content step on
 //! the cleaned tree beside the Page signature's on the tree as served (ADR
-//! 0138), which stays B1's row; and no `F1.tree_copies`, 1 a page here, the
-//! read ahead's copy, as the landmarks fallback reads the tree its built-in
-//! kept (#2639), but 2 in `single_attempt`, whose step reads the tree in
-//! place, so the fallback reads a copy taken before it: a figure the
-//! register's row does not hold on B4 yet.
+//! 0138), which stays B1's row. `F1.tree_copies` is 1 a page, the read
+//! ahead's copy, as the landmarks fallback reads the tree its built-in kept
+//! (#2639), and 2 in `single_attempt`, whose step reads the tree in place,
+//! so the fallback reads a copy taken before it: the register names that
+//! cell's figure (the owner, 2026-11-16, #2639's option A).
 //!
 //! `F1.clean_up_instructions` is the instructions Callgrind counts in the
 //! clean-up's removal and whatever it calls, on the `default` cell, for
@@ -133,11 +133,12 @@ const HOSTS: usize = 2_048;
 const AD: &str = "Sponsored offer from Harbourline Freight";
 
 /// The rows B4 holds per page.
-const PER_PAGE: [Row; 4] = [
+const PER_PAGE: [Row; 5] = [
     Row::PageRuleListBuilds,
     Row::PageRuleTests,
     Row::PageAnalysisHandoffs,
     Row::PageParses,
+    Row::PageTreeCopies,
 ];
 
 /// The rows B4 holds per crawl, read as the crawl ended.

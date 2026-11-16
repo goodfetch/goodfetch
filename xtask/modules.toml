@@ -156,6 +156,7 @@ writer = ["registry", "tree"]
 
 # Which of `compare`'s own modules may import which.
 [submodules.compare]
+admission = []
 auto = ["hostile", "matrix"]
 collie = ["relay", "report", "sampler", "trial", "trials"]
 extracted = []

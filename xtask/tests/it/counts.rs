@@ -760,7 +760,7 @@ const OTHER_B1_ROWS: &str = "\
 | `E6.opens` | opens and statement preparations per permit | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E6.script_sends` | script sends per permit | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `E6.robots_parses` | robots.txt parses per origin per Run | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
-| `E6.robots_reads` | reads of a robots.txt copy per request | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
+| `E6.robots_reads` | reads of a robots.txt copy per origin per Run | 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `E6.off_work` | Politeness work per attempt with Politeness and robots.txt off | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 ";
 
@@ -769,7 +769,7 @@ const OTHER_B1_ROWS: &str = "\
 /// readability run and two analysis hand-offs a page, one validation and one
 /// serialization a Record, one Payload serialized and validated over one links batch, one transaction,
 /// sync and configuration read over one attempt and one Run, two Politeness
-/// transactions an attempt and one robots.txt parse an origin, over 13
+/// transactions an attempt and one robots.txt read and parse an origin, over 13
 /// Run-trace entries none of their rows' work, none of the other rows' work,
 /// then `extra` as it is, and 13 more of the row it is told to plant.
 fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
@@ -843,7 +843,7 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("E6.opens", 0),
         ("E6.script_sends", 0),
         ("E6.robots_parses", 1),
-        ("E6.robots_reads", 0),
+        ("E6.robots_reads", 1),
         ("E6.off_work", 0),
     ]
     .iter()

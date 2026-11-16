@@ -53,7 +53,15 @@ pub(crate) const TABLES: PolitenessTables = PolitenessTables {
             ceiling_changed_at INTEGER,
             last_start INTEGER
         ) STRICT"],
+    prepared: &[READ_LIMITS, WRITE_LIMITS],
 };
+
+// The statements the rule runs on the Politeness file, prepared when it opens.
+const READ_LIMITS: &str =
+    "SELECT ceiling, ceiling_changed_at, last_start FROM proxy_limits WHERE key = ?1";
+const WRITE_LIMITS: &str = "INSERT INTO proxy_limits (key, ceiling, ceiling_changed_at, last_start)
+    VALUES (?1, ?2, ?3, ?4)
+    ON CONFLICT (key) DO UPDATE SET ceiling = ?2, ceiling_changed_at = ?3, last_start = ?4";
 
 /// One proxy key's shared state.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -69,9 +77,7 @@ struct Limits {
 impl Limits {
     fn read(connection: &Connection, key: &str) -> rusqlite::Result<Self> {
         Ok(connection
-            .prepare_cached(
-                "SELECT ceiling, ceiling_changed_at, last_start FROM proxy_limits WHERE key = ?1",
-            )?
+            .prepare_cached(READ_LIMITS)?
             .query_row([key], |row| {
                 Ok(Self {
                     ceiling: row
@@ -86,19 +92,13 @@ impl Limits {
     }
 
     fn write(&self, connection: &Connection, key: &str) -> rusqlite::Result<()> {
-        connection
-            .prepare_cached(
-                "INSERT INTO proxy_limits (key, ceiling, ceiling_changed_at, last_start)
-             VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT (key) DO UPDATE SET ceiling = ?2, ceiling_changed_at = ?3, last_start = ?4",
-            )?
-            .execute((
-                key,
-                self.ceiling
-                    .map(|ceiling| i64::try_from(ceiling).unwrap_or(i64::MAX)),
-                self.ceiling_changed_at,
-                self.last_start,
-            ))?;
+        connection.prepare_cached(WRITE_LIMITS)?.execute((
+            key,
+            self.ceiling
+                .map(|ceiling| i64::try_from(ceiling).unwrap_or(i64::MAX)),
+            self.ceiling_changed_at,
+            self.last_start,
+        ))?;
         Ok(())
     }
 }

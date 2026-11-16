@@ -61,7 +61,14 @@ pub const TABLES: PolitenessTables = PolitenessTables {
             status INTEGER NOT NULL,
             body BLOB NOT NULL
         ) STRICT"],
+    prepared: &[STORED, STORE],
 };
+
+// The statements the copies are read and stored with, prepared when the file opens.
+const STORED: &str = "SELECT fetched_at, status, body FROM robots_txt WHERE location = ?1";
+const STORE: &str =
+    "INSERT INTO robots_txt (location, fetched_at, status, body) VALUES (?1, ?2, ?3, ?4)
+    ON CONFLICT (location) DO UPDATE SET fetched_at = ?2, status = ?3, body = ?4";
 
 /// An origin's last good copy: the answer that applies as it is, and when
 /// it came.
@@ -121,7 +128,7 @@ pub(crate) fn applies(copy: Option<&Copy>, answer: &Answer) -> Fetched {
 
 pub(crate) fn stored(connection: &Connection, location: &str) -> rusqlite::Result<Option<Copy>> {
     connection
-        .prepare_cached("SELECT fetched_at, status, body FROM robots_txt WHERE location = ?1")
+        .prepare_cached(STORED)
         .and_then(|mut cached| {
             cached.query_row([location], |row| {
                 Ok(Copy {
@@ -135,14 +142,9 @@ pub(crate) fn stored(connection: &Connection, location: &str) -> rusqlite::Resul
 }
 
 pub(crate) fn store(connection: &Connection, location: &str, copy: &Copy) -> rusqlite::Result<()> {
-    connection
-        .prepare_cached(
-            "INSERT INTO robots_txt (location, fetched_at, status, body) VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT (location) DO UPDATE SET fetched_at = ?2, status = ?3, body = ?4",
-        )
-        .and_then(|mut cached| {
-            cached.execute((location, copy.fetched_at, copy.status, &copy.body))
-        })?;
+    connection.prepare_cached(STORE).and_then(|mut cached| {
+        cached.execute((location, copy.fetched_at, copy.status, &copy.body))
+    })?;
     Ok(())
 }
 

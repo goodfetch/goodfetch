@@ -205,7 +205,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 132] = [
+const ROWS: [Row; 133] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -437,6 +437,11 @@ const ROWS: [Row; 132] = [
     b1("F3.payload_serializations", PAYLOADS, true),
     b1("F3.validations", PAYLOADS, true),
     b1("F3.actor_round_trips", ATTEMPTS_ENDED, true),
+    // A second copy's take of its Permit, a round trip to the actor that
+    // holds its Run's Politeness (#2171): at most one per second copy. Its
+    // unit is the cell whose handler sends each page's navigation to
+    // another domain key, none elsewhere, where its count is 0.
+    b1("F3.second_copy_round_trips", SECOND_COPIES, false),
     b1("F3.hop_round_trips", HOPS, true),
     b1("F3.hop_round_trips.end", CHAINS, true),
     b1("F3.in_flight_serializations", ATTEMPTS_ENDED, false),
@@ -1147,6 +1152,9 @@ const PAYLOADS: &str = "payloads";
 
 /// The attempts that ended in it: a page's, and each sitemap's read.
 const ATTEMPTS_ENDED: &str = "attempts_ended";
+/// The second copies of requests its Run admitted that it sent: a
+/// handler's navigations to another domain key.
+const SECOND_COPIES: &str = "second_copies";
 
 /// The leases of a cell at a level that batches attempts whose memory
 /// budget holds its pending work items, a page's and a sitemap's: none in
@@ -1747,6 +1755,7 @@ fn one_of(unit: &str) -> &str {
         BATCHED_LEASES | SPILLED_LEASES => "lease",
         CALLGRIND_CRAWLS => "crawl",
         HANDLED_PAGE_HUNDREDTHS => "hundredth of a handled page",
+        SECOND_COPIES => "second copy",
         unit => unit.trim_end_matches('s'),
     }
 }

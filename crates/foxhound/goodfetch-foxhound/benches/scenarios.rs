@@ -82,6 +82,14 @@ pub(crate) const PAGES: [usize; 12] =
 /// The host the site is served on.
 const HOST: &str = "pages.test";
 
+/// The host of another domain key, which a handler navigating beside its
+/// page reaches ([`Options::beside`]): it answers every path with
+/// [`BESIDE_PAGE`].
+const BESIDE_HOST: &str = "beside.test";
+
+/// The page [`BESIDE_HOST`] answers.
+const BESIDE_PAGE: &str = "<!DOCTYPE html><html><body><h1>Beside</h1></body></html>";
+
 /// The end of every page's body.
 const TAIL: &[u8] = b"</main></body></html>\n";
 
@@ -171,6 +179,8 @@ struct Site {
     requests: Arc<AtomicU64>,
     /// How many of [`PAGES`] it links and serves.
     linked: usize,
+    /// The pages [`BESIDE_HOST`] answered.
+    besides: Arc<AtomicU64>,
 }
 
 /// The seed that redirects, to [`MOVED_TO`].
@@ -216,6 +226,18 @@ fn frontier_page(path: &str) -> Option<Page> {
             head: head(path, ""),
             paragraphs: 0,
         })
+}
+
+/// The page [`BESIDE_HOST`] answers every path with.
+fn beside_page() -> Sent {
+    let headers = vec![
+        (
+            "content-type".to_owned(),
+            "text/html; charset=utf-8".to_owned(),
+        ),
+        ("content-length".to_owned(), BESIDE_PAGE.len().to_string()),
+    ];
+    plain(200, headers, BESIDE_PAGE.to_owned())
 }
 
 /// One answer of no paragraphs: a redirect, or a sitemap.
@@ -267,7 +289,10 @@ impl Transport for Site {
                 ROBOTS_TXT.to_owned(),
             ))));
         }
-        let path = hop.url.path();
+        if hop.url.host_str() == Some(BESIDE_HOST) {
+            self.besides.fetch_add(1, Ordering::Relaxed);
+            return Box::pin(std::future::ready(Ok(beside_page())));
+        }
         if let Some(to) = self.moved(path) {
             self.hops.fetch_add(1, Ordering::Relaxed);
             let location = ("location".to_owned(), to.to_owned());
@@ -447,6 +472,9 @@ pub(crate) struct Crawled {
     pub(crate) attempts: u64,
     /// Every request the site was sent: its pages' and robots.txt's.
     pub(crate) requests: u64,
+    /// The pages [`BESIDE_HOST`] answered: a handler's navigations beside
+    /// its page, each a second copy of a request its Run admitted.
+    pub(crate) besides: u64,
 }
 
 /// The entries the Run traces under `home` hold once its crawl ended: one
@@ -505,6 +533,17 @@ pub(crate) fn crawl(home: &Path, start: SystemTime, seed: u64) -> Crawled {
     crawl_with(home, start, seed, Options::default())
 }
 
+/// Where a crawl's handler navigates its page once its `h1` is visible.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Navigation {
+    /// Nowhere: it has handled its page.
+    #[default]
+    Stays,
+    /// To [`BESIDE_HOST`], another domain key, which takes a Permit beside
+    /// the Run's own: a second copy (#2171).
+    Beside,
+}
+
 /// What a crawl runs with beyond the fixture: the counts cells' (ADR 0140).
 #[derive(Default)]
 pub(crate) struct Options {
@@ -521,6 +560,9 @@ pub(crate) struct Options {
     /// A handler serves each page, on its document tier, in place of the
     /// code-free extraction.
     pub(crate) handler: Option<Handler>,
+    /// Where the [`Handler::Waits`] handler navigates its page once its `h1`
+    /// is visible.
+    pub(crate) navigation: Navigation,
     /// The Frontier's outcomes beyond a links batch.
     pub(crate) frontier: Option<Frontier>,
     /// Every page without its paragraphs: the same batches, hops and sitemaps
@@ -652,6 +694,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         fields,
         formats,
         handler,
+        navigation,
         frontier,
         small_pages,
         run_state_vfs,
@@ -674,6 +717,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
     let (sent, attempts) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
     let (hops, sitemaps) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
     let requests = Arc::new(AtomicU64::new(0));
+    let besides = Arc::new(AtomicU64::new(0));
     let site = Arc::new(Site {
         sent: Arc::clone(&sent),
         attempts: Arc::clone(&attempts),
@@ -687,6 +731,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         robots_txt,
         requests: Arc::clone(&requests),
         linked,
+        besides: Arc::clone(&besides),
     });
     let (records, handled) = drive(
         site,
@@ -698,6 +743,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
             metrics,
             run_state_vfs,
             handler,
+            navigation,
             credits: CREDITS,
             after_start,
         },
@@ -710,6 +756,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         sitemaps: sitemaps.load(Ordering::Relaxed),
         attempts: attempts.load(Ordering::Relaxed),
         requests: requests.load(Ordering::Relaxed),
+        besides: besides.load(Ordering::Relaxed),
     }
 }
 
@@ -726,6 +773,9 @@ pub(crate) struct Driven<'a> {
     pub(crate) metrics: Metrics,
     pub(crate) run_state_vfs: Option<String>,
     pub(crate) handler: Option<Handler>,
+    /// Where the [`Handler::Waits`] handler navigates its page once its `h1`
+    /// is visible.
+    pub(crate) navigation: Navigation,
     pub(crate) credits: u64,
     /// What the crawl is sent once it started.
     pub(crate) after_start: AfterStart,
@@ -748,6 +798,7 @@ pub(crate) fn drive(
         metrics,
         run_state_vfs,
         handler,
+        navigation,
         credits,
         after_start,
     } = on;
@@ -769,7 +820,7 @@ pub(crate) fn drive(
             send(&mut writer, &hello()).await;
             send(&mut writer, &encode(crawl_start)).await;
             let mut records = Vec::new();
-            let mut handled = Handled::of(handler);
+            let mut handled = Handled::of(handler, navigation);
             let mut calls_out = 0;
             while let Some(line) = next_line(&mut lines).await {
                 let message = decode(&line);
@@ -864,6 +915,7 @@ pub(crate) fn start_with_seeds(
         robots_txt: false,
         requests: Arc::default(),
         linked: 0,
+        besides: Arc::default(),
     }));
     let engine = foxhound(tiers, Metrics::default());
     let seeds: Vec<Value> = urls
@@ -1003,9 +1055,12 @@ fn crawl_start(
         ("politeness".to_owned(), json!({ "domain": { "delay": 0 } })),
         (
             "network".to_owned(),
-            json!({ "resolve": { HOST: ["127.0.0.1"] } }),
+            json!({ "resolve": { HOST: ["127.0.0.1"], BESIDE_HOST: ["127.0.0.1"] } }),
         ),
-        ("egress".to_owned(), json!({ "private_ranges": [HOST] })),
+        (
+            "egress".to_owned(),
+            json!({ "private_ranges": [HOST, BESIDE_HOST] }),
+        ),
     ]);
     settings.extend(cell);
     let mut seeds = Vec::new();
@@ -1099,10 +1154,13 @@ enum Handled {
 }
 
 impl Handled {
-    fn of(handler: Option<Handler>) -> Self {
+    fn of(handler: Option<Handler>, navigation: Navigation) -> Self {
         match handler {
             None => Self::None,
-            Some(Handler::Waits) => Self::Waits(Waits::default()),
+            Some(Handler::Waits) => Self::Waits(Waits {
+                navigation,
+                ..Waits::default()
+            }),
             Some(Handler::Reference) => Self::Reference(Reference::default()),
         }
     }
@@ -1127,12 +1185,14 @@ impl Handled {
 }
 
 /// The handler of a crawl: on each `crawl_request.handle`, waits on its page's
-/// `h1` as attached, then as visible, then answers no Record.
+/// `h1` as attached, then as visible, then, when its `navigation` goes
+/// beside, navigates the page to [`BESIDE_HOST`], then answers no Record.
 #[derive(Default)]
 struct Waits {
     /// Each request a wait is out for: its ID and its page's.
     waiting: BTreeMap<String, (Value, Value)>,
     answered: u64,
+    navigation: Navigation,
 }
 
 impl Waits {
@@ -1156,7 +1216,22 @@ impl Waits {
                 &wait_for(&format!("visible-{key}"), page, "visible"),
             )
             .await;
-        } else if let Some(key) = id.strip_prefix("visible-") {
+        } else if let Some(key) = id.strip_prefix("visible-")
+            && self.navigation == Navigation::Beside
+        {
+            assert!(message.get("result").is_some(), "{message}");
+            let (_, page) = &self.waiting[key];
+            let goto = json!({
+                "jsonrpc": "2.0",
+                "id": format!("beside-{key}"),
+                "method": "page.goto",
+                "params": { "page_id": page, "url": format!("http://{BESIDE_HOST}/") },
+            });
+            send(writer, &goto.to_string()).await;
+        } else if let Some(key) = id
+            .strip_prefix("visible-")
+            .or_else(|| id.strip_prefix("beside-"))
+        {
             assert!(message.get("result").is_some(), "{message}");
             let (request, _) = &self.waiting[key];
             let answer = json!({ "jsonrpc": "2.0", "id": request, "result": { "records": [] } });

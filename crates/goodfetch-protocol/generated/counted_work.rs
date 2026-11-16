@@ -102,6 +102,7 @@ const WORKS: [&str; 87] = [
     "script_compilations",
     "script_sends",
     "seals",
+    "second_copy_round_trips",
     "selector_compilations",
     "sends",
     "serialization_commands",

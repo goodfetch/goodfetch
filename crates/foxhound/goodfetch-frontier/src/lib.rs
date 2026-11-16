@@ -66,7 +66,8 @@ pub use learn::{
 };
 pub use politeness::{
     Pace, crawl_delay_read, last_start, latency_measured, longest_wait, paces,
-    refuse_second_copies, start_after, start_after_robots_txt, started_again, started_at_send,
+    refuse_second_copies, settled_at_send, start_after, start_after_robots_txt, started_again,
+    started_at_send,
 };
 pub use queues::DomainQueues;
 pub use robots_txt::{SharedRobotsTxt, TABLES as ROBOTS_TXT_TABLES};

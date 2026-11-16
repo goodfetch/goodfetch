@@ -104,8 +104,9 @@ impl Store {
     }
 
     /// As the file's `take_in`, for a rule `R`: the key's state is loaded
-    /// once, for the admission and the start, and only what the start
-    /// wrote is saved. No Run of another engine holds a Permit here, so
+    /// once, for the admission, the start and the send a take in turn
+    /// reserves ([`PermitRule::reserved`]), and only what they wrote is
+    /// saved. No Run of another engine holds a Permit here, so
     /// nothing is reclaimed.
     pub(super) fn taken<R: PermitRule>(
         &mut self,
@@ -126,12 +127,22 @@ impl Store {
                 *self.in_flight.entry(key.to_owned()).or_default() += 1;
                 let writes = rule.started(&mut state, now);
                 state.save_to(&mut self.tables, key, &writes);
+                // A take in turn is a crawl request's own: its send is
+                // reserved with its grant. A copy beside it sends at once.
+                let send_at = in_turn
+                    .then(|| rule.reserved(&mut state, now))
+                    .flatten()
+                    .map(|(send_at, writes)| {
+                        state.save_to(&mut self.tables, key, &writes);
+                        send_at
+                    });
                 if in_turn && let Some(waiters) = self.waiters.get_mut(key) {
                     waiters.retain(|waiter| waiter.run_id != holder.run_id);
                 }
                 Taken::Granted(Permit {
                     id,
                     key: key.to_owned(),
+                    send_at,
                 })
             }
             Verdict::Until(until, hold) => Taken::Wait(Some((until, hold))),
@@ -218,11 +229,13 @@ impl Store {
         (ready_at, turn)
     }
 
-    /// Withdraws `run_id` as a waiter of every key.
+    /// Withdraws `run_id` as a waiter of every key, and forgets a key left
+    /// with none, as it has none in the file's `waiters` table.
     pub(super) fn stop_waiting(&mut self, run_id: &str) {
-        for waiters in self.waiters.values_mut() {
+        self.waiters.retain(|_, waiters| {
             waiters.retain(|waiter| waiter.run_id != run_id);
-        }
+            !waiters.is_empty()
+        });
     }
 
     /// As [`Politeness::change`](super::Politeness::change): loads what

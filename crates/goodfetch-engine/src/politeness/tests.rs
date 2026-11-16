@@ -3,7 +3,8 @@
 //! the combined count under a key against each run's own cap, waiters woken
 //! in turn through their wake endpoints, a woken waiter still refused
 //! passing the wake on, the Permits of a gone Run reclaimed, the file's
-//! format, and a take whose transaction meets a full disk.
+//! format, and a take whose transaction meets a full disk; and a Run's own
+//! Politeness, held in memory, reserving a send at its grant.
 #![expect(
     clippy::disallowed_methods,
     reason = "a test reads the wall clock as its rules' reading, and opens the file to look at it; its SQL statements are its own, on no Shared path (ADR 0140)"
@@ -78,6 +79,35 @@ impl PermitRule for Cap {
 
 fn cap(cap: u64) -> SharedRule {
     SharedRule::new(Cap(cap))
+}
+
+/// A rule admitting every request whose sends it reserves for one moment.
+struct Reserves(SystemTime);
+
+impl PermitRule for Reserves {
+    type State = Stateless;
+
+    fn reads(&self, _: Step) {}
+
+    fn admit(&self, _: &Stateless, _: u64, _: SystemTime) -> Verdict {
+        Verdict::Go
+    }
+
+    fn started(&self, _: &mut Stateless, _: SystemTime) {}
+
+    fn ended(
+        &self,
+        _: &mut Stateless,
+        _: u64,
+        _: Ending,
+        _: SystemTime,
+    ) -> (Option<SystemTime>, ()) {
+        (None, ())
+    }
+
+    fn reserved(&self, _: &mut Stateless, _: SystemTime) -> Option<(SystemTime, ())> {
+        Some((self.0, ()))
+    }
 }
 
 /// A Run of the test's: live unless its folder's name says it is gone.
@@ -388,6 +418,43 @@ fn a_permit_given_back_to_a_runs_own_politeness_wakes_its_waiter_within_the_engi
     assert_eq!(woken, vec!["own-waiting@proxy".to_owned()]);
 }
 
+/// A take in turn on a Run's own Politeness, held in memory, gives its
+/// Permit the moment the rule reserved its send at (#2171); a take beside
+/// a sent request, and any take on the file, reserve nothing, their sends
+/// asking the store.
+///
+/// Covers: story:5-90, setting:politeness.sharing
+#[test]
+fn only_a_take_in_turn_on_a_runs_own_politeness_reserves_its_send() {
+    let env = TestEnv::new();
+    let now = SystemTime::now();
+    let goes = now + Duration::from_millis(250);
+    let reserving_rule = || SharedRule::new(Reserves(goes));
+
+    let reserved = run(async |owner| {
+        let own = Politeness::in_memory(&PolitenessOptions::default(), owner).unwrap();
+        let file = engine(&env, "file", owner).await;
+        let take = granted(
+            own.take("shop", &holder(&env, "own"), reserving_rule(), now)
+                .await
+                .unwrap(),
+        );
+        let beside = granted(
+            own.take_beside("shop", &holder(&env, "own"), reserving_rule(), now)
+                .await
+                .unwrap(),
+        );
+        let on_file = granted(
+            file.take("shop", &holder(&env, "shared"), reserving_rule(), now)
+                .await
+                .unwrap(),
+        );
+        (take.send_at(), beside.send_at(), on_file.send_at())
+    });
+
+    assert_eq!(reserved, (Some(goes), None, None));
+}
+
 /// Covers: story:3-81
 #[test]
 fn a_woken_waiter_its_own_cap_still_refuses_passes_the_wake_to_the_next() {
@@ -637,4 +704,60 @@ fn a_take_whose_read_meets_a_damaged_disk_is_reported_as_a_storage_failure() {
         (true, true),
         "{failed:?}"
     );
+}
+
+/// The task that holds a Run's own Politeness runs every note its handles
+/// sent before its own next take, first: a Permit given back with a
+/// one-way note frees the key's cap of one for the take after it, with no
+/// task between them (#2171).
+///
+/// Covers: story:5-90, setting:politeness.sharing
+#[test]
+fn a_runs_own_politeness_runs_its_handles_notes_before_its_holders_next_take() {
+    let env = TestEnv::new();
+    let now = SystemTime::now();
+    let own_run = holder(&env, "own");
+
+    let after_the_note = run(async |_| {
+        let (politeness, mut own) = Politeness::own(&PolitenessOptions::default());
+        let first = granted(own.take("shop", &own_run, &cap(1), now));
+        politeness
+            .note_given_back(first, cap(1), Ending::Done, now)
+            .await
+            .unwrap();
+        own.take("shop", &own_run, &cap(1), now)
+    });
+
+    granted(after_the_note);
+}
+
+/// The task that holds a Run's own Politeness answers its handles' takes
+/// as it serves them; once it is gone, a handle's take fails closed rather
+/// than waiting for an answer (#2171).
+///
+/// Covers: story:5-90, setting:politeness.sharing
+#[test]
+fn a_runs_own_politeness_answers_its_handles_while_served_and_fails_closed_once_gone() {
+    let env = TestEnv::new();
+    let now = SystemTime::now();
+    let own_run = holder(&env, "own");
+
+    let (served, gone) = run(async |_| {
+        let (politeness, mut own) = Politeness::own(&PolitenessOptions::default());
+        let mut take = std::pin::pin!(politeness.take_beside("beside", &own_run, cap(1), now));
+        let served = loop {
+            tokio::select! {
+                taken = &mut take => break taken,
+                () = own.serve() => {}
+            }
+        };
+        drop(own);
+        let gone = politeness
+            .take_beside("beside", &own_run, cap(1), now)
+            .await;
+        (served, gone)
+    });
+
+    granted(served.unwrap());
+    assert!(matches!(gone, Err(PolitenessError::Closed)), "{gone:?}");
 }

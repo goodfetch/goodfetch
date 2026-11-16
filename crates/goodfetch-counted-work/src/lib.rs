@@ -178,6 +178,11 @@ rows! {
     /// `F3.actor_round_trips`: a message a page's task sends the actor that
     /// owns its crawl's Run state, whose answer the task waits for (ADR 0142).
     ActorRoundTrips => "F3.actor_round_trips", "frontier_admission", "actor_round_trips";
+    /// `F3.second_copy_round_trips`: a message a second copy of a request
+    /// the Run admitted, such as a hedge or a handler's navigation to
+    /// another domain key, sends the actor that holds its Run's Politeness
+    /// to take its Permit, whose answer it waits for (#2171).
+    SecondCopyRoundTrips => "F3.second_copy_round_trips", "frontier_admission", "second_copy_round_trips";
     /// `F3.in_flight_serializations`: a crawl's requests in flight encoded
     /// to JSON, for a value of its Run's progress that a reader takes.
     InFlightSerializations => "F3.in_flight_serializations", "frontier_admission", "in_flight_serializations";

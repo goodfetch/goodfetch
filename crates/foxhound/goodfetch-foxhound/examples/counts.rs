@@ -98,6 +98,14 @@
 //! their document, the unit `chains`: the site's redirects are one hop
 //! each, so its chains are its hops.
 //!
+//! `F3.second_copy_round_trips` divides by the second copies a cell sent,
+//! the unit `second_copies`: in the cell `document_tier_handler_beside`,
+//! whose handler navigates each page to another domain key once its `h1`
+//! is visible, each a Permit taken beside the Run's own; none elsewhere.
+//! That cell's Run keeps its Politeness to itself, the case #2171 builds,
+//! and its pages and origins count those navigations and their host: each
+//! is a page the document tier fetched, parsed and classified.
+//!
 //! `F3.actor_round_trips` and `F3.in_flight_serializations` divide by the
 //! attempts that ended, the unit `attempts_ended`: the attempts the site
 //! served a page to and the one that read each sitemap, which is a Work
@@ -129,8 +137,8 @@
 //! and goes unprinted without Valgrind too. `E6.off_work` is what the E6
 //! counters counted in the cell with Politeness and robots.txt off, over its
 //! attempts. `E6.private_transactions` is the Politeness transactions and
-//! opens counted in the cell whose Run keeps its Politeness to itself
-//! (`politeness.sharing: run`), over its attempts.
+//! opens counted in the cells whose Run keeps its Politeness to itself
+//! (`politeness.sharing: run`), over their attempts.
 //!
 //! `--strace` runs the cells as `xtask counts --strace` watches them, under
 //! `strace`, with nothing beside them: no run under Callgrind, so their
@@ -174,7 +182,8 @@ use goodfetch_test_support::CountingVfs;
 use goodfetch_test_support::callgrind;
 use plants::{Counted as PlantOn, politeness_plant, run_state_plant};
 use scenarios::{
-    AfterStart, BARRIER_CALLS, Frontier, Handler, Options, PAGES, Plant, body_bytes, crawl_with,
+    AfterStart, BARRIER_CALLS, Frontier, Handler, Navigation, Options, PAGES, Plant, body_bytes,
+    crawl_with,
     entries, page_analysis_plant, run_trace_plant,
 };
 use serde_json::{Map, Value, json};
@@ -357,6 +366,20 @@ const OFF_CELL: &str = "politeness_and_robots_txt_off";
 const PRIVATE_TRANSACTIONS: &str = "E6.private_transactions";
 const PRIVATE_CELL: &str = "politeness_sharing_run";
 
+/// The handler's cell whose handler also navigates each page to another
+/// domain key, a second copy of a request its Run admitted, which takes a
+/// Permit beside the Run's own: `F3.second_copy_round_trips` divides by
+/// those navigations, the unit `second_copies`, none in any other cell
+/// (#2171). Its Run keeps its Politeness to itself, as [`PRIVATE_CELL`]'s
+/// does, and each navigation is a page the document tier fetched and
+/// analysed, of the second origin [`BESIDE_ORIGINS`] counts.
+const BESIDE_CELL: &str = "document_tier_handler_beside";
+
+/// Whether the cell named `name` keeps its Run's Politeness to itself.
+fn private(name: &str) -> bool {
+    name == PRIVATE_CELL || name == BESIDE_CELL
+}
+
 /// The rows a Run's own Politeness, in memory, counts none of (#2171).
 const PRIVATE_ROWS: [Row; 2] = [Row::PolitenessTransactions, Row::PolitenessOpens];
 
@@ -381,6 +404,10 @@ const POLITENESS_ROWS: [Row; 5] = [
 
 /// The origins the fixture's robots.txt is read for: the site's one.
 const ORIGINS: u64 = 1;
+
+/// The origins of [`BESIDE_CELL`]: the site's and the one its handler
+/// navigates to beside each page.
+const BESIDE_ORIGINS: u64 = ORIGINS + 1;
 
 /// The owner of the run file's statements: each preparation `F2.prepares`
 /// counts has one of its functions among its [`CALLERS`] nearest callers.
@@ -676,6 +703,35 @@ fn learning_off() -> Cell {
     }
 }
 
+/// The cell [`BESIDE_CELL`]: the handler's, whose Run keeps its Politeness
+/// to itself, and whose handler navigates each page beside it.
+fn beside() -> Cell {
+    Cell {
+        name: BESIDE_CELL,
+        settings: json!({ "politeness": { "sharing": "run" } }),
+        frontier: None,
+        removes: &[],
+        removes_syncs: false,
+        handler: true,
+        limit: false,
+    }
+}
+
+/// The cell [`PRIVATE_CELL`]: a Run that keeps its Politeness to itself
+/// takes its Permits and reads its robots.txt copy in memory, with no
+/// SQLite (#2171).
+fn kept_to_itself() -> Cell {
+    Cell {
+        name: PRIVATE_CELL,
+        settings: json!({ "politeness": { "sharing": "run" } }),
+        frontier: None,
+        removes: &[],
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
+
 /// The cells of the per-page features ADR 0138's inventory switches off,
 /// each against the default cell: the Provenance log, whose Run trace then
 /// holds no entry; the Records, none of which is then validated, serialized
@@ -779,6 +835,7 @@ fn cells() -> Vec<Cell> {
             handler: true,
             limit: false,
         },
+        beside(),
         Cell {
             name: "scope_globs_off",
             settings: json!({}),
@@ -861,17 +918,7 @@ fn cells() -> Vec<Cell> {
             handler: false,
             limit: false,
         },
-        // A Run that keeps its Politeness to itself takes its Permits and
-        // reads its robots.txt copy in memory, with no SQLite (#2171).
-        Cell {
-            name: PRIVATE_CELL,
-            settings: json!({ "politeness": { "sharing": "run" } }),
-            frontier: None,
-            removes: &[],
-            removes_syncs: false,
-            handler: false,
-            limit: false,
-        },
+        kept_to_itself(),
     ];
     cells.extend(switched_off().into_iter().chain([varying_parameter()]));
     cells
@@ -910,6 +957,8 @@ struct Counted {
     attempts: u64,
     /// Every request the site was sent, each under a Politeness permit.
     requests: u64,
+    /// The handler's navigations beside its pages: second copies.
+    besides: u64,
     syncs: u64,
     /// The files the counting VFS opened, whose syncs `syncs` holds.
     vfs_files: Vec<PathBuf>,
@@ -1015,6 +1064,11 @@ fn crawl(
                 number_field()
             },
             handler: cell.handler.then_some(handler),
+            navigation: if cell.name == BESIDE_CELL {
+                Navigation::Beside
+            } else {
+                Navigation::Stays
+            },
             frontier: cell.frontier,
             small_pages: pages == Pages::Small,
             run_state_vfs: Some(vfs.name().to_owned()),
@@ -1062,6 +1116,25 @@ fn added_pages(cell: &Cell) -> usize {
     pages_of(cell, PAGES.len()) - pages_of(cell, SHORTER)
 }
 
+/// Asserts that the handler of `cell`'s crawl handled each of its `pages`
+/// once, and navigated beside each once in [`BESIDE_CELL`] alone.
+fn handled_once(cell: &Cell, crawled: &scenarios::Crawled, pages: usize) {
+    assert_eq!(
+        crawled.handled,
+        u64::try_from(pages).expect("invariant: a dozen pages"),
+        "the handler handles each page once"
+    );
+    let besides = if cell.name == BESIDE_CELL {
+        crawled.handled
+    } else {
+        0
+    };
+    assert_eq!(
+        crawled.besides, besides,
+        "the handler navigates beside each page once in its cell alone"
+    );
+}
+
 /// Runs `cell`, and each outcome's prepares when `planted` asks for no other row
 /// and nothing traces it.
 fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
@@ -1102,11 +1175,7 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
         if cell.name == RECORDS_OFF_CELL {
             assert!(crawled.records.is_empty(), "the crawl kept a Record");
         } else if cell.handler {
-            assert_eq!(
-                crawled.handled,
-                u64::try_from(pages).expect("invariant: a dozen pages"),
-                "the handler handles each page once"
-            );
+            handled_once(cell, &crawled, pages);
         } else {
             assert_eq!(
                 crawled.records.len(),
@@ -1148,6 +1217,7 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
             },
             attempts: crawled.attempts,
             requests: crawled.requests,
+            besides: crawled.besides,
             syncs,
             vfs_files,
             setup_syncs,
@@ -1585,7 +1655,10 @@ fn main() {
         let full = cell.level == DURABILITY_FULL;
         let leases = cell.attempts + cell.sitemaps;
         let units = json!({
-            "pages": cell.pages,
+            // A handler's navigation beside its page is a page too: the
+            // document tier fetched and analysed it, though it keeps no
+            // Record.
+            "pages": cell.pages + cell.besides,
             "added_pages": cell.added_pages,
             "records": if cell.name == RECORDS_OFF_CELL { 0 } else { cell.pages },
             "links_batches": if cell.handler { 0 } else { cell.pages },
@@ -1597,14 +1670,15 @@ fn main() {
             "payloads": u64::from(cell.frontier),
             "attempts": cell.attempts,
             "attempts_ended": cell.attempts + cell.sitemaps,
+            "second_copies": cell.besides,
             "runs": RUNS,
             "effects": EFFECTS,
             "entries": cell.entries,
             "permits": cell.requests,
             "requests": cell.requests,
-            "origins": ORIGINS,
+            "origins": if cell.name == BESIDE_CELL { BESIDE_ORIGINS } else { ORIGINS },
             "off_attempts": if off { cell.attempts } else { 0 },
-            "private_attempts": if cell.name == PRIVATE_CELL { cell.attempts } else { 0 },
+            "private_attempts": if private(cell.name) { cell.attempts } else { 0 },
             "learning_off_pages": if cell.name == LEARNING_OFF { cell.pages } else { 0 },
             "batched_pages": if batched { cell.pages } else { 0 },
             "batched_leases": if batched && !cell.spills() { leases } else { 0 },
@@ -1653,7 +1727,7 @@ fn counts_of(cell: &Counted) -> Map<String, Value> {
     let off = cell.name == OFF_CELL;
     let off_work: u64 = POLITENESS_ROWS.iter().map(|row| cell.count(*row)).sum();
     counts.insert(OFF_WORK.to_owned(), json!(if off { off_work } else { 0 }));
-    let private = cell.name == PRIVATE_CELL;
+    let private = private(cell.name);
     let private_work: u64 = PRIVATE_ROWS.iter().map(|row| cell.count(*row)).sum();
     counts.insert(
         PRIVATE_TRANSACTIONS.to_owned(),

@@ -799,6 +799,37 @@ impl DomainState {
         (None, wrote.and(self.start_noted(moment(now))))
     }
 
+    /// Reserves the send of a crawl request granted at `now` by a run of
+    /// `pace`, on a Politeness held in memory (#2171): the earliest moment
+    /// its delay after the key's last send and its rate's token allow, the
+    /// send then taken as if it went at that moment
+    /// ([`send_taken`](Self::send_taken)). Its page's task waits until it,
+    /// sends, and notes the true send, of which the later is kept.
+    pub(crate) fn send_reserved(&mut self, now: SystemTime, pace: Pace) -> (SystemTime, Wrote) {
+        let at = pace
+            .send_waits_until(&self.limits, &self.pacing, self.asked(), milliseconds(now))
+            .map_or(now, moment);
+        let (_, wrote) = self.send_taken(at, Some(pace));
+        (at, wrote)
+    }
+
+    /// Settles at `now` the send [`send_reserved`](Self::send_reserved)
+    /// reserved for `reserved`: the later of the two becomes the key's
+    /// last send and start, and a send later than its reservation moves
+    /// the rate's token of the sends as late, so the next reservation
+    /// counts its interval from the true send.
+    pub(crate) fn send_settled(&mut self, now: SystemTime, reserved: SystemTime) -> Wrote {
+        let late = milliseconds_from(now).saturating_sub(milliseconds_from(reserved));
+        let wrote = self.send_taken(now, None).1;
+        match self.pacing.theoretical_send {
+            Some(theoretical) if late > 0 => {
+                self.pacing.theoretical_send = Some(theoretical.saturating_add(late));
+                wrote.and(Wrote::PACING)
+            }
+            _ => wrote,
+        }
+    }
+
     /// Records a second start at `now`: the later of it and the last start
     /// becomes the last, and the rate's token moves to it
     /// ([`start_moved`](Self::start_moved)).
@@ -1060,11 +1091,18 @@ impl PermitRule for DomainRule {
             .map(moment);
         (ready_at, Wrote::LIMITS)
     }
+
+    /// The send of a crawl request granted at `now`, reserved with its
+    /// grant on a Politeness held in memory (`DomainState::send_reserved`).
+    fn reserved(&self, state: &mut DomainState, now: SystemTime) -> Option<(SystemTime, Wrote)> {
+        Some(state.send_reserved(now, self.pace))
+    }
 }
 
 /// A second request under the Permit a request of `key` holds started at
 /// `now`, such as its document after its origin's robots.txt: every run
-/// sharing `politeness` counts its delay from it (ADR 0086).
+/// sharing `politeness` counts its delay from it (ADR 0086). On a
+/// Politeness held in memory it is noted without waiting (#2171).
 ///
 /// # Errors
 ///
@@ -1079,10 +1117,10 @@ pub async fn started_again(
     now: SystemTime,
 ) -> Result<(), PolitenessError> {
     politeness
-        .change(
+        .note(
             key.to_owned(),
             Parts::PACED,
-            move |state: &mut DomainState| ((), state.start_noted(now)),
+            move |state: &mut DomainState| state.start_noted(now),
         )
         .await
 }
@@ -1101,7 +1139,10 @@ pub async fn started_again(
 /// counted from an earlier start therefore never lets a request reach the
 /// site within the delay or the interval of one whose send came later than
 /// its own admission. Hops and a handler's navigations pass `None`: they
-/// wait for nothing here, and their sends still count.
+/// wait for nothing here, and their sends still count, on a Politeness
+/// held in memory noted without waiting, ahead of any take queued after
+/// it (#2171). A crawl request's own send whose grant
+/// reserved its moment there goes through [`settled_at_send`] instead.
 ///
 /// # Errors
 ///
@@ -1116,6 +1157,21 @@ pub async fn started_at_send(
     clock: Clock,
     pace: Option<Pace>,
 ) -> Result<Option<SystemTime>, PolitenessError> {
+    if pace.is_none() {
+        let sent = sent_now(politeness, clock);
+        return politeness
+            .note(
+                key.to_owned(),
+                DomainState::send_reads(None),
+                move |state: &mut DomainState| {
+                    state
+                        .send_taken(sent.unwrap_or_else(|| clock.wall()), None)
+                        .1
+                },
+            )
+            .await
+            .map(|()| None);
+    }
     politeness
         .change(
             key.to_owned(),
@@ -1123,6 +1179,46 @@ pub async fn started_at_send(
             move |state: &mut DomainState| state.send_taken(clock.wall(), pace),
         )
         .await
+}
+
+/// A crawl request's own send of `key`, now, after it waited for the
+/// moment `reserved` its grant reserved on a Politeness held in memory
+/// (`DomainState::send_reserved`, #2171): noted without waiting, ahead of
+/// any take queued after it, the later of the two kept as the key's last
+/// send and the rate's token of the sends moved as late as the send came.
+///
+/// # Errors
+///
+/// When the task that holds the Politeness stopped.
+///
+/// # Cancel safety
+///
+/// Dropping the future before the note is queued drops it.
+pub async fn settled_at_send(
+    politeness: &Politeness,
+    key: &str,
+    clock: Clock,
+    reserved: SystemTime,
+) -> Result<(), PolitenessError> {
+    let sent = sent_now(politeness, clock);
+    politeness
+        .note(
+            key.to_owned(),
+            Parts::PACED,
+            move |state: &mut DomainState| {
+                state.send_settled(sent.unwrap_or_else(|| clock.wall()), reserved)
+            },
+        )
+        .await
+}
+
+/// The instant a send noted on `politeness` went, read now when its note
+/// runs later on the task that holds a Politeness held in memory, which
+/// the page does not wait for (#2171); `None` on the file, whose page
+/// sends only once the transaction recorded it, the transaction reading
+/// it then.
+fn sent_now(politeness: &Politeness, clock: Clock) -> Option<SystemTime> {
+    politeness.held_in_memory().then(|| clock.wall())
 }
 
 /// Takes the next start of `key`, for every run sharing `politeness`, for
@@ -1238,7 +1334,8 @@ fn crawl_delays(
 /// Records, for every run sharing `politeness`, that the robots.txt at
 /// `location` asks the requests of `key` for the Crawl-delay `delay`, or
 /// for none (ADR 0086): each such run then waits it between starts on
-/// `key`, up to its own `site_preferences.max_crawl_delay`.
+/// `key`, up to its own `site_preferences.max_crawl_delay`. On a
+/// Politeness of its Run's own it is noted without waiting (#2171).
 ///
 /// # Errors
 ///
@@ -1255,10 +1352,10 @@ pub async fn crawl_delay_read(
 ) -> Result<(), PolitenessError> {
     let location = location.to_owned();
     politeness
-        .change(
+        .note(
             key.to_owned(),
             Parts::NONE,
-            move |state: &mut DomainState| ((), state.crawl_delay_asked(location, delay)),
+            move |state: &mut DomainState| state.crawl_delay_asked(location, delay),
         )
         .await
 }
@@ -1267,7 +1364,8 @@ pub async fn crawl_delay_read(
 /// arrived `latency` after its request was sent: each run with
 /// `politeness.domain.adaptive_delay` on then waits at least the weighted
 /// mean of that latency between starts on `key`, up to its own
-/// `politeness.backoff.max`.
+/// `politeness.backoff.max`. On a Politeness held in memory it is noted
+/// without waiting (#2171).
 ///
 /// # Errors
 ///
@@ -1282,10 +1380,10 @@ pub async fn latency_measured(
     latency: Duration,
 ) -> Result<(), PolitenessError> {
     politeness
-        .change(
+        .note(
             key.to_owned(),
             Parts::PACING,
-            move |state: &mut DomainState| ((), state.latency_noted(latency)),
+            move |state: &mut DomainState| state.latency_noted(latency),
         )
         .await
 }

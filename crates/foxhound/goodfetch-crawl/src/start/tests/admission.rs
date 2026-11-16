@@ -395,12 +395,15 @@ fn a_domain_whose_first_byte_timed_out_backs_off_while_the_others_go() {
 
 /// A handler that met the site's 429, failing with `blocked` for a
 /// `rate_limit`, backs its domain off in the Politeness every run of the
-/// user shares: the domain's next request waits its first backoff, from
-/// 2 s to 6 s, while the others go (ADRs 0021, 0053 and 0118).
+/// user shares, or in the one the Run keeps to itself in memory (#2171):
+/// the domain's next request waits its first backoff, from 2 s to 6 s,
+/// while the others go (ADRs 0021, 0053 and 0118).
 ///
-/// Covers: story:3-80
-#[test]
-fn a_429_a_handler_met_backs_its_domain_off_while_the_others_go() {
+/// Covers: story:3-80, setting:politeness.sharing
+#[rstest::rstest]
+fn a_429_a_handler_met_backs_its_domain_off_while_the_others_go(
+    #[values("shared", "run")] sharing: &str,
+) {
     let env = TestEnv::new();
     let seeds = json!([
         seed("https://heavy.test/1"),
@@ -414,7 +417,7 @@ fn a_429_a_handler_met_backs_its_domain_off_while_the_others_go() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "refused", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 1 } } } }),
+                    json!({ "run_id": "refused", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 1 } }, "politeness": { "sharing": sharing } } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -627,20 +630,23 @@ fn crawled_with(
 }
 
 /// A site's `Retry-After` a handler met with its 429 or its 503 holds the
-/// domain until the time the site asked, 30 s, past any first backoff:
-/// nothing more is sent to it before then, while the other domains go
-/// (ADR 0118).
+/// domain until the time the site asked, 30 s, past any first backoff, in
+/// the Politeness the user's runs share or in the one the Run keeps to
+/// itself in memory (#2171): nothing more is sent to it before then, while
+/// the other domains go (ADR 0118).
 ///
-/// Covers: story:3-159
+/// Covers: story:3-159, setting:politeness.sharing
 #[rstest::rstest]
 #[case::too_many_requests(("blocked", false, json!({ "cause": "rate_limit", "retry_after": "2026-01-05T09:00:30Z" })))]
 #[case::unavailable(("response_unavailable", true, json!({ "status": 503, "retry_after": "2026-01-05T09:00:30Z" })))]
 fn a_retry_after_a_handler_met_holds_its_domain_until_the_time_the_site_asked(
     #[case] failure: (&'static str, bool, Value),
+    #[values("shared", "run")] sharing: &str,
 ) {
     let env = TestEnv::new();
+    let settings = json!({ "politeness": { "sharing": sharing } });
 
-    let (sent, _, _) = crawled_with(&env, "asked", (&json!({}), Duration::ZERO), &failure);
+    let (sent, _, _) = crawled_with(&env, "asked", (&settings, Duration::ZERO), &failure);
 
     let to_heavy: Vec<Duration> = sent
         .iter()

@@ -1888,10 +1888,10 @@
       "properties": {
         "fields": {
           "additionalProperties": {
-            "$ref": "#/$defs/ExtractionField"
+            "$ref": "#/$defs/PageField"
           },
           "arrived_in": "0.1",
-          "description": "The named fields each page's Record holds beside its formats, by\nname, which no format's property and neither `status` nor\n`fetched_at` may take; none by default.",
+          "description": "The named fields each page's Record holds beside its formats, by\nname, which no format's property and neither `status` nor\n`fetched_at` may take, each a value field, a list or rows read as\n`page.read` reads them (ADR 0147); a field the page does not give\nis null, and the Record's Provenance names why (`unread_fields`);\nnone by default.",
           "type": "object"
         },
         "follow": {
@@ -5004,49 +5004,6 @@
       ],
       "type": "object"
     },
-    "ExtractionField": {
-      "additionalProperties": false,
-      "description": "One named field of a code-free crawl's Records (ADR 0123): the first\nelement its locator finds in the page, its text, its runs of white\nspace read as one space and trimmed, or one of its attributes, an\n`href` or `src` resolved against the document's base URL; optionally a\ncapture group of a regular expression over that text; then its Value\ntransform. A field the page does not give is null, and the Record's\nProvenance names why (`unread_fields`).",
-      "properties": {
-        "attribute": {
-          "arrived_in": "0.1",
-          "description": "The attribute read in place of the element's text.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "locator": {
-          "$ref": "#/$defs/FieldLocator",
-          "arrived_in": "0.1",
-          "description": "What finds its element."
-        },
-        "match": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/FieldMatch"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "arrived_in": "0.1",
-          "description": "The `match` that picks the text its transform reads."
-        },
-        "transform": {
-          "$ref": "#/$defs/FieldTransform",
-          "arrived_in": "0.1",
-          "default": {
-            "kind": "text"
-          },
-          "description": "Its Value transform: `text` by default."
-        }
-      },
-      "required": [
-        "locator"
-      ],
-      "type": "object"
-    },
     "ExtractionFollow": {
       "description": "Which pages a code-free crawl fetches beyond its seeds.",
       "oneOf": [
@@ -5197,7 +5154,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "An `XPath` 1.0 expression that finds nodes, with no namespace\nprefix and no variable; the field reads the first node it finds in\ndocument order, when that node is an element.",
+          "description": "An `XPath` 1.0 expression that finds nodes, with no namespace\nprefix and no variable; a value field reads the first node it finds\nin document order, when that node is an element, and a list every\nelement it finds. Under a row's element it is evaluated with that\nelement as its context node.",
           "properties": {
             "kind": {
               "const": "xpath",
@@ -7151,6 +7108,21 @@
       ],
       "type": "object"
     },
+    "ListField": {
+      "additionalProperties": false,
+      "description": "A list: the value field read from every element its locator finds, in\ndocument order.",
+      "properties": {
+        "list": {
+          "$ref": "#/$defs/ValueField",
+          "arrived_in": "0.1",
+          "description": "The field read from each element."
+        }
+      },
+      "required": [
+        "list"
+      ],
+      "type": "object"
+    },
     "LoadState": {
       "description": "A state the page's document reaches (Playwright's `LoadState`).",
       "oneOf": [
@@ -8987,6 +8959,23 @@
       ],
       "type": "object"
     },
+    "PageField": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ValueField",
+          "description": "The first element its locator finds."
+        },
+        {
+          "$ref": "#/$defs/ListField",
+          "description": "Every element its locator finds."
+        },
+        {
+          "$ref": "#/$defs/RowsField",
+          "description": "Fields read under each element a base locator finds."
+        }
+      ],
+      "description": "One named field (ADR 0147): a value field, a list or rows."
+    },
     "PageFired": {
       "description": "What `page.load`, `page.dom_content_loaded`, `page.crash` and\n`page.close` report: the page whose main frame's document fired the\nevent, or that crashed or closed.",
       "properties": {
@@ -9191,6 +9180,57 @@
       "required": [
         "page_id",
         "popup"
+      ],
+      "type": "object"
+    },
+    "PageRead": {
+      "description": "What `page.read` answers: each field's value by its name, and each\nvalue the page did not give, with why.",
+      "properties": {
+        "unread": {
+          "arrived_in": "0.1",
+          "description": "Each null the page did not give, in the order read; absent where\nevery value was read.",
+          "items": {
+            "$ref": "#/$defs/UnreadField"
+          },
+          "type": "array"
+        },
+        "values": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Each field's value, by name: a value field's value or null, a\nlist's array of values or nulls, rows' array of objects, each\nholding every field of its row, null where its row lacks it.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "values"
+      ],
+      "type": "object"
+    },
+    "PageReadParams": {
+      "additionalProperties": false,
+      "description": "What `page.read` takes: the page and its named fields.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "fields": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PageField"
+          },
+          "arrived_in": "0.1",
+          "description": "The fields, by name.",
+          "type": "object"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id",
+        "fields"
       ],
       "type": "object"
     },
@@ -11516,6 +11556,30 @@
         "headers",
         "resource_type",
         "is_navigation_request"
+      ],
+      "type": "object"
+    },
+    "RowsField": {
+      "additionalProperties": false,
+      "description": "Rows: for each element the base locator finds, in document order, one\nobject of the named value fields, each read from the first element its\nlocator finds under that element.",
+      "properties": {
+        "fields": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ValueField"
+          },
+          "arrived_in": "0.1",
+          "description": "Each row's fields, by name.",
+          "type": "object"
+        },
+        "rows": {
+          "$ref": "#/$defs/FieldLocator",
+          "arrived_in": "0.1",
+          "description": "What finds each row's element."
+        }
+      },
+      "required": [
+        "rows",
+        "fields"
       ],
       "type": "object"
     },
@@ -15590,7 +15654,7 @@
       "type": "object"
     },
     "TransformProvenance": {
-      "description": "How a Value transform gave one field of a Record (ADR 0123).",
+      "description": "How a Value transform gave one field (ADR 0123).",
       "properties": {
         "anchor": {
           "anyOf": [
@@ -15710,11 +15774,11 @@
       "type": "object"
     },
     "UnreadField": {
-      "description": "A field of a code-free crawl's Record that its page did not give, so\nthe Record holds null (ADR 0123).",
+      "description": "A field its page did not give, so its value is null (ADRs 0079 and\n0123).",
       "properties": {
         "field": {
           "arrived_in": "0.1",
-          "description": "The field, a JSON Pointer into the Record.",
+          "description": "The field, a JSON Pointer into the values read: `/price`, or\n`/offers/1/price` for a row's.",
           "type": "string"
         },
         "reason": {
@@ -15738,7 +15802,7 @@
       "type": "object"
     },
     "UnreadReason": {
-      "description": "Why a field of a code-free crawl's Record is null.",
+      "description": "Why a field is null.",
       "oneOf": [
         {
           "const": "no_element",
@@ -16072,6 +16136,49 @@
       },
       "required": [
         "changes"
+      ],
+      "type": "object"
+    },
+    "ValueField": {
+      "additionalProperties": false,
+      "description": "A value field (ADRs 0123 and 0147): the first element its locator finds\nin the page, its text, its runs of white space read as one space and\ntrimmed, or one of its attributes, an `href` or `src` resolved against\nthe document's base URL; optionally a capture group of a regular\nexpression over that text; then its Value transform. A field the page\ndoes not give is null, with why.",
+      "properties": {
+        "attribute": {
+          "arrived_in": "0.1",
+          "description": "The attribute read in place of the element's text.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "locator": {
+          "$ref": "#/$defs/FieldLocator",
+          "arrived_in": "0.1",
+          "description": "What finds its element."
+        },
+        "match": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FieldMatch"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The `match` that picks the text its transform reads."
+        },
+        "transform": {
+          "$ref": "#/$defs/FieldTransform",
+          "arrived_in": "0.1",
+          "default": {
+            "kind": "text"
+          },
+          "description": "Its Value transform: `text` by default."
+        }
+      },
+      "required": [
+        "locator"
       ],
       "type": "object"
     },

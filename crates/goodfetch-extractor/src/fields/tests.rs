@@ -1,37 +1,45 @@
-//! A code-free crawl's fields as pure functions of the element each
-//! locator found (ADR 0123): the value each Value transform gives, what
-//! the Record's Provenance names of it, the reason a field is null, and the
-//! type each field takes in the Dataset's schema.
+//! A page's fields as pure functions of the elements each locator found
+//! (ADRs 0123 and 0147): the value each Value transform gives, a list's
+//! values and rows' objects, what Provenance names of each, the reason a
+//! value is null, and the type each field takes in a Dataset's schema.
 
-use goodfetch_fetch_tier::FieldElement;
-use goodfetch_protocol::foxhound::crawl::ExtractionField;
-use goodfetch_protocol::foxhound::provenance::{TransformProvenance, UnreadField};
+use std::collections::BTreeMap;
+
+use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_protocol::page::read::{PageField, TransformProvenance, UnreadField};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{Read, Reader, check, schema};
+use super::{FieldElement, Fields, Found, Values, check, schema};
 
 const BASE: &str = "http://shop.test/kites/delta";
 
-/// What `field` reads of `element`, with the reader its crawl builds.
-fn read(
+/// What the fields read of what their locators found, with the readers
+/// they build.
+fn read(fields: &[(&str, Value)], found: Vec<Found>) -> Values {
+    let fields: BTreeMap<String, PageField> = fields
+        .iter()
+        .map(|(name, declared)| ((*name).to_owned(), field(declared.clone())))
+        .collect();
+    Fields::of(&fields, &CountedWork::default()).read(found, BASE)
+}
+
+/// What the one value field `name` reads of `element`: its value, its
+/// transforms and why it is null.
+fn read_one(
     name: &str,
-    field: &ExtractionField,
-    element: Option<&FieldElement>,
-    base_url: &str,
-) -> Read {
-    super::read(
-        name,
-        (
-            field,
-            &Reader::of(field, &goodfetch_counted_work::CountedWork::default()),
-        ),
-        element,
-        base_url,
+    declared: Value,
+    element: Option<FieldElement>,
+) -> (Value, Vec<TransformProvenance>, Option<UnreadField>) {
+    let mut read = read(&[(name, declared)], vec![Found::One(element)]);
+    (
+        read.values.remove(name).unwrap(),
+        read.transforms,
+        read.unread.pop(),
     )
 }
 
-fn field(value: Value) -> ExtractionField {
+fn field(value: Value) -> PageField {
     serde_json::from_value(value).unwrap()
 }
 
@@ -138,10 +146,8 @@ fn a_field_gives_its_transforms_value_and_provenance_names_each_transform(
     #[case] value: Value,
     #[case] named: Value,
 ) {
-    let read = read("name", &field(declared), Some(&found), BASE);
-
     assert_eq!(
-        (read.value, read.transforms, read.unread),
+        read_one("name", declared, Some(found)),
         (value, transforms(named), None)
     );
 }
@@ -198,23 +204,22 @@ fn a_field_its_page_does_not_give_is_null_with_its_reason(
     #[case] found: Option<FieldElement>,
     #[case] reason: Value,
 ) {
-    let read = read("name", &field(declared), found.as_ref(), BASE);
+    let (value, _, unread_field) = read_one("name", declared, found);
 
-    assert_eq!((read.value, read.unread), (Value::Null, unread(reason)));
+    assert_eq!((value, unread_field), (Value::Null, unread(reason)));
 }
 
 /// A field name is written into its JSON Pointer escaped, `~` and `/` as
 /// RFC 6901 writes them.
 #[test]
 fn a_fields_pointer_escapes_its_name() {
-    let read = read(
+    let (_, _, unread_field) = read_one(
         "a/b~c",
-        &field(json!({ "locator": { "kind": "css", "selector": "p" } })),
+        json!({ "locator": { "kind": "css", "selector": "p" } }),
         None,
-        BASE,
     );
 
-    assert_eq!(read.unread.unwrap().field, "/a~1b~0c");
+    assert_eq!(unread_field.unwrap().field, "/a~1b~0c");
 }
 
 /// Each field takes the type its transform gives, or null.
@@ -232,29 +237,183 @@ fn a_fields_schema_is_its_transforms_type_or_null(#[case] transform: Value, #[ca
     assert_eq!(schema(&field(declared)), typed);
 }
 
-/// A field the engine could never read is refused at the start: a CSS
-/// selector it does not read, an `XPath` expression it does not read to
-/// nodes, a regular expression that does not compile or lacks the group
-/// named, a locale that is no BCP 47 tag, and a time zone it has no rules
-/// for.
-#[rstest]
-#[case::css(json!({ "locator": { "kind": "css", "selector": "p[" } }), true)]
-#[case::xpath(json!({ "locator": { "kind": "xpath", "selector": "//h1[" } }), true)]
-#[case::xpath_answering_a_value(json!({ "locator": { "kind": "xpath", "selector": "count(//h1)" } }), true)]
-#[case::xpath_read_on_every_tier(json!({ "locator": { "kind": "xpath", "selector": "//article/h1" } }), false)]
-#[case::regex(json!({ "locator": { "kind": "css", "selector": "p" }, "match": { "pattern": "(" } }), true)]
-#[case::group(json!({ "locator": { "kind": "css", "selector": "p" }, "match": { "pattern": "(a)", "group": 2 } }), true)]
-#[case::locale(json!({ "locator": { "kind": "css", "selector": "p" }, "transform": { "kind": "number", "locale": "not a tag" } }), true)]
-#[case::time_zone(json!({ "locator": { "kind": "css", "selector": "p" }, "transform": { "kind": "date_time", "locale": "de-DE", "time_zone": "Europe/Nowhere" } }), true)]
-#[case::whole_match(json!({ "locator": { "kind": "css", "selector": "p" }, "match": { "pattern": "a+", "group": 0 } }), false)]
-fn a_field_the_engine_could_never_read_is_refused(#[case] declared: Value, #[case] refused: bool) {
+/// A list takes an array of its value's type; rows, an array of objects
+/// holding each of their fields, every one present.
+#[test]
+fn a_list_and_rows_take_arrays_of_their_values() {
+    let list = json!({ "list": { "locator": { "kind": "css", "selector": "li" } } });
+    let rows = json!({
+        "rows": { "kind": "css", "selector": "li" },
+        "fields": {
+            "name": { "locator": { "kind": "css", "selector": "a" } },
+            "price": { "locator": { "kind": "css", "selector": ".price" }, "transform": { "kind": "number", "locale": "en-US" } },
+        },
+    });
+
     assert_eq!(
-        check(
-            "name",
-            &field(declared),
-            &goodfetch_counted_work::CountedWork::default()
+        (schema(&field(list)), schema(&field(rows))),
+        (
+            json!({ "type": "array", "items": { "type": ["string", "null"] } }),
+            json!({
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": ["string", "null"] },
+                        "price": { "type": ["number", "null"] },
+                    },
+                    "required": ["name", "price"],
+                    "additionalProperties": false,
+                },
+            }),
         )
-        .is_err(),
-        refused
     );
+}
+
+/// A list reads every element its locator found, in document order, each
+/// value at its own index's pointer.
+#[test]
+fn a_list_reads_each_element() {
+    let read = read(
+        &[(
+            "tags",
+            json!({ "list": { "locator": { "kind": "css", "selector": "li" }, "match": { "pattern": "#(\\w+)" } } }),
+        )],
+        vec![Found::List(vec![
+            element("li", "#kites", &[]),
+            element("li", "sale", &[]),
+            element("li", "#delta", &[]),
+        ])],
+    );
+
+    assert_eq!(
+        (read.values, read.unread),
+        (
+            json!({ "tags": ["kites", null, "delta"] })
+                .as_object()
+                .unwrap()
+                .clone(),
+            vec![
+                unread(json!({ "field": "/tags/1", "reason": "no_match", "text": "sale" }))
+                    .unwrap()
+            ],
+        )
+    );
+}
+
+/// Rows give one object per row, each holding every one of their fields;
+/// a row lacking a field keeps its other fields, the missing one null with
+/// its reason at the row's pointer.
+#[test]
+fn a_row_lacking_a_field_keeps_its_other_fields() {
+    let read = read(
+        &[(
+            "offers",
+            json!({
+                "rows": { "kind": "css", "selector": "li.product" },
+                "fields": {
+                    "name": { "locator": { "kind": "css", "selector": "a" } },
+                    "price": { "locator": { "kind": "css", "selector": ".price" }, "transform": { "kind": "number", "locale": "en-US" } },
+                },
+            }),
+        )],
+        vec![Found::Rows(vec![
+            vec![
+                Some(element("a", "Delta", &[])),
+                Some(element("span", "49.90", &[])),
+            ],
+            vec![Some(element("a", "Kestrel", &[])), None],
+        ])],
+    );
+
+    assert_eq!(
+        (read.values, read.unread),
+        (
+            json!({ "offers": [
+                { "name": "Delta", "price": 49.9 },
+                { "name": "Kestrel", "price": null },
+            ] })
+            .as_object()
+            .unwrap()
+            .clone(),
+            vec![unread(json!({ "field": "/offers/1/price", "reason": "no_element" })).unwrap()],
+        )
+    );
+}
+
+/// A list or rows whose locators found nothing is an empty array.
+#[rstest]
+#[case::a_list(json!({ "list": { "locator": { "kind": "css", "selector": "li" } } }), Found::List(Vec::new()))]
+#[case::rows(
+    json!({ "rows": { "kind": "css", "selector": "li" }, "fields": { "name": { "locator": { "kind": "css", "selector": "a" } } } }),
+    Found::Rows(Vec::new()),
+)]
+fn a_list_or_rows_finding_nothing_is_empty(#[case] declared: Value, #[case] found: Found) {
+    let read = read(&[("items", declared)], vec![found]);
+
+    assert_eq!(read.values["items"], json!([]));
+}
+
+/// A field the engine could never read is refused at the start, its
+/// locators aside: a regular expression that does not compile or lacks the
+/// group named, a locale that is no BCP 47 tag, and a time zone it has no
+/// rules for; a row's field is named under its rows.
+#[rstest]
+#[case::regex(json!({ "locator": { "kind": "css", "selector": "p" }, "match": { "pattern": "(" } }), Some("name"))]
+#[case::group(json!({ "locator": { "kind": "css", "selector": "p" }, "match": { "pattern": "(a)", "group": 2 } }), Some("name"))]
+#[case::locale(json!({ "locator": { "kind": "css", "selector": "p" }, "transform": { "kind": "number", "locale": "not a tag" } }), Some("name"))]
+#[case::time_zone(json!({ "locator": { "kind": "css", "selector": "p" }, "transform": { "kind": "date_time", "locale": "de-DE", "time_zone": "Europe/Nowhere" } }), Some("name"))]
+#[case::whole_match(json!({ "locator": { "kind": "css", "selector": "p" }, "match": { "pattern": "a+", "group": 0 } }), None)]
+#[case::a_lists_locale(json!({ "list": { "locator": { "kind": "css", "selector": "p" }, "transform": { "kind": "date", "locale": "not a tag" } } }), Some("name"))]
+#[case::a_rows_field(
+    json!({ "rows": { "kind": "css", "selector": "li" }, "fields": { "price": { "locator": { "kind": "css", "selector": "p" }, "match": { "pattern": "(" } } } }),
+    Some("name/price"),
+)]
+fn a_field_the_engine_could_never_read_is_refused(
+    #[case] declared: Value,
+    #[case] named: Option<&str>,
+) {
+    let refused = check("name", &field(declared), &CountedWork::default()).err();
+
+    assert_eq!(
+        refused.map(|sentence| sentence
+            .starts_with(&format!("The field `{}`'s", named.unwrap_or_default()))),
+        named.map(|_| true)
+    );
+}
+
+/// A locale's forms are learned once for the engine, whichever declaration
+/// asks for them: a `page.read` on each page, or a field and a row's field
+/// of the same locale, builds them once (`F1.locale_form_builds`); another
+/// locale's are its own.
+#[test]
+fn a_locales_forms_are_built_once_for_the_engine() {
+    let work = CountedWork::default();
+    let declared = |transform: Value| {
+        BTreeMap::from([
+            (
+                "price".to_owned(),
+                field(
+                    json!({ "locator": { "kind": "css", "selector": ".price" }, "transform": transform }),
+                ),
+            ),
+            (
+                "items".to_owned(),
+                field(
+                    json!({ "rows": { "kind": "css", "selector": "li" }, "fields": { "price": { "locator": { "kind": "css", "selector": "p" }, "transform": transform } } }),
+                ),
+            ),
+        ])
+    };
+    let german = declared(json!({ "kind": "number", "locale": "de-DE" }));
+
+    let _ = Fields::of(&german, &work);
+    let _ = Fields::of(&german, &work);
+    let once = work.read(Row::PageLocaleFormBuilds);
+    let _ = Fields::of(
+        &declared(json!({ "kind": "number", "locale": "fr-FR" })),
+        &work,
+    );
+
+    assert_eq!((once, work.read(Row::PageLocaleFormBuilds)), (1, 2));
 }

@@ -12,19 +12,28 @@ autobenches = false
 
 [dependencies]
 dom_query.workspace = true
+fixed_decimal.workspace = true
 goodfetch-counted-work.workspace = true
 dom_smoothie.workspace = true
 goodfetch-protocol.workspace = true
 htmd.workspace = true
 html5ever.workspace = true
+icu_calendar.workspace = true
+icu_datetime.workspace = true
+icu_decimal.workspace = true
+icu_locale_core.workspace = true
+# A `date_time` field reads its `time_zone` under the IANA rules (ADR 0123).
+jiff = { workspace = true, features = ["tzdb-zoneinfo", "tzdb-bundle-platform"] }
 lol_html.workspace = true
 markup5ever_htmd.workspace = true
 markup5ever_rcdom.workspace = true
 phonenumber.workspace = true
+regex.workspace = true
 rs-trafilatura.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 url.workspace = true
+writeable.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]

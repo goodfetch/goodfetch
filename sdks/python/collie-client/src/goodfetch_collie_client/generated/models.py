@@ -650,6 +650,126 @@ class FetchTier(StrEnum):
     """Collie's browser page."""
 
 
+class FieldLocator1(BaseModel):
+    """A CSS selector."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["css"]
+    selector: str
+    """The selector."""
+
+
+class FieldLocator2(BaseModel):
+    """
+    An `XPath` 1.0 expression that finds nodes, with no namespace
+    prefix and no variable; a value field reads the first node it finds
+    in document order, when that node is an element, and a list every
+    element it finds. Under a row's element it is evaluated with that
+    element as its context node.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["xpath"]
+    selector: str
+    """The expression."""
+
+
+class FieldLocator(RootModel[FieldLocator1 | FieldLocator2]):
+    root: FieldLocator1 | FieldLocator2
+    """
+    What finds a field's element, named by `kind`: a CSS selector or an
+    `XPath` expression, each read alike on every tier, a page a fetch tier
+    serves from its document reading it as a browser reads it.
+    """
+
+
+class FieldMatch(BaseModel):
+    """
+    The `match` before a field's transform (ADR 0123): a capture group of a
+    regular expression, in the `regex` crate's syntax (ADR 0081), over the
+    text read; that group's text is what the transform reads.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group: Annotated[int | None, Field(ge=0)] = 1
+    """The capture group, 1 by default; 0 is the whole match."""
+    pattern: str
+    """The expression's source."""
+
+
+class FieldTransform1(BaseModel):
+    """The text read: a string."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["text"]
+
+
+class FieldTransform2(BaseModel):
+    """
+    An integer or decimal: a JSON number, never through a float, so a
+    decimal a JSON number cannot hold exactly is not a value.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["number"]
+    locale: str
+    """Its locale."""
+
+
+class FieldTransform3(BaseModel):
+    """A date: `YYYY-MM-DD`."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["date"]
+    locale: str
+    """Its locale."""
+
+
+class FieldTransform4(BaseModel):
+    """
+    A date and time: RFC 3339 with its offset, the one the text states,
+    else `time_zone`'s at that time; one stating neither is not a value.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["date_time"]
+    locale: str
+    """Its locale."""
+    time_zone: str | None = None
+    """The time zone, an IANA name, of a text that states none."""
+
+
+class FieldTransform(
+    RootModel[FieldTransform1 | FieldTransform2 | FieldTransform3 | FieldTransform4]
+):
+    root: FieldTransform1 | FieldTransform2 | FieldTransform3 | FieldTransform4
+    """
+    A field's Value transform (ADR 0123), named by `kind`, each
+    locale-dependent one stating its locale, a BCP 47 tag. A `number`,
+    `date` or `date_time` reads the machine-readable value of a `<time
+    datetime>`, a `<data value>` or an element's `content` attribute in its
+    invariant form (ISO 8601, a plain decimal with a dot), whatever the
+    locale; a text printed for people is read under its locale's CLDR
+    forms: a number in its digits, separators and grouping, a date or a
+    date and time in one of its short, medium or long forms with a
+    four-digit year; any other text is not a value.
+    """
+
+
 class ForcedBy(StrEnum):
     """Which scope's `fetch.tier` forced a tier."""
 
@@ -2887,7 +3007,7 @@ class UncertainEffect(BaseModel):
 
 
 class UnreadReason(StrEnum):
-    """Why a field of a code-free crawl's Record is null."""
+    """Why a field is null."""
 
     no_element = "no_element"
     """Its locator found no element."""
@@ -3008,6 +3128,31 @@ class UserWriteParams(BaseModel):
     )
     changes: list[UserChange]
     """The changes, made in order, in one write."""
+
+
+class ValueField(BaseModel):
+    """
+    A value field (ADRs 0123 and 0147): the first element its locator finds
+    in the page, its text, its runs of white space read as one space and
+    trimmed, or one of its attributes, an `href` or `src` resolved against
+    the document's base URL; optionally a capture group of a regular
+    expression over that text; then its Value transform. A field the page
+    does not give is null, with why.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attribute: str | None = None
+    """The attribute read in place of the element's text."""
+    locator: FieldLocator
+    """What finds its element."""
+    match: FieldMatch | None = None
+    """The `match` that picks the text its transform reads."""
+    transform: Annotated[FieldTransform | None, Field(validate_default=True)] = Field(
+        default_factory=lambda: FieldTransform.model_validate({"kind": "text"})
+    )
+    """Its Value transform: `text` by default."""
 
 
 class ValueTransform(StrEnum):
@@ -4129,6 +4274,19 @@ class LastRead(BaseModel):
     """The event's position."""
 
 
+class ListField(BaseModel):
+    """
+    A list: the value field read from every element its locator finds, in
+    document order.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    list: ValueField
+    """The field read from each element."""
+
+
 class Locator(BaseModel):
     """
     A locator (ADR 0085): what an action looks for on a page, resolved
@@ -4817,6 +4975,22 @@ class RouteHandleParams(BaseModel):
     """The intercepted request, which an answer names."""
 
 
+class RowsField(BaseModel):
+    """
+    Rows: for each element the base locator finds, in document order, one
+    object of the named value fields, each read from the first element its
+    locator finds under that element.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, ValueField]
+    """Each row's fields, by name."""
+    rows: FieldLocator
+    """What finds each row's element."""
+
+
 class RunAbortParams(BaseModel):
     """What `run.abort` takes: the Run, and whether the abort was forwarded."""
 
@@ -5244,7 +5418,7 @@ class SystemInfo(BaseModel):
 
 
 class TransformProvenance(BaseModel):
-    """How a Value transform gave one field of a Record (ADR 0123)."""
+    """How a Value transform gave one field (ADR 0123)."""
 
     model_config = ConfigDict(
         extra="allow",
@@ -5270,15 +5444,18 @@ class TransformProvenance(BaseModel):
 
 class UnreadField(BaseModel):
     """
-    A field of a code-free crawl's Record that its page did not give, so
-    the Record holds null (ADR 0123).
+    A field its page did not give, so its value is null (ADRs 0079 and
+    0123).
     """
 
     model_config = ConfigDict(
         extra="allow",
     )
     field: str
-    """The field, a JSON Pointer into the Record."""
+    """
+    The field, a JSON Pointer into the values read: `/price`, or
+    `/offers/1/price` for a row's.
+    """
     reason: UnreadReason
     """Why."""
     text: str | None = None
@@ -5808,6 +5985,45 @@ class PageExchange(BaseModel):
     """The request."""
     response: PageResponse
     """Its response, whose body `response.body` reads."""
+
+
+class PageField(RootModel[ValueField | ListField | RowsField]):
+    root: ValueField | ListField | RowsField
+    """One named field (ADR 0147): a value field, a list or rows."""
+
+
+class PageRead(BaseModel):
+    """
+    What `page.read` answers: each field's value by its name, and each
+    value the page did not give, with why.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    unread: list[UnreadField] | None = None
+    """
+    Each null the page did not give, in the order read; absent where
+    every value was read.
+    """
+    values: dict[str, Any]
+    """
+    Each field's value, by name: a value field's value or null, a
+    list's array of values or nulls, rows' array of objects, each
+    holding every field of its row, null where its row lacks it.
+    """
+
+
+class PageReadParams(BaseModel):
+    """What `page.read` takes: the page and its named fields."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, PageField]
+    """The fields, by name."""
+    page_id: PageId
+    """The page."""
 
 
 class RecordProvenance(BaseModel):

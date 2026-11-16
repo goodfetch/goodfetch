@@ -37,16 +37,15 @@
 use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
+use goodfetch_extractor::fields::FieldElement;
 use goodfetch_extractor::{Pass, Query, StreamSelector, Streamed, Streaming};
-use goodfetch_protocol::foxhound::crawl::FieldLocator;
 use goodfetch_protocol::page::FormatsRequest;
+use goodfetch_protocol::page::read::FieldLocator;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use url::Url;
 
 use crate::canonical;
-use crate::document::{
-    self, CONTROLS, FieldElement, Locating, LocatorInvalid, Matched, SelectorInvalid,
-};
+use crate::document::{self, CONTROLS, Locating, LocatorInvalid, Matched, SelectorInvalid};
 use crate::expected_page::{self, Verdict};
 use crate::refresh::{self, Refresh};
 use crate::use_signals::{
@@ -364,7 +363,10 @@ impl UntouchedReaders {
                 })
                 .collect(),
             fields: (!fields.is_empty()).then(|| {
-                let locating = document::locating(&fields, work);
+                let locating = fields
+                    .iter()
+                    .map(|locator| document::locating(locator, work))
+                    .collect();
                 (fields, locating)
             }),
             page_check,

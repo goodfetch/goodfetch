@@ -5,17 +5,20 @@
 //! text and its attributes, with what its markup and its holders' state
 //! of whether a person sees it (the Frontier's `trap_links`). On the
 //! browser tier, the page itself reads them, with what its layout shows.
-//! A code-free crawl's fields (ADR 0123) read the first element each
-//! field's locator finds, alike: its tag name, text and attributes, by a
-//! CSS selector or an `XPath` 1.0 expression (the `xpath` module) in the
-//! served document; on the browser tier the page reads them with
-//! [`FIELDS_READ`].
+//! A page's fields, which `page.read` and a code-free crawl read (ADRs
+//! 0123 and 0147), are found alike: the first element a value field's
+//! locator finds, every element a list's finds, and the first element
+//! each of a row's fields finds among that row's descendants, each read
+//! as its tag name, text and attributes, by a CSS selector or an `XPath`
+//! 1.0 expression (the `xpath` module) in the served document; on the
+//! browser tier the page finds them with `goodfetch_page::fields`.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
+use goodfetch_extractor::fields::{self as declared, FieldElement, Found};
 use goodfetch_frontier::trap_links::{Markup, Seen, Sight};
-use goodfetch_protocol::foxhound::crawl::FieldLocator;
+use goodfetch_protocol::page::read::{FieldLocator, PageField};
 use serde_json::Value;
 
 use crate::xpath::{self, XpathInvalid};
@@ -33,24 +36,6 @@ pub struct Matched {
     /// as a served document's markup states it.
     pub sight: Sight,
 }
-
-/// The first element a code-free crawl's field's locator found in a page
-/// (ADR 0123).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FieldElement {
-    /// Its tag name, lower-cased.
-    pub tag: String,
-    /// Its text content.
-    pub text: String,
-    /// Its attributes, in document order.
-    pub attributes: Vec<(String, String)>,
-}
-
-/// The page function that reads the first element each of `locators`
-/// finds, called with `{ locators }`, each `{ kind, selector }` as a
-/// field's locator is written; answers `{ baseUrl, elements }`, each
-/// element `null` or `{ tag, text, attributes }`.
-pub(crate) const FIELDS_READ: &str = include_str!("document/fields.js");
 
 /// A selector that is no CSS selector the engine reads.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -291,81 +276,263 @@ pub(crate) enum Locating {
     Xpath(xpath::Expression),
 }
 
-/// Each of `locators`, read once, in order.
+/// `locator`, read once.
 ///
 /// # Errors
 ///
-/// When one of `locators` is no CSS selector or `XPath` expression the
-/// engine reads.
+/// When `locator` is no CSS selector or `XPath` expression the engine
+/// reads.
 pub(crate) fn locating(
-    locators: &[FieldLocator],
+    locator: &FieldLocator,
     work: &CountedWork,
-) -> Result<Vec<Locating>, LocatorInvalid> {
-    locators
+) -> Result<Locating, LocatorInvalid> {
+    Ok(match locator {
+        FieldLocator::Css { selector } => Locating::Css(matcher(selector, work)?),
+        FieldLocator::Xpath { selector } => Locating::Xpath(xpath::Expression::parse(selector)?),
+    })
+}
+
+/// How one declared field finds its elements, its locators read once
+/// (ADR 0147).
+#[derive(Clone, Debug)]
+pub(crate) enum Finding {
+    /// A value field: the first element its locator finds.
+    One(Locating),
+    /// A list: every element its locator finds.
+    List(Locating),
+    /// Rows: every element the first locator finds, and in each, the first
+    /// element each of its fields' locators finds, in the order of their
+    /// names.
+    Rows(Locating, Vec<Locating>),
+}
+
+/// How each of `fields` finds its elements, in the order of their names,
+/// each field checked as the engine reads it on every tier: its locators,
+/// then what the extractor's `fields::check` refuses.
+///
+/// # Errors
+///
+/// The sentence refusing the first field the engine could never read.
+pub(crate) fn findings(
+    fields: &BTreeMap<String, PageField>,
+    work: &CountedWork,
+) -> Result<Vec<Finding>, String> {
+    fields
         .iter()
-        .map(|locator| {
-            Ok(match locator {
-                FieldLocator::Css { selector } => Locating::Css(matcher(selector, work)?),
-                FieldLocator::Xpath { selector } => {
-                    Locating::Xpath(xpath::Expression::parse(selector)?)
-                }
-            })
+        .map(|(name, field)| {
+            let finding = finding(name, field, work)?;
+            declared::check(name, field, work)?;
+            Ok(finding)
         })
         .collect()
 }
 
-/// The first element of `document`, a served page's tree, that each of
-/// `locators` finds, in order, as [`first_elements_in`] reads them: a
-/// handler's own read of a page, on its kept tree; a crawl request's own
-/// document is read once, as its untouched tree is read.
+/// How the field `name` finds its elements, its locators read through
+/// `work`'s cache and nothing else of it checked.
 ///
 /// # Errors
 ///
-/// When one of `locators` is no CSS selector or `XPath` expression the
-/// engine reads.
-pub(crate) fn first_elements(
-    document: &ParsedHtml,
-    locators: &[FieldLocator],
+/// The sentence refusing a locator the engine does not read.
+fn finding(name: &str, field: &PageField, work: &CountedWork) -> Result<Finding, String> {
+    let locate = |name: &str, locator: &FieldLocator| {
+        locating(locator, work).map_err(|invalid| format!("The field `{name}`'s {invalid}."))
+    };
+    Ok(match field {
+        PageField::Value(field) => Finding::One(locate(name, &field.locator)?),
+        PageField::List(list) => Finding::List(locate(name, &list.list.locator)?),
+        PageField::Rows(rows) => Finding::Rows(
+            locate(name, &rows.rows)?,
+            rows.fields
+                .iter()
+                .map(|(row_field, field)| locate(&format!("{name}/{row_field}"), &field.locator))
+                .collect::<Result<_, _>>()?,
+        ),
+    })
+}
+
+/// Refuses `fields` when the engine could never read one of them, as
+/// [`findings`] checks them, compiling through `work`: a crawl's start
+/// checks its fields on the engine's Counted work, where its Run then
+/// finds them kept (#2605).
+///
+/// # Errors
+///
+/// The sentence refusing the first field the engine could never read.
+pub fn check_fields(
+    fields: &BTreeMap<String, PageField>,
     work: &CountedWork,
-) -> Result<Vec<Option<FieldElement>>, LocatorInvalid> {
-    let locating = locating(locators, work)?;
-    Ok(first_elements_in(document, &locating))
+) -> Result<(), String> {
+    findings(fields, work).map(drop)
+}
+
+/// Each of `fields`' locators, in the order of their names, when every one
+/// is a value field: what an untouched page's readers find as they read it
+/// (the `untouched` module); `None` when one is a list or rows.
+#[must_use]
+pub fn value_locators(fields: &BTreeMap<String, PageField>) -> Option<Vec<FieldLocator>> {
+    fields
+        .values()
+        .map(|field| match field {
+            PageField::Value(field) => Some(field.locator.clone()),
+            PageField::List(_) | PageField::Rows(_) => None,
+        })
+        .collect()
+}
+
+/// What each of a crawl's `fields` finds in `document`, a served page's
+/// tree, as [`found_in`] reads it: the crawl checked its fields as it
+/// started ([`check_fields`]), so a page reads only their locators.
+///
+/// # Errors
+///
+/// The sentence refusing the first locator the engine does not read.
+pub(crate) fn found(
+    document: &ParsedHtml,
+    fields: &BTreeMap<String, PageField>,
+    work: &CountedWork,
+) -> Result<Vec<Found>, String> {
+    let findings = fields
+        .iter()
+        .map(|(name, field)| finding(name, field, work))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(found_in(document, &findings))
+}
+
+/// What each of `findings` finds in `document`, in order, as a browser
+/// reads it: a CSS selector's matches, or the nodes an `XPath`
+/// expression finds that are elements, in document order; a row's fields
+/// found among its descendants, an `XPath` expression read from the row.
+pub(crate) fn found_in(document: &ParsedHtml, findings: &[Finding]) -> Vec<Found> {
+    let mut finder = Finder {
+        document,
+        xpath: None,
+    };
+    findings
+        .iter()
+        .map(|finding| match finding {
+            Finding::One(locating) => Found::One(finder.first(locating, None).map(field_element)),
+            Finding::List(locating) => Found::List(
+                finder
+                    .all(locating, None)
+                    .into_iter()
+                    .map(field_element)
+                    .collect(),
+            ),
+            Finding::Rows(rows, fields) => Found::Rows(
+                finder
+                    .all(rows, None)
+                    .into_iter()
+                    .map(|row| {
+                        fields
+                            .iter()
+                            .map(|field| finder.first(field, Some(row)).map(field_element))
+                            .collect()
+                    })
+                    .collect(),
+            ),
+        })
+        .collect()
 }
 
 /// The first element of `document` that each of `locating` finds, in
-/// order: a CSS selector's first match, or an `XPath` expression's first
-/// node in document order when it is an element, as a browser reads both;
-/// `None` for one that finds none.
+/// order, as [`found_in`] reads a value field's; `None` for one that finds
+/// none.
 pub(crate) fn first_elements_in(
     document: &ParsedHtml,
     locating: &[Locating],
 ) -> Vec<Option<FieldElement>> {
-    // Built once, at the first `XPath` locator.
-    let mut held: Option<xpath::Document> = None;
+    let mut finder = Finder {
+        document,
+        xpath: None,
+    };
     locating
         .iter()
-        .map(|locator| {
-            let found = match locator {
-                Locating::Css(matcher) => document.select_matcher(matcher).nodes().first().copied(),
-                Locating::Xpath(expression) => held
-                    .get_or_insert_with(|| xpath::Document::of(document))
-                    .first_element(expression)
-                    .and_then(|id| document.tree.get(&id)),
-            };
-            found.map(|node| FieldElement {
-                tag: node
-                    .node_name()
-                    .map(|name| name.to_ascii_lowercase())
-                    .unwrap_or_default(),
-                text: node.text().to_string(),
-                attributes: attributes(&node),
-            })
-        })
+        .map(|locating| finder.first(locating, None).map(field_element))
         .collect()
 }
 
+/// What finds elements in one document: its `XPath` tree, built once, at
+/// the first `XPath` locator.
+struct Finder<'a> {
+    document: &'a ParsedHtml,
+    xpath: Option<xpath::Document>,
+}
+
+impl<'a> Finder<'a> {
+    /// Every element `locating` finds in the document, or among the
+    /// descendants of `within`, in document order.
+    fn all(
+        &mut self,
+        locating: &Locating,
+        within: Option<dom_query::NodeRef<'a>>,
+    ) -> Vec<dom_query::NodeRef<'a>> {
+        match locating {
+            Locating::Css(matcher) => match within {
+                None => self.document.select_matcher(matcher).nodes().to_vec(),
+                Some(row) => dom_query::Selection::from(row)
+                    .select_matcher(matcher)
+                    .nodes()
+                    .to_vec(),
+            },
+            Locating::Xpath(expression) => {
+                let document = self.document;
+                self.xpath
+                    .get_or_insert_with(|| xpath::Document::of(document))
+                    .elements(expression, within.map(|row| row.id))
+                    .into_iter()
+                    .filter_map(|id| document.tree.get(&id))
+                    .collect()
+            }
+        }
+    }
+
+    /// The first element `locating` finds in the document, or among the
+    /// descendants of `within`.
+    fn first(
+        &mut self,
+        locating: &Locating,
+        within: Option<dom_query::NodeRef<'a>>,
+    ) -> Option<dom_query::NodeRef<'a>> {
+        match locating {
+            Locating::Css(matcher) => match within {
+                None => self
+                    .document
+                    .select_matcher(matcher)
+                    .nodes()
+                    .first()
+                    .copied(),
+                Some(row) => dom_query::Selection::from(row)
+                    .select_matcher(matcher)
+                    .nodes()
+                    .first()
+                    .copied(),
+            },
+            Locating::Xpath(expression) => {
+                let document = self.document;
+                self.xpath
+                    .get_or_insert_with(|| xpath::Document::of(document))
+                    .first_element(expression, within.map(|row| row.id))
+                    .and_then(|id| document.tree.get(&id))
+            }
+        }
+    }
+}
+
+/// `node` as a field reads it: its tag name, lower-cased, its text and its
+/// attributes.
+fn field_element(node: dom_query::NodeRef<'_>) -> FieldElement {
+    FieldElement {
+        tag: node
+            .node_name()
+            .map(|name| name.to_ascii_lowercase())
+            .unwrap_or_default(),
+        text: node.text().to_string(),
+        attributes: attributes(&node),
+    }
+}
+
 /// The field element the streaming path read as `streamed`, as
-/// [`first_elements_in`] reads one on the tree.
+/// [`found_in`] reads one on the tree.
 pub(crate) fn field_streamed(streamed: goodfetch_extractor::Streamed) -> Option<FieldElement> {
     let own = streamed.held.into_iter().next()?;
     Some(FieldElement {
@@ -373,36 +540,6 @@ pub(crate) fn field_streamed(streamed: goodfetch_extractor::Streamed) -> Option<
         text: streamed.text,
         attributes: own.attributes,
     })
-}
-
-/// What a browser page answered [`FIELDS_READ`]: its base URL, and the
-/// first element each locator found; `None` for an answer it never gives.
-pub(crate) fn browser_fields(answer: &Value) -> Option<(String, Vec<Option<FieldElement>>)> {
-    let text = |value: &Value, name: &str| value.get(name)?.as_str().map(str::to_owned);
-    let elements = answer
-        .get("elements")?
-        .as_array()?
-        .iter()
-        .map(|element| {
-            if element.is_null() {
-                return Some(None);
-            }
-            Some(Some(FieldElement {
-                tag: text(element, "tag")?,
-                text: text(element, "text")?,
-                attributes: element
-                    .get("attributes")?
-                    .as_array()?
-                    .iter()
-                    .map(|pair| {
-                        let at = |index: usize| pair.get(index)?.as_str().map(str::to_owned);
-                        Some((at(0)?, at(1)?))
-                    })
-                    .collect::<Option<_>>()?,
-            }))
-        })
-        .collect::<Option<_>>()?;
-    Some((text(answer, "baseUrl")?, elements))
 }
 
 /// Refuses `selector` when it is no CSS selector the engine reads on both

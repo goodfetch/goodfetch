@@ -10,15 +10,15 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
-use goodfetch_protocol::foxhound::crawl::FieldLocator;
 use goodfetch_protocol::page::FormatsRequest;
+use goodfetch_protocol::page::read::FieldLocator;
 use goodfetch_protocol::settings::page_check::{PageCheck, PageMatch};
 use proptest::prelude::*;
 use rstest::rstest;
 use url::Url;
 
 use super::{StreamRead, UntouchedDemand, UntouchedReaders};
-use crate::document::{first_elements, matched};
+use crate::document::{first_elements_in, locating, matched};
 use crate::expected_page::{self, judge};
 use crate::refresh;
 
@@ -116,11 +116,16 @@ fn one_tree_reads_what_each_reader_read_of_its_own_parse(#[case] html: &str) {
     }
     assert_eq!(
         read.fields(&demand.fields),
-        Some(first_elements(
-            &alone.parse_html(Row::PageParses, html),
-            &demand.fields,
-            &alone
-        ))
+        Some(
+            demand
+                .fields
+                .iter()
+                .map(|locator| locating(locator, &alone))
+                .collect::<Result<Vec<_>, _>>()
+                .map(|locating| {
+                    first_elements_in(&alone.parse_html(Row::PageParses, html), &locating)
+                })
+        )
     );
     let check = demand.page_check.as_ref().unwrap();
     let (verdict, robots) = read.judged(check).unwrap();

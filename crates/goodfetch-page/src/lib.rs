@@ -24,6 +24,7 @@ mod driver;
 mod egress_relay;
 mod errors;
 pub mod extractor;
+pub mod fields;
 mod guard;
 mod hiding;
 mod interception;

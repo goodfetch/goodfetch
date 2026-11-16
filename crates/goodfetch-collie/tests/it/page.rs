@@ -705,6 +705,39 @@ fn page_formats_of_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) 
     );
 }
 
+/// `page read` through the command generated from the catalog, its fields
+/// given as JSON (ADR 0147): no engine holds a page the command names, so
+/// the call fails with `closed`.
+/// Covers: command:page.read
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn page_read_of_a_page_no_engine_holds_fails_with_closed(#[case] mode: Mode) {
+    let env = TestEnv::new();
+
+    let checked = cli(&env, COLLIE)
+        .args([
+            "page",
+            "read",
+            "page-1",
+            "--fields",
+            r#"{"title":{"locator":{"kind":"css","selector":"h1"}}}"#,
+            "--json",
+        ])
+        .mode(mode)
+        .json("CommandFailed")
+        .unwrap();
+
+    assert_eq!(
+        (
+            checked.output.exit,
+            &checked.documents[0]["error"]["code"],
+            &checked.documents[0]["error"]["operation"],
+        ),
+        (Some(3), &json!("closed"), &json!("page.read"))
+    );
+}
+
 /// Runs `page <command> page-1 --json` in `mode`, which names a page no
 /// engine holds, and returns its exit status, Error code and operation.
 fn closed_page(command: &str, mode: Mode) -> (Option<i32>, Value, Value) {

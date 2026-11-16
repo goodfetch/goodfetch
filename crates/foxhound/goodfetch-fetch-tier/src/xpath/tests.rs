@@ -28,7 +28,7 @@ const PAGE: &str = r##"<!DOCTYPE html><html id="html" lang="de"><head id="head">
 fn first(expression: &str) -> Option<String> {
     let parsed = Expression::parse(expression).expect("the expression is read");
     let document = dom_query::Document::from(PAGE);
-    let id = Document::of(&document).first_element(&parsed)?;
+    let id = Document::of(&document).first_element(&parsed, None)?;
     document.tree.get(&id)?.attr("id").map(|id| id.to_string())
 }
 
@@ -210,6 +210,41 @@ const TOKENS: [&str; 40] = [
     "$x",
 ];
 
+/// Every element an expression finds, from the root or from an element as
+/// its context node, in document order, as Chrome's
+/// `document.evaluate(…, row, null, ORDERED_NODE_SNAPSHOT_TYPE)` holds
+/// them; a node that is no element is left out.
+#[rstest]
+#[case::every_item_from_the_root("//li", None, &["one", "two", "three"])]
+#[case::relative_to_an_element("li[@class]", Some("list"), &["one", "two", "three"])]
+#[case::a_rows_own_descendant("b", Some("two"), &["bold"])]
+#[case::none_under_another_row("b", Some("one"), &[])]
+#[case::text_is_no_element("text()", Some("one"), &[])]
+fn every_element_an_expression_finds_from_its_context_node(
+    #[case] expression: &str,
+    #[case] from: Option<&str>,
+    #[case] expected: &[&str],
+) {
+    let parsed = Expression::parse(expression).expect("the expression is read");
+    let document = dom_query::Document::from(PAGE);
+    let from = from.map(|id| {
+        document
+            .root()
+            .descendants()
+            .into_iter()
+            .find(|node| node.attr("id").as_deref() == Some(id))
+            .expect("the element is in the page")
+            .id
+    });
+    let found: Vec<String> = Document::of(&document)
+        .elements(&parsed, from)
+        .iter()
+        .filter_map(|id| document.tree.get(id)?.attr("id").map(|id| id.to_string()))
+        .collect();
+
+    assert_eq!(found, expected);
+}
+
 proptest! {
     /// No text, however malformed, makes reading it or evaluating what it
     /// reads panic.
@@ -221,7 +256,7 @@ proptest! {
         let text = tokens.join(if spaced { " " } else { "" });
         let document = dom_query::Document::from(PAGE);
         if let Ok(expression) = Expression::parse(&text) {
-            Document::of(&document).first_element(&expression);
+            Document::of(&document).elements(&expression, None);
         }
     }
 

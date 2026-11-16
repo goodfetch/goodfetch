@@ -47,7 +47,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_counted_work::ParsedHtml;
+use goodfetch_counted_work::{ParsedHtml, Row};
 use goodfetch_engine::browser_cache::PinnedArtifact;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::{self, Navigator};
@@ -71,6 +71,7 @@ use goodfetch_protocol::page::functions::{
     AddInitScriptParams, EvaluateParams, Evaluated, InitScriptEnded, LOCATOR_EVALUATE_ALL,
     LocatorEvaluateAllParams, PAGE_ADD_INIT_SCRIPT, PAGE_EVALUATE, World,
 };
+use goodfetch_protocol::page::read::{PAGE_READ, PageRead, PageReadParams};
 use goodfetch_protocol::page::request::{MAX_REDIRECTS, PAGE_REQUEST, PageRequestParams};
 use goodfetch_protocol::page::route::UrlMatcher;
 use goodfetch_protocol::page::route::{
@@ -101,6 +102,7 @@ use crate::dialogs::{self, Dialogs};
 use crate::document_request::{DocumentRequest, Unread};
 use crate::driver::{Destination, SerializedDocument};
 use crate::extractor;
+use crate::fields;
 use crate::guard::{self, Action, Request, Window};
 use crate::hiding::Hidden;
 use crate::interception::{
@@ -181,6 +183,7 @@ pub fn contribution_with(
             .with_clean_up_versions(pages.interception.versions()),
         &pages,
     );
+    let contribution = with_page_read_handlers(contribution, &pages);
     let contribution = with_session_handlers(contribution, &pages.sessions);
     let contribution = with_locator_handlers(contribution, &pages);
     let contribution = with_event_handlers(contribution, &pages);
@@ -637,10 +640,9 @@ fn answered(reply: Result<Reply, CallError>) -> Result<RouteAnswered, CallError>
     reply.map(|_| RouteAnswered {})
 }
 
-/// Adds the handlers of `run.new_page`, the navigations and `page.formats`.
+/// Adds the handlers of `run.new_page` and the navigations.
 fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
-    let (opening, going, reloading, going_back, going_forward, formatting) = (
-        pages.clone(),
+    let (opening, going, reloading, going_back, going_forward) = (
         pages.clone(),
         pages.clone(),
         pages.clone(),
@@ -728,11 +730,24 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                 }
             },
         ))
+}
+
+/// Adds the handlers of the page's reads, `page.formats` and `page.read`.
+fn with_page_read_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
+    let (formatting, reading) = (pages.clone(), pages.clone());
+    contribution
         .with_handler(Handler::new(
             &PAGE_FORMATS,
             move |params: FormatsParams, _context: CallContext| {
                 let pages = formatting.clone();
                 async move { pages.formats(params).await }
+            },
+        ))
+        .with_handler(Handler::new(
+            &PAGE_READ,
+            move |params: PageReadParams, _context: CallContext| {
+                let pages = reading.clone();
+                async move { pages.read_fields(params).await }
             },
         ))
 }
@@ -1651,5 +1666,63 @@ impl Pages {
             trace::provenance(&page.run, read.entry(&params.page_id, Some(&page.session))).await;
         }
         Ok(formats)
+    }
+
+    /// The fields `params` declares, read from the browser page's document
+    /// in one engine read (ADR 0147): each locator found by the page itself,
+    /// as a served document's tree finds it, and each value read by the
+    /// extractor's `fields` module. A field the page's Run refuses, or a
+    /// locator the page does not read, is `invalid_params`. A page a fetch
+    /// tier served answers `page.read` itself, never reaching here.
+    #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_READ.name, run_id = tracing::field::Empty))]
+    async fn read_fields(&self, params: PageReadParams) -> Result<PageRead, CallError> {
+        let (page, _) = self
+            .open(&params.page_id, |page| {
+                page.driver.navigation_deadline(None)
+            })
+            .await?;
+        tracing::Span::current().record("run_id", page.run.id().as_str());
+        let work = page.run.metrics().counted_work();
+        for (name, field) in &params.fields {
+            goodfetch_extractor::fields::check(name, field, work).map_err(|sentence| {
+                CallError::protocol(ProtocolFailure::InvalidParams, sentence)
+            })?;
+        }
+        let declared = goodfetch_extractor::fields::Fields::of(&params.fields, work);
+        let reading = page.driver.counting(Row::PageFieldReadCommands);
+        // A document replaced under the read is read once more in the next
+        // one, as `page.evaluate`'s is.
+        let mut answer = None;
+        for _ in 0..2 {
+            answer = page
+                .life
+                .call(
+                    PageEvent::Read,
+                    reading.read_in_page(
+                        fields::READ,
+                        fields::argument(&params.fields),
+                        PAGE_READ.name,
+                    ),
+                )
+                .await?;
+            if answer.is_some() {
+                break;
+            }
+        }
+        let answer = answer.ok_or_else(|| {
+            CallError::protocol(
+                ProtocolFailure::InternalError,
+                format!(
+                    "The page's document went, or its fields' read threw, twice in a row as `{}` read it.",
+                    PAGE_READ.name
+                ),
+            )
+        })?;
+        let answered = fields::answered(&answer, &params.fields, PAGE_READ.name)?;
+        let read = declared.read(answered.found, &answered.base_url);
+        Ok(PageRead {
+            values: read.values,
+            unread: read.unread,
+        })
     }
 }

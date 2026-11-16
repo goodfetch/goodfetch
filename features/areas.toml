@@ -905,6 +905,13 @@ number = 6
 kind = "operation"
 prefix = "page.formats"
 
+# Area 6, Collection (spec #580): a page's fields read in one call on
+# every tier (ADR 0147, #2402).
+[[area]]
+number = 6
+kind = "operation"
+prefix = "page.read"
+
 # A call a forced fetch tier cannot serve exactly (ADR 0093): area 6's
 # served-call table (#931) raises it; #767 declares it first.
 [[area]]

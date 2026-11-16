@@ -37,7 +37,7 @@ fn pushed(data: Value) -> Vec<PushedRecord> {
 #[test]
 fn the_pages_schema_is_generated_from_the_formats_request_and_a_pages_record_holds_to_it() {
     let extraction = extraction(json!({ "formats": { "markdown": true, "links": true } }));
-    let declared = dataset(&extraction).unwrap();
+    let declared = dataset(&extraction, &goodfetch_counted_work::CountedWork::default()).unwrap();
     let datasets = Datasets::declare(std::slice::from_ref(&declared)).unwrap();
     let page = formats(json!({
         "url": "http://site.test/a",
@@ -98,9 +98,12 @@ fn the_pages_schema_is_generated_from_the_formats_request_and_a_pages_record_hol
 fn the_start_declares_page_and_pages_and_refuses_a_dataset_of_its_own() {
     let extraction = extraction(json!({ "formats": { "markdown": true } }));
     let (mut labels, mut datasets) = (BTreeMap::new(), Vec::new());
-    let pages = Pages::default();
+    let (pages, work) = (
+        Pages::default(),
+        goodfetch_counted_work::CountedWork::default(),
+    );
     let refused = goodfetch_test_support::runtime().block_on(async {
-        declare_into(&extraction, &mut labels, &mut datasets, &pages)
+        declare_into(&extraction, &mut labels, &mut datasets, &pages, &work)
             .await
             .unwrap();
         declare_into(
@@ -108,6 +111,7 @@ fn the_start_declares_page_and_pages_and_refuses_a_dataset_of_its_own() {
             &mut BTreeMap::new(),
             &mut datasets.clone(),
             &pages,
+            &work,
         )
         .await
         .map(drop)
@@ -180,7 +184,7 @@ fn the_pages_schema_holds_each_fields_type() {
             },
         },
     }));
-    let declared = dataset(&extraction).unwrap();
+    let declared = dataset(&extraction, &goodfetch_counted_work::CountedWork::default()).unwrap();
     let datasets = Datasets::declare(std::slice::from_ref(&declared)).unwrap();
     let page = formats(json!({
         "url": "http://site.test/a",
@@ -255,6 +259,7 @@ fn the_start_refuses_a_field_it_cannot_hold_or_read(#[case] fields: Value) {
         &mut BTreeMap::new(),
         &mut Vec::new(),
         &Pages::default(),
+        &goodfetch_counted_work::CountedWork::default(),
     ));
 
     assert_eq!(
@@ -269,14 +274,17 @@ fn the_start_refuses_a_field_it_cannot_hold_or_read(#[case] fields: Value) {
 /// (issue 2204).
 #[test]
 fn two_starts_of_one_extraction_build_the_dataset_pages_once() {
-    let pages = Pages::default();
+    let (pages, work) = (
+        Pages::default(),
+        goodfetch_counted_work::CountedWork::default(),
+    );
     let asked = extraction(json!({ "formats": { "markdown": true } }));
     let other = extraction(json!({ "formats": { "html": true } }));
     let (first, second, third) = goodfetch_test_support::runtime().block_on(async {
         (
-            pages.of(&asked).await.unwrap(),
-            pages.of(&asked).await.unwrap(),
-            pages.of(&other).await.unwrap(),
+            pages.of(&asked, &work).await.unwrap(),
+            pages.of(&asked, &work).await.unwrap(),
+            pages.of(&other, &work).await.unwrap(),
         )
     });
     assert_eq!(

@@ -62,6 +62,14 @@
 //! a duplicate: `F2.batches` is the batches the writer sealed before their
 //! pages or their interval, less one for each such call, per Run.
 //!
+//! `F3.lease_reads` divides by the leases, a page's and a sitemap's, of the
+//! cells at a level that batches attempts whose memory budget holds their
+//! pending work items, the unit `batched_leases`, and
+//! `F3.lease_reads.spilled` by those of the cell `memory_budget_0`, whose
+//! budget holds none, `spilled_leases` (#2169). The cell
+//! `memory_budget_1mib` runs at the test budget of 1 MiB, which the site
+//! fits in.
+//!
 //! `F3.hop_round_trips.end` divides by the redirected chains that ended on
 //! their document, the unit `chains`: the site's redirects are one hop
 //! each, so its chains are its hops.
@@ -187,6 +195,9 @@ fn plant(name: &str, work: &CountedWork, vfs: &str) -> Plant {
     if name.starts_with("E6.") {
         return politeness_plant(name, work);
     }
+    if name == LEASE_READS_SPILLED {
+        return counting(work.clone(), Row::LeaseReads);
+    }
     if name == CONSTRUCTIONS {
         return Arc::new(|_: &str| {
             std::hint::black_box(CountedWork::default());
@@ -309,6 +320,11 @@ const PAGE_WAITS_FULL: &str = "F2.page_waits.full";
 /// the levels that batch attempts, within the memory budget (#2169): none
 /// counts in the other cells, whose leases read their rows.
 const LEASE_READS: &str = "F3.lease_reads";
+
+/// The same past the memory budget, in the cell whose budget holds no
+/// pending work item ([`MEMORY_BUDGET_0`]): at most one a lease (ADR
+/// 0140's F3 contract), from the first page.
+const LEASE_READS_SPILLED: &str = "F3.lease_reads.spilled";
 
 /// The batches the writer sealed before their plan, less the one each of
 /// the crawl's [`BARRIER_CALLS`] may write: what is left is the Run's own,
@@ -474,6 +490,25 @@ fn durability(name: &'static str, level: &str, removes_syncs: bool) -> Cell {
         frontier: None,
         removes: &[],
         removes_syncs,
+        handler: false,
+        limit: false,
+    }
+}
+
+/// The cell whose memory budget holds nothing: every lease reads the run
+/// file, counted on [`LEASE_READS_SPILLED`] and not on [`LEASE_READS`].
+const MEMORY_BUDGET_0: &str = "memory_budget_0";
+
+/// The cell `name` at `run_state.memory.budget: budget` (#2169), with the
+/// Frontier's outcomes beyond a links batch, as the default cell meets
+/// them.
+fn memory_budget(name: &'static str, budget: u64) -> Cell {
+    Cell {
+        name,
+        settings: scoped(json!({ "run_state": { "memory": { "budget": budget } } })),
+        frontier: FRONTIER,
+        removes: &[],
+        removes_syncs: false,
         handler: false,
         limit: false,
     }
@@ -663,6 +698,11 @@ fn cells() -> Vec<Cell> {
         // `durability_fast`.
         durability("durability_full", "full", false),
         durability("durability_off", "off", true),
+        // ADR 0140's F3 rows at the test budget of 1 MiB, which the
+        // fixture's crawl fits in as at the default, and at 0, where it
+        // fits in none from the first page (#2169).
+        memory_budget("memory_budget_1mib", 1 << 20),
+        memory_budget(MEMORY_BUDGET_0, 0),
         // robots.txt off reads and parses no robots.txt (#1919), and with
         // the fixture's delay of 0 waits out no Crawl-delay, so neither cell
         // paces its domains: admission consults no Politeness store and
@@ -754,6 +794,11 @@ impl Counted {
             .position(|counted| *counted == row)
             .map_or(0, |at| self.started.get().map_or(0, |started| started[at]));
         self.work.read(row) - before
+    }
+
+    /// Whether its memory budget holds no pending work item.
+    fn spills(&self) -> bool {
+        self.name == MEMORY_BUDGET_0
     }
 }
 
@@ -1286,6 +1331,7 @@ fn main() {
         let off = cell.name == OFF_CELL;
         let batched = matches!(cell.level, DURABILITY_BATCH | DURABILITY_OFF);
         let full = cell.level == DURABILITY_FULL;
+        let leases = cell.attempts + cell.sitemaps;
         let units = json!({
             "pages": cell.pages,
             "added_pages": cell.added_pages,
@@ -1308,7 +1354,8 @@ fn main() {
             "off_attempts": if off { cell.attempts } else { 0 },
             "learning_off_pages": if cell.name == LEARNING_OFF { cell.pages } else { 0 },
             "batched_pages": if batched { cell.pages } else { 0 },
-            "batched_leases": if batched { cell.attempts + cell.sitemaps } else { 0 },
+            "batched_leases": if batched && !cell.spills() { leases } else { 0 },
+            "spilled_leases": if batched && cell.spills() { leases } else { 0 },
             "full_pages": if full { cell.pages } else { 0 },
         });
         println!(
@@ -1368,7 +1415,19 @@ fn counts_of(cell: &Counted) -> Map<String, Value> {
     let lease_reads = cell.count(Row::LeaseReads);
     counts.insert(
         LEASE_READS.to_owned(),
-        json!(if batched { lease_reads } else { 0 }),
+        json!(if batched && !cell.spills() {
+            lease_reads
+        } else {
+            0
+        }),
+    );
+    counts.insert(
+        LEASE_READS_SPILLED.to_owned(),
+        json!(if batched && cell.spills() {
+            lease_reads
+        } else {
+            0
+        }),
     );
     let early = cell.count(Row::RunBatches);
     counts.insert(

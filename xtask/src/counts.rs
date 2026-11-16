@@ -187,7 +187,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 127] = [
+const ROWS: [Row; 128] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -427,6 +427,10 @@ const ROWS: [Row; 127] = [
     // state holds every pending work item. Its unit is those cells'
     // leases, a page's and a sitemap's, none elsewhere.
     b1("F3.lease_reads", BATCHED_LEASES, false),
+    // The same past the memory budget, from the first page in the cell
+    // whose budget holds no pending work item: at most one a lease (ADR
+    // 0140's F3 contract). Its unit is that cell's leases.
+    b1("F3.lease_reads.spilled", SPILLED_LEASES, false),
     // What each page more builds, read as `F2.prepares` is: the whole
     // site's run less a run on half its pages, over the pages it adds.
     b1("F3.counted_work_constructions", ADDED_PAGES, false),
@@ -1088,9 +1092,14 @@ const PAYLOADS: &str = "payloads";
 /// The attempts that ended in it: a page's, and each sitemap's read.
 const ATTEMPTS_ENDED: &str = "attempts_ended";
 
-/// The leases of a cell at a level that batches attempts, a page's and a
-/// sitemap's: none in any other cell.
+/// The leases of a cell at a level that batches attempts whose memory
+/// budget holds its pending work items, a page's and a sitemap's: none in
+/// any other cell.
 const BATCHED_LEASES: &str = "batched_leases";
+
+/// The leases of the cell at a level that batches attempts whose memory
+/// budget holds no pending work item: none in any other cell.
+const SPILLED_LEASES: &str = "spilled_leases";
 
 const fn b1(name: &'static str, unit: &'static str, happens: bool) -> Row {
     Row {
@@ -1639,7 +1648,7 @@ fn one_of(unit: &str) -> &str {
         "batched_pages" | "full_pages" | CALLGRIND_PAGES => "page",
         ADDED_PAGES => "page added",
         ATTEMPTS_ENDED => "attempt",
-        BATCHED_LEASES => "lease",
+        BATCHED_LEASES | SPILLED_LEASES => "lease",
         CALLGRIND_CRAWLS => "crawl",
         unit => unit.trim_end_matches('s'),
     }

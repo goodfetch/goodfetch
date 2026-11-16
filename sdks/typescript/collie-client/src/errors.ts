@@ -1,12 +1,15 @@
 // The errors a Connection raises (ADR 0079): an engine's JSON-RPC error
 // turned into its code's generated class, or its group's class keeping the
 // code when the SDK does not know it; nothing in the reply is validated
-// beyond what picking the class needs (STYLE.md, SDK idioms).
+// beyond what picking the class needs (STYLE.md, SDK idioms). And the
+// other way, the JSON-RPC error a request the engine sent is answered with.
 import {
   errorGroupClasses,
   errorGroupOfWireClass,
+  GoodfetchError,
+  InternalError,
   type ErrorClass,
-  type GoodfetchError,
+  type ErrorGroup,
 } from "./generated/index.ts";
 
 /** The error classes a Connection raises by code: its Product's own. */
@@ -43,4 +46,49 @@ export function errorOfReply(error: unknown, classes: ErrorClasses): GoodfetchEr
     group,
     retryable: retryable === true,
   });
+}
+
+/** The wire class of each group (ADR 0038): `errorGroupOfWireClass` read the other way. */
+const wireClassOfGroup: ReadonlyMap<ErrorGroup, number> = new Map(
+  Object.entries(errorGroupOfWireClass).map(([wireClass, group]) => [group, Number(wireClass)]),
+);
+
+/** A JSON-RPC `error`, as the engine reads one (ADR 0038). */
+export interface ErrorReply {
+  /** The group's wire class. */
+  readonly code: number;
+  readonly message: string;
+  /** The Error code, whether it is retryable, its `fix` when it has one, and its details. */
+  readonly data: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * The JSON-RPC `error` a request the engine sent is answered with when
+ * serving it failed with `error`. An error that is no Goodfetch error is a
+ * bug in what served it: it is answered `internal`.
+ */
+export function replyOfError(error: unknown): ErrorReply {
+  const failure =
+    error instanceof GoodfetchError
+      ? error
+      : new InternalError(error instanceof Error ? error.message : String(error), {
+          code: NO_CODE,
+          group: "internal",
+          retryable: false,
+          cause: error,
+        });
+  const wireClass = wireClassOfGroup.get(failure.group);
+  if (wireClass === undefined) {
+    throw new TypeError(`invariant: the catalog gives the group ${failure.group} a wire class`);
+  }
+  return {
+    code: wireClass,
+    message: failure.message,
+    data: {
+      ...failure.details,
+      code: failure.code,
+      retryable: failure.retryable,
+      ...(failure.fix === undefined ? {} : { fix: failure.fix }),
+    },
+  };
 }

@@ -20,7 +20,7 @@
 
 [suite]
 name = "clients"
-version = "7"
+version = "8"
 
 [[capability]]
 name = "lifecycle"
@@ -89,6 +89,37 @@ modes = ["attached"]
 [[capability.case]]
 id = "closed-page-raises-closed"
 covers = ["story:11-77"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+# A program's crawl (issue 1467): declared on a `Crawl` value, started on
+# Foxhound's executable, its handler served on the event loop, and its
+# Records judged by the Proving ground's oracle. TypeScript leads; the
+# Python and Rust SDKs join with issue 1469.
+[[capability]]
+name = "crawl"
+
+[[capability.case]]
+id = "crawl-catalog-program"
+covers = ["story:11-1013", "story:11-1015"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+# A handler's attempts (ADRs 0003 and 0093; issue 1467): a Crawl request
+# whose attempt failed is delivered again, and only the Records of the
+# attempt that commits are kept.
+[[capability]]
+name = "delivery"
+
+[[capability.case]]
+id = "handler-at-least-once"
+covers = ["story:3-41"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "handler-exactly-once"
+covers = ["story:3-41"]
 surfaces = ["sdk-typescript"]
 modes = ["attached"]
 

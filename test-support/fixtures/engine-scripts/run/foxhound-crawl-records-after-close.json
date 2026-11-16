@@ -1,0 +1,60 @@
+{
+  "description": "A Foxhound Client starts the two-page-type crawl as `nightly`, which the engine answers as an existing Run that already finished; closing the Run then sends nothing, and a `records()` read on it fails with `closed` before any message.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "foxhound",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "labels": {
+            "listing": {},
+            "product": {}
+          },
+          "datasets": [
+            {
+              "name": "products",
+              "key": ["id"]
+            }
+          ],
+          "seeds": [
+            {
+              "url": "https://shop.test/a",
+              "label": "listing"
+            }
+          ],
+          "run_id": "nightly"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly",
+          "lifecycle": "finished",
+          "needs": "foxhound",
+          "started_as": "existing"
+        }
+      }
+    }
+  ]
+}

@@ -2,9 +2,12 @@
 // and 0095): it opens with `hello`, naming the Product the Client needs and
 // its version, and holds the engine's answer; it starts Runs and closes them
 // before itself; and once closed, every call fails with `closed`. The only
-// check of the engine's answers is the protocol version's (STYLE.md).
+// check of the engine's answers is the protocol version's (STYLE.md). A
+// Product's package reaches its own operations, streams and Run type
+// through it, and serves the engine's requests to its program's handlers.
 import { Buffer } from "node:buffer";
 import { AttachedEngine, type EngineExit } from "./attached-engine.ts";
+import type { CallOptions, Caller, OperationTypes } from "./caller.ts";
 import { errorOfReply, type ErrorClasses } from "./errors.ts";
 import {
   CallCancelledError,
@@ -16,8 +19,6 @@ import {
   PRODUCT_VERSION,
   PROTOCOL_VERSION,
   ProtocolVersionUnsupportedError,
-  type CallOptions,
-  type Caller,
   type CollieOperationTypes,
   type GoodfetchError,
   type HelloParams,
@@ -25,11 +26,18 @@ import {
   type KeyValueStoreSetParams,
   type Product,
   type RunStartParams,
+  type RunStarted,
 } from "./generated/index.ts";
 import type { JsonValue } from "./key-value-store.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
-import { Channel, type ChannelBounds, type Transport, type TransportEnd } from "./rpc.ts";
+import {
+  Channel,
+  type ChannelBounds,
+  type ChannelOpenOptions,
+  type Transport,
+  type TransportEnd,
+} from "./rpc.ts";
 
 /** How long `close()` waits for an Attached engine to stop: `timeout.close`'s default (ADR 0080). */
 const CLOSE_TIMEOUT = 30_000;
@@ -74,6 +82,17 @@ export interface ClientConnectionOptions {
   readonly signal?: AbortSignal | undefined;
 }
 
+/** What serves one kind of the engine's requests: it answers the result, or throws the error to answer. */
+export type Served = (params: unknown, signal: AbortSignal) => Promise<unknown>;
+
+/** A call the engine streams to, as many notifications as its Client grants credits for. */
+export interface Stream {
+  /** Its answer, once the engine has sent what it streams. */
+  readonly result: Promise<unknown>;
+  /** Lets the engine send `credits` more notifications. */
+  grant(credits: number): void;
+}
+
 /** The common Connection under each Product's Connection type. */
 export class ClientConnection implements AsyncDisposable {
   readonly #channel: Channel;
@@ -81,6 +100,7 @@ export class ClientConnection implements AsyncDisposable {
   readonly #operations: CollieOperations;
   readonly #runs = new Set<Run>();
   readonly #runHost: RunHost;
+  readonly #served = new Map<string, Served>();
   #info: EngineInfo | undefined;
   #ended = false;
   #closing: Promise<void> | undefined;
@@ -93,12 +113,13 @@ export class ClientConnection implements AsyncDisposable {
       {
         ended: (end) => this.#endedWith(end),
         failure: (error) => errorOfReply(error, errorClasses),
+        serve: (method, params, signal) => this.#served.get(method)?.(params, signal),
       },
       options.bounds,
     );
-    this.#operations = new CollieOperations(this.#caller());
+    this.#operations = new CollieOperations(this.caller<CollieOperationTypes>());
     this.#runHost = {
-      calls: this.#caller(),
+      calls: this.caller<CollieOperationTypes>(),
       reachable: () => !this.#ended,
       forget: (run) => this.#runs.delete(run),
       keyValueStore: {
@@ -165,15 +186,62 @@ export class ClientConnection implements AsyncDisposable {
 
   /** Starts a Run and returns once it is started (ADR 0102). */
   async start(options: StartOptions = {}): Promise<Run> {
-    this.#openOrThrow("run.start");
     const params: RunStartParams = {
       ...(options.runId === undefined ? {} : { run_id: options.runId }),
       ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
     };
-    const started = await this.#operations.runStart(params);
-    const run = new Run(this.#runHost, started);
+    return this.startRun(
+      "run.start",
+      () => this.#operations.runStart(params),
+      (host, started) => new Run(host, started),
+    );
+  }
+
+  /**
+   * Starts a Run of a Product's own type with `start`, such as a crawl's,
+   * and holds the Run `make` builds on the engine's answer, so the
+   * Connection's close closes it.
+   */
+  async startRun<Started extends Run>(
+    operation: string,
+    start: () => Promise<RunStarted>,
+    make: (host: RunHost, started: RunStarted) => Started,
+  ): Promise<Started> {
+    this.#openOrThrow(operation);
+    const run = make(this.#runHost, await start());
     this.#runs.add(run);
     return run;
+  }
+
+  /** The Connection's calls, typed by a Product's operation table. */
+  caller<Types extends Record<keyof Types, OperationTypes>>(): Caller<Types> {
+    const channel = this.#channel;
+    return {
+      call<Name extends keyof Types & string>(
+        operation: Name,
+        params: Types[Name]["params"],
+        options: CallOptions,
+      ): Promise<Types[Name]["result"]> {
+        // Engine answers are not validated beyond `hello`'s protocol version (STYLE.md): the result is the operation's as the catalog types it.
+        return channel.call(operation, params, options);
+      },
+    };
+  }
+
+  /**
+   * Sends `method`, which the engine answers once it has streamed what the
+   * Client granted credits for; `notified` hears each notification.
+   */
+  stream(method: string, params: unknown, options: ChannelOpenOptions): Stream {
+    this.#openOrThrow(method);
+    const channel = this.#channel;
+    const { id, result } = channel.open(method, params, options);
+    return { result, grant: (credits) => channel.notify("$/credit", { id, credits }) };
+  }
+
+  /** Serves the engine's requests of `method` with `served`; a method none serves is answered `-32601`. */
+  serve(method: string, served: Served): void {
+    this.#served.set(method, served);
   }
 
   /**
@@ -196,22 +264,6 @@ export class ClientConnection implements AsyncDisposable {
         fix: "Connect again: a closed Connection never reopens.",
       });
     }
-  }
-
-  #caller(): Caller<CollieOperationTypes> {
-    const channel = this.#channel;
-    return {
-      call<Name extends keyof CollieOperationTypes>(
-        operation: Name,
-        params: CollieOperationTypes[Name]["params"],
-        options: CallOptions,
-      ): Promise<CollieOperationTypes[Name]["result"]> {
-        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): the result is the operation's as the catalog types it.
-        return channel.call(operation, params, options) as Promise<
-          CollieOperationTypes[Name]["result"]
-        >;
-      },
-    };
   }
 
   async #hello(needs: Product, signal: AbortSignal | undefined): Promise<void> {

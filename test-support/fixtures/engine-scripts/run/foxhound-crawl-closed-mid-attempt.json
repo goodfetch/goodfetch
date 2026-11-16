@@ -1,0 +1,148 @@
+{
+  "description": "A Foxhound Client starts a crawl whose handler reads its page; while the read is in flight, the program closes the Run: the read is cancelled with `$/cancel`, the Run is aborted, and the handler call is answered with the `closed` error the read failed with.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "foxhound",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "labels": {
+            "page": {}
+          },
+          "seeds": [
+            {
+              "url": "https://shop.test/a",
+              "label": "page"
+            }
+          ],
+          "run_id": "nightly"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly",
+          "lifecycle": "running",
+          "needs": "foxhound",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "send": {
+        "request": {
+          "method": "crawl_request.handle",
+          "params": {
+            "run_id": "nightly",
+            "crawl_request": {
+              "id": "1",
+              "label": "page",
+              "method": "GET",
+              "url": "https://shop.test/a"
+            },
+            "attempt": 1,
+            "lease_epoch": 1,
+            "page_id": "page-1",
+            "session": {
+              "id": "session-1",
+              "proxy_tier": "none",
+              "revalidate": false
+            },
+            "tier": "http"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.read",
+        "params": {
+          "page_id": "page-1",
+          "fields": {
+            "title": {
+              "locator": {
+                "kind": "css",
+                "selector": "h1"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 2
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.abort",
+        "params": {
+          "run_id": "nightly"
+        }
+      }
+    },
+    {
+      "await_reply": {
+        "error": {
+          "code": -32001,
+          "message": "the Run nightly is closed, which stopped the handler's attempt",
+          "data": {
+            "code": "closed",
+            "retryable": false,
+            "fix": "Keep the Run open until its crawl is done, or start it again by its Run ID."
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly",
+          "lifecycle": "stopped",
+          "verdict": "verified",
+          "completeness": "incomplete",
+          "stop_reason": {
+            "kind": "abort",
+            "by": "client"
+          },
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 1
+          }
+        }
+      }
+    }
+  ]
+}

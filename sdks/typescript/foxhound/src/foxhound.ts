@@ -2,8 +2,10 @@
 // finds Foxhound's executable, starts it as an Attached engine with exactly
 // the program's environment map, and finishes `hello`, naming Foxhound,
 // before it returns, so a Collie engine refuses it there with
-// `not_in_product`. Everything else is the client package's common
-// Connection, whose members `Collie` carries under the same names.
+// `not_in_product`. `startCrawl` starts a crawl from a `Crawl` value and
+// serves the engine's `crawl_request.handle` requests to its handlers.
+// Everything else is the client package's common Connection, whose members
+// `Collie` carries under the same names.
 import type {
   ConnectOptions,
   ConnectOverOptions,
@@ -12,6 +14,7 @@ import type {
   Run,
   StartOptions,
 } from "@goodfetch/collie-client";
+import { RunNotFoundError } from "@goodfetch/collie-client";
 import {
   holdInRealm,
   openAttached,
@@ -19,7 +22,29 @@ import {
   type ClientConnection,
   type Transport,
 } from "@goodfetch/collie-client/runtime";
+import { crawlDeclaration, type Crawl } from "./crawl.ts";
+import { CrawlRun, handleRequest, type CrawlHost } from "./crawl-run.ts";
+import {
+  FoxhoundOperations,
+  type CrawlRequestHandleParams,
+  type CrawlRequestHandled,
+  type CrawlStartParams,
+  type FoxhoundOperationTypes,
+  type RequestSeed,
+} from "./generated/index.ts";
 import { foxhound } from "./product.ts";
+
+/** What starting a crawl takes (ADR 0093). */
+export interface StartCrawlOptions {
+  /** The requests the crawl starts from: at least one. */
+  readonly seeds: readonly [RequestSeed, ...RequestSeed[]];
+  /** The Run's ID; the engine generates one when it is left out. An existing ID returns that Run. */
+  readonly runId?: string | undefined;
+  /** Its tags: at most 16, each at most 64 characters (ADR 0036). */
+  readonly tags?: readonly string[] | undefined;
+  /** Its settings, nested by key, such as `crawl.handler.concurrency`. */
+  readonly settings?: CrawlStartParams["settings"] | undefined;
+}
 
 let open: (connection: ClientConnection) => Foxhound;
 
@@ -36,9 +61,29 @@ export class Foxhound implements Connection {
   }
 
   readonly #connection: ClientConnection;
+  readonly #operations: FoxhoundOperations;
+  readonly #crawlHost: CrawlHost;
+  /** The crawls' Runs started on this Connection and not closed, by Run ID. */
+  readonly #crawlRuns = new Map<string, CrawlRun>();
+  /** The crawl starts not yet answered, whose work items may come before their answer is read. */
+  readonly #starting = new Set<Promise<CrawlRun>>();
 
   private constructor(connection: ClientConnection) {
     this.#connection = connection;
+    const calls = connection.caller<FoxhoundOperationTypes>();
+    this.#operations = new FoxhoundOperations(calls);
+    this.#crawlHost = {
+      connection,
+      calls,
+      forget: (run) => {
+        // A later start of the same Run ID holds its own entry.
+        if (this.#crawlRuns.get(run.id()) === run) this.#crawlRuns.delete(run.id());
+      },
+    };
+    connection.serve("crawl_request.handle", async (params, signal) =>
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the engine's requests are not validated beyond `hello`'s protocol version (STYLE.md): `crawl_request.handle` carries its params as the catalog types them.
+      this.#handle(params as CrawlRequestHandleParams, signal),
+    );
     holdInRealm(this);
   }
 
@@ -69,6 +114,37 @@ export class Foxhound implements Connection {
   }
 
   /**
+   * Starts `crawl` from its seeds and returns once its Run is started (ADR
+   * 0093). The engine then leases each work item to the handler of its
+   * Label, on this process's event loop, and the Run finishes once every
+   * work item is done. A `runId` naming an existing Run returns that Run.
+   */
+  async startCrawl(crawl: Crawl, options: StartCrawlOptions): Promise<CrawlRun> {
+    const params: CrawlStartParams = {
+      ...crawlDeclaration(crawl),
+      seeds: [...options.seeds],
+      ...(options.runId === undefined ? {} : { run_id: options.runId }),
+      ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
+      ...(options.settings === undefined ? {} : { settings: options.settings }),
+    };
+    const starting = this.#connection.startRun(
+      "crawl.start",
+      () => this.#operations.crawlStart(params),
+      (host, started) => {
+        const run = new CrawlRun(host, started, crawl, this.#crawlHost);
+        this.#crawlRuns.set(run.id(), run);
+        return run;
+      },
+    );
+    this.#starting.add(starting);
+    try {
+      return await starting;
+    } finally {
+      this.#starting.delete(starting);
+    }
+  }
+
+  /**
    * Closes the Connection; idempotent. Closes every Run it opened first,
    * stopping one still running, cancels the calls in flight, then stops the
    * Attached engine and waits for it. Any later call fails with `closed`.
@@ -79,6 +155,24 @@ export class Foxhound implements Connection {
 
   async [Symbol.asyncDispose](): Promise<void> {
     await this.close();
+  }
+
+  /** Answers a `crawl_request.handle` request with the handler of its crawl's Run. */
+  async #handle(
+    request: CrawlRequestHandleParams,
+    signal: AbortSignal,
+  ): Promise<CrawlRequestHandled> {
+    if (!this.#crawlRuns.has(request.run_id)) {
+      await Promise.allSettled(this.#starting);
+    }
+    const run = this.#crawlRuns.get(request.run_id);
+    if (run === undefined) {
+      throw new RunNotFoundError(
+        `the crawl request ${request.crawl_request.id} names the Run ${request.run_id}, which no crawl started on this Connection runs`,
+        { details: { run_id: request.run_id } },
+      );
+    }
+    return handleRequest(run, request, signal);
   }
 }
 

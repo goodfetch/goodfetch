@@ -19,6 +19,10 @@ export type TestSupportErrorCode =
   | "description_invalid"
   /** A test took `provingGround` without setting `provingGroundSeed`. */
   | "proving_ground_unseeded"
+  /** The Proving ground's task list has no task of the ID a test named. */
+  | "task_unknown"
+  /** The Proving ground's oracle refused a test's result, or answered no outcome. */
+  | "oracle_refused"
   /** A test took `daemon` without setting `withDaemon`. */
   | "daemon_not_requested"
   /** A Playwright test gave its context a `storageState`, which no test may set (ADR 0068). */

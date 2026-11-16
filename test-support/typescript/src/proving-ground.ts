@@ -8,6 +8,7 @@
 // which `xtask codegen` writes from the Proving ground's own interface.
 import type { ValidateFunction } from "ajv/dist/2020.js";
 import { TestSupportError } from "./errors.ts";
+import type { OracleAnswer } from "./generated/result-document.ts";
 import { ajv, committedSchema, sharedFixture } from "./schemas.ts";
 import type { TestEnvDescription } from "./test-env.ts";
 
@@ -82,4 +83,66 @@ const isProvingGroundRoutes: ValidateFunction<ProvingGroundRoutes> =
 /** The Proving ground's routes, read from the committed shared fixture. */
 export function provingGroundRoutes(): ProvingGroundRoutes {
   return sharedFixture("proving-ground/routes.json", isProvingGroundRoutes);
+}
+
+/** The URL the Proving ground's task `id` starts at, from its task list. */
+export async function taskStartUrl(
+  provingGround: ProvingGroundDescription,
+  id: string,
+): Promise<string> {
+  const answer = await fetch(`http://${provingGround.address}${provingGroundRoutes().tasks}`);
+  const list: unknown = await answer.json();
+  if (typeof list === "object" && list !== null && "tasks" in list && Array.isArray(list.tasks)) {
+    const tasks: unknown[] = list.tasks;
+    for (const task of tasks) {
+      if (
+        typeof task === "object" &&
+        task !== null &&
+        "id" in task &&
+        task.id === id &&
+        "start_url" in task &&
+        typeof task.start_url === "string"
+      ) {
+        return task.start_url;
+      }
+    }
+  }
+  throw new TestSupportError("task_unknown", `the Proving ground's task list has no ${id}`);
+}
+
+/** A tool's successful result for one task, as the Proving ground's oracle judges it. */
+export interface TaskResult {
+  /** The task's ID. */
+  readonly task: string;
+  /** The Records the tool returned, each with its fields by name. */
+  readonly records: readonly object[];
+}
+
+/** The oracle's answer to `result`, a successful one. */
+export async function judgeTask(
+  provingGround: ProvingGroundDescription,
+  result: TaskResult,
+): Promise<OracleAnswer> {
+  const answer = await fetch(`http://${provingGround.address}${provingGroundRoutes().oracle}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ task: result.task, status: "success", records: result.records }),
+  });
+  if (!answer.ok) {
+    throw new TestSupportError(
+      "oracle_refused",
+      `the Proving ground's oracle answered ${answer.status}: ${await answer.text()}`,
+    );
+  }
+  const judged: unknown = await answer.json();
+  if (
+    typeof judged !== "object" ||
+    judged === null ||
+    !("outcome" in judged) ||
+    !("task" in judged)
+  ) {
+    throw new TestSupportError("oracle_refused", "the Proving ground's oracle answered no outcome");
+  }
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the oracle's answer carries its outcome and task, which the result document records as it came.
+  return judged as OracleAnswer;
 }

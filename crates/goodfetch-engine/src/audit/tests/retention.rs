@@ -21,6 +21,7 @@ use serde_json::{Value, json};
 use super::export::{joined, jsonl};
 use super::{at, broken, log, now, origin, tamper};
 use crate::audit::{AuditLog, verify_exported};
+use crate::clock::Clock;
 use crate::home::Home;
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
@@ -298,9 +299,131 @@ async fn a_second_pruning_moves_the_anchor_and_the_log_verifies_from_it() {
     );
 }
 
+/// The machine's settings files of `env`, its user configuration setting
+/// `audit.retention` to `retention` when there is one.
+fn retaining(env: &TestEnv, retention: Option<Duration>) -> SettingsFiles {
+    let files = SettingsFiles::of(
+        &Home::new(env.home().to_path_buf()),
+        &ProductVersion::parse("1.4.0").unwrap(),
+    );
+    if let Some(retention) = retention {
+        configure(
+            &files,
+            &format!(
+                "version = \"0.1\"\n\n[settings]\naudit.retention = {}\n",
+                retention.as_millis()
+            ),
+        );
+    }
+    files
+}
+
+/// Writes `configuration` as the user configuration of `files`.
+fn configure(files: &SettingsFiles, configuration: &str) {
+    std::fs::create_dir_all(files.user_configuration().parent().unwrap()).unwrap();
+    std::fs::write(files.user_configuration(), configuration).unwrap();
+}
+
+/// The sequence and kind of each of `log`'s entries, in order.
+fn entries(log: &AuditLog) -> Vec<(u64, String)> {
+    log.export()
+        .unwrap()
+        .into_iter()
+        .map(|entry| (entry.entry.sequence, entry.entry.kind))
+        .collect()
+}
+
+/// `(sequence, kind)` pairs, the kinds written short.
+fn listed(entries: &[(u64, &str)]) -> Vec<(u64, String)> {
+    entries
+        .iter()
+        .map(|(sequence, kind)| (*sequence, (*kind).to_owned()))
+        .collect()
+}
+
+/// The log prunes as the engine starts and then once a day on its Clock,
+/// never at an append (ADR 0140): an old entry goes at start, one that grew
+/// old goes a day later, each time behind an anchor and with a pruning
+/// record, the log verifying intact from its anchor; a tail cut off after
+/// the day's pass is still reported, at the anchor only the cut-off
+/// pruning record named.
+/// Covers: story:4-72, setting:audit.retention
+#[test]
+fn the_log_prunes_as_the_engine_starts_then_once_a_day_never_at_an_append() {
+    let env = TestEnv::in_memory();
+    let files = retaining(&env, Some(DAY));
+
+    let (log, [at_start, appended, a_day_later]) =
+        goodfetch_test_support::runtime().block_on(async {
+            let owner = TaskOwner::root(BlockingPolicy::Inline);
+            let clock = Clock::paused(now().into());
+            let log = aged(&env, 2, 0).await;
+            let half_a_day_ago = now() - SignedDuration::from_hours(12);
+            log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), half_a_day_ago)
+                .await
+                .unwrap();
+            let log = log.retained_under(Settings::new(files, Product::Collie, owner.child()));
+
+            log.start_pruning(clock, &owner);
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let at_start = entries(&log);
+            // The entry of half a day ago is past the retention now, so an
+            // append that pruned would take it.
+            tokio::time::sleep(Duration::from_hours(13)).await;
+            log.record(
+                &origin(),
+                &SECRET_REFERENCE_USED,
+                json!({}),
+                clock.timestamp(),
+            )
+            .await
+            .unwrap();
+            let appended = entries(&log);
+            tokio::time::sleep(DAY).await;
+            let a_day_later = entries(&log);
+            owner.stop().await;
+            (log, [at_start, appended, a_day_later])
+        });
+    let verified = log.verify().unwrap();
+    tamper(&log)
+        .execute("DELETE FROM entries WHERE sequence >= ?1", [at(5)])
+        .unwrap();
+
+    assert_eq!(
+        (
+            at_start,
+            appended,
+            a_day_later,
+            verified,
+            log.verify().unwrap()
+        ),
+        (
+            listed(&[
+                (2, "audit_log_anchor"),
+                (3, "secret_reference_used"),
+                (4, "audit_log_pruned"),
+            ]),
+            listed(&[
+                (2, "audit_log_anchor"),
+                (3, "secret_reference_used"),
+                (4, "audit_log_pruned"),
+                (5, "secret_reference_used"),
+            ]),
+            listed(&[
+                (3, "audit_log_anchor"),
+                (4, "audit_log_pruned"),
+                (5, "secret_reference_used"),
+                (6, "audit_log_pruned"),
+            ]),
+            intact(4),
+            broken(2, 3),
+        )
+    );
+}
+
 /// Settings files the machine's layers cannot be read from say nothing of
-/// the entry: an append under them keeps it and prunes nothing on that
-/// pass, entries older than any retention included.
+/// the log: a pass under them prunes nothing, entries older than any
+/// retention included, and the next append is recorded.
 /// Covers: story:4-72, setting:audit.retention
 #[rstest::rstest]
 #[case::a_typo_in_user_configuration(None, "version = \"0.1\"\n\n[settings\n")]
@@ -308,49 +431,89 @@ async fn a_second_pruning_moves_the_anchor_and_the_log_verifies_from_it() {
     Some("version = \"0.1\"\n\n[lock.timeout]\nnavigation = 10000\n"),
     "version = \"0.1\"\n\n[settings.timeout]\nnavigation = 2000\n"
 )]
-#[tokio::test]
-async fn an_append_under_settings_that_cannot_be_read_keeps_its_entry_and_prunes_nothing(
+fn a_pass_under_settings_that_cannot_be_read_prunes_nothing(
     #[case] policy: Option<&str>,
     #[case] configuration: &str,
 ) {
     let env = TestEnv::in_memory();
-    let home = Home::new(env.home().to_path_buf());
-    let version = ProductVersion::parse("1.4.0").unwrap();
-    let files = SettingsFiles::of(&home, &version);
-    std::fs::create_dir_all(files.user_configuration().parent().unwrap()).unwrap();
-    std::fs::write(files.user_configuration(), configuration).unwrap();
+    let files = retaining(&env, None);
+    configure(&files, configuration);
     if let Some(policy) = policy {
         std::fs::write(files.operator_policy(), policy).unwrap();
     }
-    let owner = TaskOwner::root(BlockingPolicy::Inline);
-    let log =
-        aged(&env, 2, 0)
-            .await
-            .retained_under(Settings::new(files, Product::Collie, owner.child()));
 
-    let recorded = log
-        .record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
-        .await
-        .unwrap();
-    owner.stop().await;
+    let kept = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let clock = Clock::paused(now().into());
+        let log = aged(&env, 2, 0).await.retained_under(Settings::new(
+            files,
+            Product::Collie,
+            owner.child(),
+        ));
+        log.start_pruning(clock, &owner);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
+            .await
+            .unwrap();
+        owner.stop().await;
+        entries(&log)
+    });
 
     assert_eq!(
-        (
-            recorded.sequence,
-            log.export()
-                .unwrap()
-                .iter()
-                .map(|entry| (entry.entry.sequence, entry.entry.kind.clone()))
-                .collect::<Vec<_>>()
-        ),
-        (
-            3,
-            vec![
-                (1, "secret_reference_used".to_owned()),
-                (2, "secret_reference_used".to_owned()),
-                (3, "secret_reference_used".to_owned()),
-            ]
-        )
+        kept,
+        listed(&[
+            (1, "secret_reference_used"),
+            (2, "secret_reference_used"),
+            (3, "secret_reference_used"),
+        ])
+    );
+}
+
+/// Each pass prunes by the `audit.retention` of the engine's snapshot of
+/// the machine's settings, which reads no file per pass: a hand edit
+/// setting it is not seen by the next day's pass, and the engine's own
+/// write of it, which refreshes the snapshot, is by the pass after
+/// (ADR 0140).
+/// Covers: story:4-72, setting:audit.retention
+#[test]
+fn a_pass_prunes_by_the_engines_own_write_of_the_retention_not_by_a_hand_edit() {
+    let env = TestEnv::in_memory();
+    let files = retaining(&env, None);
+
+    let [at_start, edited, written] = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let clock = Clock::paused(now().into());
+        let settings = Settings::new(files.clone(), Product::Collie, owner.child());
+        let log = aged(&env, 2, 0).await.retained_under(settings.clone());
+        log.start_pruning(clock, &owner);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let at_start = kinds(&log);
+        configure(
+            &files,
+            &format!(
+                "version = \"0.1\"\n\n[settings]\naudit.retention = {}\n",
+                DAY.as_millis()
+            ),
+        );
+        tokio::time::sleep(DAY).await;
+        let edited = kinds(&log);
+        settings.refresh().await;
+        tokio::time::sleep(DAY).await;
+        let written = kinds(&log);
+        owner.stop().await;
+        [at_start, edited, written]
+    });
+
+    let pruned = |kinds: &[String]| {
+        kinds
+            .iter()
+            .filter(|kind| *kind == "audit_log_pruned")
+            .count()
+    };
+    assert_eq!(
+        (pruned(&at_start), pruned(&edited), pruned(&written)),
+        (0, 0, 1),
+        "{written:?}"
     );
 }
 
@@ -361,57 +524,4 @@ fn kinds(log: &AuditLog) -> Vec<String> {
         .into_iter()
         .map(|entry| entry.entry.kind)
         .collect()
-}
-
-/// Each append prunes by the `audit.retention` of the engine's snapshot of
-/// the machine's settings, which reads no file per entry: a hand edit
-/// setting it is not seen by the next entry, and the engine's own write of
-/// it, which refreshes the snapshot, is (ADR 0140).
-/// Covers: story:4-72, setting:audit.retention
-#[test]
-fn an_append_prunes_by_the_engines_own_write_of_the_retention_not_by_a_hand_edit() {
-    let env = TestEnv::in_memory();
-    let files = SettingsFiles::of(
-        &Home::new(env.home().to_path_buf()),
-        &ProductVersion::parse("1.4.0").unwrap(),
-    );
-
-    let [before, edited, written] = goodfetch_test_support::runtime().block_on(async {
-        let owner = TaskOwner::root(BlockingPolicy::Inline);
-        let settings = Settings::new(files.clone(), Product::Collie, owner.child());
-        let log = aged(&env, 2, 0).await.retained_under(settings.clone());
-        let append = async || {
-            log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
-                .await
-                .unwrap();
-            kinds(&log)
-        };
-        let before = append().await;
-        std::fs::create_dir_all(files.user_configuration().parent().unwrap()).unwrap();
-        std::fs::write(
-            files.user_configuration(),
-            format!(
-                "version = \"0.1\"\n\n[settings]\naudit.retention = {}\n",
-                DAY.as_millis()
-            ),
-        )
-        .unwrap();
-        let edited = append().await;
-        settings.refresh().await;
-        let written = append().await;
-        owner.stop().await;
-        [before, edited, written]
-    });
-
-    let pruned = |kinds: &[String]| {
-        kinds
-            .iter()
-            .filter(|kind| *kind == "audit_log_pruned")
-            .count()
-    };
-    assert_eq!(
-        (pruned(&before), pruned(&edited), pruned(&written)),
-        (0, 0, 1),
-        "{written:?}"
-    );
 }

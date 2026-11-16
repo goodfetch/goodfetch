@@ -8,6 +8,15 @@
 # 0024's note of 2026-11-12). `xtask test-tools` runs it for a
 # `*-linux-musl` target, and nextest through `CARGO` (ci/release/cell.sh).
 # Without the install, it names the recipe that makes it.
+#
+# A release build for a musl target that ci/pgo/<target>/ holds a profile
+# for is profile-guided (ADR 0057's note of 2026-11-14): rustc compiles
+# with the committed profile and link-cc lays the executable out in the
+# committed order. `GOODFETCH_PGO` changes that, for `xtask pgo refresh`:
+# `off` builds without, `generate=<folder>` builds instrumented, writing
+# its raw profiles in the folder, and `use=<folder>` builds with the
+# `merged.profdata` and the `order.txt`, if any, that the folder holds,
+# whatever the profile.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -16,6 +25,77 @@ source "$here/toolchain.sh"
 
 # The Cargo this one stands in for: the one on PATH, never this script.
 export CARGO=cargo
+
+# Adds rustc flags to the caller's, in the variable Cargo reads them from.
+add_rustflags() {
+  if [[ -n "${CARGO_ENCODED_RUSTFLAGS+set}" ]]; then
+    local separator=$'\x1f' joined
+    joined=$(IFS=$separator && echo "$*")
+    export CARGO_ENCODED_RUSTFLAGS="${CARGO_ENCODED_RUSTFLAGS:+$CARGO_ENCODED_RUSTFLAGS$separator}$joined"
+  else
+    export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }$*"
+  fi
+}
+
+sha256() {
+  if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi
+}
+
+# A committed file, stored as is or compressed with zstd, written to $2.
+expand() {
+  if [[ -f "$1.zst" ]]; then
+    zstd -q -d -c "$1.zst" >"$2"
+  else
+    cp "$1" "$2"
+  fi
+}
+
+stored() {
+  [[ -f "$1" || -f "$1.zst" ]]
+}
+
+# Compiles with the profile in folder $1, and links in its order if it has
+# one. They are copied, expanded, to a folder named by their contents, so
+# the flags Cargo fingerprints change with them, which rebuilds after a
+# refresh, and checkouts holding the same files share compiled code.
+profile_guided() {
+  local folder=$1 digest copy partial file
+  if ! stored "$folder/merged.profdata"; then
+    echo "error: $folder holds no merged.profdata for the profile-guided build" >&2
+    exit 2
+  fi
+  digest=$(
+    for file in merged.profdata order.txt; do
+      if [[ -f "$folder/$file.zst" ]]; then cat "$folder/$file.zst"; elif [[ -f "$folder/$file" ]]; then cat "$folder/$file"; fi
+      printf '\0'
+    done | sha256 | cut -c 1-64
+  )
+  copy="${XDG_CACHE_HOME:-$HOME/.cache}/goodfetch/pgo/$digest"
+  if [[ ! -f "$copy/merged.profdata" ]]; then
+    mkdir -p "$copy"
+    # Each file is renamed into place whole, the profile last, which marks
+    # the copy done; another build making the same copy at once writes the
+    # same contents.
+    for file in order.txt merged.profdata; do
+      if stored "$folder/$file"; then
+        partial=$(mktemp "$copy/$file.XXXXXX")
+        expand "$folder/$file" "$partial"
+        mv -f "$partial" "$copy/$file"
+      fi
+    done
+  fi
+  add_rustflags "-Cprofile-use=$copy/merged.profdata" -Cllvm-args=-no-pgo-warn-mismatch
+  if [[ -f "$copy/order.txt" ]]; then
+    export GOODFETCH_MUSL_ORDER_FILE="$copy/order.txt"
+    # rustup's llvm-tools component, which ci/musl/install.sh adds.
+    GOODFETCH_MUSL_LLVM_TOOLS="$(rustc --print sysroot)/lib/rustlib/$(rustc --print host-tuple)/bin"
+    if [[ ! -x "$GOODFETCH_MUSL_LLVM_TOOLS/llvm-objcopy" ]]; then
+      echo "error: rustup's llvm-tools component, which orders a profile-guided build, is not installed: run \`just musl-toolchain\`" >&2
+      exit 2
+    fi
+    export GOODFETCH_MUSL_LLVM_TOOLS
+  fi
+}
 # The command is the first argument that is no option: nextest puts
 # `--color=<when>` before it, which cargo-zigbuild takes after it.
 options=()
@@ -36,6 +116,7 @@ case "${1:-}" in
     # The target is Cargo's own choice: its last `--target`, else
     # `CARGO_BUILD_TARGET`. A build for another target links as before.
     target=${CARGO_BUILD_TARGET:-}
+    release=false
     previous=""
     for argument in "$@"; do
       if [[ "$argument" == -- ]]; then
@@ -44,12 +125,32 @@ case "${1:-}" in
         target=${argument#--target=}
       elif [[ "$previous" == --target ]]; then
         target=$argument
+      elif [[ "$argument" == --release || "$argument" == -r || "$argument" == --profile=release ]]; then
+        release=true
+      elif [[ "$previous" == --profile && "$argument" == release ]]; then
+        release=true
       fi
       previous=$argument
     done
     if [[ "$target" == *-linux-musl ]]; then
       export GOODFETCH_MUSL_LINK_TARGET="$target"
       export "CARGO_TARGET_$(tr 'a-z-' 'A-Z_' <<<"$target")_LINKER=$here/link-cc"
+      setting=${GOODFETCH_PGO:-}
+      case "$setting" in
+        off) ;;
+        "")
+          # `ci` inherits the release profile but is no release.
+          if [[ "$release" == true ]] && stored "$here/../pgo/$target/merged.profdata"; then
+            profile_guided "$(cd "$here/../pgo/$target" && pwd)"
+          fi
+          ;;
+        generate=?*) add_rustflags "-Cprofile-generate=${setting#generate=}" ;;
+        use=?*) profile_guided "${setting#use=}" ;;
+        *)
+          echo "error: GOODFETCH_PGO is \`off\`, \`generate=<folder>\` or \`use=<folder>\`, not \`$setting\`" >&2
+          exit 2
+          ;;
+      esac
     fi
     command=$1
     shift

@@ -59,6 +59,7 @@ mod output;
 mod output_scans;
 mod package_dependencies;
 mod perf;
+mod pgo;
 mod pinned;
 mod products;
 mod quarantine;
@@ -283,6 +284,13 @@ enum Command {
     Perf {
         #[command(subcommand)]
         command: perf::Command,
+    },
+    /// The profile-guided release build of the Linux musl executables
+    /// (ADR 0057's note of 2026-11-14): its committed profile and order
+    /// file, made again, checked and timed.
+    Pgo {
+        #[command(subcommand)]
+        command: pgo::Command,
     },
     /// The test quarantine list, `quarantine.toml` (ADR 0064).
     Quarantine {
@@ -559,6 +567,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::OutputScans => Ok(check::report(&output_scans::check(root)?)),
         Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
         Command::Perf { command } => perf::run(command, environment),
+        Command::Pgo { command } => pgo::run(command, environment),
         Command::Quarantine { command } => quarantine::run(command, environment),
         Command::ReceivedRequests => Ok(check::report(&received_requests::check(root)?)),
         Command::Register { command } => register::run(&command, environment, &Cli::command()),

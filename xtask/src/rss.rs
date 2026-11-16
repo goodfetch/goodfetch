@@ -16,7 +16,7 @@ pub(crate) mod page_cache;
 pub(crate) mod peak;
 pub(crate) mod peaks;
 pub(crate) mod platform;
-mod report;
+pub(crate) mod report;
 pub(crate) mod scenario;
 
 use std::path::PathBuf;

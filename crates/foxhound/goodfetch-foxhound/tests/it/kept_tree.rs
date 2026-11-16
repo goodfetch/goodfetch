@@ -296,8 +296,9 @@ fn crawled(env: &TestEnv, metrics: Metrics, blocking: BlockingPolicy) -> Handled
 /// link, has every call answered from the page's one parse: `formats` read
 /// the main content of a copy of its tree, which left the navigation and
 /// the footer out of the article, and the calls after it still read them
-/// as the page was served. The Page signature read another copy, and the
-/// main-content step its own copy for its landmarks fallback (#1913).
+/// as the page was served. The Page signature read another copy; the
+/// main-content step's landmarks fallback reads the tree its built-in kept
+/// as handed, with no copy of its own (#2639).
 ///
 /// Covers: story:5-115, operation:locator.wait_for,
 /// operation:locator.wait_for_count, operation:page.formats
@@ -354,7 +355,7 @@ fn a_handlers_calls_read_its_pages_one_tree_untouched() {
             ],
             vec![json!({ "count": 3 }), json!({})],
             1,
-            3,
+            2,
         )
     );
 }

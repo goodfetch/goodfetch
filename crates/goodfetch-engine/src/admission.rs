@@ -18,7 +18,7 @@
 //! until a moment, its site having asked for a time further away than the
 //! Run waits (ADR 0118), comes with each of its requests refused until
 //! then, unsent, whatever the Politeness says meanwhile. A rule that
-//! paces nothing ([`PermitRule::paces`]) has the Run consult no Politeness
+//! paces nothing ([`SharedRule::paces`]) has the Run consult no Politeness
 //! store at all: its gate backs its keys off itself (ADR 0138).
 //!
 //! What a gate's waiting requests need to survive a resume, it writes into
@@ -48,7 +48,7 @@ use tokio::time::Instant;
 
 use crate::clock::Clock;
 use crate::entropy::Entropy;
-use crate::politeness::{Ending, Hold, Holder, Permit, PermitRule, Politeness, Taken, Wake};
+use crate::politeness::{Ending, Hold, Holder, Permit, Politeness, SharedRule, Taken, Wake};
 use crate::run_state::SealedBatch;
 use crate::settings::Resolved;
 
@@ -229,7 +229,7 @@ pub trait Gate: Send {
 
     /// The rule of its keys' shared Politeness under `settings`, such as
     /// Foxhound's per-domain cap; `None` when its keys share none.
-    fn rule(&self, settings: &Resolved) -> Option<Arc<dyn PermitRule>> {
+    fn rule(&self, settings: &Resolved) -> Option<SharedRule> {
         let _ = settings;
         None
     }
@@ -301,7 +301,7 @@ fn lock(rate: &SharedRate) -> MutexGuard<'_, Option<RateCap>> {
 struct Shared {
     politeness: Politeness,
     holder: Holder,
-    rule: Arc<dyn PermitRule>,
+    rule: SharedRule,
     clock: Clock,
     permits: BTreeMap<String, Permit>,
     /// The keys held until a wake.
@@ -367,7 +367,7 @@ impl Admission {
         clock: Clock,
         settings: &Resolved,
     ) -> Self {
-        if let Some(rule) = self.gate.rule(settings).filter(|rule| rule.paces()) {
+        if let Some(rule) = self.gate.rule(settings).filter(SharedRule::paces) {
             let wakes = Some(politeness.wakes());
             self.shared = Some(Shared {
                 politeness,
@@ -492,7 +492,7 @@ impl Admission {
             let wall = shared.clock.wall();
             let taken = shared
                 .politeness
-                .take(&key, &shared.holder, Arc::clone(&shared.rule), wall)
+                .take(&key, &shared.holder, shared.rule.clone(), wall)
                 .await;
             match taken {
                 Ok(Taken::Granted(permit)) => {
@@ -632,7 +632,7 @@ impl Admission {
         let wall = shared.clock.wall();
         match shared
             .politeness
-            .give_back(permit, Arc::clone(&shared.rule), ending, wall)
+            .give_back(permit, shared.rule.clone(), ending, wall)
             .await
         {
             Ok(ready_at) => ready_at,
@@ -658,7 +658,7 @@ impl Admission {
             shared: self.shared.as_ref().map(|shared| BesideShared {
                 politeness: shared.politeness.clone(),
                 holder: shared.holder.clone(),
-                rule: Arc::clone(&shared.rule),
+                rule: shared.rule.clone(),
                 clock: shared.clock,
             }),
             rate: Arc::clone(&self.rate),
@@ -692,7 +692,7 @@ impl fmt::Debug for SecondCopies {
 struct BesideShared {
     politeness: Politeness,
     holder: Holder,
-    rule: Arc<dyn PermitRule>,
+    rule: SharedRule,
     clock: Clock,
 }
 
@@ -738,7 +738,7 @@ impl SecondCopies {
                 let wall = shared.clock.wall();
                 let taken = shared
                     .politeness
-                    .take_beside(key, &shared.holder, Arc::clone(&shared.rule), wall)
+                    .take_beside(key, &shared.holder, shared.rule.clone(), wall)
                     .await;
                 match taken {
                     Ok(Taken::Granted(permit)) => Some(permit),
@@ -782,7 +782,7 @@ impl SecondCopies {
         let wall = shared.clock.wall();
         if let Err(error) = shared
             .politeness
-            .give_back(permit, Arc::clone(&shared.rule), Ending::Done, wall)
+            .give_back(permit, shared.rule.clone(), Ending::Done, wall)
             .await
         {
             tracing::warn!(%error, run_id = %shared.holder.run_id, "a second copy's Permit was not given back; another engine reclaims it once its Run is gone");

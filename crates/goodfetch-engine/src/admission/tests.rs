@@ -28,7 +28,8 @@ use super::{
 };
 use crate::clock::Clock;
 use crate::politeness::{
-    Ending, Hold, Holder, PermitRule, Politeness, PolitenessOptions, Taken, Verdict,
+    Ending, Hold, Holder, KeyState, PermitRule, Politeness, PolitenessOptions, SharedRule, Step,
+    Taken, Verdict,
 };
 use crate::settings::{Layers, Resolved, resolve};
 use crate::tasks::{BlockingPolicy, TaskOwner};
@@ -122,34 +123,46 @@ struct Rule {
     delay: Option<Duration>,
 }
 
+/// The state of a test rule that keeps none.
+struct Stateless;
+
+impl KeyState for Stateless {
+    type Key = str;
+    type Reads = ();
+    type Writes = ();
+
+    fn load(_: &Connection, _: &str, (): ()) -> rusqlite::Result<Self> {
+        Ok(Self)
+    }
+
+    fn save(&self, _: &Connection, _: &str, (): &()) -> rusqlite::Result<()> {
+        Ok(())
+    }
+}
+
 impl PermitRule for Rule {
-    fn admit(
-        &self,
-        _: &Connection,
-        _: &str,
-        in_flight: u64,
-        now: SystemTime,
-    ) -> rusqlite::Result<Verdict> {
-        Ok(match self.delay {
+    type State = Stateless;
+
+    fn reads(&self, _: Step) {}
+
+    fn admit(&self, _: &Stateless, in_flight: u64, now: SystemTime) -> Verdict {
+        match self.delay {
             _ if in_flight >= self.cap => Verdict::Busy,
             Some(delay) => Verdict::Until(now + delay, Hold::Delay),
             None => Verdict::Go,
-        })
+        }
     }
 
-    fn started(&self, _: &Connection, _: &str, _: SystemTime) -> rusqlite::Result<()> {
-        Ok(())
-    }
+    fn started(&self, _: &mut Stateless, _: SystemTime) {}
 
     fn ended(
         &self,
-        _: &Connection,
-        _: &str,
+        _: &mut Stateless,
         _: u64,
         _: Ending,
         _: SystemTime,
-    ) -> rusqlite::Result<Option<SystemTime>> {
-        Ok(None)
+    ) -> (Option<SystemTime>, ()) {
+        (None, ())
     }
 }
 
@@ -176,7 +189,7 @@ async fn beside_a_first(owner: &TaskOwner, rule: Rule, rate: Option<RateCap>) ->
         run_folder: "crawl".into(),
     };
     let clock = Clock::paused(SystemTime::UNIX_EPOCH + Duration::from_hours(500_000));
-    let before_the_delay: Arc<dyn PermitRule> = Arc::new(Rule {
+    let before_the_delay = SharedRule::new(Rule {
         cap: rule.cap,
         delay: None,
     });
@@ -189,7 +202,7 @@ async fn beside_a_first(owner: &TaskOwner, rule: Rule, rate: Option<RateCap>) ->
         shared: Some(BesideShared {
             politeness,
             holder,
-            rule: Arc::new(rule),
+            rule: SharedRule::new(rule),
             clock,
         }),
         rate: Arc::new(Mutex::new(rate)),
@@ -291,28 +304,46 @@ fn a_second_copy_given_back_leaves_room_for_the_next() {
     assert_eq!(rooms, ["full", "taken"]);
 }
 
-/// A Politeness file whose every take fails: its rule's check raises a
-/// storage error.
+/// A Politeness file whose every take fails: its rule's state cannot be
+/// read, a storage error.
 struct Unreadable;
 
-impl PermitRule for Unreadable {
-    fn admit(&self, _: &Connection, _: &str, _: u64, _: SystemTime) -> rusqlite::Result<Verdict> {
+/// A key's state whose every read raises a storage error.
+struct UnreadableState;
+
+impl KeyState for UnreadableState {
+    type Key = str;
+    type Reads = ();
+    type Writes = ();
+
+    fn load(_: &Connection, _: &str, (): ()) -> rusqlite::Result<Self> {
         Err(rusqlite::Error::InvalidQuery)
     }
 
-    fn started(&self, _: &Connection, _: &str, _: SystemTime) -> rusqlite::Result<()> {
+    fn save(&self, _: &Connection, _: &str, (): &()) -> rusqlite::Result<()> {
         Ok(())
     }
+}
+
+impl PermitRule for Unreadable {
+    type State = UnreadableState;
+
+    fn reads(&self, _: Step) {}
+
+    fn admit(&self, _: &UnreadableState, _: u64, _: SystemTime) -> Verdict {
+        Verdict::Go
+    }
+
+    fn started(&self, _: &mut UnreadableState, _: SystemTime) {}
 
     fn ended(
         &self,
-        _: &Connection,
-        _: &str,
+        _: &mut UnreadableState,
         _: u64,
         _: Ending,
         _: SystemTime,
-    ) -> rusqlite::Result<Option<SystemTime>> {
-        Ok(None)
+    ) -> (Option<SystemTime>, ()) {
+        (None, ())
     }
 }
 
@@ -359,8 +390,8 @@ impl Gate for OneKey {
 
     fn wake(&mut self, _: &str) {}
 
-    fn rule(&self, _: &Resolved) -> Option<Arc<dyn PermitRule>> {
-        Some(Arc::new(Unreadable))
+    fn rule(&self, _: &Resolved) -> Option<SharedRule> {
+        Some(SharedRule::new(Unreadable))
     }
 
     fn ended(&mut self, _: &str, _: Instant, _: Ended) {}
@@ -415,23 +446,24 @@ fn a_key_the_politeness_file_refuses_is_held_for_the_refusal() {
 struct HalfASecond;
 
 impl PermitRule for HalfASecond {
-    fn admit(&self, _: &Connection, _: &str, _: u64, _: SystemTime) -> rusqlite::Result<Verdict> {
-        Ok(Verdict::Go)
+    type State = Stateless;
+
+    fn reads(&self, _: Step) {}
+
+    fn admit(&self, _: &Stateless, _: u64, _: SystemTime) -> Verdict {
+        Verdict::Go
     }
 
-    fn started(&self, _: &Connection, _: &str, _: SystemTime) -> rusqlite::Result<()> {
-        Ok(())
-    }
+    fn started(&self, _: &mut Stateless, _: SystemTime) {}
 
     fn ended(
         &self,
-        _: &Connection,
-        _: &str,
+        _: &mut Stateless,
         _: u64,
         _: Ending,
         now: SystemTime,
-    ) -> rusqlite::Result<Option<SystemTime>> {
-        Ok(Some(now + Duration::from_millis(500)))
+    ) -> (Option<SystemTime>, ()) {
+        (Some(now + Duration::from_millis(500)), ())
     }
 }
 
@@ -483,8 +515,8 @@ impl Gate for InOrder {
 
     fn wake(&mut self, _: &str) {}
 
-    fn rule(&self, _: &Resolved) -> Option<Arc<dyn PermitRule>> {
-        Some(Arc::new(HalfASecond))
+    fn rule(&self, _: &Resolved) -> Option<SharedRule> {
+        Some(SharedRule::new(HalfASecond))
     }
 
     fn ended(&mut self, key: &str, _: Instant, ended: Ended) {

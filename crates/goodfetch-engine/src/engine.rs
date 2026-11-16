@@ -812,7 +812,8 @@ async fn private_endpoint(
             return None;
         }
     };
-    match network.listen(&files.socket()).await {
+    let socket = files.socket();
+    match owner.blocking(move || network.listen(&socket)).await {
         Ok((listener, address)) => {
             let endpoint = PrivateEndpoint {
                 address,

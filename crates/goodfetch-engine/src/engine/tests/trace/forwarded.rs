@@ -39,7 +39,6 @@ fn forwarded_read(env: &TestEnv) -> Value {
     runtime.block_on(async {
         let (mut listener, address) = Network::Os
             .listen(&env.folder().join("owner.sock"))
-            .await
             .unwrap();
         let token_file = env.folder().join("owner.token");
         std::fs::write(&token_file, "the-owners-token").unwrap();

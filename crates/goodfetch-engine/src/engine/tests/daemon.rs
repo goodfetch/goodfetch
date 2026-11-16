@@ -196,7 +196,6 @@ where
         let (network, dialer) = transport::in_memory();
         let (listener, _) = Network::InMemory(network)
             .listen(std::path::Path::new("daemon.sock"))
-            .await
             .unwrap();
         daemon(dependencies, listener, dialer).await
     })

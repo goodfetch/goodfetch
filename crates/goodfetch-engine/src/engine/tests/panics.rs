@@ -756,7 +756,6 @@ fn a_private_endpoints_stop_waits_for_no_call_of_its_connections() {
         let (network, dialer) = transport::in_memory();
         let (listener, _) = Network::InMemory(network)
             .listen(Path::new("private"))
-            .await
             .unwrap();
         let accepting = owner.part("private endpoint");
         serve_private_endpoint(

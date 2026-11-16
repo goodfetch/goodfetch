@@ -54,7 +54,7 @@ use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReaso
 use rusqlite::Connection;
 use url::Url;
 
-use crate::bounds::{Bounds, SoFar, count_admitted, count_refused};
+use crate::bounds::{Bounds, SoFar, count_admitted, count_refused, keep_counts};
 use crate::identity::{
     Declared, Fixed, Key, Seen, fixed_only, keep_learned, keyed as keyed_url, seen, under_rules,
     visit_all,
@@ -458,9 +458,8 @@ fn admit_measured(
     // the identity between them (#2168).
     let mut holding = invariants.unwritten().map(UnwrittenVisits::lock);
     keep_rules(connection, bounds, admitting, holding.as_mut())?;
-    let held = holding.as_ref().and_then(Holding::rules);
     let identities = if bounds.learning {
-        under_rules(connection, key, fixed, held)?
+        under_rules(connection, key, fixed, holding.as_ref())?
     } else {
         fixed_only(fixed)
     };
@@ -487,6 +486,7 @@ fn admit_measured(
             return Ok(not_added(admitting, answered, reason, Some(&crawl_request)));
         }
     }
+    let held = holding.as_ref().and_then(Holding::rules);
     if let Some((reason, rule)) = rules::refuses(connection, key.url(), bounds.learning, held)? {
         rules::merged(connection, rule, url.as_str(), None)?;
         admitting.leaves();
@@ -534,6 +534,30 @@ fn admit_measured(
         id,
         url: url.as_str().to_owned(),
     })
+}
+
+/// Has the Frontier's memory, when the Run holds the batches' visits, read
+/// the learned rules and identities and the Bounds' counts, when one
+/// bounds the requests, from the file on `connection`, the writer's, as
+/// the crawl opens, so no admission's lookup of them reads the file while
+/// memory holds them (#2169). A Run that does not learn reads the rules
+/// too: a link seen again keys its request under them, and none changes.
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub(crate) fn keep_memory(
+    connection: &Connection,
+    invariants: &Invariants,
+) -> rusqlite::Result<()> {
+    let Some(unwritten) = invariants.unwritten() else {
+        return Ok(());
+    };
+    let bounds = invariants.bounds();
+    let mut holding = unwritten.opening();
+    let hosts = rules::keep_held(connection, &mut holding)?;
+    keep_learned(connection, &mut holding, &hosts)?;
+    keep_counts(connection, bounds, &mut holding)
 }
 
 /// Brings the learned rules memory holds, `holding` under its lock, and

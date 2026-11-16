@@ -15,6 +15,7 @@ use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_test_support::TestEnv;
 use opentelemetry::metrics::MeterProvider as _;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::{Reply, SITEMAP, crawl_on, dependencies, engine, page_of, records, run_file, seeds};
@@ -618,9 +619,10 @@ fn a_pushed_record_costs_the_run_states_writer_no_job_of_its_own() {
 
 /// What `goodfetch.run_state.memory` and
 /// `goodfetch.run_state.spilled_lookups` read as a crawl's one seed, at the
-/// memory budget `budget`, runs its handler, which enqueues a link: the
-/// enqueue's duplicate check comes first, so both are read after it.
-fn memory_while_a_link_is_enqueued(budget: u64) -> (Option<f64>, Option<f64>) {
+/// Durability level `level` and the memory budget `budget`, runs its
+/// handler, which enqueues a link: the enqueue's duplicate check comes
+/// first, so both are read after it.
+fn memory_while_a_link_is_enqueued(level: &str, budget: u64) -> (Option<f64>, Option<f64>) {
     let env = TestEnv::new();
     let (engine, registry, _provider) = metered();
     let mut during = None;
@@ -635,7 +637,9 @@ fn memory_while_a_link_is_enqueued(budget: u64) -> (Option<f64>, Option<f64>) {
                     json!({
                         "run_id": "held",
                         "seeds": seeds(1),
-                        "settings": { "run_state": { "memory": { "budget": budget } } },
+                        "settings": {
+                            "run_state": { "durability": level, "memory": { "budget": budget } },
+                        },
                     }),
                     &mut |_| Reply::Silent,
                 )
@@ -677,19 +681,35 @@ fn memory_while_a_link_is_enqueued(budget: u64) -> (Option<f64>, Option<f64>) {
 /// Covers: setting:run_state.memory.budget
 #[test]
 fn within_the_memory_budget_memory_holds_the_visits_and_no_lookup_reads_the_run_file() {
-    let (bytes, spilled) = memory_while_a_link_is_enqueued(64 << 20);
+    let (bytes, spilled) = memory_while_a_link_is_enqueued("batch", 64 << 20);
 
     assert!(bytes.is_some_and(|bytes| bytes > 0.0), "{bytes:?}");
     assert_eq!(spilled.unwrap_or(0.0), 0.0);
 }
 
-/// At a budget of 0 memory keeps no visit the file holds, so the link's
-/// duplicate check reads the run file and counts as a spilled lookup.
+/// ADR 0142's "Nothing removed" row of the file-first Frontier:
+/// `run_state.memory.budget: 0`, at any level. At the levels that batch
+/// attempts memory keeps no visit the file holds, so the link's duplicate
+/// check reads the run file and counts as a spilled lookup; at the levels
+/// that write each attempt, memory holds no visit at all and every lookup
+/// reads the run file, as before ADR 0142.
 ///
-/// Covers: setting:run_state.memory.budget
-#[test]
-fn at_a_memory_budget_of_0_a_lookup_reads_the_run_file_and_counts_as_spilled() {
-    let (_, spilled) = memory_while_a_link_is_enqueued(0);
+/// Covers: setting:run_state.memory.budget, setting:run_state.durability
+#[rstest]
+#[case::batch("batch", true)]
+#[case::off("off", true)]
+#[case::full("full", false)]
+#[case::fast("fast", false)]
+#[case::periodic("periodic", false)]
+fn at_a_memory_budget_of_0_each_level_reads_the_frontier_from_the_run_file(
+    #[case] level: &str,
+    #[case] batches: bool,
+) {
+    let (bytes, spilled) = memory_while_a_link_is_enqueued(level, 0);
 
-    assert!(spilled.is_some_and(|spilled| spilled >= 1.0), "{spilled:?}");
+    if batches {
+        assert!(spilled.is_some_and(|spilled| spilled >= 1.0), "{spilled:?}");
+    } else {
+        assert_eq!((bytes.unwrap_or(0.0), spilled.unwrap_or(0.0)), (0.0, 0.0));
+    }
 }

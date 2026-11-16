@@ -63,17 +63,23 @@ use std::fmt;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::{Level, Metrics, Occurrences};
 use goodfetch_engine::run_state::WriteWatch;
 use goodfetch_protocol::ops::{RUN_STATE_MEMORY, RUN_STATE_SPILLED_LOOKUPS};
 use rusqlite::Connection;
 
 pub use self::budget::SharedBudget;
+pub(crate) use self::counts::Counts;
+use self::counts::CountsBefore;
 pub(crate) use self::learned::{EVERY_LEARNED, LEARNED_WITHIN};
+use self::marks::Marks;
 pub(crate) use self::rules::{HeldRule, LearnedRules};
 
 mod budget;
+mod counts;
 mod learned;
+mod marks;
 mod rules;
 
 /// The visits the run file does not hold yet, the ones it holds that
@@ -85,6 +91,9 @@ pub struct UnwrittenVisits {
     /// Each lookup that read the file because memory does not hold every
     /// visit (`goodfetch.run_state.spilled_lookups`).
     spilled_lookups: Occurrences,
+    /// The Run's counted work, which counts each read an admission makes
+    /// of the Frontier's state (`F3.state_reads`).
+    work: CountedWork,
 }
 
 impl fmt::Debug for UnwrittenVisits {
@@ -140,6 +149,8 @@ struct Held {
     every_learned: Whole,
     /// Whether memory read the learned identities the file holds.
     learned_read: bool,
+    /// Whether the file holds a trap mark, as far as memory knows.
+    marks: Marks,
     /// The bytes held, as `goodfetch.run_state.memory` counts them.
     reported: Level,
 }
@@ -176,44 +187,6 @@ struct Visit {
     written: Option<u64>,
 }
 
-/// The Bounds' counts the Frontier keeps in memory (#2169): the requests
-/// admitted, and each path budget's, by its pattern, as the run file holds
-/// them with the writes not committed yet. Written with the batch and
-/// never removed; the refusals' counts are only written.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct Counts {
-    admitted: u64,
-    paths: HashMap<Box<str>, u64>,
-}
-
-impl Counts {
-    /// The counts of `admitted` requests, and of each path budget's, by
-    /// its pattern.
-    pub(crate) const fn new(admitted: u64, paths: HashMap<Box<str>, u64>) -> Self {
-        Self { admitted, paths }
-    }
-
-    /// The requests admitted.
-    pub(crate) const fn admitted(&self) -> u64 {
-        self.admitted
-    }
-
-    /// The requests the path budget of `pattern` admitted.
-    pub(crate) fn path_admitted(&self, pattern: &str) -> u64 {
-        self.paths.get(pattern).copied().unwrap_or_default()
-    }
-
-    /// Counts one request admitted, against the path budget of `pattern`
-    /// when one counts it.
-    pub(crate) fn count(&mut self, pattern: Option<&str>) {
-        self.admitted = self.admitted.saturating_add(1);
-        if let Some(pattern) = pattern {
-            let path = self.paths.entry(pattern.into()).or_default();
-            *path = path.saturating_add(1);
-        }
-    }
-}
-
 /// What one writer job changed, each identity with its tag before the
 /// job: none when the job added it or held it as a chain's pending end;
 /// and the Bounds' counts before its first count, when it counted.
@@ -229,18 +202,6 @@ struct Journal {
     /// Whether it read every learned identity, which its failure has
     /// memory read again.
     learned_read: bool,
-}
-
-/// The Bounds' counts memory held before a writer job first changed them.
-#[derive(Debug, Default)]
-enum CountsBefore {
-    /// The job changed none.
-    #[default]
-    Unchanged,
-    /// Memory held none: the job read them from the file.
-    Unread,
-    /// Memory held these.
-    Held(Counts),
 }
 
 impl Journal {
@@ -646,6 +607,9 @@ pub(crate) struct Holding<'a> {
     visits: &'a UnwrittenVisits,
     held: MutexGuard<'a, Held>,
     committed: u64,
+    /// Whether an admission holds it, whose reads of the file count in
+    /// `F3.state_reads`; the crawl's opening's count in none.
+    admitting: bool,
 }
 
 impl Drop for Holding<'_> {
@@ -655,6 +619,12 @@ impl Drop for Holding<'_> {
 }
 
 impl Holding<'_> {
+    /// Counts one read of the file for the Frontier's state an admission
+    /// makes (`F3.state_reads`).
+    pub(crate) fn reads_state(&self) {
+        self.visits.reads_state(self.admitting);
+    }
+
     /// The crawl request `identity` was visited for: memory's answer when
     /// it keeps the visit, or holds every visit the file holds; otherwise
     /// `read`'s from the file, counted as a spilled lookup
@@ -675,6 +645,7 @@ impl Holding<'_> {
             return Ok(None);
         }
         self.visits.spilled_lookups.add(1);
+        self.reads_state();
         read()
     }
 
@@ -727,44 +698,6 @@ impl Holding<'_> {
         }
     }
 
-    /// The Bounds' counts memory holds: as `read` reads them from the
-    /// writer's connection, by the first call of an admission that
-    /// `writes`; none before it, when the counts are the file's.
-    ///
-    /// # Errors
-    ///
-    /// When `read` cannot read the run file.
-    pub(crate) fn counts(
-        &mut self,
-        writes: bool,
-        read: impl FnOnce() -> rusqlite::Result<Counts>,
-    ) -> rusqlite::Result<Option<&Counts>> {
-        if self.held.counts.is_none() && writes {
-            let counts = read()?;
-            let held = &mut *self.held;
-            let journal = held.journal.under(self.committed);
-            if matches!(journal.counts, CountsBefore::Unchanged) {
-                journal.counts = CountsBefore::Unread;
-            }
-            held.counts = Some(counts);
-        }
-        Ok(self.held.counts.as_ref())
-    }
-
-    /// Counts one request a writer job admitted, against the path budget
-    /// of `pattern` when one counts it, as it writes the count to the
-    /// file in the batch it runs in.
-    pub(crate) fn counted(&mut self, pattern: Option<&str>) {
-        let held = &mut *self.held;
-        if let Some(counts) = &mut held.counts {
-            let journal = held.journal.under(self.committed);
-            if matches!(journal.counts, CountsBefore::Unchanged) {
-                journal.counts = CountsBefore::Held(counts.clone());
-            }
-            counts.count(pattern);
-        }
-    }
-
     /// Notes that a writer job widened the scope in the batch it runs in,
     /// and holds `seed`, the measure of the seed it widened it with, when
     /// the job writes it to the file.
@@ -798,6 +731,7 @@ impl Holding<'_> {
             return Ok(false);
         }
         self.visits.spilled_lookups.add(1);
+        self.reads_state();
         read()
     }
 }
@@ -866,9 +800,11 @@ impl UnwrittenVisits {
                 every_seed: Whole::default(),
                 every_learned: Whole::default(),
                 learned_read: false,
+                marks: Marks::default(),
                 reported: metrics.level(&RUN_STATE_MEMORY),
             })),
             spilled_lookups: metrics.occurrences(&RUN_STATE_SPILLED_LOOKUPS),
+            work: metrics.counted_work().clone(),
         }
     }
 
@@ -897,6 +833,14 @@ impl UnwrittenVisits {
     /// The visits held, the ones the file holds by now forgotten or kept
     /// within the budget. Taken before a reader's first read, so its
     /// snapshot holds each one forgotten.
+    /// Counts one read of the file for the Frontier's state, when an
+    /// admission makes it (`F3.state_reads`).
+    fn reads_state(&self, admitting: bool) {
+        if admitting {
+            self.work.count(Row::StateReads);
+        }
+    }
+
     pub(crate) fn lock(&self) -> Holding<'_> {
         let committed = (self.committed)();
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
@@ -905,7 +849,16 @@ impl UnwrittenVisits {
             visits: self,
             held,
             committed,
+            admitting: true,
         }
+    }
+
+    /// The same, for the crawl's opening, which has memory read the
+    /// Frontier's state on the writer: its reads are no admission's.
+    pub(crate) fn opening(&self) -> Holding<'_> {
+        let mut holding = self.lock();
+        holding.admitting = false;
+        holding
     }
 
     /// The bytes held, as of the commits acknowledged now.

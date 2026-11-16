@@ -137,19 +137,20 @@ enum Form {
 /// Refuses the field `name` when the engine could never read it: a CSS
 /// selector or an `XPath` expression it does not read on every tier, a
 /// regular expression that does not compile or has no such group, a locale
-/// that is no BCP 47 tag, or a time zone it has no rules for.
+/// that is no BCP 47 tag, or a time zone it has no rules for. A CSS
+/// selector compiles through `work`, the engine's Counted work.
 ///
 /// # Errors
 ///
 /// What is wrong with it, in a sentence naming the field.
 #[expect(
     clippy::disallowed_methods,
-    reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
+    reason = "ADR 0140: a pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
 )]
-pub(crate) fn check(name: &str, field: &ExtractionField) -> Result<(), String> {
+pub(crate) fn check(name: &str, field: &ExtractionField, work: &CountedWork) -> Result<(), String> {
     match &field.locator {
         FieldLocator::Css { selector } => {
-            check_selector(selector).map_err(|invalid| invalid.to_string())
+            check_selector(selector, work).map_err(|invalid| invalid.to_string())
         }
         FieldLocator::Xpath { selector } => {
             check_xpath(selector).map_err(|invalid| invalid.to_string())

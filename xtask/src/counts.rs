@@ -187,7 +187,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 128] = [
+const ROWS: [Row; 129] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -431,6 +431,12 @@ const ROWS: [Row; 128] = [
     // whose budget holds no pending work item: at most one a lease (ADR
     // 0140's F3 contract). Its unit is that cell's leases.
     b1("F3.lease_reads.spilled", SPILLED_LEASES, false),
+    // The Frontier's state an admission reads from the run file per links
+    // batch, in the same cells as `F3.lease_reads` (#2169): none, as the
+    // crawl's opening read the learned rules and identities, the Bounds'
+    // counts and the trap marks into memory. Its unit is those cells'
+    // links batches, none elsewhere.
+    b1("F3.state_reads", HELD_LINKS_BATCHES, false),
     // What each page more builds, read as `F2.prepares` is: the whole
     // site's run less a run on half its pages, over the pages it adds.
     b1("F3.counted_work_constructions", ADDED_PAGES, false),
@@ -1103,6 +1109,10 @@ const BATCHED_LEASES: &str = "batched_leases";
 /// budget holds no pending work item: none in any other cell.
 const SPILLED_LEASES: &str = "spilled_leases";
 
+/// The links batches of a cell at a level that batches attempts whose
+/// memory budget holds its pending work items: none in any other cell.
+const HELD_LINKS_BATCHES: &str = "held_links_batches";
+
 const fn b1(name: &'static str, unit: &'static str, happens: bool) -> Row {
     Row {
         name,
@@ -1643,7 +1653,7 @@ fn printed_cells(mut command: Command, executable: &Path) -> Result<Vec<Cell>> {
 /// One of the units `unit` names, as a figure's line says it.
 fn one_of(unit: &str) -> &str {
     match unit {
-        LINKS_BATCHES => "links batch",
+        LINKS_BATCHES | HELD_LINKS_BATCHES => "links batch",
         "audit_entries" => "audit_entry",
         "later_audit_entries" => "later_audit_entry",
         "entries" => "entry",

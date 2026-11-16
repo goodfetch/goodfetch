@@ -53,6 +53,7 @@ impl Holding<'_> {
     ) -> rusqlite::Result<Option<(i64, String)>> {
         let held = &*self.held;
         if !held.learned_read || self.rules().is_none() {
+            self.reads_state();
             return read();
         }
         if let Some((rule, visit)) = held.learned.get(identity) {
@@ -62,6 +63,7 @@ impl Holding<'_> {
             return Ok(None);
         }
         self.visits.spilled_lookups.add(1);
+        self.reads_state();
         read()
     }
 
@@ -117,6 +119,7 @@ impl Holding<'_> {
         for identity in dropped {
             held.remove(Space::Learned, &identity);
         }
+        self.visits.reads_state(self.admitting);
         let whole = match within {
             None => held.hold_learned(
                 &mut connection.prepare_cached(EVERY_LEARNED)?.query([])?,

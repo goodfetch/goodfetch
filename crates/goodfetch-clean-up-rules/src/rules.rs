@@ -8,7 +8,7 @@ use adblock::Engine;
 
 use crate::filter_set;
 use crate::generic::Generic;
-use crate::list::List;
+use crate::list::{LISTS, List};
 use crate::stand_ins;
 
 /// One embedded engine as the build wrote it.
@@ -59,32 +59,98 @@ pub enum LoadError {
         /// Why, as `adblock` says.
         reason: String,
     },
+    /// The lists put together held no engine of one list.
+    #[error("the embedded Filter lists were put together without `{list}`")]
+    Missing {
+        /// The list.
+        list: &'static str,
+    },
+}
+
+/// One embedded Filter list's engine, loaded on its own, so that the engine
+/// loads the lists side by side on its blocking threads (#2688) before
+/// [`FilterLists::of_embedded`] puts them together.
+pub struct EmbeddedList {
+    list: List,
+    engine: Engine,
+}
+
+impl EmbeddedList {
+    /// Loads the engine of `list` from its zstd form into a buffer of its
+    /// own, which goes once the engine holds its own copy. It blocks for
+    /// some tens of milliseconds, so the engine runs it on a blocking task
+    /// (ADR 0060).
+    ///
+    /// # Errors
+    ///
+    /// The list does not decompress or deserialize: a broken build.
+    pub fn load(list: List) -> Result<Self, LoadError> {
+        Self::load_into(list, &mut Vec::with_capacity(compressed(list).size))
+    }
+
+    /// Loads the engine of `list`, decompressed into `buffer`.
+    fn load_into(list: List, buffer: &mut Vec<u8>) -> Result<Self, LoadError> {
+        let engine = load(list.name(), compressed(list), buffer)?;
+        Ok(Self { list, engine })
+    }
+
+    /// Its list.
+    pub fn list(&self) -> List {
+        self.list
+    }
 }
 
 impl FilterLists {
-    /// Loads the embedded Filter lists. It blocks for some tens of
-    /// milliseconds, so the engine runs it on a blocking task (ADR 0060).
-    /// Each list is decompressed into one buffer, which the next list
-    /// reuses and which goes once the last engine holds its own copy, so
-    /// loading holds at most the largest list's bytes beside the engines.
+    /// Loads the embedded Filter lists one after another, on the calling
+    /// thread, each decompressed into one buffer, which the next list reuses
+    /// and which goes once the last engine holds its own copy, so loading
+    /// holds at most the largest list's bytes beside the engines. It
+    /// blocks for some tens of milliseconds, so the engine runs it on a
+    /// blocking task (ADR 0060); the engine itself loads the lists side by
+    /// side with [`EmbeddedList::load`] and [`FilterLists::of_embedded`].
     ///
     /// # Errors
     ///
     /// A list that does not decompress or deserialize: a broken build.
     pub fn embedded() -> Result<Self, LoadError> {
-        let largest = [&ADS, &TRACKERS, &ANNOYANCES]
-            .iter()
-            .map(|list| list.size)
+        let largest = LISTS
+            .map(|list| compressed(list).size)
+            .into_iter()
             .max()
             .unwrap_or_default();
         let mut buffer = Vec::with_capacity(largest);
-        let ads = load("ads", &ADS, &mut buffer)?;
-        let trackers = load("trackers", &TRACKERS, &mut buffer)?;
-        let annoyances = load("annoyances", &ANNOYANCES, &mut buffer)?;
+        let mut loaded = Vec::with_capacity(LISTS.len());
+        for list in LISTS {
+            loaded.push(EmbeddedList::load_into(list, &mut buffer)?);
+        }
         // Each engine holds its own copy: the decompressed bytes go now.
         drop(buffer);
+        Self::of_embedded(loaded)
+    }
+
+    /// The embedded Filter lists from `loaded`, one engine of each list in
+    /// any order, with each list's `$generichide` exceptions and their
+    /// generic set compiled beside them. It blocks for some milliseconds, so
+    /// the engine runs it on a blocking task (ADR 0060).
+    ///
+    /// # Errors
+    ///
+    /// `loaded` holds no engine of a list.
+    pub fn of_embedded(loaded: impl IntoIterator<Item = EmbeddedList>) -> Result<Self, LoadError> {
+        let mut engines: [Option<Engine>; 3] = [None, None, None];
+        for EmbeddedList { list, engine } in loaded {
+            engines[at(list)] = Some(engine);
+        }
+        let [ads, trackers, annoyances] = engines;
+        let present = |engine: Option<Engine>, list: List| {
+            engine.ok_or(LoadError::Missing { list: list.name() })
+        };
         Ok(Self::of(
-            [ads, trackers, annoyances],
+            [
+                present(ads, List::Ads)?,
+                present(trackers, List::Trackers)?,
+                present(annoyances, List::Annoyances)?,
+            ],
             [
                 ADS_GENERIC_HIDE,
                 TRACKERS_GENERIC_HIDE,
@@ -158,12 +224,7 @@ impl FilterLists {
     /// list, turns the list's generic rules off for the page at `url`, as
     /// the list's engine answers it.
     pub(crate) fn generic_hide(&self, list: List, url: &str) -> bool {
-        let at = match list {
-            List::Ads => 0,
-            List::Trackers => 1,
-            List::Annoyances => 2,
-        };
-        self.generic_hide[at]
+        self.generic_hide[at(list)]
             .url_cosmetic_resources(url)
             .generichide
     }
@@ -171,6 +232,15 @@ impl FilterLists {
     /// The generic set removal reads every page with.
     pub(crate) fn generic(&self) -> &Generic {
         &self.generic
+    }
+}
+
+/// Where `list` stands in [`List`] order.
+fn at(list: List) -> usize {
+    match list {
+        List::Ads => 0,
+        List::Trackers => 1,
+        List::Annoyances => 2,
     }
 }
 
@@ -233,6 +303,15 @@ pub const EMBEDDED_DIGEST: &str = EMBEDDED_DIGEST_OF_BUILD;
 
 /// The embedded part's `manifest.json`, as the crate carries it.
 pub const EMBEDDED_MANIFEST: &str = include_str!("../rules/manifest.json");
+
+/// The compressed form of `list`.
+fn compressed(list: List) -> &'static Compressed {
+    match list {
+        List::Ads => &ADS,
+        List::Trackers => &TRACKERS,
+        List::Annoyances => &ANNOYANCES,
+    }
+}
 
 /// Loads the engine of `list` from `compressed`, decompressed into
 /// `buffer`, with the stand-ins.

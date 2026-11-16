@@ -248,5 +248,13 @@ fn a_fields_schema_is_its_transforms_type_or_null(#[case] transform: Value, #[ca
 #[case::time_zone(json!({ "locator": { "kind": "css", "selector": "p" }, "transform": { "kind": "date_time", "locale": "de-DE", "time_zone": "Europe/Nowhere" } }), true)]
 #[case::whole_match(json!({ "locator": { "kind": "css", "selector": "p" }, "match": { "pattern": "a+", "group": 0 } }), false)]
 fn a_field_the_engine_could_never_read_is_refused(#[case] declared: Value, #[case] refused: bool) {
-    assert_eq!(check("name", &field(declared)).is_err(), refused);
+    assert_eq!(
+        check(
+            "name",
+            &field(declared),
+            &goodfetch_counted_work::CountedWork::default()
+        )
+        .is_err(),
+        refused
+    );
 }

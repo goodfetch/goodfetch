@@ -10817,6 +10817,7 @@
             "serializations",
             "share_readability_runs",
             "spawns",
+            "state_reads",
             "statements",
             "static_opens",
             "syncs",

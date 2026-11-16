@@ -124,7 +124,9 @@ pub fn contribution() -> Contribution {
 /// runs beside the Scope's lookup, which the start prepares only on the
 /// connection its own write commits on, where a hop's check does not
 /// (#2246): the rule that holds, the visited set's read and a learned
-/// identity's.
+/// identity's. And those memory reads the learned rules and identities
+/// with as an admission writes, with the step along the visited set's
+/// methods that finds a rule's hosts' identities (#2169).
 #[must_use]
 pub fn admission_statements(invariants: &Invariants) -> Vec<&'static str> {
     invariants
@@ -144,6 +146,9 @@ pub fn admission_statements(invariants: &Invariants) -> Vec<&'static str> {
             rules::HELD,
             identity::VISITOR,
             identity::LEARNED,
+            identity::FIRST_VISITED,
+            unwritten::EVERY_LEARNED,
+            unwritten::LEARNED_WITHIN,
         ])
         .collect()
 }

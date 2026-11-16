@@ -9,13 +9,14 @@
 //!
 //! An identity the writer visited is tagged with the commits the writer
 //! had acknowledged as its job ran: its batch is the next, so once more
-//! commits are acknowledged the file holds it. A learned identity is then
-//! forgotten at the next lock. A visited one stays, within
+//! commits are acknowledged the file holds it. It then stays, within
 //! `run_state.memory.budget` (#2169): the file never takes a visit back,
 //! so a duplicate check answers from memory and reads nothing, and past
 //! the budget the visits the oldest batches wrote leave first and are read
-//! from the file again. A chain's pending visit is held until its job
-//! runs, or until its job is dropped unrun.
+//! from the file again. A learned identity stays by the same rule, and is
+//! read again as a rule that merges changes (`learned`). A chain's
+//! pending visit is held until its job runs, or until its job is dropped
+//! unrun.
 //!
 //! As the crawl opens, memory reads the seeds, then the visits, the file
 //! holds, within the budget: once it read them all, and until one leaves it, memory holds
@@ -67,8 +68,10 @@ use goodfetch_engine::run_state::WriteWatch;
 use goodfetch_protocol::ops::{RUN_STATE_MEMORY, RUN_STATE_SPILLED_LOOKUPS};
 use rusqlite::Connection;
 
+pub(crate) use self::learned::{EVERY_LEARNED, LEARNED_WITHIN};
 pub(crate) use self::rules::{HeldRule, LearnedRules};
 
+mod learned;
 mod rules;
 
 /// The visits the run file does not hold yet, the ones it holds that
@@ -130,6 +133,10 @@ struct Held {
     every_visit: Whole,
     /// Whether memory holds every seed the file holds.
     every_seed: Whole,
+    /// Whether memory holds every learned identity the file holds.
+    every_learned: Whole,
+    /// Whether memory read the learned identities the file holds.
+    learned_read: bool,
     /// The bytes held, as `goodfetch.run_state.memory` counts them.
     reported: Level,
 }
@@ -216,6 +223,9 @@ struct Journal {
     /// The lowest ID of the learned rules it read, which its failure has
     /// memory read again.
     rules_from: Option<i64>,
+    /// Whether it read every learned identity, which its failure has
+    /// memory read again.
+    learned_read: bool,
 }
 
 /// The Bounds' counts memory held before a writer job first changed them.
@@ -248,6 +258,7 @@ impl Journal {
         self.changes.clear();
         self.counts = CountsBefore::Unchanged;
         self.rules_from = None;
+        self.learned_read = false;
     }
 }
 
@@ -415,6 +426,10 @@ impl Held {
         if let Some(from) = self.journal.rules_from.take() {
             self.rules_changed.fetch_min(from, Ordering::SeqCst);
         }
+        if std::mem::take(&mut self.journal.learned_read) {
+            self.learned_read = false;
+            self.every_learned = Whole::default();
+        }
         match std::mem::take(&mut self.journal.counts) {
             CountsBefore::Unchanged => {}
             CountsBefore::Unread => self.counts = None,
@@ -437,9 +452,8 @@ impl Held {
 
     /// Moves each identity a writer job visited, and each seed it wrote,
     /// in a batch the file holds once `committed` commits are acknowledged
-    /// out of what the file does not hold: a learned identity is
-    /// forgotten, a visited one or a seed kept while what is held is
-    /// within the budget, the oldest leaving first.
+    /// out of what the file does not hold: each is kept while what is held
+    /// is within the budget, the oldest leaving first.
     fn prune(&mut self, committed: u64) {
         while let Some((tag, _, _)) = self.written.front()
             && *tag < committed
@@ -452,12 +466,7 @@ impl Held {
                 .visit(space, &identity)
                 .is_some_and(|visit| visit.written == Some(tag))
             {
-                match space {
-                    Space::Visited | Space::Seed => {
-                        self.resident.push_back((tag, space, identity));
-                    }
-                    Space::Learned => self.remove(space, &identity),
-                }
+                self.resident.push_back((tag, space, identity));
             }
         }
         self.fit();
@@ -500,8 +509,9 @@ impl Held {
             {
                 self.remove(space, &identity);
                 match space {
+                    Space::Visited => self.every_visit.spilled = true,
+                    Space::Learned => self.every_learned.spilled = true,
                     Space::Seed => self.every_seed.spilled = true,
-                    Space::Visited | Space::Learned => self.every_visit.spilled = true,
                 }
             }
         }
@@ -663,15 +673,6 @@ impl Holding<'_> {
         }
         self.visits.spilled_lookups.add(1);
         read()
-    }
-
-    /// The rule and crawl request of the learned identity `identity`,
-    /// while the file may not hold it.
-    pub(crate) fn learned(&self, identity: &str) -> Option<(i64, &str)> {
-        self.held
-            .learned
-            .get(identity)
-            .map(|(rule, visit)| (*rule, &*visit.crawl_request))
     }
 
     /// Notes that a writer job visited `plain` and, when the learned
@@ -859,6 +860,8 @@ impl UnwrittenVisits {
                 widened: None,
                 every_visit: Whole::default(),
                 every_seed: Whole::default(),
+                every_learned: Whole::default(),
+                learned_read: false,
                 reported: metrics.level(&RUN_STATE_MEMORY),
             })),
             spilled_lookups: metrics.occurrences(&RUN_STATE_SPILLED_LOOKUPS),

@@ -27,7 +27,7 @@ use rusqlite::hooks::Action;
 use super::{Holding, table};
 
 /// One learned rule, as the file's row holds it.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct HeldRule {
     pub(crate) id: i64,
     pub(crate) kind: Box<str>,
@@ -66,13 +66,16 @@ impl LearnedRules {
         u64::try_from(self.entries.saturating_add(lists)).unwrap_or(u64::MAX)
     }
 
-    /// Forgets each rule whose ID is `from` or later.
-    fn forget_from(&mut self, from: i64) {
+    /// Forgets each rule whose ID is `from` or later; answers them, each
+    /// with its host.
+    fn forget_from(&mut self, from: i64) -> Vec<(Box<str>, HeldRule)> {
         let entries = &mut self.entries;
+        let mut forgotten = Vec::new();
         self.by_host.retain(|host, rules| {
             let kept = rules.partition_point(|rule| rule.id < from);
             for rule in rules.drain(kept..) {
                 *entries = entries.saturating_sub(rule.texts());
+                forgotten.push((host.clone(), rule));
             }
             if rules.is_empty() {
                 let list = host.len() + rules.capacity() * size_of::<HeldRule>();
@@ -81,6 +84,7 @@ impl LearnedRules {
             }
             true
         });
+        forgotten
     }
 
     /// Holds `rule`, learned on `host` after every rule held there.
@@ -120,7 +124,8 @@ impl Holding<'_> {
     /// change of `rules`, their table; a later one reads, from the file,
     /// those from the lowest ID the writer changed since. A job whose work
     /// fails has the next read again what it read. Nothing is held at a
-    /// budget of 0.
+    /// budget of 0. Answers each rule that changed, with its host: those
+    /// memory forgot, and those it read.
     ///
     /// # Errors
     ///
@@ -131,10 +136,10 @@ impl Holding<'_> {
         connection: &Connection,
         rules: &'static str,
         read: impl FnOnce(i64) -> rusqlite::Result<Vec<(String, HeldRule)>>,
-    ) -> rusqlite::Result<()> {
+    ) -> rusqlite::Result<Vec<(Box<str>, HeldRule)>> {
         let held = &mut *self.held;
         if held.budget == 0 {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let changed = &held.rules_changed;
         let from = if held.rules.is_none() {
@@ -149,7 +154,7 @@ impl Holding<'_> {
         } else {
             let from = changed.swap(i64::MAX, Ordering::SeqCst);
             if from == i64::MAX {
-                return Ok(());
+                return Ok(Vec::new());
             }
             from
         };
@@ -157,13 +162,14 @@ impl Holding<'_> {
             changed.fetch_min(from, Ordering::SeqCst);
         })?;
         let learned = held.rules.get_or_insert_default();
-        learned.forget_from(from);
+        let mut changed = learned.forget_from(from);
         for (host, rule) in rows {
-            learned.add(&host, rule);
+            learned.add(&host, rule.clone());
+            changed.push((host.into(), rule));
         }
         let journal = held.journal.under(self.committed);
         journal.rules_from = Some(journal.rules_from.map_or(from, |earlier| earlier.min(from)));
         held.fit();
-        Ok(())
+        Ok(changed)
     }
 }

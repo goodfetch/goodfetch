@@ -73,6 +73,9 @@
 //! `F3.state_reads` divides by the links batches of the same cells within
 //! their budget, the unit `held_links_batches`: once the crawl opened, an
 //! admission reads none of the Frontier's state from the run file (#2169).
+//! The cell `bounded` sets `crawl.max_requests` and a path budget, far
+//! above the site, at 16 requests at once, so the row holds the Bounds'
+//! counts too, with several attempts' staged pages in flight.
 //!
 //! `F3.hop_round_trips.end` divides by the redirected chains that ended on
 //! their document, the unit `chains`: the site's redirects are one hop
@@ -523,6 +526,29 @@ fn memory_budget(name: &'static str, budget: u64) -> Cell {
     }
 }
 
+/// The cell whose crawl `crawl.max_requests` and a path budget bound, each
+/// at [`BOUND`] requests, at 16 requests at once (#2169).
+fn bounded() -> Cell {
+    let mut settings = scoped(json!({
+        "politeness": { "domain": { "delay": 0, "concurrency": 16 } },
+    }));
+    settings["crawl"]["max_requests"] = json!(BOUND);
+    settings["crawl"]["path_budgets"] = json!([{ "pattern": "/**", "max_requests": BOUND }]);
+    Cell {
+        name: "bounded",
+        settings,
+        frontier: FRONTIER,
+        removes: &[],
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
+
+/// The bound of the cell `bounded`, far above the site's requests: it
+/// refuses none, so the cell crawls the default cell's site.
+const BOUND: u64 = 1_000;
+
 /// The cell with `frontier.learning` off, on the site of
 /// [`VARYING_PARAMETER`]: its admissions read and write no evidence
 /// ([`LEARNING_OFF_EVIDENCE`], #2169).
@@ -712,6 +738,7 @@ fn cells() -> Vec<Cell> {
         // fits in none from the first page (#2169).
         memory_budget("memory_budget_1mib", 1 << 20),
         memory_budget(MEMORY_BUDGET_0, 0),
+        bounded(),
         // robots.txt off reads and parses no robots.txt (#1919), and with
         // the fixture's delay of 0 waits out no Crawl-delay, so neither cell
         // paces its domains: admission consults no Politeness store and

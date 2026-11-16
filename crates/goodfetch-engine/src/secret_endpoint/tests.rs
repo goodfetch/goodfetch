@@ -16,6 +16,7 @@ use rstest::rstest;
 use super::SecretProviderEndpoint;
 use crate::clock::Clock;
 use crate::settings::{Layers, resolve};
+use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// 2015-10-21 07:28:00 UTC, the moment each answer is read.
 const RECEIVED: u64 = 1_445_412_480;
@@ -27,6 +28,7 @@ fn endpoint() -> SecretProviderEndpoint {
     SecretProviderEndpoint::of(
         &settings,
         Clock::paused(UNIX_EPOCH + Duration::from_secs(RECEIVED)),
+        TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
     )
 }
 

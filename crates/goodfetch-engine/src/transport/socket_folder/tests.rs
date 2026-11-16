@@ -38,12 +38,10 @@ fn every_engine_socket_listens_in_a_folder_made_under_a_long_temporary_folder() 
         (
             Network::Os
                 .listen(&daemon.path().join("daemon.sock"))
-                .await
                 .map(drop)
                 .map_err(|error| error.to_string()),
             Network::Os
                 .listen(&engine.path().join("engine.sock"))
-                .await
                 .map(drop)
                 .map_err(|error| error.to_string()),
             listen_wakes(&wake.path().join("wake.sock"))

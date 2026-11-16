@@ -364,6 +364,7 @@ impl Fixture {
             settings,
             &Self::environment(server, token),
             Clock::system(),
+            TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
         ))
     }
 
@@ -602,6 +603,7 @@ fn a_missing_or_malformed_configuration_is_not_configured_with_a_fix(
         &machine_settings(json!({}), configuration),
         &Fixture::environment(Server::Vault, token),
         Clock::system(),
+        TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
     );
     let checked = vault.check_config().err().map(|problem| problem.fix);
     let secrets = fixture.driver(vault);

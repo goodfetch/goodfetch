@@ -581,8 +581,15 @@ impl BrowserCache {
             });
         };
         tracing::info!(artifact = %artifact.id.name, build = %artifact.id.build, %host, "downloading into the Browser cache");
-        let received =
-            pinned_download::download(&url, archive_digest, fetching, &archive, &mut report).await;
+        let received = pinned_download::download(
+            &url,
+            archive_digest,
+            fetching,
+            &archive,
+            &self.blocking,
+            &mut report,
+        )
+        .await;
         let failure = match received {
             Ok(()) => None,
             Err(Failure::Offline(layer)) => return Err(self.offline(artifact, pinned_by, layer)),

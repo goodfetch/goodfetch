@@ -15,6 +15,7 @@ use crate::clock::Clock;
 use crate::egress::{ConfiguredKind, Refused};
 use crate::http_client::{EndpointSettings, WholeFailure};
 use crate::settings::Resolved;
+use crate::tasks::BlockingThreads;
 
 /// The most bytes of a collector's answer an export reads: an answer
 /// carries at most a partial-success message.
@@ -48,10 +49,10 @@ pub enum ExportFailure {
 impl Collector {
     /// The collector the machine's `settings` reach: their
     /// `egress.no_private_endpoints`, `network.resolve` and
-    /// `tls.trusted_cas`.
-    pub fn of(settings: &Resolved, clock: Clock) -> Self {
+    /// `tls.trusted_cas`, whose files each export reads on `blocking`.
+    pub fn of(settings: &Resolved, clock: Clock, blocking: BlockingThreads) -> Self {
         Self {
-            endpoint: EndpointSettings::of(settings, clock),
+            endpoint: EndpointSettings::of(settings, clock, blocking),
         }
     }
 

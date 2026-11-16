@@ -63,7 +63,9 @@ pub enum BlockingPolicy {
     /// actor, joined when its owner stops.
     Threads,
     /// The Simulation and in-process tests: blocking work runs inline, and
-    /// an actor's loop runs as a task, so a run replays from its seed.
+    /// an actor's loop runs as a task, so a run replays from its seed. In
+    /// production, only work on a thread that runs no runtime's tasks, such
+    /// as the OTLP exporter's own (ADR 0060's note of 2026-11-16).
     Inline,
 }
 

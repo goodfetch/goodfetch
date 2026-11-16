@@ -722,11 +722,13 @@ const ROWS: [Row; 122] = [
         happens: true,
         valgrind: None,
     },
+    // A Run reads each origin's copy from the Politeness file once, then
+    // keeps its parse (« ok a tous », 2026-11-16).
     Row {
         name: "E6.robots_reads",
         family: "B1",
-        unit: "requests",
-        happens: false,
+        unit: "origins",
+        happens: true,
         valgrind: None,
     },
     // Its unit is the attempts of the cell with Politeness and robots.txt

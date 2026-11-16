@@ -598,7 +598,13 @@ impl Gate {
         let preferences = &hand_over.site_preferences;
         let key = hand_over.keys.key(url.as_str());
         let own = key == self.0.domain_key;
-        let before = self.last_start(&key).await;
+        // Only another key's start runs from this last start: the attempt's
+        // own key takes its start after the file's last one at once.
+        let before = if own {
+            None
+        } else {
+            self.last_start(&key).await
+        };
         let permit = if own {
             Permit::unlimited()
         } else {

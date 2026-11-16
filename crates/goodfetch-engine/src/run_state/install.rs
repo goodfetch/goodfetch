@@ -43,7 +43,7 @@ use super::{RUN_FILE, RunStateError, RunStateOptions, sqlite_error};
 use crate::home::{Home, RunStateLocation};
 use crate::sqlite_store::{
     Access, Durability, File, Folder, FullFsync, OpenError, Opening, Schema, Synchronous, Wait,
-    WalOnClose,
+    WalOnClose, run_cached,
 };
 
 /// The install database's file name, in the per-major folder.
@@ -220,21 +220,23 @@ impl InstallDatabase {
         let mut erased = false;
         state
             .commit(|state| {
-                state.connection.execute(
-                    &format!("DELETE FROM chunks WHERE {ERASED}"),
-                    [&prefix, &after],
-                )?;
-                erased = state.connection.execute(
-                    &format!("DELETE FROM files WHERE {ERASED}"),
-                    [&prefix, &after],
-                )? > 0;
+                state
+                    .connection
+                    .prepare_cached(&format!("DELETE FROM chunks WHERE {ERASED}"))?
+                    .execute([&prefix, &after])?;
+                erased = state
+                    .connection
+                    .prepare_cached(&format!("DELETE FROM files WHERE {ERASED}"))?
+                    .execute([&prefix, &after])?
+                    > 0;
                 Ok(())
             })
             .map_err(failed)?;
         state.sync().map_err(failed)?;
         let busy: i64 = state
             .connection
-            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))
+            .prepare_cached("PRAGMA wal_checkpoint(TRUNCATE)")
+            .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
             .map_err(failed)?;
         if busy != 0 {
             return Err(RunStateError::Sqlite {
@@ -494,12 +496,13 @@ impl State {
         }
         let synced = (|| {
             self.connection.pragma_update(None, "synchronous", "FULL")?;
-            let committed = self
-                .connection
-                .execute("UPDATE syncs SET count = count + 1 WHERE id = 1", []);
+            let committed = run_cached(
+                &self.connection,
+                "UPDATE syncs SET count = count + 1 WHERE id = 1",
+            );
             self.connection
                 .pragma_update(None, "synchronous", "NORMAL")?;
-            committed.map(drop)
+            committed
         })();
         if synced.is_ok() {
             self.unsynced = false;

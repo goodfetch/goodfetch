@@ -5,7 +5,7 @@
 #![expect(
     clippy::disallowed_methods,
     clippy::disallowed_types,
-    reason = "the tests write run files and a file outside the runs, watch a loopback listener no query may reach, and stop a query from a thread of their own, outside any async runtime"
+    reason = "the tests write run files and a file outside the runs, watch a loopback listener no query may reach, and stop a query from a thread of their own, outside any async runtime; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 mod limits;

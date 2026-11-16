@@ -24,7 +24,7 @@
 #![expect(
     clippy::disallowed_methods,
     clippy::disallowed_types,
-    reason = "the tests start their own browser, read its port and the Run trace, and run their stand-ins on their own threads, never an async worker"
+    reason = "the tests start their own browser, read its port and the Run trace, and run their stand-ins on their own threads, never an async worker; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::collections::BTreeMap;

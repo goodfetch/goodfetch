@@ -6,6 +6,11 @@
 //! holds what the start acknowledged, and a new engine takes the same Run ID
 //! back as an existing Run (ADR 0002). Only the Release suite runs it, on
 //! Linux x64 (`just lazyfs-test`); nextest's profiles leave it out elsewhere.
+
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"

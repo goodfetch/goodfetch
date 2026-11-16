@@ -627,22 +627,19 @@ async fn stored(state: &RunState, location: &str) -> Option<Answer> {
     state
         .read(move |connection| {
             connection
-                .query_row(
+                .prepare_cached(
                     "SELECT status, body, unreachable FROM robots_txt_copies WHERE location = ?1",
-                    [location],
-                    |row| {
-                        let status: Option<u16> = row.get(0)?;
-                        let body: Option<Vec<u8>> = row.get(1)?;
-                        let unreachable: Option<String> = row.get(2)?;
-                        Ok(match (status, body, unreachable) {
-                            (Some(status), Some(body), _) => {
-                                Some(Answer::Response { status, body })
-                            }
-                            (_, _, Some(reason)) => Some(Answer::Unreachable(reason)),
-                            _ => None,
-                        })
-                    },
-                )
+                )?
+                .query_row([location], |row| {
+                    let status: Option<u16> = row.get(0)?;
+                    let body: Option<Vec<u8>> = row.get(1)?;
+                    let unreachable: Option<String> = row.get(2)?;
+                    Ok(match (status, body, unreachable) {
+                        (Some(status), Some(body), _) => Some(Answer::Response { status, body }),
+                        (_, _, Some(reason)) => Some(Answer::Unreachable(reason)),
+                        _ => None,
+                    })
+                })
                 .optional()
                 .map(Option::flatten)
         })
@@ -663,11 +660,11 @@ async fn keep(state: &RunState, location: &str, answer: &Answer) {
     if let Err(error) = state
         .write(move |connection| {
             connection
-                .execute(
-                    "INSERT INTO robots_txt_copies (location, status, body, unreachable) VALUES (?1, ?2, ?3, ?4) \
-                     ON CONFLICT (location) DO NOTHING",
-                    (location, status, body, unreachable),
-                )
+                .prepare_cached(
+                    "INSERT INTO robots_txt_copies (location, status, body, unreachable) \
+                     VALUES (?1, ?2, ?3, ?4) ON CONFLICT (location) DO NOTHING",
+                )?
+                .execute((location, status, body, unreachable))
                 .map(drop)
         })
         .await

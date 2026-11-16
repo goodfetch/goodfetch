@@ -3,6 +3,11 @@
 //! writer sees a chain's pending end, and each is forgotten once the file
 //! holds it or its visit is dropped unrun.
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 

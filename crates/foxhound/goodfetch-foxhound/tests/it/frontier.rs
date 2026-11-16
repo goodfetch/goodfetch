@@ -9,6 +9,11 @@
 //! parameters, parameter order, `;jsessionid=` and the fragment never split
 //! a page, which is fetched at its own URL. A priority and `forefront`
 //! order a domain's requests and never the domains' turns.
+
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
 #![expect(
     clippy::disallowed_types,
     reason = "the test's handler fetches the Proving ground's pages from outside the engine (ADR 0060)"

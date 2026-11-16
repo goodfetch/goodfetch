@@ -69,36 +69,36 @@ struct Limits {
 impl Limits {
     fn read(connection: &Connection, key: &str) -> rusqlite::Result<Self> {
         Ok(connection
-            .query_row(
+            .prepare_cached(
                 "SELECT ceiling, ceiling_changed_at, last_start FROM proxy_limits WHERE key = ?1",
-                [key],
-                |row| {
-                    Ok(Self {
-                        ceiling: row
-                            .get::<_, Option<i64>>(0)?
-                            .and_then(|ceiling| u64::try_from(ceiling).ok()),
-                        ceiling_changed_at: row.get(1)?,
-                        last_start: row.get(2)?,
-                    })
-                },
-            )
+            )?
+            .query_row([key], |row| {
+                Ok(Self {
+                    ceiling: row
+                        .get::<_, Option<i64>>(0)?
+                        .and_then(|ceiling| u64::try_from(ceiling).ok()),
+                    ceiling_changed_at: row.get(1)?,
+                    last_start: row.get(2)?,
+                })
+            })
             .optional()?
             .unwrap_or_default())
     }
 
     fn write(&self, connection: &Connection, key: &str) -> rusqlite::Result<()> {
-        connection.execute(
-            "INSERT INTO proxy_limits (key, ceiling, ceiling_changed_at, last_start)
+        connection
+            .prepare_cached(
+                "INSERT INTO proxy_limits (key, ceiling, ceiling_changed_at, last_start)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT (key) DO UPDATE SET ceiling = ?2, ceiling_changed_at = ?3, last_start = ?4",
-            (
+            )?
+            .execute((
                 key,
                 self.ceiling
                     .map(|ceiling| i64::try_from(ceiling).unwrap_or(i64::MAX)),
                 self.ceiling_changed_at,
                 self.last_start,
-            ),
-        )?;
+            ))?;
         Ok(())
     }
 }

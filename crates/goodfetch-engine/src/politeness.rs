@@ -639,6 +639,10 @@ impl Politeness {
     /// # Cancel safety
     ///
     /// Dropping the future does not withdraw it once queued.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
+    )]
     pub async fn stop_waiting(&self, holder: &Holder) -> Result<(), PolitenessError> {
         let run_id = holder.run_id.clone();
         self.run(move |connection, context| {
@@ -713,6 +717,10 @@ impl Politeness {
 
     /// Wakes the waiter whose turn it is; one whose endpoint is gone loses
     /// its rows, and the next waiter's turn comes.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
+    )]
     async fn wake_turn(&self, mut turn: Turn) {
         loop {
             if self.0.endpoint.as_deref() == Some(turn.endpoint.as_str()) {
@@ -863,6 +871,10 @@ fn open_failed(path: &Path, error: OpenError) -> PolitenessError {
 }
 
 /// How many Permits are held under `key`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
+)]
 fn in_flight(connection: &Connection, key: &str) -> rusqlite::Result<u64> {
     let count: i64 = connection.query_row(
         "SELECT count(*) FROM permits WHERE key = ?1",
@@ -874,6 +886,10 @@ fn in_flight(connection: &Connection, key: &str) -> rusqlite::Result<u64> {
 
 /// How many Permits under `key` were given back so far: each give back
 /// starts a new generation of wakes.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
+)]
 fn generation(connection: &Connection, key: &str) -> rusqlite::Result<i64> {
     Ok(connection
         .query_row(
@@ -887,6 +903,10 @@ fn generation(connection: &Connection, key: &str) -> rusqlite::Result<i64> {
 
 /// The first waiter of `key` in turn not yet woken for `generation`,
 /// marked woken for it at `now`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
+)]
 fn next_turn(
     connection: &Connection,
     key: &str,
@@ -921,6 +941,10 @@ fn next_turn(
 /// How many requests `run_id` counts as in flight under `key` at `now`:
 /// the Permits held, and the room kept for another run's waiter woken
 /// within [`WAKE_GRACE`] for the latest give back.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
+)]
 fn taken_room(
     connection: &Connection,
     key: &str,
@@ -943,6 +967,10 @@ fn taken_room(
 
 /// Deletes the Permits of every other engine's Run that is gone, and
 /// answers how many.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
+)]
 fn reclaim(connection: &Connection, context: &Context, key: &str) -> rusqlite::Result<usize> {
     let holders: Vec<(String, i64, String)> = connection
         .prepare(
@@ -965,6 +993,10 @@ fn reclaim(connection: &Connection, context: &Context, key: &str) -> rusqlite::R
     Ok(reclaimed)
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
+)]
 fn take_in(
     connection: &mut Connection,
     context: &Context,
@@ -1036,6 +1068,10 @@ fn take_in(
 /// Registers `run_id` as a waiter of `key` at `endpoint`. A waiter already
 /// woken for the latest give back, and still refused, goes to the back of
 /// the turns and passes the wake to the next waiter, whose turn it answers.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
+)]
 fn wait_in_turn(
     connection: &Connection,
     key: &str,
@@ -1075,6 +1111,10 @@ fn wait_in_turn(
     }
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
+)]
 fn give_back_in(
     connection: &mut Connection,
     context: &Context,

@@ -61,6 +61,10 @@ pub(crate) struct Counted {
 fn plant(planted: &str, outcome: Outcome, ledger: &Ledger, spare: &Connection, work: &CountedWork) {
     match (planted, outcome) {
         ("E3.statements", Outcome::Covered) => {
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the planted statement the prove run counts, outside the ledger"
+            )]
             spare
                 .query_row("SELECT 1", [], |_| Ok(()))
                 .expect("invariant: a literal statement");

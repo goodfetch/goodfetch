@@ -1528,7 +1528,10 @@ fn without_ticks(group: &mut Vec<Queued>) -> bool {
 /// What the file at `connection` declares of the Run's charges: a Run's
 /// earlier run epoch may have declared them.
 fn declared_charges(connection: &Connection) -> rusqlite::Result<Charges> {
-    match connection.query_row("SELECT charges FROM run", [], |row| row.get::<_, String>(0)) {
+    match connection
+        .prepare_cached("SELECT charges FROM run")?
+        .query_row([], |row| row.get::<_, String>(0))
+    {
         Ok(declared) => Ok(Charges::stored(&declared)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(Charges::Synced),
         Err(error) => Err(error),
@@ -1559,11 +1562,10 @@ pub(crate) fn next_epoch(
 ) -> Result<u64, RunStateError> {
     let connection = open_file(path, options, tables)?;
     let epoch: i64 = connection
-        .query_row(
-            "UPDATE run SET epoch = max(epoch, ?1) + 1 RETURNING epoch",
-            [i64::try_from(after).unwrap_or(i64::MAX)],
-            |row| row.get(0),
-        )
+        .prepare_cached("UPDATE run SET epoch = max(epoch, ?1) + 1 RETURNING epoch")
+        .and_then(|mut statement| {
+            statement.query_row([i64::try_from(after).unwrap_or(i64::MAX)], |row| row.get(0))
+        })
         .map_err(|error| sqlite_error(path, &error))?;
     Ok(u64::try_from(epoch).unwrap_or_default())
 }
@@ -1678,9 +1680,8 @@ pub(crate) fn unclean(
     let marked = opened.and_then(|connection| {
         sqlite_store::no_checkpoint_on_close(&connection)?;
         connection
-            .query_row("SELECT count(*) FROM unclean", [], |row| {
-                row.get::<_, i64>(0)
-            })
+            .prepare_cached("SELECT count(*) FROM unclean")?
+            .query_row([], |row| row.get::<_, i64>(0))
             .map(|marks| marks > 0)
     });
     match marked {

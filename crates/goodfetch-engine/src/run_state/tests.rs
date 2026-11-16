@@ -2,6 +2,11 @@
 //! through the crash VFS (spec #213's Seam 4): durability pragmas, grouped
 //! commits under the run epoch, format refusals, and a model-based test of
 //! crashes, power cuts and reopening against a reference model (ADR 0060).
+
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"

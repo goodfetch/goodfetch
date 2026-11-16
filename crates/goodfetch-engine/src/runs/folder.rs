@@ -38,10 +38,13 @@ pub(super) struct RunRow {
 
 impl RunRow {
     pub(super) fn insert(&self, connection: &Connection) -> rusqlite::Result<()> {
-        connection.execute(
-            "INSERT INTO run (run_id, kind, needs, caller, epoch, inputs, lifecycle, started_at, policy_version, weakened, binding, clean_up_digest)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            (
+        connection
+            .prepare_cached(
+                "INSERT INTO run (run_id, kind, needs, caller, epoch, inputs, lifecycle, started_at, \
+                 policy_version, weakened, binding, clean_up_digest) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            )?
+            .execute((
                 self.run_id.as_str(),
                 self.kind.as_str(),
                 text(&self.needs),
@@ -55,8 +58,7 @@ impl RunRow {
                     .expect("invariant: setting limits encode"),
                 self.binding.as_deref(),
                 self.clean_up_digest.as_deref(),
-            ),
-        )?;
+            ))?;
         Ok(())
     }
 }
@@ -68,10 +70,9 @@ pub(super) fn record_weakened(
     connection: &Connection,
     weakened: &[WeakenedSetting],
 ) -> rusqlite::Result<()> {
-    connection.execute(
-        "UPDATE run SET weakened = ?1",
-        [serde_json::to_string(weakened).expect("invariant: setting limits encode")],
-    )?;
+    connection
+        .prepare_cached("UPDATE run SET weakened = ?1")?
+        .execute([serde_json::to_string(weakened).expect("invariant: setting limits encode")])?;
     Ok(())
 }
 
@@ -155,19 +156,16 @@ pub(super) fn read_found(file: &Path, vfs: Option<&str>) -> Result<Option<Found>
             return Ok(None);
         };
         connection
-            .query_row(
-                "SELECT kind, needs, caller, inputs, lifecycle FROM run",
-                [],
-                |row| {
-                    Ok(Found {
-                        kind: parsed(&row.get::<_, String>(0)?)?,
-                        needs: parsed(&row.get::<_, String>(1)?)?,
-                        caller: row.get(2)?,
-                        inputs: row.get(3)?,
-                        lifecycle: parsed(&row.get::<_, String>(4)?)?,
-                    })
-                },
-            )
+            .prepare_cached("SELECT kind, needs, caller, inputs, lifecycle FROM run")?
+            .query_row([], |row| {
+                Ok(Found {
+                    kind: parsed(&row.get::<_, String>(0)?)?,
+                    needs: parsed(&row.get::<_, String>(1)?)?,
+                    caller: row.get(2)?,
+                    inputs: row.get(3)?,
+                    lifecycle: parsed(&row.get::<_, String>(4)?)?,
+                })
+            })
             .optional()
     };
     read().map_err(|error| error.to_string())
@@ -183,11 +181,8 @@ pub(super) fn read_report(file: &Path, vfs: Option<&str>) -> rusqlite::Result<Op
 /// The Run's report, once it ended: the one its end wrote.
 fn report(connection: &Connection) -> rusqlite::Result<Option<RunReport>> {
     let report: Option<String> = connection
-        .query_row(
-            "SELECT report FROM run WHERE ended_at IS NOT NULL",
-            [],
-            |row| row.get(0),
-        )
+        .prepare_cached("SELECT report FROM run WHERE ended_at IS NOT NULL")?
+        .query_row([], |row| row.get(0))
         .optional()?
         .flatten();
     report
@@ -223,24 +218,24 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
         return Ok(None);
     };
     let found = connection
-        .query_row(
-            "SELECT run_id, kind, needs, lifecycle, started_at, policy_version, weakened, inputs, progress_message FROM run",
-            [],
-            |row| {
-                Ok((
-                    parsed::<RunId>(&row.get::<_, String>(0)?)?,
-                    (
-                        parsed::<RunKind>(&row.get::<_, String>(1)?)?,
-                        parsed::<Product>(&row.get::<_, String>(2)?)?,
-                        parsed::<Lifecycle>(&row.get::<_, String>(3)?)?,
-                    ),
-                    PointInTime::from_rfc3339(row.get(4)?),
-                    row.get::<_, Option<String>>(5)?,
-                    (row.get::<_, String>(6)?, row.get::<_, String>(7)?),
-                    row.get::<_, Option<String>>(8)?,
-                ))
-            },
-        )
+        .prepare_cached(
+            "SELECT run_id, kind, needs, lifecycle, started_at, policy_version, weakened, inputs, \
+             progress_message FROM run",
+        )?
+        .query_row([], |row| {
+            Ok((
+                parsed::<RunId>(&row.get::<_, String>(0)?)?,
+                (
+                    parsed::<RunKind>(&row.get::<_, String>(1)?)?,
+                    parsed::<Product>(&row.get::<_, String>(2)?)?,
+                    parsed::<Lifecycle>(&row.get::<_, String>(3)?)?,
+                ),
+                PointInTime::from_rfc3339(row.get(4)?),
+                row.get::<_, Option<String>>(5)?,
+                (row.get::<_, String>(6)?, row.get::<_, String>(7)?),
+                row.get::<_, Option<String>>(8)?,
+            ))
+        })
         .optional()?;
     let Some((
         run_id,
@@ -325,9 +320,12 @@ pub(super) fn write_end(connection: &Connection, report: &RunReport) -> rusqlite
         settings: None,
         ..report.clone()
     };
-    connection.execute(
-        "UPDATE run SET lifecycle = ?1, stop_reason = ?2, verdict = ?3, completeness = ?4, ended_at = ?5, report = ?6",
-        (
+    connection
+        .prepare_cached(
+            "UPDATE run SET lifecycle = ?1, stop_reason = ?2, verdict = ?3, completeness = ?4, \
+             ended_at = ?5, report = ?6",
+        )?
+        .execute((
             report.lifecycle.as_str(),
             report.stop_reason.as_ref().map(|reason| {
                 serde_json::to_string(&reason).expect("invariant: a stop reason encodes")
@@ -336,7 +334,6 @@ pub(super) fn write_end(connection: &Connection, report: &RunReport) -> rusqlite
             report.completeness.as_str(),
             report.ended_at.as_str(),
             serde_json::to_string(&kept).expect("invariant: a Run report encodes"),
-        ),
-    )?;
+        ))?;
     Ok(())
 }

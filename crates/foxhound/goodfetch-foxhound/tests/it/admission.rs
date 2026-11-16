@@ -6,7 +6,7 @@
 //! released once drained, and an Operator policy cap on the rate cap.
 #![expect(
     clippy::disallowed_methods,
-    reason = "a test writes the Operator policy itself"
+    reason = "a test writes the Operator policy itself; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 #![expect(
     clippy::doc_markdown,

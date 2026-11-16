@@ -1,6 +1,11 @@
 //! The scope check as a pure function of a seed, a URL, the strategy and
 //! the patterns (spec #581's Testing Decisions: pure rules in process).
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use proptest::prelude::*;
 use proptest::strategy::Strategy as _;
 use rstest::rstest;

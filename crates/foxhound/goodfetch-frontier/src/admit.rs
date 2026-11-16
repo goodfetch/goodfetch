@@ -520,11 +520,10 @@ fn admit_measured(
         budget.map(|budget| budget.pattern.as_str()),
     );
     if bounds.learning {
-        rules::admitted(
+        invariants.admission_evidence(
             connection,
-            key.url(),
-            entering.from.map(keyed_url).as_ref(),
-            invariants.work(),
+            (key.url(), entering.from.map(keyed_url)),
+            admitting.writes(),
         )?;
     }
     if asked.is_none() {

@@ -138,8 +138,7 @@ mod race;
 mod site_preferences;
 mod sitemap_fetch;
 
-pub(super) use learning::{Taught, learns};
-use learning::{learn, skipped};
+pub(super) use learning::{Lessons, learns};
 use site_preferences::{escaped_refusal, share_robots_txt};
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -495,8 +494,6 @@ pub(super) struct Attempt {
     pub(super) escalated: Option<ServingSession>,
     pub(super) lease: WorkItemLease,
     pub(super) answer: Answer,
-    /// What its page taught the Frontier, or teaches it with its outcome.
-    pub(super) taught: Taught,
     /// The sample it was, with how its two runs weighed, once both
     /// answered.
     pub(super) sampled: Option<(Sampled, Weighed)>,
@@ -562,7 +559,7 @@ pub(super) async fn attempt(
     (leased, (session, in_browser), counted): (Leased, (ServingSession, PooledSession), Counted),
     (lease, watch): (WorkItemLease, Watch),
     (tiering, (hand_over, code_free)): (Tiering, (Arc<HandOver>, Option<Arc<CodeFree>>)),
-    in_flight: SharedInFlight,
+    (in_flight, lessons): (SharedInFlight, &Lessons),
 ) -> Attempt {
     let (document, sent_at) = (Mutex::new(None), Mutex::new(None));
     let (moved, refused) = (OnceLock::new(), OnceLock::new());
@@ -584,13 +581,13 @@ pub(super) async fn attempt(
         hand_over: &hand_over,
         code_free: code_free.as_deref(),
         in_flight: &in_flight,
+        lessons,
         watch: &watch,
     };
     // Boxed: the attempt's future is large, and the watch holds it only
     // while it runs.
     let ran = watch
         .ended(Box::pin(async {
-            let mut merged = Taught::default();
             let mut sampled = None;
             // Its race's latency, and whether a transport's first request answered.
             let mut raced = (None, false);
@@ -601,26 +598,19 @@ pub(super) async fn attempt(
                     on.browser(&tiering.tiers, choice, Chosen::AsChosen).await
                 }
                 (AttemptPlan::On(choice), Some(http)) => {
-                    let (answer, learned) = on.http(&tiering, http, served_as(choice), None).await;
-                    merged = learned;
-                    answer
+                    on.http(&tiering, http, served_as(choice), None).await
                 }
                 (AttemptPlan::Replayed(replay), Some(http)) => {
-                    let (answer, learned) =
-                        on.http(&tiering, http, &REPLAYED, Some(&replay.plan)).await;
-                    merged = learned;
-                    answer
+                    on.http(&tiering, http, &REPLAYED, Some(&replay.plan)).await
                 }
                 (AttemptPlan::Sample(sample), Some(http)) => {
-                    let (answer, learned, weighed) =
+                    let (answer, weighed) =
                         Box::pin(on.sample(&tiering, http, sample.browser_fetch)).await;
-                    merged = learned;
                     sampled = weighed.map(|weighed| (sample.clone(), weighed));
                     answer
                 }
                 (AttemptPlan::Race(race), Some(http)) => {
-                    let (answer, learned, ran) = on.race(&tiering, http, race).await;
-                    merged = learned;
+                    let (answer, ran) = on.race(&tiering, http, race).await;
                     raced = ran;
                     answer
                 }
@@ -632,16 +622,15 @@ pub(super) async fn attempt(
                     None,
                 ) => without_http_tier("request"),
             };
-            (answer, merged, sampled, raced)
+            (answer, sampled, raced)
         }))
         .await;
-    let (answer, taught, sampled, (raced, transport_answered), ran) = match ran {
-        Ok((answer, merged, sampled, raced)) => (answer, merged, sampled, raced, true),
+    let (answer, sampled, (raced, transport_answered), ran) = match ran {
+        Ok((answer, sampled, raced)) => (answer, sampled, raced, true),
         // What the attempt met before it panicked says nothing of its site:
         // its domain neither backs off nor learns from it.
         Err(panicked) => (
             Answer::failed(AttemptFailure::panicked(&panicked)),
-            Taught::default(),
             None,
             (None, false),
             false,
@@ -662,7 +651,6 @@ pub(super) async fn attempt(
         escalated: escalated.into_inner().map(|(session, _)| session),
         lease,
         answer,
-        taught,
         sampled,
         raced,
     }
@@ -770,6 +758,8 @@ struct On<'a> {
     /// program's handler; none when the program handles them.
     code_free: Option<&'a CodeFree>,
     in_flight: &'a SharedInFlight,
+    /// Where its page notes what it teaches the Frontier.
+    lessons: &'a Lessons,
     /// The attempt's watch, over each task it starts on its Run while it
     /// runs.
     watch: &'a Watch,
@@ -876,23 +866,23 @@ impl On<'_> {
     /// escalated to the browser at the first call the tier cannot serve
     /// under `auto`, in the same attempt, the first answer discarded
     /// ([`On::escalate`]).
-    /// Answers how it ended and the pending requests the page's rules
-    /// merged. On `discovered_api`, its page replays `plan`'s calls.
+    /// Answers how it ended. On `discovered_api`, its page replays
+    /// `plan`'s calls.
     async fn http(
         &self,
         tiering: &Tiering,
         http: &HttpTier,
         choice: &TierChoice,
         plan: Option<&ReplayPlan>,
-    ) -> (Answer, Taught) {
-        let (run, merged) = match self
+    ) -> Answer {
+        let run = match self
             .on_http(tiering, http, (choice, plan), Chosen::AsChosen)
             .await
         {
             Ok(ran) => ran,
             Err(ended) => return ended,
         };
-        let answer = match run.escalated {
+        match run.escalated {
             // The first answer, whatever it says, is discarded.
             Some(call) if !matches!(run.answer, Answer::LeaseEnded | Answer::ClientGone) => {
                 // The browser's run takes a whole lease of its own, and
@@ -910,8 +900,7 @@ impl On<'_> {
                 self.escalate(tiering, choice, BLOCKED).await
             }
             _ => run.answer,
-        };
-        (answer, merged)
+        }
     }
 
     /// The request run again on the browser, escalated at `call` from a
@@ -1014,8 +1003,7 @@ impl On<'_> {
     /// transport (`fetch.http_from`), else from the attempt's, then, unless
     /// that run ended the attempt, its run on `browser` under a whole lease
     /// of its own, whose answer is the attempt's, matched or not. Answers
-    /// it, the pending requests the page's rules merged, and
-    /// how the two runs weighed once the browser's answered: what each run
+    /// it and how the two runs weighed once the browser's answered: what each run
     /// staged, the Records it pushed then those of its answer and the
     /// requests it enqueued, before any Hook (ADR 0103), the URL each ended
     /// on and the encoding each read in (ADRs 0118 and 0119). A browser run
@@ -1029,22 +1017,22 @@ impl On<'_> {
         tiering: &Tiering,
         http: &HttpTier,
         browser_fetch: bool,
-    ) -> (Answer, Taught, Option<Weighed>) {
+    ) -> (Answer, Option<Weighed>) {
         let (sender, sent_on) = match self.sent_from(tiering, http) {
             Ok(sender) => sender,
-            Err(answer) => return (answer, Taught::default(), None),
+            Err(answer) => return (answer, None),
         };
-        let (run, merged) = match sender
+        let run = match sender
             .on_http(tiering, sent_on, (&SAMPLED, None), Chosen::Sample(None))
             .await
         {
             Ok(ran) => ran,
-            Err((answer, merged)) => return (answer, merged, None),
+            Err(answer) => return (answer, None),
         };
         // A page holding no document has nothing to compare, and the
         // browser would hold none either (ADR 0119): its answer stands.
         if matches!(run.answer, Answer::LeaseEnded | Answer::ClientGone) || !run.document {
-            return (run.answer, merged, None);
+            return (run.answer, None);
         }
         // A Challenge its handler named moves the domain to the browser,
         // where the sample's browser run then serves the request.
@@ -1053,7 +1041,7 @@ impl On<'_> {
         let cheaper = self.lease.restage();
         let light = match self.light_sampled(tiering, http).await {
             Ok(light) => light,
-            Err(ended) => return (ended, merged, None),
+            Err(ended) => return (ended, None),
         };
         let capture = Capture::under(Limits::of_run(self.run.settings()));
         let browser = self
@@ -1121,7 +1109,7 @@ impl On<'_> {
             }
             _ => None,
         };
-        (browser.answer, merged, weighed)
+        (browser.answer, weighed)
     }
 
     /// A sample's runs on `discovered_api`, after its browser's: the calls
@@ -1189,7 +1177,7 @@ impl On<'_> {
             .await;
         let staged = self.lease.restage();
         self.lease.put_back(browsers);
-        ran.is_ok_and(|(run, _)| matches_browser(&run, &staged, browser, self.not_compared()))
+        ran.is_ok_and(|run| matches_browser(&run, &staged, browser, self.not_compared()))
     }
 
     /// Where the Run allows it, the sample's run on `light_browser`, before
@@ -1208,14 +1196,14 @@ impl On<'_> {
             .on_http(tiering, http, (&LIGHT_SAMPLED, None), Chosen::Sample(None))
             .await
         {
-            Ok((light, _)) if matches!(light.answer, Answer::LeaseEnded | Answer::ClientGone) => {
+            Ok(light) if matches!(light.answer, Answer::LeaseEnded | Answer::ClientGone) => {
                 Err(light.answer)
             }
-            Ok((light, _)) => {
+            Ok(light) => {
                 self.lease.renew(self.lease.length());
                 Ok(Some((light, self.lease.restage())))
             }
-            Err((ended @ (Answer::LeaseEnded | Answer::ClientGone), _)) => Err(ended),
+            Err(ended @ (Answer::LeaseEnded | Answer::ClientGone)) => Err(ended),
             Err(_) => {
                 self.lease.renew(self.lease.length());
                 drop(self.lease.restage());
@@ -1239,20 +1227,19 @@ impl On<'_> {
     /// One run on the `http` tier: its origin's robots.txt read and its
     /// document fetched under the lease, the tier recorded as `how` says,
     /// the page judged by its Label's Page check, else the Run's (ADR
-    /// 0093), the Frontier then taught its page unless the run is a
+    /// 0093), its lesson then noted with the Frontier unless the run is a
     /// sample's, and the handler given a page
     /// served from it, closed once it answered. A page failing its expected
     /// page under `auto` escalates at `session.page_check` without its
-    /// handler running. Answers the run and the pending requests the page's
-    /// rules merged, or, when the attempt ended before its handler ran, its
-    /// answer and those requests.
+    /// handler running. Answers the run or, when the attempt ended before
+    /// its handler ran, its answer.
     async fn on_http(
         &self,
         tiering: &Tiering,
         http: &HttpTier,
         (choice, plan): (&TierChoice, Option<&ReplayPlan>),
         how: Chosen,
-    ) -> Result<(HttpRun, Taught), (Answer, Taught)> {
+    ) -> Result<HttpRun, Answer> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let tiers = &tiering.tiers;
         let hand_over = self.hand_over;
@@ -1261,13 +1248,11 @@ impl On<'_> {
             .document(tiering, http, choice, hand_over)
             .await
             .map_err(|Unserved { answer, redirects }| {
-                // A sample's runs teach nothing, as [`Self::taught`] says.
-                let taught = if matches!(how, Chosen::Sample(_)) {
-                    Taught::default()
-                } else {
-                    skipped(run, leased, redirects)
-                };
-                (answer, taught)
+                // A sample's runs teach nothing, as [`Self::learn`] says.
+                if !matches!(how, Chosen::Sample(_)) {
+                    self.lessons.skipped(&redirects);
+                }
+                answer
             })?;
         // `served` is held until its handler answered: an attempt abandoned
         // while its handler runs, as an abort abandons it, closes its page
@@ -1297,7 +1282,7 @@ impl On<'_> {
         {
             return ended;
         }
-        let merged = self.taught(tiers, &page_id, how).await;
+        self.learn(tiers, &page_id, how).await;
         self.in_flight
             .lock()
             .await
@@ -1321,36 +1306,26 @@ impl On<'_> {
         .await;
         drop(handed_over);
         let escalated = self.escalated(served.close());
-        Ok((
-            HttpRun {
-                answer,
-                escalated,
-                document: not_document.is_none(),
-                encoding: encoding.map(|encoding| encoding.encoding),
-                url,
-            },
-            merged,
-        ))
+        Ok(HttpRun {
+            answer,
+            escalated,
+            document: not_document.is_none(),
+            encoding: encoding.map(|encoding| encoding.encoding),
+            url,
+        })
     }
 
-    /// What the run `how` names, its page `page_id` served and past its
-    /// Page check, teaches the Frontier ([`learn`]), answering the pending
-    /// requests a rule it taught merged. Only a run that may commit
-    /// teaches: a sample's runs on a cheaper tier are discarded for the
-    /// browser's, whatever they find, so they teach nothing (ADR 0020's
-    /// #768 note).
-    async fn taught(&self, tiers: &FetchTiers, page_id: &PageId, how: Chosen) -> Taught {
-        if matches!(how, Chosen::Sample(_)) {
-            return Taught::default();
+    /// Notes what the run `how` names, its page `page_id` served and past
+    /// its Page check, teaches the Frontier ([`Lessons::learn`]). Only a
+    /// run that may commit teaches: a sample's runs on a cheaper tier are
+    /// discarded for the browser's, whatever they find, so they teach
+    /// nothing (ADR 0020's #768 note).
+    async fn learn(&self, tiers: &FetchTiers, page_id: &PageId, how: Chosen) {
+        if !matches!(how, Chosen::Sample(_)) {
+            self.lessons
+                .learn(tiers, page_id, &self.leased.crawl_request)
+                .await;
         }
-        learn(
-            self.run,
-            tiers,
-            page_id,
-            self.leased,
-            self.code_free.is_some(),
-        )
-        .await
     }
 
     /// How the run `how` names on `choice` ends before its handler runs,
@@ -1364,7 +1339,7 @@ impl On<'_> {
         facts: &PageFacts,
         (choice, how): (&TierChoice, Chosen),
         recorded: &TierProvenance,
-    ) -> Option<Result<(HttpRun, Taught), (Answer, Taught)>> {
+    ) -> Option<Result<HttpRun, Answer>> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let tiers = &tiering.tiers;
         match self.found(tiering, page_id, facts, (choice, how)).await {
@@ -1372,24 +1347,18 @@ impl On<'_> {
                 tiers.close(page_id);
                 record_tier(run, leased, lease, recorded.clone(), None, None).await;
                 let message = "The document declares no encoding and is not UTF-8: only the browser reads it.";
-                return Some(Ok((
-                    escalated_unhandled(ATTEMPT_ENDED.name, message, call),
-                    Taught::default(),
-                )));
+                return Some(Ok(escalated_unhandled(ATTEMPT_ENDED.name, message, call)));
             }
             Found::Blocked(cause, error) => {
                 tiers.close(page_id);
                 record_tier(run, leased, lease, recorded.clone(), None, None).await;
                 return Some(match self.on_block(cause, choice, how) {
-                    Action::MoveToBrowser => Ok((
-                        escalated_unhandled(
-                            BLOCKED,
-                            "A Challenge met on a tier short of the browser moved the request there.",
-                            BLOCKED,
-                        ),
-                        Taught::default(),
+                    Action::MoveToBrowser => Ok(escalated_unhandled(
+                        BLOCKED,
+                        "A Challenge met on a tier short of the browser moved the request there.",
+                        BLOCKED,
                     )),
-                    Action::Sample | Action::Blocked => Err((failed(&error), Taught::default())),
+                    Action::Sample | Action::Blocked => Err(failed(&error)),
                 });
             }
             Found::Readable => {}
@@ -1407,16 +1376,17 @@ impl On<'_> {
             Some(Judged::Passed) | None => None,
             Some(Judged::Failed(error)) => {
                 tiers.close(page_id);
-                Some(Err((failed(&error), Taught::default())))
+                Some(Err(failed(&error)))
             }
             Some(Judged::Escalated) => {
                 tiers.close(page_id);
                 // Its handler never ran: the run escalates at the Page
                 // check, and the caller runs the request in the browser.
                 let message = "The page failed its expected page on a tier short of the browser.";
-                Some(Ok((
-                    escalated_unhandled(PAGE_CHECK_FAILED, message, PAGE_CHECK_CALL),
-                    Taught::default(),
+                Some(Ok(escalated_unhandled(
+                    PAGE_CHECK_FAILED,
+                    message,
+                    PAGE_CHECK_CALL,
                 )))
             }
         }
@@ -1515,7 +1485,7 @@ impl On<'_> {
                         on_own_domain: false,
                     } => Answer::HopsRobotsTxtUnreachable(message).into(),
                     // A failed chain's hops are followed again by its
-                    // retry; a skipped request's are taught now (ADR 0120).
+                    // retry; a skipped request's are noted now (ADR 0120).
                     Stop::Skipped(skip) => {
                         tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, reason = ?skip.reason, message = skip.message, "a redirect hop ended its request skipped");
                         Unserved {

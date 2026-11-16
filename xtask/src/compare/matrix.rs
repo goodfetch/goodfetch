@@ -1056,8 +1056,9 @@ pub(crate) const CELLS: [Cell; 123] = [
         pending: &[],
         row: Row::Main,
         status: Status::NotSupported(
-            "OpenSpider's writer commits its crawl file in groups, every 200 pages or 100 ms, \
-             and on the Proving ground it fetches about 500 pages before its first commit, so a \
+            "OpenSpider's writer commits its crawl file in groups and, while pages come faster \
+             than it writes them, gathers up to 4,000 pages or 500 ms into one transaction, so \
+             on the Proving ground it fetches about 500 pages before its first commit, and a \
              SIGKILL once half the site is served leaves the file with no page and an empty \
              queue; the process started again on it (`os_engine::resume_crawl`, its command \
              line's `--resume`), once the file's 10 s heartbeat has gone stale, ends at once \

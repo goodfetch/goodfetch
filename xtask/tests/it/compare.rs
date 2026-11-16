@@ -26,7 +26,7 @@ const MIB: u64 = 1024 * 1024;
 
 /// The measured cells: each tool's main rows by scenario, then Spider's
 /// sensitivity rows and Foxhound's `auto` row.
-const CELLS: [(&str, &str, &str); 43] = [
+const CELLS: [(&str, &str, &str); 42] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
@@ -40,7 +40,6 @@ const CELLS: [(&str, &str, &str); 43] = [
     ("durable", "foxhound periodic", "foxhound"),
     ("durable", "crawlee-rs", "crawlee-rs"),
     ("durable", "pagesift", "pagesift"),
-    ("durable", "openspider", "openspider"),
     ("polite", "foxhound", "foxhound"),
     ("polite", "crawlee", "crawlee"),
     ("polite", "scrapy", "scrapy"),

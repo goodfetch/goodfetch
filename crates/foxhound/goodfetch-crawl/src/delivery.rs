@@ -54,7 +54,8 @@
 //! more and waits for the Run to stop or a Connection to join. Each attempt
 //! counts in `goodfetch.work_item.leased` until it ends, and each retry in
 //! `goodfetch.work_item.retried`, on the meter the Run hands out (ADR 0050).
-//! A pending work item a rule the Frontier learned later merged leaves its
+//! A pending work item a rule the Frontier learned later, at the end of a
+//! batch the run state's writer commits (#2169), merged leaves its
 //! domain's queue, and one the gate already took gives its turn back
 //! unsent; one that rule's stop made pending again joins its domain's
 //! queue as that queue is filled again. Each attempt runs on the tier the crawl's tier choice plans for
@@ -66,7 +67,7 @@
 //! drives, kept whole so every work item's way from pending to its ending
 //! passes through one loop.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::pin::Pin;
 use std::time::{Duration, SystemTime};
 
@@ -80,7 +81,6 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::local_addresses::{BlockSizes, LocalAddresses, Rotation, System};
-use goodfetch_engine::mask::Scope;
 use goodfetch_engine::metrics::Level;
 use goodfetch_engine::runs::{ChargeError, Ending, Run, UnjournaledCharges};
 use goodfetch_engine::settings::{Resolved, RunSettings};
@@ -131,8 +131,8 @@ use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
 use crate::progress::{self, InFlight, Room, SharedInFlight};
 use crate::run_state::{
-    Asking, Chosen, Drawing, Drawn, DrawnSession, Local, Question, QueuedEnd, RunState, StateError,
-    Stored, Tally, Unkeyed, Within,
+    Asking, Chosen, Drawing, Drawn, DrawnSession, Local, Question, QueuedEnd, Ran, RunState,
+    StateError, Stored, Tally, Unkeyed, Within,
 };
 use crate::serving::{Crawls, Opened, Server};
 use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices, Unit};
@@ -142,16 +142,18 @@ use goodfetch_protocol::foxhound::progress::{HELD_DOMAINS, InFlightPhase, InFlig
 
 mod attempt;
 mod failure;
+mod merged;
 
-use failure::{AttemptFailure, Why};
+use failure::{AttemptFailure, Why, kept_failure, retried_or_failed};
 mod pages;
 mod politeness;
 mod watch;
 
 use attempt::{
-    Answer, Attempt, Escalating, Taught, Tiering, TransportSession, effect, handler_lease,
+    Answer, Attempt, Escalating, Lessons, Tiering, TransportSession, effect, handler_lease,
     leased_count, run_hand_over,
 };
+use merged::merged;
 use pages::{Pages, Start};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
 use watch::Watch;
@@ -463,7 +465,9 @@ async fn deliver(
     show_counted(run, &state, in_flight, []).await;
     let run_leases = leases_of(run, arrivals, &admission);
     let (mut wakes, mut queued) = (admission.wakes(), run.metrics().level(&WORK_ITEM_QUEUED));
-    let mut pages = Pages::new(run, in_flight);
+    let lessons = Lessons::of(run, state.stored().frontier());
+    let mut pages = Pages::new(run, in_flight, lessons);
+    let taught = state.stored().taught();
     let mut settling = Settlements::new();
     // Resolved once, as the Run opened: no turn reads the settings again
     // (ADR 0138).
@@ -531,6 +535,9 @@ async fn deliver(
             Some(written) = settling.next(), if settles => {
                 let on = (&mut admission, servers.as_mut_slice());
                 completed(run, on, (&mut state, fetching), written).await;
+            }
+            moved = taught.taken() => {
+                merged(run, (&mut admission, &mut state), in_flight, moved).await;
             }
             ended = pages.ended() => {
                 let state = (&mut state, fetching);
@@ -1268,7 +1275,6 @@ async fn when_idle(
 struct Settling {
     server: usize,
     waiting: Waiting,
-    merged: Vec<(String, String)>,
     domain: Ended,
     held: Option<SystemTime>,
 }
@@ -1341,17 +1347,14 @@ async fn completed(
     run: &Run,
     (admission, servers): (&mut Admission, &mut [Serving]),
     (state, fetching): (&mut RunState, &Fetching<'_>),
-    (mut settlings, finished): (Vec<Settling>, Vec<Finished>),
+    (settlings, finished): (Vec<Settling>, Vec<Finished>),
 ) {
     let mut retried = Vec::with_capacity(finished.len());
     let mut keyed = Vec::new();
-    for (outcome, settling) in finished.into_iter().zip(&mut settlings) {
+    for (outcome, settling) in finished.into_iter().zip(&settlings) {
         servers[settling.server].in_flight -= 1;
-        settling.merged.extend(outcome.merged);
-        // Each change is in a batch a read may not see yet (ADR 0142).
-        state.gone(settling.merged.iter().map(|(id, _)| id.clone()));
-        state.settled(outcome.leased, outcome.retried);
-        keyed.extend(state.added(outcome.keyed));
+        state.settled(outcome.leased, outcome.retried, outcome.commits);
+        keyed.extend(state.added(outcome.keyed, outcome.commits));
         retried.push(outcome.retried);
         state.changed(outcome.changed);
     }
@@ -1359,7 +1362,7 @@ async fn completed(
         .iter()
         .map(|settling| settling.waiting.id.as_str());
     show_counted(run, state, &fetching.in_flight, ended).await;
-    returned(run, (admission, state), settlings.into_iter().zip(retried)).await;
+    returned(run, admission, settlings.into_iter().zip(retried)).await;
     for waiting in keyed {
         admission.enqueue(waiting);
     }
@@ -1373,8 +1376,7 @@ async fn abandoned(settling: &mut Settlements) {
 }
 
 /// Marks the Connection of each attempt of `ended` gone when its client
-/// went, counts what its lesson to the Frontier changed of the crawl's requests by
-/// state when it taught it in a job of its own, and scores its Session in
+/// went, and scores its Session in
 /// `state`'s pool under what the loop `read`, in their order, answering
 /// them with what each one's settling keeps and what its outcome writes of
 /// its score and tier choice. Each stays among the requests in flight its
@@ -1408,15 +1410,11 @@ fn scored(
         if let Some((raced, latency)) = attempt.raced.take() {
             state.time(&raced.label, &raced.domain_key, latency);
         }
-        if let Some(changed) = attempt.taught.changed.take() {
-            state.changed(*changed);
-        }
         let pool = state.pool();
         if let Answer::ClientGone = attempt.answer {
             servers[attempt.server].gone = true;
         }
         let waiting = attempt.leased.waiting.clone();
-        let merged = std::mem::take(&mut attempt.taught.merged);
         let domain = domain_ending(
             &attempt.answer,
             attempt.document.as_ref(),
@@ -1467,7 +1465,6 @@ fn scored(
         settlings.push(Settling {
             server: attempt.server,
             waiting,
-            merged,
             domain,
             held,
         });
@@ -1482,20 +1479,16 @@ fn scored(
 
 /// Returns, in their order, each settled attempt's domain turn to
 /// `admission`, holding its domain first until the time its response asked
-/// past the Run's longest wait, puts its work item back in its queue when
-/// it was `retried`, takes out of their queues the requests a rule it
-/// taught merged, and fills those queues again, which also puts back the
-/// requests a rule it stopped made pending again.
+/// past the Run's longest wait, and puts its work item back in its queue
+/// when it was `retried`.
 async fn returned(
     run: &Run,
-    (admission, state): (&mut Admission, &mut RunState),
+    admission: &mut Admission,
     settled: impl Iterator<Item = (Settling, bool)>,
 ) {
-    let mut keys = BTreeSet::new();
     for (settling, retried) in settled {
         let Settling {
             waiting,
-            merged,
             domain,
             held,
             ..
@@ -1512,15 +1505,6 @@ async fn returned(
         if retried {
             count_retry(run);
             admission.enqueue(waiting);
-        }
-        for (id, key) in merged {
-            admission.withdraw(&key, &id);
-            keys.insert(key);
-        }
-    }
-    for key in keys {
-        if let Err(error) = fill(state, admission, Some(key)).await {
-            tracing::warn!(%error, run_id = %run.id(), "a queue a learned rule thinned was not filled again");
         }
     }
 }
@@ -1570,7 +1554,12 @@ async fn open(
         staging: arrivals.staging.clone(),
         intake: arrivals.intake.clone(),
     };
-    let stored = Stored::new(run.state().clone(), within, admission.keys(), run.metrics());
+    let stored = Stored::new(
+        run.state().clone(),
+        within,
+        (admission.keys(), run.clock()),
+        run.metrics(),
+    );
     stored
         .fill_memory()
         .await
@@ -1781,9 +1770,11 @@ async fn admit(
             .iter()
             .map(|(admitted, _)| admitted.id.clone())
             .collect();
-        let changed = end_unsent(run, pooled.state.stored(), admission, refused).await?;
-        pooled.state.changed(changed);
-        pooled.state.gone(unsent);
+        let ran = end_unsent(run, pooled.state.stored(), admission, refused).await?;
+        pooled.state.changed(ran.answer);
+        pooled
+            .state
+            .gone(unsent.into_iter().map(|id| (id, ran.commits)));
         show_counted(run, pooled.state, &pooled.fetching.in_flight, []).await;
     }
     let asked: Vec<(String, String)> = ids.into_iter().zip(keys).collect();
@@ -1876,23 +1867,21 @@ struct QueuedOutcome {
 }
 
 /// What an attempt's outcome left the delivery to do once it was written:
-/// its work item as its lease took it, the pending requests a rule its
-/// page taught merged, by ID with their domain key, each work item it
-/// added keyed, in order, as its first lease takes it, whether its work
-/// item waits again for a retry, and what its job changed of the crawl's
-/// requests by state.
+/// its work item as its lease took it, each work item it added keyed, in
+/// order, as its first lease takes it, whether its work item waits again
+/// for a retry, and what its job changed of the crawl's requests by state,
+/// with the commits the writer had acknowledged when that job ran (#2679).
 struct Finished {
     leased: Leased,
-    merged: Vec<(String, String)>,
     keyed: Vec<Leased>,
     retried: bool,
     changed: Changed,
+    commits: u64,
 }
 
 /// Queues `attempt`'s outcome as one job of the run state's writer (ADR
 /// 0138), with what its Session's score changed and its tier choice,
-/// `scored`, and what its page teaches the Frontier when it left that to
-/// its outcome: its Records committed once while its lease holds, its
+/// `scored`: its Records committed once while its lease holds, its
 /// links admitted and keyed, or its handler's skip, its block, or its work
 /// item retried or failed, under the Run's `policy`, with no retry when its
 /// failure's site asked for a time further away than the Run waits
@@ -1909,7 +1898,6 @@ async fn queue_outcome(
         leased,
         lease,
         answer,
-        taught,
         refused: transport_refused,
         ..
     } = attempt;
@@ -1940,7 +1928,7 @@ async fn queue_outcome(
         }
         Answer::SitemapRead(document) => {
             let ending = file.sitemap_read((work_item, lease_epoch), document);
-            return queued(on, (leased, lease), (scored, taught, ending), false).await;
+            return queued(on, (leased, lease), (scored, ending), false).await;
         }
         Answer::Handled(handled) => {
             match lease.committing(run.state(), &masks, handled.records, run.point_in_time()) {
@@ -1952,7 +1940,7 @@ async fn queue_outcome(
                             failure(kept, &why, retryable)
                         });
                     let ending = attempt_outcome::Ending::Commit { commit, refused };
-                    return queued(on, (leased, lease), (scored, taught, ending), commits).await;
+                    return queued(on, (leased, lease), (scored, ending), commits).await;
                 }
                 Err(_) => failure(
                     Failure::new(LEASE_LOST.name, LEASE_LOST.description),
@@ -1994,22 +1982,20 @@ async fn queue_outcome(
         unsuccessful,
         ended_at: run.point_in_time(),
     };
-    queued(on, (leased, lease), (scored, taught, ending), commits).await
+    queued(on, (leased, lease), (scored, ending), commits).await
 }
 
 /// Queues the outcome of `leased`'s attempt under `lease`, ending as
-/// `ending` says beside `scored` and what `taught` leaves to it, in the
-/// run state's writer's queue now.
+/// `ending` says beside `scored`, in the run state's writer's queue now.
 async fn queued(
     (run, file, policy): (&Run, &Stored, CrawlPolicy),
     (leased, lease): (Leased, WorkItemLease),
-    (scored, taught, ending): (Scored, Taught, attempt_outcome::Ending),
+    (scored, ending): (Scored, attempt_outcome::Ending),
     commits: bool,
 ) -> QueuedOutcome {
     let outcome = Outcome {
         scored: scored.changes,
         chosen: scored.chosen,
-        learning: taught.learning.map(|learning| *learning),
         ending,
     };
     let written = file.end(outcome).await;
@@ -2039,19 +2025,8 @@ impl QueuedOutcome {
             commits,
             written,
         } = self;
-        let mut finished = Finished {
-            leased: leased.clone(),
-            merged: Vec::new(),
-            keyed: Vec::new(),
-            retried: false,
-            changed: Changed::default(),
-        };
-        let ended = match written.await {
-            Ok(written) => {
-                finished.merged = written.moved;
-                finished.changed = written.changed;
-                written.ended
-            }
+        let written = match written.await {
+            Ok(written) => written,
             Err(error) => {
                 let cause = error.to_string();
                 if commits {
@@ -2064,13 +2039,27 @@ impl QueuedOutcome {
                 } else {
                     tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
                 }
-                (finished.retried, finished.changed) =
-                    outcome_lost((&run, stored), policy, &leased, &cause).await;
+                let lost = outcome_lost((&run, stored), policy, &leased, &cause).await;
                 lease.release();
-                return finished;
+                let ((retried, changed), keyed) = (lost.answer, Vec::new());
+                let commits = lost.commits;
+                return Finished {
+                    leased,
+                    keyed,
+                    retried,
+                    changed,
+                    commits,
+                };
             }
         };
-        match ended {
+        let mut finished = Finished {
+            leased: leased.clone(),
+            keyed: Vec::new(),
+            retried: false,
+            changed: written.answer.changed,
+            commits: written.commits,
+        };
+        match written.answer.ended {
             attempt_outcome::Ended::Committed(committed) => {
                 let committed = lease
                     .committed(Ok(Some(Ok(committed))))
@@ -2129,7 +2118,7 @@ async fn outcome_lost(
     policy: CrawlPolicy,
     leased: &Leased,
     cause: &str,
-) -> (bool, Changed) {
+) -> Ran<(bool, Changed)> {
     let lost = AttemptFailure::outcome_not_written(cause);
     let (why, retryable) = (lost.why().clone(), lost.retryable);
     let masks = run.secrets().mask().masks().clone();
@@ -2139,46 +2128,33 @@ async fn outcome_lost(
     let ended = stored
         .end_lost(attempt, unsuccessful, run.point_in_time())
         .await;
-    match ended {
-        Ok((
-            attempt_outcome::Ended::Unsuccessful {
-                ended: true,
-                recorded,
-                retried,
-            },
-            changed,
-        )) => {
+    let Ran {
+        answer: (ended, changed),
+        commits,
+    } = match ended {
+        Ok(ran) => ran,
+        Err(error) => {
+            tracing::warn!(%error, run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt whose outcome was not committed was not ended: its work item stays leased until the crawl's finish");
+            // No job ran: its work item stays leased, out of every read.
+            let (answer, commits) = ((false, Changed::default()), stored.commits());
+            return Ran { answer, commits };
+        }
+    };
+    let retried = match ended {
+        attempt_outcome::Ended::Unsuccessful {
+            ended: true,
+            recorded,
+            retried,
+        } => {
             if let Some(code) = recorded {
                 run.record_outcome(&code);
             }
-            (retried, changed)
+            retried
         }
-        Ok((_, changed)) => (false, changed),
-        Err(error) => {
-            tracing::warn!(%error, run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt whose outcome was not committed was not ended: its work item stays leased until the crawl's finish");
-            (false, Changed::default())
-        }
-    }
-}
-
-/// A handler's failure as the Run's state keeps it: no value of `masks`,
-/// those the Run resolved, stays in its message or details (spec #564).
-fn kept_failure(
-    masks: &goodfetch_engine::mask::Masks,
-    code: String,
-    message: &str,
-    details: Map<String, Value>,
-) -> Failure {
-    let mut kept = Value::Object(details);
-    masks.apply_value(&mut kept, Scope::Kept);
-    let Value::Object(details) = kept else {
-        unreachable!("invariant: masking an object leaves an object")
+        _ => false,
     };
-    Failure {
-        code,
-        message: masks.apply(message, Scope::Kept).into_owned(),
-        details,
-    }
+    let answer = (retried, changed);
+    Ran { answer, commits }
 }
 
 /// The failure of a commit the run file refused with `refusal`, as the
@@ -2204,31 +2180,6 @@ fn refused(reason: SkipReason) -> Unsuccessful {
     Unsuccessful::Skipped {
         reason,
         message: None,
-    }
-}
-
-/// How `failure`, which failed for `why`, on a work item's `attempt`th
-/// attempt since its latest admission ends it under `policy`: retried
-/// while it is `retryable` and retries are left, failed otherwise; a
-/// handler's own failure is retryable only as `crawl.retry.handler_failed`
-/// says, and one the engine's panic ended only as
-/// `crawl.retry.engine_panicked` says (ADR 0148).
-fn retried_or_failed(
-    policy: CrawlPolicy,
-    attempt: u32,
-    failure: Failure,
-    why: &Why,
-    retryable: bool,
-) -> Unsuccessful {
-    let retryable = match why {
-        Why::Handler => policy.retry_handler_failed,
-        Why::Panicked => policy.retry_engine_panicked,
-        _ => retryable,
-    };
-    if retryable && policy.may_retry(attempt) {
-        Unsuccessful::Retried(failure)
-    } else {
-        Unsuccessful::Failed(failure)
     }
 }
 

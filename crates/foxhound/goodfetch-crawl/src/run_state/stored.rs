@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::admission::{Journal, Keys, Waiting};
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::metrics::Metrics;
@@ -37,6 +38,7 @@ use rusqlite::Connection;
 use super::admission::{self, Enqueue, LinksBatch};
 use super::asks::{self, Answering, Ask, HopAsk, Queued};
 use super::tally::Tally;
+use super::teacher::{Taught, Teacher};
 use super::{Counted, StateError};
 use crate::attempt_outcome::{self, Ended, Ending, Outcome, Written};
 use crate::completeness;
@@ -45,10 +47,21 @@ use crate::invariants::Invariants;
 use crate::staging::Staging;
 use crate::work_items::{self, Changed, Failure, Leased, Positions, Unsuccessful};
 
-/// What an outcome's job answers: how its work item ended, each pending
-/// request a rule its page taught merged, by ID with its domain key, and
-/// what it changed of the crawl's requests by state.
-pub(crate) type EndWritten = Result<Written, StateError>;
+/// What an outcome's job answers: how its work item ended and what it
+/// changed of the crawl's requests by state, with the commits the writer
+/// had acknowledged when it ran.
+pub(crate) type EndWritten = Result<Ran<Written>, StateError>;
+
+/// What a job of the run file's writer answered, with how many commits
+/// the writer had acknowledged when it ran: what it wrote is in the commit
+/// after them, which a read sees once that many and one more are
+/// acknowledged (ADR 0142). The loop may hear the answer after that commit,
+/// so the count it reads then could be one too many (#2679).
+#[derive(Debug)]
+pub(crate) struct Ran<T> {
+    pub(crate) answer: T,
+    pub(crate) commits: u64,
+}
 
 /// What a write the loop waited for gave the crawl: the work items it
 /// added, each keyed as it was added and as its first lease takes it, for
@@ -71,8 +84,8 @@ const STAGED: Syncing = Syncing::Attempt { ended: 0, bytes: 0 };
 /// The run file of a running crawl, as its Run state reads and writes it:
 /// the Run's run-state writer, with what each admission is judged within,
 /// the Run's domain policy and its invariants, built once (#1896), where
-/// its attempts stage, its intake, and how the per-domain queues key a
-/// work item.
+/// its attempts stage, its intake, how the per-domain queues key a work
+/// item, and what the end of each batch teaches the Frontier (#2169).
 #[derive(Clone)]
 pub(crate) struct Stored {
     writer: goodfetch_engine::run_state::RunState,
@@ -82,6 +95,7 @@ pub(crate) struct Stored {
     intake: Intake,
     keys: Keys,
     work: CountedWork,
+    teacher: Arc<Teacher>,
 }
 
 /// When the delivery loop found work items with no domain key.
@@ -112,11 +126,12 @@ pub(crate) struct Within {
 impl Stored {
     /// The run file `writer` writes, admitting `within`, each work item it
     /// adds with no attempt keyed as `keys` key it, measured on `metrics`,
-    /// whose counted work it counts on.
+    /// whose counted work it counts on, a request a learned rule merges
+    /// ended at `clock`'s time.
     pub(crate) fn new(
         writer: goodfetch_engine::run_state::RunState,
         within: Within,
-        keys: Keys,
+        (keys, clock): (Keys, Clock),
         metrics: &Metrics,
     ) -> Self {
         let work = metrics.counted_work().clone();
@@ -129,19 +144,33 @@ impl Stored {
         // Every admission of the Run, on any task, counts the evidence it
         // reads and writes on the Run's counted work (#2169).
         invariants.frontier().count_on(work.clone());
+        // Neither a page nor an admission reads or writes the run file for
+        // learning: what they note is taught at the end of each batch the
+        // writer commits (#2169).
+        invariants.frontier().learn_behind();
         if !writer.per_attempt() {
             // A batch's visits are in the file only once it commits: the
             // Frontier holds them until then, so a redirect hop is judged
             // on a reader (#2168), and keeps those written within the
             // memory budget, told of each write that fails (#2169).
             let commits = writer.commits();
-            let unwritten = invariants.frontier().hold_unwritten(
+            let _unwritten = invariants.frontier().hold_unwritten(
                 writer.memory_budget(),
                 move || *commits.borrow(),
                 metrics,
             );
-            writer.watch_writes(unwritten.watch());
         }
+        // One watch tells both what learning noted and the visits held of
+        // each write that fails.
+        if let Some(watch) = invariants.frontier().watch() {
+            writer.watch_writes(watch);
+        }
+        let teacher = Arc::new(Teacher::new(
+            invariants.shared_frontier(),
+            (clock, writer.commits()),
+            work.clone(),
+        ));
+        writer.end_batches_with(Arc::clone(&teacher) as _);
         Self {
             writer,
             egress,
@@ -150,7 +179,20 @@ impl Stored {
             intake,
             keys,
             work,
+            teacher,
         }
+    }
+
+    /// Where the delivery loop hears what the end of a batch moved of the
+    /// crawl's pending requests.
+    pub(crate) fn taught(&self) -> Arc<Taught> {
+        self.teacher.taught()
+    }
+
+    /// The Frontier's invariants, where the crawl's pages note what they
+    /// teach.
+    pub(crate) fn frontier(&self) -> Arc<goodfetch_frontier::Invariants> {
+        self.invariants.shared_frontier()
     }
 
     /// Answers `ask`. What an attempt stages, and a redirect hop's
@@ -364,14 +406,17 @@ impl Stored {
         match asks {
             HopAsk::Check => goodfetch_frontier::admit_hop(
                 connection,
-                self.invariants.frontier(),
+                (
+                    self.invariants.frontier().scope(),
+                    self.invariants.frontier().unwritten(),
+                ),
                 &self.egress,
                 &hop.crawl_request,
                 (&hop.url, &hop.method, hop.body.as_deref()),
             ),
             HopAsk::Reached => goodfetch_frontier::admit_reached(
                 connection,
-                self.invariants.frontier(),
+                self.invariants.frontier().unwritten(),
                 &hop.crawl_request,
                 (&hop.url, &hop.method, hop.body.as_deref()),
             ),
@@ -445,7 +490,7 @@ impl Stored {
                     drop(place.write_with(unsynced, move |connection| {
                         goodfetch_frontier::visit_pending(
                             connection,
-                            invariants.frontier(),
+                            invariants.frontier().unwritten(),
                             pending,
                         )
                     }));
@@ -653,8 +698,10 @@ impl Stored {
     pub(crate) async fn end(&self, outcome: Outcome) -> QueuedEnd {
         match self.writer.reserve().await {
             Ok(place) => {
-                let written =
-                    place.write_with(ATTEMPT_ENDED, move |connection| outcome.write(connection));
+                let written = place.write_with(
+                    ATTEMPT_ENDED,
+                    self.ran(move |connection| outcome.write(connection)),
+                );
                 Box::pin(async move { written.await.map_err(StateError::from) })
             }
             Err(error) => Box::pin(std::future::ready(Err(error.into()))),
@@ -674,20 +721,23 @@ impl Stored {
         (work_item, lease_epoch): (String, u64),
         unsuccessful: Unsuccessful,
         ended_at: PointInTime,
-    ) -> Result<(Ended, Changed), StateError> {
+    ) -> Result<Ran<(Ended, Changed)>, StateError> {
         Ok(self
             .writer
-            .write_with(ATTEMPT_ENDED, move |connection| {
-                let mut changed = Changed::default();
-                let ended = attempt_outcome::end(
-                    connection,
-                    (&work_item, lease_epoch),
-                    unsuccessful,
-                    &ended_at,
-                    &mut changed,
-                )?;
-                Ok((ended, changed.with_sitemaps(connection)?))
-            })
+            .write_with(
+                ATTEMPT_ENDED,
+                self.ran(move |connection| {
+                    let mut changed = Changed::default();
+                    let ended = attempt_outcome::end(
+                        connection,
+                        (&work_item, lease_epoch),
+                        unsuccessful,
+                        &ended_at,
+                        &mut changed,
+                    )?;
+                    Ok((ended, changed.with_sitemaps(connection)?))
+                }),
+            )
             .await?)
     }
 
@@ -704,30 +754,49 @@ impl Stored {
         &self,
         unsent: Vec<(String, Failure)>,
         ended_at: PointInTime,
-    ) -> Result<Changed, StateError> {
+    ) -> Result<Ran<Changed>, StateError> {
         let ended = Syncing::Attempt {
             ended: u64::try_from(unsent.len()).unwrap_or(u64::MAX),
             bytes: 0,
         };
         Ok(self
             .writer
-            .write_with(ended, move |connection| {
-                let mut changed = Changed::default();
-                for (id, failure) in unsent {
-                    for leased in work_items::lease(connection, std::slice::from_ref(&id))? {
-                        work_items::end(
-                            connection,
-                            &id,
-                            leased.lease_epoch,
-                            Unsuccessful::Failed(failure.clone()),
-                            &ended_at,
-                            &mut changed,
-                        )?;
+            .write_with(
+                ended,
+                self.ran(move |connection| {
+                    let mut changed = Changed::default();
+                    for (id, failure) in unsent {
+                        for leased in work_items::lease(connection, std::slice::from_ref(&id))? {
+                            work_items::end(
+                                connection,
+                                &id,
+                                leased.lease_epoch,
+                                Unsuccessful::Failed(failure.clone()),
+                                &ended_at,
+                                &mut changed,
+                            )?;
+                        }
                     }
-                }
-                changed.with_sitemaps(connection)
-            })
+                    changed.with_sitemaps(connection)
+                }),
+            )
             .await?)
+    }
+
+    /// `job`, answering with how many commits the writer had acknowledged
+    /// as it began to run (#2679).
+    fn ran<T>(
+        &self,
+        job: impl FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    ) -> impl FnOnce(&Connection) -> rusqlite::Result<Ran<T>> + Send + 'static {
+        let commits = self.writer.commits();
+        move |connection| {
+            let commits = *commits.borrow();
+            Ok(Ran {
+                answer: job(connection)?,
+                commits,
+            })
+        }
     }
 
     /// Writes `counted`, the tier choices' counts the run file has not
@@ -751,10 +820,13 @@ impl Stored {
     /// whose attempt ended with its outcome unwritten: retried while it
     /// has retries left of `retry_max`, else failed with `unwritten`, at
     /// `ended_at`, which it answers as what it changed of the crawl's
-    /// requests by state. The job reads what cut the crawl on the writer's
-    /// connection, which holds every batch, so the crawl's end needs no
-    /// seal (ADR 0142). Its answer promises nothing outside (#2117): the
-    /// Run's end, which follows it, syncs.
+    /// requests by state. The job first teaches what the crawl noted for
+    /// the Frontier, in a savepoint of its own, so a rule it stops gives
+    /// back its requests before the crawl is judged drained; the loop hears
+    /// of them as of any batch end's. The job reads what cut the crawl on
+    /// the writer's connection, which holds every batch, so the crawl's
+    /// end needs no seal (ADR 0142). Its answer promises nothing outside
+    /// (#2117): the Run's end, which follows it, syncs.
     ///
     /// # Errors
     ///
@@ -765,10 +837,11 @@ impl Stored {
         (unwritten, retry_max): (Failure, u32),
         ended_at: PointInTime,
     ) -> Result<(Option<Vec<CompletenessReason>>, Changed), StateError> {
-        let intake = self.intake.clone();
+        let (intake, teacher) = (self.intake.clone(), Arc::clone(&self.teacher));
         Ok(self
             .writer
             .write_deferred(move |connection| {
+                teacher.teach_apart(connection)?;
                 counted.write(&BatchWriter::over(connection))?;
                 // No attempt is in flight: a work item still leased is
                 // one whose attempt ended with its outcome unwritten. It

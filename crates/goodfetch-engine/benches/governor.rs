@@ -5,6 +5,9 @@
 //! configuration of a home of its own. The engine runs a browser, a child of
 //! its process, which a Run's pool joined to the governor: so each sample
 //! reads the engine's memory and the browser's, as a crawl's sample does.
+//! It counts from the governor's first sample on, over the samples after
+//! it: what the governor's start does once, finding its cgroup, is no
+//! sample's work.
 
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
@@ -19,8 +22,17 @@ use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 
-/// The samples the scenario takes.
+/// The samples the scenario counts, after the governor's first.
 pub(crate) const SAMPLES: u64 = 4;
+
+/// The E4 rows the scenario counts.
+const ROWS: [Row; 5] = [
+    Row::GovernorConfigurationReads,
+    Row::GovernorMeminfoOpens,
+    Row::GovernorStaticOpens,
+    Row::GovernorCpuStatOpens,
+    Row::GovernorProcessReads,
+];
 
 /// The processes each sample reads the memory of: the engine and its
 /// browser.
@@ -117,8 +129,9 @@ fn planted(row: Row, proc: &Path, work: &CountedWork) {
     }
 }
 
-/// Runs the scenario in `home`, its work counted on `work`, doing `plant`
-/// once per unit of its row, and answers what it sampled.
+/// Runs the scenario in `home`, counting on `work` the E4 work of the
+/// samples after the governor's first, doing `plant` once per unit of its
+/// row, and answers what it sampled.
 #[expect(
     clippy::disallowed_methods,
     reason = "the scenario samples on the paused Clock, the Clock's test version (ADR 0059)"
@@ -135,30 +148,43 @@ pub(crate) fn run(home: &Path, work: &CountedWork, plant: Option<Plant>) -> Samp
         let owner = TaskOwner::root(BlockingPolicy::Inline);
         let settings = Settings::new(files, Product::Collie, owner.child());
         let clock = Clock::paused(SystemTime::UNIX_EPOCH);
+        let governed = CountedWork::default();
         let governor = Governor::start(
             System::linux_files(proc.clone()),
             settings,
             clock,
             &owner,
-            work.clone(),
+            governed.clone(),
         );
         let _browser = governor.join(100).browser(BROWSER);
         let mut info = governor.system_info();
+        // The governor's first sample, and its start before it, count
+        // nothing: each later one counts from here.
+        let mut first = None;
         let mut samples = 0;
         while samples < SAMPLES {
             info.changed()
                 .await
                 .expect("invariant: the governor samples until its owner stops");
-            if info.borrow_and_update().is_some() {
-                samples += 1;
-                if let Some(row) = plant {
-                    planted(row, &proc, work);
-                }
+            if info.borrow_and_update().is_none() {
+                continue;
+            }
+            if first.is_none() {
+                first = Some(ROWS.map(|row| governed.read(row)));
+                continue;
+            }
+            samples += 1;
+            if let Some(row) = plant {
+                planted(row, &proc, &governed);
             }
         }
         // Stopped before its next sample: the governor sleeps on the paused
         // Clock until this task waits on nothing else.
         owner.stop().await;
+        let first = first.expect("invariant: the samples counted came after a first");
+        for (row, before) in ROWS.into_iter().zip(first) {
+            work.count_many(row, governed.read(row) - before);
+        }
         Sampled {
             samples,
             process_samples: samples * PROCESSES,

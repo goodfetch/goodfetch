@@ -63,9 +63,10 @@ pub(crate) mod admission;
 mod asks;
 mod stored;
 mod tally;
+pub(crate) mod teacher;
 
 pub(crate) use asks::{Asked, Asking, Escalated, Question, mailbox};
-pub(crate) use stored::{QueuedEnd, Stored, Unkeyed, Within};
+pub(crate) use stored::{QueuedEnd, Ran, Stored, Unkeyed, Within};
 pub(crate) use tally::Tally;
 
 /// Why the crawl's Run state did not take an operation.
@@ -464,21 +465,21 @@ impl RunState {
     }
 
     /// Keeps each of `ids` out of [`waiting`](Self::waiting) until a read
-    /// sees the change a job the writer answered just now made to it: it
-    /// ended, or a rule merged it (ADR 0142). One whose attempt is in
-    /// flight stays leased until it settles.
-    pub(crate) fn gone(&mut self, ids: impl IntoIterator<Item = String>) {
-        let committed = self.stored.commits();
-        for id in ids {
+    /// sees the change a job of the writer made to it: it ended, or a rule
+    /// merged it (ADR 0142), in the commit after those the writer had
+    /// acknowledged when the job ran, given with it (#2679). One whose
+    /// attempt is in flight stays leased until it settles.
+    pub(crate) fn gone(&mut self, ids: impl IntoIterator<Item = (String, u64)>) {
+        for (id, committed) in ids {
             self.unwritten.gone(id, committed);
         }
     }
 
     /// Takes how the attempt of `leased` settled, once its outcome's job
-    /// answered: its work item waits again for a retry, `retried`, as its
-    /// next lease takes it, or else it ended.
-    pub(crate) fn settled(&mut self, leased: Leased, retried: bool) {
-        let committed = self.stored.commits();
+    /// answered, which ran once `committed` commits were acknowledged: its
+    /// work item waits again for a retry, `retried`, as its next lease
+    /// takes it, or else it ended.
+    pub(crate) fn settled(&mut self, leased: Leased, retried: bool, committed: u64) {
         let id = leased.crawl_request.id.clone();
         let known = if retried {
             Known::Pending(Box::new(leased.next()), committed)
@@ -488,11 +489,11 @@ impl RunState {
         self.unwritten.0.insert(id, known);
     }
 
-    /// Takes `added`, the work items a job the writer answered just now
-    /// added, keyed, as each one's first lease takes it, and answers how
-    /// each waits for its domain's queue, in order.
-    pub(crate) fn added(&mut self, added: Vec<Leased>) -> Vec<Waiting> {
-        let committed = self.stored.commits();
+    /// Takes `added`, the work items a job of the writer that ran once
+    /// `committed` commits were acknowledged added, keyed, as each one's
+    /// first lease takes it, and answers how each waits for its domain's
+    /// queue, in order.
+    pub(crate) fn added(&mut self, added: Vec<Leased>, committed: u64) -> Vec<Waiting> {
         added
             .into_iter()
             .map(|leased| {
@@ -559,7 +560,11 @@ impl RunState {
         };
         let (added, changed) = self.stored.answer(ask).await?;
         self.changed(changed);
-        Some(self.added(added))
+        // The ask was answered just now: its job ran before at most the
+        // commits acknowledged now, and a later stamp only keeps it a
+        // commit longer.
+        let committed = self.stored.commits();
+        Some(self.added(added, committed))
     }
 
     /// Draws the Session whose client is its browser that an attempt which

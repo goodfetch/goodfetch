@@ -509,3 +509,49 @@ fn pagesifts_polite_cell_is_labelled_as_one_trial() {
         (vec!["pagesift"], vec!["pagesift"], 1, true)
     );
 }
+
+/// The trials' section says how many runs under strace started above
+/// their quiet load (#2521), as it says of the timed trials, and which
+/// cells a later run measured again, with that run's order seed.
+#[test]
+fn the_trials_section_says_which_strace_runs_started_loaded_and_which_cells_were_redone() {
+    use crate::compare::trials::{CountedCell, CountedRun, Redone, Tool};
+    let mut trials = comparison(&[]);
+    let run = |number, load| CountedRun {
+        scenario: Scenario::Browser,
+        cell: "foxhound".to_owned(),
+        tool: Tool::Foxhound,
+        number,
+        load,
+        count: 9,
+        syncs: 0,
+        work: work(),
+        extracted: None,
+    };
+    trials.syscalls = CountedCell::Measured {
+        trials: 3,
+        runs: vec![run(1, Some(19.3)), run(2, Some(2.0)), run(3, None)],
+        stopped: Vec::new(),
+    };
+    trials.redone = vec![Redone {
+        cells: vec!["browser/foxhound".to_owned()],
+        order_seed: 11,
+    }];
+
+    let markdown = markdown(&of(&trials), &trials);
+
+    let section = &markdown[markdown
+        .find("## Trials, in the order run")
+        .expect("invariant: the report lists its trials")..];
+    let notes: Vec<&str> = section
+        .lines()
+        .filter(|line| line.contains("strace") || line.starts_with("Measured again"))
+        .collect();
+    assert_eq!(
+        notes,
+        vec![
+            "1 of the 3 runs under strace started above a 1-minute load of 8.",
+            "Measured again by a later run at the same commit on the same machine, its trials in their own order (seed 11): browser/foxhound.",
+        ]
+    );
+}

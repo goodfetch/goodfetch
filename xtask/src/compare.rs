@@ -62,6 +62,7 @@ mod rerun;
 mod run;
 mod same_work;
 mod sampler;
+pub(crate) mod training;
 mod trial;
 mod trials;
 mod trust;

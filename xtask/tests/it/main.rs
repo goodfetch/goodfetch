@@ -81,6 +81,8 @@ mod perf_reference;
 #[cfg(unix)]
 mod perf_run;
 mod perf_script;
+#[cfg(unix)]
+mod pgo;
 mod pre_merge;
 mod quarantine;
 mod quick;

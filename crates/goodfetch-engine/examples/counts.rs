@@ -212,7 +212,8 @@ const CELLS: [Cell; 5] = [
         audit: Audit::Unchained,
         removes: &[],
     },
-    // `audit.retention` set, off by default: each append prunes first.
+    // `audit.retention` set, off by default: no append prunes, the engine
+    // pruning as it starts and once a day (#1887).
     Cell {
         name: "audit_retention",
         logs: Logs::On,

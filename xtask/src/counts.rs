@@ -526,7 +526,8 @@ const ROWS: [Row; 119] = [
         happens: true,
         valgrind: None,
     },
-    // 0 in the default cell, where no `audit.retention` is set.
+    // 0 in every cell: no append prunes, the engine pruning as it starts
+    // and once a day (#1887).
     Row {
         name: "E2.prunes",
         family: "B3",

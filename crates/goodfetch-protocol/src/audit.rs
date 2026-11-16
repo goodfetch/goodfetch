@@ -197,7 +197,7 @@ fn off() -> Value {
 /// `audit.retention` (ADR 0016).
 pub const AUDIT_RETENTION: Setting = Setting {
     name: "audit.retention",
-    description: "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only.",
+    description: "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, the engine prunes the entries older than it as it starts and then once a day, so an entry may stay up to a day longer, from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only.",
     kind: ValueKind::Duration,
     default: none,
     clearable: true,

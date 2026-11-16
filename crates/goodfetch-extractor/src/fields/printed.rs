@@ -7,8 +7,8 @@
 //! learned from ICU4X's CLDR data by formatting known values, so a text
 //! reads as the locale prints it, and anything else, a two-digit year, a
 //! decimal separator the locale does not use, two numbers, a negative in
-//! accounting parentheses, is no value: nothing is guessed. A field learns
-//! its locale's forms once, as its crawl starts ([`Numbers`], [`Dates`] and
+//! accounting parentheses, is no value: nothing is guessed. A locale's
+//! forms are learned once for the engine ([`Numbers`], [`Dates`] and
 //! [`DateTimes`]), and each page's text is then only matched against them.
 
 use fixed_decimal::Decimal;

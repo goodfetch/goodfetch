@@ -16,6 +16,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::foxhound::fetch::FetchTier;
+use crate::page::read::{TransformProvenance, UnreadField};
 use crate::run::PointInTime;
 
 /// How one committed Record was obtained.
@@ -76,39 +77,6 @@ pub struct RecordProvenance {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub unread_fields: Vec<UnreadField>,
-}
-
-/// A field of a code-free crawl's Record that its page did not give, so
-/// the Record holds null (ADR 0123).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct UnreadField {
-    /// The field, a JSON Pointer into the Record.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub field: String,
-    /// Why.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub reason: UnreadReason,
-    /// The text read, where one was: the text its `match` did not match, or
-    /// that its transform does not read as a value.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub text: Option<String>,
-}
-
-/// Why a field of a code-free crawl's Record is null.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum UnreadReason {
-    /// Its locator found no element.
-    NoElement,
-    /// Its element has no such attribute.
-    NoAttribute,
-    /// Its `match` did not match the text, or its group took no part.
-    NoMatch,
-    /// Its transform does not read the text as a value.
-    NotParsed,
-    /// A `date_time` whose text states no offset, with no `time_zone`.
-    NoTimeZone,
 }
 
 /// The tier that fetched a Record's document and how it was chosen.
@@ -292,57 +260,4 @@ pub enum CertificateExceptionKind {
     TrustOnFirstUse,
     /// Its domain was listed with `any`, and the host has no pin.
     Any,
-}
-
-/// How a Value transform gave one field of a Record (ADR 0123).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct TransformProvenance {
-    /// The field, a JSON Pointer into the Record.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub field: String,
-    /// The page text exactly as read.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub text: String,
-    /// The transform.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub transform: ValueTransform,
-    /// Its resolved locale, a BCP 47 tag, for a locale-dependent one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub locale: Option<String>,
-    /// Its resolved time zone, an IANA name, for a date-time or a
-    /// relative time.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub time_zone: Option<String>,
-    /// The stated CLDR pattern, such as `dd/MM/yyyy`, when one was.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub pattern: Option<String>,
-    /// A relative time's anchor: the fetch time of the page's document.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub anchor: Option<PointInTime>,
-}
-
-/// One of the engine's closed list of Value transforms (ADR 0123).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ValueTransform {
-    /// The element's text, or one attribute.
-    Text,
-    /// A capture group of a regular expression over that text.
-    Match,
-    /// A number or an amount under its locale.
-    Number,
-    /// A currency symbol or code under its locale.
-    Currency,
-    /// A date under its locale or a stated pattern.
-    Date,
-    /// A date and time with its time zone.
-    DateTime,
-    /// A relative time under its locale, anchored at the fetch time.
-    RelativeTime,
-    /// An exact text looked up in the transform's table.
-    Map,
 }

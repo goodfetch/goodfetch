@@ -1860,6 +1860,7 @@
             "process_reads",
             "provenance_entries",
             "prunes",
+            "read_commands",
             "readability_runs",
             "reads",
             "robots_parses",
@@ -3313,6 +3314,25 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/DialogsEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.",
+      "events": [],
+      "kind": "query",
+      "name": "page.read",
+      "params": {
+        "$ref": "#/$defs/PageReadParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageRead"
       },
       "stability": "experimental"
     },

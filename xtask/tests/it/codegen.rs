@@ -1225,7 +1225,7 @@ fn python_enum_field_defaults_to_its_member() {
 /// tagged union's variant or a struct, defaults through a factory that
 /// constructs that model from the object, which a type checker accepts and
 /// which each instance gets afresh, never through the object's bare dict
-/// (#1002's `ExtractionField.transform`); a field typed as a map keeps its
+/// (`ValueField.transform`, #1002's); a field typed as a map keeps its
 /// dict default.
 /// Covers: story:1-57
 #[test]

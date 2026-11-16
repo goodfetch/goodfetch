@@ -49,6 +49,3 @@ teacher = []
 [submodules.tier_choice]
 client = []
 weighing = []
-
-[submodules.code_free]
-fields = []

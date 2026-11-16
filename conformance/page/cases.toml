@@ -1,5 +1,5 @@
 # The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711, #718, #859, #709 and #1597;
-# spec #580, tickets #783, #784, #785, #786, #787, #788 and #789): a Collie program's pages, their locator actions
+# spec #580, tickets #783, #784, #785, #786, #787, #788, #789 and #2402): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
 # local Proving ground (ADR 0094), each case on a Run of its own whose
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "39"
+version = "40"
 
 [[capability]]
 name = "sessions.default"
@@ -680,6 +680,21 @@ covers = ["story:5-35", "operation:page.add_init_script", "operation:page.evalua
 [[capability.case]]
 id = "evaluate-all-hands-every-match-and-one-json-argument-and-refuses-what-evaluate-refuses"
 covers = ["story:5-34", "operation:locator.evaluate_all", "operation:page.evaluate", "error:page_value_invalid", "error:page_function_failed"]
+
+[[capability]]
+name = "read"
+
+[[capability.case]]
+id = "twenty-fields-of-a-product-page-are-read-in-one-call"
+covers = ["operation:page.read"]
+
+[[capability.case]]
+id = "an-absent-field-is-null-with-its-reason-and-the-others-are-read"
+covers = ["operation:page.read"]
+
+[[capability.case]]
+id = "a-listing-pages-rows-keep-a-row-that-lacks-a-field"
+covers = ["operation:page.read"]
 
 [[capability]]
 name = "waits"

@@ -23,6 +23,7 @@ use crate::foxhound::fetch::FetchTier;
 use crate::foxhound::frontier::{HttpBody, HttpMethod};
 use crate::foxhound::report::CrawlRunReport;
 use crate::foxhound::session_pool::ServingSession;
+use crate::page::read::PageField;
 use crate::page::{FormatsRequest, PageId, PageResponse};
 use crate::run::{RUN_ID_PATTERN, RunId, RunParams, RunStarted, Tags};
 use crate::settings::ProjectSettings;
@@ -224,119 +225,13 @@ pub struct CrawlExtraction {
     pub follow: ExtractionFollow,
     /// The named fields each page's Record holds beside its formats, by
     /// name, which no format's property and neither `status` nor
-    /// `fetched_at` may take; none by default.
+    /// `fetched_at` may take, each a value field, a list or rows read as
+    /// `page.read` reads them (ADR 0147); a field the page does not give
+    /// is null, and the Record's Provenance names why (`unread_fields`);
+    /// none by default.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub fields: BTreeMap<String, ExtractionField>,
-}
-
-/// One named field of a code-free crawl's Records (ADR 0123): the first
-/// element its locator finds in the page, its text, its runs of white
-/// space read as one space and trimmed, or one of its attributes, an
-/// `href` or `src` resolved against the document's base URL; optionally a
-/// capture group of a regular expression over that text; then its Value
-/// transform. A field the page does not give is null, and the Record's
-/// Provenance names why (`unread_fields`).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct ExtractionField {
-    /// What finds its element.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub locator: FieldLocator,
-    /// The attribute read in place of the element's text.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub attribute: Option<String>,
-    /// The `match` that picks the text its transform reads.
-    #[serde(default, rename = "match", skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub matched: Option<FieldMatch>,
-    /// Its Value transform: `text` by default.
-    #[serde(default)]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub transform: FieldTransform,
-}
-
-/// What finds a field's element, named by `kind`: a CSS selector or an
-/// `XPath` expression, each read alike on every tier, a page a fetch tier
-/// serves from its document reading it as a browser reads it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum FieldLocator {
-    /// A CSS selector.
-    Css {
-        /// The selector.
-        #[schemars(extend("arrived_in" = "0.1"))]
-        selector: String,
-    },
-    /// An `XPath` 1.0 expression that finds nodes, with no namespace
-    /// prefix and no variable; the field reads the first node it finds in
-    /// document order, when that node is an element.
-    Xpath {
-        /// The expression.
-        #[schemars(extend("arrived_in" = "0.1"))]
-        selector: String,
-    },
-}
-
-/// The `match` before a field's transform (ADR 0123): a capture group of a
-/// regular expression, in the `regex` crate's syntax (ADR 0081), over the
-/// text read; that group's text is what the transform reads.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct FieldMatch {
-    /// The expression's source.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub pattern: String,
-    /// The capture group, 1 by default; 0 is the whole match.
-    #[serde(default = "first_group")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub group: u32,
-}
-
-const fn first_group() -> u32 {
-    1
-}
-
-/// A field's Value transform (ADR 0123), named by `kind`, each
-/// locale-dependent one stating its locale, a BCP 47 tag. A `number`,
-/// `date` or `date_time` reads the machine-readable value of a `<time
-/// datetime>`, a `<data value>` or an element's `content` attribute in its
-/// invariant form (ISO 8601, a plain decimal with a dot), whatever the
-/// locale; a text printed for people is read under its locale's CLDR
-/// forms: a number in its digits, separators and grouping, a date or a
-/// date and time in one of its short, medium or long forms with a
-/// four-digit year; any other text is not a value.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum FieldTransform {
-    /// The text read: a string.
-    #[default]
-    Text,
-    /// An integer or decimal: a JSON number, never through a float, so a
-    /// decimal a JSON number cannot hold exactly is not a value.
-    Number {
-        /// Its locale.
-        #[schemars(extend("arrived_in" = "0.1"))]
-        locale: String,
-    },
-    /// A date: `YYYY-MM-DD`.
-    Date {
-        /// Its locale.
-        #[schemars(extend("arrived_in" = "0.1"))]
-        locale: String,
-    },
-    /// A date and time: RFC 3339 with its offset, the one the text states,
-    /// else `time_zone`'s at that time; one stating neither is not a value.
-    DateTime {
-        /// Its locale.
-        #[schemars(extend("arrived_in" = "0.1"))]
-        locale: String,
-        /// The time zone, an IANA name, of a text that states none.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[schemars(extend("arrived_in" = "0.1"))]
-        time_zone: Option<String>,
-    },
+    pub fields: BTreeMap<String, PageField>,
 }
 
 /// Which pages a code-free crawl fetches beyond its seeds.

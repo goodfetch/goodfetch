@@ -152,6 +152,7 @@ fn the_commands_of_collies_catalog_are_its_offered_operations() {
             ("page.go_back", Offer::Command),
             ("page.go_forward", Offer::Command),
             ("page.formats", Offer::Command),
+            ("page.read", Offer::Command),
             ("page.body", Offer::Follow),
             ("locator.click", Offer::Command),
             ("locator.fill", Offer::Command),

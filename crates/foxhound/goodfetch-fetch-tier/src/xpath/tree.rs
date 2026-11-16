@@ -24,6 +24,8 @@ pub(super) struct Tree {
     nodes: Vec<Node>,
     /// The first element in document order with each `id`.
     ids: HashMap<String, usize>,
+    /// The index of each element by the node of `dom_query`'s tree it is.
+    sources: HashMap<NodeId, usize>,
 }
 
 /// One node.
@@ -91,6 +93,7 @@ impl Tree {
                 source: None,
             }],
             ids: HashMap::new(),
+            sources: HashMap::new(),
         };
         let mut visits = vec![Visit::Leave(0)];
         visits.extend(children(&root, 0));
@@ -144,6 +147,9 @@ impl Tree {
             source: element.then_some(node.id),
         });
         self.nodes[parent].children.push(index);
+        if element {
+            self.sources.insert(node.id, index);
+        }
         for (name, value) in attributes {
             let attribute = self.nodes.len();
             if name.local == "id" && name.namespace.is_empty() {
@@ -160,6 +166,12 @@ impl Tree {
             self.nodes[index].attributes.push(attribute);
         }
         element.then_some(index)
+    }
+
+    /// The index of the element that is `source`, a node of `dom_query`'s
+    /// tree.
+    pub(super) fn index_of(&self, source: NodeId) -> Option<usize> {
+        self.sources.get(&source).copied()
     }
 
     /// How many nodes it holds.

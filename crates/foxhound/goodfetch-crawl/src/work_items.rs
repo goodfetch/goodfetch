@@ -43,9 +43,9 @@ use goodfetch_protocol::foxhound::outcomes::{
 };
 use goodfetch_protocol::foxhound::provenance::{
     CertificateExceptionMark, EncodingProvenance, RecordProvenance, RobotsTxtMark, TierProvenance,
-    TransformProvenance, UnreadField,
 };
 use goodfetch_protocol::foxhound::report::SitemapReport;
+use goodfetch_protocol::page::read::{TransformProvenance, UnreadField};
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::{Map, Value};

@@ -49,6 +49,7 @@ pub mod dialog;
 pub mod events;
 pub mod functions;
 pub mod proxy;
+pub mod read;
 pub mod request;
 pub mod route;
 pub mod session;
@@ -1761,6 +1762,7 @@ pub const ENTRIES: Entries = Entries {
         PAGE_GO_BACK,
         PAGE_GO_FORWARD,
         PAGE_FORMATS,
+        read::PAGE_READ,
         PAGE_BODY,
         LOCATOR_CLICK,
         LOCATOR_FILL,

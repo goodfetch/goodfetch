@@ -7,8 +7,12 @@
 //! cases `page_request`'s, its dialog cases `dialogs`', its popup cases
 //! `popups`', its page function cases `page_functions`', its Page check
 //! cases `page_check`'s, its robots.txt reading cases `robots_txt`'s, its
-//! hostile-input cases `hostile_input`'s and the reset gate's cases
-//! `reset`'s.
+//! hostile-input cases `hostile_input`'s, its `page.read` cases `read`'s
+//! and the reset gate's cases `reset`'s.
+//!
+//! Size: one concern, the table of every case the suites name: each ID to
+//! its case, each case to the module that runs it, and the Site and checks
+//! they share, which change together as a case is added.
 
 mod blocking_off;
 mod blocks;
@@ -32,6 +36,7 @@ mod poll;
 mod popups;
 mod proxies;
 mod proxy_limits;
+mod read;
 mod reset;
 mod robots_txt;
 mod routes;
@@ -142,6 +147,8 @@ pub(crate) enum Case {
     Popup(popups::Case),
     /// A page function case.
     PageFunction(page_functions::Case),
+    /// A `page.read` case.
+    Read(read::Case),
     /// An app-state wait case.
     Wait(waits::Case),
     /// A robots.txt reading case.
@@ -570,6 +577,7 @@ impl Case {
                     .or_else(|| dialogs::Case::from_id(id).map(Self::Dialog))
                     .or_else(|| popups::Case::from_id(id).map(Self::Popup))
                     .or_else(|| page_functions::Case::from_id(id).map(Self::PageFunction))
+                    .or_else(|| read::Case::from_id(id).map(Self::Read))
                     .or_else(|| waits::Case::from_id(id).map(Self::Wait))
                     .or_else(|| robots_txt::Case::from_id(id).map(Self::RobotsTxt))
                     .or_else(|| formats::references::Case::from_id(id).map(Self::References))
@@ -633,6 +641,7 @@ impl Case {
             Self::Dialog(case) => case.run(connection, site, checks),
             Self::Popup(case) => case.run(connection, site, checks),
             Self::PageFunction(case) => case.run(connection, target, site, checks),
+            Self::Read(case) => case.run(connection, site, checks),
             Self::Wait(case) => case.run(connection, site, checks),
             Self::RobotsTxt(case) => case.run(connection, target, site, checks),
             Self::MarkdownMatchesTheOracle => {

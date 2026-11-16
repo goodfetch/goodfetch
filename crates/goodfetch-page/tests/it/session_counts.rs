@@ -242,6 +242,34 @@ fn each_serialization_counts_its_two_commands() {
     );
 }
 
+/// A `page.read` sends two commands, its isolated world's creation and its
+/// one call, whatever number of fields it holds (ADR 0147): the program
+/// reads one field and twenty in each of the three documents, and C2's
+/// `read_commands` counts every command the browser read meanwhile.
+#[test]
+fn a_fields_read_sends_the_same_two_commands_at_one_field_and_at_twenty() {
+    let counted = run(None);
+
+    assert_eq!(counted.field_reads, 6);
+    assert_eq!(counted.field_rows, BTreeMap::from([(1, 6), (20, 6)]));
+    assert_eq!(counted.field_read_commands, counted.field_rows);
+    assert_eq!(
+        counted.count(Row::PageFieldReadCommands),
+        2 * counted.field_reads
+    );
+}
+
+/// A plant runs once per command the browser reads, two per `page.read`.
+#[test]
+fn a_planted_unit_adds_two_a_fields_read() {
+    let counted = run(Some(Row::PageFieldReadCommands));
+
+    assert_eq!(
+        counted.count(Row::PageFieldReadCommands),
+        4 * counted.field_reads
+    );
+}
+
 /// A plant runs once per command the browser reads, two per serialization.
 #[test]
 fn a_planted_unit_adds_two_a_serialization() {

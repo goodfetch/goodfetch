@@ -187,7 +187,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 129] = [
+const ROWS: [Row; 130] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -818,6 +818,15 @@ const ROWS: [Row; 129] = [
         name: "C2.serialization_commands",
         family: "B2",
         unit: "serializations",
+        happens: true,
+        valgrind: None,
+    },
+    // Each `page.read` the program makes, at one field and at twenty: the
+    // benchmark's test holds the two equal.
+    Row {
+        name: "C2.read_commands",
+        family: "B2",
+        unit: "field_reads",
         happens: true,
         valgrind: None,
     },

@@ -475,6 +475,77 @@ fn an_xpath_field_reads_alike_on_every_tier(#[case] tier: &str, #[case] read_on:
     );
 }
 
+/// A code-free crawl's `fields` take a list and rows as `page.read` does
+/// (ADR 0147), alike on the `http` tier and in the browser: the catalog
+/// listing's product names as a list, and its products as rows, each row
+/// keeping its name and price beside the blurb it lacks, which the Record's
+/// Provenance names unread.
+///
+/// Covers: story:6-304, operation:crawl.start, operation:run.records
+#[rstest]
+#[case::http("http")]
+#[case::browser("browser")]
+fn a_crawls_fields_take_a_list_and_rows_alike_on_every_tier(#[case] tier: &str) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let listing = proving_ground.start_url("catalog/1").unwrap();
+    let css = |selector: &str| json!({ "locator": { "kind": "css", "selector": selector } });
+
+    let (started, records) = crawl_read(
+        &mut engine,
+        &proving_ground,
+        (
+            "lists-and-rows",
+            &[json!({ "url": listing, "label": "page" })],
+        ),
+        &json!({
+            "formats": {},
+            "follow": "none",
+            "fields": {
+                "names": { "list": css("li.product a") },
+                "products": {
+                    "rows": { "kind": "css", "selector": "li.product" },
+                    "fields": {
+                        "name": css("a"),
+                        "price": { "locator": { "kind": "xpath", "selector": "./span[@class='price']" } },
+                        "blurb": css(".blurb"),
+                    },
+                },
+            },
+        }),
+        &json!({ "fetch": { "tier": tier } }),
+    );
+    assert!(engine.finished());
+
+    assert!(started.get("result").is_some(), "{started}");
+    let [record] = records.as_slice() else {
+        panic!("one Record of the listing page, not {records:?}");
+    };
+    let rows = record["value"]["products"].as_array().unwrap();
+    assert!(
+        !rows.is_empty()
+            && rows.iter().all(|row| {
+                row["name"].is_string() && row["price"].is_string() && row["blurb"].is_null()
+            }),
+        "{record}"
+    );
+    let names: Vec<Value> = rows.iter().map(|row| row["name"].clone()).collect();
+    let unread: Vec<Value> = (0..rows.len())
+        .map(|row| json!({ "field": format!("/products/{row}/blurb"), "reason": "no_element" }))
+        .collect();
+    assert_eq!(
+        (
+            &record["value"]["names"],
+            &record["provenance"]["unread_fields"]
+        ),
+        (&Value::Array(names), &Value::Array(unread))
+    );
+}
+
 /// Provenance names the tier that sent a document, whoever chose it
 /// (issue 2409): under `auto`, in an engine with browser pages, a Label's
 /// samples send their cheaper run from inside the Session's browser, and

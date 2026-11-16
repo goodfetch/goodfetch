@@ -14,11 +14,11 @@
 //! kept in the run file, so a resumed crawl handles its requests alike; a
 //! start under the Run's ID replaces it with its own once the Run resumes,
 //! as it replaces the Dataset `pages` generated from it.
-//! Its named `fields` are read from the first element each one's locator
-//! finds and given by its Value transform (ADR 0123, the `fields`
-//! module): the Record holds each, null where the page did not give it,
-//! and its Provenance names each transform and why each null field is
-//! null.
+//! Its named `fields`, value fields, lists and rows, are found in the page
+//! as `page.read` finds them and read by the extractor's `fields` module
+//! (ADRs 0123 and 0147): the Record holds each, null where the page did
+//! not give it, and its Provenance names each transform and why each null
+//! value is null.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
@@ -28,17 +28,19 @@ use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallError;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::runs::Run;
+use goodfetch_extractor::fields::{self, Fields};
 use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_frontier::Url;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::{
     CODE_FREE_DATASET, CODE_FREE_LABEL, CrawlExtraction, CrawlRequestHandleParams,
-    CrawlRequestHandled, CrawlStartParams, ExtractionField, ExtractionFollow, FieldLocator,
-    LabelDeclaration, PushedRecord, Seed, SitemapRule, SitemapSeed,
+    CrawlRequestHandled, CrawlStartParams, ExtractionFollow, LabelDeclaration, PushedRecord, Seed,
+    SitemapRule, SitemapSeed,
 };
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
 use goodfetch_protocol::foxhound::frontier::CrawlRequestEnqueueLinksParams;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::page::read::{FieldLocator, PageField};
 use goodfetch_protocol::page::{FormatsRequest, Locator, PageFormats, PageId, page_formats_schema};
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -74,9 +76,8 @@ const EVERY_ENTRY: &str = "**";
 #[derive(Clone)]
 pub(crate) struct CodeFree {
     pub(crate) extraction: CrawlExtraction,
-    /// Each field's reader, in the order of `extraction.fields`; none when
-    /// the crawl keeps no Record.
-    readers: Arc<[fields::Reader]>,
+    /// What its fields read with; none when the crawl keeps no Record.
+    reader: Option<Arc<Fields>>,
     /// Whether the crawl keeps Records, its `dataset.records`: off, a page's
     /// formats and fields are not read for one (ADR 0138).
     keeps_records: bool,
@@ -215,16 +216,17 @@ pub(crate) fn dataset(
     work: &CountedWork,
 ) -> Result<DatasetDeclaration, CallError> {
     let mut schema = page_schema(&extraction.formats);
-    for (name, field) in &extraction.fields {
-        let refused = if schema["properties"].get(name).is_some() {
-            Err(format!(
-                "The field `{name}` takes the name of a property every Record of `{CODE_FREE_DATASET}` holds: name it otherwise."
-            ))
-        } else {
-            fields::check(name, field, work)
-        };
-        refused.map_err(|message| CallError::protocol(ProtocolFailure::InvalidParams, message))?;
+    let refused = |message| CallError::protocol(ProtocolFailure::InvalidParams, message);
+    if let Some(name) = extraction
+        .fields
+        .keys()
+        .find(|name| schema["properties"].get(name.as_str()).is_some())
+    {
+        return Err(refused(format!(
+            "The field `{name}` takes the name of a property every Record of `{CODE_FREE_DATASET}` holds: name it otherwise."
+        )));
     }
+    goodfetch_fetch_tier::check_fields(&extraction.fields, work).map_err(refused)?;
     if let Some(properties) = schema["properties"].as_object_mut() {
         for (name, field) in &extraction.fields {
             properties.insert(name.clone(), fields::schema(field));
@@ -249,7 +251,7 @@ pub(crate) struct Built {
 
 /// What an extraction's Dataset `pages` follows from: its formats request
 /// and its fields.
-type Read = (FormatsRequest, BTreeMap<String, ExtractionField>);
+type Read = (FormatsRequest, BTreeMap<String, PageField>);
 
 /// How many extractions' Datasets `pages` an engine keeps.
 const KEPT: usize = 8;
@@ -427,15 +429,7 @@ impl CodeFree {
         let keeps_records = crate::serving::keeps_records(run);
         let work = run.metrics().counted_work();
         extraction.map(|extraction| Self {
-            readers: if keeps_records {
-                extraction
-                    .fields
-                    .values()
-                    .map(|field| fields::Reader::of(field, work))
-                    .collect()
-            } else {
-                Arc::from([])
-            },
+            reader: keeps_records.then(|| Arc::new(Fields::of(&extraction.fields, work))),
             keeps_records,
             extraction,
             crawls: crawls.clone(),
@@ -445,19 +439,15 @@ impl CodeFree {
 
     /// What the readers of each page's untouched tree read for it, once:
     /// under `follow: scope`, the links [`LINKS`] matches, and its fields'
-    /// locators, in order (ADR 0138).
+    /// locators, in order, when every one is a value field (ADR 0138).
     pub(crate) fn untouched(&self) -> (Vec<String>, Vec<FieldLocator>) {
         let links = if self.extraction.follow == ExtractionFollow::Scope {
             vec![LINKS.to_owned()]
         } else {
             Vec::new()
         };
-        let locators = self
-            .extraction
-            .fields
-            .values()
-            .map(|field| field.locator.clone())
-            .collect();
+        let locators =
+            goodfetch_fetch_tier::value_locators(&self.extraction.fields).unwrap_or_default();
         (links, locators)
     }
 
@@ -580,16 +570,12 @@ impl CodeFree {
         request_id: &str,
     ) -> Result<(Map<String, Value>, FieldsRead), CallError> {
         let declared = &self.extraction.fields;
-        if declared.is_empty() {
+        let Some(reader) = self.reader.as_ref().filter(|_| !declared.is_empty()) else {
             return Ok((Map::new(), FieldsRead::default()));
-        }
-        let locators: Vec<FieldLocator> = declared
-            .values()
-            .map(|field| field.locator.clone())
-            .collect();
+        };
         let found = self
             .tiers
-            .field_elements(page_id, &locators)
+            .field_elements(page_id, declared)
             .await
             .ok_or_else(|| {
                 CallError::new(
@@ -600,21 +586,16 @@ impl CodeFree {
                     &(),
                 )
             })??;
-        let mut values = Map::new();
-        let mut read = FieldsRead::default();
-        for (((name, field), reader), element) in
-            declared.iter().zip(self.readers.iter()).zip(found.elements)
-        {
-            let one = fields::read(name, (field, reader), element.as_ref(), &found.base_url);
-            values.insert(name.clone(), one.value);
-            read.value_transforms.extend(one.transforms);
-            read.unread.extend(one.unread);
-        }
-        Ok((values, read))
+        let read = reader.read(found.found, &found.base_url);
+        Ok((
+            read.values,
+            FieldsRead {
+                value_transforms: read.transforms,
+                unread: read.unread,
+            },
+        ))
     }
 }
-
-mod fields;
 
 #[cfg(test)]
 mod tests;

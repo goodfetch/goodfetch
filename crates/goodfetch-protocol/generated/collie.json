@@ -1891,6 +1891,161 @@
       ],
       "type": "object"
     },
+    "FieldLocator": {
+      "description": "What finds a field's element, named by `kind`: a CSS selector or an\n`XPath` expression, each read alike on every tier, a page a fetch tier\nserves from its document reading it as a browser reads it.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A CSS selector.",
+          "properties": {
+            "kind": {
+              "const": "css",
+              "type": "string"
+            },
+            "selector": {
+              "arrived_in": "0.1",
+              "description": "The selector.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An `XPath` 1.0 expression that finds nodes, with no namespace\nprefix and no variable; a value field reads the first node it finds\nin document order, when that node is an element, and a list every\nelement it finds. Under a row's element it is evaluated with that\nelement as its context node.",
+          "properties": {
+            "kind": {
+              "const": "xpath",
+              "type": "string"
+            },
+            "selector": {
+              "arrived_in": "0.1",
+              "description": "The expression.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FieldMatch": {
+      "additionalProperties": false,
+      "description": "The `match` before a field's transform (ADR 0123): a capture group of a\nregular expression, in the `regex` crate's syntax (ADR 0081), over the\ntext read; that group's text is what the transform reads.",
+      "properties": {
+        "group": {
+          "arrived_in": "0.1",
+          "default": 1,
+          "description": "The capture group, 1 by default; 0 is the whole match.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pattern": {
+          "arrived_in": "0.1",
+          "description": "The expression's source.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    },
+    "FieldTransform": {
+      "description": "A field's Value transform (ADR 0123), named by `kind`, each\nlocale-dependent one stating its locale, a BCP 47 tag. A `number`,\n`date` or `date_time` reads the machine-readable value of a `<time\ndatetime>`, a `<data value>` or an element's `content` attribute in its\ninvariant form (ISO 8601, a plain decimal with a dot), whatever the\nlocale; a text printed for people is read under its locale's CLDR\nforms: a number in its digits, separators and grouping, a date or a\ndate and time in one of its short, medium or long forms with a\nfour-digit year; any other text is not a value.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The text read: a string.",
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An integer or decimal: a JSON number, never through a float, so a\ndecimal a JSON number cannot hold exactly is not a value.",
+          "properties": {
+            "kind": {
+              "const": "number",
+              "type": "string"
+            },
+            "locale": {
+              "arrived_in": "0.1",
+              "description": "Its locale.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "locale"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A date: `YYYY-MM-DD`.",
+          "properties": {
+            "kind": {
+              "const": "date",
+              "type": "string"
+            },
+            "locale": {
+              "arrived_in": "0.1",
+              "description": "Its locale.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "locale"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A date and time: RFC 3339 with its offset, the one the text states,\nelse `time_zone`'s at that time; one stating neither is not a value.",
+          "properties": {
+            "kind": {
+              "const": "date_time",
+              "type": "string"
+            },
+            "locale": {
+              "arrived_in": "0.1",
+              "description": "Its locale.",
+              "type": "string"
+            },
+            "time_zone": {
+              "arrived_in": "0.1",
+              "description": "The time zone, an IANA name, of a text that states none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "locale"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "FillParams": {
       "additionalProperties": false,
       "description": "What `locator.fill` takes: the locator whose field it fills, and the\ntext.",
@@ -2881,6 +3036,21 @@
         "href",
         "text",
         "rel"
+      ],
+      "type": "object"
+    },
+    "ListField": {
+      "additionalProperties": false,
+      "description": "A list: the value field read from every element its locator finds, in\ndocument order.",
+      "properties": {
+        "list": {
+          "$ref": "#/$defs/ValueField",
+          "arrived_in": "0.1",
+          "description": "The field read from each element."
+        }
+      },
+      "required": [
+        "list"
       ],
       "type": "object"
     },
@@ -4218,6 +4388,23 @@
       ],
       "type": "object"
     },
+    "PageField": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ValueField",
+          "description": "The first element its locator finds."
+        },
+        {
+          "$ref": "#/$defs/ListField",
+          "description": "Every element its locator finds."
+        },
+        {
+          "$ref": "#/$defs/RowsField",
+          "description": "Fields read under each element a base locator finds."
+        }
+      ],
+      "description": "One named field (ADR 0147): a value field, a list or rows."
+    },
     "PageFired": {
       "description": "What `page.load`, `page.dom_content_loaded`, `page.crash` and\n`page.close` report: the page whose main frame's document fired the\nevent, or that crashed or closed.",
       "properties": {
@@ -4422,6 +4609,57 @@
       "required": [
         "page_id",
         "popup"
+      ],
+      "type": "object"
+    },
+    "PageRead": {
+      "description": "What `page.read` answers: each field's value by its name, and each\nvalue the page did not give, with why.",
+      "properties": {
+        "unread": {
+          "arrived_in": "0.1",
+          "description": "Each null the page did not give, in the order read; absent where\nevery value was read.",
+          "items": {
+            "$ref": "#/$defs/UnreadField"
+          },
+          "type": "array"
+        },
+        "values": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Each field's value, by name: a value field's value or null, a\nlist's array of values or nulls, rows' array of objects, each\nholding every field of its row, null where its row lacks it.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "values"
+      ],
+      "type": "object"
+    },
+    "PageReadParams": {
+      "additionalProperties": false,
+      "description": "What `page.read` takes: the page and its named fields.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "fields": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PageField"
+          },
+          "arrived_in": "0.1",
+          "description": "The fields, by name.",
+          "type": "object"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id",
+        "fields"
       ],
       "type": "object"
     },
@@ -5758,6 +5996,30 @@
         "headers",
         "resource_type",
         "is_navigation_request"
+      ],
+      "type": "object"
+    },
+    "RowsField": {
+      "additionalProperties": false,
+      "description": "Rows: for each element the base locator finds, in document order, one\nobject of the named value fields, each read from the first element its\nlocator finds under that element.",
+      "properties": {
+        "fields": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ValueField"
+          },
+          "arrived_in": "0.1",
+          "description": "Each row's fields, by name.",
+          "type": "object"
+        },
+        "rows": {
+          "$ref": "#/$defs/FieldLocator",
+          "arrived_in": "0.1",
+          "description": "What finds each row's element."
+        }
+      },
+      "required": [
+        "rows",
+        "fields"
       ],
       "type": "object"
     },
@@ -8389,6 +8651,64 @@
       ],
       "type": "object"
     },
+    "UnreadField": {
+      "description": "A field its page did not give, so its value is null (ADRs 0079 and\n0123).",
+      "properties": {
+        "field": {
+          "arrived_in": "0.1",
+          "description": "The field, a JSON Pointer into the values read: `/price`, or\n`/offers/1/price` for a row's.",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/UnreadReason",
+          "arrived_in": "0.1",
+          "description": "Why."
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The text read, where one was: the text its `match` did not match, or\nthat its transform does not read as a value.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "field",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "UnreadReason": {
+      "description": "Why a field is null.",
+      "oneOf": [
+        {
+          "const": "no_element",
+          "description": "Its locator found no element.",
+          "type": "string"
+        },
+        {
+          "const": "no_attribute",
+          "description": "Its element has no such attribute.",
+          "type": "string"
+        },
+        {
+          "const": "no_match",
+          "description": "Its `match` did not match the text, or its group took no part.",
+          "type": "string"
+        },
+        {
+          "const": "not_parsed",
+          "description": "Its transform does not read the text as a value.",
+          "type": "string"
+        },
+        {
+          "const": "no_time_zone",
+          "description": "A `date_time` whose text states no offset, with no `time_zone`.",
+          "type": "string"
+        }
+      ]
+    },
     "Unready": {
       "description": "Why a Daemon cannot take a new Run now, as its ops listener's\n`/readyz` and `daemon health` check it (ADR 0050).",
       "oneOf": [
@@ -8694,6 +9014,49 @@
       },
       "required": [
         "changes"
+      ],
+      "type": "object"
+    },
+    "ValueField": {
+      "additionalProperties": false,
+      "description": "A value field (ADRs 0123 and 0147): the first element its locator finds\nin the page, its text, its runs of white space read as one space and\ntrimmed, or one of its attributes, an `href` or `src` resolved against\nthe document's base URL; optionally a capture group of a regular\nexpression over that text; then its Value transform. A field the page\ndoes not give is null, with why.",
+      "properties": {
+        "attribute": {
+          "arrived_in": "0.1",
+          "description": "The attribute read in place of the element's text.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "locator": {
+          "$ref": "#/$defs/FieldLocator",
+          "arrived_in": "0.1",
+          "description": "What finds its element."
+        },
+        "match": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FieldMatch"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The `match` that picks the text its transform reads."
+        },
+        "transform": {
+          "$ref": "#/$defs/FieldTransform",
+          "arrived_in": "0.1",
+          "default": {
+            "kind": "text"
+          },
+          "description": "Its Value transform: `text` by default."
+        }
+      },
+      "required": [
+        "locator"
       ],
       "type": "object"
     },
@@ -10799,6 +11162,7 @@
             "process_reads",
             "provenance_entries",
             "prunes",
+            "read_commands",
             "readability_runs",
             "reads",
             "robots_parses",
@@ -12003,6 +12367,25 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/DialogsEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.",
+      "events": [],
+      "kind": "query",
+      "name": "page.read",
+      "params": {
+        "$ref": "#/$defs/PageReadParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PageRead"
       },
       "stability": "experimental"
     },

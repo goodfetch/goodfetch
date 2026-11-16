@@ -273,6 +273,10 @@
           },
           {
             "commands": [],
+            "name": "read"
+          },
+          {
+            "commands": [],
             "name": "body"
           },
           {
@@ -656,6 +660,10 @@
           {
             "commands": [],
             "name": "formats"
+          },
+          {
+            "commands": [],
+            "name": "read"
           },
           {
             "commands": [],

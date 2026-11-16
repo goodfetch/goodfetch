@@ -64,20 +64,47 @@ impl Document {
         Self(tree::Tree::of(document))
     }
 
-    /// The first node in document order that `expression` finds, from the
-    /// root, when it is an element: the node of `dom_query`'s tree it is.
-    pub(crate) fn first_element(&self, expression: &Expression) -> Option<NodeId> {
-        let found = evaluate::evaluate(
+    /// The first node in document order that `expression` finds from
+    /// `from`, an element of `dom_query`'s tree, or from the root, when it
+    /// is an element: the node of `dom_query`'s tree it is.
+    pub(crate) fn first_element(
+        &self,
+        expression: &Expression,
+        from: Option<NodeId>,
+    ) -> Option<NodeId> {
+        self.0.node(*self.found(expression, from)?.first()?).source
+    }
+
+    /// Every element `expression` finds from `from`, an element of
+    /// `dom_query`'s tree, or from the root, in document order, as a
+    /// browser's ordered snapshot holds them: the nodes of `dom_query`'s
+    /// tree they are; a node that is no element is left out.
+    pub(crate) fn elements(&self, expression: &Expression, from: Option<NodeId>) -> Vec<NodeId> {
+        self.found(expression, from)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|index| self.0.node(index).source)
+            .collect()
+    }
+
+    /// The nodes `expression` finds from `from`, or from the root, by
+    /// their indices in document order; none for an element `from` that is
+    /// not in the document, or an expression answering a value.
+    fn found(&self, expression: &Expression, from: Option<NodeId>) -> Option<Vec<usize>> {
+        let node = match from {
+            Some(source) => self.0.index_of(source)?,
+            None => 0,
+        };
+        match evaluate::evaluate(
             &self.0,
             &expression.0,
             Context {
-                node: 0,
+                node,
                 position: 1,
                 size: 1,
             },
-        );
-        match found {
-            Value::Nodes(nodes) => self.0.node(*nodes.first()?).source,
+        ) {
+            Value::Nodes(nodes) => Some(nodes),
             Value::Boolean(_) | Value::Number(_) | Value::String(_) => None,
         }
     }

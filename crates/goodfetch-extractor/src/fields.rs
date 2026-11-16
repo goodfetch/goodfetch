@@ -1,12 +1,15 @@
-//! A code-free crawl's named fields (spec #582; ADR 0123), as pure
-//! functions of the first element each field's locator found: the text it
-//! reads (the element's text, its runs of white space read as one space,
-//! or an attribute, an `href` or `src` resolved against the document's
-//! base URL), the `match` that picks a group of it, and the Value transform
-//! that gives the field's value; what the Record's Provenance names of each
-//! transform; the reason a field is null; the type each field takes in the
-//! Dataset `pages`' schema; and the check that refuses at the start a field
-//! the engine could never read.
+//! A page's named fields (ADRs 0123 and 0147), as pure functions of the
+//! elements each field's locator found, whichever tier found them: the
+//! text a value field reads of an element (its text, its runs of white
+//! space read as one space, or an attribute, an `href` or `src` resolved
+//! against the document's base URL), the `match` that picks a group of it,
+//! and the Value transform that gives its value; a list's values, one per
+//! element; rows' objects, one per row, of their own value fields; what
+//! Provenance names of each transform; the reason a value is null; the type
+//! each field takes in a Dataset's schema; and the check that refuses a
+//! field the engine could never read, its locators aside, which the tier
+//! that reads them checks. `page.read` and a code-free crawl's Records read
+//! fields alike, through [`Fields`].
 //!
 //! `number`, `date` and `date_time` read a machine-readable value (a
 //! `<time datetime>`, a `<data value>` or an element's `content`
@@ -19,19 +22,21 @@
 //! relative time (`currency`, `relative_time`) are the Value transforms'
 //! parsers' (#844, #848).
 
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
 use goodfetch_counted_work::{CountedWork, Row};
-use goodfetch_fetch_tier::{FieldElement, check_selector, check_xpath};
-use goodfetch_frontier::Url;
-use goodfetch_protocol::foxhound::crawl::{ExtractionField, FieldLocator, FieldTransform};
-use goodfetch_protocol::foxhound::provenance::{
-    TransformProvenance, UnreadField, UnreadReason, ValueTransform,
+use goodfetch_protocol::page::read::{
+    FieldTransform, PageField, TransformProvenance, UnreadField, UnreadReason, ValueField,
+    ValueTransform,
 };
 use jiff::Timestamp;
 use jiff::civil::Date;
 use jiff::fmt::temporal::Pieces;
 use jiff::tz::TimeZone;
 use regex::Regex;
-use serde_json::{Number, Value, json};
+use serde_json::{Map, Number, Value, json};
+use url::Url;
 
 mod printed;
 
@@ -46,21 +51,163 @@ const MACHINE_READABLE: [(Option<&str>, &str); 3] = [
 /// The attributes holding a URL, resolved against the base URL.
 const URL_ATTRIBUTES: [&str; 2] = ["href", "src"];
 
-/// What one field read of its page: its value, null when the page did not
+/// One element a field's locator found in a page: its tag name,
+/// lower-cased, its text content and its attributes, in document order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FieldElement {
+    /// Its tag name, lower-cased.
+    pub tag: String,
+    /// Its text content.
+    pub text: String,
+    /// Its attributes, in document order.
+    pub attributes: Vec<(String, String)>,
+}
+
+/// What one field's locators found in a page, as its kind reads them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Found {
+    /// A value field's first element; none when its locator found none.
+    One(Option<FieldElement>),
+    /// Every element a list's locator found, in document order.
+    List(Vec<FieldElement>),
+    /// Each row, in document order: the first element under the row's
+    /// element that each of its fields' locators found, in the order of
+    /// their names.
+    Rows(Vec<Vec<Option<FieldElement>>>),
+}
+
+/// What a page's fields read: each one's value by its name, null where the
+/// page did not give it; each transform that gave a value, as Provenance
+/// names it; and each null value with why, in the order read.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Values {
+    /// Each field's value, by name.
+    pub values: Map<String, Value>,
+    /// Each transform that gave a value.
+    pub transforms: Vec<TransformProvenance>,
+    /// Each value the page did not give, with why.
+    pub unread: Vec<UnreadField>,
+}
+
+/// What a page's named fields read with, built once for all the pages
+/// they are read of ([`Fields::of`]): each value field's reader, in the
+/// order of the fields' names.
+pub struct Fields {
+    declared: Vec<(String, Declared)>,
+}
+
+/// One field, with what it reads with.
+enum Declared {
+    One(ValueField, Reader),
+    List(ValueField, Reader),
+    Rows(Vec<(String, ValueField, Reader)>),
+}
+
+impl Fields {
+    /// What `fields` read with: each value field's `match` pattern
+    /// compiled and its locale's forms learned, through `work`, the
+    /// engine's Counted work. A field [`check`] refuses reads nothing.
+    #[must_use]
+    pub fn of(fields: &BTreeMap<String, PageField>, work: &CountedWork) -> Self {
+        let declared = fields
+            .iter()
+            .map(|(name, field)| {
+                let declared = match field {
+                    PageField::Value(field) => {
+                        Declared::One(field.clone(), Reader::of(field, work))
+                    }
+                    PageField::List(list) => {
+                        Declared::List(list.list.clone(), Reader::of(&list.list, work))
+                    }
+                    PageField::Rows(rows) => Declared::Rows(
+                        rows.fields
+                            .iter()
+                            .map(|(name, field)| {
+                                (name.clone(), field.clone(), Reader::of(field, work))
+                            })
+                            .collect(),
+                    ),
+                };
+                (name.clone(), declared)
+            })
+            .collect();
+        Self { declared }
+    }
+
+    /// The values of the fields, `found` holding what each one's locators
+    /// found, in the order of their names, in a document whose base URL is
+    /// `base_url`. A field whose find answered another kind than its own,
+    /// or none, found nothing.
+    #[must_use]
+    pub fn read(&self, found: Vec<Found>, base_url: &str) -> Values {
+        let mut read = Values::default();
+        let mut found = found.into_iter();
+        for (name, declared) in &self.declared {
+            let field_pointer = pointer(name);
+            let value =
+                match (declared, found.next()) {
+                    (Declared::One(field, reader), Some(Found::One(element))) => read.take(
+                        read_one(&field_pointer, (field, reader), element.as_ref(), base_url),
+                    ),
+                    (Declared::One(field, reader), _) => {
+                        read.take(read_one(&field_pointer, (field, reader), None, base_url))
+                    }
+                    (Declared::List(field, reader), Some(Found::List(elements))) => Value::Array(
+                        elements
+                            .iter()
+                            .enumerate()
+                            .map(|(index, element)| {
+                                let at = format!("{field_pointer}/{index}");
+                                read.take(read_one(&at, (field, reader), Some(element), base_url))
+                            })
+                            .collect(),
+                    ),
+                    (Declared::Rows(fields), Some(Found::Rows(rows))) => Value::Array(
+                        rows.iter()
+                            .enumerate()
+                            .map(|(index, row)| {
+                                let mut object = Map::new();
+                                for ((name, field, reader), element) in fields.iter().zip(row) {
+                                    let at = format!("{field_pointer}/{index}{}", pointer(name));
+                                    let one =
+                                        read_one(&at, (field, reader), element.as_ref(), base_url);
+                                    object.insert(name.clone(), read.take(one));
+                                }
+                                Value::Object(object)
+                            })
+                            .collect(),
+                    ),
+                    (Declared::List(..) | Declared::Rows(_), _) => Value::Array(Vec::new()),
+                };
+            read.values.insert(name.clone(), value);
+        }
+        read
+    }
+}
+
+impl Values {
+    /// `one`'s value, its transforms and why it is null taken into these.
+    fn take(&mut self, one: Read) -> Value {
+        self.transforms.extend(one.transforms);
+        self.unread.extend(one.unread);
+        one.value
+    }
+}
+
+/// What one value read of its page: its value, null when the page did not
 /// give it; each transform that gave it, as Provenance names it; and why
 /// it is null.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Read {
-    pub(crate) value: Value,
-    pub(crate) transforms: Vec<TransformProvenance>,
-    pub(crate) unread: Option<UnreadField>,
+struct Read {
+    value: Value,
+    transforms: Vec<TransformProvenance>,
+    unread: Option<UnreadField>,
 }
 
-/// What a field reads with, built once per crawl as it starts
-/// ([`Reader::of`]): its `match` pattern compiled, and its Value transform
-/// with the forms its locale prints, so each page's text is only matched
-/// against them.
-pub(crate) struct Reader {
+/// What a value field reads with, built once ([`Reader::of`]): its
+/// `match` pattern compiled, and its Value transform with the forms its
+/// locale prints, so each page's text is only matched against them.
+struct Reader {
     /// Its `match` pattern and the group it picks.
     matched: Option<(Regex, usize)>,
     typed: Typed,
@@ -72,24 +219,24 @@ enum Typed {
     Text,
     Number {
         locale: String,
-        printed: Option<printed::Numbers>,
+        printed: Option<Arc<printed::Numbers>>,
     },
     Date {
         locale: String,
-        printed: Option<printed::Dates>,
+        printed: Option<Arc<printed::Dates>>,
     },
     DateTime {
         locale: String,
         time_zone: Option<String>,
-        printed: Option<printed::DateTimes>,
+        printed: Option<Arc<printed::DateTimes>>,
     },
 }
 
 impl Reader {
     /// What `field` reads with: a `match` pattern that does not compile,
-    /// which [`check`] refused at the start, matches nothing.
-    pub(crate) fn of(field: &ExtractionField, work: &CountedWork) -> Self {
-        let forms = || work.count(Row::PageLocaleFormBuilds);
+    /// which [`check`] refuses, matches nothing. Its locale's forms come
+    /// from the engine's cache, learned once for the engine.
+    fn of(field: &ValueField, work: &CountedWork) -> Self {
         let matched = field.matched.as_ref().and_then(|matched| {
             Some((
                 work.regex(Row::PageSelectorCompilations, &matched.pattern)
@@ -99,28 +246,25 @@ impl Reader {
         });
         let typed = match &field.transform {
             FieldTransform::Text => Typed::Text,
-            FieldTransform::Number { locale } => {
-                forms();
-                Typed::Number {
-                    locale: locale.clone(),
-                    printed: printed::Numbers::of(locale),
-                }
-            }
-            FieldTransform::Date { locale } => {
-                forms();
-                Typed::Date {
-                    locale: locale.clone(),
-                    printed: printed::Dates::of(locale),
-                }
-            }
-            FieldTransform::DateTime { locale, time_zone } => {
-                forms();
-                Typed::DateTime {
-                    locale: locale.clone(),
-                    time_zone: time_zone.clone(),
-                    printed: printed::DateTimes::of(locale),
-                }
-            }
+            FieldTransform::Number { locale } => Typed::Number {
+                locale: locale.clone(),
+                printed: work.built(Row::PageLocaleFormBuilds, locale, || {
+                    printed::Numbers::of(locale)
+                }),
+            },
+            FieldTransform::Date { locale } => Typed::Date {
+                locale: locale.clone(),
+                printed: work.built(Row::PageLocaleFormBuilds, locale, || {
+                    printed::Dates::of(locale)
+                }),
+            },
+            FieldTransform::DateTime { locale, time_zone } => Typed::DateTime {
+                locale: locale.clone(),
+                time_zone: time_zone.clone(),
+                printed: work.built(Row::PageLocaleFormBuilds, locale, || {
+                    printed::DateTimes::of(locale)
+                }),
+            },
         };
         Self { matched, typed }
     }
@@ -134,33 +278,34 @@ enum Form {
     Printed,
 }
 
-/// Refuses the field `name` when the engine could never read it: a CSS
-/// selector or an `XPath` expression it does not read on every tier, a
-/// regular expression that does not compile or has no such group, a locale
-/// that is no BCP 47 tag, or a time zone it has no rules for. A CSS
-/// selector compiles through `work`, the engine's Counted work.
+/// Refuses the field `name`, or one of its rows' fields, when the engine
+/// could never read it, its locators aside, which a tier checks as it finds
+/// them: a regular expression that does not compile or has no such group,
+/// a locale that is no BCP 47 tag, or a time zone it has no rules for. A
+/// pattern compiles through `work`, the engine's Counted work.
 ///
 /// # Errors
 ///
-/// What is wrong with it, in a sentence naming the field.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: a pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
-)]
-pub(crate) fn check(name: &str, field: &ExtractionField, work: &CountedWork) -> Result<(), String> {
-    match &field.locator {
-        FieldLocator::Css { selector } => {
-            check_selector(selector, work).map_err(|invalid| invalid.to_string())
-        }
-        FieldLocator::Xpath { selector } => {
-            check_xpath(selector).map_err(|invalid| invalid.to_string())
-        }
+/// What is wrong with it, in a sentence naming the field: a row's field
+/// as `rows/field`.
+pub fn check(name: &str, field: &PageField, work: &CountedWork) -> Result<(), String> {
+    match field {
+        PageField::Value(field) => check_value(name, field, work),
+        PageField::List(list) => check_value(name, &list.list, work),
+        PageField::Rows(rows) => rows.fields.iter().try_for_each(|(field_name, field)| {
+            check_value(&format!("{name}/{field_name}"), field, work)
+        }),
     }
-    .map_err(|invalid| format!("The field `{name}`'s {invalid}."))?;
+}
+
+/// [`check`] of one value field.
+fn check_value(name: &str, field: &ValueField, work: &CountedWork) -> Result<(), String> {
     if let Some(matched) = &field.matched {
-        let regex = Regex::new(&matched.pattern).map_err(|error| {
-            format!("The field `{name}`'s `match` pattern does not compile: {error}")
-        })?;
+        let regex = work
+            .regex(Row::PageSelectorCompilations, &matched.pattern)
+            .map_err(|error| {
+                format!("The field `{name}`'s `match` pattern does not compile: {error}")
+            })?;
         let group = usize::try_from(matched.group).unwrap_or(usize::MAX);
         if group >= regex.captures_len() {
             return Err(format!(
@@ -204,8 +349,37 @@ fn is_language_tag(tag: &str) -> bool {
         })
 }
 
-/// The JSON Schema of a field: the type its transform gives, or null.
-pub(crate) fn schema(field: &ExtractionField) -> Value {
+/// The JSON Schema of a field's value: a value field's, the type its
+/// transform gives, or null; a list's, an array of those; rows', an array
+/// of objects holding each of their fields.
+#[must_use]
+pub fn schema(field: &PageField) -> Value {
+    match field {
+        PageField::Value(field) => value_schema(field),
+        PageField::List(list) => json!({ "type": "array", "items": value_schema(&list.list) }),
+        PageField::Rows(rows) => {
+            let properties: Map<String, Value> = rows
+                .fields
+                .iter()
+                .map(|(name, field)| (name.clone(), value_schema(field)))
+                .collect();
+            let required: Vec<&String> = rows.fields.keys().collect();
+            json!({
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": required,
+                    "additionalProperties": false,
+                },
+            })
+        }
+    }
+}
+
+/// The JSON Schema of a value field's value: the type its transform gives,
+/// or null.
+fn value_schema(field: &ValueField) -> Value {
     match field.transform {
         FieldTransform::Text => json!({ "type": ["string", "null"] }),
         FieldTransform::Number { .. } => json!({ "type": ["number", "null"] }),
@@ -221,23 +395,22 @@ fn pointer(name: &str) -> String {
     format!("/{}", name.replace('~', "~0").replace('/', "~1"))
 }
 
-/// What the field `name` reads of `element`, the first its locator found,
-/// in a document whose base URL is `base_url`, with `reader`, the field's
-/// own.
-pub(crate) fn read(
-    name: &str,
-    (field, reader): (&ExtractionField, &Reader),
+/// What the value field at `field_pointer` reads of `element`, the one its
+/// locator found, in a document whose base URL is `base_url`, with
+/// `reader`, the field's own.
+fn read_one(
+    field_pointer: &str,
+    (field, reader): (&ValueField, &Reader),
     element: Option<&FieldElement>,
     base_url: &str,
 ) -> Read {
-    let field_pointer = pointer(name);
     let mut transforms = Vec::new();
     let unread =
         |reason: UnreadReason, text: Option<String>, transforms: Vec<TransformProvenance>| Read {
             value: Value::Null,
             transforms,
             unread: Some(UnreadField {
-                field: field_pointer.clone(),
+                field: field_pointer.to_owned(),
                 reason,
                 text,
             }),
@@ -249,7 +422,7 @@ pub(crate) fn read(
         return unread(UnreadReason::NoAttribute, None, transforms);
     };
     let provenance = |text: &str, transform: ValueTransform| TransformProvenance {
-        field: pointer(name),
+        field: field_pointer.to_owned(),
         text: text.to_owned(),
         transform,
         locale: None,
@@ -372,7 +545,7 @@ fn typed(
 /// names, invariant when machine-readable; else, for a `number`, `date` or
 /// `date_time`, the element's machine-readable value when it has one; else
 /// its text, printed. `None` when the element lacks the attribute named.
-fn text_of(field: &ExtractionField, element: &FieldElement) -> Option<(String, Form)> {
+fn text_of(field: &ValueField, element: &FieldElement) -> Option<(String, Form)> {
     let attribute = |name: &str| {
         element
             .attributes

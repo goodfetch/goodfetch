@@ -29,7 +29,11 @@
 //! program reads each document's formats once, a serialization of the page
 //! (`DOM.getDocument`, `DOM.getOuterHTML`), its own outcome: the browser counts
 //! each `DOM.getOuterHTML` and the commands sent meanwhile, and
-//! [`SERIALIZATION_ROWS`] are what that read counted.
+//! [`SERIALIZATION_ROWS`] are what that read counted. Then it reads the
+//! document's fields with `page.read` (ADR 0147), once at each of
+//! [`FIELD_COUNTS`], its own outcome: the browser answers [`READ_FIELDS`]
+//! with an element for each field, and [`FIELD_READ_ROWS`] are what each
+//! of those reads counted, by its number of fields.
 //!
 //! Every request a page sends passes the interception (C5): the browser
 //! pauses each navigation's document as it leaves and again at its
@@ -173,6 +177,18 @@ pub(crate) const READ_ROWS: [Row; 3] = [
 /// reads alone.
 pub(crate) const SERIALIZATION_ROWS: [Row; 1] = [Row::PageSerializationCommands];
 
+/// The rows a page's `page.read` counts, read over those reads alone.
+pub(crate) const FIELD_READ_ROWS: [Row; 1] = [Row::PageFieldReadCommands];
+
+/// The numbers of fields the program reads in each document, one
+/// `page.read` each: C2's `read_commands` is held at one field and at
+/// twenty (ADR 0147).
+pub(crate) const FIELD_COUNTS: [usize; 2] = [1, 20];
+
+/// The page function `page.read` finds a browser page's fields with, as
+/// the engine sends it: the browser answers it by its source.
+const READ_FIELDS: &str = include_str!("../src/fields/read.js");
+
 /// The rows C3's actions count, read over the actions alone: each of the
 /// program's reads is a wait, whose checks count on these rows too, and are
 /// C2's outcome, not an action's.
@@ -231,6 +247,15 @@ pub(crate) struct Counted {
     pub(crate) serializations: u64,
     /// The commands the browser read while the program read its formats.
     pub(crate) serialization_commands: u64,
+    /// The `page.read` calls the browser answered, each one
+    /// `Runtime.callFunctionOn` of [`READ_FIELDS`].
+    pub(crate) field_reads: u64,
+    /// The commands the browser read while the program read fields, by the
+    /// number of fields each read held, over all documents.
+    pub(crate) field_read_commands: BTreeMap<usize, u64>,
+    /// What [`FIELD_READ_ROWS`] counted over the reads of each number of
+    /// fields, over all documents.
+    pub(crate) field_rows: BTreeMap<usize, u64>,
     /// The pages the browser opened (`Target.createTarget`), each once.
     pub(crate) pages_opened: u64,
     /// The requests the browser paused, each once.
@@ -242,15 +267,16 @@ pub(crate) struct Counted {
     pub(crate) refused: u64,
     /// Its Counted work.
     pub(crate) work: CountedWork,
-    /// What [`READ_ROWS`], [`SERIALIZATION_ROWS`] and [`ACTION_ROWS`]
-    /// counted while the program read.
+    /// What [`READ_ROWS`], [`SERIALIZATION_ROWS`], [`FIELD_READ_ROWS`] and
+    /// [`ACTION_ROWS`] counted while the program read.
     during_reads: BTreeMap<&'static str, u64>,
 }
 
 impl Counted {
     /// What `row` counted over the outcome it is held per: over the program's
     /// reads for [`READ_ROWS`], over its formats reads for
-    /// [`SERIALIZATION_ROWS`], over the whole Session but its reads for
+    /// [`SERIALIZATION_ROWS`], over its `page.read` calls for
+    /// [`FIELD_READ_ROWS`], over the whole Session but its reads for
     /// [`ACTION_ROWS`], over the whole Session for every other row.
     pub(crate) fn count(&self, row: Row) -> u64 {
         let during = self.during_reads.get(row.name()).copied();
@@ -278,6 +304,33 @@ struct Reading {
     serializations: AtomicU64,
     /// The commands read while it read formats, each once.
     serialization_commands: AtomicU64,
+    /// Whether the program reads a page's fields now.
+    fields: AtomicBool,
+    /// The fields' reads answered while it read fields.
+    field_reads: AtomicU64,
+    /// The commands read while it read fields, each once.
+    field_read_commands: AtomicU64,
+}
+
+impl Reading {
+    /// Counts the command `method` with `params` while the program reads
+    /// formats or fields, and each serialization or field read it is.
+    fn formats_and_fields(&self, method: &str, params: &Value) {
+        if self.serializing.load(Ordering::Relaxed) {
+            self.serialization_commands.fetch_add(1, Ordering::Relaxed);
+            if method == "DOM.getOuterHTML" {
+                self.serializations.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        if self.fields.load(Ordering::Relaxed) {
+            self.field_read_commands.fetch_add(1, Ordering::Relaxed);
+            if method == "Runtime.callFunctionOn"
+                && params["functionDeclaration"].as_str() == Some(READ_FIELDS)
+            {
+                self.field_reads.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
 }
 
 /// The browser's one page: its frame's document, by its loader, and each
@@ -619,8 +672,8 @@ fn gone(page: &Page, context: &Value) -> Result<(), Value> {
 /// disarm says the gesture landed, a locator wait finds its state at once, the
 /// Page check's read finds each match, the Consent prompt runner's bundle
 /// starts and, on the Consent page, reports its prompt hidden (left while it
-/// does not answer) and its first pass settled, and every other function
-/// answers nothing.
+/// does not answer) and its first pass settled, `page.read`'s finds an
+/// element for each field, and every other function answers nothing.
 fn called(params: &Value, document: &str) -> (Value, Vec<Value>) {
     let function = params["functionDeclaration"].as_str().unwrap_or_default();
     let argument = &params["arguments"][0]["value"];
@@ -635,6 +688,27 @@ fn called(params: &Value, document: &str) -> (Value, Vec<Value>) {
     }
     if function == DISARM {
         return (value(json!({ "state": "landed" })), Vec::new());
+    }
+    if function == READ_FIELDS {
+        let element = json!({ "tag": "p", "text": "read", "attributes": [] });
+        let found: Vec<Value> = argument["fields"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+            .iter()
+            .map(|field| match field["kind"].as_str() {
+                Some("list") => json!([element]),
+                Some("rows") => {
+                    let row = vec![element.clone(); field["fields"].as_array().map_or(0, Vec::len)];
+                    json!([row])
+                }
+                _ => element.clone(),
+            })
+            .collect();
+        return (
+            value(json!({ "baseUrl": document, "found": found })),
+            Vec::new(),
+        );
     }
     if WAITED.contains(&argument["action"].as_str().unwrap_or_default()) {
         return (value(json!({ "state": "ready" })), Vec::new());
@@ -925,14 +999,7 @@ async fn browser(mut wire: Wire, counts: Heard, plant: Option<Plant>) {
             {
                 counts.checks.fetch_add(1, Ordering::Relaxed);
             }
-            if reading.serializing.load(Ordering::Relaxed) {
-                reading
-                    .serialization_commands
-                    .fetch_add(1, Ordering::Relaxed);
-                if method == "DOM.getOuterHTML" {
-                    reading.serializations.fetch_add(1, Ordering::Relaxed);
-                }
-            }
+            reading.formats_and_fields(method, &command["params"]);
             if reading.now.load(Ordering::Relaxed) {
                 reading.commands.fetch_add(1, Ordering::Relaxed);
                 if method == "Runtime.callFunctionOn" {
@@ -1036,7 +1103,7 @@ async fn program(
     client: &mut Client,
     (browsers, cdp_url, settings): (Browsers, &str, Map<String, Value>),
     (heard, work): (&Heard, &CountedWork),
-    during_reads: &mut BTreeMap<&'static str, u64>,
+    (during_reads, by_fields): (&mut BTreeMap<&'static str, u64>, &mut ByFields),
 ) -> BTreeMap<&'static str, u64> {
     client
         .call(
@@ -1058,7 +1125,7 @@ async fn program(
                 client,
                 (&opened["page_id"], url),
                 (heard, work),
-                (during_reads, &mut attempts),
+                (during_reads, by_fields, &mut attempts),
             )
             .await;
             client
@@ -1094,17 +1161,24 @@ async fn program(
             client,
             (&opened["page_id"], url),
             (heard, work),
-            (during_reads, &mut attempts),
+            (during_reads, by_fields, &mut attempts),
         )
         .await;
     }
     attempts
 }
 
+/// What [`FIELD_READ_ROWS`] counted and the commands the browser read over
+/// the `page.read` calls of each number of fields, over all documents.
+type ByFields = BTreeMap<usize, (u64, u64)>;
+
 /// What the program does on the page `page_id` once it shows `url`: reads
 /// its document [`READS`] times once the navigation's own work ended,
 /// adding what [`READ_ROWS`] counted meanwhile to `during_reads`, then its
-/// formats once, adding what [`SERIALIZATION_ROWS`] counted, then, on each
+/// formats once, adding what [`SERIALIZATION_ROWS`] counted, then its
+/// fields once at each of [`FIELD_COUNTS`], adding what
+/// [`FIELD_READ_ROWS`] counted to `during_reads` and, by the number of
+/// fields, to `by_fields`, then, on each
 /// page but the Consent prompt's, clicks, fills and presses, adding each
 /// to `attempts`: the prompt's page is C4's, and its runner's work no
 /// action's.
@@ -1112,8 +1186,9 @@ async fn on_page(
     client: &mut Client,
     (page_id, url): (&Value, &str),
     (heard, work): (&Heard, &CountedWork),
-    (during_reads, attempts): (
+    (during_reads, by_fields, attempts): (
         &mut BTreeMap<&'static str, u64>,
+        &mut ByFields,
         &mut BTreeMap<&'static str, u64>,
     ),
 ) {
@@ -1153,6 +1228,31 @@ async fn on_page(
     for (row, before) in serialization_rows.chain(ACTION_ROWS.into_iter().zip(actions_before)) {
         *during_reads.entry(row.name()).or_default() += work.read(row) - before;
     }
+    for count in FIELD_COUNTS {
+        let before = FIELD_READ_ROWS.map(|row| work.read(row));
+        let actions_before = ACTION_ROWS.map(|row| work.read(row));
+        let commands_before = heard.reading.field_read_commands.load(Ordering::Relaxed);
+        heard.reading.fields.store(true, Ordering::Relaxed);
+        client
+            .call(
+                "page.read",
+                &json!({ "page_id": page_id, "fields": declared(count) }),
+            )
+            .await;
+        quiet(&heard.units, work).await;
+        heard.reading.fields.store(false, Ordering::Relaxed);
+        let commands = heard.reading.field_read_commands.load(Ordering::Relaxed) - commands_before;
+        let counted = by_fields.entry(count).or_default();
+        for (row, before) in FIELD_READ_ROWS.into_iter().zip(before) {
+            let read = work.read(row) - before;
+            *during_reads.entry(row.name()).or_default() += read;
+            counted.0 += read;
+        }
+        counted.1 += commands;
+        for (row, before) in ACTION_ROWS.into_iter().zip(actions_before) {
+            *during_reads.entry(row.name()).or_default() += work.read(row) - before;
+        }
+    }
     if url == CONSENT_PAGE {
         return;
     }
@@ -1165,6 +1265,42 @@ async fn on_page(
         client.call(operation, &params).await;
         *attempts.entry(kind).or_insert(0) += 1;
     }
+}
+
+/// `count` fields as `page.read` takes them: a heading, then for twenty
+/// one of each kind past the value field, a list and rows of two fields,
+/// and value fields for the rest, by CSS and by `XPath` in turn.
+fn declared(count: usize) -> Value {
+    let mut fields = Map::new();
+    fields.insert(
+        "title".to_owned(),
+        json!({ "locator": { "kind": "css", "selector": "h1" } }),
+    );
+    if count > 1 {
+        fields.insert(
+            "links".to_owned(),
+            json!({ "list": { "locator": { "kind": "css", "selector": "a" }, "attribute": "href" } }),
+        );
+        fields.insert(
+            "products".to_owned(),
+            json!({
+                "rows": { "kind": "css", "selector": "li.product" },
+                "fields": {
+                    "name": { "locator": { "kind": "css", "selector": "h2" } },
+                    "price": { "locator": { "kind": "xpath", "selector": ".//span" } },
+                },
+            }),
+        );
+    }
+    for index in fields.len()..count {
+        let locator = if index % 2 == 0 {
+            json!({ "kind": "css", "selector": format!("#field-{index}") })
+        } else {
+            json!({ "kind": "xpath", "selector": format!("//*[@id='field-{index}']") })
+        };
+        fields.insert(format!("field_{index:02}"), json!({ "locator": locator }));
+    }
+    Value::Object(fields)
 }
 
 /// Waits until nothing is counted or sent any more, as the engine still sends
@@ -1326,6 +1462,7 @@ pub(crate) fn counted(
     let engine = engine(metrics, launcher);
     let heard = Heard::default();
     let mut during_reads = BTreeMap::new();
+    let mut by_fields = ByFields::new();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1356,7 +1493,7 @@ pub(crate) fn counted(
                 &mut client,
                 (browsers, &cdp_url, settings),
                 (&heard, &work),
-                &mut during_reads,
+                (&mut during_reads, &mut by_fields),
             )
             .await;
             quiet(&heard.units, &work).await;
@@ -1368,17 +1505,7 @@ pub(crate) fn counted(
             while let Ok(Some(_)) = client.lines.next_line().await {}
             attempts
         };
-        let dependencies = Dependencies {
-            environment: std::collections::BTreeMap::new(),
-            keychain: goodfetch_engine::secrets::Keychain::absent(),
-            home: Home::new(home.to_owned()),
-            clock: Clock::system(),
-            entropy: Entropy::seeded(1861),
-            blocking: BlockingPolicy::Inline,
-            run_state_location: RunStateLocation::PerMajor,
-            run_state: RunStateOptions::default(),
-            politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
-        };
+        let dependencies = dependencies(home);
         let ran = async {
             tokio::join!(
                 engine.run_attached(Network::InMemory(network), dependencies),
@@ -1411,12 +1538,41 @@ pub(crate) fn counted(
         read_commands: reading.commands.load(Ordering::Relaxed),
         serializations: reading.serializations.load(Ordering::Relaxed),
         serialization_commands: reading.serialization_commands.load(Ordering::Relaxed),
+        field_reads: reading.field_reads.load(Ordering::Relaxed),
+        field_read_commands: by_fields
+            .iter()
+            .map(|(count, (_, commands))| (*count, *commands))
+            .collect(),
+        field_rows: by_fields
+            .into_iter()
+            .map(|(count, (rows, _))| (count, rows))
+            .collect(),
         pages_opened: heard.pages.load(Ordering::Relaxed),
         requests,
         paused,
         refused,
         work,
         during_reads,
+    }
+}
+
+/// What the engine runs on: its home in `home`, the system's clock, seeded
+/// entropy and every blocking task inline.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a benchmark's engine draws seeded entropy, the Entropy's test version (ADR 0059)"
+)]
+fn dependencies(home: &Path) -> Dependencies {
+    Dependencies {
+        environment: std::collections::BTreeMap::new(),
+        keychain: goodfetch_engine::secrets::Keychain::absent(),
+        home: Home::new(home.to_owned()),
+        clock: Clock::system(),
+        entropy: Entropy::seeded(1861),
+        blocking: BlockingPolicy::Inline,
+        run_state_location: RunStateLocation::PerMajor,
+        run_state: RunStateOptions::default(),
+        politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
     }
 }
 

@@ -381,6 +381,10 @@ rows! {
     /// per serialization: its own outcome, as no engine read in a frame
     /// makes it.
     PageSerializationCommands => "C2.serialization_commands", "page_read", "serialization_commands";
+    /// `C2.read_commands`: a CDP command a `page.read` on a browser page
+    /// sends, held per `page.read` at one field and at twenty (ADR 0147):
+    /// one engine read, whatever its fields.
+    PageFieldReadCommands => "C2.read_commands", "page_read", "read_commands";
     /// `E4.configuration_reads`: a settings file read for a governor sample.
     GovernorConfigurationReads => "E4.configuration_reads", "governor_sample", "configuration_reads";
     /// `E4.meminfo_opens`: `/proc/meminfo` opened for a governor sample.
@@ -583,6 +587,25 @@ impl CountedWork {
         self.0
             .compiled
             .glob(pattern, || self.compile_glob(row, pattern))
+    }
+
+    /// What `build` makes of `text`, from the engine's cache, built and
+    /// counted on `row` only when the cache keeps nothing of `T` for it:
+    /// what a reader learns of a text, such as a locale's printed forms,
+    /// built once for the engine rather than for each call that reads with
+    /// it (ADR 0140). `None` when `build` makes nothing of it, which is kept
+    /// too.
+    #[must_use]
+    pub fn built<T: Send + Sync + 'static>(
+        &self,
+        row: Row,
+        text: &str,
+        build: impl FnOnce() -> Option<T>,
+    ) -> Option<Arc<T>> {
+        self.0.compiled.built(text, || {
+            self.count(row);
+            build()
+        })
     }
 
     /// How many selectors the engine's cache keeps, at most

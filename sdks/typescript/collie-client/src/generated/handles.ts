@@ -239,6 +239,15 @@ export class Page implements AsyncDisposable {
   }
 
   /**
+   * Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.
+   *
+   * @experimental
+   */
+  async read(fields: types.PageReadParams["fields"], options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.PageRead> {
+    return this.#host.call("page.read", { page_id: this.#host.id, fields }, { signal: options.signal });
+  }
+
+  /**
    * Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
    *
    * @experimental

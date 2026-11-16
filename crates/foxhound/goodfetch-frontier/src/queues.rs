@@ -32,7 +32,7 @@ use goodfetch_engine::admission::{
     Admitted, Ended, Gate, Gates, Held, Journal, Keys, QueuedGroup, Waiting,
 };
 use goodfetch_engine::entropy::Entropy;
-use goodfetch_engine::politeness::{Ending, PermitRule, milliseconds};
+use goodfetch_engine::politeness::{Ending, SharedRule, milliseconds};
 use goodfetch_engine::run_state::{BatchRows, BatchWriter, RunStateTables, SealedBatch};
 use goodfetch_engine::settings::Resolved;
 use rusqlite::Connection;
@@ -484,8 +484,8 @@ impl Gate for DomainQueues {
         self.waiting
     }
 
-    fn rule(&self, settings: &Resolved) -> Option<Arc<dyn PermitRule>> {
-        Some(Arc::new(DomainRule::of(
+    fn rule(&self, settings: &Resolved) -> Option<SharedRule> {
+        Some(SharedRule::new(DomainRule::of(
             settings,
             Arc::clone(&self.entropy),
         )))

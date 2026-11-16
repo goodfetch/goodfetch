@@ -69,16 +69,12 @@ impl Pace {
     /// `politeness.backoff.max`; `None` for no wait.
     pub(super) fn between_starts(
         &self,
-        crawl_delays: &[Duration],
+        crawl_delays: impl IntoIterator<Item = Duration>,
         latency: Option<i64>,
     ) -> Option<Duration> {
-        let honoured = self.max_crawl_delay.and_then(|max| {
-            crawl_delays
-                .iter()
-                .copied()
-                .filter(|asked| *asked <= max)
-                .max()
-        });
+        let honoured = self
+            .max_crawl_delay
+            .and_then(|max| crawl_delays.into_iter().filter(|asked| *asked <= max).max());
         let adaptive = self.adaptive_max.zip(latency).map(|(max, latency)| {
             Duration::from_millis(u64::try_from(latency).unwrap_or_default()).min(max)
         });
@@ -99,7 +95,7 @@ impl Pace {
         &self,
         limits: &Limits,
         pacing: &Pacing,
-        crawl_delays: &[Duration],
+        crawl_delays: impl IntoIterator<Item = Duration>,
         now: i64,
     ) -> Option<i64> {
         let delayed = self

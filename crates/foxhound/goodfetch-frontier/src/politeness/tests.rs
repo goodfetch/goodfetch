@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_engine::entropy::Entropy;
-use goodfetch_engine::politeness::{Ending, Hold, PermitRule, Verdict};
+use goodfetch_engine::politeness::{Ending, Hold, KeyState, Verdict};
 use goodfetch_engine::settings::{Layers, Resolved, Values, resolve};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::settings::SettingsLayer;
@@ -32,10 +32,177 @@ use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use super::{Backoff, DomainRule, Pace, TABLES, crawl_delay_asked, document_start_taken};
+use super::{
+    Backoff, DocumentReads, DocumentStart, DomainRule, DomainState, Pace, Parts, TABLES, Wrote,
+};
 use crate::robots_txt;
 
 mod pacing;
+
+/// A rule's steps on a Politeness file's connection, each loading the
+/// key's state and saving what it wrote as a Permit's take and give-back
+/// do.
+mod on_file {
+    use std::time::SystemTime;
+
+    use goodfetch_engine::politeness::{Ending, PermitRule, Step, Verdict};
+    use rusqlite::Connection;
+
+    use super::{DomainRule, DomainState, Wrote, changed};
+
+    pub(super) trait OnFile {
+        fn admit(
+            &self,
+            file: &Connection,
+            key: &str,
+            in_flight: u64,
+            now: SystemTime,
+        ) -> rusqlite::Result<Verdict>;
+
+        fn started(&self, file: &Connection, key: &str, now: SystemTime) -> rusqlite::Result<()>;
+
+        fn ended(
+            &self,
+            file: &Connection,
+            key: &str,
+            in_flight: u64,
+            ending: Ending,
+            now: SystemTime,
+        ) -> rusqlite::Result<Option<SystemTime>>;
+    }
+
+    impl OnFile for DomainRule {
+        fn admit(
+            &self,
+            file: &Connection,
+            key: &str,
+            in_flight: u64,
+            now: SystemTime,
+        ) -> rusqlite::Result<Verdict> {
+            changed(
+                file,
+                key,
+                PermitRule::reads(self, Step::Take),
+                |state: &mut DomainState| {
+                    (
+                        PermitRule::admit(self, state, in_flight, now),
+                        Wrote::default(),
+                    )
+                },
+            )
+        }
+
+        fn started(&self, file: &Connection, key: &str, now: SystemTime) -> rusqlite::Result<()> {
+            changed(
+                file,
+                key,
+                PermitRule::reads(self, Step::Take),
+                |state: &mut DomainState| ((), PermitRule::started(self, state, now)),
+            )
+        }
+
+        fn ended(
+            &self,
+            file: &Connection,
+            key: &str,
+            in_flight: u64,
+            ending: Ending,
+            now: SystemTime,
+        ) -> rusqlite::Result<Option<SystemTime>> {
+            changed(
+                file,
+                key,
+                PermitRule::reads(self, Step::GiveBack),
+                |state: &mut DomainState| PermitRule::ended(self, state, in_flight, ending, now),
+            )
+        }
+    }
+}
+
+use on_file::OnFile as _;
+
+/// Loads the state kept under `key` in `file` as `reads` says, runs `change`
+/// on it and saves what it wrote, as one `Politeness::change` does inside
+/// its transaction.
+fn changed<S: KeyState, T>(
+    file: &Connection,
+    key: &S::Key,
+    reads: S::Reads,
+    change: impl FnOnce(&mut S) -> (T, S::Writes),
+) -> rusqlite::Result<T> {
+    let mut state = S::load(file, key, reads)?;
+    let (answer, writes) = change(&mut state);
+    state.save(file, key, &writes)?;
+    Ok(answer)
+}
+
+/// Records in `file` that the robots.txt at `location` asks the requests
+/// of `key` for the Crawl-delay `delay`, or for none.
+fn crawl_delay_asked(
+    file: &Connection,
+    key: &str,
+    location: &str,
+    delay: Option<Duration>,
+) -> rusqlite::Result<()> {
+    changed(file, key, Parts::NONE, |state: &mut DomainState| {
+        ((), state.crawl_delay_asked(location.to_owned(), delay))
+    })
+}
+
+/// Takes in `file` the next start of `key` for a document after the
+/// robots.txt at `location` ([`DocumentStart::taken`]).
+fn document_start_taken(
+    file: &Connection,
+    key: &str,
+    location: &str,
+    fetched: Option<SystemTime>,
+    spacing: Duration,
+    now: SystemTime,
+) -> rusqlite::Result<Option<SystemTime>> {
+    let reads = DocumentReads {
+        fetched,
+        spacing,
+        now,
+    };
+    changed(
+        file,
+        &(key.to_owned(), location.to_owned()),
+        reads,
+        |state: &mut DocumentStart| state.taken(reads),
+    )
+}
+
+/// Takes in `file` the start of a request of `key` sent at `now`
+/// ([`DomainState::send_taken`]).
+fn send_taken(
+    file: &Connection,
+    key: &str,
+    now: SystemTime,
+    pace: Option<Pace>,
+) -> rusqlite::Result<Option<SystemTime>> {
+    changed(
+        file,
+        key,
+        DomainState::send_reads(pace.as_ref()),
+        |state: &mut DomainState| state.send_taken(now, pace),
+    )
+}
+
+/// Records in `file` a response of `key` that arrived `latency` after its
+/// request was sent ([`DomainState::latency_noted`]).
+fn latency_noted(file: &Connection, key: &str, latency: Duration) -> rusqlite::Result<()> {
+    changed(file, key, Parts::PACING, |state: &mut DomainState| {
+        ((), state.latency_noted(latency))
+    })
+}
+
+/// Moves in `file` the token a request of `key` sent at `sent` took
+/// ([`DomainState::start_moved`]).
+fn start_moved(file: &Connection, key: &str, sent: SystemTime) -> rusqlite::Result<()> {
+    changed(file, key, Parts::PACING, |state: &mut DomainState| {
+        ((), state.start_moved(sent))
+    })
+}
 
 const KEY: &str = "shop.test";
 

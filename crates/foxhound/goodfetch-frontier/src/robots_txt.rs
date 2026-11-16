@@ -31,7 +31,7 @@ use std::time::Duration;
 use ::url::Url;
 use goodfetch_counted_work::Row;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::politeness::{Politeness, PolitenessTables, milliseconds};
+use goodfetch_engine::politeness::{KeyState, Politeness, PolitenessTables, milliseconds};
 use goodfetch_engine::robots_txt::{Answer, Copied, Copies, Fetch, Fetched, MAX_SIZE};
 use rusqlite::{Connection, OptionalExtension as _};
 use tokio::sync::OnceCell;
@@ -146,6 +146,34 @@ pub(crate) fn store(connection: &Connection, location: &str, copy: &Copy) -> rus
         cached.execute((location, copy.fetched_at, copy.status, &copy.body))
     })?;
     Ok(())
+}
+
+/// The robots.txt copy kept for a location, as a plain value the
+/// Politeness file loads and saves.
+struct RobotsCopy(Option<Copy>);
+
+impl KeyState for RobotsCopy {
+    /// Its location.
+    type Key = str;
+    /// Whether a change reads the copy.
+    type Reads = bool;
+    /// Whether a change wrote it.
+    type Writes = bool;
+
+    fn load(connection: &Connection, location: &str, reads: bool) -> rusqlite::Result<Self> {
+        Ok(Self(if reads {
+            stored(connection, location)?
+        } else {
+            None
+        }))
+    }
+
+    fn save(&self, connection: &Connection, location: &str, wrote: &bool) -> rusqlite::Result<()> {
+        match &self.0 {
+            Some(copy) if *wrote => store(connection, location, copy),
+            _ => Ok(()),
+        }
+    }
 }
 
 /// The robots.txt copy a user's runs share, in the Politeness file they
@@ -300,7 +328,7 @@ impl SharedRobotsTxt {
         self.politeness.work().count(Row::RobotsReads);
         let copy = self
             .politeness
-            .transact(move |connection| stored(connection, &key))
+            .change(key, true, |copy: &mut RobotsCopy| (copy.0.take(), false))
             .await
             .unwrap_or_else(|error| {
                 tracing::warn!(%error, "the shared robots.txt copy could not be read; it is fetched");
@@ -311,7 +339,12 @@ impl SharedRobotsTxt {
             .filter(|copy| fresh(Some(copy), milliseconds(self.clock.wall())))
         {
             let applies = self.parsed(copy.applies());
-            self.keep(location.as_str(), copy, &applies);
+            self.keep(
+                location.as_str(),
+                copy.fetched_at,
+                copy.body.len(),
+                &applies,
+            );
             return applies;
         }
         let answer = fetch.await;
@@ -320,12 +353,16 @@ impl SharedRobotsTxt {
             && let Some(kept) = kept(copy, &answer, milliseconds(self.clock.wall()))
         {
             let key = location.as_str().to_owned();
+            let (fetched_at, bytes) = (kept.fetched_at, kept.body.len());
             match self
                 .politeness
-                .transact(move |connection| store(connection, &key, &kept).map(|()| kept))
+                .change(key, false, move |copy: &mut RobotsCopy| {
+                    copy.0 = Some(kept);
+                    ((), true)
+                })
                 .await
             {
-                Ok(kept) => self.keep(location.as_str(), &kept, &applied),
+                Ok(()) => self.keep(location.as_str(), fetched_at, bytes, &applied),
                 Err(error) => {
                     tracing::warn!(%error, "the shared robots.txt copy was not kept; it is fetched again");
                 }
@@ -345,16 +382,15 @@ impl SharedRobotsTxt {
         None
     }
 
-    /// Keeps `applies`, the parse of `copy`, as `location`'s while `copy`
-    /// is fresh.
-    fn keep(&self, location: &str, copy: &Copy, applies: &Arc<Fetched>) {
-        let weight =
-            u32::try_from(location.len() + copy.body.len() + PARSE_BYTES).unwrap_or(u32::MAX);
+    /// Keeps `applies`, the parse of the copy fetched at `fetched_at` whose
+    /// body is `bytes` long, as `location`'s while that copy is fresh.
+    fn keep(&self, location: &str, fetched_at: i64, bytes: usize, applies: &Arc<Fetched>) {
+        let weight = u32::try_from(location.len() + bytes + PARSE_BYTES).unwrap_or(u32::MAX);
         self.parses.insert(
             location.to_owned(),
             Parse {
                 applies: Arc::clone(applies),
-                fetched_at: copy.fetched_at,
+                fetched_at,
                 weight,
             },
         );

@@ -187,7 +187,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 124] = [
+const ROWS: [Row; 127] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -531,18 +531,22 @@ const ROWS: [Row; 124] = [
         happens: false,
         valgrind: None,
     },
+    // 0 in every cell: the writer opens its store and prepares its
+    // statements once a log, which the log's rows count (#1887). Callgrind
+    // reads `E2.prepares` over the entries after the log's first, whose
+    // preparations are the log's.
     Row {
         name: "E2.opens",
         family: "B3",
         unit: "audit_entries",
-        happens: true,
+        happens: false,
         valgrind: None,
     },
     Row {
         name: "E2.prepares",
         family: "B3",
-        unit: "audit_entries",
-        happens: true,
+        unit: "later_audit_entries",
+        happens: false,
         valgrind: None,
     },
     // 0 in every cell: no append prunes, the engine pruning as it starts
@@ -565,6 +569,29 @@ const ROWS: [Row; 124] = [
         name: "E2.syncs",
         family: "B3",
         unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
+    // The writer's own work, once a log: the store's first open, its
+    // schema set-up's commits and what its first entry prepares (#1887).
+    Row {
+        name: "E2.log_opens",
+        family: "B3",
+        unit: "audit_logs",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.log_transactions",
+        family: "B3",
+        unit: "audit_logs",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.log_prepares",
+        family: "B3",
+        unit: "audit_logs",
         happens: true,
         valgrind: None,
     },
@@ -1607,6 +1634,7 @@ fn one_of(unit: &str) -> &str {
     match unit {
         LINKS_BATCHES => "links batch",
         "audit_entries" => "audit_entry",
+        "later_audit_entries" => "later_audit_entry",
         "entries" => "entry",
         "batched_pages" | "full_pages" | CALLGRIND_PAGES => "page",
         ADDED_PAGES => "page added",

@@ -5,8 +5,9 @@
 //! At every `governor.sample_interval`, read on the `Clock`, it reads the
 //! machine (the `system` module), its settings from the engine's snapshot
 //! of the machine's settings, which the engine's own writes and each Run's
-//! admission refresh between samples (ADR 0140), the engine's CPU time against its
-//! allowance from `available_parallelism`, and the Tokio workers' busy time
+//! admission refresh between samples (ADR 0140), the engine's CPU time
+//! against its allowance, the CPUs it may use as `available_parallelism`
+//! counts them, and the Tokio workers' busy time
 //! (`worker_total_busy_duration`); its controller sizes each kind's target
 //! from them, the `shares` module admits up to it, and what it read and
 //! decided is its [`SystemInfo`], which the engine sends as
@@ -63,7 +64,7 @@ use storage::{Disks, Folders, Settled};
 
 use controller::{Bounds, Controller, Decision, Limits, Reading};
 use shares::Shares;
-use system::{Inputs, SystemReading};
+use system::{Cgroup, Inputs, SystemReading};
 
 /// The engine's Resource governor: a handle any task may clone.
 #[derive(Clone, Debug)]
@@ -325,6 +326,8 @@ struct Previous {
 impl Sampler {
     async fn run(self) {
         let started = self.clock.now();
+        let system = self.system.clone();
+        let cgroup = Arc::new(self.blocking.blocking(move || system.locate()).await);
         let mut controller = Controller::new();
         let mut previous: Option<Previous> = None;
         let mut levels: Vec<(Vec<PathBuf>, StorageLevel)> = Vec::new();
@@ -332,7 +335,6 @@ impl Sampler {
         loop {
             let machine = self.settings.snapshot().await;
             let settings = self.resolved(&machine, &mut unread);
-            levels = self.sample_storage(settings, &levels).await;
             let limits = Limits::of(settings);
             let inputs = Inputs {
                 memory_allowance: settings.get(&MEMORY_ALLOWANCE),
@@ -340,23 +342,12 @@ impl Sampler {
                 critical: limits.critical,
                 host_memory: settings.get(&HOST_MEMORY),
             };
-            let system = self.system.clone();
-            let processes = self.shares.browsers().processes();
-            let (read, footprints) = self
-                .blocking
-                .blocking(move || {
-                    let footprints: Vec<(u64, u64)> = processes
-                        .into_iter()
-                        .map(|(id, process)| (id, system.footprint(process)))
-                        .collect();
-                    (system.read(&inputs), footprints)
-                })
-                .await;
-            self.shares.browsers().measured(&footprints);
-            let browsers = footprints.iter().map(|(_, footprint)| footprint).sum();
+            let read;
+            (read, levels) = self.sample(settings, &cgroup, inputs, &levels).await;
+            let browsers = read.browsers.iter().sum();
             let now = self.clock.now();
             let tokio_busy = tokio_busy();
-            let parallelism = std::thread::available_parallelism().map_or(1, usize::from);
+            let parallelism = read.parallelism;
             let workers = tokio::runtime::Handle::current()
                 .metrics()
                 .num_workers()
@@ -423,27 +414,40 @@ impl Sampler {
         }
     }
 
-    /// Samples the filesystems of the folders held now under `settings`,
-    /// sends what it found, and logs each change of level from `before`,
-    /// the levels of the previous sample's filesystems by their folders;
-    /// answers this sample's.
-    async fn sample_storage(
+    /// Reads the machine, its limits where `cgroup` says, and the
+    /// filesystems of the folders held now under `settings`, in one
+    /// blocking task; hands each browser its memory, sends the storage
+    /// sample, and logs each change of level from `before`, the levels of
+    /// the previous sample's filesystems by their folders; answers the
+    /// machine's reading and this sample's levels.
+    async fn sample(
         &self,
         settings: &Resolved,
+        cgroup: &Arc<Cgroup>,
+        inputs: Inputs,
         before: &[(Vec<PathBuf>, StorageLevel)],
-    ) -> Vec<(Vec<PathBuf>, StorageLevel)> {
+    ) -> (SystemReading, Vec<(Vec<PathBuf>, StorageLevel)>) {
         let settled = Settled::of(settings);
         let folders = self.folders.now();
-        let disks = self.system.disks.clone();
+        let system = self.system.clone();
+        let cgroup = Arc::clone(cgroup);
+        let (ids, processes): (Vec<u64>, Vec<u32>) =
+            self.shares.browsers().processes().into_iter().unzip();
         let mut number = 0;
         self.beginning.send_modify(|begun| {
             *begun += 1;
             number = *begun;
         });
-        let sample = self
+        let (sample, read) = self
             .blocking
-            .blocking(move || disks.sample(number, &folders, &settled))
+            .blocking(move || {
+                let sample = system.disks.sample(number, &folders, &settled);
+                (sample, system.read(&cgroup, &inputs, &processes))
+            })
             .await;
+        let footprints: Vec<(u64, u64)> =
+            ids.into_iter().zip(read.browsers.iter().copied()).collect();
+        self.shares.browsers().measured(&footprints);
         for filesystem in &sample.filesystems {
             let was = before
                 .iter()
@@ -462,7 +466,7 @@ impl Sampler {
             .collect();
         self.settling.send_replace(settled);
         self.stored.send_replace(Arc::new(sample));
-        levels
+        (read, levels)
     }
 
     /// The governor's settings from `machine`, the engine's snapshot of

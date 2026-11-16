@@ -1,9 +1,12 @@
 //! What the governor reads of the machine at each sample (ADR 0040): the
 //! Memory allowance, the host's own memory pressure, the footprint of the
-//! engine and its children, and the engine's CPU time. A value, never a
-//! global: Linux's readings come from a folder laid out as `/proc`, the OS's
-//! own by default and a test's otherwise, so every rule is checked on any
-//! OS; macOS's and Windows' come from their C calls.
+//! engine and its children and of each browser, the engine's CPU time and
+//! the CPUs it may use. A value, never a global: Linux's readings come from
+//! a folder laid out as `/proc`, the OS's own by default and a test's
+//! otherwise, so every rule is checked on any OS; macOS's and Windows' come
+//! from their C calls. Where Linux keeps the engine's limits, its cgroup, is
+//! found once, as the governor starts ([`System::locate`]); each sample
+//! reads each thing once (ADR 0140's E4).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -14,6 +17,9 @@ use goodfetch_protocol::governor::{AllowanceSource, GovernorLevel};
 
 use super::storage::{Disks, FilesystemSource};
 
+pub(crate) use linux::Cgroup;
+
+mod cpus;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -53,7 +59,7 @@ pub(crate) struct Inputs {
 }
 
 /// What one reading found.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SystemReading {
     pub(crate) allowance: u64,
     pub(crate) allowance_source: AllowanceSource,
@@ -61,6 +67,12 @@ pub(crate) struct SystemReading {
     pub(crate) host: GovernorLevel,
     /// The engine's CPU time since it started.
     pub(crate) cpu_time: Duration,
+    /// The CPUs the engine may use: its affinity, within its cgroup's CPU
+    /// quota, as `available_parallelism` counts them; at least one.
+    pub(crate) parallelism: usize,
+    /// The memory of each browser asked for, in its order, as
+    /// [`footprint_of`] counts it.
+    pub(crate) browsers: Vec<u64>,
 }
 
 impl System {
@@ -100,25 +112,26 @@ impl System {
         self
     }
 
-    /// The memory of the process `process` and every descendant, as
-    /// [`footprint_of`] counts it, read where the governor reads the
-    /// machine. Blocking.
-    pub(crate) fn footprint(&self, process: u32) -> u64 {
+    /// Finds where the engine's limits are: on Linux, its cgroup, from
+    /// `self/cgroup` and `self/mountinfo`; nothing elsewhere. Once, as the
+    /// governor starts. Blocking.
+    pub(crate) fn locate(&self) -> Cgroup {
         match &self.source {
             Source::LinuxFiles(proc) => linux::Proc {
                 folder: proc,
                 work: &self.work,
             }
-            .footprint_from(&process.to_string()),
-            Source::Os => footprint_of(process),
+            .cgroup(),
+            Source::Os => os_cgroup(&self.work),
         }
     }
 
-    /// Reads the machine now. Blocking.
-    pub(crate) fn read(&self, inputs: &Inputs) -> SystemReading {
+    /// Reads the machine now, its limits where `cgroup` says, and the
+    /// memory of each process of `browsers` and every descendant. Blocking.
+    pub(crate) fn read(&self, cgroup: &Cgroup, inputs: &Inputs, browsers: &[u32]) -> SystemReading {
         let found = match &self.source {
-            Source::LinuxFiles(proc) => linux_files(proc, &self.work, inputs),
-            Source::Os => os(&self.work, inputs),
+            Source::LinuxFiles(proc) => linux_files(proc, &self.work, cgroup, inputs, browsers),
+            Source::Os => os(&self.work, cgroup, inputs, browsers),
         };
         let (allowance, allowance_source) = tightest(
             found.cgroup,
@@ -136,6 +149,8 @@ impl System {
                 GovernorLevel::Normal
             },
             cpu_time: found.cpu_time,
+            parallelism: found.parallelism,
+            browsers: found.browsers,
         }
     }
 }
@@ -176,28 +191,58 @@ struct Found {
     used: u64,
     host: GovernorLevel,
     cpu_time: Duration,
+    parallelism: usize,
+    browsers: Vec<u64>,
 }
 
-fn linux_files(proc: &Path, work: &CountedWork, inputs: &Inputs) -> Found {
+fn linux_files(
+    proc: &Path,
+    work: &CountedWork,
+    cgroup: &Cgroup,
+    inputs: &Inputs,
+    browsers: &[u32],
+) -> Found {
     let proc = linux::Proc { folder: proc, work };
+    let meminfo = proc.meminfo();
+    let (used, browsers) = proc.footprints(browsers);
+    let cpus = cpus::allowed();
     Found {
-        cgroup: proc.cgroup_limit(),
+        cgroup: cgroup.memory_limit(),
         job: None,
-        physical: proc.physical(),
-        used: proc.footprint(),
-        host: proc.host(inputs.pressure, inputs.critical),
+        physical: meminfo.total,
+        used,
+        host: proc.host(meminfo, inputs.pressure, inputs.critical),
         cpu_time: proc.cpu_time(),
+        parallelism: cgroup.cpu_quota().map_or(cpus, |quota| {
+            cpus.min(usize::try_from(quota).unwrap_or(usize::MAX))
+        }),
+        browsers,
     }
 }
 
 #[cfg(target_os = "linux")]
-fn os(work: &CountedWork, inputs: &Inputs) -> Found {
-    linux_files(Path::new("/proc"), work, inputs)
+fn os_cgroup(work: &CountedWork) -> Cgroup {
+    linux::Proc {
+        folder: Path::new("/proc"),
+        work,
+    }
+    .cgroup()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn os_cgroup(work: &CountedWork) -> Cgroup {
+    let _ = work;
+    Cgroup::default()
+}
+
+#[cfg(target_os = "linux")]
+fn os(work: &CountedWork, cgroup: &Cgroup, inputs: &Inputs, browsers: &[u32]) -> Found {
+    linux_files(Path::new("/proc"), work, cgroup, inputs, browsers)
 }
 
 #[cfg(target_os = "macos")]
-fn os(work: &CountedWork, inputs: &Inputs) -> Found {
-    let _ = (work, inputs);
+fn os(work: &CountedWork, cgroup: &Cgroup, inputs: &Inputs, browsers: &[u32]) -> Found {
+    let _ = (work, cgroup, inputs);
     Found {
         cgroup: None,
         job: None,
@@ -205,12 +250,17 @@ fn os(work: &CountedWork, inputs: &Inputs) -> Found {
         used: macos::footprint(),
         host: macos::host(),
         cpu_time: macos::cpu_time(),
+        parallelism: cpus::allowed(),
+        browsers: browsers
+            .iter()
+            .map(|process| footprint_of(*process))
+            .collect(),
     }
 }
 
 #[cfg(windows)]
-fn os(work: &CountedWork, inputs: &Inputs) -> Found {
-    let _ = work;
+fn os(work: &CountedWork, cgroup: &Cgroup, inputs: &Inputs, browsers: &[u32]) -> Found {
+    let _ = (work, cgroup);
     Found {
         cgroup: None,
         job: windows::job_limit(),
@@ -218,12 +268,17 @@ fn os(work: &CountedWork, inputs: &Inputs) -> Found {
         used: windows::footprint(),
         host: windows::host(inputs.pressure, inputs.critical),
         cpu_time: windows::cpu_time(),
+        parallelism: cpus::allowed(),
+        browsers: browsers
+            .iter()
+            .map(|process| footprint_of(*process))
+            .collect(),
     }
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-fn os(work: &CountedWork, inputs: &Inputs) -> Found {
-    let _ = (work, inputs);
+fn os(work: &CountedWork, cgroup: &Cgroup, inputs: &Inputs, browsers: &[u32]) -> Found {
+    let _ = (work, cgroup, inputs);
     Found {
         cgroup: None,
         job: None,
@@ -231,6 +286,8 @@ fn os(work: &CountedWork, inputs: &Inputs) -> Found {
         used: 0,
         host: GovernorLevel::Normal,
         cpu_time: Duration::ZERO,
+        parallelism: cpus::allowed(),
+        browsers: vec![0; browsers.len()],
     }
 }
 

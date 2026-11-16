@@ -10,6 +10,7 @@
 
 use std::time::SystemTime;
 
+use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_engine::{CallError, retry_after};
 use goodfetch_fetch_tier::{FetchFailure, TransportFailure};
 use goodfetch_frontier::backoff_classes::{Class, Met, class};
@@ -21,6 +22,9 @@ use goodfetch_protocol::page::{BLOCKED, NAVIGATION_FAILED, PAGE_CHECK_FAILED};
 use goodfetch_protocol::run::RUN_STATE_UNAVAILABLE;
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use serde_json::{Map, Value};
+
+use crate::policy::CrawlPolicy;
+use crate::work_items::{Failure, Unsuccessful};
 
 /// The detail naming the time a site's `Retry-After` asked for, as the
 /// engine's `blocked` spells it on the wire (ADRs 0038 and 0118).
@@ -229,6 +233,51 @@ fn read(code: &str, details: &Map<String, Value>) -> Why {
         return Why::Handler;
     }
     Why::Other
+}
+
+/// A handler's failure as the Run's state keeps it: no value of `masks`,
+/// those the Run resolved, stays in its message or details (spec #564).
+pub(super) fn kept_failure(
+    masks: &Masks,
+    code: String,
+    message: &str,
+    details: Map<String, Value>,
+) -> Failure {
+    let mut kept = Value::Object(details);
+    masks.apply_value(&mut kept, Scope::Kept);
+    let Value::Object(details) = kept else {
+        unreachable!("invariant: masking an object leaves an object")
+    };
+    Failure {
+        code,
+        message: masks.apply(message, Scope::Kept).into_owned(),
+        details,
+    }
+}
+
+/// How `failure`, which failed for `why`, on a work item's `attempt`th
+/// attempt since its latest admission ends it under `policy`: retried
+/// while it is `retryable` and retries are left, failed otherwise; a
+/// handler's own failure is retryable only as `crawl.retry.handler_failed`
+/// says, and one the engine's panic ended only as
+/// `crawl.retry.engine_panicked` says (ADR 0148).
+pub(super) fn retried_or_failed(
+    policy: CrawlPolicy,
+    attempt: u32,
+    failure: Failure,
+    why: &Why,
+    retryable: bool,
+) -> Unsuccessful {
+    let retryable = match why {
+        Why::Handler => policy.retry_handler_failed,
+        Why::Panicked => policy.retry_engine_panicked,
+        _ => retryable,
+    };
+    if retryable && policy.may_retry(attempt) {
+        Unsuccessful::Retried(failure)
+    } else {
+        Unsuccessful::Failed(failure)
+    }
 }
 
 #[cfg(test)]

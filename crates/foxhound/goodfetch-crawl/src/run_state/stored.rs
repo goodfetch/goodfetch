@@ -47,10 +47,21 @@ use crate::invariants::Invariants;
 use crate::staging::Staging;
 use crate::work_items::{self, Changed, Failure, Leased, Positions, Unsuccessful};
 
-/// What an outcome's job answers: how its work item ended, each pending
-/// request a rule its page taught merged, by ID with its domain key, and
-/// what it changed of the crawl's requests by state.
-pub(crate) type EndWritten = Result<Written, StateError>;
+/// What an outcome's job answers: how its work item ended and what it
+/// changed of the crawl's requests by state, with the commits the writer
+/// had acknowledged when it ran.
+pub(crate) type EndWritten = Result<Ran<Written>, StateError>;
+
+/// What a job of the run file's writer answered, with how many commits
+/// the writer had acknowledged when it ran: what it wrote is in the commit
+/// after them, which a read sees once that many and one more are
+/// acknowledged (ADR 0142). The loop may hear the answer after that commit,
+/// so the count it reads then could be one too many (#2679).
+#[derive(Debug)]
+pub(crate) struct Ran<T> {
+    pub(crate) answer: T,
+    pub(crate) commits: u64,
+}
 
 /// What a write the loop waited for gave the crawl: the work items it
 /// added, each keyed as it was added and as its first lease takes it, for
@@ -156,7 +167,7 @@ impl Stored {
         }
         let teacher = Arc::new(Teacher::new(
             invariants.shared_frontier(),
-            clock,
+            (clock, writer.commits()),
             work.clone(),
         ));
         writer.end_batches_with(Arc::clone(&teacher) as _);
@@ -687,8 +698,10 @@ impl Stored {
     pub(crate) async fn end(&self, outcome: Outcome) -> QueuedEnd {
         match self.writer.reserve().await {
             Ok(place) => {
-                let written =
-                    place.write_with(ATTEMPT_ENDED, move |connection| outcome.write(connection));
+                let written = place.write_with(
+                    ATTEMPT_ENDED,
+                    self.ran(move |connection| outcome.write(connection)),
+                );
                 Box::pin(async move { written.await.map_err(StateError::from) })
             }
             Err(error) => Box::pin(std::future::ready(Err(error.into()))),
@@ -708,20 +721,23 @@ impl Stored {
         (work_item, lease_epoch): (String, u64),
         unsuccessful: Unsuccessful,
         ended_at: PointInTime,
-    ) -> Result<(Ended, Changed), StateError> {
+    ) -> Result<Ran<(Ended, Changed)>, StateError> {
         Ok(self
             .writer
-            .write_with(ATTEMPT_ENDED, move |connection| {
-                let mut changed = Changed::default();
-                let ended = attempt_outcome::end(
-                    connection,
-                    (&work_item, lease_epoch),
-                    unsuccessful,
-                    &ended_at,
-                    &mut changed,
-                )?;
-                Ok((ended, changed.with_sitemaps(connection)?))
-            })
+            .write_with(
+                ATTEMPT_ENDED,
+                self.ran(move |connection| {
+                    let mut changed = Changed::default();
+                    let ended = attempt_outcome::end(
+                        connection,
+                        (&work_item, lease_epoch),
+                        unsuccessful,
+                        &ended_at,
+                        &mut changed,
+                    )?;
+                    Ok((ended, changed.with_sitemaps(connection)?))
+                }),
+            )
             .await?)
     }
 
@@ -738,30 +754,49 @@ impl Stored {
         &self,
         unsent: Vec<(String, Failure)>,
         ended_at: PointInTime,
-    ) -> Result<Changed, StateError> {
+    ) -> Result<Ran<Changed>, StateError> {
         let ended = Syncing::Attempt {
             ended: u64::try_from(unsent.len()).unwrap_or(u64::MAX),
             bytes: 0,
         };
         Ok(self
             .writer
-            .write_with(ended, move |connection| {
-                let mut changed = Changed::default();
-                for (id, failure) in unsent {
-                    for leased in work_items::lease(connection, std::slice::from_ref(&id))? {
-                        work_items::end(
-                            connection,
-                            &id,
-                            leased.lease_epoch,
-                            Unsuccessful::Failed(failure.clone()),
-                            &ended_at,
-                            &mut changed,
-                        )?;
+            .write_with(
+                ended,
+                self.ran(move |connection| {
+                    let mut changed = Changed::default();
+                    for (id, failure) in unsent {
+                        for leased in work_items::lease(connection, std::slice::from_ref(&id))? {
+                            work_items::end(
+                                connection,
+                                &id,
+                                leased.lease_epoch,
+                                Unsuccessful::Failed(failure.clone()),
+                                &ended_at,
+                                &mut changed,
+                            )?;
+                        }
                     }
-                }
-                changed.with_sitemaps(connection)
-            })
+                    changed.with_sitemaps(connection)
+                }),
+            )
             .await?)
+    }
+
+    /// `job`, answering with how many commits the writer had acknowledged
+    /// as it began to run (#2679).
+    fn ran<T>(
+        &self,
+        job: impl FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    ) -> impl FnOnce(&Connection) -> rusqlite::Result<Ran<T>> + Send + 'static {
+        let commits = self.writer.commits();
+        move |connection| {
+            let commits = *commits.borrow();
+            Ok(Ran {
+                answer: job(connection)?,
+                commits,
+            })
+        }
     }
 
     /// Writes `counted`, the tier choices' counts the run file has not

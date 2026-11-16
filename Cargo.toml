@@ -287,6 +287,10 @@ web-bot-auth = { version = "0.7.0", default-features = false }
 # takes its covered components as an `IndexMap` and its keys as Ed25519.
 ed25519-dalek = { version = "2.2.0", default-features = false }
 indexmap = { version = "2.14.2", default-features = false }
+# The Frontier holds each visited identity memory keeps as a slot number,
+# found by its identity's hash (#2169): `HashTable` keeps 4 bytes a
+# bucket where std's `HashMap` would keep the key and value.
+hashbrown = { version = "0.17.1", default-features = false }
 insta = { version = "1.49.0", default-features = false }
 # The engine's own DNS resolver (ADRs 0024, 0044): the static musl
 # executables have no libc resolver to call, and Sessions with a local

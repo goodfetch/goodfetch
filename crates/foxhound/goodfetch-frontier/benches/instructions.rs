@@ -34,7 +34,7 @@ library_benchmark_group!(name = identity, benchmarks = url_key);
 #[bench::no_urls(0)]
 #[bench::hundred_thousand_urls(100_000)]
 fn enqueue(urls: usize) -> usize {
-    black_box(scenarios::enqueue(black_box(urls)))
+    black_box(scenarios::enqueue(black_box(urls), None))
 }
 
 library_benchmark_group!(name = frontier, benchmarks = enqueue);

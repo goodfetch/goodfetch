@@ -88,7 +88,8 @@ fn one(
     head: &Figures<'_>,
     measured: &BTreeSet<&str>,
 ) -> Result<Check> {
-    let started = subjects(ceiling)
+    let started = ceiling
+        .subjects()
         .iter()
         .any(|subject| measured.contains(subject));
     let (subject, figure, limit) = describe(ceiling);
@@ -110,14 +111,6 @@ fn one(
         ceiling: limit,
         verdict,
     })
-}
-
-/// The benchmarks or entries a ceiling reads.
-fn subjects(ceiling: &Ceiling) -> Vec<&'static str> {
-    match *ceiling {
-        Ceiling::Figure { subject, .. } | Ceiling::PerBodyByte { subject, .. } => vec![subject],
-        Ceiling::PerUrl { subject, empty, .. } => vec![subject, empty],
-    }
 }
 
 /// A ceiling's subject, figure name and limit, as the table shows them.
@@ -144,6 +137,16 @@ fn describe(ceiling: &Ceiling) -> (&'static str, &'static str, String) {
             max_multiple,
             ..
         } => (subject, "bytes-per-body-byte", format!("≤ {max_multiple}×")),
+        Ceiling::OfBudget {
+            subject,
+            budget_bytes,
+            max_percent,
+            ..
+        } => (
+            subject,
+            "heap-percent-of-budget",
+            format!("≤ {max_percent}% of {budget_bytes} bytes"),
+        ),
     }
 }
 
@@ -172,6 +175,21 @@ fn evaluate(root: &Path, ceiling: &Ceiling, head: &Figures<'_>) -> Result<Option
                 (
                     format!("{} bytes", hundredths(bytes, i128::from(urls))),
                     bytes > i128::from(max_bytes) * i128::from(urls),
+                )
+            }),
+        Ceiling::OfBudget {
+            subject,
+            empty,
+            budget_bytes,
+            max_percent,
+        } => head
+            .get(&(subject, Figure::GlobalMaximumBytes))
+            .zip(head.get(&(empty, Figure::GlobalMaximumBytes)))
+            .map(|(full, empty)| {
+                let bytes = i128::from(*full) - i128::from(*empty);
+                (
+                    format!("{}%", hundredths(bytes * 100, i128::from(budget_bytes))),
+                    bytes * 100 > i128::from(max_percent) * i128::from(budget_bytes),
                 )
             }),
         Ceiling::PerBodyByte {

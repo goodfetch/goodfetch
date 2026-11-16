@@ -60,7 +60,6 @@
     reason = "the visits a batching writer has not committed, guarded for a duplicate check and its visit, inside one writer job or one reader transaction, never held with another lock or across an await, so there is no lock order to test under loom"
 )]
 
-use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -74,6 +73,7 @@ use rusqlite::Connection;
 pub use self::budget::SharedBudget;
 pub(crate) use self::counts::Counts;
 use self::counts::CountsBefore;
+use self::entries::{Before, Entries, Id, State};
 pub(crate) use self::learned::{EVERY_LEARNED, LEARNED_WITHIN};
 pub use self::lookups::Lookup;
 use self::lookups::Lookups;
@@ -82,6 +82,7 @@ pub(crate) use self::rules::{HeldRule, LearnedRules};
 
 mod budget;
 mod counts;
+mod entries;
 mod learned;
 mod lookups;
 mod marks;
@@ -111,22 +112,14 @@ impl fmt::Debug for UnwrittenVisits {
 
 #[derive(Debug)]
 struct Held {
-    /// Each identity visited, as the `visited` table keeps it.
-    visited: HashMap<Arc<str>, Visit>,
-    /// Each learned identity, with the rule that took its last parameter
-    /// away, as the `learned_identities` table keeps it.
-    learned: HashMap<Arc<str>, (i64, Visit)>,
-    /// Each seed's measure, as the `scope_seeds` table keeps it, with no
-    /// crawl request.
-    seeds: HashMap<Arc<str>, Visit>,
-    /// Each identity or seed a writer job wrote, in the order it did,
-    /// with the commits acknowledged as it did: the order they reach the
-    /// file.
-    written: VecDeque<(u64, Space, Arc<str>)>,
-    /// Each visited identity and seed the file holds that memory keeps,
-    /// in the order it reached the file, with its tag: the first leave
-    /// first.
-    resident: VecDeque<(u64, Space, Arc<str>)>,
+    /// Each identity visited, as the `visited` table keeps it, each
+    /// learned identity with the rule that took its last parameter away,
+    /// as the `learned_identities` table keeps it, and each seed's
+    /// measure, as the `scope_seeds` table keeps it: those a writer job
+    /// wrote in the order it did, the order they reach the file, and
+    /// those the file holds in the order they reached it, the first to
+    /// leave first.
+    entries: Entries,
     /// The Bounds' counts, as the file holds them with the writes not
     /// committed yet, once an admission that writes read them.
     counts: Option<Counts>,
@@ -138,9 +131,6 @@ struct Held {
     /// What the writer job running now changed here, to take back if its
     /// work fails.
     journal: Journal,
-    /// The bytes the entries held allocate, as [`cost`] counts them; the
-    /// tables and queues holding them add theirs ([`Held::bytes`]).
-    entries: u64,
     /// The most bytes kept of what the file holds, less what the Run
     /// state's pending work items hold.
     budget: SharedBudget,
@@ -185,23 +175,14 @@ impl Whole {
     }
 }
 
-#[derive(Debug)]
-struct Visit {
-    /// The crawl request it was visited for; empty for a seed's measure.
-    crawl_request: Box<str>,
-    /// The commits acknowledged as a writer job visited it; none while
-    /// its chain's visit job is queued.
-    written: Option<u64>,
-}
-
-/// What one writer job changed, each identity with its tag before the
-/// job: none when the job added it or held it as a chain's pending end;
+/// What one writer job changed, each entry with where it was before the
+/// job: absent when the job added it or held it as a chain's pending end;
 /// and the Bounds' counts before its first count, when it counted.
 #[derive(Debug, Default)]
 struct Journal {
     /// The commits acknowledged as it noted its first change.
     tag: u64,
-    changes: Vec<(Space, Arc<str>, Option<u64>)>,
+    changes: Vec<(Id, Before)>,
     counts: CountsBefore,
     /// The lowest ID of the learned rules it read, which its failure has
     /// memory read again.
@@ -233,129 +214,20 @@ impl Journal {
     }
 }
 
-/// The bytes an identity held for `crawl_request` allocates of its own:
-/// its text behind its shared header, and the request's text. Its slot in
-/// a table and its places in the queues are the containers' bytes
-/// ([`Held::containers`]).
-fn cost(identity: &str, crawl_request: &str) -> u64 {
-    u64::try_from(2 * size_of::<usize>() + identity.len() + crawl_request.len()).unwrap_or(u64::MAX)
-}
-
-/// The bytes a hash table with room for `capacity` entries of `T` takes,
-/// as std's lays it out: for each bucket a slot and a control byte, one
-/// bucket in eight kept empty past seven, and a group of control bytes
-/// more. A table never gives back the room it grew to, and grows past
-/// what it holds as entries leave and others come, so its room, not its
-/// entries, is what it costs.
-fn table<T>(capacity: usize) -> usize {
-    if capacity == 0 {
-        return 0;
-    }
-    let buckets = if capacity < 8 {
-        capacity + 1
-    } else {
-        capacity / 7 * 8
-    };
-    buckets * (size_of::<T>() + 1) + CONTROL_GROUP
-}
-
-/// The control bytes a hash table holds past its buckets.
-const CONTROL_GROUP: usize = 16;
-
-/// The room a container holding `len` entries keeps once it gives back
-/// what it does not need: an eighth more, and one, so the next entries
-/// fill it before it grows. Without it a full memory would give back its
-/// room at one lock and grow again at the next admission, rebuilding a
-/// table each time; with it, at most once in an eighth of what it holds.
-fn ample(len: usize) -> usize {
-    if len == 0 { 0 } else { len + len / 8 + 1 }
-}
-
-/// The room a hash table asked for room for `len` entries keeps, as std's
-/// sizes it: a power of two of buckets,
-/// one in eight kept empty past eight.
-fn room(len: usize) -> usize {
-    if len == 0 {
-        return 0;
-    }
-    let buckets = match len {
-        1..4 => 4,
-        4..8 => 8,
-        _ => (len.saturating_mul(8) / 7).next_power_of_two(),
-    };
-    if buckets <= 8 {
-        buckets - 1
-    } else {
-        buckets / 8 * 7
-    }
-}
-
 impl Held {
-    fn visit(&self, space: Space, identity: &str) -> Option<&Visit> {
-        match space {
-            Space::Visited => self.visited.get(identity),
-            Space::Learned => self.learned.get(identity).map(|(_, visit)| visit),
-            Space::Seed => self.seeds.get(identity),
-        }
-    }
-
-    /// The key `identity` is held under in `space`.
-    fn key(&self, space: Space, identity: &str) -> Option<&Arc<str>> {
-        match space {
-            Space::Visited => self.visited.get_key_value(identity),
-            Space::Learned => self
-                .learned
-                .get_key_value(identity)
-                .map(|(key, (_, visit))| (key, visit)),
-            Space::Seed => self.seeds.get_key_value(identity),
-        }
-        .map(|(key, _)| key)
-    }
-
-    fn visit_mut(&mut self, space: Space, identity: &str) -> Option<&mut Visit> {
-        match space {
-            Space::Visited => self.visited.get_mut(identity),
-            Space::Learned => self.learned.get_mut(identity).map(|(_, visit)| visit),
-            Space::Seed => self.seeds.get_mut(identity),
-        }
-    }
-
-    /// Adds `identity` in `space`, for `crawl_request`, `written` under
-    /// that tag or pending.
+    /// Holds `identity` in `space`, with `rule` for a learned identity,
+    /// as visited for `crawl_request`, in `state`.
     fn insert(
         &mut self,
         space: Space,
-        (identity, rule): (&Arc<str>, i64),
+        identity: (&str, i64),
         crawl_request: &str,
-        written: Option<u64>,
-    ) {
-        self.entries = self.entries.saturating_add(cost(identity, crawl_request));
-        let visit = Visit {
-            crawl_request: crawl_request.into(),
-            written,
-        };
-        match space {
-            Space::Visited => {
-                self.lookups.visited(identity);
-                drop(self.visited.insert(Arc::clone(identity), visit));
-            }
-            Space::Learned => drop(self.learned.insert(Arc::clone(identity), (rule, visit))),
-            Space::Seed => drop(self.seeds.insert(Arc::clone(identity), visit)),
+        state: State,
+    ) -> Id {
+        if space == Space::Visited {
+            self.lookups.visited(identity.0);
         }
-    }
-
-    /// Takes `identity` out of `space`.
-    fn remove(&mut self, space: Space, identity: &str) {
-        let removed = match space {
-            Space::Visited => self.visited.remove(identity),
-            Space::Learned => self.learned.remove(identity).map(|(_, visit)| visit),
-            Space::Seed => self.seeds.remove(identity),
-        };
-        if let Some(visit) = removed {
-            self.entries = self
-                .entries
-                .saturating_sub(cost(identity, &visit.crawl_request));
-        }
+        self.entries.insert(space, identity, crawl_request, state)
     }
 
     /// Notes that a writer job visited `identity` in `space` for
@@ -369,29 +241,16 @@ impl Held {
         tag: u64,
     ) {
         self.journal.under(tag);
-        let identity: Arc<str> = match self.visit_mut(space, identity) {
-            Some(visit) if *visit.crawl_request != *crawl_request => return,
-            Some(visit) => {
-                let before = visit.written.replace(tag);
-                let identity = self
-                    .key(space, identity)
-                    .map(Arc::clone)
-                    .expect("invariant: the identity just found is held");
-                self.journal
-                    .changes
-                    .push((space, Arc::clone(&identity), before));
-                identity
-            }
-            None => {
-                let identity: Arc<str> = identity.into();
-                self.insert(space, (&identity, rule), crawl_request, Some(tag));
-                self.journal
-                    .changes
-                    .push((space, Arc::clone(&identity), None));
-                identity
-            }
+        let (id, before) = match self.entries.find(space, identity) {
+            Some(id) if self.entries.visitor(id) != crawl_request => return,
+            Some(id) => (id, self.entries.before(id)),
+            None => (
+                self.insert(space, (identity, rule), crawl_request, State::Unplaced),
+                Before::Absent,
+            ),
         };
-        self.written.push_back((tag, space, identity));
+        self.entries.push_written(id, tag);
+        self.journal.changes.push((id, before));
     }
 
     /// Takes back what the writer job running now changed: its work
@@ -410,16 +269,12 @@ impl Held {
             CountsBefore::Held(counts) => self.counts = Some(counts),
         }
         let changes = std::mem::take(&mut self.journal.changes);
-        for (space, identity, before) in changes.into_iter().rev() {
+        for (id, before) in changes.into_iter().rev() {
             match before {
-                Some(tag) => {
-                    if let Some(visit) = self.visit_mut(space, &identity) {
-                        visit.written = Some(tag);
-                    }
-                }
                 // Added by the job, or a chain's end its job visited: the
                 // file holds neither, and the chain's job is over.
-                None => self.remove(space, &identity),
+                Before::Absent => self.entries.remove(id),
+                Before::Placed(..) => self.entries.restore(id, before),
             }
         }
     }
@@ -429,20 +284,7 @@ impl Held {
     /// out of what the file does not hold: each is kept while what is held
     /// is within the budget, the oldest leaving first.
     fn prune(&mut self, committed: u64) {
-        while let Some((tag, _, _)) = self.written.front()
-            && *tag < committed
-        {
-            let Some((tag, space, identity)) = self.written.pop_front() else {
-                break;
-            };
-            // A later visit of it holds a later tag, or none.
-            if self
-                .visit(space, &identity)
-                .is_some_and(|visit| visit.written == Some(tag))
-            {
-                self.resident.push_back((tag, space, identity));
-            }
-        }
+        self.entries.prune(committed);
         self.fit();
     }
 
@@ -458,11 +300,7 @@ impl Held {
         }
         self.evict();
         if self.bytes() > self.budget.room() {
-            self.visited.shrink_to(ample(self.visited.len()));
-            self.learned.shrink_to(ample(self.learned.len()));
-            self.seeds.shrink_to(ample(self.seeds.len()));
-            self.written.shrink_to(ample(self.written.len()));
-            self.resident.shrink_to(ample(self.resident.len()));
+            self.entries.shrink(&mut self.journal.changes);
         }
     }
 
@@ -472,30 +310,26 @@ impl Held {
     fn evict(&mut self) {
         while self
             .entries
+            .texts()
             .saturating_add(self.kept())
-            .saturating_add(self.containers().min(self.least(0)))
+            .saturating_add(self.entries.containers().min(self.entries.least(0)))
             > self.budget.room()
-            && let Some((tag, space, identity)) = self.resident.pop_front()
+            && let Some(evicted) = self.entries.evict()
         {
-            if self
-                .visit(space, &identity)
-                .is_some_and(|visit| visit.written == Some(tag))
-            {
-                self.remove(space, &identity);
-                match space {
-                    Space::Visited => self.every_visit.spilled = true,
-                    Space::Learned => self.every_learned.spilled = true,
-                    Space::Seed => self.every_seed.spilled = true,
-                }
+            match evicted {
+                Space::Visited => self.every_visit.spilled = true,
+                Space::Learned => self.every_learned.spilled = true,
+                Space::Seed => self.every_seed.spilled = true,
             }
         }
     }
 
-    /// The bytes held: the entries' own ([`cost`]), the containers' and
-    /// the learned rules'.
+    /// The bytes held: the entries' texts, the containers' and the
+    /// learned rules'.
     fn bytes(&self) -> u64 {
         self.entries
-            .saturating_add(self.containers())
+            .texts()
+            .saturating_add(self.entries.containers())
             .saturating_add(self.kept())
     }
 
@@ -504,26 +338,15 @@ impl Held {
         self.rules.as_ref().map_or(0, LearnedRules::bytes)
     }
 
-    /// The bytes the tables and queues holding the entries take, by the
-    /// room each has ([`table`]).
-    fn containers(&self) -> u64 {
-        let queued = self.written.capacity() + self.resident.capacity();
-        let bytes = table::<(Arc<str>, Visit)>(self.visited.capacity())
-            + table::<(Arc<str>, (i64, Visit))>(self.learned.capacity())
-            + table::<(Arc<str>, Visit)>(self.seeds.capacity())
-            + queued * size_of::<(u64, Space, Arc<str>)>();
-        u64::try_from(bytes).unwrap_or(u64::MAX)
-    }
-
-    /// The bytes the containers would take keeping only the room they
-    /// need ([`ample`]), with `queued` more in the resident queue.
-    fn least(&self, queued: usize) -> u64 {
-        let queued = ample(self.written.len()) + ample(self.resident.len() + queued);
-        let bytes = table::<(Arc<str>, Visit)>(room(ample(self.visited.len())))
-            + table::<(Arc<str>, (i64, Visit))>(room(ample(self.learned.len())))
-            + table::<(Arc<str>, Visit)>(room(ample(self.seeds.len())))
-            + queued * size_of::<(u64, Space, Arc<str>)>();
-        u64::try_from(bytes).unwrap_or(u64::MAX)
+    /// Whether what is held, with containers keeping only the room they
+    /// need and `queued` more entries in the resident queue, is past the
+    /// budget.
+    fn past(&self, queued: usize) -> bool {
+        self.entries
+            .texts()
+            .saturating_add(self.kept())
+            .saturating_add(self.entries.least(queued))
+            > self.budget.room()
     }
 
     /// Reads the seeds `connection` holds, the file's, each as `seeds`
@@ -541,9 +364,9 @@ impl Held {
         // What the file held as the crawl opened reached it before any
         // batch memory noted: it leaves first, the visits before the
         // seeds.
-        for (space, read) in [(Space::Seed, seeds), (Space::Visited, visits)] {
-            for identity in read.into_iter().rev() {
-                self.resident.push_front((0, space, identity));
+        for read in [seeds, visits] {
+            for id in read.into_iter().rev() {
+                self.entries.push_resident_front(id);
             }
         }
         self.every_seed.read = every_seed;
@@ -563,7 +386,7 @@ impl Held {
         space: Space,
         query: &str,
         queued: usize,
-    ) -> rusqlite::Result<(Vec<Arc<str>>, bool)> {
+    ) -> rusqlite::Result<(Vec<Id>, bool)> {
         let mut read = Vec::new();
         let mut statement = connection.prepare(query)?;
         let mut rows = statement.query([])?;
@@ -573,30 +396,21 @@ impl Held {
                 Space::Visited => row.get_ref(1)?.as_str()?,
                 Space::Learned | Space::Seed => "",
             };
-            if let Some(visit) = self.visit_mut(space, identity) {
+            if let Some(id) = self.entries.find(space, identity) {
                 // Held as a chain's pending end, which the file holds: it
                 // stays once its job is dropped.
-                if visit.written.is_none() {
-                    visit.written = Some(0);
-                    read.push(Arc::clone(
-                        self.key(space, identity)
-                            .expect("invariant: the identity just found is held"),
-                    ));
+                if self.entries.state(id) == State::Pending {
+                    self.entries.unplace(id);
+                    read.push(id);
                 }
                 continue;
             }
-            let identity: Arc<str> = identity.into();
-            self.insert(space, (&identity, 0), crawl_request, Some(0));
-            if self
-                .entries
-                .saturating_add(self.kept())
-                .saturating_add(self.least(queued + read.len() + 1))
-                > self.budget.room()
-            {
-                self.remove(space, &identity);
+            let id = self.insert(space, (identity, 0), crawl_request, State::Unplaced);
+            if self.past(queued + read.len() + 1) {
+                self.entries.remove(id);
                 return Ok((read, false));
             }
-            read.push(identity);
+            read.push(id);
         }
         Ok((read, true))
     }
@@ -649,8 +463,9 @@ impl Holding<'_> {
         identity: &str,
         read: impl FnOnce() -> rusqlite::Result<Option<String>>,
     ) -> rusqlite::Result<Option<String>> {
-        if let Some(visit) = self.held.visited.get(identity) {
-            return Ok(Some(String::from(&*visit.crawl_request)));
+        let entries = &self.held.entries;
+        if let Some(id) = entries.find(Space::Visited, identity) {
+            return Ok(Some(String::from(entries.visitor(id))));
         }
         if self.held.every_visit.holds() {
             return Ok(None);
@@ -693,17 +508,16 @@ impl Holding<'_> {
     ) -> Pending {
         let mut inserted = Vec::new();
         let held = &mut *self.held;
-        if !held.visited.contains_key(plain) {
-            let plain: Arc<str> = plain.into();
-            held.insert(Space::Visited, (&plain, 0), crawl_request, None);
-            inserted.push((Space::Visited, plain));
-        }
-        if let Some((learned, rule)) = learned
-            && !held.learned.contains_key(learned)
-        {
-            let learned: Arc<str> = learned.into();
-            held.insert(Space::Learned, (&learned, rule), crawl_request, None);
-            inserted.push((Space::Learned, learned));
+        for (space, entry) in [
+            (Space::Visited, Some((plain, 0))),
+            (Space::Learned, learned),
+        ] {
+            if let Some((identity, rule)) = entry
+                && held.entries.find(space, identity).is_none()
+            {
+                held.insert(space, (identity, rule), crawl_request, State::Pending);
+                inserted.push((space, Box::from(identity)));
+            }
         }
         Pending {
             held: Arc::clone(&self.visits.held),
@@ -737,7 +551,7 @@ impl Holding<'_> {
     ) -> rusqlite::Result<bool> {
         if measures
             .into_iter()
-            .any(|measure| self.held.seeds.contains_key(measure))
+            .any(|measure| self.held.entries.find(Space::Seed, measure).is_some())
         {
             return Ok(true);
         }
@@ -755,7 +569,7 @@ impl Holding<'_> {
 pub(crate) struct Pending {
     held: Arc<Mutex<Held>>,
     /// What this chain's end added.
-    inserted: Vec<(Space, Arc<str>)>,
+    inserted: Vec<(Space, Box<str>)>,
     done: bool,
 }
 
@@ -773,11 +587,10 @@ impl Drop for Pending {
         }
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         for (space, identity) in self.inserted.drain(..) {
-            if held
-                .visit(space, &identity)
-                .is_some_and(|visit| visit.written.is_none())
+            if let Some(id) = held.entries.find(space, &identity)
+                && held.entries.state(id) == State::Pending
             {
-                held.remove(space, &identity);
+                held.entries.remove(id);
             }
         }
         held.report();
@@ -798,16 +611,11 @@ impl UnwrittenVisits {
         Self {
             committed: Box::new(committed),
             held: Arc::new(Mutex::new(Held {
-                visited: HashMap::new(),
-                learned: HashMap::new(),
-                seeds: HashMap::new(),
-                written: VecDeque::new(),
-                resident: VecDeque::new(),
+                entries: Entries::new(),
                 counts: None,
                 rules: None,
                 rules_changed: rules::unchanged(),
                 journal: Journal::default(),
-                entries: 0,
                 budget,
                 widened: None,
                 every_visit: Whole::default(),
@@ -931,10 +739,9 @@ impl fmt::Debug for Watch {
 
 impl Watch {
     fn began_on(held: &Mutex<Held>) {
-        held.lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .journal
-            .clear();
+        let mut held = held.lock().unwrap_or_else(PoisonError::into_inner);
+        held.journal.clear();
+        held.entries.reuse();
     }
 
     fn failed_on(held: &Mutex<Held>) {

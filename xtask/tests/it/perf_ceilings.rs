@@ -39,6 +39,39 @@ fn write_frontier(workspace: &Workspace, hundred_thousand_urls: u64, no_urls: u6
     workspace.write("perf/head.jsonl", format!("{full}\n{empty}\n").as_bytes());
 }
 
+/// One heap scenario of the Frontier's benchmark `bench`, new in the head,
+/// with its bytes at the global maximum.
+fn frontier_heap(bench: &str, id: &str, head: u64) -> String {
+    bench_summary(
+        FRONTIER,
+        bench,
+        Some(id),
+        &[metric("AtTGmaxBytes", None, Some(head))],
+    )
+}
+
+/// gungraun's report of the Frontier's heap scenarios `scenarios`, each a
+/// benchmark, its scenario and its bytes, new in the head.
+fn write_frontier_heap(workspace: &Workspace, scenarios: &[(&str, &str, u64)]) {
+    let lines: String = scenarios
+        .iter()
+        .map(|(bench, id, bytes)| frontier_heap(bench, id, *bytes) + "\n")
+        .collect();
+    workspace.write("perf/head.jsonl", lines.as_bytes());
+}
+
+/// The Frontier's heap at a 1 MiB budget (ADR 0142), its 1,000,000 URLs
+/// read against its 100,000.
+const GROW: &str = "heap::frontier::grow";
+
+/// The Frontier's heap at the default budget before any spill (ADR 0142),
+/// its 100,000 URLs read against none.
+const HOLD: &str = "heap::frontier::hold";
+
+/// The Run state's heap at the default budget past the spill (ADR 0142),
+/// its 1,000,000 URLs read against none.
+const SPILL: &str = "heap::frontier::spill";
+
 /// Foxhound's crawl heap scenario, as `xtask perf` names it.
 const CRAWL: &str = "goodfetch-foxhound/heap::crawl::in_memory_pages";
 
@@ -137,6 +170,9 @@ fn summary_lists_each_ceiling_with_its_derived_head_figure() {
     | Benchmark or entry | Figure | Head | Ceiling | Verdict |
     |---|---|---:|---:|---|
     | goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls | heap-bytes-per-url | 7.43 bytes | ≤ 8 bytes | within |
+    | goodfetch-frontier/heap::frontier::grow/million_urls | heap-bytes-per-url | — | ≤ 8 bytes | not run yet |
+    | goodfetch-frontier/heap::frontier::hold/hundred_thousand_urls | heap-bytes-per-url | — | ≤ 95 bytes | not run yet |
+    | goodfetch-frontier/heap::frontier::spill/million_urls | heap-percent-of-budget | — | ≤ 110% of 67108864 bytes | not run yet |
     | goodfetch-foxhound/heap::crawl::in_memory_pages | bytes-per-body-byte | 1.24× | ≤ 2× | within |
 
     A "Performance change" section never passes a ceiling; only the owner moves one (ADR 0134).
@@ -242,5 +278,96 @@ fn frontier_over_8_bytes_per_url_is_noted_whatever_the_pull_request_says(#[case]
             &format!("{HUNDRED_THOUSAND_URLS} heap-bytes-per-url")
         )]
     );
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// ADR 0142's heap growth from 100,000 to 1,000,000 URLs at a 1 MiB test
+/// budget, from hand-computed values: (8,200,000 − 1,000,000) / 900,000 =
+/// 8 bytes per URL is at the ceiling, and one byte more is over it.
+#[rstest]
+#[case::at_8_bytes(8_200_000, &[])]
+#[case::over_8_bytes(
+    8_200_001,
+    &["goodfetch-frontier/heap::frontier::grow/million_urls heap-bytes-per-url"]
+)]
+fn the_frontiers_heap_grows_at_most_8_bytes_per_url_past_100_000_at_a_1_mib_budget(
+    #[case] million_urls: u64,
+    #[case] noted: &[&str],
+) {
+    let workspace = Workspace::from_fixture("empty");
+    write_frontier_heap(
+        &workspace,
+        &[
+            (GROW, "hundred_thousand_urls", 1_000_000),
+            (GROW, "million_urls", million_urls),
+        ],
+    );
+
+    let outcome = compare(&workspace, &[]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    let expected: Vec<_> = noted.iter().map(|id| finding("over-ceiling", id)).collect();
+    assert_eq!(outcome.notes(), expected, "{}", outcome.stdout);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// ADR 0142's heap before any spill, at 100,000 URLs and the default budget,
+/// from hand-computed values: (10,500,000 − 1,000,000) / 100,000 = 95 bytes
+/// per URL is at the ceiling, and one byte more is over it.
+#[rstest]
+#[case::at_95_bytes(10_500_000, &[])]
+#[case::over_95_bytes(
+    10_500_001,
+    &["goodfetch-frontier/heap::frontier::hold/hundred_thousand_urls heap-bytes-per-url"]
+)]
+fn the_frontier_holds_at_most_95_bytes_per_url_before_any_spill(
+    #[case] hundred_thousand_urls: u64,
+    #[case] noted: &[&str],
+) {
+    let workspace = Workspace::from_fixture("empty");
+    write_frontier_heap(
+        &workspace,
+        &[
+            (HOLD, "no_urls", 1_000_000),
+            (HOLD, "hundred_thousand_urls", hundred_thousand_urls),
+        ],
+    );
+
+    let outcome = compare(&workspace, &[]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    let expected: Vec<_> = noted.iter().map(|id| finding("over-ceiling", id)).collect();
+    assert_eq!(outcome.notes(), expected, "{}", outcome.stdout);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+}
+
+/// ADR 0142's Run state's heap at the default budget of 67,108,864 bytes and
+/// 1,000,000 URLs, from hand-computed values: 1.10 × 67,108,864 =
+/// 73,819,750.4 bytes, so 73,819,750 over the empty scenario's 1,000,000 is
+/// within the ceiling, and one byte more is over it.
+#[rstest]
+#[case::at_the_budget_plus_10_percent(74_819_750, &[])]
+#[case::over_the_budget_plus_10_percent(
+    74_819_751,
+    &["goodfetch-frontier/heap::frontier::spill/million_urls heap-percent-of-budget"]
+)]
+fn the_run_states_heap_past_the_spill_is_at_most_its_budget_plus_10_percent(
+    #[case] million_urls: u64,
+    #[case] noted: &[&str],
+) {
+    let workspace = Workspace::from_fixture("empty");
+    write_frontier_heap(
+        &workspace,
+        &[
+            (SPILL, "no_urls", 1_000_000),
+            (SPILL, "million_urls", million_urls),
+        ],
+    );
+
+    let outcome = compare(&workspace, &[]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    let expected: Vec<_> = noted.iter().map(|id| finding("over-ceiling", id)).collect();
+    assert_eq!(outcome.notes(), expected, "{}", outcome.stdout);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }

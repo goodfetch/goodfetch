@@ -10,6 +10,7 @@ use url::Url;
 
 use super::{DECLARED, learn_identity, url_key, visitor};
 use crate::rules;
+use crate::unwritten::Holding;
 
 /// The crawl requests the learned rules show to be one page, and the
 /// rules that say so: each rule that changed the identity of one of them,
@@ -92,6 +93,41 @@ pub(crate) fn unmerge(connection: &Connection, merging: &rules::Merging) -> rusq
     )
 }
 
+/// Brings the learned identities `holding`, memory under its lock, holds
+/// up to those the writer's connection `connection` holds, for an
+/// admission that writes once memory's learned rules are the writer's
+/// (#2169): every one, the first time, then those on `hosts`, whose rules
+/// that merge changed.
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub(crate) fn keep_learned(
+    connection: &Connection,
+    holding: &mut Holding<'_>,
+    hosts: &[String],
+) -> rusqlite::Result<()> {
+    if holding.rules().is_none() {
+        return Ok(());
+    }
+    if !holding.learned_read() {
+        return holding.relearn(connection, None);
+    }
+    if hosts.is_empty() {
+        return Ok(());
+    }
+    // The methods come from the visited set: each learned identity takes
+    // its method from a visited one, and a stopped rule's learned
+    // identities have left the file, while memory may still hold them.
+    let ranges = host_ranges(connection, Keyed::Visited, hosts)?;
+    holding.relearn(connection, Some(&ranges))
+}
+
+/// The statement [`keep_learned`] steps along the visited identities'
+/// methods with, named in the statements a Run prepares as it opens.
+pub(crate) const FIRST_VISITED: &str =
+    "SELECT identity FROM visited WHERE identity >= ?1 ORDER BY identity LIMIT 1";
+
 /// A table of identities, read by ranges of its key.
 #[derive(Clone, Copy, Debug)]
 enum Keyed {
@@ -103,9 +139,7 @@ impl Keyed {
     /// The first identity the table holds from `?1` on.
     fn first_from(self) -> &'static str {
         match self {
-            Self::Visited => {
-                "SELECT identity FROM visited WHERE identity >= ?1 ORDER BY identity LIMIT 1"
-            }
+            Self::Visited => FIRST_VISITED,
             Self::Learned => {
                 "SELECT identity FROM learned_identities WHERE identity >= ?1 ORDER BY identity LIMIT 1"
             }

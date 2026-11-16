@@ -4,6 +4,11 @@
 //! the prefix; a key of the store's shape is accepted; a value comes back
 //! as it was set, nested nulls included.
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use std::collections::BTreeSet;
 
 use goodfetch_test_support::{CrashVfs, TestEnv};

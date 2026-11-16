@@ -182,6 +182,10 @@ fn unbounded() -> Invariants {
 
 /// Creates the Frontier's tables in the run file `connection` holds: its
 /// visited set, its scope, its bounds and its learned rules.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the benchmark's tables, made once before it measures (ADR 0071)"
+)]
 fn create_tables(connection: &Connection) {
     for statement in VISITED_TABLES
         .statements

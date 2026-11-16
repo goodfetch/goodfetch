@@ -8,6 +8,11 @@
 //! Error code, those failed with `response_unavailable` under their own
 //! reason (#2509).
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use std::collections::BTreeMap;
 
 use goodfetch_engine::runs::CompletenessReason;

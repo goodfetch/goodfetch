@@ -194,6 +194,10 @@ fn read_page(connection: &Connection, paging: Paging<'_>) -> rusqlite::Result<Ve
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
 mod tests {
     use goodfetch_protocol::foxhound::dataset_view::{RecordFilter, WallFilter};
     use rusqlite::Connection;

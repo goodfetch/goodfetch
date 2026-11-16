@@ -8,7 +8,7 @@
 )]
 #![expect(
     clippy::disallowed_methods,
-    reason = "the tests lay out and read the list's file themselves"
+    reason = "the tests lay out and read the list's file themselves; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::time::Duration;

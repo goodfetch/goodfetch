@@ -9,7 +9,7 @@
 )]
 #![expect(
     clippy::disallowed_methods,
-    reason = "the tests list the run folders on disk themselves"
+    reason = "the tests list the run folders on disk themselves; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::path::{Path, PathBuf};

@@ -10,7 +10,8 @@
 //! asked for. A version this release does not embed is kept in the Browser
 //! cache as an artifact of kind `clean_up_rules`, its build the digest of
 //! its files, held there while a Run holds to it, and compiled on this
-//! machine when a page first needs it. Each loaded version is shared by the
+//! machine as a Run whose settings turn a Filter list on starts, or when a
+//! page first needs it. Each loaded version is shared by the
 //! Runs that hold to it, and the engine keeps the [`KEPT_VERSIONS`] it
 //! used last once none does, so the next Run on one of them compiles
 //! nothing again; an older one goes. Every fetch at a start or
@@ -64,6 +65,7 @@ use serde_json::{Value, json};
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
+use crate::interception::run_needs_lists;
 use crate::trace;
 
 mod daily;
@@ -95,8 +97,9 @@ const STATE_FILE: &str = "clean-up-rules.json";
 
 /// The engine's versions of the Clean-up rules: those loaded, by digest,
 /// and the version each live Run holds to.
-#[derive(Default)]
 pub(crate) struct Versions {
+    /// Itself, for the loads it starts on a Run's tasks.
+    this: Weak<Versions>,
     home: OnceLock<Home>,
     /// Each version loaded or loading, by digest: the loads of one digest
     /// wait on its cell, never on a lock held while it compiles; a load that
@@ -479,6 +482,18 @@ async fn within<T>(
 }
 
 impl Versions {
+    /// The engine's versions, none loaded yet.
+    pub(crate) fn new() -> Arc<Self> {
+        Arc::new_cyclic(|this| Self {
+            this: Weak::clone(this),
+            home: OnceLock::new(),
+            loaded: Mutex::default(),
+            kept: Mutex::default(),
+            holding: Mutex::default(),
+            upstream: upstream::Fetches::default(),
+        })
+    }
+
     /// The Goodfetch home, kept from the first start or resume.
     fn remember(&self, home: &Home) {
         let _ = self.home.set(home.clone());
@@ -572,6 +587,7 @@ impl Versions {
             }
         };
         self.hold(run, &version.digest, artifact);
+        self.load_ahead(run);
         let mut entry = json!({
             "action": "clean_up_rules",
             "digest": version.digest,
@@ -614,6 +630,24 @@ impl Versions {
     /// go.
     fn hold(&self, run: &Run, digest: &str, artifact: Option<HeldArtifact>) {
         held_by(&mut lock(&self.holding), run, digest, artifact);
+    }
+
+    /// Starts loading the Filter lists `run` holds to on one of its tasks
+    /// when its own settings turn one on, so that its first page finds them
+    /// loaded, or loading, instead of starting the load (#2688). A Session
+    /// that turns one on in a Run that turns them all off loads them on its
+    /// first page.
+    fn load_ahead(&self, run: &Run) {
+        if !run_needs_lists(run) {
+            return;
+        }
+        let Some(versions) = self.this.upgrade() else {
+            return;
+        };
+        let loading = run.clone();
+        run.owner().spawn(async move {
+            drop(versions.lists(&loading, loading.owner()).await);
+        });
     }
 
     /// `run`, whose version of `digest` did not load, holds to the embedded

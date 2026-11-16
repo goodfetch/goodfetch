@@ -302,7 +302,6 @@ fn a_resumed_trial_whose_pages_were_first_served_other_bytes_did_other_work() {
             ),
             ("different_bytes", "durable crawlee-rs trial 3".to_owned()),
             ("different_bytes", "durable pagesift trial 3".to_owned()),
-            ("different_bytes", "durable openspider trial 3".to_owned()),
         ]
     );
 }

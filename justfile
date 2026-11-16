@@ -1128,9 +1128,10 @@ rss-propose *scenarios:
 # `Scraper`'s crawl, built like Spider's side, its browser engine for
 # scenario 5) and OpenSpider at its release v1.0.0-rc.1's commit
 # (xtask/compare-openspider: its engine's spider crawl, built like
-# Spider's side; it has no per-domain pace, so scenario 3 says so, and
-# keeps at most 6 requests in flight on a host, so the 64 and 256 cells
-# say so), fastCRW 0.44.2 (xtask/compare-fastcrw: a driver of its
+# Spider's side; its crawl file holds nothing yet when a kill lands
+# halfway, so scenario 2 says so; it has no per-domain pace, so scenario 3
+# says so; and it keeps at most 6 requests in flight on a host, so the
+# 64 and 256 cells say so), fastCRW 0.44.2 (xtask/compare-fastcrw: a driver of its
 # server, `crw-server`, AGPL-3.0, installed from crates.io with the lock it
 # ships beside the driver and run, never linked, a crawl job of its HTTP
 # API polled until it ends; it keeps its jobs in memory, follows links on

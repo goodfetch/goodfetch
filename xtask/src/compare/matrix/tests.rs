@@ -524,14 +524,14 @@ fn just_compare_builds_pagesifts_side_into_its_folder() {
     )));
 }
 
-/// OpenSpider runs on its side in every scenario but three, each its main
-/// row (#2216): its polite cell is not supported, since its one pace
-/// setting is the whole crawl's, nor are the cells of 64 and 256 requests
-/// in flight, since it keeps at most 6 on a host. In the durable
-/// scenario, where Spider's cell is not supported, it is measured. The auto
-/// cell reads three other tools (#2411).
+/// OpenSpider runs on its side in every scenario but four, each its main
+/// row (#2216): its durable cell is not supported, since its crawl file
+/// holds nothing yet when the harness kills it halfway, nor is its polite
+/// cell, since its one pace setting is the whole crawl's, nor are the cells
+/// of 64 and 256 requests in flight, since it keeps at most 6 on a host.
+/// The auto cell reads three other tools (#2411).
 #[test]
-fn openspider_runs_every_scenario_on_its_side_but_polite_raw_64_and_raw_256() {
+fn openspider_runs_every_scenario_on_its_side_but_durable_polite_raw_64_and_raw_256() {
     let cells: Vec<(Scenario, &str, Row, Option<Config>)> = CELLS
         .iter()
         .filter(|cell| cell.tool == Tool::OpenSpider)
@@ -543,34 +543,21 @@ fn openspider_runs_every_scenario_on_its_side_but_polite_raw_64_and_raw_256() {
             (cell.scenario, cell.name, cell.row, config)
         })
         .collect();
-    let durable = |tool: Tool| {
-        CELLS
-            .iter()
-            .filter(|cell| {
-                cell.scenario == Scenario::Durable && cell.tool == tool && cell.row == Row::Main
-            })
-            .map(|cell| matches!(cell.status, Status::Measured(_)))
-            .collect::<Vec<_>>()
-    };
 
     assert_eq!(
-        (cells, durable(Tool::Spider), durable(Tool::OpenSpider)),
-        (
-            timed_and_ruled()
-                .map(|scenario| (
+        cells,
+        timed_and_ruled()
+            .map(|scenario| (
+                scenario,
+                "openspider",
+                Row::Main,
+                (!matches!(
                     scenario,
-                    "openspider",
-                    Row::Main,
-                    (!matches!(
-                        scenario,
-                        Scenario::Polite | Scenario::Raw64 | Scenario::Raw256
-                    ))
-                    .then_some(Config::OpenSpider)
+                    Scenario::Durable | Scenario::Polite | Scenario::Raw64 | Scenario::Raw256
                 ))
-                .collect::<Vec<_>>(),
-            vec![false],
-            vec![true],
-        )
+                .then_some(Config::OpenSpider)
+            ))
+            .collect::<Vec<_>>()
     );
 }
 

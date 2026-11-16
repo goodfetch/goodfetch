@@ -2,12 +2,13 @@
 // edit by hand.
 
 /// Every Shared path a row of Counted work counts on, by name (ADR 0140).
-const SHARED_PATHS: [&str; 23] = [
+const SHARED_PATHS: [&str; 24] = [
     "action",
     "audit_entry",
     "cdp_command",
     "frontier_admission",
     "frontier_hop",
+    "frontier_lease",
     "frontier_payload",
     "frontier_sitemap",
     "governor_sample",
@@ -29,7 +30,7 @@ const SHARED_PATHS: [&str; 23] = [
 ];
 
 /// Every work a row of Counted work counts (ADR 0140).
-const WORKS: [&str; 80] = [
+const WORKS: [&str; 85] = [
     "acknowledgements",
     "actor_round_trips",
     "admission_evidence",
@@ -68,7 +69,9 @@ const WORKS: [&str; 80] = [
     "in_flight_serializations",
     "invariant_reads",
     "locale_form_builds",
+    "log_opens",
     "log_sends_off",
+    "log_transactions",
     "matches",
     "meminfo_opens",
     "merge_round_trips",
@@ -87,11 +90,14 @@ const WORKS: [&str; 80] = [
     "provenance_entries",
     "prunes",
     "readability_runs",
+    "reads",
     "robots_parses",
     "robots_reads",
     "round_trips",
     "rule_list_builds",
     "rule_tests",
+    "run_file_opens",
+    "run_spawns",
     "script_compilations",
     "script_sends",
     "seals",

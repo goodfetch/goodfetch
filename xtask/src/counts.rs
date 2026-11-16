@@ -187,7 +187,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 121] = [
+const ROWS: [Row; 128] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -422,6 +422,15 @@ const ROWS: [Row; 121] = [
     b1("F3.hop_round_trips", HOPS, true),
     b1("F3.hop_round_trips.end", CHAINS, true),
     b1("F3.in_flight_serializations", ATTEMPTS_ENDED, false),
+    // The read transactions on the run file per lease, at the levels that
+    // batch attempts, within the memory budget (#2169): none, as the Run
+    // state holds every pending work item. Its unit is those cells'
+    // leases, a page's and a sitemap's, none elsewhere.
+    b1("F3.lease_reads", BATCHED_LEASES, false),
+    // The same past the memory budget, from the first page in the cell
+    // whose budget holds no pending work item: at most one a lease (ADR
+    // 0140's F3 contract). Its unit is that cell's leases.
+    b1("F3.lease_reads.spilled", SPILLED_LEASES, false),
     // What each page more builds, read as `F2.prepares` is: the whole
     // site's run less a run on half its pages, over the pages it adds.
     b1("F3.counted_work_constructions", ADDED_PAGES, false),
@@ -526,18 +535,22 @@ const ROWS: [Row; 121] = [
         happens: false,
         valgrind: None,
     },
+    // 0 in every cell: the writer opens its store and prepares its
+    // statements once a log, which the log's rows count (#1887). Callgrind
+    // reads `E2.prepares` over the entries after the log's first, whose
+    // preparations are the log's.
     Row {
         name: "E2.opens",
         family: "B3",
         unit: "audit_entries",
-        happens: true,
+        happens: false,
         valgrind: None,
     },
     Row {
         name: "E2.prepares",
         family: "B3",
-        unit: "audit_entries",
-        happens: true,
+        unit: "later_audit_entries",
+        happens: false,
         valgrind: None,
     },
     // 0 in every cell: no append prunes, the engine pruning as it starts
@@ -560,6 +573,29 @@ const ROWS: [Row; 121] = [
         name: "E2.syncs",
         family: "B3",
         unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
+    // The writer's own work, once a log: the store's first open, its
+    // schema set-up's commits and what its first entry prepares (#1887).
+    Row {
+        name: "E2.log_opens",
+        family: "B3",
+        unit: "audit_logs",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.log_transactions",
+        family: "B3",
+        unit: "audit_logs",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.log_prepares",
+        family: "B3",
+        unit: "audit_logs",
         happens: true,
         valgrind: None,
     },
@@ -685,6 +721,22 @@ const ROWS: [Row; 121] = [
         family: "B1",
         unit: "entries",
         happens: false,
+        valgrind: None,
+    },
+    // The Run's one writer: its start, its trace's folder and each file's
+    // first open, once a Run.
+    Row {
+        name: "E5.run_file_opens",
+        family: "B1",
+        unit: "runs",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E5.run_spawns",
+        family: "B1",
+        unit: "runs",
+        happens: true,
         valgrind: None,
     },
     Row {
@@ -1039,6 +1091,15 @@ const PAYLOADS: &str = "payloads";
 
 /// The attempts that ended in it: a page's, and each sitemap's read.
 const ATTEMPTS_ENDED: &str = "attempts_ended";
+
+/// The leases of a cell at a level that batches attempts whose memory
+/// budget holds its pending work items, a page's and a sitemap's: none in
+/// any other cell.
+const BATCHED_LEASES: &str = "batched_leases";
+
+/// The leases of the cell at a level that batches attempts whose memory
+/// budget holds no pending work item: none in any other cell.
+const SPILLED_LEASES: &str = "spilled_leases";
 
 const fn b1(name: &'static str, unit: &'static str, happens: bool) -> Row {
     Row {
@@ -1582,10 +1643,12 @@ fn one_of(unit: &str) -> &str {
     match unit {
         LINKS_BATCHES => "links batch",
         "audit_entries" => "audit_entry",
+        "later_audit_entries" => "later_audit_entry",
         "entries" => "entry",
         "batched_pages" | "full_pages" | CALLGRIND_PAGES => "page",
         ADDED_PAGES => "page added",
         ATTEMPTS_ENDED => "attempt",
+        BATCHED_LEASES | SPILLED_LEASES => "lease",
         CALLGRIND_CRAWLS => "crawl",
         unit => unit.trim_end_matches('s'),
     }

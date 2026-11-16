@@ -14,18 +14,19 @@ yanked = "deny"
 # `.cargo/audit.toml` beside this file lists the same IDs for cargo-audit.
 # Each crate is unmaintained, comes with OpenSpider v1.0.0-rc.1's crates and
 # has no release under them that removes it; each is removed with the
-# OpenSpider bump that drops it. The side is run by the comparison alone,
-# on loopback, never linked into a Product. Agent decision of issue 2216,
-# pending owner review.
+# OpenSpider bump that drops it. OpenSpider is a comparison-only tool: the
+# harness fetches and runs it locally, on loopback, and it is never linked
+# into a Product (Apache-2.0). The owner accepted these five advisories on
+# 2026-11-16 (issue 2216).
 ignore = [
   # json: through os-parse's XPath engine (xee-interpreter 0.2.0).
-  { id = "RUSTSEC-2022-0081", reason = "through OpenSpider's os-parse and its XPath engine xee-interpreter" },
+  { id = "RUSTSEC-2022-0081", reason = "through OpenSpider's os-parse and its XPath engine xee-interpreter; comparison-only tool, never shipped; accepted by the owner on 2026-11-16" },
   # proc-macro-error: a proc-macro run at build time, through xee's xot and
   # its genawaiter.
-  { id = "RUSTSEC-2024-0370", reason = "build-time proc-macro, through OpenSpider's os-parse, xee's xot and genawaiter" },
+  { id = "RUSTSEC-2024-0370", reason = "build-time proc-macro, through OpenSpider's os-parse, xee's xot and genawaiter; comparison-only tool, never shipped; accepted by the owner on 2026-11-16" },
   # zvariant, zbus_names, zvariant_derive: zbus 5's, through os-fetch's
   # keyring and its Secret Service store.
-  { id = "RUSTSEC-2026-0370", reason = "zbus 5's, through OpenSpider's os-fetch and keyring's Secret Service store" },
-  { id = "RUSTSEC-2026-0371", reason = "zbus 5's, through OpenSpider's os-fetch and keyring's Secret Service store" },
-  { id = "RUSTSEC-2026-0372", reason = "zbus 5's, through OpenSpider's os-fetch and keyring's Secret Service store" },
+  { id = "RUSTSEC-2026-0370", reason = "zbus 5's, through OpenSpider's os-fetch and keyring's Secret Service store; comparison-only tool, never shipped; accepted by the owner on 2026-11-16" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus 5's, through OpenSpider's os-fetch and keyring's Secret Service store; comparison-only tool, never shipped; accepted by the owner on 2026-11-16" },
+  { id = "RUSTSEC-2026-0372", reason = "zbus 5's, through OpenSpider's os-fetch and keyring's Secret Service store; comparison-only tool, never shipped; accepted by the owner on 2026-11-16" },
 ]

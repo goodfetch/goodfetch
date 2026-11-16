@@ -367,6 +367,9 @@ fn the_log_prunes_as_the_engine_starts_then_once_a_day_never_at_an_append() {
             log.start_pruning(clock, &owner);
             tokio::time::sleep(Duration::from_secs(1)).await;
             let at_start = entries(&log);
+            // The entry of half a day ago is past the retention now, so an
+            // append that pruned would take it.
+            tokio::time::sleep(Duration::from_hours(13)).await;
             log.record(
                 &origin(),
                 &SECRET_REFERENCE_USED,

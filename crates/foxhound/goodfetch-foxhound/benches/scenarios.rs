@@ -418,12 +418,12 @@ pub(crate) fn page_analysis_plant(row: Row, work: &CountedWork) -> Option<Plant>
 pub(crate) fn run_trace_plant(row: Row, work: &CountedWork) -> Option<Plant> {
     let work = work.clone();
     let plant: Plant = match row {
-        Row::RunTraceFileOpens => Arc::new(move |_: &str| {
+        Row::RunTraceRunFileOpens | Row::RunTraceFileOpens => Arc::new(move |_: &str| {
             let exe = std::env::current_exe().expect("invariant: a running executable has a path");
             work.open_file(row, OpenOptions::new().read(true), &exe)
                 .expect("invariant: a running executable can be read");
         }),
-        Row::RunTraceSpawns | Row::RunTraceFormattingOff => {
+        Row::RunTraceRunSpawns | Row::RunTraceSpawns | Row::RunTraceFormattingOff => {
             Arc::new(move |_: &str| work.count(row))
         }
         _ => return None,

@@ -149,7 +149,7 @@ fn cells() -> [Cell; 7] {
 )]
 fn bypass(bypass: &str, home: &Path, work: &CountedWork) -> session::Plant {
     let folder = home.join("bypass").join("trace");
-    work.create_dir_all(Row::RunTraceFileOpens, &folder)
+    work.create_dir_all(Row::RunTraceRunFileOpens, &folder)
         .expect("invariant: the bypass's Run trace is created");
     match bypass {
         "open" => Arc::new(move || {

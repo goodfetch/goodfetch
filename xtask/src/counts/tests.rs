@@ -14,7 +14,8 @@ use super::{NOT_RUN_YET, ROWS};
 /// learning off, the page waits at `full`, which `F2.page_waits`' counter
 /// counts in the cells at that level, and the lease reads past the memory
 /// budget, which `F3.lease_reads`' counter counts in the cell at budget 0.
-const READ_ELSEWHERE: [&str; 15] = [
+const READ_ELSEWHERE: [&str; 16] = [
+    "E2.log_prepares",
     "E2.prepares",
     "E3.prepares",
     "E6.off_work",

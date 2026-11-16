@@ -38,9 +38,9 @@ pub(crate) enum Audit {
     Retained,
 }
 
-/// One extra unit of a row's work, called after each entry with the log and
-/// the runtime its writer runs on.
-pub(crate) type Plant = Arc<dyn Fn(&AuditLog, &Runtime) + Send + Sync>;
+/// One extra unit of a row's work, called after each entry with the log,
+/// the runtime its writer runs on and the entry's index.
+pub(crate) type Plant = Arc<dyn Fn(&AuditLog, &Runtime, u64) + Send + Sync>;
 
 /// The Product version whose settings files the log reads.
 fn version() -> ProductVersion {
@@ -107,7 +107,7 @@ pub(crate) fn run(
     for index in 0..ENTRIES {
         run_one(&log, &runtime, index);
         if let Some(plant) = plant {
-            plant(&log, &runtime);
+            plant(&log, &runtime, index);
         }
     }
     if audit == Audit::Retained {

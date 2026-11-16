@@ -16,11 +16,6 @@
 //!   under HTTP/1.1, so at most 6 requests in flight on a host whatever
 //!   the threads, no rate limit, its adaptive throttle on, images, style sheets, scripts and canonicals followed on the
 //!   host (none on the Proving ground's pages);
-//! - `durable`: `raw`, the process the comparison starts again after a kill
-//!   resuming the crawl file the killed one left (`os_engine::resume_crawl`,
-//!   its command line's `--resume`), once that file's heartbeat is older
-//!   than OpenSpider's 10 s, before which it holds the crawl as still
-//!   running and refuses to resume it;
 //! - `extraction`: `raw` with one custom extractor, the text of each page's
 //!   `main` (`custom_extraction`, CSS, text output); once the crawl ends,
 //!   each crawled page's URL, title and that text are read from the crawl
@@ -33,19 +28,20 @@
 //!   robots.txt obeyed and its sitemaps read, 5 threads, its adaptive
 //!   throttle on; `--concurrency` is unread.
 //!
-//! OpenSpider has no polite cell: its only pace setting holds the whole
-//! crawl to its rate; nor cells of 64 or 256 requests in flight, beyond
-//! its 6 on a host (the matrix says why).
+//! OpenSpider has no durable cell: its crawl file holds nothing yet when
+//! the comparison kills it halfway, and its resume of that file fetches
+//! nothing; no polite cell: its only pace setting holds the whole crawl to
+//! its rate; nor cells of 64 or 256 requests in flight, beyond its 6 on a
+//! host (the matrix says why).
 //!
 //! The crawl-like scenario (#2284) runs `raw` on an `https` site, whose
 //! certificate authority `SSL_CERT_FILE` names, which its fetcher also
 //! trusts as a certificate a user adds (`network.trusted_certificates`).
 //!
 //! The working folder is the trial's home. It prints one line, `pages=<n>`,
-//! the pages its command line counts as crawled, from the crawl file (after
-//! a resume, the killed process's too); the comparison's same-work check
-//! reads the Proving ground's own observations instead, and refuses a trial
-//! that missed a page.
+//! the pages its command line counts as crawled, from the crawl file; the
+//! comparison's same-work check reads the Proving ground's own observations
+//! instead, and refuses a trial that missed a page.
 //!
 //!   goodfetch-compare-openspider --url http://127.0.0.1:<port>/sites/1000/1 \
 //!     --host scale.test:<port> --concurrency 16 --scenario raw
@@ -55,16 +51,15 @@
 )]
 
 use std::io::{self, Write as _};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::time::Duration;
 
-use os_engine::{CrawlRequest, CrawlSource, EngineDeps, resume_crawl, start_crawl};
+use os_engine::{CrawlRequest, CrawlSource, EngineDeps, start_crawl};
 use os_fetch::{FetchConfig, HttpFetcher, MemorySecretStore};
 use os_model::{
-    CrawlConfig, CrawlState, Extractor, ExtractorMode, ExtractorOutput, RandomIds, RenderingMode,
-    RobotsMode, SystemClock,
+    CrawlConfig, Extractor, ExtractorMode, ExtractorOutput, RandomIds, RenderingMode, RobotsMode,
+    SystemClock,
 };
 use os_store::{CrawlFile, OpenMode, StorageProfile};
 
@@ -79,14 +74,13 @@ struct Arguments {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Scenario {
     Raw,
-    Durable,
     Extraction,
     Browser,
     Hostile,
 }
 
 fn arguments() -> Result<Arguments, String> {
-    let usage = "usage: goodfetch-compare-openspider --url <url> [--host <host:port>] --concurrency <n> --scenario <raw|durable|extraction|browser|hostile> [--browser <chrome>]";
+    let usage = "usage: goodfetch-compare-openspider --url <url> [--host <host:port>] --concurrency <n> --scenario <raw|extraction|browser|hostile> [--browser <chrome>]";
     let mut url = None;
     let mut host = None;
     let mut concurrency = None;
@@ -111,7 +105,6 @@ fn arguments() -> Result<Arguments, String> {
             "--scenario" => {
                 scenario = Some(match value.as_str() {
                     "raw" => Scenario::Raw,
-                    "durable" => Scenario::Durable,
                     "extraction" => Scenario::Extraction,
                     "browser" => Scenario::Browser,
                     "hostile" => Scenario::Hostile,
@@ -183,7 +176,7 @@ fn configuration(arguments: &Arguments, rule: Option<String>) -> CrawlConfig {
                 .chromium_path
                 .clone_from(&arguments.browser);
         }
-        Scenario::Raw | Scenario::Durable | Scenario::Hostile => {}
+        Scenario::Raw | Scenario::Hostile => {}
     }
     config
 }
@@ -219,55 +212,23 @@ fn fetcher(config: &CrawlConfig, authority: Option<&str>) -> Result<Arc<HttpFetc
         .map_err(|error| error.to_string())
 }
 
-/// Waits until the crawl file a killed process left no longer reads as
-/// running: OpenSpider holds a crawl whose heartbeat is younger than its
-/// timeout as still running, and refuses to resume it.
-async fn heartbeat_stale(file: &Path) -> Result<(), String> {
-    let longest =
-        Duration::from_millis(u64::try_from(os_store::resume::HEARTBEAT_TIMEOUT_MS).unwrap_or(0))
-            + Duration::from_secs(2);
-    let step = Duration::from_millis(100);
-    let mut waited = Duration::ZERO;
-    loop {
-        let state = CrawlFile::open(file, OpenMode::ReadOnly)
-            .and_then(|crawl| crawl.effective_state(&SystemClock))
-            .map_err(|error| error.to_string())?;
-        if state != CrawlState::Running || waited >= longest {
-            return Ok(());
-        }
-        tokio::time::sleep(step).await;
-        waited += step;
-    }
-}
-
 async fn crawl(arguments: Arguments, authority: Option<String>) -> Result<u64, String> {
     let (start_url, rule) = start(&arguments.url, arguments.host.as_deref())?;
     let config = configuration(&arguments, rule);
     let file = crawl_file();
-    let handle = if arguments.scenario == Scenario::Durable && file.exists() {
-        heartbeat_stale(&file).await?;
-        resume_crawl(
-            fetcher(&config, authority.as_deref())?,
-            file.clone(),
-            None,
-            dependencies(),
-        )
-        .await
-    } else {
-        let request = CrawlRequest {
-            config: config.clone(),
-            source: CrawlSource::Spider { start_url },
-            file: file.clone(),
-            project: "compare".to_owned(),
-            name: "compare".to_owned(),
-        };
-        start_crawl(
-            fetcher(&config, authority.as_deref())?,
-            request,
-            dependencies(),
-        )
-        .await
-    }
+    let request = CrawlRequest {
+        config: config.clone(),
+        source: CrawlSource::Spider { start_url },
+        file: file.clone(),
+        project: "compare".to_owned(),
+        name: "compare".to_owned(),
+    };
+    let handle = start_crawl(
+        fetcher(&config, authority.as_deref())?,
+        request,
+        dependencies(),
+    )
+    .await
     .map_err(|error| error.to_string())?;
     handle.wait().await.map_err(|error| error.to_string())?;
     let crawl = CrawlFile::open(&file, OpenMode::ReadOnly).map_err(|error| error.to_string())?;

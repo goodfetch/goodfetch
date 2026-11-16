@@ -26,8 +26,8 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::politeness::{
-    Ending, Hold, Holder, Permit, PermitRule, Politeness, PolitenessTables, Taken, Verdict,
-    milliseconds, moment,
+    Ending, Hold, Holder, KeyState, Permit, PermitRule, Politeness, PolitenessTables, SharedRule,
+    Step, Taken, Verdict, milliseconds, moment,
 };
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
@@ -63,9 +63,10 @@ const WRITE_LIMITS: &str = "INSERT INTO proxy_limits (key, ceiling, ceiling_chan
     VALUES (?1, ?2, ?3, ?4)
     ON CONFLICT (key) DO UPDATE SET ceiling = ?2, ceiling_changed_at = ?3, last_start = ?4";
 
-/// One proxy key's shared state.
+/// One proxy key's shared state, as plain values the Politeness file
+/// loads and saves whole.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Limits {
+pub(crate) struct Limits {
     /// The most requests in flight the proxy's refusals left it.
     ceiling: Option<u64>,
     /// When the ceiling last changed, in milliseconds.
@@ -100,6 +101,22 @@ impl Limits {
             self.last_start,
         ))?;
         Ok(())
+    }
+}
+
+impl KeyState for Limits {
+    type Key = str;
+    /// Every change reads it whole.
+    type Reads = ();
+    /// Every change writes it whole.
+    type Writes = ();
+
+    fn load(connection: &Connection, key: &str, (): ()) -> rusqlite::Result<Self> {
+        Self::read(connection, key)
+    }
+
+    fn save(&self, connection: &Connection, key: &str, (): &()) -> rusqlite::Result<()> {
+        self.write(connection, key)
     }
 }
 
@@ -142,48 +159,41 @@ fn duration_milliseconds(duration: Duration) -> i64 {
 }
 
 impl PermitRule for ProxyRule {
-    fn admit(
-        &self,
-        connection: &Connection,
-        key: &str,
-        in_flight: u64,
-        now: SystemTime,
-    ) -> rusqlite::Result<Verdict> {
-        let limits = Limits::read(connection, key)?;
+    type State = Limits;
+
+    fn reads(&self, _: Step) {}
+
+    fn admit(&self, limits: &Limits, in_flight: u64, now: SystemTime) -> Verdict {
         let now = milliseconds(now);
         if let (Some(interval), Some(last_start)) = (self.interval, limits.last_start) {
             let next = last_start.saturating_add(duration_milliseconds(interval));
             if next > now {
-                return Ok(Verdict::Until(moment(next), Hold::Delay));
+                return Verdict::Until(moment(next), Hold::Delay);
             }
         }
         let cap = match (self.concurrency, limits.ceiling) {
             (Some(own), Some(ceiling)) => Some(own.min(ceiling)),
             (own, ceiling) => own.or(ceiling),
         };
-        Ok(if cap.is_some_and(|cap| in_flight >= cap) {
+        if cap.is_some_and(|cap| in_flight >= cap) {
             Verdict::Busy
         } else {
             Verdict::Go
-        })
+        }
     }
 
-    fn started(&self, connection: &Connection, key: &str, now: SystemTime) -> rusqlite::Result<()> {
-        let mut limits = Limits::read(connection, key)?;
+    fn started(&self, limits: &mut Limits, now: SystemTime) {
         limits.last_start = Some(milliseconds(now));
-        limits.write(connection, key)
     }
 
     fn ended(
         &self,
-        connection: &Connection,
-        key: &str,
+        limits: &mut Limits,
         in_flight: u64,
         ending: Ending,
         now: SystemTime,
-    ) -> rusqlite::Result<Option<SystemTime>> {
+    ) -> (Option<SystemTime>, ()) {
         let now = milliseconds(now);
-        let mut limits = Limits::read(connection, key)?;
         match ending {
             Ending::TooManyRequests(_) => {
                 // The proxy refused this many at once, the ending one
@@ -206,8 +216,7 @@ impl PermitRule for ProxyRule {
                 }
             }
         }
-        limits.write(connection, key)?;
-        Ok(None)
+        (None, ())
     }
 }
 
@@ -250,7 +259,7 @@ pub(crate) struct ProxyLimits {
     politeness: Politeness,
     holder: Holder,
     key: String,
-    rule: Arc<dyn PermitRule>,
+    rule: SharedRule,
 }
 
 impl std::fmt::Debug for ProxyLimits {
@@ -282,7 +291,7 @@ impl ProxyLimits {
                 politeness,
                 holder,
                 key: key(account),
-                rule: Arc::new(rule),
+                rule: SharedRule::new(rule),
             })),
             Err(error) => {
                 tracing::warn!(%error, "the Politeness file did not open: the Session's proxy goes unlimited");
@@ -334,14 +343,14 @@ async fn taken(
     politeness: &Politeness,
     key: &str,
     holder: &Holder,
-    rule: &Arc<dyn PermitRule>,
+    rule: &SharedRule,
     clock: &Clock,
     ending: &CancellationToken,
 ) -> Option<Permit> {
     loop {
         let mut wakes = politeness.wakes();
         let wall = clock.wall();
-        let take = politeness.take(key, holder, Arc::clone(rule), wall);
+        let take = politeness.take(key, holder, rule.clone(), wall);
         let taken = tokio::select! {
             () = ending.cancelled() => return None,
             taken = take => taken,
@@ -423,7 +432,7 @@ impl Drop for ProxyPermit {
 }
 
 async fn give_back(limits: &ProxyLimits, permit: Permit, ending: Ending) {
-    let rule = Arc::clone(&limits.rule);
+    let rule = limits.rule.clone();
     let wall = limits.run.clock().wall();
     if let Err(error) = limits
         .politeness

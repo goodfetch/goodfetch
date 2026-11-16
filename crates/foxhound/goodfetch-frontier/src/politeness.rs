@@ -49,12 +49,18 @@
 //! (ADR 0138): its per-domain queues back its domains off themselves, by
 //! the same rule over a domain's state they keep in memory, so the backoff,
 //! a `Retry-After` and a 429's halving stay their own features.
+//!
+//! Size: one concern, a domain key's shared state and the rule over it:
+//! its limits, pacing and Crawl-delays as plain values, how the Politeness
+//! file loads and saves them, and the steps that change them, which read
+//! side by side so the rule and the state it reads change together.
 
 #![expect(
     clippy::disallowed_types,
     reason = "the rule runs inside the Politeness file's transaction, a blocking call that may run inline on a runtime thread: one Mutex guards a gate's Entropy for one draw, never held with another lock or across an await, so there is no lock order to test under loom"
 )]
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 
@@ -62,8 +68,8 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::{
-    Ending, Hold, PermitRule, Politeness, PolitenessError, PolitenessTables, Verdict, milliseconds,
-    moment,
+    Ending, Hold, KeyState, PermitRule, Politeness, PolitenessError, PolitenessTables, Step,
+    Verdict, milliseconds, moment,
 };
 use goodfetch_engine::settings::{Resolved, catalog_default};
 use goodfetch_protocol::catalog::Setting;
@@ -141,7 +147,7 @@ const WRITE_PACING: &str =
 const ASK_CRAWL_DELAY: &str = "INSERT INTO crawl_delays (key, location, delay) VALUES (?1, ?2, ?3)
     ON CONFLICT (key, location) DO UPDATE SET delay = ?3";
 const DROP_CRAWL_DELAY: &str = "DELETE FROM crawl_delays WHERE key = ?1 AND location = ?2";
-const CRAWL_DELAYS: &str = "SELECT delay FROM crawl_delays WHERE key = ?1";
+const CRAWL_DELAYS: &str = "SELECT location, delay FROM crawl_delays WHERE key = ?1";
 
 /// The `Entropy` a crawl's gate draws its backoffs from, shared by the
 /// rules it names.
@@ -260,7 +266,7 @@ impl Limits {
         in_flight: u64,
         now: i64,
         rule: &DomainRule,
-        crawl_delays: &[Duration],
+        crawl_delays: impl IntoIterator<Item = Duration>,
         pacing: &Pacing,
     ) -> Verdict {
         if let Some(longest) = rule.waits.longest()
@@ -293,6 +299,19 @@ impl Limits {
             return Verdict::Busy;
         }
         Verdict::Go
+    }
+
+    /// Takes the next start for a request that may go `spacing` after
+    /// `after`: no sooner than `spacing` after the last start any sharing
+    /// run took either, which it then becomes. Answers when it is.
+    fn start_taken(&mut self, after: SystemTime, spacing: Duration) -> SystemTime {
+        let after = milliseconds_from(after);
+        let start = self
+            .last_start
+            .map_or(after, |last| last.max(after))
+            .saturating_add(duration_milliseconds(spacing));
+        self.last_start = Some(start);
+        moment(start)
     }
 
     /// The state after a request ended at `now` as `ending` says, with
@@ -546,65 +565,410 @@ impl DomainRule {
     }
 }
 
+/// The parts of a domain key's state a change reads; the others load as if
+/// never written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Parts {
+    limits: bool,
+    pacing: bool,
+    crawl_delays: bool,
+}
+
+impl Parts {
+    /// Nothing.
+    pub(crate) const NONE: Self = Self {
+        limits: false,
+        pacing: false,
+        crawl_delays: false,
+    };
+    /// Its limits alone.
+    pub(crate) const LIMITS: Self = Self {
+        limits: true,
+        ..Self::NONE
+    };
+    /// Its pacing alone.
+    pub(crate) const PACING: Self = Self {
+        pacing: true,
+        ..Self::NONE
+    };
+    /// Its limits and its pacing.
+    pub(crate) const PACED: Self = Self {
+        limits: true,
+        pacing: true,
+        ..Self::NONE
+    };
+    /// All of it.
+    pub(crate) const ALL: Self = Self {
+        limits: true,
+        pacing: true,
+        crawl_delays: true,
+    };
+}
+
+/// The parts of a domain key's state a change wrote, the only ones saved.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Wrote {
+    limits: bool,
+    pacing: bool,
+    /// The location whose Crawl-delay it asked for or dropped.
+    crawl_delay: Option<String>,
+}
+
+impl Wrote {
+    /// Its limits.
+    const LIMITS: Self = Self {
+        limits: true,
+        pacing: false,
+        crawl_delay: None,
+    };
+    /// Its pacing.
+    const PACING: Self = Self {
+        limits: false,
+        pacing: true,
+        crawl_delay: None,
+    };
+
+    /// What it and `other` wrote.
+    fn and(self, other: Self) -> Self {
+        Self {
+            limits: self.limits || other.limits,
+            pacing: self.pacing || other.pacing,
+            crawl_delay: self.crawl_delay.or(other.crawl_delay),
+        }
+    }
+}
+
+/// One domain key's shared state, as plain values: its limits, its pacing
+/// and the Crawl-delay the robots.txt at each of its hosts' locations asks
+/// for. The Politeness file loads and saves it ([`KeyState`]); the rules
+/// change it in memory.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DomainState {
+    limits: Limits,
+    pacing: Pacing,
+    crawl_delays: BTreeMap<String, Duration>,
+}
+
+impl KeyState for DomainState {
+    type Key = str;
+    type Reads = Parts;
+    type Writes = Wrote;
+
+    fn load(connection: &Connection, key: &str, reads: Parts) -> rusqlite::Result<Self> {
+        Ok(Self {
+            limits: if reads.limits {
+                Limits::read(connection, key)?
+            } else {
+                Limits::default()
+            },
+            pacing: if reads.pacing {
+                Pacing::read(connection, key)?
+            } else {
+                Pacing::default()
+            },
+            crawl_delays: if reads.crawl_delays {
+                crawl_delays(connection, key)?
+            } else {
+                BTreeMap::new()
+            },
+        })
+    }
+
+    fn save(&self, connection: &Connection, key: &str, wrote: &Wrote) -> rusqlite::Result<()> {
+        if wrote.limits {
+            self.limits.write(connection, key)?;
+        }
+        if wrote.pacing {
+            self.pacing.write(connection, key)?;
+        }
+        if let Some(location) = &wrote.crawl_delay {
+            match self.crawl_delays.get(location) {
+                Some(delay) => {
+                    connection
+                        .prepare_cached(ASK_CRAWL_DELAY)
+                        .and_then(|mut cached| {
+                            cached.execute((key, location, duration_milliseconds(*delay)))
+                        })?
+                }
+                None => connection
+                    .prepare_cached(DROP_CRAWL_DELAY)
+                    .and_then(|mut cached| cached.execute((key, location)))?,
+            };
+        }
+        Ok(())
+    }
+}
+
+impl DomainState {
+    /// The Crawl-delays the robots.txt of its hosts ask for.
+    fn asked(&self) -> impl Iterator<Item = Duration> + '_ {
+        self.crawl_delays.values().copied()
+    }
+
+    /// The parts [`send_taken`](Self::send_taken) reads for a run of
+    /// `pace`.
+    pub(crate) fn send_reads(pace: Option<&Pace>) -> Parts {
+        if pace.is_some() {
+            Parts::ALL
+        } else {
+            Parts::PACED
+        }
+    }
+
+    /// Takes the start of a request sent at `now`, a crawl request's own by
+    /// a run of `pace`; when the key's last send or sends leave that run's
+    /// delay or rate unmet, it takes nothing and answers when to ask again.
+    /// The send is checked at the whole millisecond it falls in and
+    /// recorded at the next one: the last send is kept rounded up, so a
+    /// check rounded up as well would let a send go up to 1 ms before the
+    /// delay or the interval after it.
+    pub(crate) fn send_taken(
+        &mut self,
+        now: SystemTime,
+        pace: Option<Pace>,
+    ) -> (Option<SystemTime>, Wrote) {
+        let checked = milliseconds(now);
+        let now = milliseconds_from(now);
+        let mut wrote = Wrote::default();
+        if let Some(pace) = pace {
+            if let Some(until) =
+                pace.send_waits_until(&self.limits, &self.pacing, self.asked(), checked)
+            {
+                return (Some(moment(until)), wrote);
+            }
+            if let Some(rate) = pace.rate {
+                self.pacing.theoretical_send = Some(rate.taken(self.pacing.theoretical_send, now));
+                wrote = Wrote::PACING;
+            }
+        }
+        self.limits.last_send = Some(self.limits.last_send.map_or(now, |last| last.max(now)));
+        (None, wrote.and(self.start_noted(moment(now))))
+    }
+
+    /// Records a second start at `now`: the later of it and the last start
+    /// becomes the last, and the rate's token moves to it
+    /// ([`start_moved`](Self::start_moved)).
+    pub(crate) fn start_noted(&mut self, now: SystemTime) -> Wrote {
+        let at = milliseconds(now);
+        self.limits.last_start = Some(self.limits.last_start.map_or(at, |last| last.max(at)));
+        Wrote::LIMITS.and(self.start_moved(now))
+    }
+
+    /// Takes the next start for a request that may go `spacing` after
+    /// `after`: no sooner than `spacing` after the last start any sharing
+    /// run took either, which it then becomes. Answers when it is.
+    pub(crate) fn start_taken(
+        &mut self,
+        after: SystemTime,
+        spacing: Duration,
+    ) -> (SystemTime, Wrote) {
+        (self.limits.start_taken(after, spacing), Wrote::LIMITS)
+    }
+
+    /// Records that the robots.txt at `location` asks for the Crawl-delay
+    /// `delay`, or for none, replacing what it asked before.
+    pub(crate) fn crawl_delay_asked(&mut self, location: String, delay: Option<Duration>) -> Wrote {
+        match delay {
+            Some(delay) => self.crawl_delays.insert(location.clone(), delay),
+            None => self.crawl_delays.remove(&location),
+        };
+        Wrote {
+            crawl_delay: Some(location),
+            ..Wrote::default()
+        }
+    }
+
+    /// Records that a response arrived `latency` after its request was
+    /// sent, into the weighted mean of its latency.
+    pub(crate) fn latency_noted(&mut self, latency: Duration) -> Wrote {
+        self.pacing.latency = Some(averaged(
+            self.pacing.latency,
+            duration_milliseconds(latency),
+        ));
+        Wrote::PACING
+    }
+
+    /// Moves the token a request sent at `sent` took to its send: while the
+    /// bucket is still refilling past `sent`, it is full again no sooner
+    /// than one interval after the send, so a start whose send came after
+    /// its admission never lets the next come sooner than the rate (ADR
+    /// 0086's starts are sends). It only ever moves the bucket later.
+    pub(crate) fn start_moved(&mut self, sent: SystemTime) -> Wrote {
+        let sent = milliseconds_from(sent);
+        let (Some(theoretical), Some(interval)) =
+            (self.pacing.theoretical_start, self.pacing.interval)
+        else {
+            return Wrote::default();
+        };
+        if theoretical <= sent {
+            return Wrote::default();
+        }
+        self.pacing.theoretical_start = Some(theoretical.max(sent.saturating_add(interval)));
+        Wrote::PACING
+    }
+}
+
+/// The moment a document after a robots.txt fetched at `after` counts its
+/// start from, while that fetch is less than `spacing` before `now`: the
+/// document may have been admitted before its Crawl-delay was known.
+/// `None` when its admission kept the delay.
+fn document_waits(
+    after: Option<SystemTime>,
+    spacing: Duration,
+    now: SystemTime,
+) -> Option<SystemTime> {
+    after.filter(|after| *after + spacing > now)
+}
+
+/// The fetch of the robots.txt copy at a location, in milliseconds, and
+/// its domain key's limits: what a document's start after that robots.txt
+/// reads ([`DocumentStart::taken`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DocumentStart {
+    /// When the copy was fetched, `None` without one or when the attempt
+    /// fetched it itself.
+    copy_fetched_at: Option<i64>,
+    limits: Limits,
+}
+
+/// What a document's start after a robots.txt reads: `fetched` when its
+/// attempt fetched it, and `spacing` and `now`, which decide whether it
+/// reads the key's limits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DocumentReads {
+    fetched: Option<SystemTime>,
+    spacing: Duration,
+    now: SystemTime,
+}
+
+impl DocumentStart {
+    /// The moment its document counts from: `fetched`, else the copy's
+    /// fetch. The copy keeps the millisecond its fetch ended in: it ended
+    /// before the next.
+    fn after(fetched: Option<SystemTime>, copy_fetched_at: Option<i64>) -> Option<SystemTime> {
+        fetched.or_else(|| copy_fetched_at.map(|at| moment(at.saturating_add(1))))
+    }
+
+    /// Takes the next start for a document whose attempt read the
+    /// robots.txt as `reads` says: while that robots.txt's fetch is less
+    /// than `spacing` before `now`, no sooner than `spacing` after that
+    /// fetch and after the last start any sharing run took
+    /// ([`Limits::start_taken`]); answers when it is. Otherwise its
+    /// admission kept the delay: `None`.
+    pub(crate) fn taken(&mut self, reads: DocumentReads) -> (Option<SystemTime>, bool) {
+        let Some(after) = document_waits(
+            Self::after(reads.fetched, self.copy_fetched_at),
+            reads.spacing,
+            reads.now,
+        ) else {
+            return (None, false);
+        };
+        (Some(self.limits.start_taken(after, reads.spacing)), true)
+    }
+}
+
+impl KeyState for DocumentStart {
+    /// The domain key, then the robots.txt's location.
+    type Key = (String, String);
+    type Reads = DocumentReads;
+    /// Whether it took a start.
+    type Writes = bool;
+
+    fn load(
+        connection: &Connection,
+        (key, location): &(String, String),
+        reads: DocumentReads,
+    ) -> rusqlite::Result<Self> {
+        let copy_fetched_at = match reads.fetched {
+            Some(_) => None,
+            None => robots_txt::stored(connection, location)?.map(|copy| copy.fetched_at),
+        };
+        let limits = match document_waits(
+            Self::after(reads.fetched, copy_fetched_at),
+            reads.spacing,
+            reads.now,
+        ) {
+            Some(_) => Limits::read(connection, key)?,
+            None => Limits::default(),
+        };
+        Ok(Self {
+            copy_fetched_at,
+            limits,
+        })
+    }
+
+    fn save(
+        &self,
+        connection: &Connection,
+        (key, _): &(String, String),
+        took: &bool,
+    ) -> rusqlite::Result<()> {
+        if *took {
+            self.limits.write(connection, key)?;
+        }
+        Ok(())
+    }
+}
+
 impl PermitRule for DomainRule {
+    type State = DomainState;
+
     fn paces(&self) -> bool {
         self.concurrency.is_some() || self.pace.paces()
     }
 
-    fn admit(
-        &self,
-        connection: &Connection,
-        key: &str,
-        in_flight: u64,
-        now: SystemTime,
-    ) -> rusqlite::Result<Verdict> {
-        let crawl_delays = crawl_delays(connection, key)?;
-        let pacing = Pacing::read(connection, key)?;
-        Ok(Limits::read(connection, key)?.admit(
+    fn reads(&self, step: Step) -> Parts {
+        match step {
+            Step::Take => Parts::ALL,
+            Step::GiveBack => Parts::LIMITS,
+        }
+    }
+
+    fn admit(&self, state: &DomainState, in_flight: u64, now: SystemTime) -> Verdict {
+        state.limits.admit(
             in_flight,
             milliseconds(now),
             self,
-            &crawl_delays,
-            &pacing,
-        ))
+            state.asked(),
+            &state.pacing,
+        )
     }
 
-    fn started(&self, connection: &Connection, key: &str, now: SystemTime) -> rusqlite::Result<()> {
-        let mut limits = Limits::read(connection, key)?;
+    fn started(&self, state: &mut DomainState, now: SystemTime) -> Wrote {
         let now = milliseconds(now);
-        limits.last_start = Some(now);
-        limits.write(connection, key)?;
-        if let Some(rate) = self.pace.rate {
-            let mut pacing = Pacing::read(connection, key)?;
-            pacing.theoretical_start = Some(rate.taken(pacing.theoretical_start, now));
-            pacing.interval = Some(rate.interval);
-            pacing.write(connection, key)?;
-        }
-        Ok(())
+        state.limits.last_start = Some(now);
+        let Some(rate) = self.pace.rate else {
+            return Wrote::LIMITS;
+        };
+        state.pacing.theoretical_start = Some(rate.taken(state.pacing.theoretical_start, now));
+        state.pacing.interval = Some(rate.interval);
+        Wrote::LIMITS.and(Wrote::PACING)
     }
 
     fn ended(
         &self,
-        connection: &Connection,
-        key: &str,
+        state: &mut DomainState,
         in_flight: u64,
         ending: Ending,
         now: SystemTime,
-    ) -> rusqlite::Result<Option<SystemTime>> {
+    ) -> (Option<SystemTime>, Wrote) {
         let now = milliseconds(now);
-        let limits = {
+        state.limits = {
             let mut entropy = self.entropy.lock().unwrap_or_else(PoisonError::into_inner);
-            Limits::read(connection, key)?.ended(in_flight, ending, now, &self.waits, &mut entropy)
+            state
+                .limits
+                .ended(in_flight, ending, now, &self.waits, &mut entropy)
         };
-        limits.write(connection, key)?;
         let longest = self.waits.longest().map(duration_milliseconds);
-        Ok(limits
+        let ready_at = state
+            .limits
             .ready_at
             .filter(|ready_at| {
                 *ready_at > now
                     && longest.is_some_and(|longest| ready_at.saturating_sub(now) <= longest)
             })
-            .map(moment))
+            .map(moment);
+        (ready_at, Wrote::LIMITS)
     }
 }
 
@@ -624,9 +988,12 @@ pub async fn started_again(
     key: &str,
     now: SystemTime,
 ) -> Result<(), PolitenessError> {
-    let key = key.to_owned();
     politeness
-        .transact(move |connection| start_noted(connection, &key, now))
+        .change(
+            key.to_owned(),
+            Parts::PACED,
+            move |state: &mut DomainState| ((), state.start_noted(now)),
+        )
         .await
 }
 
@@ -659,74 +1026,13 @@ pub async fn started_at_send(
     clock: Clock,
     pace: Option<Pace>,
 ) -> Result<Option<SystemTime>, PolitenessError> {
-    let key = key.to_owned();
     politeness
-        .transact(move |connection| send_taken(connection, &key, clock.wall(), pace))
+        .change(
+            key.to_owned(),
+            DomainState::send_reads(pace.as_ref()),
+            move |state: &mut DomainState| state.send_taken(clock.wall(), pace),
+        )
         .await
-}
-
-/// Takes in `connection` the start of a request of `key` sent at `now`, a
-/// crawl request's own by a run of `pace`; when the key's last send or
-/// sends leave that run's delay or rate unmet, it takes nothing and
-/// answers when to ask again. The send is checked at the whole millisecond
-/// it falls in and recorded at the next one: the last send is kept rounded
-/// up, so a check rounded up as well would let a send go up to 1 ms before
-/// the delay or the interval after it.
-pub(crate) fn send_taken(
-    connection: &Connection,
-    key: &str,
-    now: SystemTime,
-    pace: Option<Pace>,
-) -> rusqlite::Result<Option<SystemTime>> {
-    let checked = milliseconds(now);
-    let now = milliseconds_from(now);
-    let mut limits = Limits::read(connection, key)?;
-    if let Some(pace) = pace {
-        let mut pacing = Pacing::read(connection, key)?;
-        let crawl_delays = crawl_delays(connection, key)?;
-        if let Some(until) = pace.send_waits_until(&limits, &pacing, &crawl_delays, checked) {
-            return Ok(Some(moment(until)));
-        }
-        if let Some(rate) = pace.rate {
-            pacing.theoretical_send = Some(rate.taken(pacing.theoretical_send, now));
-            pacing.write(connection, key)?;
-        }
-    }
-    limits.last_send = Some(limits.last_send.map_or(now, |last| last.max(now)));
-    limits.write(connection, key)?;
-    start_noted(connection, key, moment(now))?;
-    Ok(None)
-}
-
-/// Records in `connection` a second start of `key` at `now`: the later of
-/// it and the last start becomes the last, and the rate's token moves to
-/// it ([`start_moved`]).
-fn start_noted(connection: &Connection, key: &str, now: SystemTime) -> rusqlite::Result<()> {
-    let mut limits = Limits::read(connection, key)?;
-    let at = milliseconds(now);
-    limits.last_start = Some(limits.last_start.map_or(at, |last| last.max(at)));
-    limits.write(connection, key)?;
-    start_moved(connection, key, now)
-}
-
-/// Takes in `connection` the next start of `key` for a request that may go
-/// `spacing` after `after`: no sooner than `spacing` after the last start
-/// any sharing run took either, which it then becomes. Answers when it is.
-pub(crate) fn start_taken(
-    connection: &Connection,
-    key: &str,
-    after: SystemTime,
-    spacing: Duration,
-) -> rusqlite::Result<SystemTime> {
-    let mut limits = Limits::read(connection, key)?;
-    let after = milliseconds_from(after);
-    let start = limits
-        .last_start
-        .map_or(after, |last| last.max(after))
-        .saturating_add(duration_milliseconds(spacing));
-    limits.last_start = Some(start);
-    limits.write(connection, key)?;
-    Ok(moment(start))
 }
 
 /// Takes the next start of `key`, for every run sharing `politeness`, for
@@ -748,46 +1054,18 @@ pub async fn start_after(
     after: SystemTime,
     spacing: Duration,
 ) -> Result<SystemTime, PolitenessError> {
-    let key = key.to_owned();
     politeness
-        .transact(move |connection| start_taken(connection, &key, after, spacing))
+        .change(
+            key.to_owned(),
+            Parts::LIMITS,
+            move |state: &mut DomainState| state.start_taken(after, spacing),
+        )
         .await
-}
-
-/// Takes in `connection` the next start of `key` for a document after the
-/// robots.txt at `location` its attempt read at `now`: `fetched`, when its
-/// attempt fetched it, that fetch's response arrival, else the fetch of the
-/// copy it read. While that fetch is less than `spacing` before `now`, the
-/// document may have been admitted before its Crawl-delay was known, so it
-/// starts no sooner than `spacing` after that fetch and after the last
-/// start any sharing run took ([`start_taken`]); answers when it is.
-/// Otherwise its admission kept the delay: `None`.
-pub(crate) fn document_start_taken(
-    connection: &Connection,
-    key: &str,
-    location: &str,
-    fetched: Option<SystemTime>,
-    spacing: Duration,
-    now: SystemTime,
-) -> rusqlite::Result<Option<SystemTime>> {
-    let after = match fetched {
-        Some(fetched) => fetched,
-        // The copy keeps the millisecond its fetch ended in: it ended
-        // before the next.
-        None => match robots_txt::stored(connection, location)? {
-            Some(copy) => moment(copy.fetched_at.saturating_add(1)),
-            None => return Ok(None),
-        },
-    };
-    if after + spacing <= now {
-        return Ok(None);
-    }
-    start_taken(connection, key, after, spacing).map(Some)
 }
 
 /// Takes the next start of `key`, for every run sharing `politeness`, for
 /// a document whose attempt read the robots.txt at `location` at `now`
-/// ([`document_start_taken`]): `spacing` after that robots.txt's fetch,
+/// ([`DocumentStart::taken`]): `spacing` after that robots.txt's fetch,
 /// `fetched` when the attempt fetched it, while that fetch is less than
 /// `spacing` before, and after the last start any sharing run took. So two
 /// runs that read robots.txt at once, before either knew its Crawl-delay,
@@ -811,11 +1089,17 @@ pub async fn start_after_robots_txt(
     spacing: Duration,
     now: SystemTime,
 ) -> Result<Option<SystemTime>, PolitenessError> {
-    let (key, location) = (key.to_owned(), location.to_owned());
+    let reads = DocumentReads {
+        fetched,
+        spacing,
+        now,
+    };
     politeness
-        .transact(move |connection| {
-            document_start_taken(connection, &key, &location, fetched, spacing, now)
-        })
+        .change(
+            (key.to_owned(), location.to_owned()),
+            reads,
+            move |state: &mut DocumentStart| state.taken(reads),
+        )
         .await
 }
 
@@ -833,41 +1117,31 @@ pub async fn last_start(
     politeness: &Politeness,
     key: &str,
 ) -> Result<Option<SystemTime>, PolitenessError> {
-    let key = key.to_owned();
     let last = politeness
-        .transact(move |connection| Ok(Limits::read(connection, &key)?.last_start))
+        .change(key.to_owned(), Parts::LIMITS, |state: &mut DomainState| {
+            (state.limits.last_start, Wrote::default())
+        })
         .await?;
     Ok(last
         .and_then(|last| u64::try_from(last).ok())
         .map(|last| SystemTime::UNIX_EPOCH + Duration::from_millis(last)))
 }
 
-/// Records in `connection` that the robots.txt at `location` asks the
-/// requests of `key` for the Crawl-delay `delay`, or for none, replacing
-/// what it asked before.
-pub(crate) fn crawl_delay_asked(
+/// The Crawl-delay the robots.txt at each location of `key`'s hosts asks
+/// for.
+fn crawl_delays(
     connection: &Connection,
     key: &str,
-    location: &str,
-    delay: Option<Duration>,
-) -> rusqlite::Result<()> {
-    match delay {
-        Some(delay) => connection
-            .prepare_cached(ASK_CRAWL_DELAY)
-            .and_then(|mut cached| cached.execute((key, location, duration_milliseconds(delay))))?,
-        None => connection
-            .prepare_cached(DROP_CRAWL_DELAY)
-            .and_then(|mut cached| cached.execute((key, location)))?,
-    };
-    Ok(())
-}
-
-/// The Crawl-delays the robots.txt of `key`'s hosts ask for.
-fn crawl_delays(connection: &Connection, key: &str) -> rusqlite::Result<Vec<Duration>> {
+) -> rusqlite::Result<BTreeMap<String, Duration>> {
     let mut statement = connection.prepare_cached(CRAWL_DELAYS)?;
     statement
-        .query_map([key], |row| row.get::<_, i64>(0))?
-        .map(|delay| delay.map(|delay| Duration::from_millis(u64::try_from(delay).unwrap_or(0))))
+        .query_map([key], |row| {
+            let delay = row.get::<_, i64>(1)?;
+            Ok((
+                row.get::<_, String>(0)?,
+                Duration::from_millis(u64::try_from(delay).unwrap_or(0)),
+            ))
+        })?
         .collect()
 }
 
@@ -889,44 +1163,14 @@ pub async fn crawl_delay_read(
     location: &str,
     delay: Option<Duration>,
 ) -> Result<(), PolitenessError> {
-    let (key, location) = (key.to_owned(), location.to_owned());
+    let location = location.to_owned();
     politeness
-        .transact(move |connection| crawl_delay_asked(connection, &key, &location, delay))
+        .change(
+            key.to_owned(),
+            Parts::NONE,
+            move |state: &mut DomainState| ((), state.crawl_delay_asked(location, delay)),
+        )
         .await
-}
-
-/// Records in `connection` that a response of `key` arrived `latency`
-/// after its request was sent, into the weighted mean of its latency.
-pub(crate) fn latency_noted(
-    connection: &Connection,
-    key: &str,
-    latency: Duration,
-) -> rusqlite::Result<()> {
-    let mut pacing = Pacing::read(connection, key)?;
-    pacing.latency = Some(averaged(pacing.latency, duration_milliseconds(latency)));
-    pacing.write(connection, key)
-}
-
-/// Moves in `connection` the token a request of `key` sent at `sent` took
-/// to its send: while the bucket is still refilling past `sent`, it is
-/// full again no sooner than one interval after the send, so a start whose
-/// send came after its admission never lets the next come sooner than the
-/// rate (ADR 0086's starts are sends). It only ever moves the bucket later.
-pub(crate) fn start_moved(
-    connection: &Connection,
-    key: &str,
-    sent: SystemTime,
-) -> rusqlite::Result<()> {
-    let mut pacing = Pacing::read(connection, key)?;
-    let sent = milliseconds_from(sent);
-    let (Some(theoretical), Some(interval)) = (pacing.theoretical_start, pacing.interval) else {
-        return Ok(());
-    };
-    if theoretical <= sent {
-        return Ok(());
-    }
-    pacing.theoretical_start = Some(theoretical.max(sent.saturating_add(interval)));
-    pacing.write(connection, key)
 }
 
 /// Records, for every run sharing `politeness`, that a response of `key`
@@ -947,9 +1191,12 @@ pub async fn latency_measured(
     key: &str,
     latency: Duration,
 ) -> Result<(), PolitenessError> {
-    let key = key.to_owned();
     politeness
-        .transact(move |connection| latency_noted(connection, &key, latency))
+        .change(
+            key.to_owned(),
+            Parts::PACING,
+            move |state: &mut DomainState| ((), state.latency_noted(latency)),
+        )
         .await
 }
 

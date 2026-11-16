@@ -1323,10 +1323,39 @@ musl-toolchain:
 targets:
     {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
     cargo run --quiet --bin xtask -- test-tools build --cargo-profile release --shipped-target --out "$PWD/target/targets/test-tools.json"
+    cargo run --quiet --bin xtask -- pgo check --tools target/targets/test-tools.json
     rm -f target/targets/peaks.jsonl target/targets/startup-*.json
     cargo run --quiet --bin xtask -- targets startup --tools target/targets/test-tools.json --out target/targets
     cargo run --quiet --bin xtask -- rss measure idle-attached-engine idle-daemon crawl-100 crawl-1000 crawl-10000 --runs 5 --tools target/targets/test-tools.json --out target/targets/peaks.jsonl
     cargo run --quiet --bin xtask -- targets report --measured target/targets
+
+# The profile-guided release build of the Linux musl executables (ADR
+# 0057's note of 2026-11-14): trains the profile on both Products' training
+# workloads with an instrumented build, then rewrites the committed
+# ci/pgo/<target>/merged.profdata.zst and order.txt.zst, the order widened by
+# the pages the training crawls touch (`sudo -n` sets the kernel's
+# fault-around to one page for them). Run it when the Products' code has
+# moved enough that `just targets` or a comparison reads slower, and commit
+# both files. `--order-only` maps the pages again and writes the order file on
+# the guided build the last refresh recorded: run it in a quiet window, since
+# the map's order depends on timing.
+# Retrains the release build's committed profile and order file.
+pgo-refresh *arguments:
+    ci/musl/install.sh
+    pnpm install --frozen-lockfile --reporter=silent --filter goodfetch-compare-collie...
+    cargo run --quiet --bin xtask -- pgo refresh {{ arguments }}
+
+# Times a plain release build against the profile-guided one on scenario 1
+# and each Product's held-out workload (ADR 0057's note of 2026-11-14),
+# trial by trial in turn: the plain one built into target/pgo/plain-target.
+# Run it in a quiet window; `trials` is per build and workload.
+# Times the profile-guided release build against a plain one.
+pgo-validate trials="9":
+    ci/musl/install.sh
+    pnpm install --frozen-lockfile --reporter=silent --filter goodfetch-compare-collie...
+    cargo run --quiet --bin xtask -- test-tools build --cargo-profile release --shipped-target --out "$PWD/target/pgo/guided-tools.json" --tool collie --tool foxhound --tool proving_ground
+    GOODFETCH_PGO=off CARGO_TARGET_DIR="$PWD/target/pgo/plain-target" cargo run --quiet --bin xtask -- test-tools build --cargo-profile release --shipped-target --out "$PWD/target/pgo/plain-tools.json" --tool collie --tool foxhound
+    cargo run --quiet --bin xtask -- pgo validate --plain target/pgo/plain-tools.json --guided target/pgo/guided-tools.json --proving-ground target/pgo/guided-tools.json --trials {{ trials }}
 
 # The Counted work of each row of the Quality register on its benchmark,
 # against its limit (ADR 0140; TESTING.md, Quality register); `--prove` plants

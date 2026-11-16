@@ -15,8 +15,8 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::politeness::{
-    Ending, Hold, Holder, PermitRule, Politeness, PolitenessError, PolitenessOptions, Taken,
-    Verdict,
+    self as engine, Ending, Hold, Holder, Politeness, PolitenessError, PolitenessOptions,
+    SharedRule, Step, Taken, Verdict,
 };
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_test_support::{CrashVfs, IoFault, TestEnv};
@@ -24,8 +24,9 @@ use proptest::prelude::*;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{KEY, at, file, milliseconds, pace, rule};
-use crate::politeness::{TABLES, latency_noted, send_taken, start_moved, started_at_send};
+use super::on_file::OnFile as _;
+use super::{KEY, at, file, latency_noted, milliseconds, pace, rule, send_taken, start_moved};
+use crate::politeness::{DomainState, TABLES, Wrote, started_at_send};
 
 fn adaptive(delay: u64, max: u64) -> Value {
     json!({
@@ -437,7 +438,7 @@ async fn engine_file(env: &TestEnv, engine: &str, owner: &TaskOwner) -> Politene
 async fn run_until(
     politeness: &Politeness,
     run: &str,
-    rule: Arc<dyn PermitRule>,
+    rule: SharedRule,
     clock: &Clock,
     end: SystemTime,
     host: &Mutex<Vec<(String, SystemTime)>>,
@@ -449,7 +450,7 @@ async fn run_until(
     };
     while clock.wall() < end {
         match politeness
-            .take(KEY, &holder, Arc::clone(&rule), clock.wall())
+            .take(KEY, &holder, rule.clone(), clock.wall())
             .await
             .unwrap()
         {
@@ -457,7 +458,7 @@ async fn run_until(
                 host.lock().unwrap().push((run.to_owned(), clock.wall()));
                 clock.sleep(Duration::from_secs(3)).await;
                 politeness
-                    .give_back(permit, Arc::clone(&rule), Ending::Done, clock.wall())
+                    .give_back(permit, rule.clone(), Ending::Done, clock.wall())
                     .await
                     .unwrap();
             }
@@ -492,13 +493,13 @@ async fn two_runs_sharing_a_key_are_held_to_its_rate_over_a_minute() {
         engine_file(&env, "first", &owner).await,
         engine_file(&env, "second", &owner).await,
     );
-    let thirty: Arc<dyn PermitRule> = Arc::new(rule(rated(30, 1)));
+    let thirty = SharedRule::new(rule(rated(30, 1)));
     let host = Mutex::new(Vec::new());
     let end = at(60);
 
     tokio::join!(
-        run_until(&first, "first", Arc::clone(&thirty), &clock, end, &host),
-        run_until(&second, "second", Arc::clone(&thirty), &clock, end, &host),
+        run_until(&first, "first", thirty.clone(), &clock, end, &host),
+        run_until(&second, "second", thirty.clone(), &clock, end, &host),
     );
 
     let host = host.into_inner().unwrap();
@@ -536,7 +537,13 @@ async fn a_send_that_waited_for_the_file_counts_its_interval_from_when_it_was_re
     let one_a_second = Arc::new(rule(rated(60, 1)));
     let admitted = Arc::clone(&one_a_second);
     politeness
-        .transact(move |connection| admitted.started(connection, KEY, at(10)))
+        .change(
+            KEY,
+            engine::PermitRule::reads(&*admitted, Step::Take),
+            move |state: &mut DomainState| {
+                ((), engine::PermitRule::started(&*admitted, state, at(10)))
+            },
+        )
         .await
         .unwrap();
     let asked = clock.wall();
@@ -547,9 +554,16 @@ async fn a_send_that_waited_for_the_file_counts_its_interval_from_when_it_was_re
     );
     sent.unwrap();
     let next = politeness
-        .transact(move |connection| {
-            one_a_second.admit(connection, KEY, 0, at(11) + milliseconds(100))
-        })
+        .change(
+            KEY,
+            engine::PermitRule::reads(&*one_a_second, Step::Take),
+            move |state: &mut DomainState| {
+                (
+                    engine::PermitRule::admit(&*one_a_second, state, 0, at(11) + milliseconds(100)),
+                    Wrote::default(),
+                )
+            },
+        )
         .await
         .unwrap();
 

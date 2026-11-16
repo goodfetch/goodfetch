@@ -31,6 +31,7 @@
 //! in one transaction, kept whole so the rules that guard the count in
 //! flight under a key change together.
 
+use std::borrow::Borrow;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -235,47 +236,96 @@ pub enum Ending {
     TooManyRequests(Option<SystemTime>),
 }
 
-/// What a key admits, which a Product's composition passes in: it reads
-/// and writes its own tables of the file, in the transaction that takes or
-/// gives back a Permit.
-pub trait PermitRule: Send + Sync {
-    /// Whether `key`, with `in_flight` requests under it across every
-    /// sharing run, admits one more at `now`.
+/// The plain values a key keeps in the file, such as a domain key's limits
+/// and pacing: what a rule reads and changes, which the storage loads
+/// before and saves after, in the transaction that takes or gives back a
+/// Permit, or that [`Politeness::change`] runs.
+pub trait KeyState: Sized + Send + 'static {
+    /// What it is kept under, such as a domain key.
+    type Key: ?Sized + Send + Sync + 'static;
+    /// Which of its values a change reads; the others load as if never
+    /// written.
+    type Reads: Copy + Send + 'static;
+    /// Which of its values a change wrote, the only ones saved.
+    type Writes: Send + 'static;
+
+    /// The values `reads` names, kept under `key` in `connection`.
     ///
     /// # Errors
     ///
     /// When its tables cannot be read.
-    fn admit(
+    fn load(connection: &Connection, key: &Self::Key, reads: Self::Reads)
+    -> rusqlite::Result<Self>;
+
+    /// Saves under `key` in `connection` the values `writes` names.
+    ///
+    /// # Errors
+    ///
+    /// When its tables cannot be written.
+    fn save(
         &self,
         connection: &Connection,
-        key: &str,
-        in_flight: u64,
+        key: &Self::Key,
+        writes: &Self::Writes,
+    ) -> rusqlite::Result<()>;
+}
+
+/// Loads the state kept under `key` in `connection` as `reads` says, runs
+/// `change` on it and saves what it wrote: the work of one
+/// [`Politeness::change`], in the caller's transaction.
+fn changed<S: KeyState, T>(
+    connection: &Connection,
+    key: &S::Key,
+    reads: S::Reads,
+    change: impl FnOnce(&mut S) -> (T, S::Writes),
+) -> rusqlite::Result<T> {
+    let mut state = S::load(connection, key, reads)?;
+    let (answer, writes) = change(&mut state);
+    state.save(connection, key, &writes)?;
+    Ok(answer)
+}
+
+/// The step of a Permit's life a rule reads its key's state for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Step {
+    /// Its take: the admission, again after a reclaim, and the start.
+    Take,
+    /// Its give back, after its request ended.
+    GiveBack,
+}
+
+/// What a key admits, which a Product's composition passes in: a pure
+/// function of its key's state, which the storage loads before and saves
+/// after, in the transaction that takes or gives back a Permit.
+pub trait PermitRule: Send + Sync + 'static {
+    /// The values it keeps under each key.
+    type State: KeyState<Key = str>;
+
+    /// Which of its key's values `step` reads.
+    fn reads(&self, step: Step) -> <Self::State as KeyState>::Reads;
+
+    /// Whether a key whose state is `state`, with `in_flight` requests
+    /// under it across every sharing run, admits one more at `now`.
+    fn admit(&self, state: &Self::State, in_flight: u64, now: SystemTime) -> Verdict;
+
+    /// A request under the key started at `now`; answers what it wrote.
+    fn started(
+        &self,
+        state: &mut Self::State,
         now: SystemTime,
-    ) -> rusqlite::Result<Verdict>;
+    ) -> <Self::State as KeyState>::Writes;
 
-    /// A request under `key` started at `now`.
-    ///
-    /// # Errors
-    ///
-    /// When its tables cannot be written.
-    fn started(&self, connection: &Connection, key: &str, now: SystemTime) -> rusqlite::Result<()>;
-
-    /// A request under `key` ended at `now` as `ending` says, `in_flight`
-    /// others still in flight; answers when `key` may go again, if later
-    /// than `now` and the run waits for it: `None` also when its requests
-    /// are refused until then ([`Verdict::Refused`]).
-    ///
-    /// # Errors
-    ///
-    /// When its tables cannot be written.
+    /// A request under the key ended at `now` as `ending` says, `in_flight`
+    /// others still in flight; answers when the key may go again, if later
+    /// than `now` and the run waits for it (`None` also when its requests
+    /// are refused until then, [`Verdict::Refused`]), and what it wrote.
     fn ended(
         &self,
-        connection: &Connection,
-        key: &str,
+        state: &mut Self::State,
         in_flight: u64,
         ending: Ending,
         now: SystemTime,
-    ) -> rusqlite::Result<Option<SystemTime>>;
+    ) -> (Option<SystemTime>, <Self::State as KeyState>::Writes);
 
     /// Whether it may hold a request back on its own settings: `false`
     /// for a rule that neither caps, spaces nor rates its keys, under
@@ -283,6 +333,84 @@ pub trait PermitRule: Send + Sync {
     /// its admission, its gate backing its keys off itself (ADR 0138).
     fn paces(&self) -> bool {
         true
+    }
+}
+
+/// A [`PermitRule`] any task may clone and hand to a take or a give back,
+/// whatever its state.
+#[derive(Clone)]
+pub struct SharedRule(Arc<dyn Erased>);
+
+impl SharedRule {
+    /// Shares `rule`.
+    pub fn new(rule: impl PermitRule) -> Self {
+        Self(Arc::new(rule))
+    }
+
+    /// [`PermitRule::paces`].
+    pub fn paces(&self) -> bool {
+        self.0.paces()
+    }
+}
+
+impl fmt::Debug for SharedRule {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SharedRule")
+            .field("paces", &self.paces())
+            .finish_non_exhaustive()
+    }
+}
+
+/// A [`PermitRule`] with its state's type erased, run in the transaction
+/// that takes or gives back a Permit.
+trait Erased: Send + Sync {
+    fn paces(&self) -> bool;
+
+    fn taken(
+        &self,
+        transaction: &Connection,
+        context: &Context,
+        key: &str,
+        holder: &Holder,
+        now: SystemTime,
+        in_turn: bool,
+    ) -> rusqlite::Result<(Taken, Option<Turn>)>;
+
+    fn given_back(
+        &self,
+        transaction: &Connection,
+        permit: &Permit,
+        ending: Ending,
+        now: SystemTime,
+    ) -> rusqlite::Result<(Option<SystemTime>, Option<Turn>)>;
+}
+
+impl<R: PermitRule> Erased for R {
+    fn paces(&self) -> bool {
+        PermitRule::paces(self)
+    }
+
+    fn taken(
+        &self,
+        transaction: &Connection,
+        context: &Context,
+        key: &str,
+        holder: &Holder,
+        now: SystemTime,
+        in_turn: bool,
+    ) -> rusqlite::Result<(Taken, Option<Turn>)> {
+        taken_in(transaction, context, key, holder, self, now, in_turn)
+    }
+
+    fn given_back(
+        &self,
+        transaction: &Connection,
+        permit: &Permit,
+        ending: Ending,
+        now: SystemTime,
+    ) -> rusqlite::Result<(Option<SystemTime>, Option<Turn>)> {
+        given_back_in(transaction, permit, self, ending, now)
     }
 }
 
@@ -613,14 +741,14 @@ impl Politeness {
         &self,
         key: &str,
         holder: &Holder,
-        rule: Arc<dyn PermitRule>,
+        rule: SharedRule,
         now: SystemTime,
     ) -> Result<Taken, PolitenessError> {
         let key = key.to_owned();
         let holder = holder.clone();
         let (taken, turn) = self
             .run(move |connection, context| {
-                take_in(connection, context, &key, &holder, rule.as_ref(), now, true)
+                take_in(connection, context, &key, &holder, &rule, now, true)
             })
             .await?;
         if let Some(turn) = turn {
@@ -648,22 +776,14 @@ impl Politeness {
         &self,
         key: &str,
         holder: &Holder,
-        rule: Arc<dyn PermitRule>,
+        rule: SharedRule,
         now: SystemTime,
     ) -> Result<Taken, PolitenessError> {
         let key = key.to_owned();
         let holder = holder.clone();
         let (taken, _) = self
             .run(move |connection, context| {
-                take_in(
-                    connection,
-                    context,
-                    &key,
-                    &holder,
-                    rule.as_ref(),
-                    now,
-                    false,
-                )
+                take_in(connection, context, &key, &holder, &rule, now, false)
             })
             .await?;
         Ok(taken)
@@ -686,13 +806,13 @@ impl Politeness {
     pub async fn give_back(
         &self,
         permit: Permit,
-        rule: Arc<dyn PermitRule>,
+        rule: SharedRule,
         ending: Ending,
         now: SystemTime,
     ) -> Result<Option<SystemTime>, PolitenessError> {
         let (ready_at, turn) = self
             .run(move |connection, context| {
-                give_back_in(connection, context, &permit, rule.as_ref(), ending, now)
+                give_back_in(connection, context, &permit, &rule, ending, now)
             })
             .await?;
         if let Some(turn) = turn {
@@ -724,9 +844,11 @@ impl Politeness {
         .await
     }
 
-    /// Runs `work` on the tables a contribution added to the file, in one
-    /// transaction committed when it returns `Ok` and rolled back
-    /// otherwise, such as Foxhound's shared robots.txt copy (ADR 0086).
+    /// Changes the state `S` keeps under `key` in one transaction,
+    /// committed when it succeeds and rolled back otherwise: loads what
+    /// `reads` names, runs `change` on it and saves what it answers it
+    /// wrote, such as a domain key's pacing or Foxhound's
+    /// shared robots.txt copy (ADR 0086). Answers what `change` answered.
     ///
     /// # Errors
     ///
@@ -736,14 +858,23 @@ impl Politeness {
     /// # Cancel safety
     ///
     /// Dropping the future does not withdraw a transaction already queued.
-    pub async fn transact<T, F>(&self, work: F) -> Result<T, PolitenessError>
+    pub async fn change<S, K, T, F>(
+        &self,
+        key: K,
+        reads: S::Reads,
+        change: F,
+    ) -> Result<T, PolitenessError>
     where
+        S: KeyState,
+        K: Borrow<S::Key> + Send + 'static,
         T: Send + 'static,
-        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+        F: FnOnce(&mut S) -> (T, S::Writes) + Send + 'static,
     {
         self.run(move |connection, context| {
-            sqlite_store::immediate(connection, work)
-                .map_err(|error| sqlite_error(&context.path, &error))
+            sqlite_store::immediate(connection, |transaction| {
+                changed(transaction, key.borrow(), reads, change)
+            })
+            .map_err(|error| sqlite_error(&context.path, &error))
         })
         .await
     }
@@ -1049,30 +1180,35 @@ fn take_in(
     context: &Context,
     key: &str,
     holder: &Holder,
-    rule: &dyn PermitRule,
+    rule: &SharedRule,
     now: SystemTime,
     in_turn: bool,
 ) -> Result<(Taken, Option<Turn>), PolitenessError> {
     sqlite_store::immediate(connection, |transaction| {
-        taken_in(transaction, context, key, holder, rule, now, in_turn)
+        rule.0
+            .taken(transaction, context, key, holder, now, in_turn)
     })
     .map_err(|error| sqlite_error(&context.path, &error))
 }
 
-/// [`take_in`]'s work, in its transaction.
-fn taken_in(
+/// [`take_in`]'s work, in its transaction: the key's state is loaded once,
+/// for both admissions and the start, and only what the start wrote is
+/// saved.
+fn taken_in<R: PermitRule>(
     transaction: &Connection,
     context: &Context,
     key: &str,
     holder: &Holder,
-    rule: &dyn PermitRule,
+    rule: &R,
     now: SystemTime,
     in_turn: bool,
 ) -> rusqlite::Result<(Taken, Option<Turn>)> {
     let taken = |transaction: &Connection| taken_room(transaction, key, &holder.run_id, now);
-    let mut verdict = rule.admit(transaction, key, taken(transaction)?, now)?;
+    let in_flight = taken(transaction)?;
+    let mut state = R::State::load(transaction, key, rule.reads(Step::Take))?;
+    let mut verdict = rule.admit(&state, in_flight, now);
     if verdict == Verdict::Busy && reclaim(transaction, context, key)? > 0 {
-        verdict = rule.admit(transaction, key, taken(transaction)?, now)?;
+        verdict = rule.admit(&state, taken(transaction)?, now);
     }
     let mut turn = None;
     let taken = match verdict {
@@ -1088,7 +1224,8 @@ fn taken_in(
                 ))
             })?;
             let id = transaction.last_insert_rowid();
-            rule.started(transaction, key, now)?;
+            let writes = rule.started(&mut state, now);
+            state.save(transaction, key, &writes)?;
             if in_turn {
                 transaction
                     .prepare_cached(LEAVE_TURNS)
@@ -1147,21 +1284,21 @@ fn give_back_in(
     connection: &Connection,
     context: &Context,
     permit: &Permit,
-    rule: &dyn PermitRule,
+    rule: &SharedRule,
     ending: Ending,
     now: SystemTime,
 ) -> Result<(Option<SystemTime>, Option<Turn>), PolitenessError> {
     sqlite_store::immediate(connection, |transaction| {
-        given_back_in(transaction, permit, rule, ending, now)
+        rule.0.given_back(transaction, permit, ending, now)
     })
     .map_err(|error| sqlite_error(&context.path, &error))
 }
 
 /// [`give_back_in`]'s work, in its transaction.
-fn given_back_in(
+fn given_back_in<R: PermitRule>(
     transaction: &Connection,
     permit: &Permit,
-    rule: &dyn PermitRule,
+    rule: &R,
     ending: Ending,
     now: SystemTime,
 ) -> rusqlite::Result<(Option<SystemTime>, Option<Turn>)> {
@@ -1169,7 +1306,9 @@ fn given_back_in(
         .prepare_cached(GIVE_BACK)
         .and_then(|mut cached| cached.execute([permit.id]))?;
     let others = in_flight(transaction, &permit.key)?;
-    let ready_at = rule.ended(transaction, &permit.key, others, ending, now)?;
+    let mut state = R::State::load(transaction, &permit.key, rule.reads(Step::GiveBack))?;
+    let (ready_at, writes) = rule.ended(&mut state, others, ending, now);
+    state.save(transaction, &permit.key, &writes)?;
     let generation: i64 = transaction
         .prepare_cached(NEXT_GENERATION)
         .and_then(|mut cached| cached.query_row([&permit.key], |row| row.get(0)))?;

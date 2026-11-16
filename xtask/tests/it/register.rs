@@ -54,6 +54,9 @@ pub(crate) const CLEAN_TESTING: &str = "\
 | `C1.file_opens` | directories created and files opened per CDP command | 0 | after #1583 | B2 | must not grow |
 | `C1.instructions` | instructions per command | 1.10 × the figure after #1577 | after #1583 | B2 | must not grow |
 | `frontier.heap_per_url` | heap bytes per URL | ≤ 8 (ADR 0134) | after #1583 | `goodfetch-frontier`'s `heap::frontier::enqueue` (`hundred_thousand_urls` less `no_urls`) | must not grow |
+| `frontier.heap_growth_per_url` | heap bytes per URL from 100,000 to 1,000,000 URLs at a 1 MiB budget | ≤ 8 (ADR 0142) | after #1583 | `goodfetch-frontier`'s `heap::frontier::grow` (`million_urls` less `hundred_thousand_urls`) | must not grow |
+| `frontier.heap_before_spill` | heap bytes per URL at 100,000 URLs and the default budget | ≤ 95 (ADR 0142) | after #1583 | `goodfetch-frontier`'s `heap::frontier::hold` (`hundred_thousand_urls` less `no_urls`) | must not grow |
+| `run_state.heap_past_spill` | heap at 1,000,000 URLs, in percent of the default budget | ≤ 110 (ADR 0142: the budget + 10 %) | after #1583 | `goodfetch-frontier`'s `heap::frontier::spill` (`million_urls` less `no_urls`) | must not grow |
 | `coverage.project` | project line coverage | none: a ratchet | the next job | `just coverage all` | must not fall |
 
 ### Exceptions
@@ -294,6 +297,26 @@ fn a_row_above_its_contract_fails(#[case] from: &str, #[case] to: &str, #[case] 
     "| ≤ 8 (ADR 0134) |",
     "| ≤ 7 (ADR 0134) |",
     "goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls"
+)]
+#[case::a_growth_ceiling(
+    "| ≤ 8 (ADR 0142) |",
+    "| ≤ 9 (ADR 0142) |",
+    "goodfetch-frontier/heap::frontier::grow/million_urls"
+)]
+#[case::a_ceiling_before_the_spill(
+    "| ≤ 95 (ADR 0142) |",
+    "| ≤ 94 (ADR 0142) |",
+    "goodfetch-frontier/heap::frontier::hold/hundred_thousand_urls"
+)]
+#[case::a_ceiling_of_the_budget(
+    "| ≤ 110 (ADR 0142: the budget + 10 %) |",
+    "| ≤ 120 (ADR 0142: the budget + 20 %) |",
+    "goodfetch-frontier/heap::frontier::spill/million_urls"
+)]
+#[case::a_ceiling_whose_row_names_another_benchmark_of_its_crate(
+    "`heap::frontier::grow` (",
+    "`heap::frontier::grown` (",
+    "goodfetch-frontier/heap::frontier::grow/million_urls"
 )]
 #[case::a_ceiling_with_no_row(
     "`heap::crawl::in_memory_pages` |",

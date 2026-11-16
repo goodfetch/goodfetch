@@ -1,10 +1,11 @@
-//! The Frontier at scale (ADR 0134, TESTING.md's Memory at scale): one
-//! process enqueues 100,000 synthetic URLs, then 1,000,000, with no
-//! network, into a run file on disk, and its peak resident memory at the
-//! second is at most 1.5 times its peak at the first. A ratio gives one
-//! verdict on any machine. The duplicate check is exact: every distinct
-//! URL is added and a visited one is a `duplicate`. Outside the Release
-//! suite, the same check runs on a tenth of the URLs.
+//! The Frontier at scale (ADRs 0134 and 0142, TESTING.md's Memory at
+//! scale): one process enqueues 100,000 synthetic URLs, then 1,000,000,
+//! with no network, into a run file on disk, at the default Durability
+//! level, `batch`, at `run_state.memory.budget` 0 and 1 MiB, and its peak
+//! resident memory at the second is at most 1.5 times its peak at the
+//! first. A ratio gives one verdict on any machine. The duplicate check is
+//! exact: every distinct URL is added and a visited one is a `duplicate`.
+//! Outside the Release suite, the same check runs on a tenth of the URLs.
 //!
 //! No engine runs here, so no Resource governor sheds load (ADR 0040):
 //! the Frontier's own memory is what grows.
@@ -13,17 +14,25 @@
     clippy::disallowed_methods,
     reason = "a test's own statements, on no Shared path (ADR 0140)"
 )]
+#![expect(
+    clippy::disallowed_types,
+    reason = "the test's count of acknowledged commits, which memory reads on the one thread the test runs: there is no lock order for loom to test"
+)]
 
 use std::fmt::Write as _;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use goodfetch_engine::egress::Policy;
+use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run_state::PAGE_CACHE_KIB;
 use goodfetch_frontier::{
     BOUNDS_TABLES, Bounds, Candidate, Declared, Invariants, Narrowing, RULES_TABLES, SCOPE_TABLES,
-    Scope, Url, VISITED_TABLES, admit,
+    Scope, SharedBudget, Url, VISITED_TABLES, admit,
 };
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
 use goodfetch_test_support::{Suite, TestEnv, peak_resident_bytes};
+use rstest::rstest;
 use rusqlite::Connection;
 
 /// The seed every synthetic link is found on.
@@ -32,23 +41,40 @@ const SEED: &str = "https://shop.test/";
 /// How many admissions one transaction of the run file holds.
 const BATCH: u64 = 1_000;
 
+/// ADR 0142's test budget, 1 MiB.
+const TEST_BUDGET: u64 = 1024 * 1024;
+
 /// A run file on disk holding the Frontier's tables ([`run_file`]), its
-/// seed admitted.
+/// seed admitted, with memory holding its visits within a budget as the
+/// default Durability level, `batch`, does: memory reads the file as the
+/// crawl opens, and each batch is acknowledged once committed.
 struct RunFile {
     connection: Connection,
     invariants: Invariants,
     policy: Policy,
     base: Url,
+    /// The batches committed.
+    commits: Arc<AtomicU64>,
 }
 
 impl RunFile {
-    fn open(env: &TestEnv) -> Self {
+    fn open(env: &TestEnv, budget: u64) -> Self {
         let connection = run_file(env);
+        let invariants = Invariants::new(Scope::default(), Bounds::default()).unwrap();
+        let commits = Arc::new(AtomicU64::new(0));
+        let acknowledged = Arc::clone(&commits);
+        invariants.hold_unwritten(
+            SharedBudget::new(budget),
+            move || acknowledged.load(Ordering::SeqCst),
+            &Metrics::none(),
+        );
+        invariants.fill_memory(&connection).unwrap();
         let file = Self {
             connection,
-            invariants: Invariants::new(Scope::default(), Bounds::default()).unwrap(),
+            invariants,
             policy: Policy::new(&["*"], &[] as &[&str]).unwrap(),
             base: Url::parse(SEED).unwrap(),
+            commits,
         };
         let get = HttpMethod::get();
         let seed = Candidate::Seed {
@@ -64,6 +90,7 @@ impl RunFile {
             file.admit(&file.connection, seed),
             Enqueued::Added { .. }
         ));
+        file.commits.fetch_add(1, Ordering::SeqCst);
         file
     }
 
@@ -103,6 +130,7 @@ impl RunFile {
                 }
             }
             transaction.commit().unwrap();
+            self.commits.fetch_add(1, Ordering::SeqCst);
             start = end;
         }
         added
@@ -110,8 +138,8 @@ impl RunFile {
 }
 
 /// A run file on disk in `env`'s folder holding the Frontier's tables,
-/// opened as a crawl's is: WAL, `run_state.durability = fast`, the
-/// writer's bounded page cache.
+/// opened as a crawl's is: WAL, unsynced between batches, the writer's
+/// bounded page cache.
 pub(super) fn run_file(env: &TestEnv) -> Connection {
     let connection = Connection::open(env.folder().join("run.sqlite")).unwrap();
     #[expect(
@@ -173,15 +201,20 @@ fn synthetic(link: u64, into: &mut String) {
 /// are each added, the visited set never mistaking one for another, and
 /// the process's peak resident memory once they are is at most 1.5 times
 /// its peak after the first tenth; a visited one enqueued again is a
-/// `duplicate`.
-#[test]
-fn a_million_urls_take_at_most_half_again_the_peak_memory_of_a_hundred_thousand() {
+/// `duplicate`. Each case runs in a process of its own, so each peak is
+/// its budget's.
+#[rstest]
+#[case::at_a_budget_of_0(0)]
+#[case::at_the_test_budget(TEST_BUDGET)]
+fn a_million_urls_take_at_most_half_again_the_peak_memory_of_a_hundred_thousand(
+    #[case] budget: u64,
+) {
     let env = TestEnv::new();
     let count: u64 = match env.suite() {
         Suite::Release => 1_000_000,
         _ => 100_000,
     };
-    let mut file = RunFile::open(&env);
+    let mut file = RunFile::open(&env, budget);
 
     let first = file.enqueue(0..count / 10);
     let at_a_tenth = peak_resident_bytes().unwrap();

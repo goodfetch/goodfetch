@@ -87,9 +87,10 @@ fn within(budget: u64, commits: &Arc<AtomicU64>) -> Invariants {
 
 /// The bytes memory holds, on a run file of its own, once it read the
 /// file's visits when `filled`, and each of `seeds` was admitted in a
-/// committed batch of its own, as request 1, 2 and on: the budget that
-/// keeps them, and nothing more of what the file holds. Measured, since
-/// the tables and queues holding them grow in steps.
+/// committed batch of its own, as request 1, 2 and on, then gave back the
+/// room its slab, tables and queues keep past what they need: the budget
+/// that keeps them, and nothing more of what the file holds. Measured,
+/// since the slab, tables and queues holding them grow in steps.
 fn holds(filled: bool, seeds: &[&str]) -> u64 {
     let file = run_file();
     let commits = Arc::new(AtomicU64::new(0));
@@ -102,7 +103,14 @@ fn holds(filled: bool, seeds: &[&str]) -> u64 {
         seed(&file.writer, &probe, url, &commit_number.to_string());
         commit(&file, &commits, commit_number);
     }
-    probe.unwritten().unwrap().bytes()
+    let unwritten = probe.unwritten().unwrap();
+    let grown = unwritten.bytes();
+    // A byte less room has memory give back what it keeps past its
+    // entries' needs, which keeps every entry.
+    unwritten.budget().pending_hold((1 << 20) - grown + 1);
+    let needed = unwritten.bytes();
+    assert!(needed < grown, "memory kept room past its entries' needs");
+    needed
 }
 
 /// A connection to a file that holds no table: a lookup on it that reads

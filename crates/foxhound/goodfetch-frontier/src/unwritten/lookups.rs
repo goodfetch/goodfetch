@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use tokio::sync::watch;
 
-use super::{Held, UnwrittenVisits};
+use super::{Held, Space, UnwrittenVisits};
 
 /// The identities batches look up, each with its answer.
 #[derive(Debug, Default)]
@@ -134,7 +134,7 @@ impl UnwrittenVisits {
         let (sender, receiver) = watch::channel(false);
         let (mut reads, mut uses, mut waits) = (Vec::new(), Vec::new(), Vec::new());
         for identity in plain {
-            if held.visited.contains_key(identity) {
+            if held.entries.find(Space::Visited, identity).is_some() {
                 continue;
             }
             let lookups = &mut held.lookups;

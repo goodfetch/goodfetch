@@ -384,7 +384,11 @@ fn ceilings(register: &Register) -> Vec<Finding> {
 }
 
 /// Whether `span`, a row's Benchmark, names the ceiling's `subject`: whole, or
-/// one of its `/`-separated parts.
+/// its benchmark, the `/`-separated part that holds a `::` path. A crate or a
+/// scenario alone names no ceiling: several benchmarks share them.
 fn names(subject: &str, span: &str) -> bool {
-    subject == span || subject.split('/').any(|part| part == span)
+    subject == span
+        || subject
+            .split('/')
+            .any(|part| part == span && part.contains("::"))
 }

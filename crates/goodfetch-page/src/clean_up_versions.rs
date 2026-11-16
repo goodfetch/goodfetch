@@ -11,7 +11,8 @@
 //! cache as an artifact of kind `clean_up_rules`, its build the digest of
 //! its files, held there while a Run holds to it, and compiled on this
 //! machine as a Run whose settings turn a Filter list on starts, or when a
-//! page first needs it. Each loaded version is shared by the
+//! page first needs it; the embedded part's three lists load side by side,
+//! each on a blocking task of its own. Each loaded version is shared by the
 //! Runs that hold to it, and the engine keeps the [`KEPT_VERSIONS`] it
 //! used last once none does, so the next Run on one of them compiles
 //! nothing again; an older one goes. Every fetch at a start or
@@ -38,7 +39,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::Duration;
 
-use goodfetch_clean_up_rules::rules::{EMBEDDED_DIGEST, EMBEDDED_MANIFEST, FilterLists, ListTexts};
+use futures_util::StreamExt as _;
+use goodfetch_clean_up_rules::list::List;
+use goodfetch_clean_up_rules::rules::{
+    EMBEDDED_DIGEST, EMBEDDED_MANIFEST, EmbeddedList, FilterLists, ListTexts, LoadError,
+};
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, HeldArtifact};
 use goodfetch_engine::clock::Clock;
@@ -713,7 +718,7 @@ impl Versions {
             }
         }
         let embedded = || async {
-            Ok(owner.blocking(FilterLists::embedded).await.expect(
+            Ok(embedded(owner).await.expect(
                 "invariant: the build compiled the embedded Filter lists with this binary's own adblock",
             ))
         };
@@ -866,6 +871,27 @@ async fn warn_of(run: &Run, fallback: &Fallback) {
     if let Err(error) = run.warn_once(warning).await {
         tracing::warn!(%error, "the warning of the Run's Clean-up rules was not kept");
     }
+}
+
+/// How many of the embedded Filter lists load at once, each on a blocking
+/// task of its own (#2688).
+const LISTS_AT_ONCE: usize = 3;
+
+/// The embedded Filter lists, loaded side by side through `owner`'s
+/// blocking tasks, [`LISTS_AT_ONCE`] at a time, then put together: the
+/// lists' load, most of a Run's start-up, takes about the largest list's
+/// time instead of all three's.
+async fn embedded(owner: &TaskOwner) -> Result<FilterLists, LoadError> {
+    let loaded: Vec<Result<EmbeddedList, LoadError>> =
+        futures_util::stream::iter([List::Ads, List::Trackers, List::Annoyances])
+            .map(|list| owner.blocking(move || EmbeddedList::load(list)))
+            .buffer_unordered(LISTS_AT_ONCE)
+            .collect()
+            .await;
+    let loaded = loaded.into_iter().collect::<Result<Vec<_>, _>>()?;
+    owner
+        .blocking(move || FilterLists::of_embedded(loaded))
+        .await
 }
 
 /// The version of `digest`, held unless it is the embedded part: the

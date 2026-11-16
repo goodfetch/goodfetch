@@ -11,9 +11,10 @@ use super::{NOT_RUN_YET, ROWS};
 /// instructions beneath the clean-up's removal, beneath a selector's
 /// compilation and beneath the generic set's build, a counting VFS's syncs,
 /// E6's sum over its off cell, the evidence rows' sum over the cell with
-/// learning off, and the page waits at `full`, which `F2.page_waits`'
-/// counter counts in the cells at that level.
-const READ_ELSEWHERE: [&str; 14] = [
+/// learning off, the page waits at `full`, which `F2.page_waits`' counter
+/// counts in the cells at that level, and the lease reads past the memory
+/// budget, which `F3.lease_reads`' counter counts in the cell at budget 0.
+const READ_ELSEWHERE: [&str; 15] = [
     "E2.prepares",
     "E3.prepares",
     "E6.off_work",
@@ -25,6 +26,7 @@ const READ_ELSEWHERE: [&str; 14] = [
     "F2.prepares",
     "F2.syncs",
     "F3.counted_work_constructions",
+    "F3.lease_reads.spilled",
     "F3.prepares",
     "F3.prepares.hop",
     "F3.prepares.sitemap",

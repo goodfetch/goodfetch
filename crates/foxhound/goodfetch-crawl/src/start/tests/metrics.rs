@@ -249,15 +249,19 @@ fn within_the_memory_budget_a_crawls_leases_read_nothing_of_the_run_file() {
 }
 
 /// At a budget of 0 no pending work item fits in memory: the leases read
-/// them from the run file, each read counted as `F3.lease_reads`.
+/// them from the run file, each read counted as `F3.lease_reads`, at most
+/// one read transaction a lease (ADR 0140's F3 contract past the budget).
 ///
 /// Covers: setting:run_state.memory.budget
 #[test]
-fn at_a_memory_budget_of_0_the_leases_read_the_run_file_and_count_it() {
+fn at_a_memory_budget_of_0_each_lease_reads_the_run_file_at_most_once() {
     let (pages, reads) = pages_and_lease_reads(0);
 
     assert_eq!(pages, 5);
-    assert!(reads.is_some_and(|reads| reads >= 1.0), "{reads:?}");
+    assert!(
+        reads.is_some_and(|reads| (1.0..=5.0).contains(&reads)),
+        "{reads:?}"
+    );
 }
 
 /// A page's task tells the actor that owns its crawl's Run state of its

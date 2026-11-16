@@ -19,6 +19,8 @@ goodfetch-engine.workspace = true
 goodfetch-cdp.workspace = true
 goodfetch-page.workspace = true
 goodfetch-protocol.workspace = true
+# Memory's visited identities are slot numbers in hash tables (#2169).
+hashbrown.workspace = true
 # Each Label's Payload is checked against its JSON Schema at enqueue (ADR
 # 0082); no remote or file reference is resolved.
 jsonschema.workspace = true

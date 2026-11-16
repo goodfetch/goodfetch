@@ -55,6 +55,22 @@ const FRONTIER_URLS: u64 = 100_000;
 /// ADR 0134: a crawled page allocates at most twice its body's bytes.
 const PAGE_BYTES_PER_BODY_BYTE: u64 = 2;
 
+/// ADR 0142: at a 1 MiB budget, the Frontier's heap grows by at most 8 bytes
+/// per URL from 100,000 to 1,000,000 URLs.
+const FRONTIER_GROWTH_BYTES_PER_URL: u64 = 8;
+
+/// ADR 0142: the URLs the Frontier's growth is measured over, from 100,000 to
+/// 1,000,000.
+const FRONTIER_GROWTH_URLS: u64 = 900_000;
+
+/// ADR 0142: before any spill, at 100,000 URLs and the default budget, the
+/// Frontier holds at most 95 heap bytes per URL (Scrapy's seen set).
+const FRONTIER_BYTES_PER_URL_BEFORE_SPILL: u64 = 95;
+
+/// ADR 0142: at the default budget and 1,000,000 URLs, the Run state's heap
+/// is at most its budget plus 10 %.
+const RUN_STATE_PERCENT_OF_BUDGET: u64 = 110;
+
 /// One absolute ceiling, keyed by the benchmarks or entries whose figures it
 /// reads. A "Performance change" section never passes one (ADR 0134).
 pub(crate) enum Ceiling {
@@ -69,8 +85,8 @@ pub(crate) enum Ceiling {
         max: u64,
     },
     /// Heap bytes per URL: the bytes at the global maximum of `subject`,
-    /// which holds `urls` URLs, less those of `empty`, the same scenario with
-    /// no URL, over `urls`, at most `max_bytes`.
+    /// less those of `empty`, the same scenario with `urls` URLs fewer, over
+    /// `urls`, at most `max_bytes`.
     PerUrl {
         subject: &'static str,
         empty: &'static str,
@@ -86,6 +102,16 @@ pub(crate) enum Ceiling {
         fixture: &'static str,
         max_multiple: u64,
     },
+    /// Heap bytes as a percentage of a memory budget: the bytes at the
+    /// global maximum of `subject`, which runs at a budget of `budget_bytes`,
+    /// less those of `empty`, the same scenario with no URL, at most
+    /// `max_percent` of `budget_bytes`.
+    OfBudget {
+        subject: &'static str,
+        empty: &'static str,
+        budget_bytes: u64,
+        max_percent: u64,
+    },
 }
 
 impl Ceiling {
@@ -93,7 +119,9 @@ impl Ceiling {
     pub(crate) fn subjects(&self) -> Vec<&'static str> {
         match self {
             Self::Figure { subject, .. } | Self::PerBodyByte { subject, .. } => vec![subject],
-            Self::PerUrl { subject, empty, .. } => vec![subject, empty],
+            Self::PerUrl { subject, empty, .. } | Self::OfBudget { subject, empty, .. } => {
+                vec![subject, empty]
+            }
         }
     }
 
@@ -109,18 +137,41 @@ impl Ceiling {
                 max_multiple,
                 ..
             } => (subject, *max_multiple),
+            Self::OfBudget {
+                subject,
+                max_percent,
+                ..
+            } => (subject, *max_percent),
         }
     }
 }
 
-/// The fixed ceilings of ADR 0134. Each starts when its benchmark first
-/// runs.
-pub(crate) const FIXED_CEILINGS: [Ceiling; 2] = [
+/// The fixed ceilings of ADRs 0134 and 0142. Each starts when its benchmark
+/// first runs.
+pub(crate) const FIXED_CEILINGS: [Ceiling; 5] = [
     Ceiling::PerUrl {
         subject: "goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls",
         empty: "goodfetch-frontier/heap::frontier::enqueue/no_urls",
         urls: FRONTIER_URLS,
         max_bytes: FRONTIER_BYTES_PER_URL,
+    },
+    Ceiling::PerUrl {
+        subject: "goodfetch-frontier/heap::frontier::grow/million_urls",
+        empty: "goodfetch-frontier/heap::frontier::grow/hundred_thousand_urls",
+        urls: FRONTIER_GROWTH_URLS,
+        max_bytes: FRONTIER_GROWTH_BYTES_PER_URL,
+    },
+    Ceiling::PerUrl {
+        subject: "goodfetch-frontier/heap::frontier::hold/hundred_thousand_urls",
+        empty: "goodfetch-frontier/heap::frontier::hold/no_urls",
+        urls: FRONTIER_URLS,
+        max_bytes: FRONTIER_BYTES_PER_URL_BEFORE_SPILL,
+    },
+    Ceiling::OfBudget {
+        subject: "goodfetch-frontier/heap::frontier::spill/million_urls",
+        empty: "goodfetch-frontier/heap::frontier::spill/no_urls",
+        budget_bytes: goodfetch_protocol::run::durability::MEMORY_BUDGET,
+        max_percent: RUN_STATE_PERCENT_OF_BUDGET,
     },
     Ceiling::PerBodyByte {
         subject: "goodfetch-foxhound/heap::crawl::in_memory_pages",

@@ -6,6 +6,7 @@ mod scenarios;
 use std::hint::black_box;
 
 use goodfetch_frontier::Url;
+use goodfetch_protocol::run::durability::MEMORY_BUDGET;
 use gungraun::prelude::*;
 use gungraun::{Dhat, EntryPoint, Tool};
 
@@ -25,12 +26,16 @@ fn url_key(links: Vec<Url>) -> usize {
 
 library_benchmark_group!(name = identity, benchmarks = url_key);
 
-// ADR 0134's heap bytes per URL: `xtask perf` takes the bytes at the global
-// maximum of the 100,000 URLs, less the same scenario with none, over
-// 100,000, and holds it to its 8-byte ceiling. The whole process counts: an
-// allocation of SQLite's page cache sits deeper than DHAT's 25 callers
+// The Frontier's heap rows of the Quality register (ADRs 0134 and 0142),
+// each read at the default Durability level, `batch`: `xtask perf` takes
+// the bytes at the global maximum of a case, less those of its benchmark's
+// smaller case, and holds them to their ceiling. The whole process counts:
+// an allocation of SQLite's page cache sits deeper than DHAT's 25 callers
 // below the benchmark function, so the default entry point would leave the
 // cache out.
+//
+// `enqueue`: at `run_state.memory.budget: 0`, at most 8 bytes per URL at
+// 100,000 URLs (ADR 0134, kept at budget 0 by ADR 0142).
 #[library_benchmark(
     config = LibraryBenchmarkConfig::default()
         .tool(Dhat::default().entry_point(EntryPoint::None))
@@ -38,10 +43,49 @@ library_benchmark_group!(name = identity, benchmarks = url_key);
 #[bench::no_urls(0)]
 #[bench::hundred_thousand_urls(100_000)]
 fn enqueue(urls: usize) -> usize {
-    black_box(scenarios::enqueue(black_box(urls)))
+    black_box(scenarios::enqueue(black_box(urls), Some(0)))
 }
 
-library_benchmark_group!(name = frontier, benchmarks = enqueue);
+/// ADR 0142's test budget, 1 MiB, which 100,000 URLs already spill past.
+const TEST_BUDGET: u64 = 1024 * 1024;
+
+// `grow`: at the 1 MiB test budget, at most 8 bytes per URL from 100,000 to
+// 1,000,000 URLs: past the spill, memory stays within its budget.
+#[library_benchmark(
+    config = LibraryBenchmarkConfig::default()
+        .tool(Dhat::default().entry_point(EntryPoint::None))
+)]
+#[bench::hundred_thousand_urls(100_000)]
+#[bench::million_urls(1_000_000)]
+fn grow(urls: usize) -> usize {
+    black_box(scenarios::enqueue(black_box(urls), Some(TEST_BUDGET)))
+}
+
+// `hold`: at the default budget, before any spill, at most 95 bytes per URL
+// at 100,000 URLs, the visits memory holds included.
+#[library_benchmark(
+    config = LibraryBenchmarkConfig::default()
+        .tool(Dhat::default().entry_point(EntryPoint::None))
+)]
+#[bench::no_urls(0)]
+#[bench::hundred_thousand_urls(100_000)]
+fn hold(urls: usize) -> usize {
+    black_box(scenarios::enqueue(black_box(urls), Some(MEMORY_BUDGET)))
+}
+
+// `spill`: at the default budget and 1,000,000 URLs, past the spill, at
+// most the budget plus 10 %.
+#[library_benchmark(
+    config = LibraryBenchmarkConfig::default()
+        .tool(Dhat::default().entry_point(EntryPoint::None))
+)]
+#[bench::no_urls(0)]
+#[bench::million_urls(1_000_000)]
+fn spill(urls: usize) -> usize {
+    black_box(scenarios::enqueue(black_box(urls), Some(MEMORY_BUDGET)))
+}
+
+library_benchmark_group!(name = frontier, benchmarks = [enqueue, grow, hold, spill]);
 
 // An attempt's staged enqueues (ADR 0093): what the attempt keeps in memory
 // beside its staging grows with what it added, by the same amount each.

@@ -24,7 +24,8 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use rusqlite::Connection;
 use rusqlite::hooks::Action;
 
-use super::{Holding, table};
+use super::Holding;
+use super::entries::table;
 
 /// One learned rule, as the file's row holds it.
 #[derive(Clone, Debug)]

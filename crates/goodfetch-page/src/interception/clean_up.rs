@@ -1,8 +1,8 @@
 //! The Clean-up rules the interception matches at step 4 (ADRs 0047, 0057
 //! and 0117): the Filter lists of the version the page's Run holds to,
 //! loaded as a Run whose own settings turn one on starts, else on the
-//! first page whose Session turns one on, never at engine start, through a
-//! blocking task of the page's Run (ADR 0060), then shared
+//! first page whose Session turns one on, never at engine start, through
+//! blocking tasks of the page's Run (ADR 0060), then shared
 //! by every Session of the Runs that hold to that version behind one `Arc`
 //! with no lock; the never-block list, compiled once; and what a Session's
 //! own settings, over its Run's, choose of them.

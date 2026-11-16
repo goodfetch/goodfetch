@@ -3,7 +3,7 @@
 admission = ["clock", "entropy", "politeness", "run_state", "settings"]
 age_notice = ["home", "product", "settings"]
 attached = ["endpoint", "rpc", "transport"]
-audit = ["durable", "home", "settings", "sqlite_store", "tasks"]
+audit = ["clock", "durable", "home", "settings", "sqlite_store", "tasks"]
 audit_operations = ["audit", "call_error", "composition", "run"]
 certs_operations = ["audit", "call_error", "composition", "engine_context", "host_name", "known_certificates", "run"]
 body = ["durable"]

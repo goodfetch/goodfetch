@@ -801,7 +801,7 @@ fn a_build_whose_text_starts_in_the_order_files_order_passes() {
     );
     built.link(
         "goodfetch-foxhound",
-        &[(0x1000, "hot"), (0x1010, "warm")],
+        &[(0x1000, "hot"), (0x1010, "warm"), (0x1020, "tepid")],
         true,
     );
 
@@ -809,6 +809,58 @@ fn a_build_whose_text_starts_in_the_order_files_order_passes() {
 
     assert_eq!(outcome.code, 0, "{}{}", outcome.stdout, outcome.stderr);
     assert_eq!(outcome.findings(), []);
+    assert_eq!(outcome.notes(), [finding("order-match", TARGET)]);
+    assert!(
+        outcome
+            .stdout
+            .contains("3 of the order file's 3 symbols (100.0%)"),
+        "{}",
+        outcome.stdout
+    );
+}
+
+/// A build that holds less than 80% of the order file's symbols is not the
+/// one the profile was trained on: the profile misses its code.
+#[test]
+fn a_build_that_holds_too_few_of_the_order_files_symbols_fails() {
+    let built = Built::new(Some(ORDERED));
+    built.link(
+        "goodfetch-collie",
+        &[(0x1000, "hot"), (0x1010, "cold")],
+        true,
+    );
+    built.link("goodfetch-foxhound", &[(0x1000, "hot")], true);
+
+    let outcome = built.check();
+
+    assert_eq!(outcome.code, 1, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(outcome.findings(), [finding("low-match", TARGET)]);
+}
+
+/// A crate the order file names under an identity the build links it under
+/// no more fails, however many of the other symbols match.
+#[test]
+fn a_crate_linked_under_another_identity_fails() {
+    let built = Built::new(Some("hot\nwarm\ntepid\ncool\n_RNvCsOld_5probe3run\n"));
+    built.link(
+        "goodfetch-collie",
+        &[(0x1000, "hot"), (0x1010, "warm"), (0x1020, "tepid")],
+        true,
+    );
+    built.link(
+        "goodfetch-foxhound",
+        &[
+            (0x1000, "hot"),
+            (0x1010, "cool"),
+            (0x1020, "_RNvCsNew_5probe3run"),
+        ],
+        true,
+    );
+
+    let outcome = built.check();
+
+    assert_eq!(outcome.code, 1, "{}{}", outcome.stdout, outcome.stderr);
+    assert_eq!(outcome.findings(), [finding("stale-crate", "probe")]);
 }
 
 /// The order file is committed compressed; the plain file is read too.

@@ -768,11 +768,9 @@ fn member(member: &Member<'_>, id: &HandleId) -> String {
     text
 }
 
-/// The handles of Collie's client package (ADR 0099): one class a
-/// namespace, with its members in the form their kind gives them, the
-/// values it builds without a call and its sub-objects.
-fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
-    let operation_types = format!("{}OperationTypes", layer.product.name());
+/// The handles module's header and imports: the field values' types only
+/// when a member's result is typed by the fields it declares (ADR 0147).
+fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> String {
     let typed = handles.iter().any(|handle| {
         handle
             .members
@@ -785,9 +783,17 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
     } else {
         String::new()
     };
-    let mut text = format!(
+    format!(
         "{HEADER}\n{field_values}import {{ defined, type HandleHost }} from \"{HANDLE_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\nimport type * as types from \"./types.ts\";\n"
-    );
+    )
+}
+
+/// The handles of Collie's client package (ADR 0099): one class a
+/// namespace, with its members in the form their kind gives them, the
+/// values it builds without a call and its sub-objects.
+fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
+    let operation_types = format!("{}OperationTypes", layer.product.name());
+    let mut text = handles_imports(handles, &operation_types);
     for handle in handles {
         let class = pascal(handle.namespace);
         let host = format!(

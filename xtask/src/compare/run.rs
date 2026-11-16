@@ -91,9 +91,18 @@ pub(crate) struct Options {
     /// (see [`counted_output`]): a profile by function is read from them,
     /// and the reports repository files them with the run.
     pub(crate) callgrind_outputs: PathBuf,
-    /// The cells a redo measures again ([`redo`]); every cell of
-    /// `scenarios` when it names none.
+    /// The cells the run measures, or a redo measures again ([`redo`]);
+    /// every cell of `scenarios` when it names none.
     pub(crate) only: Vec<CellName>,
+}
+
+/// What a run's parts measure into: a fresh run's trials, every part run
+/// over its cells, or an earlier run's, of which a redo measures again only
+/// the parts that run measured.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Measuring {
+    Fresh,
+    Again,
 }
 
 /// A cell by its scenario and its name in the matrix.
@@ -1196,7 +1205,14 @@ pub(crate) fn run(
         auto: Vec::new(),
         redone: Vec::new(),
     };
-    parts(executables, options, &mut comparison, &mut state, keep)?;
+    parts(
+        executables,
+        options,
+        Measuring::Fresh,
+        &mut comparison,
+        &mut state,
+        keep,
+    )?;
     Ok(comparison)
 }
 
@@ -1245,23 +1261,34 @@ pub(crate) fn redo(
             .collect(),
         order_seed,
     });
-    parts(executables, options, &mut earlier, &mut state, keep)?;
+    parts(
+        executables,
+        options,
+        Measuring::Again,
+        &mut earlier,
+        &mut state,
+        keep,
+    )?;
     Ok(earlier)
 }
 
 /// Runs each part of `options`' cells into `comparison`, in the run's
 /// order, handing `keep` the trials after each part but the last (see
-/// [`run`]). In a redo, each part's runs replace the earlier runs of the
-/// cells it names, and a part `comparison` holds as not run stays so.
+/// [`run`]). A fresh run runs every part, its runs the part's whole; in a
+/// redo, each part's runs replace the earlier runs of the cells it names,
+/// and a part `comparison` holds as not run stays so.
 fn parts(
     executables: &Executables<'_>,
     options: &Options,
+    measuring: Measuring,
     comparison: &mut Comparison,
     state: &mut u64,
     keep: &mut impl FnMut(&Comparison) -> Result<()>,
 ) -> Result<()> {
-    let only = &options.only;
-    let whole = only.is_empty();
+    let fresh = measuring == Measuring::Fresh;
+    // The cells whose earlier runs a part's runs replace: a fresh run's
+    // replace the part whole, as they hold every cell it asked for.
+    let only: &[CellName] = if fresh { &[] } else { &options.only };
     let measured = measured(options);
     let (trials, stopped) = timed(
         executables,
@@ -1273,29 +1300,35 @@ fn parts(
     merge(&mut comparison.trials, trials, only);
     merge(&mut comparison.stopped, runs_of(stopped), only);
     keep(comparison)?;
-    if whole {
+    if fresh {
         comparison.collie =
             self::collie::collie_trials(executables.collie.as_ref(), options, state)?;
         keep(comparison)?;
     }
-    if whole || matches!(comparison.sizes, SizesCell::Measured { .. }) {
+    if fresh || matches!(comparison.sizes, SizesCell::Measured { .. }) {
         let again = sizes(executables, options, state)?;
         merge_sizes(&mut comparison.sizes, again, only);
         keep(comparison)?;
     }
     let counted_cells: Vec<_> = measured.iter().copied().filter(runs_counted).collect();
-    if whole || matches!(comparison.syscalls, CountedCell::Measured { .. }) {
+    if fresh || matches!(comparison.syscalls, CountedCell::Measured { .. }) {
         let again = syscalls(executables, options, &counted_cells, state)?;
         merge_counted(&mut comparison.syscalls, again, only);
         keep(comparison)?;
     }
-    if whole || matches!(comparison.growth, GrowthCell::Measured { .. }) {
+    if fresh || matches!(comparison.growth, GrowthCell::Measured { .. }) {
         let again = growth(executables, options, &counted_cells, state)?;
         merge_growth(&mut comparison.growth, again, only);
         keep(comparison)?;
     }
-    if whole || matches!(comparison.instructions, CountedCell::Measured { .. }) {
-        let again = instructions(executables, options, &instruction_cells(&measured), state)?;
+    if fresh || matches!(comparison.instructions, CountedCell::Measured { .. }) {
+        let again = instructions(
+            executables,
+            options,
+            measuring,
+            &instruction_cells(&measured),
+            state,
+        )?;
         merge_counted(&mut comparison.instructions, again, only);
         keep(comparison)?;
     }
@@ -1313,6 +1346,7 @@ fn parts(
 fn instructions(
     executables: &Executables<'_>,
     options: &Options,
+    measuring: Measuring,
     cells: &[(&'static Cell, Config)],
     state: &mut u64,
 ) -> Result<CountedCell> {
@@ -1326,7 +1360,7 @@ fn instructions(
         output::line(&format!("The Callgrind cell does not run: {reason}."));
         return Ok(CountedCell::NotRun { reason });
     }
-    if options.only.is_empty() {
+    if measuring == Measuring::Fresh {
         emptied_of_outputs(&options.callgrind_outputs)?;
     }
     let cell = counted(

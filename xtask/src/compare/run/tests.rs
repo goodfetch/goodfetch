@@ -353,12 +353,16 @@ fn a_cell_whose_strace_run_missed_pages_runs_no_later_run() {
     assert!(!set_aside(&done, cell("scrapy"), 1000));
 }
 
-/// A run of `scenarios` whose executables no file holds, so a part over no
-/// cell starts nothing and a part that starts a tool fails: how the run
-/// ended, and what each hand-over of its trials file said of its Collie
-/// scenario and of its sizes, system-call, growth and Callgrind cells,
-/// `measured` or why not run.
-fn handed_over(scenarios: Vec<Scenario>) -> (anyhow::Result<Comparison>, Vec<[String; 5]>) {
+/// A run of `scenarios`, given `--cell` for each of `cells`, whose
+/// executables no file holds, so a part over no cell starts nothing and a
+/// part that starts a tool fails: how the run ended, and what each
+/// hand-over of its trials file said of its Collie scenario and of its
+/// sizes, system-call, growth and Callgrind cells, `measured` or why not
+/// run.
+fn handed_over(
+    scenarios: Vec<Scenario>,
+    cells: &[&str],
+) -> (anyhow::Result<Comparison>, Vec<[String; 5]>) {
     let nowhere = Path::new("/nowhere");
     let executables = Executables {
         proving_ground: nowhere,
@@ -372,12 +376,17 @@ fn handed_over(scenarios: Vec<Scenario>) -> (anyhow::Result<Comparison>, Vec<[St
         foxhound_settings: &[],
     };
     // `just compare`'s own arguments, its output paths included (#2521).
+    let mut given = vec!["--trials", "1"];
+    for cell in cells {
+        given.extend(["--cell", cell]);
+    }
     let options = Options {
         scenarios,
         ..crate::compare::options(
-            &crate::compare::recipe_arguments(&["--trials", "1"]),
+            &crate::compare::recipe_arguments(&given),
             &crate::environment::Environment::of(&[]),
         )
+        .expect("invariant: the test's cells are the matrix's")
     };
     let mut kept = Vec::new();
     let ended = run(
@@ -446,7 +455,7 @@ fn not_reached(cell: &str) -> String {
 #[test]
 fn a_run_hands_over_its_trials_after_each_part_before_the_next() {
     // No scenario, so no cell: every part runs, over nothing.
-    let (ended, kept) = handed_over(Vec::new());
+    let (ended, kept) = handed_over(Vec::new(), &[]);
 
     let whole = ended.unwrap();
     let no_collie = "the run asked for no Collie cell".to_owned();
@@ -514,13 +523,28 @@ fn a_run_hands_over_its_trials_after_each_part_before_the_next() {
     );
 }
 
+/// A fresh run limited to the cells `--cell` names runs every part a whole
+/// run runs, each over those cells alone, and hands its trials over after
+/// each (#2200), where a redo runs only the parts its file measured.
+#[test]
+fn a_run_of_named_cells_runs_every_part_of_a_whole_run() {
+    // No scenario, so no cell: every part runs, over nothing.
+    let (limited, limited_kept) = handed_over(Vec::new(), &["raw/foxhound"]);
+    let (whole, whole_kept) = handed_over(Vec::new(), &[]);
+
+    assert_eq!(
+        (limited.map(|_| ()).ok(), limited_kept),
+        (whole.map(|_| ()).ok(), whole_kept)
+    );
+}
+
 /// A run whose tool cannot start fails in the pre-flight, before its first
 /// timed trial and before it hands over any trials (#2521: a Callgrind run
 /// failed hours in, after 220 timed trials and 207 strace runs).
 #[test]
 fn a_run_whose_tool_cannot_start_fails_in_the_pre_flight() {
     // The hostile pages' first probe cannot start its Proving ground.
-    let (ended, kept) = handed_over(vec![Scenario::Hostile]);
+    let (ended, kept) = handed_over(vec![Scenario::Hostile], &[]);
 
     let error = format!("{:#}", ended.expect_err("the pre-flight fails"));
     assert!(

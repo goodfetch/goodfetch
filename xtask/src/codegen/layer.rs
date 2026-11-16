@@ -131,6 +131,15 @@ pub(super) struct ErrorCode {
     pub(super) exit_code: Option<u8>,
 }
 
+/// A request the engine sends a program's handler, such as
+/// `crawl_request.handle`: only the types it takes, which the layer defines.
+#[derive(Debug, Deserialize)]
+struct HandlerRequest {
+    product: Product,
+    params: TypeName,
+    result: TypeName,
+}
+
 #[derive(Debug, Deserialize)]
 pub(super) struct PluginMethod {
     pub(super) name: String,
@@ -210,6 +219,9 @@ struct Projection {
     #[serde(default)]
     exit_codes: Vec<ExitCodeRow>,
     plugin_kinds: Vec<PluginKind>,
+    /// Absent from a catalog that defines no handler request.
+    #[serde(default)]
+    handler_requests: Vec<HandlerRequest>,
     /// Absent from a catalog that defines no shared type.
     #[serde(default)]
     shared_type_values: Vec<SharedTypeValue>,
@@ -334,7 +346,12 @@ impl Layer {
                         .iter()
                         .any(|value| value.shared_type == name)
                 });
-                let roots = roots(&operations, &events, &plugin_kinds);
+                let handler_requests: Vec<HandlerRequest> = all
+                    .handler_requests
+                    .into_iter()
+                    .filter(|entry| own(entry.product))
+                    .collect();
+                let roots = roots(&operations, &events, &plugin_kinds, &handler_requests);
                 let reached = projection::reached(&roots, &all.definitions)?;
                 let (collie_types, own_types): (BTreeSet<String>, BTreeSet<String>) = reached
                     .into_iter()
@@ -408,7 +425,12 @@ fn without_meta(definitions: &mut Map<String, Value>) {
 }
 
 /// A value whose `$ref`s are every type the entries name.
-fn roots(operations: &[Operation], events: &[Event], plugin_kinds: &[PluginKind]) -> Value {
+fn roots(
+    operations: &[Operation],
+    events: &[Event],
+    plugin_kinds: &[PluginKind],
+    handler_requests: &[HandlerRequest],
+) -> Value {
     let reference = |name: &TypeName| serde_json::json!({ "$ref": format!("#/$defs/{}", name.0) });
     let operations = operations
         .iter()
@@ -418,7 +440,16 @@ fn roots(operations: &[Operation], events: &[Event], plugin_kinds: &[PluginKind]
         .iter()
         .flat_map(|kind| &kind.methods)
         .flat_map(|method| [reference(&method.params), reference(&method.result)]);
-    Value::Array(operations.chain(events).chain(methods).collect())
+    let handler_requests = handler_requests
+        .iter()
+        .flat_map(|request| [reference(&request.params), reference(&request.result)]);
+    Value::Array(
+        operations
+            .chain(events)
+            .chain(methods)
+            .chain(handler_requests)
+            .collect(),
+    )
 }
 
 fn replace_collie_references(
@@ -556,6 +587,34 @@ mod tests {
         assert_eq!(
             (reach, offers(Product::Collie), offers(Product::Foxhound)),
             (Some(json!("person_only")), false, false)
+        );
+    }
+
+    /// A Product's handler requests are the engine's to send and its
+    /// program's to answer, so its layer defines the types they take, as it
+    /// does its operations'.
+    #[test]
+    fn the_foxhound_layer_defines_the_types_its_handler_requests_take() {
+        let collie = projection(&[]);
+        let mut foxhound = projection(&[]);
+        foxhound["handler_requests"] = json!([{
+            "name": "crawl_request.handle",
+            "product": "foxhound",
+            "description": "A handler request.",
+            "params": { "$ref": "#/$defs/HandleParams" },
+            "result": { "$ref": "#/$defs/Handled" },
+            "stability": "experimental",
+            "deprecated": null,
+        }]);
+        foxhound["$defs"]["HandleParams"] = json!({ "type": "object" });
+        foxhound["$defs"]["Handled"] = json!({ "type": "object" });
+        let bundle = json!({ "$defs": {} });
+
+        let layer = Layer::new(&bundle, &collie, &foxhound, Product::Foxhound, "0.0.0").unwrap();
+
+        assert_eq!(
+            layer.definitions.keys().cloned().collect::<Vec<_>>(),
+            vec!["HandleParams".to_owned(), "Handled".to_owned()]
         );
     }
 

@@ -185,6 +185,7 @@ fn scheduled_command(workspace: &Workspace, stand_in: &Path, run: &str) -> Comma
         .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
         .env("GOODFETCH_TEST_HEALTH_LOG", workspace.path().join("logs"))
         .env("GOODFETCH_TEST_HEALTH_MIN_FREE_GB", "0")
+        .env("GOODFETCH_TEST_HEALTH_MIN_TMPDIR_GB", "0")
         .env("RUNNER_TEMP", workspace.path().join("runner-temp"))
         .env("TMPDIR", workspace.path())
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -573,7 +574,7 @@ fn a_post_merge_run_that_cannot_start_says_so_once_in_its_results(
 fn a_post_merge_run_short_of_room_names_the_file_system_in_its_results() {
     let workspace = origin_repository();
     let stand_in = stand_in_just(&workspace);
-    stand_in_df(&stand_in);
+    stand_in_df(&stand_in, None);
     checked_up_to(&workspace, "main^");
 
     let status = scheduled_command(&workspace, &stand_in, "post-merge")
@@ -592,6 +593,95 @@ fn a_post_merge_run_short_of_room_names_the_file_system_in_its_results() {
         outcome.results
     );
     assert_eq!(checked(&workspace), commit(&workspace, "main^"));
+}
+
+/// A post-merge run short of room on the file system of its `TMPDIR`, where
+/// its tests' folders go, skips as it does short of room for its build, and
+/// names that file system (#2664: the run's test folders filled `/` while
+/// its build's disk had room).
+#[test]
+fn a_post_merge_run_short_of_room_for_its_test_folders_names_their_file_system() {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    let temporary = workspace.path().join("temporary");
+    std::fs::create_dir_all(&temporary).unwrap();
+    stand_in_df(&stand_in, Some(&temporary));
+    checked_up_to(&workspace, "main^");
+
+    let status = scheduled_command(&workspace, &stand_in, "post-merge")
+        .env("TMPDIR", &temporary)
+        .env("GOODFETCH_TEST_HEALTH_MIN_TMPDIR_GB", "2000")
+        .status()
+        .unwrap();
+
+    let outcome = ended(&workspace, &stand_in, status.code());
+    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
+    assert!(outcome.calls.is_empty(), "{:?}", outcome.calls);
+    assert!(
+        outcome
+            .results
+            .ends_with(" post-merge=skipped (free disk under 2000 GB on /stand-in-temporary)\n"),
+        "{}",
+        outcome.results
+    );
+    assert_eq!(checked(&workspace), commit(&workspace, "main^"));
+}
+
+/// A run short of room on both disks names its build's, which TESTING.md
+/// gives first.
+#[test]
+fn a_post_merge_run_short_of_room_on_both_disks_names_its_builds() {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    let temporary = workspace.path().join("temporary");
+    std::fs::create_dir_all(&temporary).unwrap();
+    stand_in_df(&stand_in, Some(&temporary));
+    checked_up_to(&workspace, "main^");
+
+    let status = scheduled_command(&workspace, &stand_in, "post-merge")
+        .env("TMPDIR", &temporary)
+        .env("GOODFETCH_TEST_HEALTH_MIN_FREE_GB", "2000")
+        .env("GOODFETCH_TEST_HEALTH_MIN_TMPDIR_GB", "2000")
+        .status()
+        .unwrap();
+
+    let outcome = ended(&workspace, &stand_in, status.code());
+    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
+    assert!(outcome.calls.is_empty(), "{:?}", outcome.calls);
+    assert!(
+        outcome
+            .results
+            .ends_with(" post-merge=skipped (free disk under 2000 GB on /stand-in)\n"),
+        "{}",
+        outcome.results
+    );
+}
+
+/// When a run's `TMPDIR` is on the file system its build goes to, the run
+/// needs room there for both.
+#[test]
+fn a_run_whose_test_folders_share_its_build_disk_needs_room_for_both() {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    stand_in_df(&stand_in, None);
+    checked_up_to(&workspace, "main^");
+
+    let status = scheduled_command(&workspace, &stand_in, "post-merge")
+        .env("GOODFETCH_TEST_HEALTH_MIN_FREE_GB", "600")
+        .env("GOODFETCH_TEST_HEALTH_MIN_TMPDIR_GB", "600")
+        .status()
+        .unwrap();
+
+    let outcome = ended(&workspace, &stand_in, status.code());
+    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
+    assert!(outcome.calls.is_empty(), "{:?}", outcome.calls);
+    assert!(
+        outcome
+            .results
+            .ends_with(" post-merge=skipped (free disk under 1200 GB on /stand-in)\n"),
+        "{}",
+        outcome.results
+    );
 }
 
 /// A post-merge run that ends on its setup, before its suites, reads as
@@ -779,14 +869,23 @@ fn a_run_builds_in_its_worktree(
 }
 
 /// A stand-in `df` that appends the folder it is asked about to `df-asked`
-/// and answers with 1,024 GB free.
-fn stand_in_df(stand_in: &Path) {
+/// and answers with 1,024 GB free, on `/stand-in`, or for a folder in
+/// `temporary` on a file system of its own, `/stand-in-temporary`.
+fn stand_in_df(stand_in: &Path, temporary: Option<&Path>) {
+    let temporary = temporary.map_or_else(String::new, |temporary| {
+        format!(
+            "case \"$folder\" in \"{}\"*)\n\
+             echo '/dev/stand-in-temporary 2147483648 1073741824 1073741824 50% /stand-in-temporary'\n\
+             exit ;;\nesac\n",
+            temporary.display()
+        )
+    });
     write_executable(
         &stand_in.join("df"),
         &format!(
             "#!/bin/sh\nfor folder; do :; done\necho \"$folder\" >>\"{asked}\"\n\
              echo 'Filesystem 1024-blocks Used Available Capacity Mounted on'\n\
-             echo '/dev/stand-in 2147483648 1073741824 1073741824 50% /stand-in'\n",
+             {temporary}echo '/dev/stand-in 2147483648 1073741824 1073741824 50% /stand-in'\n",
             asked = stand_in.join("df-asked").display(),
         ),
     );
@@ -809,7 +908,7 @@ fn df_asked(stand_in: &Path) -> String {
 fn a_run_reads_the_free_space_where_its_build_goes(#[case] run: &str, #[case] builds_in: &str) {
     let workspace = origin_repository();
     let stand_in = stand_in_just(&workspace);
-    stand_in_df(&stand_in);
+    stand_in_df(&stand_in, None);
     let root = workspace.path().canonicalize().unwrap();
 
     let first = scheduled(&workspace, &stand_in, run);

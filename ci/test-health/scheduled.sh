@@ -171,7 +171,20 @@ else
   needed=85
 fi
 needed=${GOODFETCH_TEST_HEALTH_MIN_FREE_GB:-$needed}
+# The tests' folders go to TMPDIR, which can be on another disk than the
+# build (#2664: on the gate host /g, on `/`, filled while the build's volume
+# had room). Its floor, 5 GB (GOODFETCH_TEST_HEALTH_MIN_TMPDIR_GB), stands well
+# above the peak TESTING.md measured; on the build's own file system the two
+# add up. The build's disk is checked first, so a run short on both names it.
+temporary_needed=${GOODFETCH_TEST_HEALTH_MIN_TMPDIR_GB:-5}
+read -r temporary_free temporary_mount < <(df -Pk "${TMPDIR:-/tmp}/" | awk 'NR == 2 { print int($4 / 1048576), $6 }')
 read -r free mount < <(df -Pk "$on/" | awk 'NR == 2 { print int($4 / 1048576), $6 }')
+[[ $temporary_mount != "$mount" ]] || needed=$((needed + temporary_needed))
+if ((free >= needed && temporary_free < temporary_needed)); then
+  free=$temporary_free
+  mount=$temporary_mount
+  needed=$temporary_needed
+fi
 if ((free < needed)); then
   short="free disk $free GB < $needed GB"
   # A post-merge run's line is written once for a reason: no figure that moves.

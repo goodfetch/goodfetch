@@ -24,7 +24,6 @@ use rusqlite::{Connection, OptionalExtension as _};
 use sha2::{Digest as _, Sha256};
 use url::{Position, Url};
 
-use crate::invariants::Invariants;
 use crate::rules;
 use crate::scope::{Narrowing, Scope};
 use crate::staged::Staged;
@@ -452,9 +451,10 @@ pub(crate) fn visit(
 }
 
 /// The Frontier's answer on one hop, as [`redirect_hop`] answers, within
-/// the Run's `invariants`, which the hop reads nothing of again (#1896). A
-/// function of its own, never inlined, so that `xtask counts`' Callgrind
-/// run can name the hop's work (ADR 0140).
+/// the Run's `scope`, which the hop reads nothing of again (#1896), beside
+/// `unwritten`, the visits a batching writer has not committed, when the
+/// Run holds them. A function of its own, never inlined, so that `xtask
+/// counts`' Callgrind run can name the hop's work (ADR 0140).
 ///
 /// # Errors
 ///
@@ -462,16 +462,16 @@ pub(crate) fn visit(
 #[inline(never)]
 pub fn admit_hop(
     connection: &Connection,
-    invariants: &Invariants,
+    (scope, unwritten): (&Scope, Option<&UnwrittenVisits>),
     policy: &Policy,
     crawl_request: &str,
     hop: (&Url, &HttpMethod, Option<&[u8]>),
 ) -> rusqlite::Result<Hop> {
     let (url, method, body) = hop;
-    let holding = invariants.unwritten().map(UnwrittenVisits::lock);
+    let holding = unwritten.map(UnwrittenVisits::lock);
     judge_hop(
         connection,
-        (invariants.scope(), policy),
+        (scope, policy),
         crawl_request,
         (url, method, body),
         holding.as_ref(),
@@ -574,20 +574,20 @@ pub fn redirect_reached(
     reach(connection, None, crawl_request, (url, method, body))
 }
 
-/// Records a redirect chain's end as [`redirect_reached`] does, within the
-/// Run's `invariants`: beside the visits a batching writer has not
-/// committed, which this one joins until its batch commits (#2168).
+/// Records a redirect chain's end as [`redirect_reached`] does, beside
+/// `unwritten`, the visits a batching writer has not committed, when the
+/// Run holds them, which this one joins until its batch commits (#2168).
 ///
 /// # Errors
 ///
 /// When the run file cannot be written.
 pub fn admit_reached(
     connection: &Connection,
-    invariants: &Invariants,
+    unwritten: Option<&UnwrittenVisits>,
     crawl_request: &str,
     hop: (&Url, &HttpMethod, Option<&[u8]>),
 ) -> rusqlite::Result<Hop> {
-    reach(connection, invariants.unwritten(), crawl_request, hop)
+    reach(connection, unwritten, crawl_request, hop)
 }
 
 /// Records a redirect chain's end as [`redirect_reached`] does, beside

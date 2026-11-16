@@ -395,14 +395,17 @@ impl Stored {
         match asks {
             HopAsk::Check => goodfetch_frontier::admit_hop(
                 connection,
-                self.invariants.frontier(),
+                (
+                    self.invariants.frontier().scope(),
+                    self.invariants.frontier().unwritten(),
+                ),
                 &self.egress,
                 &hop.crawl_request,
                 (&hop.url, &hop.method, hop.body.as_deref()),
             ),
             HopAsk::Reached => goodfetch_frontier::admit_reached(
                 connection,
-                self.invariants.frontier(),
+                self.invariants.frontier().unwritten(),
                 &hop.crawl_request,
                 (&hop.url, &hop.method, hop.body.as_deref()),
             ),
@@ -476,7 +479,7 @@ impl Stored {
                     drop(place.write_with(unsynced, move |connection| {
                         goodfetch_frontier::visit_pending(
                             connection,
-                            invariants.frontier(),
+                            invariants.frontier().unwritten(),
                             pending,
                         )
                     }));

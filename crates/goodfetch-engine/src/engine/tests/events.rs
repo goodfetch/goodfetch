@@ -689,8 +689,7 @@ fn page_body_of_a_body_that_cannot_be_read_fails_as_internal_not_body_not_found(
 /// runtime's blocking pool, here held by another job: work on such a
 /// thread lets the runtime's other tasks run for as long as the thread
 /// takes, so a run would replay by the host's load, not its seed (issue
-/// 2106). The job lets its thread go after 5 seconds in any case, so a
-/// read that waited for it still ends.
+/// 2106).
 ///
 /// Covers: operation:page.body
 #[test]
@@ -698,19 +697,9 @@ fn page_body_under_inline_blocking_takes_no_thread_of_the_runtime() {
     const SIZE: usize = 150 * 1024;
     let env = TestEnv::new();
     let engine = engine(EventsOptions::default());
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the test bounds the runtime's blocking threads, which the shared test runtime does not (ADR 0060)"
-    )]
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .start_paused(true)
-        .max_blocking_threads(1)
-        .build()
-        .unwrap();
 
     let (read, held_throughout) = attached_on_runtime(
-        &runtime,
+        &goodfetch_test_support::runtime_with_one_blocking_thread(),
         &engine,
         || dependencies(&env),
         |mut client| async move {
@@ -724,31 +713,25 @@ fn page_body_under_inline_blocking_takes_no_thread_of_the_runtime() {
                 )])
                 .await;
             let handle = client.next().await.unwrap()["result"].clone();
-            let (release, released) = std::sync::mpsc::channel::<()>();
-            let (holding, holds) = std::sync::mpsc::channel::<()>();
-            let pool = tokio::runtime::Handle::current().spawn_blocking(move || {
-                holding.send(()).unwrap();
-                released.recv_timeout(Duration::from_secs(5)).is_ok()
-            });
-            holds.recv().unwrap();
-            client
-                .send(&[
-                    call(
-                        2,
-                        "page.body",
-                        json!({ "run_id": "bodies", "body": handle["body"] }),
-                    ),
-                    credit(2, 3),
-                ])
-                .await;
-            let read = loop {
-                let message = client.next().await.expect("the engine closed");
-                if message["method"] != "$/chunk" {
-                    break message;
+            goodfetch_test_support::with_the_blocking_pool_held(async {
+                client
+                    .send(&[
+                        call(
+                            2,
+                            "page.body",
+                            json!({ "run_id": "bodies", "body": handle["body"] }),
+                        ),
+                        credit(2, 3),
+                    ])
+                    .await;
+                loop {
+                    let message = client.next().await.expect("the engine closed");
+                    if message["method"] != "$/chunk" {
+                        break message;
+                    }
                 }
-            };
-            let _ = release.send(());
-            (read, pool.await.unwrap())
+            })
+            .await
         },
     );
 

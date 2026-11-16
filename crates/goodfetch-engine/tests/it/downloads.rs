@@ -321,6 +321,45 @@ fn first_use_downloads_a_missing_build_with_a_plain_get_and_reports_its_progress
     });
 }
 
+/// Under `BlockingPolicy::Inline`, the Simulation's and the in-process
+/// tests', a download creates, writes and syncs its archive, then unpacks
+/// it, on no thread of the runtime's blocking pool, here held by another
+/// job: work on such a thread lets the runtime's other tasks run for as long
+/// as the thread takes, so a run would replay by the host's load, not its
+/// seed (issues 2106 and 2132).
+#[test]
+fn a_download_under_inline_blocking_takes_no_thread_of_the_runtime() {
+    let env = TestEnv::new();
+    let build = build(&env, "a");
+
+    let (downloaded, held_throughout) = goodfetch_test_support::runtime_with_one_blocking_thread()
+        .block_on(async {
+            let stand_in =
+                StandIn::serve(BTreeMap::from([("/chrome-a.zip", build.archive.clone())])).await;
+            let cache = cache(&env);
+            let pinned = pin("a", stand_in.url("/chrome-a.zip"), &build);
+            goodfetch_test_support::with_the_blocking_pool_held(cache.prepare(
+                &pinned,
+                &pinned_by(),
+                &stand_in.fetching(),
+                now(&env),
+                &mut |_| {},
+            ))
+            .await
+        });
+
+    assert_eq!(
+        (
+            downloaded
+                .map(|prepared| prepared.downloaded)
+                .map_err(|error| format!("{error:?}")),
+            held_throughout
+        ),
+        (Ok(true), true),
+        "the download waited for the blocking pool"
+    );
+}
+
 /// Covers: row:SDK-08
 #[test]
 fn browsers_install_fetches_each_pinned_build_once() {

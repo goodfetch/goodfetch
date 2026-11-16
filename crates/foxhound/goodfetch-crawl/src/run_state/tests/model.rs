@@ -877,6 +877,31 @@ fn counts(tally: &Tally) -> Counts {
 }
 
 impl Subject {
+    /// A crawl started with the seeds of `pages` on a run file of its
+    /// own, at the level of a model that batches attempts or not.
+    fn new(batching: bool, pages: &[usize]) -> Self {
+        let env = TestEnv::new();
+        let folder = env
+            .folder()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .replace(' ', "-");
+        let vfs = CrashVfs::register(&format!("run-state-model-{folder}"), env.seed()).unwrap();
+        let path = env.folder().join("run.sqlite");
+        let mut subject = Self {
+            runtime: goodfetch_test_support::runtime(),
+            env,
+            vfs,
+            path,
+            durability: durability(batching),
+            crawl: None,
+            finished: false,
+        };
+        subject.open(Some(pages.iter().copied().map(seed).collect()));
+        subject
+    }
+
     fn crawl(&mut self) -> &mut Crawl {
         self.crawl
             .as_mut()
@@ -1144,7 +1169,9 @@ impl Subject {
                         },
                         Err(CommitError::LeaseLost) => {
                             if !settled {
-                                crawl.state.settled(leased, false);
+                                // No job ran: its work item stays leased.
+                                let committed = crawl.stored().commits();
+                                crawl.state.settled(leased, false, committed);
                             }
                             return false;
                         }
@@ -1181,13 +1208,13 @@ impl Subject {
             .runtime
             .block_on(async { stored.end(outcome).await.await })
             .unwrap();
-        crawl.state.changed(written.changed);
-        let (ended, retried) = match written.ended {
+        crawl.state.changed(written.answer.changed);
+        let (ended, retried) = match written.answer.ended {
             Ended::Committed(committed) => {
                 let _clock = self.runtime.enter();
                 let committed = lease.committed(Ok(Some(Ok(committed)))).unwrap();
                 // The model reads every page it leases back from the file.
-                crawl.state.added(committed.keyed);
+                crawl.state.added(committed.keyed, written.commits);
                 (true, false)
             }
             Ended::LeaseLost => (false, false),
@@ -1195,7 +1222,7 @@ impl Subject {
             Ended::SitemapRead(_) => panic!("the model reads no sitemap"),
         };
         if !settled {
-            crawl.state.settled(leased, retried);
+            crawl.state.settled(leased, retried, written.commits);
         }
         if ended {
             crawl.in_flight -= 1;
@@ -1258,12 +1285,12 @@ impl Subject {
         };
         let stored = crawl.stored();
         let unsent = vec![(waiting.id.clone(), failure(SITE_REFUSED))];
-        let changed = self
+        let ran = self
             .runtime
             .block_on(stored.end_unsent(unsent, ended_at()))
             .unwrap();
-        crawl.state.changed(changed);
-        crawl.state.gone([waiting.id]);
+        crawl.state.changed(ran.answer);
+        crawl.state.gone([(waiting.id, ran.commits)]);
         true
     }
 
@@ -1392,28 +1419,8 @@ impl StateMachineTest for Subject {
     type Reference = Model;
 
     fn init_test(model: &Model) -> Self {
-        let env = TestEnv::new();
-        let folder = env
-            .folder()
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .replace(' ', "-");
-        let vfs = CrashVfs::register(&format!("run-state-model-{folder}"), env.seed()).unwrap();
-        let path = env.folder().join("run.sqlite");
-        let mut subject = Self {
-            runtime: goodfetch_test_support::runtime(),
-            env,
-            vfs,
-            path,
-            durability: durability(model.batching),
-            crawl: None,
-            finished: false,
-        };
-        subject.open(Some(
-            model.items.iter().map(|item| seed(item.page)).collect(),
-        ));
-        subject
+        let pages: Vec<usize> = model.items.iter().map(|item| item.page).collect();
+        Self::new(model.batching, &pages)
     }
 
     fn apply(mut subject: Self, model: &Model, transition: Transition) -> Self {
@@ -1470,4 +1477,67 @@ prop_state_machine! {
     fn the_run_state_holds_its_models_work_items_and_counts_through_admissions_endings_panics_and_crashes(
         sequential 1..40 => Subject
     );
+}
+
+/// A re-admission the loop answers before it settles an attempt that
+/// failed for good, whose outcome was answered in the open batch, commits
+/// that batch with the work item pending again: the settlement, which
+/// comes after, leaves it pending to the loop's reads (#2679).
+#[test]
+fn a_work_item_readmitted_before_its_failed_attempt_settles_stays_pending() {
+    let mut subject = Subject::new(true, &[0]);
+    assert_eq!(subject.seal(), vec![0]);
+    assert_eq!(subject.lease(1), vec![0]);
+    let crawl = subject
+        .crawl
+        .as_mut()
+        .expect("invariant: the crawl runs until the case ends");
+    let Running { leased, lease, .. } = crawl.attempts[0].clone();
+    lease.release();
+    let outcome = Outcome {
+        scored: goodfetch_session_pool::Changes::default(),
+        chosen: None,
+        ending: Ending::End {
+            work_item: leased.crawl_request.id.clone(),
+            lease_epoch: leased.lease_epoch,
+            unsuccessful: Unsuccessful::Failed(failure(HANDLER_FAILED)),
+            ended_at: ended_at(),
+        },
+    };
+    let stored = crawl.stored();
+    let written = subject
+        .runtime
+        .block_on(async { stored.end(outcome).await.await })
+        .unwrap();
+    assert!(matches!(
+        written.answer.ended,
+        Ended::Unsuccessful {
+            ended: true,
+            retried: false,
+            ..
+        }
+    ));
+    assert_eq!(subject.readmit(), Some(1));
+
+    let crawl = subject
+        .crawl
+        .as_mut()
+        .expect("invariant: the crawl runs until the case ends");
+    crawl.state.settled(leased.clone(), false, written.commits);
+
+    let waiting = subject
+        .runtime
+        .block_on(crawl.state.waiting(None, 1))
+        .unwrap();
+    assert_eq!(
+        waiting
+            .into_iter()
+            .map(|waiting| waiting.id)
+            .collect::<Vec<_>>(),
+        vec![leased.crawl_request.id]
+    );
+    assert!(subject.runtime.block_on(crawl.state.any_pending()).unwrap());
+    // The writer closes once nothing holds it.
+    drop((stored, lease));
+    subject.close();
 }

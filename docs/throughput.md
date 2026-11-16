@@ -17,6 +17,7 @@ The steps run in this order for each page of a code-free crawl on the `http` tie
 | Fetch the request, follow its redirects and refresh stubs, decode the document | needed | — | one request per page, and one per hop (`fetch.redirect.max`, `fetch.refresh.max_delay` bound them) |
 | Check the address against the egress policy | needed | — | no counted work |
 | Read the origin's robots.txt and obey it | feature | `site_preferences.respect_robots_txt: false`, with `site_preferences.mark_robots_txt_ignored` off, its default | 4 robots.txt parses per origin and 0.211 reads of the shared copy per request, against 0 and 0 |
+| Choose which site's request goes next | feature | `crawl.domain_order: round_robin` | no counted work either way: each admission takes the first key of one index of the keys with a request waiting, by requests in flight and then turn at `fewest_in_flight`, its default, and by turn alone at `round_robin`; B1 runs both (its cell `round_robin`) |
 | Wait for the domain's Politeness Permit | feature | no `politeness.domain.concurrency`, delay 0, no `politeness.domain.rate`, robots.txt off | 4.938 Politeness file transactions per attempt and 16.474 opens per Permit, against 0 and 0 |
 | Judge the AI-use signals | feature | `site_preferences.respect_use_signals: false`, its default | the page's body is read for them only while they are applied |
 | Read the document for a Block cause | feature | `fetch.block_classification: false` | 1 document read by the Block classification rules per page, against 0 |

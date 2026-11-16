@@ -34,9 +34,14 @@
 //! write in the file as it is answered, or `batch` with no threshold, where
 //! a claim, a key, an attempt's enqueue and its end ride the open batch, which a reader
 //! sees only once a barrier, a seal or the writer's end writes it, and
-//! which a crash takes whole; the loop's reads leave out what it claimed
-//! in a batch they do not see. 16 cases in the Quick suite and 256 in the
-//! Pre-merge suite (`proptest_config`).
+//! which a crash takes whole; the loop's reads of the work items waiting
+//! take them as the crawl knows them (ADR 0142's note of #2168): they
+//! leave out those it leased or ended in a batch they do not see and add
+//! those it made pending there, a retry or a page an attempt added. The
+//! loop settles each attempt once, as delivery's settlement does; a later
+//! end of an attempt that ended is a late answer, which settles nothing
+//! (#2660). 16 cases in the Quick suite and 256 in the Pre-merge suite
+//! (`proptest_config`).
 #![expect(
     clippy::disallowed_methods,
     reason = "the model reads the test Clock and the seeded Entropy (ADR 0059)"
@@ -270,9 +275,6 @@ struct Model {
     batching: bool,
     /// The work items as the last commit left them: what a reader sees.
     written: Vec<Item>,
-    /// The pages claimed since the last commit, which the loop's reads
-    /// leave out.
-    claimed: Vec<usize>,
 }
 
 /// The work items as a crawl resumed after a crash finds them: each one
@@ -379,7 +381,6 @@ impl Model {
         }
         self.unsynced.push(self.items.clone());
         self.written.clone_from(&self.items);
-        self.claimed.clear();
     }
 
     /// At `batch`, a barrier commits the open batch with its own write,
@@ -388,20 +389,19 @@ impl Model {
         if self.batching {
             self.unsynced = vec![self.items.clone()];
             self.written.clone_from(&self.items);
-            self.claimed.clear();
         }
     }
 
     /// The loop's read of the next `count` work items that are pending and
-    /// keyed, by page: the run file's, less each claimed since the last
-    /// commit.
+    /// keyed, by page, as the crawl knows them, whether or not a commit
+    /// wrote their latest change (ADR 0142's note of #2168): a leased one
+    /// does not take the place of one still pending (#2660).
     fn waiting(&self, count: usize) -> Vec<usize> {
-        self.written
+        self.items
             .iter()
             .filter(|item| item.status == Status::Pending && item.keyed)
             .take(count)
             .map(|item| item.page)
-            .filter(|page| !self.claimed.contains(page))
             .collect()
     }
 
@@ -456,7 +456,6 @@ impl Model {
             });
         }
         self.wrote(false);
-        self.claimed.extend(&pages);
         Answer::Leased(pages)
     }
 
@@ -533,7 +532,6 @@ impl Model {
             self.item(*page).status = Status::Failed(SITE_REFUSED);
             self.wrote(true);
         }
-        self.claimed.extend(&refused);
         Answer::Refused(!refused.is_empty())
     }
 
@@ -588,7 +586,6 @@ impl Model {
     /// items, which it keys, a sealed batch at a time.
     fn resume(&mut self) {
         self.attempts.clear();
-        self.claimed.clear();
         self.closed = false;
         while !self.seal().is_empty() {}
     }
@@ -615,7 +612,6 @@ impl ReferenceStateMachine for Model {
                     answered: Answer::Nothing,
                     crashed: false,
                     batching,
-                    claimed: Vec::new(),
                 }
             })
             .boxed()
@@ -689,9 +685,19 @@ struct Crawl {
     asking: Asking,
     asked: Asked,
     leases: Leases,
-    attempts: Vec<(Leased, WorkItemLease)>,
+    attempts: Vec<Running>,
     /// How many attempts hold their lease.
     in_flight: usize,
+}
+
+/// One attempt of the subject's crawl: its lease, and whether the loop
+/// settled it, which its first end does, as the model's [`Attempt`] is
+/// `over` once it ended.
+#[derive(Clone)]
+struct Running {
+    leased: Leased,
+    lease: WorkItemLease,
+    settled: bool,
 }
 
 impl Crawl {
@@ -1025,7 +1031,7 @@ impl Subject {
             .crawl
             .as_mut()
             .expect("invariant: the crawl runs until the case ends");
-        let leased = &crawl.attempts[index].0;
+        let leased = &crawl.attempts[index].leased;
         let enqueue = Enqueue {
             request: CrawlRequestEnqueueParams {
                 run_id: RunId::parse("model").unwrap(),
@@ -1091,7 +1097,11 @@ impl Subject {
                     .leases
                     .grant(&leased.crawl_request.id, leased.lease_epoch, LEASE);
                 let page = page(&leased.crawl_request.url);
-                crawl.attempts.push((leased, lease));
+                crawl.attempts.push(Running {
+                    leased,
+                    lease,
+                    settled: false,
+                });
                 crawl.in_flight += 1;
                 page
             })
@@ -1099,13 +1109,21 @@ impl Subject {
     }
 
     /// The attempt at `index` ends as `how` says, in its outcome's one
-    /// job; answers whether that ended its work item's lease.
+    /// job; answers whether that ended its work item's lease. The loop
+    /// settles an attempt once, as delivery's settlement does: a later end
+    /// of an attempt that ended is a late answer, which settles nothing,
+    /// so a retry or a re-admission since stays pending (#2660).
     fn end(&mut self, index: usize, how: How) -> bool {
         let crawl = self
             .crawl
             .as_mut()
             .expect("invariant: the crawl runs until the case ends");
-        let (leased, lease) = crawl.attempts[index].clone();
+        let Running {
+            leased,
+            lease,
+            settled,
+        } = crawl.attempts[index].clone();
+        crawl.attempts[index].settled = true;
         let attempt = (leased.crawl_request.id.clone(), leased.lease_epoch);
         let unsuccessful = |unsuccessful| Ending::End {
             work_item: attempt.0.clone(),
@@ -1125,7 +1143,9 @@ impl Subject {
                             }),
                         },
                         Err(CommitError::LeaseLost) => {
-                            crawl.state.settled(leased, false);
+                            if !settled {
+                                crawl.state.settled(leased, false);
+                            }
                             return false;
                         }
                         Err(error) => panic!("the commit failed: {error:?}"),
@@ -1175,7 +1195,9 @@ impl Subject {
             Ended::Unsuccessful { ended, retried, .. } => (ended, ended && retried),
             Ended::SitemapRead(_) => panic!("the model reads no sitemap"),
         };
-        crawl.state.settled(leased, retried);
+        if !settled {
+            crawl.state.settled(leased, retried);
+        }
         if ended {
             crawl.in_flight -= 1;
         }

@@ -1,12 +1,12 @@
 //! What a run reads of the machine it measures on: its name, OS, CPU,
-//! threads and memory, and its 1-minute load, which a timed trial waits to
-//! see fall before it starts.
+//! threads and memory, and its 1-minute load, which a timed trial and a run
+//! under strace wait to see fall before they start.
 
 use std::process::Command;
 
 use crate::output;
 
-use super::super::trials::{Machine, QUIET_LOAD, QUIET_WAIT_SECONDS};
+use super::super::trials::{Machine, QUIET_WAIT_SECONDS};
 
 /// The machine: the name given it, OS and version, CPU, threads, memory,
 /// and its load now.
@@ -82,27 +82,44 @@ pub(super) fn load() -> Option<f64> {
 }
 
 /// Waits, up to [`QUIET_WAIT_SECONDS`], for the 1-minute load to fall under
-/// [`QUIET_LOAD`], so a timed trial starts on a quiet machine, a browser
-/// trial's own load included; the load it starts at, where the OS gives
-/// one.
+/// `threshold`: [`QUIET_LOAD`](super::super::trials::QUIET_LOAD) before a
+/// timed trial, so it starts on a quiet machine, a browser trial's own load
+/// included, and [`STRACE_QUIET_LOAD`](super::super::trials::STRACE_QUIET_LOAD)
+/// before a run under strace. Gives the load it starts at, where the OS
+/// gives one.
 #[expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: a run waits for a quiet machine by sleeping between reads of its load (STYLE.md)"
 )]
-pub(super) fn quiet() -> Option<f64> {
+pub(super) fn quiet(threshold: f64) -> Option<f64> {
+    waited(threshold, load, |seconds| {
+        std::thread::sleep(std::time::Duration::from_secs(seconds));
+    })
+}
+
+/// [`quiet`]'s wait, the load read with `read` and each pause between two
+/// reads slept with `sleep`, given its seconds.
+fn waited(
+    threshold: f64,
+    mut read: impl FnMut() -> Option<f64>,
+    mut sleep: impl FnMut(u64),
+) -> Option<f64> {
     const POLL_SECONDS: u64 = 10;
     let mut waited = 0;
     loop {
-        let now = load()?;
-        if now < QUIET_LOAD || waited >= QUIET_WAIT_SECONDS {
+        let now = read()?;
+        if now < threshold || waited >= QUIET_WAIT_SECONDS {
             if waited > 0 {
                 output::line(&format!(
-                    "Waited {waited} s for the 1-minute load to fall under {QUIET_LOAD}: {now:.2}."
+                    "Waited {waited} s for the 1-minute load to fall under {threshold}: {now:.2}."
                 ));
             }
             return Some(now);
         }
-        std::thread::sleep(std::time::Duration::from_secs(POLL_SECONDS));
+        sleep(POLL_SECONDS);
         waited += POLL_SECONDS;
     }
 }
+
+#[cfg(test)]
+mod tests;

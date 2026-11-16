@@ -97,7 +97,6 @@ use crate::errors::{
 use crate::launch::{Launcher, launch};
 use crate::page_value::{self, PageValue};
 use crate::proxy::{PROXY_STATUS, Party, ProxyPermit, SessionProxy, party, proxy_error};
-use crate::trace::CommandLog;
 use identity::Identity;
 
 /// No bound of a command's own: its call's deadline bounds it, such as a
@@ -183,7 +182,6 @@ const GUARD_MARKER: &str = "globalThis.__goodfetch_guard__ = true;";
 #[derive(Clone)]
 pub(crate) struct Browser {
     connection: Connection,
-    log: CommandLog,
     exit: watch::Receiver<Option<BrowserExit>>,
     executable: String,
     /// The identity a headless browser's pages show; `None` with a window.
@@ -208,7 +206,8 @@ pub(crate) struct Browser {
     lease: Option<Arc<dyn LeaseCheck>>,
     /// Its Run's deadlines, which its commands wait under.
     deadlines: Arc<Deadlines>,
-    /// Where its pages' reads count their work (ADR 0140's C2).
+    /// Its Run's Counted work, where its commands and its pages' reads
+    /// count (ADR 0140's C2, C3 and C7).
     work: CountedWork,
     /// The row each command it sends counts on as well: a guarded action's
     /// attempt, by its kind (ADR 0140's C3), or a guard's check; none on
@@ -273,7 +272,6 @@ impl Browser {
     fn played(connection: Connection) -> Self {
         Self {
             connection,
-            log: CommandLog::unwritten(),
             exit: watch::channel(None).1,
             executable: "played".to_owned(),
             identity: None,
@@ -296,8 +294,8 @@ impl Browser {
 }
 
 impl Browser {
-    /// Sends `params` on `session`, recorded in the Run trace, within the
-    /// deadline of `call`; a failure raises the code of `call`.
+    /// Sends `params` on `session` within the deadline of `call`; a failure
+    /// raises the code of `call`.
     async fn send<C: Command>(
         &self,
         session: Option<&TargetSession>,
@@ -311,8 +309,7 @@ impl Browser {
         }
     }
 
-    /// Sends `params` on `session`, recorded in the Run trace, answering
-    /// the failure itself, for a caller that acts on some failures: the
+    /// Sends `params` on `session`, answering the failure itself, for a caller that acts on some failures: the
     /// caller's own deadline bounds it, such as a navigation's, which
     /// leaves out its waits for permits while the browser holds back its
     /// `Page.navigate`, and the connection's end ends it.
@@ -324,8 +321,8 @@ impl Browser {
         self.try_send_within(session, params, UNBOUNDED).await
     }
 
-    /// Sends `params` on `session`, recorded in the Run trace, waiting for
-    /// its answer at most `limit`, answering the failure itself.
+    /// Sends `params` on `session`, waiting for its answer at most `limit`,
+    /// answering the failure itself.
     async fn try_send_within<C: Command>(
         &self,
         session: Option<&TargetSession>,
@@ -338,19 +335,17 @@ impl Browser {
             return Err(Failure::Withheld { method: C::METHOD });
         }
         self.counted();
-        self.log.record(C::METHOD).await;
         self.connection.send(session, params, limit).await
     }
 
     /// Sends `params` on `session` whatever the lease, as the engine closes
-    /// a page of its own, recorded in the Run trace.
+    /// a page of its own.
     async fn send_unleased<C: Command>(
         &self,
         session: Option<&TargetSession>,
         params: &C,
     ) -> Result<C::Returns, Failure> {
         self.counted();
-        self.log.record(C::METHOD).await;
         self.connection
             .send(session, params, self.deadlines.navigation.duration())
             .await
@@ -360,10 +355,10 @@ impl Browser {
     /// and on C7's while a page opens (ADR 0140).
     fn counted(&self) {
         if let Some(row) = self.counting {
-            self.log.work().count(row);
+            self.work.count(row);
         }
         if OPENING.try_with(|()| ()).is_ok() {
-            self.log.work().count(Row::PageOpeningCommands);
+            self.work.count(Row::PageOpeningCommands);
         }
     }
 
@@ -462,8 +457,6 @@ impl Connect for Behind {
 pub(crate) struct BorrowedBrowser {
     run: Run,
     cdp_url: CdpUrl,
-    /// The Run trace's CDP log, which every browser of the Run shares.
-    log: Arc<OnceCell<CommandLog>>,
     /// Closed and empty: the engine sees no exit of a browser it did not
     /// launch, so a call that lost its connection waits for none to name
     /// the loss (fix queue 104: each such call waited `timeout.close`).
@@ -472,11 +465,10 @@ pub(crate) struct BorrowedBrowser {
 }
 
 impl BorrowedBrowser {
-    pub(crate) fn new(run: Run, cdp_url: CdpUrl, log: Arc<OnceCell<CommandLog>>) -> Self {
+    pub(crate) fn new(run: Run, cdp_url: CdpUrl) -> Self {
         Self {
             run,
             cdp_url,
-            log,
             exit: watch::channel(None).1,
             connected: OnceCell::new(),
         }
@@ -504,30 +496,8 @@ impl Connect for BorrowedBrowser {
             .get_or_try_init(|| async {
                 let connection = crate::borrowed::connect(&self.run, &self.cdp_url).await?;
                 let address = self.cdp_url.address();
-                let log = self
-                    .log
-                    .get_or_try_init(|| async {
-                        CommandLog::start(
-                            self.run.owner(),
-                            self.run.folder(),
-                            self.run.metrics().counted_work().clone(),
-                        )
-                        .map_err(|error| {
-                            CallError::new(
-                                &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
-                                format!("the Run trace's CDP log cannot start: {error}"),
-                                &goodfetch_protocol::page::BrowserLaunchFailedDetails {
-                                    executable: address.clone(),
-                                    exit: None,
-                                },
-                            )
-                        })
-                    })
-                    .await?
-                    .clone();
                 let browser = Browser {
                     connection,
-                    log,
                     exit: self.exit.clone(),
                     executable: address,
                     identity: None,
@@ -567,8 +537,6 @@ pub(crate) struct LocalBrowser {
     home: Home,
     pins: Pins,
     number: u64,
-    /// The Run trace's CDP log, which every browser of the Run shares.
-    log: Arc<OnceCell<CommandLog>>,
     stopping: CancellationToken,
     launched: OnceCell<Browser>,
     /// Cancelled once the browser the last launch started is gone, its
@@ -585,7 +553,6 @@ impl LocalBrowser {
         home: Home,
         pins: Pins,
         number: u64,
-        log: Arc<OnceCell<CommandLog>>,
         authority: Option<Arc<Authority>>,
     ) -> Self {
         let stopping = run.cancellation().child_token();
@@ -595,7 +562,6 @@ impl LocalBrowser {
             home,
             pins,
             number,
-            log,
             stopping,
             launched: OnceCell::new(),
             released: Mutex::new(None),
@@ -672,30 +638,8 @@ impl Connect for LocalBrowser {
                 .await?;
                 *self.released.lock().await = Some(launched.released.clone());
                 let coming_up = Attempt(Some(attempt.clone().drop_guard()));
-                let log = self
-                    .log
-                    .get_or_try_init(|| async {
-                        CommandLog::start(
-                            self.run.owner(),
-                            self.run.folder(),
-                            self.run.metrics().counted_work().clone(),
-                        )
-                        .map_err(|error| {
-                            CallError::new(
-                                &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
-                                format!("the Run trace's CDP log cannot start: {error}"),
-                                &goodfetch_protocol::page::BrowserLaunchFailedDetails {
-                                    executable: launched.executable.display().to_string(),
-                                    exit: None,
-                                },
-                            )
-                        })
-                    })
-                    .await?
-                    .clone();
                 let mut browser = Browser {
                     connection: launched.connection,
-                    log,
                     exit: launched.exit,
                     executable: launched.executable.display().to_string(),
                     identity: None,
@@ -1519,8 +1463,7 @@ impl PageDriver {
         self.browser.connection.subscribe(Some(&self.session))
     }
 
-    /// Sends `params` on the page's target, recorded in the Run trace, as
-    /// one of the commands that open the page: a failure raises
+    /// Sends `params` on the page's target as one of the commands that open the page: a failure raises
     /// `browser_launch_failed` or `page_crashed`.
     pub(crate) async fn opening_command<C: Command>(
         &self,
@@ -1701,7 +1644,7 @@ impl PageDriver {
 
     /// The Counted work of the page's Run.
     pub(crate) fn work(&self) -> &CountedWork {
-        self.browser.log.work()
+        &self.browser.work
     }
 
     /// Waits for the page's turn, in arrival order, for the gesture

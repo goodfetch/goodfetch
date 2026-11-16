@@ -69,6 +69,7 @@ use crate::tasks::TaskOwner;
 use wal_checkpointer::{WalCheckpointer, note_wal_pages, open_wal_checkpointer};
 
 mod batch;
+mod batch_end;
 pub mod install;
 mod open_batch;
 mod readers;
@@ -76,6 +77,7 @@ pub mod run_row;
 mod wal_checkpointer;
 
 pub use batch::{BatchRows, BatchStatement, BatchWriter, SealRequest, SealedBatch, Seals};
+pub use batch_end::BatchEnd;
 pub(crate) use readers::RunStateReaders;
 
 /// How many writes wait for the writer before their callers wait.
@@ -792,6 +794,7 @@ pub struct RunState {
     per_attempt: bool,
     memory_budget: u64,
     watching: Watching,
+    ending: batch_end::Ending,
 }
 
 /// What a writer's watchers follow: its acknowledged commits and its first
@@ -835,6 +838,7 @@ impl RunState {
         let (committed, commits) = watch::channel(0_u64);
         let (failed, failures) = watch::channel(None);
         let watching = Watching::default();
+        let ending = batch_end::Ending::default();
         let readers = std::sync::Arc::new(RunStateReaders::new(
             path.clone(),
             options.vfs.clone(),
@@ -864,6 +868,7 @@ impl RunState {
                 failures: failed,
                 work: options.work.clone(),
                 watching: std::sync::Arc::clone(&watching),
+                ending: std::sync::Arc::clone(&ending),
             },
             batching: open_batch::Batching::of(options, owner, &mailbox),
             // The idle writer's timer at `periodic`, which ends with the
@@ -885,6 +890,7 @@ impl RunState {
             per_attempt: options.durability.per_attempt,
             memory_budget: options.memory_budget,
             watching,
+            ending,
         })
     }
 
@@ -907,6 +913,13 @@ impl RunState {
     /// nothing.
     pub fn watch_writes(&self, watch: std::sync::Arc<dyn WriteWatch>) {
         let _installed = self.watching.get_or_init(|| watch);
+    }
+
+    /// Has the writer run `ending` at the end of each batch it commits,
+    /// from now on ([`BatchEnd`]). Once is enough; a later call changes
+    /// nothing.
+    pub fn end_batches_with(&self, ending: std::sync::Arc<dyn BatchEnd>) {
+        let _installed = self.ending.get_or_init(|| ending);
     }
 
     /// The first commit that met a full disk or an I/O error, as SQLite
@@ -1528,7 +1541,10 @@ fn without_ticks(group: &mut Vec<Queued>) -> bool {
 /// What the file at `connection` declares of the Run's charges: a Run's
 /// earlier run epoch may have declared them.
 fn declared_charges(connection: &Connection) -> rusqlite::Result<Charges> {
-    match connection.query_row("SELECT charges FROM run", [], |row| row.get::<_, String>(0)) {
+    match connection
+        .prepare_cached("SELECT charges FROM run")?
+        .query_row([], |row| row.get::<_, String>(0))
+    {
         Ok(declared) => Ok(Charges::stored(&declared)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(Charges::Synced),
         Err(error) => Err(error),
@@ -1559,11 +1575,10 @@ pub(crate) fn next_epoch(
 ) -> Result<u64, RunStateError> {
     let connection = open_file(path, options, tables)?;
     let epoch: i64 = connection
-        .query_row(
-            "UPDATE run SET epoch = max(epoch, ?1) + 1 RETURNING epoch",
-            [i64::try_from(after).unwrap_or(i64::MAX)],
-            |row| row.get(0),
-        )
+        .prepare_cached("UPDATE run SET epoch = max(epoch, ?1) + 1 RETURNING epoch")
+        .and_then(|mut statement| {
+            statement.query_row([i64::try_from(after).unwrap_or(i64::MAX)], |row| row.get(0))
+        })
         .map_err(|error| sqlite_error(path, &error))?;
     Ok(u64::try_from(epoch).unwrap_or_default())
 }
@@ -1678,9 +1693,8 @@ pub(crate) fn unclean(
     let marked = opened.and_then(|connection| {
         sqlite_store::no_checkpoint_on_close(&connection)?;
         connection
-            .query_row("SELECT count(*) FROM unclean", [], |row| {
-                row.get::<_, i64>(0)
-            })
+            .prepare_cached("SELECT count(*) FROM unclean")?
+            .query_row([], |row| row.get::<_, i64>(0))
             .map(|marks| marks > 0)
     });
     match marked {
@@ -1805,6 +1819,8 @@ struct Signals {
     work: CountedWork,
     /// The watch of its writes, once a handle installed one.
     watching: Watching,
+    /// What it writes at the end of each batch, once a handle installed it.
+    ending: batch_end::Ending,
 }
 
 /// What a group's commit also writes in the run file.
@@ -1840,7 +1856,8 @@ fn commit_group(
         path,
         watch,
     };
-    let (completions, committed) = match commit_writes(running, (epoch, marks), group) {
+    let ending = signals.ending();
+    let (completions, committed) = match commit_writes(running, ending, (epoch, marks), group) {
         Ok((completions, declaring)) => {
             declared = Some(declaring);
             signals.work.count_many(Row::RunTransactions, grouped);
@@ -1862,6 +1879,12 @@ impl Signals {
     /// The watch of the writer's writes, once a handle installed one.
     fn watch(&self) -> Option<&dyn WriteWatch> {
         self.watching.get().map(|watch| &**watch)
+    }
+
+    /// What the writer writes at the end of each batch, once a handle
+    /// installed it.
+    fn ending(&self) -> Option<&dyn BatchEnd> {
+        self.ending.get().map(|ending| &**ending)
     }
 
     /// Signals a commit of the file at `path` that failed on `error`: a
@@ -1887,6 +1910,7 @@ impl Signals {
 
 fn commit_writes(
     running: Running<'_>,
+    ending: Option<&dyn BatchEnd>,
     (epoch, marks): (u64, Marks),
     group: Vec<QueuedWrite>,
 ) -> Result<(Vec<Completion>, bool), (Vec<Completion>, RunStateError)> {
@@ -1909,6 +1933,10 @@ fn commit_writes(
             roll_back(connection);
             return Err((completions, error));
         }
+    }
+    if let Some(error) = batch_end::end(running, ending) {
+        roll_back(connection);
+        return Err((completions, error));
     }
     match finish(connection, path, marks) {
         Ok(declared) => Ok((completions, declared)),

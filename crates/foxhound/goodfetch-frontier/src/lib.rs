@@ -20,6 +20,7 @@
 
 mod admit;
 pub mod backoff_classes;
+mod behind;
 mod bounds;
 mod domain_key;
 mod forms;
@@ -44,15 +45,18 @@ use std::sync::Arc;
 use goodfetch_engine::Contribution;
 use goodfetch_protocol::foxhound::frontier::{FRONTIER_LEARNING, LEARNING_SWITCHED_OFF};
 use goodfetch_protocol::foxhound::settings::{POLITENESS_WEAKENED, PRESSING_HARDER};
+use rusqlite::Connection;
 
 pub use admit::{
     Candidate, Entering, Keyed, Link, admit, admit_in, admit_keyed, key_candidate, key_link,
 };
+pub use behind::Lesson;
 pub use bounds::{Bounds, TABLES as BOUNDS_TABLES, completeness_reasons};
 pub use domain_key::DomainKeys;
 pub use identity::{
     Declared, Hop, PendingVisit, Reached, TABLES as VISITED_TABLES, admit_hop, admit_reached,
-    fuzz_url_key, hold_reached, redirect_hop, redirect_reached, rewrite, url_key, visit_pending,
+    fuzz_url_key, hold_reached, read_lookup, redirect_hop, redirect_reached, rewrite, url_key,
+    visit_pending,
 };
 pub use invariants::Invariants;
 pub use learn::{
@@ -68,7 +72,7 @@ pub use robots_txt::{SharedRobotsTxt, TABLES as ROBOTS_TXT_TABLES};
 pub use rules::{TABLES as RULES_TABLES, learned_rules};
 pub use scope::{Narrowing, Patterns, Scope, Strategy as ScopeStrategy, TABLES as SCOPE_TABLES};
 pub use staged::{Admitting, Refused, Staged};
-pub use unwritten::UnwrittenVisits;
+pub use unwritten::{Lookup, SharedBudget, UnwrittenVisits};
 pub use url::{document_base, resolve_link};
 
 /// A URL as the WHATWG URL Standard parsed it.
@@ -114,6 +118,24 @@ pub fn contribution() -> Contribution {
         })
 }
 
+/// Has the Frontier's memory, when the Run holds the batches' visits
+/// ([`Invariants::hold_unwritten`]), read on `connection`, the writer's,
+/// the Frontier's state an admission would read otherwise, as the crawl
+/// opens, after [`Invariants::fill_memory`]: the learned rules and
+/// identities, the Bounds' counts and whether a trap mark is held. An
+/// admission below the memory budget then reads none of it from the file
+/// (#2169, ADR 0140's `F3.state_reads`).
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub fn keep_memory(invariants: &Invariants, connection: &Connection) -> rusqlite::Result<()> {
+    admit::keep_memory(connection, invariants)?;
+    invariants.unwritten().map_or(Ok(()), |unwritten| {
+        trap_links::keep_marks(connection, unwritten)
+    })
+}
+
 /// The statements a Run under `invariants` prepares once, as it starts or
 /// resumes, on each connection of its run file's writer, so that no
 /// page's admission prepares one, whichever connection it commits on
@@ -124,7 +146,9 @@ pub fn contribution() -> Contribution {
 /// runs beside the Scope's lookup, which the start prepares only on the
 /// connection its own write commits on, where a hop's check does not
 /// (#2246): the rule that holds, the visited set's read and a learned
-/// identity's.
+/// identity's. And those memory reads the learned rules and identities
+/// with as an admission writes, with the step along the visited set's
+/// methods that finds a rule's hosts' identities (#2169).
 #[must_use]
 pub fn admission_statements(invariants: &Invariants) -> Vec<&'static str> {
     invariants
@@ -139,6 +163,14 @@ pub fn admission_statements(invariants: &Invariants) -> Vec<&'static str> {
         ])
         .chain(trap_links::SEEN_AGAIN)
         .chain(sitemap::READ)
-        .chain([rules::HOLDING, identity::VISITOR, identity::LEARNED])
+        .chain([
+            rules::HOLDING,
+            rules::HELD,
+            identity::VISITOR,
+            identity::LEARNED,
+            identity::FIRST_VISITED,
+            unwritten::EVERY_LEARNED,
+            unwritten::LEARNED_WITHIN,
+        ])
         .collect()
 }

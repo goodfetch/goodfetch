@@ -293,14 +293,6 @@ impl TrustedCas {
                 }
             })
     }
-
-    /// Each listed file, for a reader that reads them ahead of
-    /// [`TrustedCas::trust`].
-    pub(crate) fn files(&self) -> impl Iterator<Item = &Path> {
-        self.0
-            .iter()
-            .flat_map(|(_, files)| files.iter().map(PathBuf::as_path))
-    }
 }
 
 /// The authorities `file`, read as `bytes`, holds; none, logged, when it

@@ -15498,6 +15498,7 @@
             "cdp_command",
             "frontier_admission",
             "frontier_hop",
+            "frontier_lease",
             "frontier_payload",
             "frontier_sitemap",
             "governor_sample",
@@ -15559,13 +15560,16 @@
             "in_flight_serializations",
             "invariant_reads",
             "locale_form_builds",
+            "log_opens",
             "log_sends_off",
+            "log_transactions",
             "matches",
             "meminfo_opens",
             "merge_round_trips",
             "messages_no_hook",
             "opening_commands",
             "opens",
+            "page_learning",
             "page_waits",
             "parses",
             "plugin_answer_parses",
@@ -15577,11 +15581,14 @@
             "provenance_entries",
             "prunes",
             "readability_runs",
+            "reads",
             "robots_parses",
             "robots_reads",
             "round_trips",
             "rule_list_builds",
             "rule_tests",
+            "run_file_opens",
+            "run_spawns",
             "script_compilations",
             "script_sends",
             "seals",
@@ -15591,6 +15598,7 @@
             "serializations",
             "share_readability_runs",
             "spawns",
+            "state_reads",
             "statements",
             "static_opens",
             "syncs",
@@ -18081,7 +18089,7 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
-      "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only.",
+      "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, the engine prunes the entries older than it as it starts and then once a day, so an entry may stay up to a day longer, from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only.",
       "name": "audit.retention",
       "product": "collie",
       "products": [
@@ -18117,6 +18125,23 @@
           ]
         },
         "type": "array"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "description": "Whether the Run trace keeps its CDP command log, `trace/cdp-commands.jsonl`: one line for each command the engine sends a Session's browser, its method only, never its params, up to the launch's last `Browser.close`. Off by default: no command's method goes to the Run trace's writer and the file is never written. Turn it on to see every command the engine sent, such as to debug a Run. No result, Record or Provenance entry reads the log, so off weakens no guarantee.",
+      "name": "browser.cdp_command_log",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
       },
       "weakens": false
     },
@@ -23003,6 +23028,13 @@
       "description": "An error ended it before its end, `incomplete`.",
       "name": "failed",
       "product": "collie",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Requests ended `failed` with an Error code other than `response_unavailable`, counted by code: `incomplete`, since neither their pages nor the pages only they link are in the results; `retryFailed()` re-admits them.",
+      "name": "failed_requests",
+      "product": "foxhound",
       "type": "completeness_reason_code"
     },
     {

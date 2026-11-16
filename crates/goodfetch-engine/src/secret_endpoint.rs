@@ -20,6 +20,7 @@ use crate::egress::{ConfiguredKind, Refused};
 use crate::http_client::{EndpointSettings, WholeFailure};
 use crate::retry_after::{self, RetryAfter};
 use crate::settings::Resolved;
+use crate::tasks::BlockingThreads;
 use crate::tls::CertificateInvalid;
 
 #[cfg(test)]
@@ -59,10 +60,10 @@ pub enum EndpointFailure {
 impl SecretProviderEndpoint {
     /// The endpoint the machine's `settings` let a provider reach: their
     /// `egress.no_private_endpoints`, `network.resolve` and
-    /// `tls.trusted_cas`.
-    pub fn of(settings: &Resolved, clock: Clock) -> Self {
+    /// `tls.trusted_cas`, whose files each request reads on `blocking`.
+    pub fn of(settings: &Resolved, clock: Clock, blocking: BlockingThreads) -> Self {
         Self {
-            endpoint: EndpointSettings::of(settings, clock),
+            endpoint: EndpointSettings::of(settings, clock, blocking),
             clock,
         }
     }

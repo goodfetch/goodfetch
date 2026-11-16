@@ -98,7 +98,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::{self, Navigator, Policy, RequestKind};
 use goodfetch_engine::run_trace::RequestLog;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::{Run, run_trace};
 use goodfetch_engine::settings::{RunSettings, Values};
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::route::{RouteId, UrlMatcher};
@@ -116,6 +116,8 @@ use self::answers::Answers;
 pub(crate) use self::answers::{Answer, Fulfillment, Overrides, Reply};
 use self::clean_up::CleanUp;
 pub(crate) use self::clean_up::SESSION_KEYS;
+#[cfg(test)]
+pub(crate) use self::clean_up::run_needs_lists;
 use self::hosts::HostCaches;
 pub(crate) use self::lookups::{HeldBrowser, Lookups};
 use self::navigations::{NavigatingPage, Pending};
@@ -743,12 +745,7 @@ impl Interception {
                         Arc::clone(tables.failures.entry(session.clone()).or_default()),
                     )
                 };
-                let log = Arc::new(RequestLog::new(
-                    run.owner().child(),
-                    run.folder(),
-                    run.secrets().mask().clone(),
-                    run.metrics().counted_work().clone(),
-                ));
+                let log = Arc::new(RequestLog::new(run_trace(&run)));
                 let driver = driver.with_egress(egress).with_value(value, run.clock());
                 let events = driver.events();
                 if let Err(error) = pause_requests(&driver).await {

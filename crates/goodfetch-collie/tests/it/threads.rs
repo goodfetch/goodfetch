@@ -154,8 +154,8 @@ fn a_daemon_launched_or_in_the_foreground_has_the_workers_the_setting_says() {
     daemon.serving();
 
     let workers = (
-        threads_named(found.pid, WORKER),
-        threads_named(only_child(daemon.process.child().id()), WORKER),
+        workers_once(found.pid, 3),
+        workers_once(only_child(daemon.process.child().id()), 3),
     );
     daemon.terminate();
 

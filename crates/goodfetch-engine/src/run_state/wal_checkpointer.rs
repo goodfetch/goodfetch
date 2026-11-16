@@ -64,10 +64,12 @@ pub(super) fn note_wal_pages(
 /// left frames of the WAL uncopied, or the log not started again, because a
 /// reader or another checkpoint held it.
 fn blocked(connection: &Connection, mode: &str) -> rusqlite::Result<bool> {
-    connection.query_row(&format!("PRAGMA wal_checkpoint({mode})"), [], |row| {
-        let (busy, log, copied): (i64, i64, i64) = (row.get(0)?, row.get(1)?, row.get(2)?);
-        Ok(busy != 0 || copied < log)
-    })
+    connection
+        .prepare_cached(&format!("PRAGMA wal_checkpoint({mode})"))?
+        .query_row([], |row| {
+            let (busy, log, copied): (i64, i64, i64) = (row.get(0)?, row.get(1)?, row.get(2)?);
+            Ok(busy != 0 || copied < log)
+        })
 }
 
 /// The writer's side of its checkpointer: an actor of the writer's owner,

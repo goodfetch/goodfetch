@@ -94,6 +94,34 @@ disallowed-methods = [
   { path = "tokio::fs::File::open", reason = "open through CountedWork::open_file on a blocking owner (ADR 0140)", allow-invalid = true },
   { path = "tokio::fs::File::create", reason = "open through CountedWork::open_file on a blocking owner (ADR 0140)", allow-invalid = true },
   { path = "tokio::fs::create_dir_all", reason = "create through CountedWork::create_dir_all on a blocking owner (ADR 0140)", allow-invalid = true },
+  # Every other `tokio::fs` call runs on the runtime's own blocking threads,
+  # outside the owner's blocking policy, so a replay under `Inline` would
+  # depend on the host's load (issue 2106): use the `std::fs` call inside
+  # `TaskOwner::blocking`. The types are under `disallowed-types`.
+  { path = "tokio::fs::canonicalize", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::copy", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::create_dir", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::hard_link", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::metadata", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::read", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::read_dir", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::read_link", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::read_to_string", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::remove_dir", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::remove_dir_all", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::remove_file", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::rename", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::set_permissions", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::symlink", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::symlink_dir", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::symlink_file", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::symlink_metadata", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::try_exists", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::write", reason = "tokio::fs runs outside the blocking policy: call std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  # A statement is prepared once, through `prepare_cached` (ADR 0140): these
+  # prepare it again on each call.
+  { path = "rusqlite::Connection::execute", reason = "this prepares its statement on each call: use prepare_cached (ADR 0140)", allow-invalid = true },
+  { path = "rusqlite::Connection::query_row", reason = "this prepares its statement on each call: use prepare_cached (ADR 0140)", allow-invalid = true },
   # A validator build goes through one counted function (ADR 0140).
   { path = "jsonschema::validator_for", reason = "a validator build goes through its one counted function (ADR 0140)", allow-invalid = true },
   # Blocking calls in async crates go through the `tasks` module's blocking policy.
@@ -124,6 +152,13 @@ disallowed-types = [
   # `From::from`, which Clippy cannot single out, and naming the type catches
   # it. A signature names it `goodfetch_counted_work::ParsedHtml`.
   { path = "dom_query::Document", reason = "parse through CountedWork::parse_html and name the tree ParsedHtml (ADR 0140)", allow-invalid = true },
+  # A `tokio::fs` file or folder reads and writes on the runtime's own
+  # blocking threads, outside the owner's blocking policy (issue 2106).
+  { path = "tokio::fs::File", reason = "tokio::fs runs outside the blocking policy: use std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::OpenOptions", reason = "tokio::fs runs outside the blocking policy: use std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::DirBuilder", reason = "tokio::fs runs outside the blocking policy: use std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::ReadDir", reason = "tokio::fs runs outside the blocking policy: use std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
+  { path = "tokio::fs::DirEntry", reason = "tokio::fs runs outside the blocking policy: use std::fs inside TaskOwner::blocking (issue 2106)", allow-invalid = true },
   # Sockets are opened only in goodfetch-engine's transport module (ADR 0060).
   { path = "std::net::TcpListener", reason = "sockets are opened only in the transport module (ADR 0060)" },
   { path = "std::net::TcpStream", reason = "sockets are opened only in the transport module (ADR 0060)" },

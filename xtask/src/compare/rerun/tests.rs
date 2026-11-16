@@ -1,30 +1,10 @@
-use clap::Parser;
-
-use super::of;
-use crate::compare::RunArguments;
-
-/// `xtask compare run`'s arguments, as the recipe and its caller give them.
-#[derive(Parser)]
-struct Run {
-    #[command(flatten)]
-    arguments: RunArguments,
-}
+use super::{of, words};
+use crate::compare::recipe_arguments;
 
 /// The command that reruns a run started with `arguments` after the
 /// recipe's own.
 fn rerun_of(arguments: &[&str]) -> String {
-    let recipe = [
-        "xtask",
-        "--tools",
-        "target/compare/test-tools.json",
-        "--spider-builds",
-        "target/compare-spider",
-        "--spider-profile",
-        "release",
-    ];
-    let run = Run::try_parse_from(recipe.iter().chain(arguments))
-        .expect("invariant: the test's arguments parse");
-    of(&run.arguments)
+    of(&recipe_arguments(arguments))
 }
 
 /// A run given only the recipe's arguments reruns with the recipe alone.
@@ -60,5 +40,44 @@ fn the_rerun_command_gives_each_argument_again_quoted() {
         "just compare release --scenario raw --scenario browser --scenario collie --trials 3 \
          --growth --machine 'Hetzner Cloud CCX43, 16 dedicated vCPUs' --browser \
          '/opt/chrome'\\''s build' --collie-driver elsewhere/act.ts"
+    );
+}
+
+/// The rerun command reads back, word by word, as a shell reads it: a
+/// redo takes the run's own arguments from it (#2521).
+#[test]
+fn the_rerun_command_reads_back_as_the_words_it_gives() {
+    let given = [
+        "--scenario",
+        "browser",
+        "--spider-pages",
+        "500",
+        "--machine",
+        "Hetzner Cloud CCX43, 16 dedicated vCPUs",
+        "--foxhound-setting",
+        "governor.worker_threads = \"per_core\"",
+        "--browser",
+        "/opt/chrome's build",
+    ];
+
+    let read = words(&rerun_of(&given)).expect("the command reads back");
+
+    assert_eq!(
+        read,
+        ["just", "compare", "release"]
+            .iter()
+            .chain(&given)
+            .map(|word| (*word).to_owned())
+            .collect::<Vec<_>>()
+    );
+}
+
+/// A command whose quote never closes is no command [`of`] wrote.
+#[test]
+fn an_unclosed_quote_reads_as_no_command() {
+    let error = words("just compare release --machine 'Hetzner").expect_err("no command");
+    assert_eq!(
+        error.to_string(),
+        "the rerun command `just compare release --machine 'Hetzner` leaves a quote open"
     );
 }

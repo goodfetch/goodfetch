@@ -128,14 +128,18 @@ fn a_selector_a_browser_refuses_is_refused_on_both_tiers(
 ) {
     let refused = Err(SelectorInvalid(selector.to_owned()));
 
-    assert_eq!(check_selector(selector).is_ok(), accepted, "{selector}");
+    assert_eq!(
+        check_selector(selector, &no_counts()).is_ok(),
+        accepted,
+        "{selector}"
+    );
     assert_eq!(
         matched(&tree("<p><a href=x>x</a></p>"), selector, &no_counts()).is_ok(),
         accepted,
         "{selector}"
     );
     if !accepted {
-        assert_eq!(check_selector(selector), refused);
+        assert_eq!(check_selector(selector, &no_counts()), refused);
         assert_eq!(
             first_elements(
                 &tree("<p>x</p>"),

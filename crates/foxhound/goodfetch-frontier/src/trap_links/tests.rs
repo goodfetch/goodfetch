@@ -3,6 +3,11 @@
 //! the honeypot forms of the Proving ground's `traps` family and the links
 //! a person sees.
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use goodfetch_engine::egress::Policy;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
 use rstest::rstest;
@@ -259,7 +264,7 @@ fn marked_run_file() -> Connection {
     )
     .unwrap();
     assert!(matches!(added, Enqueued::Added { .. }), "{added:?}");
-    suspect(&connection, "1", Mark::Hidden).unwrap();
+    suspect(&connection, None, "1", Mark::Hidden).unwrap();
     connection
 }
 
@@ -301,7 +306,7 @@ fn a_link_a_person_sees_to_a_marked_request_clears_its_mark(
     let connection = marked_run_file();
     let base = Url::parse("https://shop.test/list").unwrap();
 
-    seen_again(&connection, &keyed(href, &base), false).unwrap();
+    seen_again(&connection, None, &keyed(href, &base), false).unwrap();
 
     assert_eq!(
         suspected(&connection, "1").unwrap(),
@@ -319,7 +324,7 @@ fn a_link_a_person_reveals_to_a_marked_request_lets_the_browser_follow_it() {
     let connection = marked_run_file();
     let base = Url::parse("https://shop.test/list").unwrap();
 
-    seen_again(&connection, &keyed("/p/1", &base), true).unwrap();
+    seen_again(&connection, None, &keyed("/p/1", &base), true).unwrap();
 
     assert_eq!(suspected(&connection, "1").unwrap(), Some(Mark::Revealable));
 }

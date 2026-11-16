@@ -57,6 +57,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
+use crate::clock::Clock;
 use crate::durable;
 use crate::home::Home;
 use crate::settings::Settings;
@@ -64,6 +65,9 @@ use crate::sqlite_store::{
     Access, Counting, Durability, File, Folder, OpenError, Opening, Schema, Synchronous, Wait,
 };
 use crate::tasks::{StateActor, TaskOwner};
+
+/// How often the log prunes, after its pass as the engine starts.
+const PRUNE_EVERY: Duration = Duration::from_hours(24);
 
 /// How long an append waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -230,11 +234,14 @@ struct Store {
 const WRITER: &str = "audit-log-writer";
 
 /// What the writer holds between its writes: its connection, opened by its
-/// first, and the tail its last commit left.
+/// first, the tail its last commit left, and whether it opened the store
+/// before, so an open after a failure counts as an entry's work, not the
+/// log's (ADR 0140's E2).
 #[derive(Debug, Default)]
 struct Held {
     connection: Option<Connection>,
     tail: Option<Tail>,
+    opened: bool,
 }
 
 /// Where the chain ends: the sequence the next entry takes, the hash a
@@ -320,10 +327,11 @@ impl AuditLog {
         self
     }
 
-    /// The same, each append first pruning what the `audit.retention` of
-    /// the snapshot `settings` keeps of the machine's settings prunes, as
-    /// the snapshot is then: no append reads a settings file (ADR 0140);
-    /// without it, nothing is ever pruned but through [`AuditLog::prune`].
+    /// The same, its passes started by [`AuditLog::start_pruning`] pruning
+    /// what the `audit.retention` of the snapshot `settings` keeps of the
+    /// machine's settings prunes, as the snapshot is at each pass: no pass
+    /// reads a settings file (ADR 0140); without it, nothing is ever pruned
+    /// but through [`AuditLog::prune`].
     #[must_use]
     pub fn retained_under(mut self, settings: Settings) -> Self {
         self.configured().retained_under = Some(settings);
@@ -344,14 +352,12 @@ impl AuditLog {
     /// holding `details`, from `origin`, recorded at `now`, chained to the
     /// last chained entry, or unchained when its Run is (see
     /// [`AuditLog::unchain`]), then writes the head file; answers the
-    /// entry. Under an `audit.retention`, it first prunes what it prunes at
-    /// `now`.
+    /// entry. It prunes nothing: [`AuditLog::start_pruning`] does (ADR 0140).
     ///
     /// # Errors
     ///
     /// When the store or the head file cannot be written, the store is of
-    /// another major, the `audit.retention` it is retained under cannot be
-    /// read, or its writer is not running.
+    /// another major, or its writer is not running.
     ///
     /// # Cancel safety
     ///
@@ -375,8 +381,7 @@ impl AuditLog {
     /// Appends `entries` in their order, in one transaction with one sync,
     /// each chained as [`AuditLog::record`] chains it unless it is
     /// `always_chained`, then writes the head file once after the last;
-    /// answers them. Under an `audit.retention`, it first prunes what it
-    /// prunes at `now`, once. A Run's switched-off controls are recorded so
+    /// answers them. A Run's switched-off controls are recorded so
     /// as it starts (#2110): together, rather than a commit, a sync and a
     /// connection's close each.
     ///
@@ -412,9 +417,42 @@ impl AuditLog {
         if entries.is_empty() {
             return Ok(Vec::new());
         }
-        let retention = self.store.retention().await;
-        self.write(move |store, held| store.commit_entries(held, entries, retention, now))
+        self.write(move |store, held| store.commit_entries(held, entries, now))
             .await
+    }
+
+    /// Starts its pruning, a task of `owner` until `owner` stops: a pass
+    /// now, as the engine starts, then one a day on `clock`, each pruning
+    /// what the `audit.retention` it is retained under sets then, at the
+    /// time `clock` reads (ADR 0140). No append prunes, so an entry past the
+    /// retention may stay up to a day longer. A pass that fails is logged,
+    /// and the next day's tries again.
+    pub fn start_pruning(&self, clock: Clock, owner: &TaskOwner) {
+        let log = self.clone();
+        let token = owner.token().clone();
+        owner.spawn(async move {
+            tokio::select! {
+                () = token.cancelled() => {}
+                () = log.prune_daily(clock) => {}
+            }
+        });
+    }
+
+    /// Prunes as `audit.retention` sets it now, then again each day, for
+    /// ever.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the log pruned.
+    async fn prune_daily(&self, clock: Clock) {
+        loop {
+            if let Some((retention, layer)) = self.store.retention().await
+                && let Err(error) = self.prune(retention, Some(layer), clock.timestamp()).await
+            {
+                tracing::warn!(%error, "the Audit log could not be pruned; it tries again in a day");
+            }
+            clock.sleep(PRUNE_EVERY).await;
+        }
     }
 
     /// Prunes the entries older than `retention` at `now`, which `layer`
@@ -454,7 +492,10 @@ impl AuditLog {
             .run(move |held| {
                 let written = work(&store, held);
                 if written.is_err() {
-                    *held = Held::default();
+                    *held = Held {
+                        opened: held.opened,
+                        ..Held::default()
+                    };
                 }
                 written
             })
@@ -491,22 +532,16 @@ impl Store {
     /// Appends each of `entries` in one transaction, on the writer's
     /// connection, chained after the tail it holds while the store's
     /// `data_version` says no other connection committed since, then writes
-    /// the head file after the last and sends each to the events. Under a
-    /// `retention`, with the layer that set it, it first prunes what it
-    /// prunes at `now`.
+    /// the head file after the last and sends each to the events.
     fn commit_entries(
         &self,
         held: &mut Held,
         entries: Vec<Appended>,
-        retention: Option<(Duration, SettingsLayer)>,
         now: Timestamp,
     ) -> Result<Vec<AuditEntry>, AuditError> {
-        if let Some((retention, layer)) = retention {
-            self.prune(held, retention, Some(layer), now)?;
-        }
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
         let cached = held.tail;
-        let connection = self.connection(&mut held.connection)?;
+        let connection = self.connection(&mut held.connection, &mut held.opened)?;
         let committed = self.immediate(connection, |transaction| {
             let mut tail = self.after_last(transaction, cached)?;
             let time = PointInTime::from_rfc3339(now.to_string());
@@ -566,7 +601,7 @@ impl Store {
         };
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
         let cached = held.tail;
-        let connection = self.connection(&mut held.connection)?;
+        let connection = self.connection(&mut held.connection, &mut held.opened)?;
         let committed = self.immediate(connection, |transaction| {
             let Some((through, last_pruned_hash)) = self.older_than(transaction, cutoff)? else {
                 return Ok(None);
@@ -657,22 +692,25 @@ impl Store {
         }
     }
 
-    /// The writer's connection, the store opened now if it is not yet.
+    /// The writer's connection, the store opened now if it is not yet:
+    /// once a log, or again after a failure, as `opened` says.
     fn connection<'held>(
         &self,
         held: &'held mut Option<Connection>,
+        opened: &mut bool,
     ) -> Result<&'held mut Connection, AuditError> {
-        match held {
-            Some(connection) => Ok(connection),
-            None => Ok(held.insert(self.open()?)),
-        }
+        let connection = match held.take() {
+            Some(connection) => connection,
+            None => self.open(!std::mem::replace(opened, true))?,
+        };
+        Ok(held.insert(connection))
     }
 
     /// The `audit.retention` the engine's snapshot of the machine's
     /// settings sets now, with the layer that set it; none when unset, when
     /// the log is retained under no settings, or when they cannot be read,
-    /// which says nothing of the entry being appended, so it is kept and
-    /// nothing is pruned on this pass.
+    /// which says nothing of the log's entries, so nothing is pruned on
+    /// this pass.
     async fn retention(&self) -> Option<(Duration, SettingsLayer)> {
         let machine = self.retained_under.as_ref()?.snapshot().await;
         let resolved = machine
@@ -836,7 +874,7 @@ impl Store {
             });
         }
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let connection = self.open()?;
+        let connection = self.open(false)?;
         let mut statement = connection
             .prepare("SELECT sequence, entry, hash FROM entries ORDER BY sequence")
             .map_err(|error| failed(&error))?;
@@ -854,11 +892,10 @@ impl Store {
             Some(head) if head.sequence < first => None,
             Some(head) if head.sequence <= last => {
                 let hash: Option<String> = connection
-                    .query_row(
-                        "SELECT hash FROM entries WHERE sequence = ?1",
-                        [stored(head.sequence)],
-                        |row| row.get(0),
-                    )
+                    .prepare_cached("SELECT hash FROM entries WHERE sequence = ?1")
+                    .and_then(|mut statement| {
+                        statement.query_row([stored(head.sequence)], |row| row.get(0))
+                    })
                     .optional()
                     .ok()
                     .flatten();
@@ -880,7 +917,7 @@ impl Store {
             return Ok(Vec::new());
         }
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let connection = self.open()?;
+        let connection = self.open(false)?;
         let mut statement = connection
             .prepare("SELECT sequence, entry, hash FROM entries ORDER BY sequence")
             .map_err(|error| failed(&error))?;
@@ -914,21 +951,28 @@ impl Store {
     /// and refuses one of another major. A new log's tables, and its WAL's
     /// header, commit unsynced: no entry is in them yet, and the commit of
     /// its first entry syncs them too (#2117). An existing log's commit
-    /// there writes nothing.
-    fn open(&self) -> Result<Connection, AuditError> {
-        self.work.count(Row::AuditOpens);
-        File::new(&self.path, self.vfs.as_deref())
+    /// there writes nothing. The writer's `first` open and its set-up's
+    /// commits count once a log; any other, the writer's again after a
+    /// failure or a reader's, counts on the entry's rows (ADR 0140's E2).
+    fn open(&self, first: bool) -> Result<Connection, AuditError> {
+        let (opens, set_up) = if first {
+            (Row::AuditLogOpens, Row::AuditLogTransactions)
+        } else {
+            (Row::AuditOpens, Row::AuditTransactions)
+        };
+        self.work.count(opens);
+        let connection = File::new(&self.path, self.vfs.as_deref())
             .open(&Opening {
                 folder: Folder::Make,
                 access: Access::Create,
                 wait: Wait::Busy(BUSY_TIMEOUT),
                 durability: DURABILITY,
-                // Beneath every caller, so a commit beside the append's
-                // counts too (ADR 0140).
+                // Beneath every caller, so the set-up's commits count too
+                // (ADR 0140), on the log's row or the entry's.
                 counting: Some(Counting {
                     work: &self.work,
                     opens: None,
-                    transactions: Row::AuditTransactions,
+                    transactions: set_up,
                     counts_switch: true,
                 }),
                 schema: Some(Schema {
@@ -942,7 +986,17 @@ impl Store {
                     compatibility: refusal.compatibility,
                 },
                 other => self.failed(&other),
-            })
+            })?;
+        // Every commit after the set-up is an entry's or a prune's.
+        Counting {
+            work: &self.work,
+            opens: None,
+            transactions: Row::AuditTransactions,
+            counts_switch: true,
+        }
+        .count_commits(&connection)
+        .map_err(|error| self.failed(&error))?;
+        Ok(connection)
     }
 
     /// Replaces the head file with `head`, through a file renamed over it,

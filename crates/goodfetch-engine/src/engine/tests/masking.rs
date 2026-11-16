@@ -31,7 +31,7 @@ use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Dependencies;
 use crate::log::LogEvents;
 use crate::run_trace::RequestLog;
-use crate::runs::{EndedBy, Start, Started};
+use crate::runs::{EndedBy, Start, Started, run_trace};
 
 /// The variable the Run's key-encryption key is read from.
 const KEY_VARIABLE: &str = "GF_TEST_RUN_KEY";
@@ -70,15 +70,10 @@ async fn reflect(params: Value, context: CallContext) -> Result<Value, CallError
     })
     .await
     .unwrap();
-    RequestLog::new(
-        run.owner().child(),
-        run.folder(),
-        run.secrets().mask().clone(),
-        run.metrics().counted_work().clone(),
-    )
-    .record(&PAGE_REQUEST_FAILED, &json!({ "url": text }))
-    .await
-    .unwrap();
+    RequestLog::new(run_trace(&run))
+        .record(&PAGE_REQUEST_FAILED, &json!({ "url": text }))
+        .await
+        .unwrap();
     Ok(json!({ "text": text }))
 }
 

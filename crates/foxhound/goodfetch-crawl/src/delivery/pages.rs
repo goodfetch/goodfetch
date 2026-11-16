@@ -18,7 +18,7 @@ use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::{JoinError, JoinSet};
 
-use super::attempt::{Attempt, Tiering, attempt};
+use super::attempt::{Attempt, Lessons, Tiering, attempt};
 use super::watch::Watch;
 use crate::code_free::CodeFree;
 use crate::lease::WorkItemLease;
@@ -55,6 +55,8 @@ struct Ended {
 pub(super) struct Pages {
     run: Run,
     in_flight: SharedInFlight,
+    /// Where its pages note what they teach the Frontier.
+    lessons: Lessons,
     tasks: JoinSet<()>,
     mailbox: mpsc::Sender<Box<Ended>>,
     ended: mpsc::Receiver<Box<Ended>>,
@@ -66,12 +68,13 @@ pub(super) struct Pages {
 
 impl Pages {
     /// No task yet, for `run`'s crawl, whose requests in flight
-    /// `in_flight` shows.
-    pub(super) fn new(run: &Run, in_flight: &SharedInFlight) -> Self {
+    /// `in_flight` shows and whose pages note their lessons in `lessons`.
+    pub(super) fn new(run: &Run, in_flight: &SharedInFlight, lessons: Lessons) -> Self {
         let (mailbox, ended) = mpsc::channel(MAILBOX);
         Self {
             run: run.clone(),
             in_flight: Arc::clone(in_flight),
+            lessons,
             tasks: JoinSet::new(),
             mailbox,
             ended,
@@ -98,7 +101,7 @@ impl Pages {
         }
         self.tasks.spawn(page(
             self.run.clone(),
-            Arc::clone(&self.in_flight),
+            (Arc::clone(&self.in_flight), self.lessons.clone()),
             self.mailbox.clone(),
             start,
         ));
@@ -156,12 +159,13 @@ impl Pages {
 }
 
 /// One page's task: runs `start`, holding its HTTP admission until it
-/// ends, unless its document's fetch gave it back first; tells the loop of
+/// ends, unless its document's fetch gave it back first, its page's lesson
+/// noted in `lessons`; tells the loop of
 /// its end through `mailbox`; and runs the attempt the answer carries, until
 /// the loop has none for it.
 async fn page(
     run: Run,
-    in_flight: SharedInFlight,
+    (in_flight, lessons): (SharedInFlight, Lessons),
     mailbox: mpsc::Sender<Box<Ended>>,
     mut start: Box<Start>,
 ) {
@@ -183,7 +187,7 @@ async fn page(
             leased,
             (lease, watch),
             fetching,
-            Arc::clone(&in_flight),
+            (Arc::clone(&in_flight), &lessons),
         ))
         .await;
         admission.give_back();

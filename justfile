@@ -1128,9 +1128,10 @@ rss-propose *scenarios:
 # `Scraper`'s crawl, built like Spider's side, its browser engine for
 # scenario 5) and OpenSpider at its release v1.0.0-rc.1's commit
 # (xtask/compare-openspider: its engine's spider crawl, built like
-# Spider's side; it has no per-domain pace, so scenario 3 says so, and
-# keeps at most 6 requests in flight on a host, so the 64 and 256 cells
-# say so), fastCRW 0.44.2 (xtask/compare-fastcrw: a driver of its
+# Spider's side; its crawl file holds nothing yet when a kill lands
+# halfway, so scenario 2 says so; it has no per-domain pace, so scenario 3
+# says so; and it keeps at most 6 requests in flight on a host, so the
+# 64 and 256 cells say so), fastCRW 0.44.2 (xtask/compare-fastcrw: a driver of its
 # server, `crw-server`, AGPL-3.0, installed from crates.io with the lock it
 # ships beside the driver and run, never linked, a crawl job of its HTTP
 # API polled until it ends; it keeps its jobs in memory, follows links on
@@ -1167,7 +1168,11 @@ rss-propose *scenarios:
 # target/compare/report.md and report.json, `local-controlled`, measured on
 # the machine `--machine "<name>"` names, with the command that reruns it;
 # otherwise it fails naming the trial. A host without strace or Valgrind
-# reports that cell as not run. The Collie scenario (issue 2282) runs Collie
+# reports that cell as not run. A pre-flight first runs each cell once under each
+# tool the run runs it under, and fails before the first timed trial at a
+# broken one; `just compare <profile> --redo [--cell <scenario>/<cell>]`
+# measures again, into the trials file, the cells it reads as not measured
+# or those named, then writes the report (issue 2521). The Collie scenario (issue 2282) runs Collie
 # over raw JSON-RPC, with its TypeScript SDK program arm beside it (issue
 # 2406), against Playwright, Guard on, and the arms, Puppeteer 25.17.0's locators
 # and page methods, Stagehand 4.4.0 with no model and agent-browser

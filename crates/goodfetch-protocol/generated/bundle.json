@@ -16886,7 +16886,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only."
+                    "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, the engine prunes the entries older than it as it starts and then once a day, so an entry may stay up to a day longer, from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only."
                   }
                 },
                 "type": "object"
@@ -17713,7 +17713,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only."
+                    "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, the engine prunes the entries older than it as it starts and then once a day, so an entry may stay up to a day longer, from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only."
                   }
                 },
                 "type": "object"
@@ -17732,6 +17732,10 @@
                       ]
                     },
                     "type": "array"
+                  },
+                  "cdp_command_log": {
+                    "description": "Whether the Run trace keeps its CDP command log, `trace/cdp-commands.jsonl`: one line for each command the engine sends a Session's browser, its method only, never its params, up to the launch's last `Browser.close`. Off by default: no command's method goes to the Run trace's writer and the file is never written. Turn it on to see every command the engine sent, such as to debug a Run. No result, Record or Provenance entry reads the log, so off weakens no guarantee.",
+                    "type": "boolean"
                   },
                   "headless": {
                     "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
@@ -20471,7 +20475,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only."
+                    "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, the engine prunes the entries older than it as it starts and then once a day, so an entry may stay up to a day longer, from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only."
                   }
                 },
                 "type": "object"
@@ -20490,6 +20494,10 @@
                       ]
                     },
                     "type": "array"
+                  },
+                  "cdp_command_log": {
+                    "description": "Whether the Run trace keeps its CDP command log, `trace/cdp-commands.jsonl`: one line for each command the engine sends a Session's browser, its method only, never its params, up to the launch's last `Browser.close`. Off by default: no command's method goes to the Run trace's writer and the file is never written. Turn it on to see every command the engine sent, such as to debug a Run. No result, Record or Provenance entry reads the log, so off weakens no guarantee.",
+                    "type": "boolean"
                   },
                   "headless": {
                     "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
@@ -23245,7 +23253,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, each append first prunes the entries older than it from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only."
+                    "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, the engine prunes the entries older than it as it starts and then once a day, so an entry may stay up to a day longer, from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only."
                   }
                 },
                 "type": "object"
@@ -23264,6 +23272,10 @@
                       ]
                     },
                     "type": "array"
+                  },
+                  "cdp_command_log": {
+                    "description": "Whether the Run trace keeps its CDP command log, `trace/cdp-commands.jsonl`: one line for each command the engine sends a Session's browser, its method only, never its params, up to the launch's last `Browser.close`. Off by default: no command's method goes to the Run trace's writer and the file is never written. Turn it on to see every command the engine sent, such as to debug a Run. No result, Record or Provenance entry reads the log, so off weakens no guarantee.",
+                    "type": "boolean"
                   },
                   "headless": {
                     "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",

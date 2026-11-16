@@ -1,7 +1,8 @@
 //! The Clean-up rules the interception matches at step 4 (ADRs 0047, 0057
 //! and 0117): the Filter lists of the version the page's Run holds to,
-//! loaded on the first page whose Session turns one on, never at engine
-//! start, through a blocking task of the page's Run (ADR 0060), then shared
+//! loaded as a Run whose own settings turn one on starts, else on the
+//! first page whose Session turns one on, never at engine start, through
+//! blocking tasks of the page's Run (ADR 0060), then shared
 //! by every Session of the Runs that hold to that version behind one `Arc`
 //! with no lock; the never-block list, compiled once; and what a Session's
 //! own settings, over its Run's, choose of them.
@@ -55,10 +56,18 @@ impl ConsentHandling {
 }
 
 /// The engine's Clean-up rules, each part loaded when first needed.
-#[derive(Default)]
 pub(super) struct CleanUp {
     never_block: OnceCell<Arc<NeverBlock>>,
     versions: Arc<Versions>,
+}
+
+impl Default for CleanUp {
+    fn default() -> Self {
+        Self {
+            never_block: OnceCell::new(),
+            versions: Versions::new(run_needs_lists),
+        }
+    }
 }
 
 impl CleanUp {
@@ -92,6 +101,16 @@ impl CleanUp {
             version,
         )
     }
+}
+
+/// Whether `run`'s own settings turn a Filter list on, so that its pages
+/// match the lists unless their Session turns every one off.
+pub(crate) fn run_needs_lists(run: &Run) -> bool {
+    choices(
+        run.settings().map(RunSettings::resolved),
+        &Values::default(),
+    )
+    .needs_lists()
 }
 
 /// The settings a Session's own `settings` may set, which its pages take

@@ -54,9 +54,10 @@ use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReaso
 use rusqlite::Connection;
 use url::Url;
 
-use crate::bounds::{SoFar, count_admitted, count_refused};
+use crate::bounds::{Bounds, SoFar, count_admitted, count_refused, keep_counts};
 use crate::identity::{
-    Declared, Fixed, Key, Seen, fixed_only, keyed as keyed_url, seen, under_rules, visit_all,
+    Declared, Fixed, Key, Seen, fixed_only, keep_learned, keyed as keyed_url, seen, under_rules,
+    visit_all,
 };
 use crate::invariants::Invariants;
 use crate::rules;
@@ -241,6 +242,13 @@ impl Keyed {
             .as_ref()
             .ok()
             .map(|measured| (&measured.key, &measured.fixed))
+    }
+
+    /// The identity its fixed rules make, when it was keyed: the one its
+    /// admission looks up in the visited set first.
+    #[must_use]
+    pub fn plain(&self) -> Option<&str> {
+        self.identity().map(|(_, fixed)| fixed.plain())
     }
 }
 
@@ -453,14 +461,15 @@ fn admit_measured(
         return Ok(not_added(admitting, answered, reason, None));
     }
     let bounds = invariants.bounds();
+    // Held from the keying through the visit, so no reader's chain takes
+    // the identity between them (#2168).
+    let mut holding = invariants.unwritten().map(UnwrittenVisits::lock);
+    keep_rules(connection, bounds, admitting, holding.as_mut())?;
     let identities = if bounds.learning {
-        under_rules(connection, key, fixed)?
+        under_rules(connection, key, fixed, holding.as_ref())?
     } else {
         fixed_only(fixed)
     };
-    // Held from the duplicate check through the visit, so no reader's
-    // chain takes the identity between them (#2168).
-    let mut holding = invariants.unwritten().map(UnwrittenVisits::lock);
     match seen(
         connection,
         &identities,
@@ -484,7 +493,8 @@ fn admit_measured(
             return Ok(not_added(admitting, answered, reason, Some(&crawl_request)));
         }
     }
-    if let Some((reason, rule)) = rules::refuses(connection, key.url(), bounds.learning)? {
+    let held = holding.as_ref().and_then(Holding::rules);
+    if let Some((reason, rule)) = rules::refuses(connection, key.url(), bounds.learning, held)? {
         rules::merged(connection, rule, url.as_str(), None)?;
         admitting.leaves();
         return Ok(not_added(admitting, answered, reason, None));
@@ -495,6 +505,7 @@ fn admit_measured(
         connection,
         holding: holding.as_mut(),
         admitting,
+        learning: bounds.learning,
     };
     if let Some(reason) = bounds.past(depth, budget, &mut so_far)?.or(*shape) {
         count_refused(connection, reason, budget)?;
@@ -517,11 +528,10 @@ fn admit_measured(
         budget.map(|budget| budget.pattern.as_str()),
     );
     if bounds.learning {
-        rules::admitted(
+        invariants.admission_evidence(
             connection,
-            key.url(),
-            entering.from.map(keyed_url).as_ref(),
-            invariants.work(),
+            (key.url(), entering.from.map(keyed_url)),
+            admitting.writes(),
         )?;
     }
     if asked.is_none() {
@@ -531,6 +541,54 @@ fn admit_measured(
         id,
         url: url.as_str().to_owned(),
     })
+}
+
+/// Has the Frontier's memory, when the Run holds the batches' visits, read
+/// the learned rules and identities and the Bounds' counts, when one
+/// bounds the requests, from the file on `connection`, the writer's, as
+/// the crawl opens, so no admission's lookup of them reads the file while
+/// memory holds them (#2169). A Run that does not learn reads the rules
+/// too: a link seen again keys its request under them, and none changes.
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub(crate) fn keep_memory(
+    connection: &Connection,
+    invariants: &Invariants,
+) -> rusqlite::Result<()> {
+    let Some(unwritten) = invariants.unwritten() else {
+        return Ok(());
+    };
+    let bounds = invariants.bounds();
+    let mut holding = unwritten.opening();
+    let hosts = rules::keep_held(connection, &mut holding)?;
+    keep_learned(connection, &mut holding, &hosts)?;
+    keep_counts(connection, bounds, &mut holding)
+}
+
+/// Brings the learned rules memory holds, `holding` under its lock, and
+/// the learned identities, up to those the writer's connection
+/// `connection` holds, for an admission that writes in a Run that learns,
+/// so it keys a URL, asks whether a rule refuses it and whether its
+/// learned identity is a visited one's from memory (#2169).
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+fn keep_rules(
+    connection: &Connection,
+    bounds: &Bounds,
+    admitting: &Admitting,
+    holding: Option<&mut Holding<'_>>,
+) -> rusqlite::Result<()> {
+    match holding {
+        Some(holding) if bounds.learning && admitting.writes() => {
+            let hosts = rules::keep_held(connection, holding)?;
+            keep_learned(connection, holding, &hosts)
+        }
+        _ => Ok(()),
+    }
 }
 
 /// Widens the scope of the run file `connection` holds by the seed

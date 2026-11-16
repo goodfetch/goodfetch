@@ -1,7 +1,10 @@
-//! The CDP command log the Run trace keeps (spec #577): one JSON line per
-//! command the engine sends a browser, its method only, never its params,
-//! in `trace/cdp-commands.jsonl` of the Run's folder. A blocking actor of
-//! the Run's owner appends the lines, a group at a time.
+//! The CDP command log the Run trace keeps (spec #577) while the Run's
+//! `browser.cdp_command_log` is on: one JSON line per command the engine
+//! sends a browser, its method only, never its params, in
+//! `trace/cdp-commands.jsonl` of the Run's folder, written by the Run
+//! trace's one writer (the engine's `run_trace`, ADR 0140's E5). Each
+//! browser's connection records its commands there, the one place every
+//! command crosses, its last `Browser.close` included.
 //!
 //! Beside it, the Provenance log of the Run (ADR 0047), which the engine's
 //! `run_trace` writes masked by the Run's `Mask`: one JSON
@@ -12,17 +15,14 @@
 //! a fetch tier did, such as a hedge it sent or a response two requests
 //! shared (ADR 0040).
 
-use std::fs::OpenOptions;
-use std::io::{self, Write as _};
-use std::path::{Path, PathBuf};
+use std::io;
+use std::pin::Pin;
 
-use goodfetch_counted_work::{CountedWork, Row};
-use goodfetch_engine::runs::Run;
-use goodfetch_engine::tasks::TaskOwner;
-use tokio::sync::mpsc;
-
-/// The log's file in the Run's folder.
-pub(crate) const FILE: &str = goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
+use goodfetch_counted_work::Row;
+use goodfetch_engine::run_trace::RunTrace;
+use goodfetch_engine::runs::{Run, run_trace};
+use goodfetch_engine::settings::{RunSettings, get_or_default};
+use goodfetch_protocol::page::BROWSER_CDP_COMMAND_LOG;
 
 /// Records `entry`, one Provenance entry of `run`, such as of one of its
 /// pages or of a request a fetch tier sent for it, as a line of
@@ -50,80 +50,35 @@ pub(crate) async fn counted_provenance(run: &Run, row: Row, entry: serde_json::V
     provenance(run, entry).await;
 }
 
-/// How many methods wait for the writer before a sender waits.
-const QUEUE: usize = 1024;
+/// The Run trace's CDP command log, as a browser's connection records each
+/// command's method in it.
+#[derive(Debug)]
+struct CommandLog(RunTrace);
 
-/// A handle that records a command's method.
-#[derive(Clone, Debug)]
-pub(crate) struct CommandLog {
-    methods: mpsc::Sender<&'static str>,
-    /// Where each send to its writer is counted (ADR 0140's C1).
-    work: CountedWork,
-}
-
-impl CommandLog {
-    /// The log of the Run whose folder is `run_folder`, written by an actor
-    /// of `owner`, which waits for it once every handle is gone, counting
-    /// what it does on `work`.
-    pub(crate) fn start(
-        owner: &TaskOwner,
-        run_folder: &Path,
-        work: CountedWork,
-    ) -> io::Result<Self> {
-        let (methods, mailbox) = mpsc::channel(QUEUE);
-        let file: PathBuf = run_folder.join(FILE);
-        let writer_work = work.clone();
-        owner.actor("cdp command log", mailbox, move |methods: Vec<&'static str>| {
-            if let Err(error) = append(&file, &methods, &writer_work) {
-                tracing::warn!(%error, file = %file.display(), "the CDP command log cannot be written");
-            }
-        })?;
-        Ok(Self { methods, work })
-    }
-
-    /// A log that writes nothing, for a test's browser that no Run holds.
-    #[cfg(test)]
-    pub(crate) fn unwritten() -> Self {
-        let (methods, _) = mpsc::channel(1);
-        Self {
-            methods,
-            work: CountedWork::default(),
-        }
-    }
-
-    /// The Counted work of the Run whose commands it records.
-    pub(crate) fn work(&self) -> &CountedWork {
-        &self.work
-    }
-
-    /// Records that `method` is being sent.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future may lose the line.
-    pub(crate) async fn record(&self, method: &'static str) {
-        self.work.count(Row::CdpLogSendsOff);
-        let _ = self.methods.send(method).await;
+impl goodfetch_cdp::CommandLogImpl for CommandLog {
+    fn record(&self, method: &'static str) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(self.0.cdp_command(method))
     }
 }
 
-/// Appends `methods`' lines to `file`, creating its folder, each opening
-/// counted on `C1.file_opens` through [`CountedWork`] (ADR 0140). It runs on
-/// the log's actor, on the tasks module's dedicated thread, never on an async
-/// worker.
-fn append(file: &Path, methods: &[&'static str], work: &CountedWork) -> io::Result<()> {
-    if let Some(folder) = file.parent() {
-        work.create_dir_all(Row::CdpFileOpens, folder)?;
+/// The CDP command log every browser connection of `run` records its
+/// commands in, the Run trace's writer started, when the Run's
+/// `browser.cdp_command_log` is on; none while it is off, so no command's
+/// method goes to the writer (ADR 0140's C1).
+///
+/// # Errors
+///
+/// When the writer cannot start.
+pub(crate) async fn command_log(run: &Run) -> io::Result<Option<goodfetch_cdp::CommandLog>> {
+    if !get_or_default::<bool>(
+        run.settings().map(RunSettings::resolved),
+        &BROWSER_CDP_COMMAND_LOG,
+    ) {
+        return Ok(None);
     }
-    let mut lines = Vec::new();
-    for method in methods {
-        serde_json::to_writer(&mut lines, &serde_json::json!({ "method": method }))?;
-        lines.push(b'\n');
-    }
-    work.open_file(
-        Row::CdpFileOpens,
-        OpenOptions::new().create(true).append(true),
-        file,
-    )?
-    .write_all(&lines)
+    let trace = run_trace(run);
+    trace.start().await?;
+    Ok(Some(goodfetch_cdp::CommandLog::new(CommandLog(
+        trace.clone(),
+    ))))
 }

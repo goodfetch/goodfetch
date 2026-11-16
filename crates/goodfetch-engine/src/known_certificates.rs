@@ -670,22 +670,21 @@ impl StoreFile for CertificatesFile {
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
         let connection = self.connect(Access::ReadOnly)?;
         let tables: i64 = connection
-            .query_row(
-                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('format', 'pins', 'changes')",
-                [],
-                |row| row.get(0),
+            .prepare_cached(
+                "SELECT count(*) FROM sqlite_master \
+                 WHERE type = 'table' AND name IN ('format', 'pins', 'changes')",
             )
+            .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
             .map_err(|error| failed(&error))?;
         if tables < 3 {
             drop(connection);
             return self.open();
         }
         let found: String = connection
-            .query_row(
-                "SELECT version FROM format WHERE name = ?1",
-                [KNOWN_CERTIFICATES.name],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT version FROM format WHERE name = ?1")
+            .and_then(|mut statement| {
+                statement.query_row([KNOWN_CERTIFICATES.name], |row| row.get(0))
+            })
             .map_err(|error| failed(&error))?;
         sqlite_store::check_format(&KNOWN_CERTIFICATES, &found).map_err(refused)?;
         Ok(connection)

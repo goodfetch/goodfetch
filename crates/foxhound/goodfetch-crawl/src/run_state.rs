@@ -7,8 +7,10 @@
 //!
 //! A lease waits for no write (#2168): each work item's row is the one
 //! the crawl kept of a change the run file's readers may not see yet, a
-//! retry or a work item an attempt added, else one read on a reader; the
-//! draw runs here, in memory, on it; and its claim is a writer's job the
+//! retry or a work item an attempt added, else one read on a reader, or,
+//! at a level that batches attempts, from every pending work item held
+//! whole while they fit within the Run's memory budget, which reads
+//! nothing (#2169; [`kept`]); the draw runs here, in memory, on it; and its claim is a writer's job the
 //! loop queues and does not wait for, which leases only a work item still
 //! as its row was read, and before which no later job runs. The crawl
 //! keeps each work item it leased out of the pending ones it reads until
@@ -58,14 +60,17 @@ use crate::labels;
 use crate::tier_choice::{AttemptPlan, Sampled, TierChoices, Unit, Weighed};
 use crate::tier_race::Latencies;
 use crate::work_items::{Changed, Leased};
+use kept::{Kept, Leasing};
 
 pub(crate) mod admission;
 mod asks;
+mod kept;
 mod stored;
 mod tally;
+pub(crate) mod teacher;
 
 pub(crate) use asks::{Asked, Asking, Escalated, Question, mailbox};
-pub(crate) use stored::{QueuedEnd, Stored, Unkeyed, Within};
+pub(crate) use stored::{Opening, QueuedEnd, Ran, Stored, Unkeyed, Within};
 pub(crate) use tally::Tally;
 
 /// Why the crawl's Run state did not take an operation.
@@ -286,7 +291,10 @@ pub(crate) struct RunState {
     /// waits for the loop.
     tally: Arc<Tally>,
     stored: Stored,
-    unwritten: Unwritten,
+    /// Its pending work items as the run file's readers may not see them
+    /// yet, and every one whole while they fit within the Run's memory
+    /// budget (#2169).
+    kept: Kept,
     /// The claims queued with the run-state writer whose answers the crawl
     /// has not heard yet: no page waits for one (#2168). Only `&mut self`
     /// reaches them, so their lock is never contended: it only lets a
@@ -298,88 +306,15 @@ pub(crate) struct RunState {
 /// lease.
 pub(crate) type Claim = Pin<Box<dyn Future<Output = Result<Vec<String>, ChargeError>> + Send>>;
 
-/// What the crawl knows of a work item that the run file's readers may not
-/// see yet: at a level that batches attempts, a write is answered once it
-/// is in the open batch (ADR 0142), and a claim is queued and not waited
-/// for at all (#2168).
-enum Known {
-    /// Its claim is queued and its attempt not settled: it is leased.
-    InFlight,
-    /// It ended, or a rule merged it, once `.0` commits were acknowledged.
-    Gone(u64),
-    /// It waits as `.0` says its next lease takes it, which a write
-    /// answered once `.1` commits were acknowledged: a retry, or a work
-    /// item an attempt added.
-    Pending(Box<Leased>, u64),
-}
-
-/// The work items whose latest change the run file's readers may not see
-/// yet, each as [`Known`] says. A change answered once `committed` commits
-/// were acknowledged is in a batch that commits after them, so a read that
-/// starts once more have been acknowledged sees it.
-#[derive(Default)]
-struct Unwritten(HashMap<String, Known>);
-
-impl Unwritten {
-    /// Forgets each change a read that starts once `committed` commits
-    /// were acknowledged sees: a claim stays until its attempt settles.
-    fn seen(&mut self, committed: u64) {
-        self.0.retain(|_, known| match known {
-            Known::InFlight => true,
-            Known::Gone(answered) | Known::Pending(_, answered) => *answered >= committed,
-        });
-    }
-
-    /// Forgets every change but the claims: the open batch is in the file.
-    fn sealed(&mut self) {
-        self.0.retain(|_, known| matches!(known, Known::InFlight));
-    }
-
-    /// Whether a read may still find `id` pending though it is not.
-    fn holds(&self, id: &str) -> bool {
-        matches!(self.0.get(id), Some(Known::InFlight | Known::Gone(_)))
-    }
-
-    /// How many work items a read may still find pending though they are
-    /// not.
-    fn held(&self) -> usize {
-        self.0
-            .values()
-            .filter(|known| matches!(known, Known::InFlight | Known::Gone(_)))
-            .count()
-    }
-
-    /// Each work item pending of `key`, or of every key when `None`, that
-    /// a read may not find so.
-    fn pending<'a>(&'a self, key: Option<&'a str>) -> impl Iterator<Item = &'a Waiting> {
-        self.0.values().filter_map(move |known| match known {
-            Known::Pending(leased, _) if key.is_none_or(|key| leased.waiting.key == key) => {
-                Some(&leased.waiting)
-            }
-            _ => None,
-        })
-    }
-
-    /// Keeps `id` gone once `committed` commits were acknowledged, unless
-    /// its attempt is in flight, whose settling says how it ended.
-    fn gone(&mut self, id: String, committed: u64) {
-        match self.0.get(&id) {
-            Some(Known::InFlight) => {}
-            _ => {
-                self.0.insert(id, Known::Gone(committed));
-            }
-        }
-    }
-}
-
 impl RunState {
     /// The state of a crawl that draws from `pool`, learned `choices` and
     /// counts its requests on from `tally`, what is still the run file's
-    /// read and written through `stored`.
+    /// read and written through `stored`, holding its pending work items
+    /// `whole` when they fit within the Run's memory budget.
     pub(crate) fn new(
         pool: SessionPool,
         choices: TierChoices,
-        tally: Tally,
+        (tally, whole): Opening,
         stored: Stored,
     ) -> Self {
         Self {
@@ -388,7 +323,7 @@ impl RunState {
             latencies: Latencies::default(),
             tally: Arc::new(tally),
             stored,
-            unwritten: Unwritten::default(),
+            kept: Kept::new(whole),
             claims: tokio::sync::Mutex::new(FuturesUnordered::new()),
         }
     }
@@ -403,7 +338,8 @@ impl RunState {
     /// them, as the crawl knows them, with no seal (ADR 0142): the run
     /// file's, less each the crawl leased, ended or saw merged in a change
     /// the read does not see yet, with each it knows pending in such a
-    /// change, a retry or a work item an attempt added.
+    /// change, a retry or a work item an attempt added. While the crawl
+    /// holds every pending work item whole, it reads nothing (#2169).
     ///
     /// # Errors
     ///
@@ -413,14 +349,19 @@ impl RunState {
         key: Option<String>,
         bound: usize,
     ) -> Result<Vec<Waiting>, StateError> {
-        self.unwritten.seen(self.stored.commits());
+        self.kept.seen(self.stored.commits());
         // Those it leaves out could take a key's whole bound: it reads
         // past them.
-        let read = bound.saturating_add(self.unwritten.held());
-        let mut waiting = self.stored.waiting(key.clone(), read).await?;
-        waiting.retain(|waiting| !self.unwritten.holds(&waiting.id));
+        let read = bound.saturating_add(self.kept.held());
+        let mut waiting = if let Some(whole) = self.kept.whole(|| self.stored.frontier_bytes()) {
+            whole.waiting(key.as_deref(), read)
+        } else {
+            self.stored.lease_read();
+            self.stored.waiting(key.clone(), read).await?
+        };
+        waiting.retain(|waiting| !self.kept.holds(&waiting.id));
         let mut known: HashSet<String> = waiting.iter().map(|waiting| waiting.id.clone()).collect();
-        for pending in self.unwritten.pending(key.as_deref()) {
+        for pending in self.kept.pending(key.as_deref()) {
             if known.insert(pending.id.clone()) {
                 waiting.push(pending.clone());
             }
@@ -437,17 +378,18 @@ impl RunState {
     ///
     /// The run file's.
     pub(crate) async fn any_pending(&mut self) -> Result<bool, StateError> {
-        self.unwritten.seen(self.stored.commits());
-        if self.unwritten.pending(None).next().is_some() {
+        self.kept.seen(self.stored.commits());
+        if self.kept.pending(None).next().is_some() {
             return Ok(true);
         }
-        let read = self.unwritten.held().saturating_add(1);
-        Ok(self
-            .stored
-            .pending(read)
-            .await?
-            .iter()
-            .any(|id| !self.unwritten.holds(id)))
+        let read = self.kept.held().saturating_add(1);
+        let pending = if let Some(whole) = self.kept.whole(|| self.stored.frontier_bytes()) {
+            whole.pending(read)
+        } else {
+            self.stored.lease_read();
+            self.stored.pending(read).await?
+        };
+        Ok(pending.iter().any(|id| !self.kept.holds(id)))
     }
 
     /// Writes the open batch and answers once it is in the file, so a read
@@ -459,50 +401,46 @@ impl RunState {
     /// The run file's.
     pub(crate) async fn seal(&mut self) -> Result<(), StateError> {
         self.stored.seal().await?;
-        self.unwritten.sealed();
+        self.kept.sealed();
         self.heard()
     }
 
+    /// Lets the crawl's pending work items go from memory for good: some
+    /// may be pending that it did not hear of, as a work item keyed once
+    /// the crawl is idle. Its reads find them in the run file from then
+    /// on (#2169).
+    pub(crate) fn spill(&mut self) -> &mut Self {
+        self.kept.spill();
+        self
+    }
+
     /// Keeps each of `ids` out of [`waiting`](Self::waiting) until a read
-    /// sees the change a job the writer answered just now made to it: it
-    /// ended, or a rule merged it (ADR 0142). One whose attempt is in
-    /// flight stays leased until it settles.
-    pub(crate) fn gone(&mut self, ids: impl IntoIterator<Item = String>) {
-        let committed = self.stored.commits();
-        for id in ids {
-            self.unwritten.gone(id, committed);
+    /// sees the change a job of the writer made to it: it ended, or a rule
+    /// merged it (ADR 0142), in the commit after those the writer had
+    /// acknowledged when the job ran, given with it (#2679). One whose
+    /// attempt is in flight stays leased until it settles.
+    pub(crate) fn gone(&mut self, ids: impl IntoIterator<Item = (String, u64)>) {
+        for (id, committed) in ids {
+            self.kept.gone(id, committed);
         }
     }
 
     /// Takes how the attempt of `leased` settled, once its outcome's job
-    /// answered: its work item waits again for a retry, `retried`, as its
-    /// next lease takes it, or else it ended.
-    pub(crate) fn settled(&mut self, leased: Leased, retried: bool) {
-        let committed = self.stored.commits();
-        let id = leased.crawl_request.id.clone();
-        let known = if retried {
-            Known::Pending(Box::new(leased.next()), committed)
-        } else {
-            Known::Gone(committed)
-        };
-        self.unwritten.0.insert(id, known);
+    /// answered, which ran once `committed` commits were acknowledged: its
+    /// work item waits again for a retry, `retried`, as its next lease
+    /// takes it, or else it ended.
+    pub(crate) fn settled(&mut self, leased: Leased, retried: bool, committed: u64) {
+        self.kept.settled(leased, retried, committed);
     }
 
-    /// Takes `added`, the work items a job the writer answered just now
-    /// added, keyed, as each one's first lease takes it, and answers how
-    /// each waits for its domain's queue, in order.
-    pub(crate) fn added(&mut self, added: Vec<Leased>) -> Vec<Waiting> {
-        let committed = self.stored.commits();
+    /// Takes `added`, the work items a job of the writer that ran once
+    /// `committed` commits were acknowledged added or made pending again,
+    /// keyed, as each one's next lease takes it, and answers how each waits
+    /// for its domain's queue, in order.
+    pub(crate) fn added(&mut self, added: Vec<Leased>, committed: u64) -> Vec<Waiting> {
         added
             .into_iter()
-            .map(|leased| {
-                let waiting = leased.waiting.clone();
-                self.unwritten.0.insert(
-                    waiting.id.clone(),
-                    Known::Pending(Box::new(leased), committed),
-                );
-                waiting
-            })
+            .map(|leased| self.kept.added(leased, committed))
             .collect()
     }
 
@@ -512,10 +450,16 @@ impl RunState {
     /// with its lease lost.
     fn heard(&mut self) -> Result<(), StateError> {
         let claims = self.claims.get_mut();
+        let mut lost = false;
         while let Some(Some(answered)) = claims.next().now_or_never() {
             for id in answered? {
                 tracing::debug!(work_item = %id, "a claim found its work item no longer as it was read");
+                lost = true;
             }
+        }
+        if lost {
+            // Memory no longer knows how that work item stands.
+            self.kept.spill();
         }
         Ok(())
     }
@@ -559,7 +503,11 @@ impl RunState {
         };
         let (added, changed) = self.stored.answer(ask).await?;
         self.changed(changed);
-        Some(self.added(added))
+        // The ask was answered just now: its job ran before at most the
+        // commits acknowledged now, and a later stamp only keeps it a
+        // commit longer.
+        let committed = self.stored.commits();
+        Some(self.added(added, committed))
     }
 
     /// Draws the Session whose client is its browser that an attempt which
@@ -641,23 +589,24 @@ impl RunState {
         asked: Vec<(String, String)>,
     ) -> Result<Vec<Leased>, StateError> {
         self.heard()?;
-        self.unwritten.seen(self.stored.commits());
+        self.kept.seen(self.stored.commits());
         let mut kept = HashMap::new();
         let mut unread = Vec::new();
         for (id, _) in &asked {
-            match self.unwritten.0.remove(id) {
-                Some(Known::Pending(leased, _)) => {
+            match self.kept.leasing(id) {
+                Leasing::Kept(leased) => {
                     kept.insert(id.clone(), *leased);
                 }
-                Some(known) => {
-                    self.unwritten.0.insert(id.clone(), known);
-                }
-                None => unread.push(id.clone()),
+                Leasing::Unleasable => {}
+                Leasing::Unknown => unread.push(id.clone()),
             }
         }
         let mut read: HashMap<String, Leased> = if unread.is_empty() {
             HashMap::new()
+        } else if let Some(whole) = self.kept.whole(|| self.stored.frontier_bytes()) {
+            whole.leasable(&unread)
         } else {
+            self.stored.lease_read();
             self.stored
                 .leasable(unread)
                 .await?
@@ -700,9 +649,7 @@ impl RunState {
     pub(crate) fn claiming(&mut self, claim: Claim, leased: &[Leased]) {
         self.claims.get_mut().push(claim);
         for leased in leased {
-            self.unwritten
-                .0
-                .insert(leased.crawl_request.id.clone(), Known::InFlight);
+            self.kept.claimed(leased.crawl_request.id.clone());
         }
     }
 

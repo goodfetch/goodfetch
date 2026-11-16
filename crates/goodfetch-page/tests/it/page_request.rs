@@ -6,13 +6,19 @@
 use goodfetch_engine::lease::LeaseEnded;
 use goodfetch_recording_gate::RecordingGate;
 use goodfetch_test_support::ProvingGround;
-use serde_json::{Map, json};
+use serde_json::{Map, Value, json};
 
 use crate::handler_page::{Program, settled_or, with_handler_page, with_handler_page_of};
 
 /// The incidents family's host whose second page answers only after 8
 /// seconds.
 const SLOW: &str = "6.incidents.test";
+
+/// The settings of a Run whose targets a test counts by the Run trace's
+/// command log, which they turn on.
+fn commands_logged() -> Map<String, Value> {
+    Map::from_iter([("browser".to_owned(), json!({ "cdp_command_log": true }))])
+}
 
 /// How many targets the engine closed so far, by the Run trace's command
 /// log.
@@ -41,7 +47,7 @@ fn opened_targets(program: &Program) -> usize {
 #[test]
 fn a_page_request_after_the_lease_ended_opens_no_page() {
     let gate = RecordingGate::new();
-    with_handler_page(&gate, Map::new(), async |program| {
+    with_handler_page(&gate, commands_logged(), async |program| {
         gate.end_lease(LeaseEnded::Lost);
         let before = opened_targets(program);
         let url = program.proving_ground.url(SLOW, "/catalog/1");
@@ -65,7 +71,7 @@ fn a_page_request_after_the_lease_ended_opens_no_page() {
 #[test]
 fn a_cancelled_page_request_closes_the_page_it_opened() {
     let gate = RecordingGate::new();
-    with_handler_page(&gate, Map::new(), async |program| {
+    with_handler_page(&gate, commands_logged(), async |program| {
         let before = closed_targets(program);
         let url = program.proving_ground.url(SLOW, "/catalog/2");
         let page = program.page.clone();

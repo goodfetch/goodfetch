@@ -20,15 +20,19 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
+use goodfetch_engine::run_state::WriteWatch;
 use goodfetch_page::url_pattern::{UnsupportedPattern, UrlPattern};
 use goodfetch_protocol::foxhound::crawl::SitemapRule;
 use goodfetch_protocol::foxhound::frontier::PathBudget;
 use rusqlite::{Connection, OptionalExtension as _};
 use url::{Position, Url};
 
+use crate::behind::{Behind, Lesson, Watches};
 use crate::bounds::Bounds;
+use crate::learn::EndMerged;
+use crate::rules;
 use crate::scope::Scope;
-use crate::unwritten::UnwrittenVisits;
+use crate::unwritten::{SharedBudget, UnwrittenVisits};
 
 /// What every admission of a Run measures a candidate against, built once.
 pub struct Invariants {
@@ -45,6 +49,9 @@ pub struct Invariants {
     /// The Run's counted work, which counts the evidence its admissions
     /// read and write (`F2.admission_evidence`), once the Run counts on it.
     work: OnceLock<CountedWork>,
+    /// Learning's evidence, noted until a batch's end teaches it, once the
+    /// Run learns behind (#2169).
+    behind: OnceLock<Arc<Behind>>,
 }
 
 impl fmt::Debug for Invariants {
@@ -78,6 +85,7 @@ impl Invariants {
             sitemap_rules: Mutex::new(HashMap::new()),
             unwritten: OnceLock::new(),
             work: OnceLock::new(),
+            behind: OnceLock::new(),
         })
     }
 
@@ -117,13 +125,13 @@ impl Invariants {
 
     /// Holds, from now on, the visits the Run's writer has not committed
     /// (#2168), against `committed`, how many commits it acknowledged, and
-    /// keeps those it wrote within `budget` bytes (#2169), measured on
-    /// `metrics`: a Run whose writer batches its writes holds them, so a
-    /// redirect hop is judged on a reader. Once is enough; a second call
-    /// changes nothing.
+    /// keeps those it wrote within `budget`, less what the Run state's
+    /// pending work items hold (#2169), measured on `metrics`: a Run whose
+    /// writer batches its writes holds them, so a redirect hop is judged on
+    /// a reader. Once is enough; a second call changes nothing.
     pub fn hold_unwritten(
         &self,
-        budget: u64,
+        budget: SharedBudget,
         committed: impl Fn() -> u64 + Send + Sync + 'static,
         metrics: &Metrics,
     ) -> &UnwrittenVisits {
@@ -142,6 +150,99 @@ impl Invariants {
     /// ([`Self::count_on`]).
     pub(crate) fn work(&self) -> Option<&CountedWork> {
         self.work.get()
+    }
+
+    /// Learns behind from now on (#2169): neither a page's lesson nor an
+    /// admission's evidence is taught on its page's path, but noted, and
+    /// taught by [`Self::teach_behind`] at the end of each batch the
+    /// Run's writer commits, which tells [`Self::watch`] of its jobs. Once
+    /// is enough; a second call changes nothing.
+    pub fn learn_behind(&self) {
+        let _behind = self.behind.get_or_init(Arc::default);
+    }
+
+    /// Notes `lesson`, a fetched page's, for the end of the writer's next
+    /// batch to teach, once the Run learns behind ([`Self::learn_behind`]).
+    pub fn note(&self, lesson: Lesson) {
+        if let Some(behind) = self.behind.get() {
+            behind.lesson(lesson);
+        } else {
+            tracing::warn!(
+                "a page's lesson was noted in a Run that does not learn behind, which teaches it nowhere"
+            );
+        }
+    }
+
+    /// Whether evidence noted behind waits for a batch's end to teach it.
+    #[must_use]
+    pub fn waiting(&self) -> bool {
+        self.behind.get().is_some_and(|behind| behind.waiting())
+    }
+
+    /// Teaches, in `connection`'s transaction, the writer's, at the end of
+    /// a batch, every piece of evidence noted behind, in the order noted,
+    /// handing `pending` the requests a rule it teaches merges; `work`
+    /// counts the rows of evidence it reads and writes. What it took is
+    /// no longer noted, whether it succeeds or not.
+    ///
+    /// # Errors
+    ///
+    /// When the run file cannot be read or written: the caller rolls back
+    /// what it taught.
+    pub fn teach_behind(
+        &self,
+        connection: &Connection,
+        pending: &mut dyn EndMerged,
+        work: &CountedWork,
+    ) -> rusqlite::Result<()> {
+        self.behind
+            .get()
+            .map_or(Ok(()), |behind| behind.teach(connection, pending, work))
+    }
+
+    /// The watch the run-state writer tells as each of its jobs begins and
+    /// when one fails: of the evidence noted behind, a failed job's taken
+    /// back, and of the visits the writer has not committed, once the Run
+    /// learns behind ([`Self::learn_behind`]) or holds them
+    /// ([`Self::hold_unwritten`]). None before either.
+    #[must_use]
+    pub fn watch(&self) -> Option<Arc<dyn WriteWatch>> {
+        let watches: Vec<Arc<dyn WriteWatch>> = self
+            .behind
+            .get()
+            .map(|behind| Arc::clone(behind) as Arc<dyn WriteWatch>)
+            .into_iter()
+            .chain(self.unwritten().map(UnwrittenVisits::watch))
+            .collect();
+        (!watches.is_empty()).then(|| Arc::new(Watches(watches)) as Arc<dyn WriteWatch>)
+    }
+
+    /// Learns what the admission of the URL whose key is `key`, a link of
+    /// the page whose key is `from`, teaches, on `connection`: noted for a
+    /// batch's end when the Run learns behind and the admission `writes`,
+    /// nothing when it does not, as its writes are rolled back; taught now
+    /// otherwise, counted as a lesson on a page's path
+    /// (`F2.page_learning`).
+    ///
+    /// # Errors
+    ///
+    /// When the run file cannot be read or written.
+    pub(crate) fn admission_evidence(
+        &self,
+        connection: &Connection,
+        (key, from): (&Url, Option<Url>),
+        writes: bool,
+    ) -> rusqlite::Result<()> {
+        if let Some(behind) = self.behind.get() {
+            if writes {
+                behind.admitted(key.clone(), from);
+            }
+            return Ok(());
+        }
+        if let Some(work) = self.work() {
+            work.count(Row::PageLearning);
+        }
+        rules::admitted(connection, key, from.as_ref(), self.work())
     }
 
     /// The visits the Run's writer has not committed, once the Run holds

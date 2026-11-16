@@ -4,7 +4,7 @@
 //! each request.
 #![expect(
     clippy::disallowed_methods,
-    reason = "tests draw from a seeded Entropy (ADR 0059)"
+    reason = "tests draw from a seeded Entropy (ADR 0059); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::net::IpAddr;

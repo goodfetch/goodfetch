@@ -411,7 +411,18 @@ impl Writer {
             declare: self.deferral.declaring(open.declare),
             clean,
         };
-        let committed = finish(connection, &self.path, marks);
+        let running = super::Running {
+            connection,
+            path: &self.path,
+            watch: self.signals.watch(),
+        };
+        let committed = match super::batch_end::end(running, self.signals.ending()) {
+            Some(error) => {
+                roll_back(connection);
+                Err(error)
+            }
+            None => finish(connection, &self.path, marks),
+        };
         let answer = match &committed {
             Ok(declared) => {
                 batching.rows.record(open.rows, &[]);

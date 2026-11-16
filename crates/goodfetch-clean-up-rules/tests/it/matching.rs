@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 use goodfetch_clean_up_rules::list::List;
 use goodfetch_clean_up_rules::matching::{Choices, Request, ResourceKind, Verdict, judge};
 use goodfetch_clean_up_rules::never_block::{self, NeverBlock};
-use goodfetch_clean_up_rules::rules::FilterLists;
+use goodfetch_clean_up_rules::rules::{EmbeddedList, FilterLists, LoadError};
 use rstest::rstest;
 
 static LISTS: LazyLock<FilterLists> =
@@ -82,6 +82,58 @@ fn a_filter_list_blocks_its_ads_trackers_and_annoyances(
     #[case] list: List,
 ) {
     assert_eq!(judged(url, kind, &defaults()), Verdict::Blocked(list));
+}
+
+/// Each embedded list loads on its own, so that the engine loads them side
+/// by side (#2688), and put together in any order they block what each
+/// blocks among the embedded lists.
+/// Covers: story:5-94
+#[test]
+fn lists_loaded_on_their_own_block_as_the_embedded_lists_do() {
+    let loaded = [List::Annoyances, List::Ads, List::Trackers]
+        .map(|list| EmbeddedList::load(list).expect("the embedded Filter list loads"));
+    let lists = FilterLists::of_embedded(loaded).expect("one of each list");
+
+    for (url, kind, list) in [
+        (
+            "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js",
+            ResourceKind::Script,
+            List::Ads,
+        ),
+        (
+            "https://www.google-analytics.com/collect?v=1",
+            ResourceKind::Ping,
+            List::Trackers,
+        ),
+        (
+            "https://static.addtoany.com/menu/page.js",
+            ResourceKind::Script,
+            List::Annoyances,
+        ),
+    ] {
+        let verdict = judge(
+            &request(url, kind),
+            &NeverBlock::new(),
+            Some(&lists),
+            &defaults(),
+        );
+        assert_eq!(verdict, Verdict::Blocked(list), "{url}");
+    }
+}
+
+/// Lists put together without one of each name the list that is missing.
+/// Covers: story:5-94
+#[test]
+fn lists_put_together_without_one_name_the_missing_list() {
+    let loaded = [List::Ads, List::Ads, List::Trackers]
+        .map(|list| EmbeddedList::load(list).expect("the embedded Filter list loads"));
+
+    let missing = FilterLists::of_embedded(loaded).err();
+
+    assert!(
+        matches!(missing, Some(LoadError::Missing { list: "annoyances" })),
+        "{missing:?}"
+    );
 }
 
 /// Covers: story:5-94

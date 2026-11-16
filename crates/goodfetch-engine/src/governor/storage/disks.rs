@@ -106,11 +106,27 @@ pub(crate) enum Disks {
 
 impl Disks {
     /// The filesystem holding `folder`, through its nearest folder that
-    /// exists. Blocking.
-    fn identify(&self, folder: &Path) -> Option<FilesystemId> {
+    /// exists, and where to read it: that folder for the OS, `folder` for
+    /// a chosen source. Blocking.
+    fn identify(&self, folder: &Path) -> Option<(FilesystemId, PathBuf)> {
         match self {
-            Self::Os => os_identify(&existing(folder)?),
-            Self::Chosen(source) => source.identify(folder).map(FilesystemId::Chosen),
+            Self::Os => {
+                let existing = existing(folder)?;
+                Some((os_identify(&existing)?, existing))
+            }
+            Self::Chosen(source) => Some((
+                FilesystemId::Chosen(source.identify(folder)?),
+                folder.to_owned(),
+            )),
+        }
+    }
+
+    /// What the filesystem [`Self::identify`] found reads now, read at
+    /// where it answered. Blocking.
+    fn read_identified(&self, at: &Path) -> Option<FilesystemReading> {
+        match self {
+            Self::Os => os_read(at),
+            Self::Chosen(source) => source.read(at),
         }
     }
 
@@ -131,27 +147,28 @@ impl Disks {
     }
 
     /// Samples each filesystem holding one of `folders` once, under
-    /// `settled`, as the sample `number`. Blocking.
+    /// `settled`, as the sample `number`, finding each folder's nearest
+    /// existing one once. Blocking.
     pub(crate) fn sample(
         &self,
         number: u64,
         folders: &[PathBuf],
         settled: &Settled,
     ) -> StorageSample {
-        let mut held: Vec<(FilesystemId, Vec<PathBuf>)> = Vec::new();
+        let mut held: Vec<(FilesystemId, PathBuf, Vec<PathBuf>)> = Vec::new();
         for folder in folders {
-            let Some(id) = self.identify(folder) else {
+            let Some((id, at)) = self.identify(folder) else {
                 continue;
             };
-            match held.iter_mut().find(|(known, _)| *known == id) {
-                Some((_, folders)) => folders.push(folder.clone()),
-                None => held.push((id, vec![folder.clone()])),
+            match held.iter_mut().find(|(known, _, _)| *known == id) {
+                Some((_, _, folders)) => folders.push(folder.clone()),
+                None => held.push((id, at, vec![folder.clone()])),
             }
         }
         let filesystems = held
             .into_iter()
-            .filter_map(|(_, folders)| {
-                let reading = self.read(&folders[0])?;
+            .filter_map(|(_, at, folders)| {
+                let reading = self.read_identified(&at)?;
                 Some(settled.filesystem(folders, &reading))
             })
             .collect();

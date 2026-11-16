@@ -446,7 +446,8 @@ impl Engine {
     /// Secret-provider driver, which records in the same Audit log: both
     /// over `dependencies`' home and clock, the driver over its environment
     /// map, its keychain and a fork of its entropy. Nothing here opens the
-    /// keychain: it opens on the first reference that needs it.
+    /// keychain: it opens on the first reference that needs it. The Audit
+    /// log starts pruning: now, then once a day (ADR 0140).
     fn engine_context(
         &self,
         dependencies: &mut Dependencies,
@@ -464,6 +465,7 @@ impl Engine {
             .retained_under(settings.clone())
             .sending_to(self.audit_events.clone()),
         );
+        audit.start_pruning(dependencies.clock, owner);
         let context = EngineContext::new(
             dependencies.home.clone(),
             dependencies.clock,
@@ -810,7 +812,8 @@ async fn private_endpoint(
             return None;
         }
     };
-    match network.listen(&files.socket()).await {
+    let socket = files.socket();
+    match owner.blocking(move || network.listen(&socket)).await {
         Ok((listener, address)) => {
             let endpoint = PrivateEndpoint {
                 address,

@@ -127,6 +127,21 @@ const FAILED: &str = "failed";
 const SKIPPED: &str = "skipped";
 const BLOCKED: &str = "blocked";
 
+/// Whether a work item is still leased to an attempt, which every end of an
+/// attempt checks first.
+const STILL_LEASED: &str =
+    "SELECT 1 FROM work_items WHERE id = ?1 AND status = 'leased' AND lease_epoch = ?2";
+
+/// A work item's end with no error code: a page's, a sitemap's read and a
+/// skip's.
+const ENDED: &str = "UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2";
+
+/// The statements a sitemap's read runs beside the Frontier's, which a
+/// page's end runs too: the Run prepares them as it starts or resumes, so
+/// that the sitemap read never prepares one, whether or not a page ended
+/// before it (ADR 0140, `F3.prepares.sitemap`).
+pub(crate) const SITEMAP_READ: [&str; 2] = [STILL_LEASED, ENDED];
+
 /// A work item leased to one attempt.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Leased {
@@ -369,7 +384,7 @@ pub(crate) fn read_sitemap(
         |url, adding| add(connection, &mut positions, url, from_sitemap(adding)),
     )?;
     connection
-        .prepare_cached("UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2")
+        .prepare_cached(ENDED)
         .and_then(|mut cached| cached.execute((SUCCEEDED, id)))?;
     changed.fetches_ended += 1;
     Ok(Some(changed.adds(&mut positions)))
@@ -537,10 +552,8 @@ pub(crate) fn admit_keyed(
     } = &enqueued
         && let Some(revealable) = reaching_again(suspected)
     {
-        positions.decide(|| Decided::SeenAgain {
-            keyed: Box::new(keyed.clone()),
-            revealable,
-        });
+        let frontier = invariants.shared_frontier();
+        positions.decide(|| Decided::SeenAgain(Box::new((frontier, keyed.clone(), revealable))));
     }
     Ok(enqueued)
 }
@@ -615,7 +628,7 @@ impl Coming<'_> {
         match &enqueued {
             Enqueued::Added { id, .. } => {
                 if let Some(mark) = suspected {
-                    trap_links::suspect(connection, id, mark)?;
+                    trap_links::suspect(connection, invariants.unwritten(), id, mark)?;
                 }
             }
             Enqueued::NotAdded {
@@ -623,7 +636,8 @@ impl Coming<'_> {
                 ..
             } => {
                 if let Some(revealable) = reaching_again(suspected) {
-                    trap_links::seen_again(connection, self.keyed, revealable)?;
+                    let unwritten = invariants.unwritten();
+                    trap_links::seen_again(connection, unwritten, self.keyed, revealable)?;
                 }
             }
             Enqueued::NotAdded { .. } => {}
@@ -670,7 +684,7 @@ pub(crate) enum Decided {
     Sitemap(Box<(Arc<goodfetch_frontier::Invariants>, Policy, SitemapSeed)>),
     /// A request the visited set holds that a link of the attempt's page
     /// reached again, seen as `revealable` says (ADR 0035).
-    SeenAgain { keyed: Box<Keyed>, revealable: bool },
+    SeenAgain(Box<(Arc<goodfetch_frontier::Invariants>, Keyed, bool)>),
 }
 
 /// A candidate an attempt's commit judges again, with all it adds it
@@ -740,8 +754,9 @@ impl Decided {
                 let (invariants, policy, seed) = &**seed;
                 admit_sitemap_seed(connection, positions, invariants, policy, seed).map(drop)
             }
-            Self::SeenAgain { keyed, revealable } => {
-                trap_links::seen_again(connection, keyed, *revealable)
+            Self::SeenAgain(seen) => {
+                let (invariants, keyed, revealable) = &**seen;
+                trap_links::seen_again(connection, invariants.unwritten(), keyed, *revealable)
             }
         }
     }
@@ -1219,9 +1234,7 @@ fn leased_rows(
 /// Whether the work item `id` is still leased under `lease_epoch`.
 fn still_leased(connection: &Connection, id: &str, lease_epoch: u64) -> rusqlite::Result<bool> {
     Ok(connection
-        .prepare_cached(
-            "SELECT 1 FROM work_items WHERE id = ?1 AND status = 'leased' AND lease_epoch = ?2",
-        )
+        .prepare_cached(STILL_LEASED)
         .and_then(|mut cached| cached.query_row((id, integer(lease_epoch)), |_| Ok(())))
         .optional()?
         .is_some())
@@ -1336,7 +1349,7 @@ pub(crate) fn commit(
         Vec::new()
     };
     connection
-        .prepare_cached("UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2")
+        .prepare_cached(ENDED)
         .and_then(|mut cached| cached.execute((SUCCEEDED, id)))?;
     let nothing_committed = if !keeps_records {
         Some(NothingCommitted::RecordsOff)
@@ -1488,7 +1501,7 @@ pub(crate) fn end_merged(
     let mut ended = Vec::new();
     for (id, (_, _, url, key, _)) in pending {
         connection
-            .prepare_cached("UPDATE work_items SET status = ?1, error_code = NULL WHERE id = ?2")
+            .prepare_cached(ENDED)
             .and_then(|mut cached| cached.execute((SKIPPED, &id)))?;
         write_outcome(
             connection,
@@ -1793,9 +1806,9 @@ pub(crate) fn ended_counts(
 
 /// Makes pending again each work item of `ids` that a rule the Frontier
 /// had learned ended `skipped` with `duplicate` before any fetch, once a
-/// contradicting pair stopped that rule (ADR 0005), and answers those it
-/// gave back, each with the domain key it waits under, if keyed: each one
-/// still `skipped` whose latest outcome is that ending. Each keeps its ID,
+/// contradicting pair stopped that rule (ADR 0005), and answers the IDs of
+/// those it gave back: each one still `skipped` whose latest outcome is
+/// that ending. Each keeps its ID,
 /// position and domain key, and its outcome leaves the ended requests'
 /// counts until it ends again, as a re-admitted one's does ([`readmit`]),
 /// which `changed` counts.
@@ -1803,15 +1816,15 @@ pub(crate) fn give_back(
     connection: &Connection,
     ids: &[String],
     changed: &mut Changed,
-) -> rusqlite::Result<Vec<(String, Option<String>)>> {
+) -> rusqlite::Result<Vec<String>> {
     let mut given = Vec::new();
     for id in ids {
         let skipped: Option<Option<String>> = connection
             .prepare_cached("SELECT domain_key FROM work_items WHERE id = ?1 AND status = ?2")
             .and_then(|mut cached| cached.query_row((id, SKIPPED), |row| row.get(0)).optional())?;
-        let Some(key) = skipped else {
+        if skipped.is_none() {
             continue;
-        };
+        }
         let Some(outcome) = latest_outcome(connection, id)? else {
             continue;
         };
@@ -1829,7 +1842,7 @@ pub(crate) fn give_back(
             .and_then(|mut cached| cached.execute((PENDING, id)))?;
         count(connection, &outcome.ending, -1)?;
         changed.reopened.push(counted_as(&outcome.ending));
-        given.push((id.clone(), key));
+        given.push(id.clone());
     }
     Ok(given)
 }

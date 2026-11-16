@@ -522,14 +522,14 @@ fn two_settings_writes_at_once_both_land_and_are_both_recorded() {
     );
 }
 
-/// `config.user_write` of `audit.retention` is seen by the next Audit log
-/// entry, its own: the engine's write refreshes its snapshot of the
-/// machine's settings before it records the write, so that entry prunes
-/// the one recorded two seconds before it (ADR 0140).
+/// `config.user_write` of `audit.retention` is seen by the Audit log's next
+/// daily pass: the engine's write refreshes its snapshot of the machine's
+/// settings, so that pass prunes the entries recorded before it, the
+/// write's own included (ADR 0140).
 ///
 /// Covers: operation:config.user_write, setting:audit.retention
 #[test]
-fn a_retention_written_by_the_engine_is_seen_by_the_next_audit_entry() {
+fn a_retention_written_by_the_engine_is_seen_by_the_next_daily_prune() {
     let env = TestEnv::new();
 
     attached_on(
@@ -550,6 +550,7 @@ fn a_retention_written_by_the_engine_is_seen_by_the_next_audit_entry() {
             user_write(&mut client, 1, "timeout.navigation", json!(45_000)).await;
             tokio::time::sleep(Duration::from_secs(2)).await;
             user_write(&mut client, 2, "audit.retention", json!(1_000)).await;
+            tokio::time::sleep(Duration::from_hours(24)).await;
         },
     );
 
@@ -558,11 +559,7 @@ fn a_retention_written_by_the_engine_is_seen_by_the_next_audit_entry() {
             .iter()
             .map(|entry| entry["kind"].as_str().unwrap().to_owned())
             .collect::<Vec<_>>(),
-        [
-            "audit_log_anchor",
-            "audit_log_pruned",
-            "user_configuration_written"
-        ]
+        ["audit_log_anchor", "audit_log_pruned"]
     );
 }
 

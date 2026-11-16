@@ -3,8 +3,9 @@
 //! opened as the engine opens it (its retention from the engine's snapshot
 //! of the machine's settings, read once, at its first entry), records [`ENTRIES`] entries of one Run, one second
 //! apart. Each outcome the path has is in it: an entry chained, an entry of
-//! a Run whose chain is off, and an append that prunes under an
-//! `audit.retention`. The store opens through a counting VFS when one is
+//! a Run whose chain is off, and an append under an `audit.retention`, which
+//! prunes nothing, the engine pruning as it starts and once a day (ADR
+//! 0140). The store opens through a counting VFS when one is
 //! named, which sees its syncs. The log's writer is an actor of an owner of
 //! the scenario's, on a runtime of one thread that blocks on each entry.
 
@@ -29,7 +30,7 @@ use tokio::runtime::Runtime;
 pub(crate) const ENTRIES: u64 = 20;
 
 /// How the scenario's Audit log runs: as an engine opens it, with its Run's
-/// chain off, or under an `audit.retention` that each append prunes by.
+/// chain off, or under an `audit.retention`, which no append prunes by.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Audit {
     Chained,
@@ -37,9 +38,9 @@ pub(crate) enum Audit {
     Retained,
 }
 
-/// One extra unit of a row's work, called after each entry with the log and
-/// the runtime its writer runs on.
-pub(crate) type Plant = Arc<dyn Fn(&AuditLog, &Runtime) + Send + Sync>;
+/// One extra unit of a row's work, called after each entry with the log,
+/// the runtime its writer runs on and the entry's index.
+pub(crate) type Plant = Arc<dyn Fn(&AuditLog, &Runtime, u64) + Send + Sync>;
 
 /// The Product version whose settings files the log reads.
 fn version() -> ProductVersion {
@@ -90,7 +91,8 @@ pub(crate) fn run(
         let file = files.user_configuration();
         std::fs::create_dir_all(file.parent().expect("invariant: a file in a folder"))
             .expect("invariant: a temporary folder takes a folder");
-        // Each append prunes the entry recorded a second before it.
+        // A retention that the entry recorded a second before each append
+        // is past, which no append prunes.
         std::fs::write(
             file,
             "version = \"0.1\"\n\n[settings]\naudit.retention = 500\n",
@@ -105,7 +107,7 @@ pub(crate) fn run(
     for index in 0..ENTRIES {
         run_one(&log, &runtime, index);
         if let Some(plant) = plant {
-            plant(&log, &runtime);
+            plant(&log, &runtime, index);
         }
     }
     if audit == Audit::Retained {
@@ -113,9 +115,10 @@ pub(crate) fn run(
         let exported = AuditLog::of(&Home::new(home.to_owned()), vfs.map(str::to_owned), owner())
             .export()
             .expect("invariant: the log reads back");
-        assert!(
-            exported.len() < usize::try_from(ENTRIES).unwrap_or(usize::MAX),
-            "the retention pruned the log"
+        assert_eq!(
+            exported.len(),
+            usize::try_from(ENTRIES).unwrap_or(usize::MAX),
+            "no append pruned the log"
         );
     }
     ENTRIES

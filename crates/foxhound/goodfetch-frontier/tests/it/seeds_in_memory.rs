@@ -16,7 +16,8 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::heap;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_frontier::{
-    Bounds, Candidate, Declared, Invariants, Narrowing, Patterns, Scope, ScopeStrategy, Url, admit,
+    Bounds, Candidate, Declared, Invariants, Narrowing, Patterns, Scope, ScopeStrategy,
+    SharedBudget, Url, admit,
 };
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
 use goodfetch_test_support::TestEnv;
@@ -86,7 +87,7 @@ fn a_hundred_thousand_seed_sites_keep_the_run_states_heap_within_its_budget() {
     let before = heap::live().unwrap();
     let acknowledged = Arc::clone(&commits);
     invariants.hold_unwritten(
-        BUDGET,
+        SharedBudget::new(BUDGET),
         move || acknowledged.load(Ordering::Relaxed),
         &Metrics::none(),
     );

@@ -58,7 +58,7 @@
 //! (ADR 0066). `xtask compat write` runs it.
 #![expect(
     clippy::disallowed_methods,
-    reason = "a synchronous corpus writer that builds its runtime, writes files and runs on the test Clock (ADRs 0059 and 0066)"
+    reason = "a synchronous corpus writer that builds its runtime, writes files and runs on the test Clock (ADRs 0059 and 0066); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::collections::BTreeMap;
@@ -712,6 +712,7 @@ fn bound() -> Contribution {
                         // document's markup hides (#1153).
                         goodfetch_frontier::trap_links::suspect(
                             connection,
+                            None,
                             "2",
                             goodfetch_frontier::trap_links::Mark::Hidden,
                         )

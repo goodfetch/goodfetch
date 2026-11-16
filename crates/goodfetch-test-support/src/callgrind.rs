@@ -85,18 +85,6 @@ pub enum CallgrindError {
     Output(#[source] std::io::Error),
 }
 
-/// How many times `program`, run with `arguments` under Callgrind, called
-/// `symbol`.
-///
-/// # Errors
-///
-/// [`CallgrindError`]: when Valgrind cannot run, the program fails or the
-/// output cannot be read.
-pub fn calls(symbol: &str, program: &Path, arguments: &[&str]) -> Result<u64, CallgrindError> {
-    let text = output(&[], program, arguments)?;
-    Ok(calls_in(&text, symbol))
-}
-
 /// How many instructions `program`, run with `arguments` under Callgrind,
 /// ran in each of `functions` and in whatever it called: Callgrind collects
 /// only while one of them, each named as Callgrind names a function, is on
@@ -109,7 +97,8 @@ pub fn calls(symbol: &str, program: &Path, arguments: &[&str]) -> Result<u64, Ca
 ///
 /// # Errors
 ///
-/// As [`calls`].
+/// [`CallgrindError`]: when Valgrind cannot run, the program fails or the
+/// output cannot be read.
 pub fn instructions_beneath(
     functions: &[&str],
     from: Option<&str>,
@@ -157,7 +146,8 @@ pub struct Calls {
 ///
 /// # Errors
 ///
-/// As [`calls`].
+/// [`CallgrindError`]: when Valgrind cannot run, the program fails or the
+/// output cannot be read.
 pub fn calls_beneath(
     symbol: &str,
     depth: u32,
@@ -189,7 +179,8 @@ pub struct RunCalls {
 ///
 /// # Errors
 ///
-/// As [`calls`].
+/// [`CallgrindError`]: when Valgrind cannot run, the program fails or the
+/// output cannot be read.
 pub fn calls_beneath_each(
     symbol: &str,
     depth: u32,

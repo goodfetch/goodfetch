@@ -9,20 +9,23 @@
 //!
 //! An identity the writer visited is tagged with the commits the writer
 //! had acknowledged as its job ran: its batch is the next, so once more
-//! commits are acknowledged the file holds it. A learned identity is then
-//! forgotten at the next lock. A visited one stays, within
+//! commits are acknowledged the file holds it. It then stays, within
 //! `run_state.memory.budget` (#2169): the file never takes a visit back,
 //! so a duplicate check answers from memory and reads nothing, and past
 //! the budget the visits the oldest batches wrote leave first and are read
-//! from the file again. A chain's pending visit is held until its job
-//! runs, or until its job is dropped unrun.
+//! from the file again. A learned identity stays by the same rule, and is
+//! read again as a rule that merges changes (`learned`). A chain's
+//! pending visit is held until its job runs, or until its job is dropped
+//! unrun.
 //!
 //! As the crawl opens, memory reads the seeds, then the visits, the file
 //! holds, within the budget: once it read them all, and until one leaves it, memory holds
 //! every visit, so a miss reads nothing either. Each lookup that reads the
 //! file because memory does not hold every visit counts in
 //! `goodfetch.run_state.spilled_lookups`, and what memory holds in
-//! `goodfetch.run_state.memory`.
+//! `goodfetch.run_state.memory`. A program's links batch makes its
+//! lookups of the visited set on a reader before its job (`lookups`), so
+//! the writer runs no read for them.
 //!
 //! The Bounds' counts, the requests admitted against `crawl.max_requests`
 //! and each path budget's, are held here too (#2169): read from the file
@@ -37,6 +40,11 @@
 //! opens, within the same budget, leaving memory by the same rule. A
 //! link's scope check then reads the file only for a seed that left it,
 //! and counts that lookup in `goodfetch.run_state.spilled_lookups` too.
+//!
+//! The learned rules are held here too (#2169), each as the file holds
+//! it, read once by the first admission that writes and again, from the
+//! lowest rule the writer changed, by the next one after a change; they
+//! count in the budget and never leave memory (`rules`).
 //!
 //! The run-state writer tells these, as a [`WriteWatch`], as each job
 //! begins and when one fails: its changes are then rolled back while its
@@ -54,12 +62,30 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::{Level, Metrics, Occurrences};
 use goodfetch_engine::run_state::WriteWatch;
 use goodfetch_protocol::ops::{RUN_STATE_MEMORY, RUN_STATE_SPILLED_LOOKUPS};
 use rusqlite::Connection;
+
+pub use self::budget::SharedBudget;
+pub(crate) use self::counts::Counts;
+use self::counts::CountsBefore;
+pub(crate) use self::learned::{EVERY_LEARNED, LEARNED_WITHIN};
+pub use self::lookups::Lookup;
+use self::lookups::Lookups;
+use self::marks::Marks;
+pub(crate) use self::rules::{HeldRule, LearnedRules};
+
+mod budget;
+mod counts;
+mod learned;
+mod lookups;
+mod marks;
+mod rules;
 
 /// The visits the run file does not hold yet, the ones it holds that
 /// memory keeps within its budget, and how many commits the writer
@@ -70,6 +96,9 @@ pub struct UnwrittenVisits {
     /// Each lookup that read the file because memory does not hold every
     /// visit (`goodfetch.run_state.spilled_lookups`).
     spilled_lookups: Occurrences,
+    /// The Run's counted work, which counts each read an admission makes
+    /// of the Frontier's state (`F3.state_reads`).
+    work: CountedWork,
 }
 
 impl fmt::Debug for UnwrittenVisits {
@@ -101,20 +130,34 @@ struct Held {
     /// The Bounds' counts, as the file holds them with the writes not
     /// committed yet, once an admission that writes read them.
     counts: Option<Counts>,
+    /// The learned rules, once an admission that writes read them.
+    rules: Option<LearnedRules>,
+    /// The lowest ID of a rule the writer changed since memory read them,
+    /// or [`i64::MAX`]: told by the writer's connection as it changes one.
+    rules_changed: Arc<AtomicI64>,
     /// What the writer job running now changed here, to take back if its
     /// work fails.
     journal: Journal,
     /// The bytes the entries held allocate, as [`cost`] counts them; the
     /// tables and queues holding them add theirs ([`Held::bytes`]).
     entries: u64,
-    /// The most bytes kept of what the file holds.
-    budget: u64,
+    /// The most bytes kept of what the file holds, less what the Run
+    /// state's pending work items hold.
+    budget: SharedBudget,
     /// The commits acknowledged as a seed last widened the scope.
     widened: Option<u64>,
     /// Whether memory holds every visit the file holds.
     every_visit: Whole,
     /// Whether memory holds every seed the file holds.
     every_seed: Whole,
+    /// Whether memory holds every learned identity the file holds.
+    every_learned: Whole,
+    /// Whether memory read the learned identities the file holds.
+    learned_read: bool,
+    /// Whether the file holds a trap mark, as far as memory knows.
+    marks: Marks,
+    /// The visited identities links batches look up before their jobs.
+    lookups: Lookups,
     /// The bytes held, as `goodfetch.run_state.memory` counts them.
     reported: Level,
 }
@@ -151,44 +194,6 @@ struct Visit {
     written: Option<u64>,
 }
 
-/// The Bounds' counts the Frontier keeps in memory (#2169): the requests
-/// admitted, and each path budget's, by its pattern, as the run file holds
-/// them with the writes not committed yet. Written with the batch and
-/// never removed; the refusals' counts are only written.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct Counts {
-    admitted: u64,
-    paths: HashMap<Box<str>, u64>,
-}
-
-impl Counts {
-    /// The counts of `admitted` requests, and of each path budget's, by
-    /// its pattern.
-    pub(crate) const fn new(admitted: u64, paths: HashMap<Box<str>, u64>) -> Self {
-        Self { admitted, paths }
-    }
-
-    /// The requests admitted.
-    pub(crate) const fn admitted(&self) -> u64 {
-        self.admitted
-    }
-
-    /// The requests the path budget of `pattern` admitted.
-    pub(crate) fn path_admitted(&self, pattern: &str) -> u64 {
-        self.paths.get(pattern).copied().unwrap_or_default()
-    }
-
-    /// Counts one request admitted, against the path budget of `pattern`
-    /// when one counts it.
-    fn count(&mut self, pattern: Option<&str>) {
-        self.admitted = self.admitted.saturating_add(1);
-        if let Some(pattern) = pattern {
-            let path = self.paths.entry(pattern.into()).or_default();
-            *path = path.saturating_add(1);
-        }
-    }
-}
-
 /// What one writer job changed, each identity with its tag before the
 /// job: none when the job added it or held it as a chain's pending end;
 /// and the Bounds' counts before its first count, when it counted.
@@ -198,18 +203,12 @@ struct Journal {
     tag: u64,
     changes: Vec<(Space, Arc<str>, Option<u64>)>,
     counts: CountsBefore,
-}
-
-/// The Bounds' counts memory held before a writer job first changed them.
-#[derive(Debug, Default)]
-enum CountsBefore {
-    /// The job changed none.
-    #[default]
-    Unchanged,
-    /// Memory held none: the job read them from the file.
-    Unread,
-    /// Memory held these.
-    Held(Counts),
+    /// The lowest ID of the learned rules it read, which its failure has
+    /// memory read again.
+    rules_from: Option<i64>,
+    /// Whether it read every learned identity, which its failure has
+    /// memory read again.
+    learned_read: bool,
 }
 
 impl Journal {
@@ -229,6 +228,8 @@ impl Journal {
     fn clear(&mut self) {
         self.changes.clear();
         self.counts = CountsBefore::Unchanged;
+        self.rules_from = None;
+        self.learned_read = false;
     }
 }
 
@@ -334,7 +335,10 @@ impl Held {
             written,
         };
         match space {
-            Space::Visited => drop(self.visited.insert(Arc::clone(identity), visit)),
+            Space::Visited => {
+                self.lookups.visited(identity);
+                drop(self.visited.insert(Arc::clone(identity), visit));
+            }
             Space::Learned => drop(self.learned.insert(Arc::clone(identity), (rule, visit))),
             Space::Seed => drop(self.seeds.insert(Arc::clone(identity), visit)),
         }
@@ -393,6 +397,13 @@ impl Held {
     /// Takes back what the writer job running now changed: its work
     /// failed, so the file holds none of it.
     fn undo(&mut self) {
+        if let Some(from) = self.journal.rules_from.take() {
+            self.rules_changed.fetch_min(from, Ordering::SeqCst);
+        }
+        if std::mem::take(&mut self.journal.learned_read) {
+            self.learned_read = false;
+            self.every_learned = Whole::default();
+        }
         match std::mem::take(&mut self.journal.counts) {
             CountsBefore::Unchanged => {}
             CountsBefore::Unread => self.counts = None,
@@ -415,9 +426,8 @@ impl Held {
 
     /// Moves each identity a writer job visited, and each seed it wrote,
     /// in a batch the file holds once `committed` commits are acknowledged
-    /// out of what the file does not hold: a learned identity is
-    /// forgotten, a visited one or a seed kept while what is held is
-    /// within the budget, the oldest leaving first.
+    /// out of what the file does not hold: each is kept while what is held
+    /// is within the budget, the oldest leaving first.
     fn prune(&mut self, committed: u64) {
         while let Some((tag, _, _)) = self.written.front()
             && *tag < committed
@@ -430,12 +440,7 @@ impl Held {
                 .visit(space, &identity)
                 .is_some_and(|visit| visit.written == Some(tag))
             {
-                match space {
-                    Space::Visited | Space::Seed => {
-                        self.resident.push_back((tag, space, identity));
-                    }
-                    Space::Learned => self.remove(space, &identity),
-                }
+                self.resident.push_back((tag, space, identity));
             }
         }
         self.fit();
@@ -448,11 +453,11 @@ impl Held {
     /// Room grows by doubling, so a table can outgrow the budget while its
     /// entries fit.
     fn fit(&mut self) {
-        if self.bytes() <= self.budget {
+        if self.bytes() <= self.budget.room() {
             return;
         }
         self.evict();
-        if self.bytes() > self.budget {
+        if self.bytes() > self.budget.room() {
             self.visited.shrink_to(ample(self.visited.len()));
             self.learned.shrink_to(ample(self.learned.len()));
             self.seeds.shrink_to(ample(self.seeds.len()));
@@ -467,8 +472,9 @@ impl Held {
     fn evict(&mut self) {
         while self
             .entries
+            .saturating_add(self.kept())
             .saturating_add(self.containers().min(self.least(0)))
-            > self.budget
+            > self.budget.room()
             && let Some((tag, space, identity)) = self.resident.pop_front()
         {
             if self
@@ -477,16 +483,25 @@ impl Held {
             {
                 self.remove(space, &identity);
                 match space {
+                    Space::Visited => self.every_visit.spilled = true,
+                    Space::Learned => self.every_learned.spilled = true,
                     Space::Seed => self.every_seed.spilled = true,
-                    Space::Visited | Space::Learned => self.every_visit.spilled = true,
                 }
             }
         }
     }
 
-    /// The bytes held: the entries' own ([`cost`]) and the containers'.
+    /// The bytes held: the entries' own ([`cost`]), the containers' and
+    /// the learned rules'.
     fn bytes(&self) -> u64 {
-        self.entries.saturating_add(self.containers())
+        self.entries
+            .saturating_add(self.containers())
+            .saturating_add(self.kept())
+    }
+
+    /// The bytes the learned rules take, which never leave memory.
+    fn kept(&self) -> u64 {
+        self.rules.as_ref().map_or(0, LearnedRules::bytes)
     }
 
     /// The bytes the tables and queues holding the entries take, by the
@@ -574,8 +589,9 @@ impl Held {
             self.insert(space, (&identity, 0), crawl_request, Some(0));
             if self
                 .entries
+                .saturating_add(self.kept())
                 .saturating_add(self.least(queued + read.len() + 1))
-                > self.budget
+                > self.budget.room()
             {
                 self.remove(space, &identity);
                 return Ok((read, false));
@@ -601,6 +617,9 @@ pub(crate) struct Holding<'a> {
     visits: &'a UnwrittenVisits,
     held: MutexGuard<'a, Held>,
     committed: u64,
+    /// Whether an admission holds it, whose reads of the file count in
+    /// `F3.state_reads`; the crawl's opening's count in none.
+    admitting: bool,
 }
 
 impl Drop for Holding<'_> {
@@ -610,9 +629,16 @@ impl Drop for Holding<'_> {
 }
 
 impl Holding<'_> {
+    /// Counts one read of the file for the Frontier's state an admission
+    /// makes (`F3.state_reads`).
+    pub(crate) fn reads_state(&self) {
+        self.visits.reads_state(self.admitting);
+    }
+
     /// The crawl request `identity` was visited for: memory's answer when
-    /// it keeps the visit, or holds every visit the file holds; otherwise
-    /// `read`'s from the file, counted as a spilled lookup
+    /// it keeps the visit, or holds every visit the file holds, or the
+    /// answer a links batch's lookup read, while it stands ([`Lookup`]);
+    /// otherwise `read`'s from the file, counted as a spilled lookup
     /// (`goodfetch.run_state.spilled_lookups`).
     ///
     /// # Errors
@@ -629,17 +655,12 @@ impl Holding<'_> {
         if self.held.every_visit.holds() {
             return Ok(None);
         }
+        if let Some(answer) = self.held.lookups.answer(identity) {
+            return Ok(answer.map(String::from));
+        }
         self.visits.spilled_lookups.add(1);
+        self.reads_state();
         read()
-    }
-
-    /// The rule and crawl request of the learned identity `identity`,
-    /// while the file may not hold it.
-    pub(crate) fn learned(&self, identity: &str) -> Option<(i64, &str)> {
-        self.held
-            .learned
-            .get(identity)
-            .map(|(rule, visit)| (*rule, &*visit.crawl_request))
     }
 
     /// Notes that a writer job visited `plain` and, when the learned
@@ -691,44 +712,6 @@ impl Holding<'_> {
         }
     }
 
-    /// The Bounds' counts memory holds: as `read` reads them from the
-    /// writer's connection, by the first call of an admission that
-    /// `writes`; none before it, when the counts are the file's.
-    ///
-    /// # Errors
-    ///
-    /// When `read` cannot read the run file.
-    pub(crate) fn counts(
-        &mut self,
-        writes: bool,
-        read: impl FnOnce() -> rusqlite::Result<Counts>,
-    ) -> rusqlite::Result<Option<&Counts>> {
-        if self.held.counts.is_none() && writes {
-            let counts = read()?;
-            let held = &mut *self.held;
-            let journal = held.journal.under(self.committed);
-            if matches!(journal.counts, CountsBefore::Unchanged) {
-                journal.counts = CountsBefore::Unread;
-            }
-            held.counts = Some(counts);
-        }
-        Ok(self.held.counts.as_ref())
-    }
-
-    /// Counts one request a writer job admitted, against the path budget
-    /// of `pattern` when one counts it, as it writes the count to the
-    /// file in the batch it runs in.
-    pub(crate) fn counted(&mut self, pattern: Option<&str>) {
-        let held = &mut *self.held;
-        if let Some(counts) = &mut held.counts {
-            let journal = held.journal.under(self.committed);
-            if matches!(journal.counts, CountsBefore::Unchanged) {
-                journal.counts = CountsBefore::Held(counts.clone());
-            }
-            counts.count(pattern);
-        }
-    }
-
     /// Notes that a writer job widened the scope in the batch it runs in,
     /// and holds `seed`, the measure of the seed it widened it with, when
     /// the job writes it to the file.
@@ -762,6 +745,7 @@ impl Holding<'_> {
             return Ok(false);
         }
         self.visits.spilled_lookups.add(1);
+        self.reads_state();
         read()
     }
 }
@@ -801,12 +785,13 @@ impl Drop for Pending {
 }
 
 impl UnwrittenVisits {
-    /// None held yet, keeping at most `budget` bytes of what the file
-    /// holds, against a writer that has acknowledged `committed` commits
-    /// as it is called, measured on `metrics`. Until it reads the file's
-    /// seeds and visits ([`Self::read`]), a miss reads the file.
+    /// None held yet, keeping of what the file holds at most `budget`'s
+    /// bytes less what the pending work items hold, against a writer that
+    /// has acknowledged `committed` commits as it is called, measured on
+    /// `metrics`. Until it reads the file's seeds and visits
+    /// ([`Self::read`]), a miss reads the file.
     pub(crate) fn new(
-        budget: u64,
+        budget: SharedBudget,
         committed: impl Fn() -> u64 + Send + Sync + 'static,
         metrics: &Metrics,
     ) -> Self {
@@ -819,15 +804,22 @@ impl UnwrittenVisits {
                 written: VecDeque::new(),
                 resident: VecDeque::new(),
                 counts: None,
+                rules: None,
+                rules_changed: rules::unchanged(),
                 journal: Journal::default(),
                 entries: 0,
                 budget,
                 widened: None,
                 every_visit: Whole::default(),
                 every_seed: Whole::default(),
+                every_learned: Whole::default(),
+                learned_read: false,
+                marks: Marks::default(),
+                lookups: Lookups::default(),
                 reported: metrics.level(&RUN_STATE_MEMORY),
             })),
             spilled_lookups: metrics.occurrences(&RUN_STATE_SPILLED_LOOKUPS),
+            work: metrics.counted_work().clone(),
         }
     }
 
@@ -853,6 +845,14 @@ impl UnwrittenVisits {
         Ok(())
     }
 
+    /// Counts one read of the file for the Frontier's state, when an
+    /// admission makes it (`F3.state_reads`).
+    fn reads_state(&self, admitting: bool) {
+        if admitting {
+            self.work.count(Row::StateReads);
+        }
+    }
+
     /// The visits held, the ones the file holds by now forgotten or kept
     /// within the budget. Taken before a reader's first read, so its
     /// snapshot holds each one forgotten.
@@ -864,13 +864,29 @@ impl UnwrittenVisits {
             visits: self,
             held,
             committed,
+            admitting: true,
         }
+    }
+
+    /// The same, for the crawl's opening, which has memory read the
+    /// Frontier's state on the writer: its reads are no admission's.
+    pub(crate) fn opening(&self) -> Holding<'_> {
+        let mut holding = self.lock();
+        holding.admitting = false;
+        holding
     }
 
     /// The bytes held, as of the commits acknowledged now.
     #[must_use]
     pub fn bytes(&self) -> u64 {
         self.lock().held.bytes()
+    }
+
+    /// The memory budget these share with the Run state's pending work
+    /// items.
+    #[must_use]
+    pub fn budget(&self) -> SharedBudget {
+        self.lock().held.budget.clone()
     }
 
     /// The watch the run-state writer tells as each of its jobs begins

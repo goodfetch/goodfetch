@@ -247,6 +247,8 @@ The `protection/1` answer adds `pages`, each page of the tier-move site with the
 
 `GET /request-count` serves `{"requests": <n>}`, the requests every observed host received so far, recorded or not: what a harness polls during a crawl, such as `just compare` waiting to kill a crawl halfway, without reading the whole record.
 
+`GET /requests-of-the-case?host=<name>` serves `{"requests": <n>}`, the recorded requests to that host a case is about, its robots.txt reads and icons left out, as `ReceivedRequests::of_the_case` counts them from `GET /observations`: what a test counts through when its record is too large to read whole, such as the Daemon soak's 12,000 requests. Without `host` it answers `400` with `malformed_requests_of_the_case`.
+
 ## Network fixtures
 
 Each listens on its own port of the site's address (loopback when the site binds every address), reported in `serve`'s first line, so proxies, rebinding and SSRF refusals are tested for real, never mocked (ADRs 0059 and 0067). `GET /network-fixtures` on the control host serves the same `proxies`, `proxy_credentials`, `dns`, `target` and `udp` for a harness that knows only the Proving ground's address, such as `goodfetch-conformance`'s page suite:

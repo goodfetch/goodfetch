@@ -13,7 +13,7 @@
 //! open or are refused under the Usage ledger family's rule.
 #![expect(
     clippy::disallowed_methods,
-    reason = "the tests edit the Audit log's files as someone tampering with them would"
+    reason = "the tests edit the Audit log's files as someone tampering with them would; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use goodfetch_protocol::audit::Actor;
@@ -223,7 +223,7 @@ async fn the_first_entry_hashes_zero_bytes_then_its_canonical_json() {
 async fn the_engines_own_connection_cannot_rewrite_an_entry(#[case] statement: &str) {
     let env = TestEnv::in_memory();
     let log = written(&env, 2).await;
-    let connection = log.store.open().unwrap();
+    let connection = log.store.open(false).unwrap();
 
     let tried = connection.execute(statement, []).is_err();
 
@@ -649,7 +649,8 @@ async fn the_wal_stays_beside_the_log_once_its_writer_closed_its_connection() {
 }
 
 /// A log's writer opens its store once for all its entries, and its clones
-/// share it (#1886).
+/// share it (#1886): that open and its schema set-up's commits count once a
+/// log, each entry its own commit (#1887).
 #[tokio::test]
 async fn a_logs_writer_opens_its_store_once_for_every_entry_of_its_clones() {
     let env = TestEnv::in_memory();
@@ -663,7 +664,50 @@ async fn a_logs_writer_opens_its_store_once_for_every_entry_of_its_clones() {
             .unwrap();
     }
 
-    assert_eq!(work.read(Row::AuditOpens), 1);
+    assert_eq!(
+        [
+            Row::AuditLogOpens,
+            Row::AuditLogTransactions,
+            Row::AuditOpens,
+            Row::AuditTransactions,
+        ]
+        .map(|row| work.read(row)),
+        [1, 2, 0, 3]
+    );
+}
+
+/// A write that fails drops the writer's connection, so the next entry opens
+/// the store again: that open and its set-up's commit are the entry's work,
+/// not the log's (#1887).
+#[tokio::test]
+async fn an_entry_after_a_failed_write_counts_the_stores_open_again() {
+    let env = TestEnv::in_memory();
+    let work = CountedWork::default();
+    let log = log(&env).counting_on(work.clone());
+    let record = || async {
+        log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
+            .await
+    };
+    record().await.unwrap();
+    // A folder where the head file goes: the next entry commits, then
+    // fails to write its head file.
+    std::fs::remove_file(log.head_path()).unwrap();
+    std::fs::create_dir(log.head_path()).unwrap();
+    assert!(matches!(record().await, Err(AuditError::Head { .. })));
+    std::fs::remove_dir(log.head_path()).unwrap();
+
+    record().await.unwrap();
+
+    assert_eq!(
+        [
+            Row::AuditLogOpens,
+            Row::AuditLogTransactions,
+            Row::AuditOpens,
+            Row::AuditTransactions,
+        ]
+        .map(|row| work.read(row)),
+        [1, 2, 1, 4]
+    );
 }
 
 /// Each entry's event carries the line of an export that holds it: the

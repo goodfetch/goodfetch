@@ -8,6 +8,11 @@
 //! entry with its hash per line, which `audit verify --file` verifies off
 //! the machine; under `audit.retention` the engine prunes its beginning
 //! behind an anchor, from which it still verifies.
+
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -435,10 +440,11 @@ pub(crate) fn key_by_reference(more: &str) -> String {
     format!("run_state.key_reference = \"env:{KEY_VARIABLE}\"\n{more}")
 }
 
-/// Under `audit.retention`, the engine's next append prunes the entries
+/// Under `audit.retention`, the engine prunes as it starts the entries
 /// older than it behind an anchor carrying the last pruned hash, and
 /// `audit verify` reports the log intact from it; the export starts with
-/// the anchor, the pruning record and the new entry after it.
+/// the anchor, then the pruning record and the Run's entry, in the order
+/// the start's pass and the Run's append reached the log.
 /// Covers: story:4-72, setting:audit.retention, command:audit.verify, command:audit.export, operation:audit.verify, operation:audit.export
 #[test]
 fn under_audit_retention_an_engine_prunes_the_old_entries_and_the_log_verifies_from_its_anchor() {
@@ -449,26 +455,26 @@ fn under_audit_retention_an_engine_prunes_the_old_entries_and_the_log_verifies_f
 
     let lifecycle = recorded_by_a_run(&env);
 
-    let kinds: Vec<Value> = exported(&env)
+    let entries: Vec<Value> = exported(&env)
         .lines()
-        .map(|line| {
-            let entry: Value = serde_json::from_str(line).unwrap();
-            json!([
-                entry["sequence"],
-                entry["kind"],
-                entry["hash"] == json!(last_pruned)
-            ])
-        })
+        .map(|line| serde_json::from_str(line).unwrap())
         .collect();
+    let first = entries.first().map(|entry| entry["sequence"].clone());
+    let mut kinds: Vec<Value> = entries
+        .iter()
+        .map(|entry| json!([entry["kind"], entry["hash"] == json!(last_pruned)]))
+        .collect();
+    kinds[1..].sort_by_key(ToString::to_string);
     let (printed, _) = verified_both_ways(&env);
     assert_eq!(
-        (lifecycle, kinds, printed),
+        (lifecycle, first, kinds, printed),
         (
             json!("finished"),
+            Some(json!(2)),
             vec![
-                json!([2, "audit_log_anchor", true]),
-                json!([3, "audit_log_pruned", false]),
-                json!([4, "secret_reference_used", false]),
+                json!(["audit_log_anchor", true]),
+                json!(["audit_log_pruned", false]),
+                json!(["secret_reference_used", false]),
             ],
             json!({ "intact": true, "entries": 3 })
         )

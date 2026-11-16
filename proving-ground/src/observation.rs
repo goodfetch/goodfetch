@@ -40,6 +40,7 @@ use serde::{Deserialize, Serialize};
 use crate::client_hello::ClientHello;
 use crate::clock::Stopwatch;
 use crate::connection_record::{self, ConnectionRecord, Stamp};
+use crate::interface::OWN_TARGETS;
 use crate::sync::Mutex;
 use crate::task::{Effect, Finding};
 
@@ -527,6 +528,21 @@ impl Observations {
     pub(crate) fn request_count(&self) -> u64 {
         let state = self.state();
         state.requests.len() as u64 + state.unrecorded_requests
+    }
+
+    /// The recorded requests to `host` a case is about, those for
+    /// [`OWN_TARGETS`] left out, as
+    /// `ReceivedRequests::of_the_case` counts them from the whole record: a
+    /// count for a test whose record is too large to read whole.
+    pub(crate) fn requests_of_the_case(&self, host: &str) -> u64 {
+        let state = self.state();
+        state
+            .requests
+            .iter()
+            .filter(|request| {
+                request.host == host && !OWN_TARGETS.contains(&request.target.as_str())
+            })
+            .count() as u64
     }
 
     /// The host names observed, each with its task, if any.

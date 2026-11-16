@@ -201,6 +201,16 @@ rows! {
     SitemapCompilations => "F3.compilations.sitemap", "frontier_sitemap", "compilations";
     /// `F3.transactions`, of a sitemap's read.
     SitemapTransactions => "F3.transactions.sitemap", "frontier_sitemap", "transactions";
+    /// `F3.lease_reads`: a read transaction on the run file the crawl's Run
+    /// state runs to lease a work item or find the pending ones, at a
+    /// Durability level that batches attempts (#2169).
+    LeaseReads => "F3.lease_reads", "frontier_lease", "reads";
+    /// `F3.state_reads`: a read of the run file an admission makes for the
+    /// Frontier's state, the Scope's seeds, the learned rules and
+    /// identities, the visited set, the Bounds' counts or the trap marks,
+    /// while the Frontier holds its memory at a Durability level that
+    /// batches attempts (#2169).
+    StateReads => "F3.state_reads", "frontier_admission", "state_reads";
     /// `F3.compilations`: a validator built for one URL's Payload.
     PayloadCompilations => "F3.compilations.payload", "frontier_payload", "compilations";
     /// `F3.payload_serializations`: one URL's Payload serialized.
@@ -212,10 +222,12 @@ rows! {
     /// `C1.sends`: a CDP command's bytes written to its pipe.
     CdpSends => "C1.sends", "cdp_command", "sends";
     /// `C1.file_opens`: a directory created or a file opened for a CDP
-    /// command, as the CDP command log's writer does.
+    /// command. The Run trace's one writer opens the CDP command log once a
+    /// Run, on `E5.file_opens` (ADR 0140), so no command does.
     CdpFileOpens => "C1.file_opens", "cdp_command", "file_opens";
     /// `C1.log_sends_off`: a CDP command's method sent to the CDP command
-    /// log's writer. The log has no off yet, so every send counts (X9).
+    /// log's writer, which happens only while `browser.cdp_command_log` is
+    /// on: with it off, as B2 runs, none is sent.
     CdpLogSendsOff => "C1.log_sends_off", "cdp_command", "log_sends_off";
     /// `C3.script_sends`: a send of `check.js`'s source for a guard's check.
     ActionScriptSends => "C3.script_sends", "action", "script_sends";
@@ -246,6 +258,10 @@ rows! {
     /// `F2.admission_evidence`: a row of the evidence the Frontier learns
     /// its rules from, read or written for a URL it admitted.
     AdmissionEvidence => "F2.admission_evidence", "run_state", "admission_evidence";
+    /// `F2.page_learning`: a lesson the Frontier learned on a page's path,
+    /// outside the end of a batch the writer commits: a fetched page's, a
+    /// redirect's, or the evidence of a URL it admitted (#2169).
+    PageLearning => "F2.page_learning", "run_state", "page_learning";
     /// `F2.configuration_reads`: a read of the machine's settings files.
     ConfigurationReads => "F2.configuration_reads", "run_state", "configuration_reads";
     /// `F2.prunes`: a prune pass.
@@ -293,11 +309,20 @@ rows! {
     /// `E2.configuration_reads`: a read of the machine's settings files for
     /// an Audit entry.
     AuditConfigurationReads => "E2.configuration_reads", "audit_entry", "configuration_reads";
-    /// `E2.opens`: an open of the Audit log's store, with its schema set-up.
+    /// `E2.log_opens`: the first open of an Audit log's store by its
+    /// writer, with its schema set-up: once a log.
+    AuditLogOpens => "E2.log_opens", "audit_entry", "log_opens";
+    /// `E2.log_transactions`: a commit of the schema set-up of that first
+    /// open.
+    AuditLogTransactions => "E2.log_transactions", "audit_entry", "log_transactions";
+    /// `E2.opens`: any other open of the Audit log's store, with its schema
+    /// set-up: its writer's again, after it dropped its connection on a
+    /// failure, or a reader's.
     AuditOpens => "E2.opens", "audit_entry", "opens";
     /// `E2.prunes`: a prune pass over the Audit log.
     AuditPrunes => "E2.prunes", "audit_entry", "prunes";
-    /// `E2.transactions`: a transaction the Audit log's store committed.
+    /// `E2.transactions`: a transaction the Audit log's store committed,
+    /// other than the set-up of its writer's first open.
     AuditTransactions => "E2.transactions", "audit_entry", "transactions";
     /// `E2.syncs`: a write of the Audit log's head file; the store's own
     /// syncs are seen by a counting VFS, which no production store has.
@@ -315,10 +340,16 @@ rows! {
     /// `C6.seals`: a seal of a fragment of a relayed viewer's frame.
     LiveViewSeals => "C6.seals", "live_view_frame", "seals";
     /// `E5.file_opens`: a file opened or a folder created for a Run-trace
-    /// entry.
+    /// entry, as an entry does only to open again a file that failed.
     RunTraceFileOpens => "E5.file_opens", "run_trace", "file_opens";
-    /// `E5.spawns`: a task spawned for a Run-trace entry.
+    /// `E5.spawns`: a task spawned for a Run-trace entry, as an entry does
+    /// only to start again a writer whose start failed.
     RunTraceSpawns => "E5.spawns", "run_trace", "spawns";
+    /// `E5.run_file_opens`: the Run's own creation of its trace's folder and
+    /// first open of each of its files, by the Run's one writer.
+    RunTraceRunFileOpens => "E5.run_file_opens", "run_trace", "run_file_opens";
+    /// `E5.run_spawns`: the Run's one writer's start, once a Run.
+    RunTraceRunSpawns => "E5.run_spawns", "run_trace", "run_spawns";
     /// `E5.formatting_off`: a Run-trace entry formatted though its kind is
     /// switched off.
     RunTraceFormattingOff => "E5.formatting_off", "run_trace", "formatting_off";
@@ -376,7 +407,8 @@ rows! {
     /// `C5.spawns`: a task spawned for a refused request.
     InterceptedSpawns => "C5.spawns", "intercepted_request", "spawns";
     /// `C5.file_opens`: a file opened or a folder created for a refused
-    /// request, as the Run trace's request log does.
+    /// request. The Run trace's one writer opens the request log once a
+    /// Run, on `E5.file_opens` (ADR 0140), so no request does.
     InterceptedFileOpens => "C5.file_opens", "intercepted_request", "file_opens";
     /// `C5.matches`: a paused request matched against the compiled Filter
     /// lists.
@@ -386,7 +418,8 @@ rows! {
     /// `C5.compilations`: a glob or regular expression compiled for a paused
     /// request.
     InterceptedCompilations => "C5.compilations", "intercepted_request", "compilations";
-    /// `C5.entries`: an entry sent to the Run trace's request log.
+    /// `C5.entries`: an entry sent to the Run trace's writer for its
+    /// request log.
     InterceptedEntries => "C5.entries", "intercepted_request", "entries";
 }
 

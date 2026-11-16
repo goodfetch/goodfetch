@@ -406,14 +406,15 @@ pub(crate) fn browser_fields(answer: &Value) -> Option<(String, Vec<Option<Field
 }
 
 /// Refuses `selector` when it is no CSS selector the engine reads on both
-/// tiers.
+/// tiers, compiling it through `work`: a crawl's start checks a field's
+/// selector on the engine's Counted work, where its Run then finds it kept
+/// (#2605).
 ///
 /// # Errors
 ///
 /// When `selector` is no CSS selector a browser reads.
-pub fn check_selector(selector: &str) -> Result<(), SelectorInvalid> {
-    // A crawl's start refuses it here: no page's work, so counted nowhere.
-    matcher(selector, &CountedWork::default()).map(drop)
+pub fn check_selector(selector: &str, work: &CountedWork) -> Result<(), SelectorInvalid> {
+    matcher(selector, work).map(drop)
 }
 
 /// Refuses `expression` when it is no `XPath` 1.0 expression the engine

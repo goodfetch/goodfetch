@@ -6,7 +6,7 @@
 //! tests give it as a value (ADR 0059).
 #![expect(
     clippy::disallowed_methods,
-    reason = "the tests write the Goodfetch home's files themselves"
+    reason = "the tests write the Goodfetch home's files themselves; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 #![expect(
     clippy::doc_markdown,

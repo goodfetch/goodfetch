@@ -22,6 +22,7 @@ use goodfetch_engine::secrets::{
     ConfigProblem, PartyText, ProviderFailure, Resolving, SecretProvider,
 };
 use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::tasks::BlockingThreads;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
     SECRET_PROVIDERS_AWS_SM_ENDPOINT, SECRET_PROVIDERS_AWS_SM_REGION,
@@ -80,17 +81,19 @@ impl AwsSecretsManager {
     /// The provider `secret_providers.aws_sm.*` configure in `resolved`,
     /// which also gives how the endpoint is reached, signed by the access
     /// key in the engine's `environment`.
+    /// Its endpoint reads the `tls.trusted_cas` files on `blocking`.
     pub fn configured(
         resolved: &Resolved,
         environment: &BTreeMap<OsString, OsString>,
         clock: Clock,
+        blocking: BlockingThreads,
     ) -> Self {
         let text = |setting| resolved.get::<Option<&str>>(setting).map(str::to_owned);
         Self::new(
             text(&SECRET_PROVIDERS_AWS_SM_REGION),
             text(&SECRET_PROVIDERS_AWS_SM_ENDPOINT),
             environment,
-            SecretProviderEndpoint::of(resolved, clock),
+            SecretProviderEndpoint::of(resolved, clock, blocking),
             clock,
         )
     }

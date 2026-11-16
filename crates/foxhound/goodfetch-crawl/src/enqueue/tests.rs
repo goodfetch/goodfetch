@@ -2,6 +2,11 @@
 //! process on a run file in memory (spec #581: pure rules and run state in
 //! process).
 
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's own statements, on no Shared path (ADR 0140)"
+)]
+
 use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, Row};

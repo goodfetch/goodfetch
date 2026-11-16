@@ -70,7 +70,7 @@ mod trust;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use clap::{Args, Subcommand, ValueEnum};
 
 use crate::check;
@@ -184,12 +184,29 @@ pub(crate) struct RunArguments {
     /// default, as shipped; the report's rerun command gives each.
     #[arg(long = "foxhound-setting")]
     foxhound_settings: Vec<String>,
+    /// Measures again, into the trials file at `--out`, the cells it reads
+    /// as not measured, or those `--cell` names, each in every part that
+    /// measured it, then writes the report from the file: at the run's
+    /// commit, on its machine, with the arguments its rerun command gives.
+    #[arg(
+        long,
+        conflicts_with_all = [
+            "scenarios", "trials", "growth", "spider_pages", "machine",
+            "foxhound_settings", "browser", "crawlee", "scrapy", "collie_driver",
+            "collie_arms_driver",
+        ]
+    )]
+    redo: bool,
+    /// A cell `--redo` measures again, `<scenario>/<cell>`, such as
+    /// `browser/foxhound`; repeatable.
+    #[arg(long = "cell", requires = "redo")]
+    cells: Vec<String>,
 }
 
 /// A scenario a run can be asked for: one of the crawl matrix's, by its
 /// own name, or the Collie scenario (issue 2282), Collie against Playwright
 /// on one browser.
-#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum Asked {
     Raw,
     Durable,
@@ -311,13 +328,34 @@ fn absolute(path: &Path) -> Result<PathBuf> {
 }
 
 /// `run`: every declared trial, the trials file written as the run goes,
-/// then the report.
-fn measure(arguments: &RunArguments, environment: &Environment) -> Result<ExitCode> {
+/// then the report; or, with `--redo`, some cells' trials measured again
+/// into the trials file, then the report.
+fn measure(given: &RunArguments, environment: &Environment) -> Result<ExitCode> {
+    let earlier = given
+        .redo
+        .then(|| -> Result<_> {
+            let path = environment.path(&given.out);
+            let text =
+                std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+            let earlier: Comparison = serde_json::from_slice(&text)
+                .with_context(|| format!("parsing {}", path.display()))?;
+            Ok((earlier, text))
+        })
+        .transpose()?;
+    let redone;
+    let arguments = match &earlier {
+        Some((earlier, _)) => {
+            redone = redone_arguments(&earlier.declared.command, given)?;
+            &redone
+        }
+        None => given,
+    };
     let tools = ToolManifest::read(&environment.path(&arguments.tools))?;
     let commit = crate::git::command(&environment.root)
         .args(["rev-parse", "HEAD"])
         .output()
         .context("running git rev-parse")?;
+    let commit = String::from_utf8_lossy(&commit.stdout).trim().to_owned();
     let browser = match &arguments.browser {
         Some(browser) => environment.path(browser),
         None => trial::chrome_folder().with_context(|| {
@@ -328,10 +366,10 @@ fn measure(arguments: &RunArguments, environment: &Environment) -> Result<ExitCo
         })?,
     };
     let out = environment.path(&arguments.out);
-    let folder = out.parent().unwrap_or_else(|| Path::new("."));
     let proving_ground = tools.path(Tool::ProvingGround)?;
     let profile_folder = run::profile_folder(&arguments.spider_profile);
-    let collie = Asked::collie(&arguments.scenarios)
+    let spider_builds = environment.path(&arguments.spider_builds);
+    let collie = (Asked::collie(&arguments.scenarios) && earlier.is_none())
         .then(|| -> Result<_> {
             Ok(collie::Tools {
                 proving_ground,
@@ -339,7 +377,7 @@ fn measure(arguments: &RunArguments, environment: &Environment) -> Result<ExitCo
                 driver: absolute(&environment.path(&arguments.collie_driver))?,
                 arms_driver: absolute(&environment.path(&arguments.collie_arms_driver))?,
                 chromiumoxide: absolute(&run::chromiumoxide_executable(
-                    &environment.path(&arguments.spider_builds),
+                    &spider_builds,
                     profile_folder,
                 ))?,
                 browser: &browser,
@@ -347,32 +385,156 @@ fn measure(arguments: &RunArguments, environment: &Environment) -> Result<ExitCo
             })
         })
         .transpose()?;
-    let mut trials = run::run(
-        &run::Executables {
-            proving_ground,
-            foxhound: tools.path(Tool::Foxhound)?,
-            spider_builds: &environment.path(&arguments.spider_builds),
-            profile_folder,
-            browser: &browser,
-            crawlee: &environment.path(&arguments.crawlee),
-            scrapy: &environment.path(&arguments.scrapy),
-            collie,
-            foxhound_settings: &arguments.foxhound_settings,
-        },
-        String::from_utf8_lossy(&commit.stdout).trim().to_owned(),
-        &run::Options {
-            machine: arguments.machine.clone(),
-            command: rerun::of(arguments),
-            trials: arguments.trials,
-            growth: arguments.growth,
-            spider_pages: arguments.spider_pages,
-            scenarios: Asked::crawls(&arguments.scenarios),
-            callgrind_outputs: folder.join(CALLGRIND_OUTPUTS),
-        },
-        &mut |so_far| write(so_far, &out),
-    )?;
+    let crawlee = environment.path(&arguments.crawlee);
+    let scrapy = environment.path(&arguments.scrapy);
+    let executables = run::Executables {
+        proving_ground,
+        foxhound: tools.path(Tool::Foxhound)?,
+        spider_builds: &spider_builds,
+        profile_folder,
+        browser: &browser,
+        crawlee: &crawlee,
+        scrapy: &scrapy,
+        collie,
+        foxhound_settings: &arguments.foxhound_settings,
+    };
+    let mut keep = |so_far: &Comparison| write(so_far, &out);
+    let mut trials = match earlier {
+        Some((earlier, text)) => {
+            let options = redo_options(&given.cells, arguments, environment, &earlier, &text)?;
+            run::redo(&executables, &commit, &options, earlier, &mut keep)?
+        }
+        None => run::run(
+            &executables,
+            commit,
+            &options(arguments, environment),
+            &mut keep,
+        )?,
+    };
     write(&trials, &out)?;
     report(&mut trials, &out, environment)
+}
+
+/// What a run of `arguments` is asked for: every cell of its scenarios,
+/// the Callgrind cell's outputs kept beside its trials file.
+fn options(arguments: &RunArguments, environment: &Environment) -> run::Options {
+    let out = environment.path(&arguments.out);
+    run::Options {
+        machine: arguments.machine.clone(),
+        command: rerun::of(arguments),
+        trials: arguments.trials,
+        growth: arguments.growth,
+        spider_pages: arguments.spider_pages,
+        scenarios: Asked::crawls(&arguments.scenarios),
+        callgrind_outputs: out
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(CALLGRIND_OUTPUTS),
+        only: Vec::new(),
+    }
+}
+
+/// What a redo into `earlier`, the trials file whose bytes are `text`,
+/// is asked for: the cells `cells` names, or else those the file reads as
+/// not measured, measured as `arguments`, the run's own, measure them, with
+/// the run's scenarios and rerun command.
+fn redo_options(
+    cells: &[String],
+    arguments: &RunArguments,
+    environment: &Environment,
+    earlier: &Comparison,
+    text: &[u8],
+) -> Result<run::Options> {
+    let scenarios = earlier.declared.scenarios.clone();
+    let only = if cells.is_empty() {
+        run::not_measured(serde_json::from_slice(text).context("parsing the trials file")?)?
+    } else {
+        cells
+            .iter()
+            .map(|named| run::named(named, &scenarios))
+            .collect::<Result<Vec<_>>>()?
+    };
+    if only.is_empty() {
+        bail!(
+            "the trials file at {} reads every cell as measured: name one to measure again with --cell <scenario>/<cell>",
+            arguments.out.display()
+        );
+    }
+    output::line(&format!(
+        "Measuring again: {}.",
+        only.iter()
+            .map(|(scenario, cell)| format!("{}/{cell}", scenario.name()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    Ok(run::Options {
+        command: earlier.declared.command.clone(),
+        scenarios,
+        only,
+        ..options(arguments, environment)
+    })
+}
+
+/// The arguments the run whose rerun command is `command` was given, with
+/// `redo`'s tools, Spider builds and trials file: a redo measures as the
+/// run measured, so one asked at another profile, which would build other
+/// tools, is refused.
+fn redone_arguments(command: &str, redo: &RunArguments) -> Result<RunArguments> {
+    let words = rerun::words(command)?;
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    let ["just", "compare", profile, given @ ..] = words.as_slice() else {
+        bail!("the trials file's rerun command `{command}` is no `just compare` command");
+    };
+    if *profile != redo.spider_profile {
+        bail!(
+            "the trials file's run built its tools with the `{profile}` profile: redo it with `just compare {profile} --redo`"
+        );
+    }
+    let mut arguments = parsed(
+        &redo.tools.display().to_string(),
+        &redo.spider_builds.display().to_string(),
+        profile,
+        given,
+    )
+    .with_context(|| format!("reading the trials file's rerun command `{command}`"))?;
+    arguments.out.clone_from(&redo.out);
+    Ok(arguments)
+}
+
+/// `xtask compare run`'s arguments as the recipe gives them, its tools,
+/// Spider builds and profile, then `given`.
+fn parsed(
+    tools: &str,
+    spider_builds: &str,
+    profile: &str,
+    given: &[impl AsRef<str>],
+) -> Result<RunArguments> {
+    use clap::{Args as _, FromArgMatches as _};
+    let recipe = [
+        "run",
+        "--tools",
+        tools,
+        "--spider-builds",
+        spider_builds,
+        "--spider-profile",
+        profile,
+    ];
+    let matches = RunArguments::augment_args(clap::Command::new("run"))
+        .try_get_matches_from(recipe.into_iter().chain(given.iter().map(AsRef::as_ref)))?;
+    Ok(RunArguments::from_arg_matches(&matches)?)
+}
+
+/// `xtask compare run`'s arguments as `just compare` gives them: the
+/// recipe's own, then `given`, as its caller gives them after the profile.
+#[cfg(test)]
+fn recipe_arguments(given: &[&str]) -> RunArguments {
+    parsed(
+        "target/compare/test-tools.json",
+        "target/compare-spider",
+        "release",
+        given,
+    )
+    .expect("invariant: the test's arguments parse")
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {

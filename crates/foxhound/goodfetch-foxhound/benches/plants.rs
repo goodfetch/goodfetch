@@ -6,7 +6,7 @@
 //! as long as the benchmark's process.
 #![expect(
     clippy::disallowed_methods,
-    reason = "benchmark harness: a plant blocks the crawl's one thread on its own work, on purpose"
+    reason = "benchmark harness: a plant blocks the crawl's one thread on its own work, on purpose; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 use std::future::Future;
@@ -125,6 +125,13 @@ pub(crate) fn run_state_plant(name: &str, counted: &Counted<'_>) -> Plant {
             let work = counted.work.clone();
             Arc::new(move |_: &str| work.count(Row::AdmissionEvidence))
         }
+        // The Frontier learns on a page's path only where its Run does not
+        // learn behind, which no crawl's Run is: the row's counted seam is
+        // the count alone.
+        "F2.page_learning" => {
+            let work = counted.work.clone();
+            Arc::new(move |_: &str| work.count(Row::PageLearning))
+        }
         "F2.configuration_reads" => {
             let (runtime, folder) = beside_the_crawl();
             let version = ProductVersion::parse("1.4.0").expect("invariant: a literal version");
@@ -185,6 +192,7 @@ pub(crate) fn run_state_plant(name: &str, counted: &Counted<'_>) -> Plant {
 const PLANTED_POLITENESS: PolitenessTables = PolitenessTables {
     name: "planted",
     statements: &["CREATE TABLE IF NOT EXISTS planted (value INTEGER NOT NULL) STRICT"],
+    prepared: &[],
 };
 
 /// A Politeness file of its own, in memory, counting on `work`, opened before

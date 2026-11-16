@@ -137,7 +137,8 @@ struct Row {
     /// families is counted on the one its entry names (`E5.file_opens`, on
     /// B1), or has an entry for each, which holds each family's count to
     /// that family's own figure (`F1.analysis_handoffs` and `F1.parses`, on
-    /// B1 and B4).
+    /// B1 and B4), or to one cell's where the register names it
+    /// (`F1.tree_copies` in B4's `single_attempt`).
     family: &'static str,
     /// The key of the units of the outcome that does the work, in its
     /// benchmark's line.
@@ -186,7 +187,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 119] = [
+const ROWS: [Row; 129] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -265,6 +266,9 @@ const ROWS: [Row; 119] = [
     // A code-free crawl that asks for a format reads it in its page's one
     // hand-off, on a copy of the tree its untouched readers parsed (#2189).
     b4("F1.parses", "pages", true),
+    // The read ahead's copy for the landmarks fallback, once a page, and
+    // twice in `single_attempt`, a cell the register names (#2639).
+    b4("F1.tree_copies", "pages", true),
     b4("F1.rule_list_builds", "pages", true),
     b4("F1.rule_tests", "pages", true),
     // Read as each cell's crawl ended.
@@ -357,6 +361,16 @@ const ROWS: [Row; 119] = [
         happens: false,
         valgrind: None,
     },
+    // The lessons the Frontier learns on a page's path, outside the end of
+    // a batch the writer commits (#2169): none, as a crawl's pages and
+    // admissions note them for that end.
+    Row {
+        name: "F2.page_learning",
+        family: "B1",
+        unit: "pages",
+        happens: false,
+        valgrind: None,
+    },
     // Its unit is the pages of the cell with learning off: none in any
     // other cell, where its count is 0.
     Row {
@@ -408,6 +422,21 @@ const ROWS: [Row; 119] = [
     b1("F3.hop_round_trips", HOPS, true),
     b1("F3.hop_round_trips.end", CHAINS, true),
     b1("F3.in_flight_serializations", ATTEMPTS_ENDED, false),
+    // The read transactions on the run file per lease, at the levels that
+    // batch attempts, within the memory budget (#2169): none, as the Run
+    // state holds every pending work item. Its unit is those cells'
+    // leases, a page's and a sitemap's, none elsewhere.
+    b1("F3.lease_reads", BATCHED_LEASES, false),
+    // The same past the memory budget, from the first page in the cell
+    // whose budget holds no pending work item: at most one a lease (ADR
+    // 0140's F3 contract). Its unit is that cell's leases.
+    b1("F3.lease_reads.spilled", SPILLED_LEASES, false),
+    // The Frontier's state an admission reads from the run file per links
+    // batch, in the same cells as `F3.lease_reads` (#2169): none, as the
+    // crawl's opening read the learned rules and identities, the Bounds'
+    // counts and the trap marks into memory. Its unit is those cells'
+    // links batches, none elsewhere.
+    b1("F3.state_reads", HELD_LINKS_BATCHES, false),
     // What each page more builds, read as `F2.prepares` is: the whole
     // site's run less a run on half its pages, over the pages it adds.
     b1("F3.counted_work_constructions", ADDED_PAGES, false),
@@ -512,21 +541,26 @@ const ROWS: [Row; 119] = [
         happens: false,
         valgrind: None,
     },
+    // 0 in every cell: the writer opens its store and prepares its
+    // statements once a log, which the log's rows count (#1887). Callgrind
+    // reads `E2.prepares` over the entries after the log's first, whose
+    // preparations are the log's.
     Row {
         name: "E2.opens",
         family: "B3",
         unit: "audit_entries",
-        happens: true,
+        happens: false,
         valgrind: None,
     },
     Row {
         name: "E2.prepares",
         family: "B3",
-        unit: "audit_entries",
-        happens: true,
+        unit: "later_audit_entries",
+        happens: false,
         valgrind: None,
     },
-    // 0 in the default cell, where no `audit.retention` is set.
+    // 0 in every cell: no append prunes, the engine pruning as it starts
+    // and once a day (#1887).
     Row {
         name: "E2.prunes",
         family: "B3",
@@ -545,6 +579,29 @@ const ROWS: [Row; 119] = [
         name: "E2.syncs",
         family: "B3",
         unit: "audit_entries",
+        happens: true,
+        valgrind: None,
+    },
+    // The writer's own work, once a log: the store's first open, its
+    // schema set-up's commits and what its first entry prepares (#1887).
+    Row {
+        name: "E2.log_opens",
+        family: "B3",
+        unit: "audit_logs",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.log_transactions",
+        family: "B3",
+        unit: "audit_logs",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E2.log_prepares",
+        family: "B3",
+        unit: "audit_logs",
         happens: true,
         valgrind: None,
     },
@@ -672,6 +729,22 @@ const ROWS: [Row; 119] = [
         happens: false,
         valgrind: None,
     },
+    // The Run's one writer: its start, its trace's folder and each file's
+    // first open, once a Run.
+    Row {
+        name: "E5.run_file_opens",
+        family: "B1",
+        unit: "runs",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "E5.run_spawns",
+        family: "B1",
+        unit: "runs",
+        happens: true,
+        valgrind: None,
+    },
     Row {
         name: "E6.transactions",
         family: "B1",
@@ -702,11 +775,13 @@ const ROWS: [Row; 119] = [
         happens: true,
         valgrind: None,
     },
+    // A Run reads each origin's copy from the Politeness file once, then
+    // keeps its parse (« ok a tous », 2026-11-16).
     Row {
         name: "E6.robots_reads",
         family: "B1",
-        unit: "requests",
-        happens: false,
+        unit: "origins",
+        happens: true,
         valgrind: None,
     },
     // Its unit is the attempts of the cell with Politeness and robots.txt
@@ -1024,6 +1099,19 @@ const PAYLOADS: &str = "payloads";
 
 /// The attempts that ended in it: a page's, and each sitemap's read.
 const ATTEMPTS_ENDED: &str = "attempts_ended";
+
+/// The leases of a cell at a level that batches attempts whose memory
+/// budget holds its pending work items, a page's and a sitemap's: none in
+/// any other cell.
+const BATCHED_LEASES: &str = "batched_leases";
+
+/// The leases of the cell at a level that batches attempts whose memory
+/// budget holds no pending work item: none in any other cell.
+const SPILLED_LEASES: &str = "spilled_leases";
+
+/// The links batches of a cell at a level that batches attempts whose
+/// memory budget holds its pending work items: none in any other cell.
+const HELD_LINKS_BATCHES: &str = "held_links_batches";
 
 const fn b1(name: &'static str, unit: &'static str, happens: bool) -> Row {
     Row {
@@ -1565,12 +1653,14 @@ fn printed_cells(mut command: Command, executable: &Path) -> Result<Vec<Cell>> {
 /// One of the units `unit` names, as a figure's line says it.
 fn one_of(unit: &str) -> &str {
     match unit {
-        LINKS_BATCHES => "links batch",
+        LINKS_BATCHES | HELD_LINKS_BATCHES => "links batch",
         "audit_entries" => "audit_entry",
+        "later_audit_entries" => "later_audit_entry",
         "entries" => "entry",
         "batched_pages" | "full_pages" | CALLGRIND_PAGES => "page",
         ADDED_PAGES => "page added",
         ATTEMPTS_ENDED => "attempt",
+        BATCHED_LEASES | SPILLED_LEASES => "lease",
         CALLGRIND_CRAWLS => "crawl",
         unit => unit.trim_end_matches('s'),
     }
@@ -1584,9 +1674,9 @@ fn verdict(
 ) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
     for row in rows {
-        let limit = register::limit(limits, row.name, row.family)
-            .with_context(|| format!("the Quality register has no row {}", row.name))?;
         for cell in cells {
+            let limit = register::limit(limits, row.name, row.family, &cell.name)
+                .with_context(|| format!("the Quality register has no row {}", row.name))?;
             let (Some(count), Some(units)) = (cell.counts.get(row.name), cell.units.get(row.unit))
             else {
                 findings.push(Finding::new(

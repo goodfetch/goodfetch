@@ -3,18 +3,26 @@
 //! a plant of one extra unit shows in the count. Its figures against the
 //! register's limits are `xtask counts`', and `--prove` runs the plant
 //! through it.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 #[path = "../../benches/session.rs"]
 mod session;
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use goodfetch_counted_work::Row;
 use goodfetch_engine::metrics::Metrics;
+use goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
+use goodfetch_protocol::page::BROWSER_CDP_COMMAND_LOG;
+use goodfetch_test_client::HomeLayout;
 use rstest::rstest;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
-use session::{Browsers, Counted, READ_ROWS, counted, counting, page_check};
+use session::{Browsers, Counted, READ_ROWS, RUN, counted, counting, page_check};
 
 fn run(planted: Option<Row>) -> Counted {
     run_with(Map::new(), planted)
@@ -26,9 +34,40 @@ fn run_with(settings: Map<String, Value>, planted: Option<Row>) -> Counted {
 
 fn run_in(browsers: Browsers, settings: Map<String, Value>, planted: Option<Row>) -> Counted {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    run_at(home.path(), browsers, settings, planted)
+}
+
+fn run_at(
+    home: &Path,
+    browsers: Browsers,
+    settings: Map<String, Value>,
+    planted: Option<Row>,
+) -> Counted {
     let metrics = Metrics::none();
     let plant = planted.map(|row| counting(metrics.counted_work(), row));
-    counted(browsers, home.path(), metrics, settings, plant)
+    counted(browsers, home, metrics, settings, plant)
+}
+
+/// The methods the Run trace's CDP command log of the Run in `home` holds,
+/// in order; `None` when its file was never written.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a Run trace file read once its engine ended"
+)]
+fn logged_methods(home: &Path) -> Option<Vec<String>> {
+    let file = HomeLayout::of(home).run_trace(RUN, RUN_TRACE_CDP_COMMANDS);
+    let text = std::fs::read_to_string(file).ok()?;
+    Some(
+        text.lines()
+            .map(|line| {
+                let line: Value = serde_json::from_str(line).expect("a line is JSON");
+                line["method"]
+                    .as_str()
+                    .expect("a line names its method")
+                    .to_owned()
+            })
+            .collect(),
+    )
 }
 
 /// The rows of a navigation's judgement (C4), each one's count.
@@ -42,8 +81,8 @@ fn judged(work: &goodfetch_counted_work::CountedWork) -> [u64; 4] {
     .map(|row| work.read(row))
 }
 
-/// Every command costs the encode of its frame, one send and one send to the
-/// command log's writer, which keeps its file open once per batch at most; a
+/// Every command costs the encode of its frame and one send, and with the CDP
+/// command log off, its default, nothing goes to the Run trace's writer; a
 /// typed command's params serialized first are an encode of their own (X21);
 /// the page a Borrowed browser opens walks no memory, as the pool never
 /// measures it.
@@ -63,13 +102,9 @@ fn a_session_counts_each_commands_work() {
         "{encodes} encodes over {commands} commands"
     );
     assert_eq!(work.read(Row::CdpSends), commands);
-    assert_eq!(work.read(Row::CdpLogSendsOff), commands);
+    assert_eq!(work.read(Row::CdpLogSendsOff), 0);
     assert_eq!((pages_opened, work.read(Row::PoolWalks)), (1, 0));
-    let opens = work.read(Row::CdpFileOpens);
-    assert!(
-        opens > 0 && opens <= 2 * commands,
-        "{opens} opens over {commands} commands"
-    );
+    assert_eq!(work.read(Row::CdpFileOpens), 0);
 }
 
 /// On each of the two documents with actions, a click, a fill and a press
@@ -105,16 +140,59 @@ fn a_sessions_actions_count_each_check_and_their_commands_by_kind() {
 }
 
 /// A plant adds one unit of its row per command, which takes the row past
-/// its limit: one over the exact rows, and past two for the writer's opens.
+/// its limit.
 #[rstest]
 #[case::sends(Row::CdpSends, 2)]
-#[case::log_sends(Row::CdpLogSendsOff, 2)]
+#[case::log_sends(Row::CdpLogSendsOff, 1)]
+#[case::file_opens(Row::CdpFileOpens, 1)]
 /// A page's walk is planted per command, at least one per page opened.
 #[case::pool_walks(Row::PoolWalks, 1)]
 fn a_planted_unit_adds_one_a_command(#[case] row: Row, #[case] per_command: u64) {
     let Counted { commands, work, .. } = run(Some(row));
 
     assert_eq!(work.read(row), per_command * commands, "{}", row.name());
+}
+
+/// With `browser.cdp_command_log` off, its default, no command's method goes
+/// to the Run trace's writer and the log's file is never written, however
+/// many browsers the Run launches and closes.
+/// Covers: setting:browser.cdp_command_log
+#[test]
+fn the_command_log_off_writes_no_file() {
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+
+    let Counted { commands, work, .. } = run_at(home.path(), Browsers::Pool, Map::new(), None);
+
+    assert!(commands > 0, "the Session sent no command");
+    assert_eq!(
+        (work.read(Row::CdpLogSendsOff), logged_methods(home.path())),
+        (0, None)
+    );
+}
+
+/// With `browser.cdp_command_log` on, every command the Run's browsers read
+/// is on file by its method, each launched browser's `Browser.close`
+/// included, as each is sent to its writer once.
+/// Covers: setting:browser.cdp_command_log
+#[test]
+fn the_command_log_on_holds_every_commands_method() {
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    let settings = Map::from_iter([(BROWSER_CDP_COMMAND_LOG.name.to_owned(), json!(true))]);
+
+    let Counted { commands, work, .. } = run_at(home.path(), Browsers::Pool, settings, None);
+
+    let methods = logged_methods(home.path()).expect("the command log is written");
+    assert_eq!(
+        (
+            work.read(Row::CdpLogSendsOff),
+            u64::try_from(methods.len()).expect("invariant: a few lines"),
+        ),
+        (commands, commands)
+    );
+    assert!(
+        methods.iter().any(|method| method == "Browser.close"),
+        "{methods:?}"
+    );
 }
 
 /// A planted encode adds one a command to the encodes the Session counts.
@@ -127,17 +205,6 @@ fn a_planted_encode_adds_one_a_command() {
     assert_eq!(
         planted.work.read(Row::CdpEncodes) - unplanted.work.read(Row::CdpEncodes),
         planted.commands
-    );
-}
-
-#[test]
-fn a_planted_file_open_takes_the_row_past_two_a_command() {
-    let Counted { commands, work, .. } = run(Some(Row::CdpFileOpens));
-
-    assert!(
-        work.read(Row::CdpFileOpens) > 2 * commands,
-        "{} opens over {commands} commands",
-        work.read(Row::CdpFileOpens)
     );
 }
 
@@ -230,7 +297,7 @@ fn a_planted_unit_adds_one_a_command_to_an_actions_row(#[case] row: Row) {
 /// each answer to it is a `Fetch` message, as is the page's `Fetch.enable`;
 /// each request leaving is matched once against the Filter lists, which are
 /// on by default; each refusal spawns one task, which sends one entry to the
-/// request log, whose folder and file it opens; nothing is compiled.
+/// Run trace's writer, which opens no file for it; nothing is compiled.
 #[test]
 fn a_session_counts_each_intercepted_requests_work() {
     let Counted {
@@ -256,15 +323,7 @@ fn a_session_counts_each_intercepted_requests_work() {
             Row::InterceptedCompilations,
         ]
         .map(|row| work.read(row)),
-        [
-            2 * paused + 1,
-            paused,
-            requests,
-            refused,
-            refused,
-            2 * refused,
-            0
-        ]
+        [2 * paused + 1, paused, requests, refused, refused, 0, 0]
     );
 }
 

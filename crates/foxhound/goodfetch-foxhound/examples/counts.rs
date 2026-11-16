@@ -62,6 +62,21 @@
 //! a duplicate: `F2.batches` is the batches the writer sealed before their
 //! pages or their interval, less one for each such call, per Run.
 //!
+//! `F3.lease_reads` divides by the leases, a page's and a sitemap's, of the
+//! cells at a level that batches attempts whose memory budget holds their
+//! pending work items, the unit `batched_leases`, and
+//! `F3.lease_reads.spilled` by those of the cell `memory_budget_0`, whose
+//! budget holds none, `spilled_leases` (#2169). The cell
+//! `memory_budget_1mib` runs at the test budget of 1 MiB, which the site
+//! fits in.
+//!
+//! `F3.state_reads` divides by the links batches of the same cells within
+//! their budget, the unit `held_links_batches`: once the crawl opened, an
+//! admission reads none of the Frontier's state from the run file (#2169).
+//! The cell `bounded` sets `crawl.max_requests` and a path budget, far
+//! above the site, at 16 requests at once, so the row holds the Bounds'
+//! counts too, with several attempts' staged pages in flight.
+//!
 //! `F3.hop_round_trips.end` divides by the redirected chains that ended on
 //! their document, the unit `chains`: the site's redirects are one hop
 //! each, so its chains are its hops.
@@ -86,9 +101,10 @@
 //! holds E3's rows. The other cells meet none, so the ledger's prepares stay
 //! out of the run-state cells' `F2.prepares`.
 //!
-//! The Run-trace rows count per entry: each cell prints, beside its pages,
-//! the entries its Run trace holds, read from the trace's files once its
-//! engine stopped, and fails if it wrote none.
+//! The Run-trace rows count per entry, and its writer's start and opens per
+//! Run: each cell prints, beside its pages, the entries its Run trace holds,
+//! read from the trace's files once its engine stopped, and fails if it
+//! wrote none.
 //!
 //! The site serves its robots.txt (E6). `E6.opens` is the Politeness file's
 //! opens after the first page and the statements Callgrind sees prepared
@@ -185,6 +201,9 @@ fn plant(name: &str, work: &CountedWork, vfs: &str) -> Plant {
     }
     if name.starts_with("E6.") {
         return politeness_plant(name, work);
+    }
+    if name == LEASE_READS_SPILLED {
+        return counting(work.clone(), Row::LeaseReads);
     }
     if name == CONSTRUCTIONS {
         return Arc::new(|_: &str| {
@@ -304,6 +323,21 @@ const SYNCS: &str = "F2.syncs";
 const PAGE_WAITS: &str = "F2.page_waits";
 const PAGE_WAITS_FULL: &str = "F2.page_waits.full";
 
+/// The Run state's read transactions on the run file per lease, held at
+/// the levels that batch attempts, within the memory budget (#2169): none
+/// counts in the other cells, whose leases read their rows.
+const LEASE_READS: &str = "F3.lease_reads";
+
+/// The same past the memory budget, in the cell whose budget holds no
+/// pending work item ([`MEMORY_BUDGET_0`]): at most one a lease (ADR
+/// 0140's F3 contract), from the first page.
+const LEASE_READS_SPILLED: &str = "F3.lease_reads.spilled";
+
+/// The Frontier's state an admission reads from the run file per links
+/// batch, held at the levels that batch attempts, within the memory budget
+/// (#2169): none counts in the other cells, whose admissions read it.
+const STATE_READS: &str = "F3.state_reads";
+
 /// The batches the writer sealed before their plan, less the one each of
 /// the crawl's [`BARRIER_CALLS`] may write: what is left is the Run's own,
 /// at most its start's and its end's.
@@ -352,7 +386,7 @@ enum Watched<'a> {
 )]
 fn bypass(bypass: &str, home: &Path, work: &CountedWork, vfs: &str) -> Plant {
     let folder = home.join("bypass").join("trace");
-    work.create_dir_all(Row::RunTraceFileOpens, &folder)
+    work.create_dir_all(Row::RunTraceRunFileOpens, &folder)
         .expect("invariant: the bypass's Run trace is created");
     match bypass {
         "open" => Arc::new(move |_: &str| {
@@ -473,6 +507,48 @@ fn durability(name: &'static str, level: &str, removes_syncs: bool) -> Cell {
     }
 }
 
+/// The cell whose memory budget holds nothing: every lease reads the run
+/// file, counted on [`LEASE_READS_SPILLED`] and not on [`LEASE_READS`].
+const MEMORY_BUDGET_0: &str = "memory_budget_0";
+
+/// The cell `name` at `run_state.memory.budget: budget` (#2169), with the
+/// Frontier's outcomes beyond a links batch, as the default cell meets
+/// them.
+fn memory_budget(name: &'static str, budget: u64) -> Cell {
+    Cell {
+        name,
+        settings: scoped(json!({ "run_state": { "memory": { "budget": budget } } })),
+        frontier: FRONTIER,
+        removes: &[],
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
+
+/// The cell whose crawl `crawl.max_requests` and a path budget bound, each
+/// at [`BOUND`] requests, at 16 requests at once (#2169).
+fn bounded() -> Cell {
+    let mut settings = scoped(json!({
+        "politeness": { "domain": { "delay": 0, "concurrency": 16 } },
+    }));
+    settings["crawl"]["max_requests"] = json!(BOUND);
+    settings["crawl"]["path_budgets"] = json!([{ "pattern": "/**", "max_requests": BOUND }]);
+    Cell {
+        name: "bounded",
+        settings,
+        frontier: FRONTIER,
+        removes: &[],
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
+
+/// The bound of the cell `bounded`, far above the site's requests: it
+/// refuses none, so the cell crawls the default cell's site.
+const BOUND: u64 = 1_000;
+
 /// The cell with `frontier.learning` off, on the site of
 /// [`VARYING_PARAMETER`]: its admissions read and write no evidence
 /// ([`LEARNING_OFF_EVIDENCE`], #2169).
@@ -517,7 +593,7 @@ fn switched_off() -> [Cell; 4] {
             name: "provenance_off",
             settings: scoped(json!({ "provenance": { "log": false } })),
             frontier: FRONTIER,
-            removes: &[Row::RunTraceSpawns, Row::RunTraceFileOpens],
+            removes: &[Row::RunTraceRunSpawns, Row::RunTraceRunFileOpens],
             removes_syncs: false,
             handler: false,
             limit: false,
@@ -657,6 +733,12 @@ fn cells() -> Vec<Cell> {
         // `durability_fast`.
         durability("durability_full", "full", false),
         durability("durability_off", "off", true),
+        // ADR 0140's F3 rows at the test budget of 1 MiB, which the
+        // fixture's crawl fits in as at the default, and at 0, where it
+        // fits in none from the first page (#2169).
+        memory_budget("memory_budget_1mib", 1 << 20),
+        memory_budget(MEMORY_BUDGET_0, 0),
+        bounded(),
         // robots.txt off reads and parses no robots.txt (#1919), and with
         // the fixture's delay of 0 waits out no Crawl-delay, so neither cell
         // paces its domains: admission consults no Politeness store and
@@ -748,6 +830,11 @@ impl Counted {
             .position(|counted| *counted == row)
             .map_or(0, |at| self.started.get().map_or(0, |started| started[at]));
         self.work.read(row) - before
+    }
+
+    /// Whether its memory budget holds no pending work item.
+    fn spills(&self) -> bool {
+        self.name == MEMORY_BUDGET_0
     }
 }
 
@@ -1280,6 +1367,7 @@ fn main() {
         let off = cell.name == OFF_CELL;
         let batched = matches!(cell.level, DURABILITY_BATCH | DURABILITY_OFF);
         let full = cell.level == DURABILITY_FULL;
+        let leases = cell.attempts + cell.sitemaps;
         let units = json!({
             "pages": cell.pages,
             "added_pages": cell.added_pages,
@@ -1302,6 +1390,13 @@ fn main() {
             "off_attempts": if off { cell.attempts } else { 0 },
             "learning_off_pages": if cell.name == LEARNING_OFF { cell.pages } else { 0 },
             "batched_pages": if batched { cell.pages } else { 0 },
+            "batched_leases": if batched && !cell.spills() { leases } else { 0 },
+            "spilled_leases": if batched && cell.spills() { leases } else { 0 },
+            "held_links_batches": if batched && !cell.spills() && !cell.handler {
+                cell.pages
+            } else {
+                0
+            },
             "full_pages": if full { cell.pages } else { 0 },
         });
         println!(
@@ -1357,6 +1452,32 @@ fn counts_of(cell: &Counted) -> Map<String, Value> {
     counts.insert(
         PAGE_WAITS_FULL.to_owned(),
         json!(if full { page_waits } else { 0 }),
+    );
+    let lease_reads = cell.count(Row::LeaseReads);
+    counts.insert(
+        LEASE_READS.to_owned(),
+        json!(if batched && !cell.spills() {
+            lease_reads
+        } else {
+            0
+        }),
+    );
+    counts.insert(
+        LEASE_READS_SPILLED.to_owned(),
+        json!(if batched && cell.spills() {
+            lease_reads
+        } else {
+            0
+        }),
+    );
+    let state_reads = cell.count(Row::StateReads);
+    counts.insert(
+        STATE_READS.to_owned(),
+        json!(if batched && !cell.spills() {
+            state_reads
+        } else {
+            0
+        }),
     );
     let early = cell.count(Row::RunBatches);
     counts.insert(

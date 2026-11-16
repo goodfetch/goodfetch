@@ -8,7 +8,7 @@
 )]
 #![expect(
     clippy::disallowed_methods,
-    reason = "tests run on the test Clock and Entropy (ADR 0059)"
+    reason = "tests run on the test Clock and Entropy (ADR 0059); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
 mod call_input;
@@ -309,7 +309,28 @@ where
     F: FnOnce(Client) -> Fut,
     Fut: Future<Output = T>,
 {
-    goodfetch_test_support::runtime().block_on(async {
+    attached_on_runtime(
+        &goodfetch_test_support::runtime(),
+        engine,
+        dependencies,
+        client,
+    )
+}
+
+/// [`attached_with`], on `runtime`, such as one whose blocking threads a
+/// test bounds.
+fn attached_on_runtime<D, F, Fut, T>(
+    runtime: &tokio::runtime::Runtime,
+    engine: &Engine,
+    dependencies: D,
+    client: F,
+) -> T
+where
+    D: FnOnce() -> Dependencies,
+    F: FnOnce(Client) -> Fut,
+    Fut: Future<Output = T>,
+{
+    runtime.block_on(async {
         let dependencies = dependencies();
         let clock = dependencies.clock;
         let unset = tracing::dispatcher::get_default(

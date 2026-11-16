@@ -143,7 +143,9 @@ pub(crate) fn unpack(checkpoint: &Connection, folder: &Path) -> Result<(), Carry
 /// SQLite's.
 pub(crate) fn drop_chunks(connection: &Connection) -> rusqlite::Result<()> {
     if has_table(connection, "run_file_chunks")? {
-        crate::sqlite_store::run_cached(connection, "DELETE FROM run_file_chunks")?;
+        connection
+            .prepare_cached("DELETE FROM run_file_chunks")?
+            .execute([])?;
     }
     Ok(())
 }

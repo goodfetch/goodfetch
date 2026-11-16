@@ -5,15 +5,23 @@
 //! two each, the shape fair admission exists for (ADR 0004); every request
 //! is enqueued, admitted in round-robin turns and ended.
 
+#![expect(
+    clippy::disallowed_types,
+    reason = "the scenario's count of acknowledged commits, which memory reads on the one thread it runs: there is no lock order for loom to test"
+)]
+
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use goodfetch_engine::admission::{Ended, Gate, Waiting};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::entropy::Entropy;
+use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run_state::PAGE_CACHE_KIB;
 use goodfetch_frontier::{
     Admitting, BOUNDS_TABLES, Bounds, Candidate, Declared, DomainKeys, DomainQueues, Invariants,
-    Narrowing, SCOPE_TABLES, Scope, Staged, Url, VISITED_TABLES, admit, admit_in, url_key,
+    Narrowing, SCOPE_TABLES, Scope, SharedBudget, Staged, Url, VISITED_TABLES, admit, admit_in,
+    url_key,
 };
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
 use rusqlite::Connection;
@@ -217,12 +225,17 @@ fn synthetic(link: usize, into: &mut String) {
 }
 
 /// Admits [`SEED`] into a run file on disk, opened as a crawl's is (WAL,
-/// `run_state.durability = fast`, the writer's bounded page cache), then
-/// `urls` synthetic links found on it, each written in turn into one
-/// reused buffer, so the scenario holds no URL itself; answers how many
-/// were added, the seed included. Its heap is the Frontier's: the page
-/// cache over an exact visited set on disk (ADR 0134).
-pub(crate) fn enqueue(urls: usize) -> usize {
+/// unsynced between batches, the writer's bounded page cache), then `urls`
+/// synthetic links found on it, each written in turn into one reused
+/// buffer, so the scenario holds no URL itself, in batches of [`BATCH`];
+/// answers how many were added, the seed included. Its heap is the
+/// Frontier's: the page cache over an exact visited set on disk (ADR 0134),
+/// and, with a `budget`, the visits memory holds within it beside the
+/// file, as the default Durability level, `batch`, holds them (ADR 0142):
+/// memory reads the empty file as the crawl opens, and each batch is
+/// acknowledged once committed. With none, memory holds nothing, as at
+/// the levels that write each attempt as a batch of its own.
+pub(crate) fn enqueue(urls: usize, budget: Option<u64>) -> usize {
     let folder = tempfile::tempdir().expect("invariant: a temporary folder is created");
     let mut connection = Connection::open(folder.path().join("run.sqlite"))
         .expect("invariant: SQLite opens a run file in a new folder");
@@ -241,6 +254,18 @@ pub(crate) fn enqueue(urls: usize) -> usize {
         .expect("invariant: the run file takes its page cache");
     create_tables(&connection);
     let invariants = unbounded();
+    let commits = Arc::new(AtomicU64::new(0));
+    if let Some(bytes) = budget {
+        let acknowledged = Arc::clone(&commits);
+        invariants.hold_unwritten(
+            SharedBudget::new(bytes),
+            move || acknowledged.load(Ordering::SeqCst),
+            &Metrics::none(),
+        );
+        invariants
+            .fill_memory(&connection)
+            .expect("invariant: memory reads the new run file");
+    }
     let policy =
         Policy::new(&["*"], &[] as &[&str]).expect("invariant: the default domain policy reads");
     let get = HttpMethod::get();
@@ -265,6 +290,7 @@ pub(crate) fn enqueue(urls: usize) -> usize {
         },
     };
     admit_one(&connection, seed);
+    commits.fetch_add(1, Ordering::SeqCst);
     let mut link = String::new();
     for batch in (0..urls).step_by(BATCH) {
         let transaction = connection
@@ -286,6 +312,7 @@ pub(crate) fn enqueue(urls: usize) -> usize {
         transaction
             .commit()
             .expect("invariant: the run file commits a batch");
+        commits.fetch_add(1, Ordering::SeqCst);
     }
     added
 }

@@ -20,6 +20,9 @@ Until M1's optimization pass, a figure past its threshold or over its ceiling is
 | Benchmark or entry | Figure | Head | Ceiling | Verdict |
 |---|---|---:|---:|---|
 | goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls | heap-bytes-per-url | — | ≤ 8 bytes | not run yet |
+| goodfetch-frontier/heap::frontier::grow/million_urls | heap-bytes-per-url | — | ≤ 8 bytes | not run yet |
+| goodfetch-frontier/heap::frontier::hold/hundred_thousand_urls | heap-bytes-per-url | — | ≤ 95 bytes | not run yet |
+| goodfetch-frontier/heap::frontier::spill/million_urls | heap-percent-of-budget | — | ≤ 110% of 67108864 bytes | not run yet |
 | goodfetch-foxhound/heap::crawl::in_memory_pages | bytes-per-body-byte | — | ≤ 2× | not run yet |
 
 A "Performance change" section never passes a ceiling; only the owner moves one (ADR 0134).

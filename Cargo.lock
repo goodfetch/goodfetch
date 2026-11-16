@@ -2717,6 +2717,7 @@ dependencies = [
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "gungraun",
+ "hashbrown 0.17.1",
  "jsonschema",
  "moka",
  "proptest",

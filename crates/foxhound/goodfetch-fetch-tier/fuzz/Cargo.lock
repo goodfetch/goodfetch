@@ -1671,6 +1671,7 @@ dependencies = [
  "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-workspace-hack",
+ "hashbrown",
  "jsonschema",
  "moka",
  "psl",

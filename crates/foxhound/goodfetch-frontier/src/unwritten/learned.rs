@@ -18,10 +18,9 @@
 //! reads the file again. At a budget of 0 memory holds none the file
 //! holds, and each lookup reads the file.
 
-use std::sync::Arc;
-
 use rusqlite::{Connection, Rows};
 
+use super::entries::{Before, State};
 use super::{Held, Holding, Space, Whole};
 
 /// The statement memory reads every learned identity with, named in the
@@ -56,8 +55,8 @@ impl Holding<'_> {
             self.reads_state();
             return read();
         }
-        if let Some((rule, visit)) = held.learned.get(identity) {
-            return Ok(Some((*rule, String::from(&*visit.crawl_request))));
+        if let Some((rule, crawl_request, _)) = held.entries.learned(identity) {
+            return Ok(Some((rule, String::from(crawl_request))));
         }
         if held.every_learned.holds() {
             return Ok(None);
@@ -71,11 +70,13 @@ impl Holding<'_> {
     /// while the file may not hold it: a writer job noted it in a batch
     /// not committed yet, or a chain's end holds it.
     pub(crate) fn learned(&self, identity: &str) -> Option<(i64, &str)> {
+        // Memory moved each one the file holds by now out of the written
+        // queue as it was locked.
         self.held
-            .learned
-            .get(identity)
-            .filter(|(_, visit)| visit.written.is_none_or(|tag| tag >= self.committed))
-            .map(|(rule, visit)| (*rule, &*visit.crawl_request))
+            .entries
+            .learned(identity)
+            .filter(|&(_, _, state)| matches!(state, State::Pending | State::Written))
+            .map(|(rule, crawl_request, _)| (rule, crawl_request))
     }
 
     /// Whether memory read the learned identities the file holds.
@@ -110,14 +111,14 @@ impl Holding<'_> {
                     .any(|(low, high)| identity >= low.as_str() && identity < high.as_str())
             })
         };
-        let dropped: Vec<Arc<str>> = held
-            .learned
-            .iter()
-            .filter(|(identity, (_, visit))| visit.written.is_some() && inside(identity))
-            .map(|(identity, _)| Arc::clone(identity))
+        let dropped: Vec<_> = held
+            .entries
+            .every_learned()
+            .filter(|&(_, identity, state)| state != State::Pending && inside(identity))
+            .map(|(id, _, _)| id)
             .collect();
-        for identity in dropped {
-            held.remove(Space::Learned, &identity);
+        for id in dropped {
+            held.entries.remove(id);
         }
         self.visits.reads_state(self.admitting);
         let whole = match within {
@@ -165,25 +166,22 @@ impl Held {
             let crawl_request = row.get_ref(2)?.as_str()?;
             // Held as a chain's pending end, the file holds it: it is the
             // file's from now on.
-            self.remove(Space::Learned, identity);
-            let identity: Arc<str> = identity.into();
-            self.insert(Space::Learned, (&identity, rule), crawl_request, Some(tag));
-            self.written
-                .push_back((tag, Space::Learned, Arc::clone(&identity)));
-            if self
-                .entries
-                .saturating_add(self.kept())
-                .saturating_add(self.least(0))
-                > self.budget.room()
-            {
-                self.written.pop_back();
-                self.remove(Space::Learned, &identity);
+            if let Some(id) = self.entries.find(Space::Learned, identity) {
+                self.entries.remove(id);
+            }
+            let id = self.insert(
+                Space::Learned,
+                (identity, rule),
+                crawl_request,
+                State::Unplaced,
+            );
+            self.entries.push_written(id, tag);
+            if self.past(0) {
+                self.entries.pop_written();
+                self.entries.remove(id);
                 return Ok(false);
             }
-            self.journal
-                .under(tag)
-                .changes
-                .push((Space::Learned, identity, None));
+            self.journal.under(tag).changes.push((id, Before::Absent));
         }
         Ok(true)
     }

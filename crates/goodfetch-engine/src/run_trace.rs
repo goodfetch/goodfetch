@@ -24,19 +24,28 @@
 //! Run's `security.redaction` is off.
 //!
 //! The writer is an actor of the Run's owner, started at the Run's first
-//! entry. It holds one buffered handle per file, its folder created and the
-//! file opened at that file's first entry, the Run's work, once, counted on
-//! `E5.file_opens`: an entry creates no folder, opens no file and spawns no
-//! task. It writes what its mailbox held at once, each file's lines in one
-//! `write` with no sync, and its buffer past 64 KiB; an awaited entry
-//! returns once its line is written, so a read straight after the Call that
-//! wrote it sees it and a process killed then has written it. The Run's end
-//! stops the writer once it wrote what its mailbox held.
+//! entry, the Run's work, once, counted on `E5.run_spawns`. It holds one
+//! buffered handle per file, its folder created and the file opened at that
+//! file's first entry, the Run's work too, counted on `E5.run_file_opens`: an
+//! entry creates no folder, opens no file and spawns no task, unless it
+//! creates again a folder whose creation failed, opens again a file that
+//! failed at its open or a write, or starts again a writer whose start
+//! failed, each counted on `E5.file_opens` or `E5.spawns`. It writes what
+//! its mailbox held at once, each file's lines in one `write` with no sync,
+//! and its buffer past 64 KiB; an awaited entry returns once its line is
+//! written, so a read straight after the Call that wrote it sees it and a
+//! process killed then has written it. The Run's end stops the writer once
+//! it wrote what its mailbox held.
+#![expect(
+    clippy::disallowed_types,
+    reason = "`tried` is a flag set and read only inside `get_or_try_init`'s one start at a time, never across an `.await` or a lock, so there is no interleaving for loom to test (ADR 0060)"
+)]
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Event;
@@ -76,6 +85,9 @@ struct Trace {
     logs_provenance: bool,
     /// The writer's mailbox, once the Run's first entry started it.
     writer: OnceCell<mpsc::Sender<Entry>>,
+    /// Whether an entry tried to start the writer: the first try is the
+    /// Run's, and one after it failed is the entry's that tries again.
+    tried: AtomicBool,
 }
 
 /// One line the writer appends to `log`, and who waits for it, if anyone.
@@ -147,11 +159,13 @@ impl RunTrace {
             work,
             logs_provenance,
             writer: OnceCell::new(),
+            tried: AtomicBool::new(false),
         }))
     }
 
     /// Starts the writer, unless an entry already did: the Run's work, once,
-    /// counted on `E5.spawns`.
+    /// counted on `E5.run_spawns`, and an entry's on `E5.spawns` when it
+    /// tries again after a start failed.
     ///
     /// # Errors
     ///
@@ -166,7 +180,13 @@ impl RunTrace {
             .get_or_try_init(|| async {
                 let (entries, mailbox) = mpsc::channel(QUEUE);
                 let mut files = Files::new(&self.0.folder, self.0.work.clone());
-                self.0.work.count(Row::RunTraceSpawns);
+                // `get_or_try_init` runs one start at a time.
+                let again = self.0.tried.swap(true, Ordering::Relaxed);
+                self.0.work.count(if again {
+                    Row::RunTraceSpawns
+                } else {
+                    Row::RunTraceRunSpawns
+                });
                 self.0
                     .owner
                     .actor("run trace", mailbox, move |group| files.write(group))?;
@@ -342,6 +362,10 @@ struct Files {
     work: CountedWork,
     /// Whether the trace's folder was created.
     made: bool,
+    /// Whether its creation was tried.
+    folder_tried: bool,
+    /// Whether each file's open was tried.
+    file_tried: [bool; Log::COUNT],
     held: [Option<BufWriter<File>>; Log::COUNT],
 }
 
@@ -351,6 +375,8 @@ impl Files {
             folder: run_folder.to_owned(),
             work,
             made: false,
+            folder_tried: false,
+            file_tried: [false; Log::COUNT],
             held: [const { None }; Log::COUNT],
         }
     }
@@ -405,7 +431,8 @@ impl Files {
 
     /// Appends `line` to `log`'s buffer, opening its file and creating the
     /// trace's folder first when no entry has: the Run's work, once each,
-    /// counted on `E5.file_opens`.
+    /// counted on `E5.run_file_opens`, and the entry's on `E5.file_opens`
+    /// when it tries again what failed.
     fn append(&mut self, log: Log, line: &[u8]) -> io::Result<()> {
         let at = log.at();
         if let Some(file) = &mut self.held[at] {
@@ -414,18 +441,31 @@ impl Files {
         let path = self.folder.join(log.file());
         if !self.made {
             if let Some(folder) = path.parent() {
-                self.work.create_dir_all(Row::RunTraceFileOpens, folder)?;
+                self.work
+                    .create_dir_all(opening(&mut self.folder_tried), folder)?;
             }
             self.made = true;
         }
         let file = self.work.open_file(
-            Row::RunTraceFileOpens,
+            opening(&mut self.file_tried[at]),
             OpenOptions::new().create(true).append(true),
             &path,
         )?;
         self.held[at]
             .insert(BufWriter::with_capacity(BUFFER, file))
             .write_all(line)
+    }
+}
+
+/// The row an open or a folder's creation counts on: its first try is the
+/// Run's, on `E5.run_file_opens`, and one after the file or folder failed,
+/// at its open or a write, is the entry's that tries again, on
+/// `E5.file_opens`.
+fn opening(tried: &mut bool) -> Row {
+    if std::mem::replace(tried, true) {
+        Row::RunTraceFileOpens
+    } else {
+        Row::RunTraceRunFileOpens
     }
 }
 

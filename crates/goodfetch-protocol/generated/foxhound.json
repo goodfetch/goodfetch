@@ -15583,6 +15583,8 @@
             "round_trips",
             "rule_list_builds",
             "rule_tests",
+            "run_file_opens",
+            "run_spawns",
             "script_compilations",
             "script_sends",
             "seals",

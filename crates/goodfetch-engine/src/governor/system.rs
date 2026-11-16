@@ -3,8 +3,9 @@
 //! engine and its children and of each browser, the engine's CPU time and
 //! the CPUs it may use. A value, never a global: Linux's readings come from
 //! a folder laid out as `/proc`, the OS's own by default and a test's
-//! otherwise, so every rule is checked on any OS; macOS's and Windows' come
-//! from their C calls. Where Linux keeps the engine's limits, its cgroup, is
+//! otherwise, so every rule is checked on any OS, but for the CPUs the
+//! engine may run on, its affinity, which is always the OS's own; macOS's
+//! and Windows' come from their C calls. Where Linux keeps the engine's limits, its cgroup, is
 //! found once, as the governor starts ([`System::locate`]); each sample
 //! reads each thing once (ADR 0140's E4).
 

@@ -348,12 +348,21 @@ fn a_cgroup_v2_cpu_quota_bounds_the_cpus_and_a_changed_one_is_seen() {
     write(&mount.join("pod.scope/cpu.max"), "150000 100000\n");
     let system = proc.system();
     let cgroup = system.locate();
-    let before = system.read(&cgroup, &inputs(None), &[]).parallelism;
+    let before = (
+        cgroup.cpu_quota(),
+        system.read(&cgroup, &inputs(None), &[]).parallelism,
+    );
 
     write(&mount.join("pod.scope/cpu.max"), "max 100000\n");
-    let after = system.read(&cgroup, &inputs(None), &[]).parallelism;
+    let after = (
+        cgroup.cpu_quota(),
+        system.read(&cgroup, &inputs(None), &[]).parallelism,
+    );
 
-    assert_eq!((before, after), (1, super::cpus::allowed()));
+    assert_eq!(
+        (before, after),
+        ((Some(1), 1), (None, super::cpus::allowed()))
+    );
 }
 
 #[test]
@@ -372,10 +381,12 @@ fn a_cgroup_v1_cpu_quota_bounds_the_cpus() {
     write(&mount.join("docker/abc/cpu.cfs_period_us"), "100000\n");
     write(&mount.join("cpu.cfs_quota_us"), "-1\n");
     write(&mount.join("cpu.cfs_period_us"), "100000\n");
+    let system = proc.system();
+    let cgroup = system.locate();
 
-    let reading = proc.read(None);
+    let reading = system.read(&cgroup, &inputs(None), &[]);
 
-    assert_eq!(reading.parallelism, 1);
+    assert_eq!((cgroup.cpu_quota(), reading.parallelism), (Some(1), 1));
 }
 
 #[test]

@@ -381,7 +381,7 @@ impl Cgroup {
             let mut fields = text.split_whitespace();
             let quota: u64 = fields.next()?.parse().ok()?;
             let period: u64 = fields.next()?.parse().ok()?;
-            (period > 0).then(|| quota / period)
+            cpus_of(quota, period)
         });
         let v1 = self
             .v1_cpu
@@ -394,8 +394,7 @@ impl Cgroup {
                         .parse()
                         .ok()
                 };
-                let (quota, period) = (read("cpu.cfs_quota_us")?, read("cpu.cfs_period_us")?);
-                (period > 0).then(|| quota / period)
+                cpus_of(read("cpu.cfs_quota_us")?, read("cpu.cfs_period_us")?)
             })
             .min();
         [v2, v1]
@@ -404,6 +403,12 @@ impl Cgroup {
             .min()
             .map(|quota| quota.max(1))
     }
+}
+
+/// The whole CPUs a quota of `quota` per `period` gives; none without a
+/// period.
+fn cpus_of(quota: u64, period: u64) -> Option<u64> {
+    (period > 0).then(|| quota / period)
 }
 
 /// The tightest of `file` in `folders`, each read by `parse`; `max`, `-1`

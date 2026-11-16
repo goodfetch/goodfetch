@@ -175,13 +175,14 @@ pub(crate) fn not_measured(mut file: Comparison) -> Result<Vec<CellName>> {
 }
 
 /// The cell `named` names, `<scenario>/<cell>`, such as `browser/foxhound`,
-/// of one of `scenarios`, the scenarios the trials file's run declared.
+/// of one of `scenarios`, the scenarios the run asks for or, in a redo,
+/// those the trials file's run declared.
 pub(crate) fn named(named: &str, scenarios: &[Scenario]) -> Result<CellName> {
     let Some((scenario, cell)) = named.split_once('/') else {
         bail!("`{named}` names no cell: name one as <scenario>/<cell>, such as browser/foxhound");
     };
     let Some(&scenario) = scenarios.iter().find(|asked| asked.name() == scenario) else {
-        bail!("the trials file's run asked for no scenario `{scenario}`");
+        bail!("the run asked for no scenario `{scenario}`");
     };
     of_matrix(scenario, cell)
 }

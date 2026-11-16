@@ -56,6 +56,8 @@ fn the_rerun_command_reads_back_as_the_words_it_gives() {
         "Hetzner Cloud CCX43, 16 dedicated vCPUs",
         "--foxhound-setting",
         "governor.worker_threads = \"per_core\"",
+        "--cell",
+        "browser/foxhound",
         "--browser",
         "/opt/chrome's build",
     ];

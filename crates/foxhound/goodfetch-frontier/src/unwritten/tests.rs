@@ -822,6 +822,27 @@ fn a_staged_request_another_admission_adds_meanwhile_counts_once() {
     );
 }
 
+/// While memory holds every visit the file holds, an attempt's staged call
+/// answers a URL its own earlier admission visited a duplicate: memory
+/// never holds what a staging visits, so the call's own visits are read
+/// beside it, as its earlier calls' are (#2681).
+#[test]
+fn a_staged_call_answers_a_url_it_admitted_itself_a_duplicate_while_memory_holds_every_visit() {
+    let file = run_file();
+    let commits = Arc::new(AtomicU64::new(0));
+    let invariants = within(1 << 20, &commits);
+    invariants.fill_memory(&file.reader).unwrap();
+
+    file.writer.execute_batch("BEGIN").unwrap();
+    file.writer.execute_batch("SAVEPOINT stage").unwrap();
+    let (_, call) = staged(&file, &invariants, Staged::default(), &["p", "p#top"]);
+    file.writer
+        .execute_batch("ROLLBACK TO stage; RELEASE stage")
+        .unwrap();
+
+    assert_eq!(call, vec!["added".to_owned(), "Duplicate".to_owned()]);
+}
+
 /// The Run's invariants under the scope `strategy`, holding the visits and
 /// seeds its writer has not committed against `commits`, and keeping those
 /// it wrote within `budget` bytes.

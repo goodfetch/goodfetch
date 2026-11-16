@@ -1120,10 +1120,12 @@ export interface CrawlRequestPushParams {
    */
   lease_epoch: number;
   /**
-   * The Records, in the order pushed: a Record's position in this list
-   * is how `record_invalid` names it.
+   * The Records, at least one, in the order pushed: a Record's position
+   * in this list is how `record_invalid` names it.
+   *
+   * @minItems 1
    */
-  records: unknown[];
+  records: [unknown, ...unknown[]];
   /**
    * The crawl's Run.
    */

@@ -65,16 +65,25 @@ fn a_records_check_validates_only_under_a_schema_and_builds_no_validator() {
     assert_eq!(counted(&work), (0, 2));
 }
 
-/// A refused push's rejection names the issues its one check found: the
-/// Record is validated once, refused or not (the audit's F4-1).
+/// A refused push's rejection names the issues its one check found: each
+/// Record of a push is validated once, refused or not (the audit's F4-1),
+/// with no validator built.
 #[test]
-fn a_refused_push_validates_its_record_once() {
+fn a_refused_push_validates_each_of_its_records_once() {
     let work = CountedWork::default();
 
-    let refused = declared().check_pushed("books", vec![json!({})], &work);
+    let refused = declared().check_pushed(
+        "books",
+        vec![
+            json!({ "title": "Emma", "isbn": "1" }),
+            json!({}),
+            json!({ "title": "Kim", "isbn": "3" }),
+        ],
+        &work,
+    );
 
     assert!(refused.is_err());
-    assert_eq!(counted(&work), (0, 1));
+    assert_eq!(counted(&work), (0, 3));
 }
 
 /// A run file no crawl wrote holds no Dataset's table, so it declares no

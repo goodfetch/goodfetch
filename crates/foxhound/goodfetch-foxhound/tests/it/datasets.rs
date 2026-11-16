@@ -122,21 +122,10 @@ fn declared() -> Value {
 /// `ctx.push(dataset, record)` from the attempt `handle` gave: its result,
 /// else its Error code and details, each issue's message left out.
 fn push(inside: &mut Inside<'_>, handle: &Value, dataset: &str, data: &Value) -> Value {
-    push_under(inside, handle, &handle["lease_epoch"], dataset, data)
-}
-
-/// [`push`] naming the lease epoch `lease_epoch`.
-fn push_under(
-    inside: &mut Inside<'_>,
-    handle: &Value,
-    lease_epoch: &Value,
-    dataset: &str,
-    data: &Value,
-) -> Value {
     pushed(
         inside,
         handle,
-        lease_epoch,
+        &handle["lease_epoch"],
         dataset,
         std::slice::from_ref(data),
     )
@@ -202,14 +191,13 @@ fn invalid(dataset: &str, records: &[(u64, &[&str])]) -> Value {
     })
 }
 
-/// How many `crawl_request.push` requests the engine's log `stderr`, at
-/// `trace`, records it dispatched.
-fn pushes_dispatched(stderr: &str) -> usize {
-    stderr
-        .lines()
+/// How many `crawl_request.push` requests the engines `env` started
+/// recorded they dispatched.
+fn pushes_dispatched(env: &TestEnv) -> usize {
+    env.exercise_lines()
+        .iter()
         .filter(|line| {
-            line.contains(&format!("{DISPATCH_TARGET}: "))
-                && line.contains(r#"method="crawl_request.push""#)
+            line["target"] == DISPATCH_TARGET && line["fields"]["method"] == "crawl_request.push"
         })
         .count()
 }
@@ -389,7 +377,7 @@ fn a_push_of_fifty_records_is_one_request_staging_those_that_hold_and_naming_eac
         },
     );
     let read = outcomes(&mut engine, "listed");
-    let (_, stderr) = engine.finish_with_stderr();
+    assert!(engine.finished());
 
     let staged: Vec<Value> = books
         .iter()
@@ -405,7 +393,7 @@ fn a_push_of_fifty_records_is_one_request_staging_those_that_hold_and_naming_eac
         (
             &report["result"]["lifecycle"],
             answer,
-            pushes_dispatched(&stderr),
+            pushes_dispatched(&env),
             committed,
             &read[0]["records"],
         ),
@@ -416,6 +404,38 @@ fn a_push_of_fifty_records_is_one_request_staging_those_that_hold_and_naming_eac
             staged,
             &json!([{ "dataset": "books", "committed": 48, "dropped": 0, "rejected": 2 }]),
         )
+    );
+}
+
+/// A push of no Record is refused with `invalid_params`, and the crawl
+/// still finishes.
+///
+/// Covers: story:6-267, operation:crawl_request.push
+#[test]
+fn a_push_of_no_record_is_refused_as_invalid_params() {
+    let env = TestEnv::new();
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+
+    let mut answer = Value::Null;
+    let report = crawl_from(
+        &mut engine,
+        &json!({
+            "run_id": "empty",
+            "seeds": [{ "url": site.page("/book"), "label": "page" }],
+            "datasets": declared(),
+        }),
+        &mut |inside, handle| {
+            answer = push_all(inside, handle, "books", &[]);
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finished());
+
+    assert_eq!(
+        (&report["result"]["lifecycle"], &answer["code"]),
+        (&json!("finished"), &json!("invalid_params")),
+        "{answer}"
     );
 }
 
@@ -512,12 +532,12 @@ fn records_of_a_retried_request_commit_once_numbered_from_one_in_commit_order() 
                 } });
             }
             if a {
-                late = push_under(
+                late = pushed(
                     inside,
                     handle,
                     &first_epoch,
                     "notes",
-                    &json!({ "id": "late" }),
+                    &[json!({ "id": "late" })],
                 );
             }
             json!({ "result": { "records": [] } })

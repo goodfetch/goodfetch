@@ -211,10 +211,10 @@ class CrawlRequestPushParams(BaseModel):
     """The Dataset's name."""
     lease_epoch: Annotated[int, Field(ge=0)]
     """The attempt's lease epoch, as `crawl_request.handle` gave it."""
-    records: list[Any]
+    records: Annotated[list[Any], Field(min_length=1)]
     """
-    The Records, in the order pushed: a Record's position in this list
-    is how `record_invalid` names it.
+    The Records, at least one, in the order pushed: a Record's position
+    in this list is how `record_invalid` names it.
     """
     run_id: RunId
     """The crawl's Run."""

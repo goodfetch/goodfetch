@@ -2,7 +2,8 @@
 //! Records of one push, one or several, against the Dataset they name, as
 //! the live crawl declares it, and stages those that hold with their
 //! attempt while the attempt's lease holds, in one step; they commit once
-//! with the attempt or are discarded with it. A Dataset the crawl does not
+//! with the attempt or are discarded with it. A push of no Record is refused
+//! with `invalid_params`; a Dataset the crawl does not
 //! declare is refused with `dataset_unknown`, nothing staged; a Record that
 //! does not hold is not staged and the push fails with `record_invalid`,
 //! naming it by its position, the attempt keeping what it staged before
@@ -17,6 +18,7 @@ use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::dataset::{
     CRAWL_REQUEST_PUSH, CrawlRequestPushParams, CrawlRequestPushed,
 };
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 
 use crate::serving::{Crawls, LiveCrawl};
 
@@ -39,6 +41,12 @@ async fn push(
         dataset,
         records,
     } = params;
+    if records.is_empty() {
+        return Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("The push into the Dataset `{dataset}` holds no Record: push one or several."),
+        ));
+    }
     let ended = || {
         CallError::new(
             &ATTEMPT_ENDED,

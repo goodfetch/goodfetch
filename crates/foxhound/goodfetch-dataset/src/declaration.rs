@@ -10,8 +10,9 @@
 //! A pushed Record names a declared Dataset, else `dataset_unknown`; it is
 //! a JSON object that fits its Dataset's schema and, for a Dataset with a
 //! key and no schema, holds every field of the key, else `record_invalid`
-//! names it by its position among the Records pushed together, or those of
-//! the answer, and each issue by its path, a JSON Pointer into the Record
+//! names it by its position among the Records pushed together, or the
+//! first by its position in the answer, and each issue by its path, a JSON
+//! Pointer into the Record
 //! (ADR 0147). Each
 //! schema's validator is built once, with the Datasets, as the crawl starts
 //! or resumes, and a Record's check builds none (ADR 0138); a reader of its
@@ -296,11 +297,35 @@ impl Datasets {
             }
             return Ok(Checked::default());
         }
-        let schema_hashes = records
-            .iter()
-            .enumerate()
-            .map(|(position, record)| self.check_one((position, records.len()), record, work))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut schema_hashes = Vec::with_capacity(records.len());
+        for (position, record) in records.iter().enumerate() {
+            let Found {
+                declaration,
+                validator,
+                schema_hash,
+            } = self.declared(&record.dataset)?;
+            let issues = issues(declaration, validator, &record.data, work);
+            if !issues.is_empty() {
+                let message = if records.len() == 1 {
+                    record_message(&record.dataset, &issues)
+                } else {
+                    format!(
+                        "The first Record of the handler's answer that does not hold, at position {position}, of the Dataset `{}`, was not staged: {}",
+                        record.dataset,
+                        described(&issues)
+                    )
+                };
+                return Err(invalid(
+                    &record.dataset,
+                    vec![InvalidRecord {
+                        position: position_of(position),
+                        issues,
+                    }],
+                    message,
+                ));
+            }
+            schema_hashes.push(schema_hash.cloned());
+        }
         Ok(Checked::new(
             records.into_iter().zip(schema_hashes).collect(),
         ))
@@ -356,14 +381,19 @@ impl Datasets {
                 issues,
             });
         }
+        let message = match (together, rejected.as_slice()) {
+            (_, []) => None,
+            (1, [alone]) => Some(alone.why.reason.clone()),
+            _ => Some(several_message(dataset, together, &invalid_records)),
+        };
         let staged = Checked::with_rejected(holding, rejected);
-        if invalid_records.is_empty() {
-            return Ok(staged);
+        match message {
+            None => Ok(staged),
+            Some(message) => Err(Refused {
+                error: invalid(dataset, invalid_records, message),
+                staged,
+            }),
         }
-        Err(Refused {
-            error: invalid(dataset, invalid_records, together),
-            staged,
-        })
     }
 
     /// The declaration of the Dataset `name`, with its schema's validator
@@ -393,34 +423,6 @@ impl Datasets {
                     ),
                 )
             })
-    }
-
-    /// The hash of the schema `record`, at `position` among the `together`
-    /// Records checked together, holds under, its Dataset's, each way it
-    /// does not hold checked once.
-    fn check_one(
-        &self,
-        (position, together): (usize, usize),
-        record: &PushedRecord,
-        work: &CountedWork,
-    ) -> Result<Option<Arc<str>>, CallError> {
-        let Found {
-            declaration,
-            validator,
-            schema_hash,
-        } = self.declared(&record.dataset)?;
-        let issues = issues(declaration, validator, &record.data, work);
-        if issues.is_empty() {
-            return Ok(schema_hash.cloned());
-        }
-        Err(invalid(
-            &record.dataset,
-            vec![InvalidRecord {
-                position: position_of(position),
-                issues,
-            }],
-            together,
-        ))
     }
 }
 
@@ -529,31 +531,8 @@ fn unknown(declarations: &[DatasetDeclaration], name: &str, message: String) -> 
 }
 
 /// `record_invalid` for the Records `records` of the Dataset `name`, at
-/// least one, among `together` checked together: the message of a Record
-/// checked alone as [`record_message`] says it, and otherwise naming each
-/// by its position.
-fn invalid(name: &str, records: Vec<InvalidRecord>, together: usize) -> CallError {
-    let message = match records.as_slice() {
-        [record] if together == 1 => record_message(name, &record.issues),
-        records => format!(
-            "Of the {together} Records given together, {} of the Dataset `{name}` {}: {}",
-            records.len(),
-            if records.len() == 1 {
-                "does not hold, so it was not staged"
-            } else {
-                "do not hold, so they were not staged"
-            },
-            records
-                .iter()
-                .map(|record| format!(
-                    "the one at position {}: {}",
-                    record.position,
-                    described(&record.issues)
-                ))
-                .collect::<Vec<_>>()
-                .join("; ")
-        ),
-    };
+/// least one, said by `message`.
+fn invalid(name: &str, records: Vec<InvalidRecord>, message: String) -> CallError {
     CallError::new(
         &RECORD_INVALID,
         message,
@@ -561,6 +540,29 @@ fn invalid(name: &str, records: Vec<InvalidRecord>, together: usize) -> CallErro
             dataset: name.to_owned(),
             records,
         },
+    )
+}
+
+/// Why `records` of the Dataset `name`, among the `together` pushed
+/// together, were not staged, naming each by its position.
+fn several_message(name: &str, together: usize, records: &[InvalidRecord]) -> String {
+    format!(
+        "Of the {together} Records pushed together, {} of the Dataset `{name}` {}: {}",
+        records.len(),
+        if records.len() == 1 {
+            "does not hold, so it was not staged"
+        } else {
+            "do not hold, so they were not staged"
+        },
+        records
+            .iter()
+            .map(|record| format!(
+                "the one at position {}: {}",
+                record.position,
+                described(&record.issues)
+            ))
+            .collect::<Vec<_>>()
+            .join("; ")
     )
 }
 

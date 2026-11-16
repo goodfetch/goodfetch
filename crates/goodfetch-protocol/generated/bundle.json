@@ -2527,8 +2527,9 @@
         },
         "records": {
           "arrived_in": "0.1",
-          "description": "The Records, in the order pushed: a Record's position in this list\nis how `record_invalid` names it.",
+          "description": "The Records, at least one, in the order pushed: a Record's position\nin this list is how `record_invalid` names it.",
           "items": true,
+          "minItems": 1,
           "type": "array"
         },
         "run_id": {

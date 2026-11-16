@@ -453,3 +453,45 @@ fn the_request_count_counts_each_request_to_an_observed_host() {
         (200, json!({ "requests": 3 }))
     );
 }
+
+/// `GET /requests-of-the-case?host=<name>` counts the recorded requests to
+/// one host that a case is about, its robots.txt read and icon left out,
+/// for a test whose record is too large to read whole.
+#[test]
+fn the_requests_of_the_case_count_one_hosts_requests_but_its_own_targets() {
+    let proving_ground = ProvingGround::start(SEED);
+    for (host, target) in [
+        ("catalog.test", "/catalog/1"),
+        ("catalog.test", "/robots.txt"),
+        ("catalog.test", "/catalog/2"),
+        ("catalog.test", "/favicon.ico"),
+        ("3.catalog.test", "/catalog/1"),
+    ] {
+        clients::raw(
+            proving_ground.address(),
+            format!("GET {target} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n")
+                .as_bytes(),
+        );
+    }
+
+    let answer = proving_ground.control("/requests-of-the-case?host=catalog.test");
+
+    assert_eq!(
+        (answer.status, answer.json()),
+        (200, json!({ "requests": 2 }))
+    );
+}
+
+/// `GET /requests-of-the-case` without a host refuses rather than guess
+/// which host's requests to count.
+#[test]
+fn the_requests_of_the_case_refuse_a_request_naming_no_host() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let answer = proving_ground.control("/requests-of-the-case");
+
+    assert_eq!(
+        (answer.status, answer.json()),
+        (400, json!({ "error": "malformed_requests_of_the_case" }))
+    );
+}

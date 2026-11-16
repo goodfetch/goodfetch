@@ -25,12 +25,14 @@
 //!
 //! Each crawl fetches 300 pages, not 1,000: the 40 crawls took 61 s in
 //! the CI test profile and 145 to 246 s in the local one under load (ADR
-//! 0134), and the crawl count never drops. Up to 8 requests are in flight on the Proving
-//! ground at once. The Runs' stores sit on a memory file system, which no
-//! busy disk slows. The Memory allowance is pinned far above the expected
-//! peak, so the Resource governor never sheds load here (ADR 0040). The
-//! test declares no Feature: it is spec #327's own check (#325, Out of
-//! Scope).
+//! 0134), and the crawl count never drops. Up to 8 requests are in flight
+//! on the Proving ground at once. The Runs' stores sit on a memory file
+//! system, which no busy disk slows. The pages fetched are counted on the
+//! Proving ground (`GET /requests-of-the-case`), since the record of
+//! 12,000 requests is too large to read whole (#2682). The Memory
+//! allowance is pinned far above the expected peak, so the Resource
+//! governor never sheds load here (ADR 0040). The test declares no
+//! Feature: it is spec #327's own check (#325, Out of Scope).
 
 use std::path::Path;
 
@@ -156,12 +158,7 @@ fn forty_crawls_of_one_daemon_keep_its_live_heap_flat_once_warm() {
         heap.push(live_heap(&mut connection));
         private.push(private_resident_bytes_of(daemon.pid()).unwrap());
     }
-    let fetched = proving_ground
-        .received_requests()
-        .unwrap()
-        .of_the_case()
-        .filter(|request| request.host == "scale.test")
-        .count();
+    let fetched = proving_ground.requests_of_the_case("scale.test").unwrap();
     drop(connection);
     daemon.stop(&env).unwrap();
 
@@ -169,7 +166,7 @@ fn forty_crawls_of_one_daemon_keep_its_live_heap_flat_once_warm() {
         (lifecycles, fetched),
         (
             vec![json!("finished"); CRAWLS],
-            CRAWLS * usize::try_from(PAGES).unwrap()
+            u64::try_from(CRAWLS).unwrap() * PAGES
         )
     );
     let slope = slope_of(&heap, FITTED);

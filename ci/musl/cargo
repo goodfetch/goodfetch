@@ -16,7 +16,10 @@
 # `off` builds without, `generate=<folder>` builds instrumented, writing
 # its raw profiles in the folder, and `use=<folder>` builds with the
 # `merged.profdata` and the `order.txt`, if any, that the folder holds,
-# whatever the profile.
+# whatever the profile. Each of these builds, instrumented or guided,
+# compiles through ci/musl/stable-metadata/rustc, so the crates' symbol
+# names, which the profile and the order file name, hold across Cargo.toml
+# and Cargo.lock changes.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -54,6 +57,17 @@ stored() {
   [[ -f "$1" || -f "$1.zst" ]]
 }
 
+# Compiles the build's own crates through ci/musl/stable-metadata/rustc,
+# which the flag marks them for: Cargo passes its flags to the crates of the
+# target alone, never to build scripts and procedural macros. The marker
+# also keeps the compiler cache, which keys on the flags before that rustc
+# changes them, from serving an object compiled with Cargo's metadata.
+stable_metadata() {
+  add_rustflags -Cmetadata=goodfetch-stable-metadata
+  export GOODFETCH_PGO_RUSTC="${RUSTC:-rustc}"
+  export RUSTC="$here/stable-metadata/rustc"
+}
+
 # Compiles with the profile in folder $1, and links in its order if it has
 # one. They are copied, expanded, to a folder named by their contents, so
 # the flags Cargo fingerprints change with them, which rebuilds after a
@@ -84,6 +98,7 @@ profile_guided() {
       fi
     done
   fi
+  stable_metadata
   add_rustflags "-Cprofile-use=$copy/merged.profdata" -Cllvm-args=-no-pgo-warn-mismatch
   if [[ -f "$copy/order.txt" ]]; then
     export GOODFETCH_MUSL_ORDER_FILE="$copy/order.txt"
@@ -144,7 +159,10 @@ case "${1:-}" in
             profile_guided "$(cd "$here/../pgo/$target" && pwd)"
           fi
           ;;
-        generate=?*) add_rustflags "-Cprofile-generate=${setting#generate=}" ;;
+        generate=?*)
+          stable_metadata
+          add_rustflags "-Cprofile-generate=${setting#generate=}"
+          ;;
         use=?*) profile_guided "${setting#use=}" ;;
         *)
           echo "error: GOODFETCH_PGO is \`off\`, \`generate=<folder>\` or \`use=<folder>\`, not \`$setting\`" >&2

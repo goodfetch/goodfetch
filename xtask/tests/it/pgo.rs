@@ -17,6 +17,10 @@ use crate::workspace::{Workspace, finding};
 
 const TARGET: &str = "x86_64-unknown-linux-musl";
 const PROFILE: &[u8] = b"an indexed profile";
+/// The rustc a profile-guided build compiles through, in `ci/musl/`.
+const STABLE_RUSTC: &str = "stable-metadata/rustc";
+/// The flag that marks a profile-guided build's own crates for it.
+const STABLE_MARK: &str = "-Cmetadata=goodfetch-stable-metadata";
 const ORDER: &str = "_RNvCs1_4main3hot\n.rodata..Lanon.0a1b.3\n.rodata._RNvCs1_4main3hot\n.data.rel.ro..Lanon.0a1b.4\n.rodata..Lanon.ffff.9\n_RNvCs1_4main4cold\n";
 
 fn repository_script(name: &str) -> PathBuf {
@@ -287,7 +291,7 @@ struct Build {
 impl Build {
     fn new() -> Self {
         let workspace = Workspace::from_fixture("empty");
-        for script in ["cargo", "link-cc", "toolchain.sh"] {
+        for script in ["cargo", "link-cc", "toolchain.sh", STABLE_RUSTC] {
             let path = workspace.path().join("ci/musl").join(script);
             executable(
                 &path,
@@ -305,7 +309,7 @@ impl Build {
             &toolchain.join("bin"),
             "cargo-zigbuild",
             &format!(
-                "for name in RUSTFLAGS CARGO_ENCODED_RUSTFLAGS GOODFETCH_MUSL_ORDER_FILE GOODFETCH_MUSL_LLVM_TOOLS; do\n\
+                "for name in RUSTFLAGS CARGO_ENCODED_RUSTFLAGS GOODFETCH_MUSL_ORDER_FILE GOODFETCH_MUSL_LLVM_TOOLS RUSTC GOODFETCH_PGO_RUSTC; do\n\
                    if [[ -n \"${{!name+set}}\" ]]; then printf '%s=%s\\n' \"$name\" \"${{!name}}\"; fi\n\
                  done >\"{}\"",
                 stand_in.join("flags").display()
@@ -392,6 +396,22 @@ impl Build {
         entries.remove(0)
     }
 
+    /// The variables of a build through ci/musl/stable-metadata/rustc,
+    /// which runs the caller's rustc, the one on `PATH` here.
+    fn stable_rustc(&self) -> [String; 2] {
+        [
+            format!(
+                "RUSTC={}",
+                self.workspace
+                    .path()
+                    .join("ci/musl")
+                    .join(STABLE_RUSTC)
+                    .display()
+            ),
+            "GOODFETCH_PGO_RUSTC=rustc".to_owned(),
+        ]
+    }
+
     fn llvm_tools(&self) -> String {
         format!(
             "GOODFETCH_MUSL_LLVM_TOOLS={}",
@@ -404,7 +424,7 @@ impl Build {
 
 fn profile_use(folder: &Path) -> String {
     format!(
-        "-Cprofile-use={} -Cllvm-args=-no-pgo-warn-mismatch",
+        "{STABLE_MARK} -Cprofile-use={} -Cllvm-args=-no-pgo-warn-mismatch",
         folder.join("merged.profdata").display()
     )
 }
@@ -435,6 +455,8 @@ fn a_release_musl_build_uses_the_committed_profile(#[case] profile: &[&str]) {
                 copied.join("order.txt").display()
             ),
             build.llvm_tools(),
+            build.stable_rustc()[0].clone(),
+            build.stable_rustc()[1].clone(),
         ]
     );
     assert_eq!(
@@ -539,7 +561,9 @@ fn an_instrumented_build_writes_its_profiles_where_asked() {
         &[("GOODFETCH_PGO", "generate=/raw")],
     );
 
-    assert_eq!(flags, ["RUSTFLAGS=-Cprofile-generate=/raw"]);
+    let mut expected = vec![format!("RUSTFLAGS={STABLE_MARK} -Cprofile-generate=/raw")];
+    expected.extend(build.stable_rustc());
+    assert_eq!(flags, expected);
 }
 
 /// Then it builds with the profile it merged, which it reads the hot order
@@ -577,7 +601,63 @@ fn a_build_uses_the_profile_in_a_folder_asked_for(#[case] with_order: bool) {
         ));
         expected.push(build.llvm_tools());
     }
+    expected.extend(build.stable_rustc());
     assert_eq!(flags, expected);
+}
+
+/// Every profile-guided build, instrumented or guided, compiles through
+/// ci/musl/stable-metadata/rustc, the caller's rustc after it, and marks
+/// its crates' flags for it: a crate's symbol names then hold across
+/// Cargo.toml and Cargo.lock changes, so the profile's records still name
+/// the crates they were taken from.
+#[rstest]
+#[case::committed(None)]
+#[case::instrumented(Some("generate=/raw"))]
+#[case::asked_for(Some("use=merged"))]
+fn a_profile_guided_build_compiles_through_the_stable_metadata_rustc(
+    #[case] setting: Option<&str>,
+) {
+    let build = Build::new();
+    build
+        .workspace
+        .write("merged/merged.profdata", b"a new profile");
+    let setting = setting.map(|setting| {
+        setting.replace(
+            "merged",
+            &build.workspace.path().join("merged").display().to_string(),
+        )
+    });
+    let mut variables = vec![("RUSTC", "/opt/rust/bin/rustc")];
+    if let Some(setting) = &setting {
+        variables.push(("GOODFETCH_PGO", setting));
+    }
+
+    let flags = build.flags(&["build", "--release", "--target", TARGET], &variables);
+
+    let rustflags = flags
+        .iter()
+        .find_map(|flag| flag.strip_prefix("RUSTFLAGS="))
+        .unwrap();
+    assert!(
+        rustflags.split(' ').any(|flag| flag == STABLE_MARK),
+        "{rustflags}"
+    );
+    assert!(
+        flags.contains(&format!(
+            "RUSTC={}",
+            build
+                .workspace
+                .path()
+                .join("ci/musl")
+                .join(STABLE_RUSTC)
+                .display()
+        )),
+        "{flags:?}"
+    );
+    assert!(
+        flags.contains(&"GOODFETCH_PGO_RUSTC=/opt/rust/bin/rustc".to_owned()),
+        "{flags:?}"
+    );
 }
 
 #[test]
@@ -801,4 +881,328 @@ fn a_target_without_an_order_file_is_noted_unordered() {
     assert_eq!(outcome.code, 0, "{}{}", outcome.stdout, outcome.stderr);
     assert_eq!(outcome.findings(), []);
     assert_eq!(outcome.notes(), [finding("not-ordered", TARGET)]);
+}
+
+/// ci/musl/stable-metadata/rustc compiling crates with the real rustc, as
+/// Cargo asks it to: each crate's package and version in the variables
+/// Cargo sets, and Cargo's own `-C metadata`.
+struct Compiler {
+    workspace: Workspace,
+}
+
+/// A library crate with a function, a closure and a generic instance.
+const LIBRARY: &str = "pub fn kept(n: u64) -> u64 { (0..n).filter(|i| i % 3 == 0).sum() }\n\
+                       pub fn boxed(n: u64) -> Vec<u64> { vec![n] }\n";
+
+/// A crate as Cargo describes it to rustc.
+struct Unit<'a> {
+    name: &'a str,
+    version: &'a str,
+    /// Cargo's `-C metadata` for it.
+    metadata: &'a str,
+    /// Whether ci/musl/cargo's marker is among its flags: Cargo passes them
+    /// to the target's crates alone.
+    marked: bool,
+}
+
+impl Compiler {
+    fn new() -> Self {
+        Self {
+            workspace: Workspace::from_fixture("empty"),
+        }
+    }
+
+    /// Compiles `source` as `unit` with `arguments` added, in the folder
+    /// `out`.
+    fn compile(
+        &self,
+        unit: &Unit<'_>,
+        source: &str,
+        out: &str,
+        arguments: &[&str],
+    ) -> std::process::Output {
+        let folder = self.workspace.path().join(out);
+        std::fs::create_dir_all(&folder).unwrap();
+        let file = folder.join("source.rs");
+        std::fs::write(&file, source).unwrap();
+        let (version, pre) = unit.version.split_once('-').unwrap_or((unit.version, ""));
+        let parts: Vec<&str> = version.split('.').collect();
+        let mut command = std::process::Command::new(repository_script(STABLE_RUSTC));
+        command
+            .current_dir(&folder)
+            .env("GOODFETCH_PGO_RUSTC", "rustc")
+            .env("CARGO_PKG_NAME", unit.name)
+            .env("CARGO_PKG_VERSION", unit.version)
+            .env("CARGO_PKG_VERSION_MAJOR", parts[0])
+            .env("CARGO_PKG_VERSION_MINOR", parts[1])
+            .env("CARGO_PKG_VERSION_PATCH", parts[2])
+            .env("CARGO_PKG_VERSION_PRE", pre)
+            .args(["--edition", "2024", "--crate-name", unit.name])
+            .args(["-C", &format!("metadata={}", unit.metadata)])
+            .args(["-C", "symbol-mangling-version=v0"]);
+        if unit.marked {
+            command.arg(STABLE_MARK);
+        }
+        command.args(arguments).arg(&file);
+        command.output().unwrap()
+    }
+
+    /// The module name and the functions LLVM gets for `unit`'s library.
+    fn names(&self, unit: &Unit<'_>, out: &str) -> Vec<String> {
+        let output = self.compile(
+            unit,
+            LIBRARY,
+            out,
+            &[
+                "--crate-type",
+                "lib",
+                "--emit",
+                "llvm-ir",
+                "-o",
+                "library.ll",
+            ],
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = self.workspace.read_text(&format!("{out}/library.ll"));
+        text.lines()
+            .filter(|line| line.starts_with("; ModuleID") || line.starts_with("define "))
+            .map(|line| {
+                line.split_once('@')
+                    .map_or(line, |(_, name)| name.split('(').next().unwrap())
+                    .to_owned()
+            })
+            .collect()
+    }
+}
+
+/// A marked crate's names are its package's and version's own: what Cargo
+/// derives its metadata from (the dependencies' versions, the features,
+/// the lock file) changes them no more, nor does a release Cargo treats as
+/// compatible, so a profile's records still name the crate.
+#[rstest]
+#[case::other_cargo_metadata("1.2.3", "1.2.3")]
+#[case::a_patch_release("1.2.3", "1.2.9")]
+#[case::a_minor_release("1.2.3", "1.4.0")]
+#[case::a_patch_release_before_1("0.4.1", "0.4.7")]
+fn a_crates_names_hold_across_cargos_metadata(#[case] before: &str, #[case] after: &str) {
+    let compiler = Compiler::new();
+    let unit = |version, metadata| Unit {
+        name: "probe",
+        version,
+        metadata,
+        marked: true,
+    };
+
+    let first = compiler.names(&unit(before, "0f1e2d3c4b5a6978"), "before");
+    let second = compiler.names(&unit(after, "8796a5b4c3d2e1f0"), "after");
+
+    assert_eq!(first, second);
+}
+
+/// Releases Cargo keeps apart in one build get names apart, and so does a
+/// crate Cargo builds for the host (a build script, a procedural macro),
+/// whose flags hold no marker: its metadata stays Cargo's.
+#[rstest]
+#[case::a_minor_release_before_1("0.4.1", "0.5.0", true)]
+#[case::a_major_release("1.2.3", "2.0.0", true)]
+#[case::a_pre_release("1.0.0-alpha.1", "1.0.0-alpha.2", true)]
+#[case::a_host_crate("1.2.3", "1.2.3", false)]
+fn other_crates_names_differ(#[case] before: &str, #[case] after: &str, #[case] marked: bool) {
+    let compiler = Compiler::new();
+    let unit = |version, metadata| Unit {
+        name: "probe",
+        version,
+        metadata,
+        marked,
+    };
+
+    let first = compiler.names(&unit(before, "0f1e2d3c4b5a6978"), "before");
+    let second = compiler.names(&unit(after, "8796a5b4c3d2e1f0"), "after");
+
+    assert_ne!(first, second);
+}
+
+/// Two crates of one package and version in one build, which Cargo's
+/// metadata alone told apart (two sources, or two sets of features), get
+/// the same crate identity: rustc then refuses to build the crate that
+/// links both, loudly, rather than mixing their profiles.
+#[test]
+fn two_crates_of_one_package_and_version_fail_the_build() {
+    let compiler = Compiler::new();
+    for (out, metadata) in [
+        ("first", "0f1e2d3c4b5a6978"),
+        ("second", "8796a5b4c3d2e1f0"),
+    ] {
+        let unit = Unit {
+            name: "probe",
+            version: "1.2.3",
+            metadata,
+            marked: true,
+        };
+        let output = compiler.compile(
+            &unit,
+            LIBRARY,
+            out,
+            &["--crate-type", "rlib", "--out-dir", "."],
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let both = Unit {
+        name: "both",
+        version: "1.0.0",
+        metadata: "00112233",
+        marked: true,
+    };
+    let first = compiler.workspace.path().join("first/libprobe.rlib");
+    let second = compiler.workspace.path().join("second/libprobe.rlib");
+
+    let output = compiler.compile(
+        &both,
+        "pub fn both() -> u64 { first::kept(3) + second::kept(4) }\n",
+        "both",
+        &[
+            "--crate-type",
+            "rlib",
+            "--extern",
+            &format!("first={}", first.display()),
+            "--extern",
+            &format!("second={}", second.display()),
+        ],
+    );
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("colliding StableCrateId"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// A program the training runs: `changed` is the function a later commit
+/// rewrites.
+const TRAINED: &str = "#[inline(never)] pub fn kept(n: u64) -> u64 { let mut s = 0; for i in 0..n { if i % 3 == 0 { s += i } } s }\n\
+                       #[inline(never)] pub fn changed(n: u64) -> u64 { if n > 5 { n * 2 } else { n } }\n\
+                       fn main() { let n = std::hint::black_box(100); println!(\"{}\", kept(n) + changed(n)); }\n";
+
+/// The same program after that commit.
+const REWRITTEN: &str = "#[inline(never)] pub fn kept(n: u64) -> u64 { let mut s = 0; for i in 0..n { if i % 3 == 0 { s += i } } s }\n\
+                         #[inline(never)] pub fn changed(n: u64) -> u64 { if n > 5 { n * 2 } else if n > 2 { n + 1 } else { n } }\n\
+                         fn main() { let n = std::hint::black_box(100); println!(\"{}\", kept(n) + changed(n)); }\n";
+
+/// A profile trained before Cargo's metadata changed still guides the
+/// functions whose code is the same, and LLVM drops the records of a
+/// function whose code changed (their hash no longer matches) rather than
+/// apply stale counts to it. The LLVM tools are rustup's `llvm-tools`,
+/// which `just musl-toolchain` adds, as `xtask pgo refresh` needs.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_profile_guides_the_functions_whose_code_held_and_drops_the_rest() {
+    let compiler = Compiler::new();
+    let unit = |metadata| Unit {
+        name: "probe",
+        version: "1.2.3",
+        metadata,
+        marked: true,
+    };
+    let raw = compiler.workspace.path().join("raw");
+    let output = compiler.compile(
+        &unit("0f1e2d3c4b5a6978"),
+        TRAINED,
+        "instrumented",
+        &[
+            "-O",
+            "-C",
+            &format!("profile-generate={}", raw.display()),
+            "-o",
+            "probe",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ran = std::process::Command::new(compiler.workspace.path().join("instrumented/probe"))
+        .status()
+        .unwrap();
+    assert!(ran.success());
+    let sysroot = rustc_print("sysroot");
+    let profdata = std::path::Path::new(&sysroot)
+        .join("lib/rustlib")
+        .join(rustc_print("host-tuple"))
+        .join("bin/llvm-profdata");
+    assert!(
+        profdata.is_file(),
+        "{} is missing: run `just musl-toolchain`",
+        profdata.display()
+    );
+    let merged = compiler.workspace.path().join("merged.profdata");
+    let merge = std::process::Command::new(&profdata)
+        .arg("merge")
+        .arg("-o")
+        .arg(&merged)
+        .arg(&raw)
+        .status()
+        .unwrap();
+    assert!(merge.success());
+
+    let output = compiler.compile(
+        &unit("8796a5b4c3d2e1f0"),
+        REWRITTEN,
+        "guided",
+        &[
+            "-O",
+            "-C",
+            &format!("profile-use={}", merged.display()),
+            "--emit",
+            "llvm-ir",
+            "-o",
+            "probe.ll",
+        ],
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ir = compiler.workspace.read_text("guided/probe.ll");
+    let definition = |function: &str| {
+        ir.lines()
+            .find(|line| {
+                line.starts_with("define ")
+                    && line.contains(&format!("5probe{}{function}(", function.len()))
+            })
+            .unwrap_or_else(|| panic!("no definition of {function}"))
+            .to_owned()
+    };
+    assert!(
+        definition("kept").contains("!prof"),
+        "{}",
+        definition("kept")
+    );
+    assert!(
+        !definition("changed").contains("!prof"),
+        "{}",
+        definition("changed")
+    );
+}
+
+/// What `rustc --print <what>` prints.
+#[cfg(target_os = "linux")]
+fn rustc_print(what: &str) -> String {
+    let output = std::process::Command::new("rustc")
+        .args(["--print", what])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }

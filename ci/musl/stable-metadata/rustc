@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# The rustc a profile-guided release build compiles through (ci/musl/cargo,
+# ADR 0057's note of 2026-11-14). sccache calls it under this file name.
+#
+# Cargo's `-C metadata` hashes the whole dependency graph: a changed
+# Cargo.toml or Cargo.lock changes it for every crate depending on what
+# changed. rustc derives the crate's identity from it, and from that the
+# symbol names and the module name that a profile's records and an order
+# file name, so such a change made a committed profile miss whole crates.
+# For a crate whose flags hold ci/musl/cargo's marker, the build's own
+# crates and their dependencies, this replaces Cargo's metadata with one
+# from the package's name and the versions Cargo counts as compatible: a
+# patch release, or a minor one from 1.0, keeps the names, and code that
+# changed is dropped from the profile by LLVM's per-function hash. Cargo's
+# `-C extra-filename`, which names its files, is left as Cargo set it.
+#
+# Two crates of one package and compatible versions in one build (two
+# sources, or two sets of features) then share an identity, and rustc
+# refuses to build a crate that links both ("found crates … with colliding
+# StableCrateId values"). Crates built for the host get no marker, so their
+# metadata stays Cargo's.
+set -euo pipefail
+
+compiler="${GOODFETCH_PGO_RUSTC:-rustc}"
+marker=goodfetch-stable-metadata
+
+marked=false
+for argument in "$@"; do
+  [[ "$argument" == "-Cmetadata=$marker" || "$argument" == "metadata=$marker" ]] && marked=true
+done
+if ! $marked || [[ -z "${CARGO_PKG_NAME:-}" ]]; then
+  exec "$compiler" "$@"
+fi
+
+if [[ -n "${CARGO_PKG_VERSION_PRE:-}" ]]; then
+  compatible="$CARGO_PKG_VERSION"
+elif [[ "$CARGO_PKG_VERSION_MAJOR" != 0 ]]; then
+  compatible="$CARGO_PKG_VERSION_MAJOR"
+elif [[ "$CARGO_PKG_VERSION_MINOR" != 0 ]]; then
+  compatible="0.$CARGO_PKG_VERSION_MINOR"
+else
+  compatible="0.0.$CARGO_PKG_VERSION_PATCH"
+fi
+
+arguments=()
+while (($#)); do
+  case "$1" in
+    -C | --codegen)
+      if [[ "${2:-}" == metadata=* ]]; then
+        shift 2
+        continue
+      fi
+      arguments+=("$1")
+      ;;
+    -Cmetadata=* | --codegen=metadata=*) ;;
+    *) arguments+=("$1") ;;
+  esac
+  shift
+done
+exec "$compiler" "${arguments[@]}" -C "metadata=$CARGO_PKG_NAME@$compatible"

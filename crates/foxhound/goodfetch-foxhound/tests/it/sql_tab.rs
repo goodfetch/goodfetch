@@ -236,7 +236,10 @@ fn a_write_attach_install_or_outside_read_is_refused_beside_an_allowed_select(#[
 
 /// A heavy query ends at `timeout.dataset_query` with `deadline_exceeded`
 /// naming it, and at `dataset.query.memory_limit` with
-/// `query_memory_exceeded` naming it.
+/// `query_memory_exceeded` naming it, and the engine answers the next
+/// query. That query runs once the user configuration no longer sets the
+/// limit, so that its own time on a loaded host never meets a 200 ms one:
+/// a test asserts no duration (TESTING.md › No retries).
 ///
 /// Covers: story:12-211, setting:timeout.dataset_query, setting:dataset.query.memory_limit
 #[rstest]
@@ -267,6 +270,7 @@ fn a_heavy_query_ends_at_its_limit_with_its_code(
     crawled(&mut engine, &proving_ground, "shop", 1);
 
     let ended = query(&mut engine, heavy, &["shop"]);
+    env.user_configuration("");
     let allowed = query(
         &mut engine,
         "SELECT count(*) FROM records('shop')",

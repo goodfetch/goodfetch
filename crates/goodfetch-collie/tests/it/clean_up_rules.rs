@@ -310,6 +310,18 @@ fn loads(
     run_id: &str,
 ) -> (bool, bool) {
     let page: PageOpened = opened(&engine.ask(id, "run.new_page", &json!({ "run_id": run_id })));
+    loads_on(engine, id, proving_ground, &page)
+}
+
+/// Loads `clean-up.test`'s `/ads` page on `page`, and answers which of its
+/// ad and tracker the Proving ground received a request for during the
+/// load.
+fn loads_on(
+    engine: &mut Attached,
+    id: i64,
+    proving_ground: &ProvingGround,
+    page: &PageOpened,
+) -> (bool, bool) {
     let before = requests(proving_ground);
     let url = proving_ground.url("clean-up.test", "/ads");
     let loaded = engine.ask(
@@ -890,7 +902,11 @@ fn upstream_lists_are_trusted_only_under_the_authorities_listed_for_their_own_do
 
 /// A Run whose version's files go from the Browser cache before its first
 /// page loads blocks with the embedded part, and Provenance and the Run
-/// report say so, naming the version it recorded.
+/// report say so, naming the version it recorded. A Run whose own settings
+/// turn a Filter list on loads its lists as it starts (ADR 0047's note of
+/// 2026-11-16, #2688), so this Run turns every list off and its Session
+/// turns them on: the lists load on that Session's first page, after the
+/// files went.
 /// Covers: story:5-97, setting:clean_up.version, format:clean-up-rules
 #[cfg(unix)]
 #[test]
@@ -903,18 +919,33 @@ fn a_version_whose_files_went_before_the_first_page_falls_back_with_a_warning() 
     stand_in.publish("pinned", &pinned, &files);
     let cache = browser_cache(&env).unwrap();
     let mut engine = engine_with_browser(&env, &cache);
+    let mut run_settings = settings(Some(&proving_ground), json!({ "version": pinned }));
+    run_settings.insert(
+        "filter_lists".to_owned(),
+        json!({ "ads": false, "trackers": false, "annoyances": false }),
+    );
     result(engine.ask(
         1,
         "run.start",
+        &json!({ "run_id": "gone", "settings": run_settings }),
+    ));
+    let session = result(engine.ask(
+        2,
+        "run.new_session",
         &json!({
             "run_id": "gone",
-            "settings": settings(Some(&proving_ground), json!({ "version": pinned })),
+            "settings": { "filter_lists": { "ads": true, "trackers": true } },
         }),
     ));
     std::fs::remove_dir_all(cache.join("clean_up_rules")).unwrap();
 
-    let loaded = loads(&mut engine, 2, &proving_ground, "gone");
-    let report = result(engine.ask(4, "run.finish", &json!({ "run_id": "gone" })));
+    let page = opened(&engine.ask(
+        3,
+        "session.new_page",
+        &json!({ "session_id": session["session_id"] }),
+    ));
+    let loaded = loads_on(&mut engine, 4, &proving_ground, &page);
+    let report = result(engine.ask(6, "run.finish", &json!({ "run_id": "gone" })));
     let _ = engine.finish();
 
     let entries = rules_provenance(env.home(), "gone");

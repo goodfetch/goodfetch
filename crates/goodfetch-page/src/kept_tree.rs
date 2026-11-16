@@ -5,22 +5,29 @@
 //! One owner holds the tree: a task of its Run's that takes the calls'
 //! reads from a bounded channel, one at a time, and runs each on the CPU
 //! pool with the tree lent to it, so no read waits for a parse of its own
-//! and none changes the tree. A read that changes a page, as the clean-up
-//! and the main-content step of `page.formats` do, reads a copy it takes
-//! inside its read. The owner parses the document's HTML at its first read
-//! when it was handed no tree (a document the streaming path read), so a
-//! page whose handler reads nothing of its tree is never parsed for it.
+//! and none changes the tree. The first read starts the owner, on the
+//! async runtime it is awaited on, as the tree is kept where the document
+//! was read, often on the CPU pool, whose threads can start no task
+//! (issue 2673); a page whose handler reads nothing of its tree starts
+//! none. A read that changes a page, as the clean-up and the main-content
+//! step of `page.formats` do, reads a copy it takes inside its read. The
+//! owner parses the document's HTML at its first read when it was handed
+//! no tree (a document the streaming path read), so a page whose handler
+//! reads nothing of its tree is never parsed for it.
 //!
 //! The tree is gone once every holder of the page dropped its handle,
 //! which the attempt's end does as it closes the page: the owner's channel
-//! closes then, and the owner ends, dropping the tree; it ends too as its
-//! Run stops. While a handler runs, its page holds one tree, or the HTML
-//! it will parse, and at most [`READS_QUEUED`] reads wait for it, each a
+//! closes then, and the owner ends, dropping the tree, or, when no read
+//! started it, the last handle drops the tree with the owner never
+//! started; the owner ends too as its Run stops. While a handler runs,
+//! its page holds one tree, or the HTML it will parse, and at most
+//! [`READS_QUEUED`] reads wait for it, each a
 //! closure holding its call's params; a read past them waits for room, so
 //! what a handler's calls hold beside the tree is bounded whatever it
 //! sends.
 
 use std::fmt::Debug;
+use std::sync::{Arc, PoisonError};
 
 use bytestring::ByteString;
 use goodfetch_counted_work::{ParsedHtml, Row};
@@ -46,24 +53,35 @@ pub enum KeptFrom {
 #[derive(Clone)]
 pub struct KeptTree {
     reads: mpsc::Sender<Job>,
+    /// Its owner until the first read starts it.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "one value taken in one step, never held across another lock or an `.await` (ADR 0060)"
+    )]
+    unstarted: Arc<std::sync::Mutex<Option<Unstarted>>>,
 }
 
-impl Debug for KeptTree {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("KeptTree").finish_non_exhaustive()
-    }
+/// A kept tree's owner, not started yet: its Run, the channel it will take
+/// its reads from, and what it keeps.
+struct Unstarted {
+    run: Run,
+    mailbox: mpsc::Receiver<Job>,
+    kept: KeptFrom,
 }
 
-impl KeptTree {
-    /// Keeps the tree `kept` gives for `run`'s page served from it. Its
-    /// owner is a task of the Run's, which ends with the last handle, or
-    /// as the Run stops.
+impl Unstarted {
+    /// Starts the owner as a task of its Run's, which takes the reads one
+    /// at a time until the last handle is gone or the Run stops.
     #[expect(
         clippy::disallowed_methods,
         reason = "ADR 0138: a streamed page's tree, parsed once for its attempt at its handler's first read"
     )]
-    pub fn keep(run: &Run, kept: KeptFrom) -> Self {
-        let (reads, mut mailbox) = mpsc::channel::<Job>(READS_QUEUED);
+    fn start(self) {
+        let Self {
+            run,
+            mut mailbox,
+            kept,
+        } = self;
         let owner = run.clone();
         run.owner().spawn(async move {
             let stopping = owner.owner().token().clone();
@@ -84,7 +102,31 @@ impl KeptTree {
                     .await;
             }
         });
-        Self { reads }
+    }
+}
+
+impl Debug for KeptTree {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("KeptTree").finish_non_exhaustive()
+    }
+}
+
+impl KeptTree {
+    /// Keeps the tree `kept` gives for `run`'s page served from it. Its
+    /// owner, a task of the Run's, starts at the first read, and ends with
+    /// the last handle, or as the Run stops. It may be called off the
+    /// async runtime, on the CPU pool.
+    pub fn keep(run: &Run, kept: KeptFrom) -> Self {
+        let (reads, mailbox) = mpsc::channel::<Job>(READS_QUEUED);
+        let unstarted = Unstarted {
+            run: run.clone(),
+            mailbox,
+            kept,
+        };
+        Self {
+            reads,
+            unstarted: Arc::new(Some(unstarted).into()),
+        }
     }
 
     /// What `read` reads of the tree, run on the CPU pool once the reads
@@ -101,6 +143,16 @@ impl KeptTree {
         F: FnOnce(&ParsedHtml) -> T + Send + 'static,
         T: Send + 'static,
     {
+        // Taken in a statement of its own, so the lock is released before
+        // the owner starts.
+        let unstarted = self
+            .unstarted
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(unstarted) = unstarted {
+            unstarted.start();
+        }
         let (answer, answered) = oneshot::channel();
         let job: Job = Box::new(move |tree| {
             let _ = answer.send(read(tree));

@@ -834,11 +834,16 @@ fn a_handler_that_never_answers_loses_its_lease_and_its_late_answer_commits_noth
 /// when it ends, the engine cancels the attempt's request and asks again
 /// under the next lease epoch. The cancelled attempt's answer that still
 /// comes is a late commit, refused with `lease_lost`, its Records
-/// discarded; the retried attempt's commit is the one that counts.
+/// discarded; the retried attempt's commit is the one that counts. The
+/// `goodfetch::lease` trace the run fencing model describes is the same at
+/// `batch`, the default, whose claims reach the run file in batches, and at
+/// `full`, which writes each claim (#2174).
 ///
-/// Covers: story:3-40, story:3-41, error:lease_lost
-#[test]
-fn a_late_commit_after_a_default_lease_ended_is_refused_and_the_retry_commits() {
+/// Covers: story:3-40, story:3-41, error:lease_lost, setting:run_state.durability
+#[rstest::rstest]
+fn a_late_commit_after_a_default_lease_ended_is_refused_and_the_retry_commits(
+    #[values("batch", "full")] level: &str,
+) {
     let env = TestEnv::new();
 
     let (arrivals, transitions) = crawl_fenced(
@@ -847,7 +852,11 @@ fn a_late_commit_after_a_default_lease_ended_is_refused_and_the_retry_commits() 
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "late", "seeds": seeds(1) }),
+                    json!({
+                        "run_id": "late",
+                        "seeds": seeds(1),
+                        "settings": { "run_state": { "durability": level } },
+                    }),
                     &mut |_| Reply::Silent,
                 )
                 .await;

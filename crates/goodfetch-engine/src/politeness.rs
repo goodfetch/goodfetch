@@ -38,7 +38,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::formats::{Compatibility, POLITENESS_FILE};
-use rusqlite::{Connection, OptionalExtension as _, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension as _};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
@@ -73,6 +73,11 @@ const DURABILITY: Durability = Durability {
     wal_on_close: WalOnClose::Checkpointed,
 };
 
+/// How many prepared statements the file's connection keeps: more than
+/// the engine and its tables' contributions prepare together, so the
+/// connection prepares none twice.
+const STATEMENTS: usize = 64;
+
 /// The wake endpoint's name in its folder.
 const WAKE_SOCKET: &str = "wake.sock";
 
@@ -104,6 +109,67 @@ const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS returns (key TEXT NOT NULL PRIMARY KEY, generation INTEGER NOT NULL) STRICT",
 ];
 
+/// The turn after the last of the waiters of a key, `?1`.
+macro_rules! back_of_turns {
+    () => {
+        "(SELECT coalesce(max(turn), 0) + 1 FROM waiters WHERE key = ?1)"
+    };
+}
+
+// The engine's own statements, each run on the file's connection.
+const STOP_WAITING: &str = "DELETE FROM waiters WHERE run_id = ?1 AND endpoint = ?2";
+const GONE_WAITERS: &str = "DELETE FROM waiters WHERE endpoint = ?1";
+const IN_FLIGHT: &str = "SELECT count(*) FROM permits WHERE key = ?1";
+const GENERATION: &str = "SELECT generation FROM returns WHERE key = ?1";
+const NEXT_WAITER: &str =
+    "SELECT run_id, endpoint FROM waiters WHERE key = ?1 AND woken < ?2 ORDER BY turn LIMIT 1";
+const WAKE_WAITER: &str =
+    "UPDATE waiters SET woken = ?3, woken_at = ?4 WHERE key = ?1 AND run_id = ?2";
+const KEPT_ROOM: &str = "SELECT count(*) FROM waiters
+    WHERE key = ?1 AND run_id != ?2 AND woken > 0 AND woken = ?3 AND woken_at > ?4";
+const OTHER_HOLDERS: &str =
+    "SELECT DISTINCT run_id, epoch, run_folder FROM permits WHERE key = ?1 AND engine != ?2";
+const RECLAIM: &str = "DELETE FROM permits WHERE run_id = ?1 AND epoch = ?2";
+const TAKE: &str = "INSERT INTO permits (key, run_id, epoch, run_folder, engine, taken_at)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
+const LEAVE_TURNS: &str = "DELETE FROM waiters WHERE key = ?1 AND run_id = ?2";
+const WOKEN: &str = "SELECT woken FROM waiters WHERE key = ?1 AND run_id = ?2";
+const JOIN_TURNS: &str = concat!(
+    "INSERT INTO waiters (key, run_id, endpoint, turn, woken, woken_at) VALUES (?1, ?2, ?3, ",
+    back_of_turns!(),
+    ", ?4, 0)"
+);
+const REJOIN_TURNS: &str = concat!(
+    "UPDATE waiters SET turn = ",
+    back_of_turns!(),
+    ", endpoint = ?3, woken_at = 0 WHERE key = ?1 AND run_id = ?2"
+);
+const GIVE_BACK: &str = "DELETE FROM permits WHERE permit_id = ?1";
+const NEXT_GENERATION: &str = "INSERT INTO returns (key, generation) VALUES (?1, 1)
+    ON CONFLICT (key) DO UPDATE SET generation = generation + 1
+    RETURNING generation";
+
+/// The engine's own statements, prepared once when the file opens, so no
+/// Permit prepares one (ADR 0140's `E6.opens`).
+const PREPARED: &[&str] = &[
+    STOP_WAITING,
+    GONE_WAITERS,
+    IN_FLIGHT,
+    GENERATION,
+    NEXT_WAITER,
+    WAKE_WAITER,
+    KEPT_ROOM,
+    OTHER_HOLDERS,
+    RECLAIM,
+    TAKE,
+    LEAVE_TURNS,
+    WOKEN,
+    JOIN_TURNS,
+    REJOIN_TURNS,
+    GIVE_BACK,
+    NEXT_GENERATION,
+];
+
 /// The tables one contribution adds to the Politeness file: `CREATE TABLE
 /// IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS` statements, run in order
 /// when it opens.
@@ -113,6 +179,9 @@ pub struct PolitenessTables {
     pub name: &'static str,
     /// Their statements.
     pub statements: &'static [&'static str],
+    /// The statements its rule runs on the file, prepared once when the
+    /// file opens, so no Permit prepares one (ADR 0140's `E6.opens`).
+    pub prepared: &'static [&'static str],
 }
 
 /// How the Politeness file opens.
@@ -359,7 +428,8 @@ impl Politeness {
     ///
     /// # Errors
     ///
-    /// `Sqlite` when the file cannot be opened or its tables created,
+    /// `Sqlite` when the file cannot be opened, its tables created or its
+    /// statements prepared,
     /// `Format` when it is of a format this engine cannot read,
     /// `WakeEndpoint` when the OS refuses the endpoint.
     ///
@@ -433,7 +503,8 @@ impl Politeness {
     ///
     /// # Errors
     ///
-    /// `Sqlite` when SQLite cannot create its tables.
+    /// `Sqlite` when SQLite cannot create its tables or prepare its
+    /// statements.
     ///
     /// # Cancel safety
     ///
@@ -639,18 +710,14 @@ impl Politeness {
     /// # Cancel safety
     ///
     /// Dropping the future does not withdraw it once queued.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
-    )]
     pub async fn stop_waiting(&self, holder: &Holder) -> Result<(), PolitenessError> {
         let run_id = holder.run_id.clone();
         self.run(move |connection, context| {
             connection
-                .execute(
-                    "DELETE FROM waiters WHERE run_id = ?1 AND endpoint = ?2",
-                    (&run_id, context.endpoint.as_deref().unwrap_or_default()),
-                )
+                .prepare_cached(STOP_WAITING)
+                .and_then(|mut cached| {
+                    cached.execute((&run_id, context.endpoint.as_deref().unwrap_or_default()))
+                })
                 .map(drop)
                 .map_err(|error| sqlite_error(&context.path, &error))
         })
@@ -675,13 +742,8 @@ impl Politeness {
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
         self.run(move |connection, context| {
-            let failed = |error: rusqlite::Error| sqlite_error(&context.path, &error);
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(failed)?;
-            let done = work(&transaction).map_err(failed)?;
-            transaction.commit().map_err(failed)?;
-            Ok(done)
+            sqlite_store::immediate(connection, work)
+                .map_err(|error| sqlite_error(&context.path, &error))
         })
         .await
     }
@@ -717,10 +779,6 @@ impl Politeness {
 
     /// Wakes the waiter whose turn it is; one whose endpoint is gone loses
     /// its rows, and the next waiter's turn comes.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
-    )]
     async fn wake_turn(&self, mut turn: Turn) {
         loop {
             if self.0.endpoint.as_deref() == Some(turn.endpoint.as_str()) {
@@ -738,7 +796,8 @@ impl Politeness {
                     let next = self
                         .run(move |connection, context| {
                             connection
-                                .execute("DELETE FROM waiters WHERE endpoint = ?1", [&gone])
+                                .prepare_cached(GONE_WAITERS)
+                                .and_then(|mut cached| cached.execute([&gone]))
                                 .map_err(|error| sqlite_error(&context.path, &error))?;
                             next_turn(connection, &key, generation, now)
                                 .map_err(|error| sqlite_error(&context.path, &error))
@@ -776,8 +835,8 @@ pub fn moment(milliseconds: i64) -> SystemTime {
 
 /// The failure of a transaction of the file at `path` on `error`: a full
 /// disk or an I/O error as such, after which SQLite may have rolled the
-/// whole transaction back, and the transaction's drop rolls back the rest
-/// (ADR 0122).
+/// whole transaction back, and [`sqlite_store::immediate`] rolls back the
+/// rest (ADR 0122).
 fn sqlite_error(path: &Path, error: &(dyn std::error::Error + 'static)) -> PolitenessError {
     let storage = error
         .downcast_ref::<rusqlite::Error>()
@@ -808,7 +867,8 @@ fn counting(connection: &Connection, work: &CountedWork) -> rusqlite::Result<()>
     }))
 }
 
-/// Opens the file, skips `fsync` and creates its tables.
+/// Opens the file, skips `fsync`, creates its tables and prepares its
+/// statements.
 fn open_file(
     path: &Path,
     vfs: Option<&str>,
@@ -834,10 +894,30 @@ fn open_file(
             }),
         })
         .map_err(|error| open_failed(path, error))
+        .and_then(|connection| {
+            prepare_statements(&connection, tables)
+                .map(|()| connection)
+                .map_err(|error| sqlite_error(path, &error))
+        })
+}
+
+/// Prepares, in `connection`'s cache, the engine's statements and those
+/// `tables` name, so no Permit prepares one (ADR 0140's `E6.opens`).
+fn prepare_statements(
+    connection: &Connection,
+    tables: &[PolitenessTables],
+) -> rusqlite::Result<()> {
+    connection.set_prepared_statement_cache_capacity(STATEMENTS);
+    let prepared: Vec<&str> = PREPARED
+        .iter()
+        .chain(tables.iter().flat_map(|table| table.prepared))
+        .copied()
+        .collect();
+    sqlite_store::prepare_immediate(connection, &prepared)
 }
 
 /// Creates the tables of the file `connection` holds, one Run's own in
-/// memory, and checks its format version.
+/// memory, checks its format version and prepares its statements.
 fn create_tables(
     connection: &mut Connection,
     path: &Path,
@@ -848,7 +928,8 @@ fn create_tables(
         statements: &statements(tables),
     }
     .create(connection)
-    .map_err(|error| open_failed(path, error))
+    .map_err(|error| open_failed(path, error))?;
+    prepare_statements(connection, tables).map_err(|error| sqlite_error(path, &error))
 }
 
 /// The engine's own tables' statements, then each contribution's.
@@ -871,42 +952,25 @@ fn open_failed(path: &Path, error: OpenError) -> PolitenessError {
 }
 
 /// How many Permits are held under `key`.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
-)]
 fn in_flight(connection: &Connection, key: &str) -> rusqlite::Result<u64> {
-    let count: i64 = connection.query_row(
-        "SELECT count(*) FROM permits WHERE key = ?1",
-        [key],
-        |row| row.get(0),
-    )?;
+    let count: i64 = connection
+        .prepare_cached(IN_FLIGHT)?
+        .query_row([key], |row| row.get(0))?;
     Ok(u64::try_from(count).unwrap_or_default())
 }
 
 /// How many Permits under `key` were given back so far: each give back
 /// starts a new generation of wakes.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
-)]
 fn generation(connection: &Connection, key: &str) -> rusqlite::Result<i64> {
     Ok(connection
-        .query_row(
-            "SELECT generation FROM returns WHERE key = ?1",
-            [key],
-            |row| row.get(0),
-        )
+        .prepare_cached(GENERATION)?
+        .query_row([key], |row| row.get(0))
         .optional()?
         .unwrap_or_default())
 }
 
 /// The first waiter of `key` in turn not yet woken for `generation`,
 /// marked woken for it at `now`.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
-)]
 fn next_turn(
     connection: &Connection,
     key: &str,
@@ -914,19 +978,18 @@ fn next_turn(
     now: SystemTime,
 ) -> rusqlite::Result<Option<Turn>> {
     let next: Option<(String, String)> = connection
-        .query_row(
-            "SELECT run_id, endpoint FROM waiters WHERE key = ?1 AND woken < ?2 ORDER BY turn LIMIT 1",
-            (key, generation),
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
+        .prepare_cached(NEXT_WAITER)?
+        .query_row((key, generation), |row| Ok((row.get(0)?, row.get(1)?)))
         .optional()?;
     let Some((run_id, endpoint)) = next else {
         return Ok(None);
     };
-    connection.execute(
-        "UPDATE waiters SET woken = ?3, woken_at = ?4 WHERE key = ?1 AND run_id = ?2",
-        (key, &run_id, generation, milliseconds(now)),
-    )?;
+    connection.prepare_cached(WAKE_WAITER)?.execute((
+        key,
+        &run_id,
+        generation,
+        milliseconds(now),
+    ))?;
     Ok(Some(Turn {
         endpoint,
         wake: Wake {
@@ -941,23 +1004,18 @@ fn next_turn(
 /// How many requests `run_id` counts as in flight under `key` at `now`:
 /// the Permits held, and the room kept for another run's waiter woken
 /// within [`WAKE_GRACE`] for the latest give back.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
-)]
 fn taken_room(
     connection: &Connection,
     key: &str,
     run_id: &str,
     now: SystemTime,
 ) -> rusqlite::Result<u64> {
-    let kept: i64 = connection.query_row(
-        "SELECT count(*) FROM waiters
-         WHERE key = ?1 AND run_id != ?2 AND woken > 0 AND woken = ?3 AND woken_at > ?4",
+    let generation = generation(connection, key)?;
+    let kept: i64 = connection.prepare_cached(KEPT_ROOM)?.query_row(
         (
             key,
             run_id,
-            generation(connection, key)?,
+            generation,
             milliseconds(now).saturating_sub(i64::try_from(WAKE_GRACE.as_millis()).unwrap_or(0)),
         ),
         |row| row.get(0),
@@ -967,15 +1025,9 @@ fn taken_room(
 
 /// Deletes the Permits of every other engine's Run that is gone, and
 /// answers how many.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
-)]
 fn reclaim(connection: &Connection, context: &Context, key: &str) -> rusqlite::Result<usize> {
     let holders: Vec<(String, i64, String)> = connection
-        .prepare(
-            "SELECT DISTINCT run_id, epoch, run_folder FROM permits WHERE key = ?1 AND engine != ?2",
-        )?
+        .prepare_cached(OTHER_HOLDERS)?
         .query_map((key, &context.engine), |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
         })?
@@ -984,21 +1036,16 @@ fn reclaim(connection: &Connection, context: &Context, key: &str) -> rusqlite::R
     for (run_id, epoch, folder) in holders {
         if (context.holder_gone)(Path::new(&folder), u64::try_from(epoch).unwrap_or_default()) {
             tracing::debug!(%run_id, epoch, "the Permits of a gone Run are reclaimed");
-            reclaimed += connection.execute(
-                "DELETE FROM permits WHERE run_id = ?1 AND epoch = ?2",
-                (&run_id, epoch),
-            )?;
+            reclaimed += connection
+                .prepare_cached(RECLAIM)?
+                .execute((&run_id, epoch))?;
         }
     }
     Ok(reclaimed)
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
-)]
 fn take_in(
-    connection: &mut Connection,
+    connection: &Connection,
     context: &Context,
     key: &str,
     holder: &Holder,
@@ -1006,45 +1053,46 @@ fn take_in(
     now: SystemTime,
     in_turn: bool,
 ) -> Result<(Taken, Option<Turn>), PolitenessError> {
-    let failed = |error: rusqlite::Error| sqlite_error(&context.path, &error);
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(failed)?;
+    sqlite_store::immediate(connection, |transaction| {
+        taken_in(transaction, context, key, holder, rule, now, in_turn)
+    })
+    .map_err(|error| sqlite_error(&context.path, &error))
+}
+
+/// [`take_in`]'s work, in its transaction.
+fn taken_in(
+    transaction: &Connection,
+    context: &Context,
+    key: &str,
+    holder: &Holder,
+    rule: &dyn PermitRule,
+    now: SystemTime,
+    in_turn: bool,
+) -> rusqlite::Result<(Taken, Option<Turn>)> {
     let taken = |transaction: &Connection| taken_room(transaction, key, &holder.run_id, now);
-    let mut verdict = rule
-        .admit(&transaction, key, taken(&transaction).map_err(failed)?, now)
-        .map_err(failed)?;
-    if verdict == Verdict::Busy && reclaim(&transaction, context, key).map_err(failed)? > 0 {
-        verdict = rule
-            .admit(&transaction, key, taken(&transaction).map_err(failed)?, now)
-            .map_err(failed)?;
+    let mut verdict = rule.admit(transaction, key, taken(transaction)?, now)?;
+    if verdict == Verdict::Busy && reclaim(transaction, context, key)? > 0 {
+        verdict = rule.admit(transaction, key, taken(transaction)?, now)?;
     }
     let mut turn = None;
     let taken = match verdict {
         Verdict::Go => {
-            transaction
-                .execute(
-                    "INSERT INTO permits (key, run_id, epoch, run_folder, engine, taken_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    (
-                        key,
-                        &holder.run_id,
-                        i64::try_from(holder.epoch).unwrap_or(i64::MAX),
-                        holder.run_folder.to_string_lossy(),
-                        &context.engine,
-                        milliseconds(now),
-                    ),
-                )
-                .map_err(failed)?;
+            transaction.prepare_cached(TAKE).and_then(|mut cached| {
+                cached.execute((
+                    key,
+                    &holder.run_id,
+                    i64::try_from(holder.epoch).unwrap_or(i64::MAX),
+                    holder.run_folder.to_string_lossy(),
+                    &context.engine,
+                    milliseconds(now),
+                ))
+            })?;
             let id = transaction.last_insert_rowid();
-            rule.started(&transaction, key, now).map_err(failed)?;
+            rule.started(transaction, key, now)?;
             if in_turn {
                 transaction
-                    .execute(
-                        "DELETE FROM waiters WHERE key = ?1 AND run_id = ?2",
-                        (key, &holder.run_id),
-                    )
-                    .map_err(failed)?;
+                    .prepare_cached(LEAVE_TURNS)
+                    .and_then(|mut cached| cached.execute((key, &holder.run_id)))?;
             }
             Taken::Granted(Permit {
                 id,
@@ -1055,23 +1103,17 @@ fn take_in(
         Verdict::Refused(until) => Taken::Refused(until),
         Verdict::Busy => {
             if in_turn && let Some(endpoint) = &context.endpoint {
-                turn = wait_in_turn(&transaction, key, &holder.run_id, endpoint, now)
-                    .map_err(failed)?;
+                turn = wait_in_turn(transaction, key, &holder.run_id, endpoint, now)?;
             }
             Taken::Wait(None)
         }
     };
-    transaction.commit().map_err(failed)?;
     Ok((taken, turn))
 }
 
 /// Registers `run_id` as a waiter of `key` at `endpoint`. A waiter already
 /// woken for the latest give back, and still refused, goes to the back of
 /// the turns and passes the wake to the next waiter, whose turn it answers.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
-)]
 fn wait_in_turn(
     connection: &Connection,
     key: &str,
@@ -1081,70 +1123,57 @@ fn wait_in_turn(
 ) -> rusqlite::Result<Option<Turn>> {
     let generation = generation(connection, key)?;
     let woken: Option<i64> = connection
-        .query_row(
-            "SELECT woken FROM waiters WHERE key = ?1 AND run_id = ?2",
-            (key, run_id),
-            |row| row.get(0),
-        )
+        .prepare_cached(WOKEN)?
+        .query_row((key, run_id), |row| row.get(0))
         .optional()?;
-    let back = "(SELECT coalesce(max(turn), 0) + 1 FROM waiters WHERE key = ?1)";
     match woken {
         None => {
-            connection.execute(
-                &format!(
-                    "INSERT INTO waiters (key, run_id, endpoint, turn, woken, woken_at) VALUES (?1, ?2, ?3, {back}, ?4, 0)"
-                ),
-                (key, run_id, endpoint, generation),
-            )?;
+            connection
+                .prepare_cached(JOIN_TURNS)?
+                .execute((key, run_id, endpoint, generation))?;
             Ok(None)
         }
         Some(woken) if woken == generation && generation > 0 => {
-            connection.execute(
-                &format!(
-                    "UPDATE waiters SET turn = {back}, endpoint = ?3, woken_at = 0 WHERE key = ?1 AND run_id = ?2"
-                ),
-                (key, run_id, endpoint),
-            )?;
+            connection
+                .prepare_cached(REJOIN_TURNS)?
+                .execute((key, run_id, endpoint))?;
             next_turn(connection, key, generation, now)
         }
         Some(_) => Ok(None),
     }
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "ADR 0140: Exception X19 until #1899 moves the Politeness file's statements to prepare_cached"
-)]
 fn give_back_in(
-    connection: &mut Connection,
+    connection: &Connection,
     context: &Context,
     permit: &Permit,
     rule: &dyn PermitRule,
     ending: Ending,
     now: SystemTime,
 ) -> Result<(Option<SystemTime>, Option<Turn>), PolitenessError> {
-    let failed = |error: rusqlite::Error| sqlite_error(&context.path, &error);
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(failed)?;
+    sqlite_store::immediate(connection, |transaction| {
+        given_back_in(transaction, permit, rule, ending, now)
+    })
+    .map_err(|error| sqlite_error(&context.path, &error))
+}
+
+/// [`give_back_in`]'s work, in its transaction.
+fn given_back_in(
+    transaction: &Connection,
+    permit: &Permit,
+    rule: &dyn PermitRule,
+    ending: Ending,
+    now: SystemTime,
+) -> rusqlite::Result<(Option<SystemTime>, Option<Turn>)> {
     transaction
-        .execute("DELETE FROM permits WHERE permit_id = ?1", [permit.id])
-        .map_err(failed)?;
-    let others = in_flight(&transaction, &permit.key).map_err(failed)?;
-    let ready_at = rule
-        .ended(&transaction, &permit.key, others, ending, now)
-        .map_err(failed)?;
+        .prepare_cached(GIVE_BACK)
+        .and_then(|mut cached| cached.execute([permit.id]))?;
+    let others = in_flight(transaction, &permit.key)?;
+    let ready_at = rule.ended(transaction, &permit.key, others, ending, now)?;
     let generation: i64 = transaction
-        .query_row(
-            "INSERT INTO returns (key, generation) VALUES (?1, 1)
-             ON CONFLICT (key) DO UPDATE SET generation = generation + 1
-             RETURNING generation",
-            [&permit.key],
-            |row| row.get(0),
-        )
-        .map_err(failed)?;
-    let turn = next_turn(&transaction, &permit.key, generation, now).map_err(failed)?;
-    transaction.commit().map_err(failed)?;
+        .prepare_cached(NEXT_GENERATION)
+        .and_then(|mut cached| cached.query_row([&permit.key], |row| row.get(0)))?;
+    let turn = next_turn(transaction, &permit.key, generation, now)?;
     Ok((ready_at, turn))
 }
 

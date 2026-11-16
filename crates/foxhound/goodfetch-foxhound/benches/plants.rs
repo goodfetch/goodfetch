@@ -192,6 +192,7 @@ pub(crate) fn run_state_plant(name: &str, counted: &Counted<'_>) -> Plant {
 const PLANTED_POLITENESS: PolitenessTables = PolitenessTables {
     name: "planted",
     statements: &["CREATE TABLE IF NOT EXISTS planted (value INTEGER NOT NULL) STRICT"],
+    prepared: &[],
 };
 
 /// A Politeness file of its own, in memory, counting on `work`, opened before

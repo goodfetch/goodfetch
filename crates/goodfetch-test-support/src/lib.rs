@@ -69,6 +69,10 @@ mod locales;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod no_console;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod no_exec;
 mod observation;
 mod player;
@@ -164,6 +168,10 @@ pub use locales::{LocaleTableError, TimeZoneCase, locales, time_zones};
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 pub use no_console::{console_address_answer, runtime_file_members};
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 pub use no_exec::NoExec;
 pub use observation::{
     Epoch, Fault, LOG_FILE, ObservationLog, Operation, REDACTED, Record, Redacted, ValueDigest,

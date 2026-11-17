@@ -302,6 +302,42 @@ fn a_program_opens_pages_in_the_runs_default_session_and_gets_a_documents_respon
     );
 }
 
+/// A Session's page opens on every OS over the browser's debugging pipe,
+/// with no debugging port: Chromium writes `DevToolsActivePort` into its data
+/// folder once its debugging server listens on a port, as a Borrowed
+/// browser's does, and never for the pipe (ADR 0017).
+/// Covers: story:5-61, operation:run.new_page
+#[test]
+fn a_sessions_page_opens_over_the_debugging_pipe_with_no_debugging_port() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "piped");
+
+    let page = engine.ask(2, "run.new_page", &json!({ "run_id": "piped" }));
+    let data_folder = HomeLayout::of(env.home())
+        .run_folder("piped")
+        .join("browser-data")
+        .join("1");
+    let running = (
+        data_folder.is_dir(),
+        data_folder.join("DevToolsActivePort").exists(),
+    );
+    let finished = engine.ask(3, "run.finish", &json!({ "run_id": "piped" }));
+    let (rest, exited) = engine.finish();
+
+    assert_eq!(
+        (
+            page["result"]["page_id"].is_string(),
+            running,
+            &finished["result"]["lifecycle"],
+            (rest, exited),
+        ),
+        (true, (true, false), &json!("finished"), (vec![], true)),
+        "{page}"
+    );
+}
+
 /// An engine whose temporary folder is too deep for the OS's socket paths,
 /// as a sandbox's or a build tool's `TMPDIR` can be, still starts its
 /// browser and goes to a page: Chromium puts its own socket in its

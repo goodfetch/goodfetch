@@ -8,6 +8,8 @@
 //! does not, its data folder removed and its build released.
 
 mod arguments;
+#[cfg(windows)]
+mod named_pipes;
 #[cfg(unix)]
 mod pipe;
 mod preferences;
@@ -344,6 +346,7 @@ pub(crate) async fn launch(
     }
     let log = command_log(run, &executable).await?;
     let (connection, driver, mut child) = start(command, run.metrics().counted_work().clone(), log)
+        .await
         .map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
     let process = child.child.id();
     // Under AppArmor's restriction, the label the browser started under
@@ -557,7 +560,11 @@ pub(crate) struct Process {
 /// which records each command's method in `log`, if any, its driver, and
 /// its process.
 #[cfg(unix)]
-fn start(
+#[expect(
+    clippy::unused_async,
+    reason = "Windows' start awaits its pipe's connection, and both have one signature"
+)]
+async fn start(
     mut command: Command,
     work: CountedWork,
     log: Option<CommandLog>,
@@ -579,15 +586,27 @@ fn start(
     ))
 }
 
-#[cfg(not(unix))]
-fn start(
-    _command: Command,
-    _work: CountedWork,
-    _log: Option<CommandLog>,
+/// Starts `command` with its debugging pipe, as on Unix: the browser
+/// inherits its ends of two named pipes, which `--remote-debugging-io-pipes`
+/// names, and the parent's copies close once it started.
+#[cfg(windows)]
+async fn start(
+    mut command: Command,
+    work: CountedWork,
+    log: Option<CommandLog>,
 ) -> std::io::Result<(Connection, Driving, Process)> {
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "the debugging pipe is not built on this OS yet",
+    let pipe = named_pipes::debugging_pipe().await?;
+    command.arg(pipe.browser.switch()?);
+    let mut group = Children::new()?;
+    let child = group.spawn_inheriting(command, pipe.browser.into_handles().into())?;
+    let (connection, driver) = Connection::new(pipe.reader, pipe.writer, work, log);
+    Ok((
+        connection,
+        Box::pin(driver.run()),
+        Process {
+            child,
+            _group: group,
+        },
     ))
 }
 

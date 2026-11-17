@@ -3,7 +3,8 @@
 //! as its parent-death signal and the huge-page state the engine itself was
 //! started with on Linux, which [`give_huge_pages_as_started`] also gives
 //! a Daemon its executable starts, and in a kill-on-close Job Object
-//! whose only handle the engine holds on Windows. Stopping the engine's
+//! whose only handle the engine holds on Windows, where a child may also
+//! inherit handles, such as a browser's ends of its debugging pipe. Stopping the engine's
 //! [`Children`] kills every group it started, or its Job Object; the
 //! engine's own death kills them on Linux and Windows through the kernel,
 //! and on macOS an Attached engine whose Client died stops first, through
@@ -19,7 +20,7 @@
     any(target_os = "linux", windows),
     expect(
         unsafe_code,
-        reason = "a child's parent-death signal, its huge-page flag and its Job Object are only set through the OS's C calls, and the flag is read from a constructor's link section (ADR 0024)"
+        reason = "a child's parent-death signal, its huge-page flag, its Job Object and the handles it inherits are only set through the OS's C calls, and the flag is read from a constructor's link section (ADR 0024)"
     )
 )]
 
@@ -148,12 +149,45 @@ impl Children {
                 }
             });
         }
+        #[cfg(unix)]
         let child = command.kill_on_drop(true).spawn()?;
+        #[cfg(windows)]
+        let child = self.start_in_job(&mut command, Vec::new())?;
         #[cfg(unix)]
         if let Some(id) = child.id().and_then(|id| i32::try_from(id).ok()) {
             self.groups.push(id);
         }
-        #[cfg(windows)]
+        Ok(child)
+    }
+
+    /// Starts `command` as one of them, as [`Self::spawn`] does, the child
+    /// inheriting `handles`, which close here once it started, such as a
+    /// browser's ends of its debugging pipe. No other child the engine
+    /// starts through here meanwhile inherits them: each start waits for
+    /// the one before. A process the engine starts elsewhere still could,
+    /// as Windows hands every inheritable handle to every child started to
+    /// inherit some.
+    ///
+    /// # Errors
+    ///
+    /// When a handle cannot be made inheritable, or as [`Self::spawn`].
+    #[cfg(windows)]
+    pub fn spawn_inheriting(
+        &mut self,
+        mut command: tokio::process::Command,
+        handles: Vec<std::os::windows::io::OwnedHandle>,
+    ) -> io::Result<tokio::process::Child> {
+        self.start_in_job(&mut command, handles)
+    }
+
+    /// Starts `command` in the Job Object, the child inheriting `handles`.
+    #[cfg(windows)]
+    fn start_in_job(
+        &mut self,
+        command: &mut tokio::process::Command,
+        handles: Vec<std::os::windows::io::OwnedHandle>,
+    ) -> io::Result<tokio::process::Child> {
+        let child = windows::start(command.kill_on_drop(true), handles)?;
         self.job.assign(&child)?;
         Ok(child)
     }
@@ -185,12 +219,51 @@ impl Drop for Children {
 mod windows {
     use std::io;
 
-    use windows_sys::Win32::Foundation::{CloseHandle, FALSE, HANDLE};
+    use std::os::windows::io::{AsRawHandle as _, OwnedHandle};
+    use std::sync::PoisonError;
+
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, FALSE, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation,
+    };
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
         SetInformationJobObject, TerminateJobObject,
     };
+
+    /// Held for each start, so the handles one child inherits are
+    /// inheritable while it starts only.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "held across a process start, which loom cannot model; the CPU pool's sync module is for loom's (ADR 0060)"
+    )]
+    static STARTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Starts `command`, the child inheriting `handles`, which close once it
+    /// started or failed to.
+    pub(super) fn start(
+        command: &mut tokio::process::Command,
+        handles: Vec<OwnedHandle>,
+    ) -> io::Result<tokio::process::Child> {
+        let _starting = STARTING.lock().unwrap_or_else(PoisonError::into_inner);
+        for handle in &handles {
+            // SAFETY: the handle is live while borrowed, and the call only
+            // sets its inheritance flag.
+            let set = unsafe {
+                SetHandleInformation(
+                    handle.as_raw_handle(),
+                    HANDLE_FLAG_INHERIT,
+                    HANDLE_FLAG_INHERIT,
+                )
+            };
+            if set == FALSE {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        let child = command.spawn();
+        drop(handles);
+        child
+    }
 
     /// A kill-on-close Job Object whose only handle this value holds.
     #[derive(Debug)]

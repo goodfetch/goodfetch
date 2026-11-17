@@ -73,6 +73,10 @@ libc.workspace = true
 # The engine's ends of the browser's debugging pipe.
 tokio = { workspace = true, features = ["net"] }
 
+[target.'cfg(windows)'.dependencies]
+# The browser's debugging pipe's random name (ADR 0017).
+getrandom.workspace = true
+
 [dev-dependencies]
 # The integration tests' adapter of the page's value and response observer
 # (ADR 0125); never the unit tests', which would link two copies of this

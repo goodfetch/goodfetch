@@ -13,7 +13,9 @@ use crate::affected::{commit_all, repository, value};
 use crate::github::GitHub;
 use rstest::rstest;
 
-use crate::workspace::{Outcome, Workspace, write_executable};
+#[cfg(unix)]
+use crate::workspace::write_executable;
+use crate::workspace::{Outcome, Workspace};
 
 /// Now, in seconds since the Unix epoch, for every run.
 const NOW: &str = "1800000000";
@@ -793,6 +795,7 @@ fn a_run_in_another_environment_reuses_nothing() {
 #[case::cargo_fuzz("cargo-fuzz")]
 #[case::cargo_audit("cargo-audit")]
 #[case::cargo_insta("cargo-insta")]
+#[cfg(unix)]
 fn a_run_with_a_tool_at_another_version_reuses_nothing(#[case] tool: &str) {
     let (workspace, _folder, records) = gated_repository(&[]);
     let first = first_run(&workspace, &records);
@@ -849,6 +852,7 @@ fn host_changed_since(head: &str) -> String {
 /// standing first on `PATH`: a command no step runs, put there the same way,
 /// leaves the gate's results reused.
 #[test]
+#[cfg(unix)]
 fn a_command_no_step_runs_first_on_the_path_keeps_the_gates_results() {
     let (workspace, _folder, records) = gated_repository(&[]);
     first_run(&workspace, &records);
@@ -876,6 +880,7 @@ fn a_command_no_step_runs_first_on_the_path_keeps_the_gates_results() {
 /// toolchain rustup holds has other components. `rustup` is a stand-in
 /// that lists one toolchain and, as its components, the file beside it.
 #[test]
+#[cfg(unix)]
 fn a_run_after_a_toolchain_lost_a_component_reuses_nothing() {
     let (workspace, _folder, records) = gated_repository(&[]);
     let stand_in = tempfile::tempdir().unwrap();

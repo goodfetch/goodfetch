@@ -336,10 +336,17 @@ fn the_kennel_does_not_run_for_a_change_neither_its_build_nor_its_tests_reach(
 // The local gate runs its quick form only when no test, benchmark, model,
 // container or Evaluation reads the change, and its docs form when, of
 // those, every path is a document: Markdown the Quick suite alone checks
-// (ADR 0135). Any other file, or no change at all, takes the quick form.
+// (ADR 0135). Any other file, or no change at all, takes the quick form, as
+// does ADR 0037's matrix, from which `xtask codegen` builds the Feature
+// inventory that `just lint` checks (#2476).
 #[rstest]
 #[case::top_level_markdown(&["GLOSSARY.md", "AGENTS.md"], "docs")]
 #[case::an_adr(&["docs/adr/0135-local-gate.md"], "docs")]
+#[case::the_scope_matrix(&["docs/adr/0037-v1-scope-matrix.md"], "quick")]
+#[case::the_scope_matrix_with_another_adr(
+    &["docs/adr/0037-v1-scope-matrix.md", "docs/adr/0135-local-gate.md"],
+    "quick"
+)]
 #[case::research_notes(&["rnd/research/2026-11-04-notes.MD", "website/README.md"], "docs")]
 #[case::docs_and_website(&["docs/collie/index.md", "website/index.html"], "quick")]
 #[case::the_lab(&["rnd/lab/src/cli.ts"], "quick")]

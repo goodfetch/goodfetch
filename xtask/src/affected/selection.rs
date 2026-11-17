@@ -9,7 +9,7 @@ use std::path::Path;
 use super::workspace::{Crate, Ecosystem, Model, Package, Workspace, is_visual_test};
 use super::{ChangedParts, RepoPath};
 use crate::register::document as register;
-use crate::{foxhound_side, kennel, perf, screenshots, tlc};
+use crate::{features, foxhound_side, kennel, perf, screenshots, tlc};
 
 /// A job of the pull-request tier that the selection may skip, by its job ID
 /// in `.github/workflows/pull-request.yml`. Jobs that are not written yet
@@ -124,11 +124,19 @@ pub(super) fn needs_no_tests(path: &RepoPath) -> bool {
             .any(|folder| path.is_in(folder))
 }
 
+/// The Markdown files no test reads from which `xtask codegen` builds a
+/// file, which `just lint`'s `xtask codegen --check` checks and `just
+/// lint-documents` does not: ADR 0037's matrix, whose rows are the Feature
+/// inventory's `row:` Features (#2476).
+const CODEGEN_INPUTS: [&str; 1] = [features::MATRIX];
+
 /// Whether the path is a document: Markdown among the paths no test reads,
 /// which only the checks of `just lint` that read documents check (`just
-/// lint-documents`). Any other file, even one no test reads, is not.
+/// lint-documents`). Any other file, even one no test reads, is not, nor is
+/// an input of `xtask codegen` (`CODEGEN_INPUTS`).
 fn is_document(path: &RepoPath) -> bool {
     needs_no_tests(path)
+        && !CODEGEN_INPUTS.contains(&path.as_str())
         && Path::new(path.as_str())
             .extension()
             .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))

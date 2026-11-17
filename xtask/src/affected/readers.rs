@@ -409,8 +409,10 @@ fn reads_a_changed_part(
 }
 
 /// The member whose commands run at the repository's root, so that its
-/// literals naming a document there are its checks' inputs, which `just
-/// lint` and the floor guard run in either gate, or its fixture
+/// literals naming a document there are its checks' inputs, which the
+/// quick and full gates run in `just lint` and the floor guard, and the docs
+/// gate only in the floor guard and `just lint-documents`, without `xtask
+/// codegen --check` (`selection::CODEGEN_INPUTS`), or its fixture
 /// workspaces' files. Its tests reach the repository's own documents from
 /// their folder, through `../` (`include_str!("../../../TESTING.md")`).
 const XTASK: &str = "xtask";

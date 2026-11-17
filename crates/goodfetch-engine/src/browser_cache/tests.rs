@@ -830,6 +830,26 @@ fn browsers_install_fetches_the_builds_of_the_platform_a_host_runs(
     assert_eq!(platform.build_platform(), expected);
 }
 
+const GLIBC_LDD: &[u8] = b"#! /bin/bash\n# This file is part of the GNU C Library.\n";
+const ALPINE_LDD: &[u8] = b"#!/bin/sh\nexec /lib/ld-musl-x86_64.so.1 --list \"$@\"\n";
+
+/// A static musl executable runs on any Linux, so the host's C library,
+/// not the build's, decides whether Chrome for Testing runs there. The
+/// host's `ldd` names it, as Node's `detect-libc` reads it (glibc's loader
+/// does not: Alpine's `gcompat` installs it). An `ldd` that is missing,
+/// unreadable or names neither leaves the musl build's own answer, musl.
+#[rstest]
+#[case::glibc_host(Some(GLIBC_LDD), Os::LinuxGnu)]
+#[case::alpine_host(Some(ALPINE_LDD), Os::LinuxMusl)]
+#[case::missing_or_unreadable_ldd(None, Os::LinuxMusl)]
+#[case::ldd_naming_neither(Some(b"#!/bin/sh\n".as_slice()), Os::LinuxMusl)]
+fn a_musl_executable_reads_the_c_library_of_the_linux_host_it_runs_on(
+    #[case] ldd: Option<&[u8]>,
+    #[case] expected: Os,
+) {
+    assert_eq!(super::platform::linux_os(ldd), expected);
+}
+
 /// Each platform Chrome for Testing builds has its name, which reads back as
 /// it, and its executable's place in the folder its archive unpacks to;
 /// Linux on arm64, which it builds nothing for, has neither.

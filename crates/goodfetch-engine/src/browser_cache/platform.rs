@@ -8,7 +8,9 @@
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt;
+use std::io::Read;
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use goodfetch_protocol::browser_cache::ChromeChannel;
 
@@ -20,9 +22,9 @@ pub const CHROME_FOR_TESTING: &str = "chrome-for-testing";
 /// An operating system the engine runs on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Os {
-    /// Linux, with glibc.
+    /// A Linux host with glibc.
     LinuxGnu,
-    /// Linux, with musl, such as Alpine.
+    /// A Linux host with musl, such as Alpine.
     LinuxMusl,
     /// macOS.
     Mac,
@@ -49,14 +51,16 @@ pub struct Platform {
 }
 
 impl Platform {
-    /// The platform this executable was built for.
+    /// The platform this executable runs on. A static musl build runs on
+    /// glibc and musl hosts alike (ADR 0024), so it takes the host's C
+    /// library, read once per process.
     pub fn current() -> Self {
         let os = if cfg!(target_os = "macos") {
             Os::Mac
         } else if cfg!(target_os = "windows") {
             Os::Windows
         } else if cfg!(target_env = "musl") {
-            Os::LinuxMusl
+            *MUSL_BUILD_HOST
         } else {
             Os::LinuxGnu
         };
@@ -79,6 +83,45 @@ impl Platform {
             (Os::Windows, Arch::X64 | Arch::Arm64) => Some(BuildPlatform::WindowsX64),
             (Os::LinuxMusl, Arch::X64 | Arch::Arm64) => None,
         }
+    }
+}
+
+/// The C library of the Linux host a musl build runs on.
+static MUSL_BUILD_HOST: LazyLock<Os> = LazyLock::new(|| linux_os(host_ldd().as_deref()));
+
+/// Where a Linux host keeps `ldd`, which names its C library.
+const LDD: &str = "/usr/bin/ldd";
+
+/// How much of `ldd` is read: glibc's and musl's name theirs in their
+/// first lines, and glibc's whole script is about 5 KiB.
+const LDD_READ_LIMIT: u64 = 64 * 1024;
+
+/// The host's `ldd`, `None` when it is missing or unreadable.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "read once per process, through MUSL_BUILD_HOST: one small script, in microseconds"
+)]
+fn host_ldd() -> Option<Vec<u8>> {
+    let mut text = Vec::new();
+    std::fs::File::open(LDD)
+        .ok()?
+        .take(LDD_READ_LIMIT)
+        .read_to_end(&mut text)
+        .ok()?;
+    Some(text)
+}
+
+/// The C library of the Linux host whose `ldd` reads `ldd` (`None` when it
+/// is missing or unreadable), for a musl build: glibc where `ldd` is
+/// glibc's, as Node's `detect-libc` reads it, else musl, the build's own.
+/// glibc's loader does not tell, since Alpine's `gcompat` installs it.
+pub(super) fn linux_os(ldd: Option<&[u8]>) -> Os {
+    let names =
+        |word: &[u8]| ldd.is_some_and(|text| text.windows(word.len()).any(|window| window == word));
+    if names(b"GNU C Library") && !names(b"musl") {
+        Os::LinuxGnu
+    } else {
+        Os::LinuxMusl
     }
 }
 

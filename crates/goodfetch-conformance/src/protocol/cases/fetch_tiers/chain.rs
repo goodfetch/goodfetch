@@ -19,6 +19,7 @@
 use serde_json::{Value, json};
 
 use super::{Checks, Connection, Gone, Site};
+use crate::protocol::cases::exchange::Exchange;
 use crate::protocol::foxhound::{CRAWL_REQUEST_HANDLE, CRAWL_START, RUN_ADD_SEED, RUN_OUTCOMES};
 use crate::protocol::target::DEADLINE;
 use crate::proving_ground::ObservedRequest;
@@ -641,25 +642,28 @@ fn handled_page(
 
 /// The outcomes of kinds `skipped` and `blocked` a `run.outcomes` call
 /// made with `after: "now"` yields while each of `urls` is added to the
-/// live crawl `run_id` as a seed, until it yields as many as `urls`.
+/// live crawl `run_id` as a seed, until it yields as many as `urls`. The
+/// call may answer while a seed's call is awaited, once a refusal is
+/// recorded, so its answer is kept for it.
 fn added_live(
     connection: &mut Connection,
     run_id: &str,
     urls: &[&str],
 ) -> Result<Vec<Value>, Gone> {
-    let live = connection.request(
+    let mut exchange = Exchange::new(connection);
+    let live = exchange.request(
         RUN_OUTCOMES,
         &json!({ "run_id": run_id, "kinds": ["skipped", "blocked"], "after": "now" }),
     )?;
     for url in urls {
-        let add = connection.request(
+        let add = exchange.request(
             RUN_ADD_SEED,
             &json!({ "run_id": run_id, "seed": { "url": url, "label": "page" } }),
         )?;
-        connection.answer(add)?;
+        exchange.answer_within(add, DEADLINE)?;
     }
     let mut outcomes: Vec<Value> = Vec::new();
-    let mut page = connection.answer(live)?.message;
+    let mut page = exchange.answer_within(live, DEADLINE)?;
     loop {
         let read = page["result"]["outcomes"]
             .as_array()
@@ -669,7 +673,7 @@ fn added_live(
         if outcomes.len() >= urls.len() || page["result"]["ended"] == json!(true) {
             return Ok(outcomes);
         }
-        let next = connection.request(
+        let next = exchange.request(
             RUN_OUTCOMES,
             &json!({
                 "run_id": run_id,
@@ -677,7 +681,7 @@ fn added_live(
                 "after": page["result"]["next"],
             }),
         )?;
-        page = connection.answer(next)?.message;
+        page = exchange.answer_within(next, DEADLINE)?;
     }
 }
 

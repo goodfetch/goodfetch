@@ -1,5 +1,9 @@
 //! Every (state, event) pair of the Effect's table, each a named case
 //! (ADR 0128): a late event's allowed row changes nothing.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use rstest::rstest;
 
@@ -23,6 +27,10 @@ const BUG: Expected = Err(Refusal::Internal);
 /// A declaration of an uncertain key raises `effect_uncertain`.
 const UNCERTAIN: Expected = Err(Refusal::Program("effect_uncertain"));
 
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "a case's expected answer is an `Expected`, whichever row it is"
+)]
 const fn to(state: EffectState) -> Expected {
     Ok(Next::To(state))
 }

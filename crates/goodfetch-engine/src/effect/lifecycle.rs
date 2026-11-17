@@ -61,15 +61,32 @@ impl EffectState {
     /// The state of an entry the journal holds as `state`, declared
     /// `repeatable` or not; `None` for a state the journal does not write.
     pub fn of(state: &str, repeatable: bool) -> Option<Self> {
-        match (state, repeatable) {
-            ("open", false) => Some(Self::Open),
-            ("open", true) => Some(Self::OpenRepeatable),
-            ("sent", false) => Some(Self::Sent),
-            ("sent", true) => Some(Self::SentRepeatable),
-            ("done", _) => Some(Self::Done),
-            ("uncertain", _) => Some(Self::Uncertain),
-            ("reconciled", _) => Some(Self::Reconciled),
-            _ => None,
+        [
+            Self::Open,
+            Self::OpenRepeatable,
+            Self::Sent,
+            Self::SentRepeatable,
+            Self::Done,
+            Self::Uncertain,
+            Self::Reconciled,
+        ]
+        .into_iter()
+        .find(|candidate| {
+            candidate.stored() == Some(state)
+                && candidate
+                    .running_repeatable()
+                    .is_none_or(|running| running == repeatable)
+        })
+    }
+
+    /// Whether its body, still running, was declared repeatable; `None`
+    /// for a state whose body no longer runs, which the journal reads the
+    /// same whichever way it was declared.
+    const fn running_repeatable(self) -> Option<bool> {
+        match self {
+            Self::Open | Self::Sent => Some(false),
+            Self::OpenRepeatable | Self::SentRepeatable => Some(true),
+            Self::Absent | Self::Done | Self::Uncertain | Self::Reconciled => None,
         }
     }
 

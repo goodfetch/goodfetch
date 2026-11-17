@@ -15,7 +15,10 @@
 //! in the journal's own table, so it is the same on every attempt and
 //! resume, and a Checkpoint carries it.
 
+mod journal;
 pub mod lifecycle;
+
+pub use journal::{Report, TABLES};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,16 +32,14 @@ use goodfetch_protocol::effect::{
     EffectOpenParams, EffectOpened, EffectOutcome, KEY_MAX_CODE_POINTS, UncertainReason,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::run::{
-    PointInTime, RUN_NOT_FOUND, RunDetails, RunId, RunReport, UncertainEffect,
-};
-use hkdf::Hkdf;
-use rusqlite::types::Type;
-use rusqlite::{Connection, OptionalExtension as _};
+use goodfetch_protocol::run::{PointInTime, RUN_NOT_FOUND, RunDetails, RunId, UncertainEffect};
 use serde_json::{Value, json};
-use sha2::Sha256;
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::{Mutex, MutexGuard, Notify};
 
+use self::journal::{
+    Answering, Declared, SECRET_BYTES, answer_about, declare, done, drop_entry, idempotency_key,
+    mark_sent, row, turn_uncertain,
+};
 use self::lifecycle::{EffectEvent, EffectState, InvalidEffectTransition, Next, apply};
 use crate::audit::{AuditError, Origin};
 use crate::call_error::CallError;
@@ -46,33 +47,10 @@ use crate::client::Client;
 use crate::composition::{CallContext, Handler};
 use crate::mask::Scope;
 use crate::run::run_error;
-use crate::run_state::{RunStateError, RunStateTables, Syncing};
-use crate::runs::{ReportPart, Run, RunError};
+use crate::run_state::{RunStateError, Syncing};
+use crate::runs::{Run, RunError};
 use crate::settings::{RunSettings, get_or_default};
 use crate::staging::{AttemptWrites, Unstaged};
-
-/// The Effect journal's tables in every run file: an entry per Effect key
-/// of a namespace, the crawl request of a handler's attempt or `""` for
-/// the Run, and the Run's secret its idempotency keys derive from.
-pub const TABLES: RunStateTables = RunStateTables {
-    name: "effect-journal",
-    statements: &[
-        "CREATE TABLE IF NOT EXISTS effect_journal (entry INTEGER PRIMARY KEY AUTOINCREMENT, \
-         namespace TEXT NOT NULL, key TEXT NOT NULL, repeatable INTEGER NOT NULL, \
-         state TEXT NOT NULL CHECK (state IN ('open', 'sent', 'done', 'uncertain', 'reconciled')), \
-         output TEXT, reason TEXT, first_command TEXT, since TEXT, performed_at TEXT, \
-         reconciled_by TEXT, reconciled_at TEXT, \
-         UNIQUE (namespace, key), \
-         CHECK (state NOT IN ('sent', 'uncertain') OR since IS NOT NULL), \
-         CHECK (state <> 'done' OR performed_at IS NOT NULL), \
-         CHECK (state <> 'uncertain' OR reason IS NOT NULL), \
-         CHECK (state <> 'reconciled' OR (reconciled_by IS NOT NULL AND reconciled_at IS NOT NULL))) STRICT",
-        "CREATE TABLE IF NOT EXISTS effect_secret (id INTEGER PRIMARY KEY CHECK (id = 1), secret BLOB NOT NULL) STRICT",
-    ],
-};
-
-/// The bytes of the Run's secret and of an idempotency key.
-const SECRET_BYTES: usize = 32;
 
 /// How often a declaration that waits for another attempt's body checks
 /// whether that attempt still holds.
@@ -268,16 +246,7 @@ impl Effects {
             repeatable,
             attempt,
         } = params;
-        let length = key.chars().count();
-        if length == 0 || length > KEY_MAX_CODE_POINTS {
-            return Err(CallError::new(
-                &EFFECT_KEY_INVALID,
-                format!(
-                    "The Effect key {key:?} holds {length} Unicode code points: a key holds 1 to {KEY_MAX_CODE_POINTS}."
-                ),
-                &json!({ "key": key }),
-            ));
-        }
+        checked_key(&key)?;
         let run = live(&run_id, context).await?;
         let owner = Owner {
             client: context.client().clone(),
@@ -293,81 +262,17 @@ impl Effects {
             .attempt
             .as_ref()
             .map_or_else(String::new, |attempt| attempt.id.crawl_request_id.clone());
-        let shelf = self.shelf(&run_id).await;
-        let mut book = loop {
-            let mut book = shelf.book.lock().await;
-            book.answered.retain(|answered| answered.owner.is_alive());
-            let reused = || {
-                CallError::new(
-                    &EFFECT_KEY_REUSED,
-                    format!(
-                        "The Effect key {key:?} was declared again while its body runs or after its answer: put what varies in the key."
-                    ),
-                    &json!({ "key": key }),
-                )
-            };
-            if book.answered.iter().any(|answered| {
-                answered.namespace == namespace && answered.key == key && answered.owner.is(&owner)
-            }) {
-                return Err(reused());
-            }
-            let Some(at) = book
-                .bodies
-                .iter()
-                .position(|body| body.namespace == namespace && body.key == key)
-            else {
-                break book;
-            };
-            let running = &book.bodies[at];
-            if running.owner.is(&owner) {
-                return Err(reused());
-            }
-            if !running.owner.is_alive() {
-                // Its row is judged as cut short below.
-                let gone = book.bodies.swap_remove(at);
-                gone.owner.end_effect();
-                shelf.judged.notify_waiters();
-                break book;
-            }
-            let other = running.owner.client.clone();
-            let judged = shelf.judged.notified();
-            tokio::pin!(judged);
-            judged.as_mut().enable();
-            drop(book);
-            let clock = run.clock();
-            tokio::select! {
-                () = judged => {}
-                () = other.gone() => {}
-                () = clock.sleep(HOLD_CHECK) => {}
-                () = context.cancellation().cancelled() => return Err(cancelled()),
-                () = context.client().gone() => return Err(cancelled()),
-            }
-        };
+        let run_shelf = self.shelf(&run_id).await;
+        let mut book = run_shelf
+            .free_key(&run, &namespace, &key, &owner, context)
+            .await?;
         if let Some(attempt) = &owner.attempt {
             attempt
                 .writes
                 .begin_effect(&attempt.id.crawl_request_id, attempt.id.lease_epoch)
                 .map_err(unstaged)?;
         }
-        let mut candidate = [0_u8; SECRET_BYTES];
-        let declared = match getrandom::fill(&mut candidate) {
-            Ok(()) => {
-                let (namespace, key) = (namespace.clone(), key.clone());
-                run.state()
-                    .write_deferred(move |connection| {
-                        declare(connection, &namespace, &key, repeatable, &candidate)
-                    })
-                    .await
-                    .map_err(|error| unwritten(&run, &error, context))
-            }
-            Err(error) => Err(CallError::protocol(
-                ProtocolFailure::InternalError,
-                format!(
-                    "the operating system gave no randomness for the Run's Effect secret: {error}"
-                ),
-            )),
-        };
-        let answer = match declared {
+        let answer = match declared(&run, &namespace, &key, repeatable, context).await {
             Ok(Declared::Perform { entry, secret }) => {
                 let idempotency_key = idempotency_key(&secret, &namespace, &key);
                 book.bodies.push(Body {
@@ -383,28 +288,7 @@ impl Effects {
                     idempotency_key,
                 });
             }
-            Ok(Declared::Journal {
-                output,
-                performed_at,
-            }) => output
-                .map(|output| serde_json::from_str::<Value>(&output))
-                .transpose()
-                .map(|output| EffectOpened::Journal {
-                    output,
-                    performed_at: PointInTime::from_rfc3339(performed_at),
-                })
-                .map_err(|error| {
-                    CallError::protocol(
-                        ProtocolFailure::InternalError,
-                        format!("the Effect journal's output of {key:?} is no JSON: {error}"),
-                    )
-                }),
-            Ok(Declared::Reconciled { by, at }) => Ok(EffectOpened::Reconciled {
-                reconciled_by: by,
-                reconciled_at: PointInTime::from_rfc3339(at),
-            }),
-            Ok(Declared::Uncertain(effect)) => Err(uncertain(&effect)),
-            Ok(Declared::Refused(refused)) => Err(refusal(refused)),
+            Ok(other) => journal_answer(other, &key),
             Err(error) => Err(error),
         };
         owner.end_effect();
@@ -437,57 +321,21 @@ impl Effects {
             entry,
             outcome,
         } = params;
-        let not_running = || {
-            CallError::protocol(
-                ProtocolFailure::InvalidParams,
-                format!(
-                    "The Effect journal entry `{entry}` has no body running: `effect.close` closes the entry `effect.open` answered with `perform`, once."
-                ),
-            )
-        };
         let Ok(number) = entry.parse::<i64>() else {
-            return Err(not_running());
+            return Err(not_running(&entry));
         };
         let run = live(&run_id, context).await?;
-        let shelf = self.shelf(&run_id).await;
-        let mut book = shelf.book.lock().await;
+        let run_shelf = self.shelf(&run_id).await;
+        let mut book = run_shelf.book.lock().await;
         let Some(at) = book.bodies.iter().position(|body| body.entry == number) else {
             drop(book);
-            let found = run
-                .state()
-                .write_deferred(move |connection| row(connection, number))
-                .await
-                .map_err(|error| unwritten(&run, &error, context))?;
-            return match found {
-                Some(row) if row.state == "done" => Ok(EffectClosed::Done {
-                    performed_at: PointInTime::from_rfc3339(row.performed_at.unwrap_or_default()),
-                }),
-                Some(row) if row.state == "uncertain" => Ok(EffectClosed::Uncertain {
-                    effect: row.uncertain(),
-                    cause: None,
-                }),
-                Some(_) | None => Err(not_running()),
-            };
+            return closed_before(&run, &entry, number, context).await;
         };
         let limit: u64 = get_or_default(
             run.settings().map(RunSettings::resolved),
             &EFFECT_OUTPUT_MAX_SIZE,
         );
-        let mut oversized = None;
-        let (event, output) = match outcome {
-            EffectOutcome::Returned { output } => {
-                let size = output.as_ref().map_or(0, |output| output.to_string().len());
-                let size = u64::try_from(size).unwrap_or(u64::MAX);
-                if size > limit {
-                    oversized = Some(size);
-                    (EffectEvent::Fail, None)
-                } else {
-                    (EffectEvent::Return, output)
-                }
-            }
-            EffectOutcome::Threw => (EffectEvent::Fail, None),
-            EffectOutcome::CutShort => (EffectEvent::Interrupt, None),
-        };
+        let (event, output, oversized) = ended(outcome, limit);
         let body = book.bodies.swap_remove(at);
         let judged = match apply(body.state(), event) {
             Ok(Next::To(EffectState::Done)) => {
@@ -503,43 +351,17 @@ impl Effects {
             }
             Ok(Next::Dropped) => {
                 let sent = body.sent.is_some();
-                let dropped = run
-                    .state()
+                run.state()
                     .write_deferred(move |connection| drop_entry(connection, number))
                     .await
-                    .map_err(|error| unwritten(&run, &error, context));
-                match (dropped, oversized) {
-                    (Err(error), _) => Err(error),
-                    (Ok(()), Some(size)) if !sent => Err(CallError::new(
-                        &EFFECT_OUTPUT_INVALID,
-                        format!(
-                            "The body of the Effect {:?} returned {size} bytes of JSON, more than `effect.output.max_size`, {limit}: the entry is dropped.",
-                            body.key
-                        ),
-                        &json!({ "key": body.key, "size": size, "limit": limit }),
-                    )),
-                    (Ok(()), _) => Ok(EffectClosed::Dropped { sent }),
-                }
+                    .map_err(|error| unwritten(&run, &error, context))
+                    .and_then(|()| match oversized {
+                        Some(size) if !sent => Err(output_invalid(&body.key, size, limit)),
+                        Some(_) | None => Ok(EffectClosed::Dropped { sent }),
+                    })
             }
             Ok(Next::To(EffectState::Uncertain)) => {
-                let reason = if event == EffectEvent::Interrupt {
-                    UncertainReason::Interrupted
-                } else {
-                    UncertainReason::FailedAfterSend
-                };
-                let (first_command, since) = body
-                    .sent
-                    .clone()
-                    .expect("invariant: only a body something was sent for turns uncertain");
-                let effect = UncertainEffect {
-                    entry: entry.clone(),
-                    key: Some(body.key.clone()),
-                    instruction: None,
-                    crawl_request: (!body.namespace.is_empty()).then(|| body.namespace.clone()),
-                    reason: reason.as_str().to_owned(),
-                    first_command: Some(first_command),
-                    since,
-                };
+                let (effect, reason) = body.uncertain(&entry, event);
                 run.state()
                     .write(move |connection| turn_uncertain(connection, number, reason))
                     .await
@@ -565,7 +387,7 @@ impl Effects {
                 owner: body.owner,
             });
         }
-        shelf.judged.notify_waiters();
+        run_shelf.judged.notify_waiters();
         judged
     }
 
@@ -583,10 +405,10 @@ impl Effects {
         attempt: Option<&EffectAttempt>,
         command: &str,
     ) -> Result<(), RunStateError> {
-        let Some(shelf) = self.shelf_of(run.id()).await else {
+        let Some(run_shelf) = self.shelf_of(run.id()).await else {
             return Ok(());
         };
-        let mut book = shelf.book.lock().await;
+        let mut book = run_shelf.book.lock().await;
         let marked: Vec<usize> = book
             .bodies
             .iter()
@@ -631,8 +453,8 @@ impl Effects {
         let Ok(number) = entry.parse::<i64>() else {
             return Ok(Reconciled::NotUncertain);
         };
-        let shelf = self.shelf(run.id()).await;
-        let book = shelf.book.lock().await;
+        let run_shelf = self.shelf(run.id()).await;
+        let book = run_shelf.book.lock().await;
         if book.bodies.iter().any(|body| body.entry == number) {
             return Ok(Reconciled::NotUncertain);
         }
@@ -700,332 +522,239 @@ pub(crate) fn handlers(effects: &Effects) -> [Handler; 2] {
     ]
 }
 
-/// The Run report's uncertain Effects (ADR 0106): each entry left
-/// `uncertain`, and each left `sent` by a body that is not repeatable and
-/// whose engine is gone, which its next declaration judges uncertain.
-pub struct Report;
-
-impl ReportPart for Report {
-    fn fill(&self, connection: &Connection, report: &mut RunReport) -> rusqlite::Result<()> {
-        let mut statement = connection.prepare_cached(&format!(
-            "SELECT {ROW} FROM effect_journal \
-             WHERE state = 'uncertain' OR (state = 'sent' AND repeatable = 0) ORDER BY entry"
-        ))?;
-        let found = statement
-            .query_map([], Row::read)?
-            .map(|row| row.map(|row| row.uncertain()))
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        if !found.is_empty() {
-            report
-                .uncertain_effects
-                .get_or_insert_with(Vec::new)
-                .extend(found);
-        }
-        Ok(())
-    }
-}
-
-/// What a declaration's write found.
-enum Declared {
-    /// The key's entry was written: run the body.
-    Perform {
-        entry: i64,
-        /// The Run's secret.
-        secret: Vec<u8>,
-    },
-    /// A body returned this output, at this point in time.
-    Journal {
-        output: Option<String>,
-        performed_at: String,
-    },
-    /// A person answered "it happened".
-    Reconciled { by: String, at: String },
-    /// The Effect is uncertain.
-    Uncertain(UncertainEffect),
-    /// The transition table refused the declaration.
-    Refused(InvalidEffectTransition),
-}
-
-/// What a person's answer found.
-enum Answering {
-    Answered(UncertainEffect),
-    NotUncertain,
-    Refused(InvalidEffectTransition),
-}
-
-/// The columns [`Row::read`] reads.
-const ROW: &str = "entry, namespace, key, repeatable, state, output, reason, first_command, since, \
-                   performed_at, reconciled_by, reconciled_at";
-
-/// An entry of the Effect journal.
-struct Row {
-    entry: i64,
-    namespace: String,
-    key: String,
-    repeatable: bool,
-    state: String,
-    output: Option<String>,
-    reason: Option<String>,
-    first_command: Option<String>,
-    since: Option<String>,
-    performed_at: Option<String>,
-    reconciled_by: Option<String>,
-    reconciled_at: Option<String>,
-}
-
-impl Row {
-    fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
-        Ok(Self {
-            entry: row.get(0)?,
-            namespace: row.get(1)?,
-            key: row.get(2)?,
-            repeatable: row.get(3)?,
-            state: row.get(4)?,
-            output: row.get(5)?,
-            reason: row.get(6)?,
-            first_command: row.get(7)?,
-            since: row.get(8)?,
-            performed_at: row.get(9)?,
-            reconciled_by: row.get(10)?,
-            reconciled_at: row.get(11)?,
-        })
-    }
-
-    /// Its state in the transition table.
-    fn effect_state(&self) -> rusqlite::Result<EffectState> {
-        EffectState::of(&self.state, self.repeatable).ok_or_else(|| {
-            rusqlite::Error::FromSqlConversionFailure(
-                4,
-                Type::Text,
-                format!("`{}` is no state of the Effect journal", self.state).into(),
+impl Shelf {
+    /// Its book once no other body of `key` in `namespace` runs: waits for
+    /// a live owner's body to be judged, and takes out a body whose owner
+    /// is gone, whose row the declaration then judges as cut short.
+    ///
+    /// # Errors
+    ///
+    /// `effect_key_reused` when `owner` declared the key already, and the
+    /// call's cancellation.
+    async fn free_key(
+        &self,
+        run: &Run,
+        namespace: &str,
+        key: &str,
+        owner: &Owner,
+        context: &CallContext,
+    ) -> Result<MutexGuard<'_, Book>, CallError> {
+        let reused = || {
+            CallError::new(
+                &EFFECT_KEY_REUSED,
+                format!(
+                    "The Effect key {key:?} was declared again while its body runs or after its answer: put what varies in the key."
+                ),
+                &json!({ "key": key }),
             )
-        })
+        };
+        loop {
+            let mut book = self.book.lock().await;
+            book.answered.retain(|answered| answered.owner.is_alive());
+            if book.answered.iter().any(|answered| {
+                answered.namespace == namespace && answered.key == key && answered.owner.is(owner)
+            }) {
+                return Err(reused());
+            }
+            let Some(at) = book
+                .bodies
+                .iter()
+                .position(|body| body.namespace == namespace && body.key == key)
+            else {
+                return Ok(book);
+            };
+            let running = &book.bodies[at];
+            if running.owner.is(owner) {
+                return Err(reused());
+            }
+            if !running.owner.is_alive() {
+                let gone = book.bodies.swap_remove(at);
+                gone.owner.end_effect();
+                self.judged.notify_waiters();
+                return Ok(book);
+            }
+            let other = running.owner.client.clone();
+            let judged = self.judged.notified();
+            tokio::pin!(judged);
+            judged.as_mut().enable();
+            drop(book);
+            let clock = run.clock();
+            tokio::select! {
+                () = judged => {}
+                () = other.gone() => {}
+                () = clock.sleep(HOLD_CHECK) => {}
+                () = context.cancellation().cancelled() => return Err(cancelled()),
+                () = context.client().gone() => return Err(cancelled()),
+            }
+        }
     }
+}
 
-    /// The uncertain Effect it is, as the Run report lists it: a `sent`
-    /// entry is one whose body was cut short.
-    fn uncertain(&self) -> UncertainEffect {
-        UncertainEffect {
-            entry: self.entry.to_string(),
+impl Body {
+    /// The uncertain Effect it leaves as `entry` when `event` ends it
+    /// after something was sent, and why.
+    fn uncertain(&self, entry: &str, event: EffectEvent) -> (UncertainEffect, UncertainReason) {
+        let reason = if event == EffectEvent::Interrupt {
+            UncertainReason::Interrupted
+        } else {
+            UncertainReason::FailedAfterSend
+        };
+        let (first_command, since) = self
+            .sent
+            .clone()
+            .expect("invariant: only a body something was sent for turns uncertain");
+        let effect = UncertainEffect {
+            entry: entry.to_owned(),
             key: Some(self.key.clone()),
             instruction: None,
             crawl_request: (!self.namespace.is_empty()).then(|| self.namespace.clone()),
-            reason: self
-                .reason
-                .clone()
-                .unwrap_or_else(|| UncertainReason::Interrupted.as_str().to_owned()),
-            first_command: self.first_command.clone(),
-            since: PointInTime::from_rfc3339(self.since.clone().unwrap_or_default()),
-        }
+            reason: reason.as_str().to_owned(),
+            first_command: Some(first_command),
+            since,
+        };
+        (effect, reason)
     }
 }
 
-/// The entry `entry`, if the journal holds it.
-fn row(connection: &Connection, entry: i64) -> rusqlite::Result<Option<Row>> {
-    connection
-        .prepare_cached(&format!(
-            "SELECT {ROW} FROM effect_journal WHERE entry = ?1"
-        ))?
-        .query_row([entry], Row::read)
-        .optional()
-}
-
-/// The entry of `key` in `namespace`, if the journal holds it.
-fn keyed(connection: &Connection, namespace: &str, key: &str) -> rusqlite::Result<Option<Row>> {
-    connection
-        .prepare_cached(&format!(
-            "SELECT {ROW} FROM effect_journal WHERE namespace = ?1 AND key = ?2"
-        ))?
-        .query_row((namespace, key), Row::read)
-        .optional()
-}
-
-/// Judges `row`, left `open` or `sent` by a body no engine runs, as cut
-/// short, and answers its state after: the entry `uncertain`, or absent.
-/// Any other entry's state is answered unchanged.
-fn settled(connection: &Connection, row: &Row) -> rusqlite::Result<EffectState> {
-    let state = row.effect_state()?;
-    if !matches!(
-        state,
-        EffectState::Open
-            | EffectState::OpenRepeatable
-            | EffectState::Sent
-            | EffectState::SentRepeatable
-    ) {
-        return Ok(state);
+/// `effect_key_invalid` unless `key` holds 1 to 255 Unicode code points.
+fn checked_key(key: &str) -> Result<(), CallError> {
+    let length = key.chars().count();
+    if length == 0 || length > KEY_MAX_CODE_POINTS {
+        return Err(CallError::new(
+            &EFFECT_KEY_INVALID,
+            format!(
+                "The Effect key {key:?} holds {length} Unicode code points: a key holds 1 to {KEY_MAX_CODE_POINTS}."
+            ),
+            &json!({ "key": key }),
+        ));
     }
-    match apply(state, EffectEvent::Interrupt) {
-        Ok(Next::To(EffectState::Uncertain)) => {
-            turn_uncertain(connection, row.entry, UncertainReason::Interrupted)?;
-            Ok(EffectState::Uncertain)
-        }
-        Ok(Next::Dropped) => {
-            drop_entry(connection, row.entry)?;
-            Ok(EffectState::Absent)
-        }
-        Ok(Next::To(other)) => Ok(other),
-        Ok(Next::Unchanged) | Err(_) => Ok(state),
-    }
+    Ok(())
 }
 
-/// Declares `key` in `namespace`: judges an entry left by a body no engine
-/// runs, then writes the entry, or answers the journal's answer.
-fn declare(
-    connection: &Connection,
+/// The journal's answer to a declaration of `key` in `namespace` of
+/// `run`, its entry written when the body is to run.
+async fn declared(
+    run: &Run,
     namespace: &str,
     key: &str,
     repeatable: bool,
-    candidate: &[u8; SECRET_BYTES],
-) -> rusqlite::Result<Declared> {
-    let found = keyed(connection, namespace, key)?;
-    let state = match &found {
-        Some(row) => settled(connection, row)?,
-        None => EffectState::Absent,
-    };
-    let event = if repeatable {
-        EffectEvent::DeclareRepeatable
-    } else {
-        EffectEvent::Declare
-    };
-    match apply(state, event) {
-        Ok(Next::To(_)) => {
-            let entry = connection
-                .prepare_cached(
-                    "INSERT INTO effect_journal (namespace, key, repeatable, state) \
-                     VALUES (?1, ?2, ?3, 'open') RETURNING entry",
-                )?
-                .query_row((namespace, key, repeatable), |row| row.get(0))?;
-            connection
-                .prepare_cached(
-                    "INSERT INTO effect_secret (id, secret) VALUES (1, ?1) ON CONFLICT (id) DO NOTHING",
-                )?
-                .execute([candidate.as_slice()])?;
-            let secret = connection
-                .prepare_cached("SELECT secret FROM effect_secret WHERE id = 1")?
-                .query_row([], |row| row.get(0))?;
-            Ok(Declared::Perform { entry, secret })
-        }
-        Ok(Next::Unchanged | Next::Dropped) => {
-            let row = found.expect("invariant: only an entry the journal holds answers");
-            Ok(match state {
-                EffectState::Reconciled => Declared::Reconciled {
-                    by: row.reconciled_by.unwrap_or_default(),
-                    at: row.reconciled_at.unwrap_or_default(),
-                },
-                _ => Declared::Journal {
-                    output: row.output,
-                    performed_at: row.performed_at.unwrap_or_default(),
-                },
+    context: &CallContext,
+) -> Result<Declared, CallError> {
+    let mut candidate = [0_u8; SECRET_BYTES];
+    getrandom::fill(&mut candidate).map_err(|error| {
+        CallError::protocol(
+            ProtocolFailure::InternalError,
+            format!("the operating system gave no randomness for the Run's Effect secret: {error}"),
+        )
+    })?;
+    let (namespace, key) = (namespace.to_owned(), key.to_owned());
+    run.state()
+        .write_deferred(move |connection| {
+            declare(connection, &namespace, &key, repeatable, &candidate)
+        })
+        .await
+        .map_err(|error| unwritten(run, &error, context))
+}
+
+/// The answer to a declaration of `key` the journal answers itself.
+fn journal_answer(declared: Declared, key: &str) -> Result<EffectOpened, CallError> {
+    match declared {
+        Declared::Journal {
+            output,
+            performed_at,
+        } => output
+            .map(|output| serde_json::from_str::<Value>(&output))
+            .transpose()
+            .map(|output| EffectOpened::Journal {
+                output,
+                performed_at: PointInTime::from_rfc3339(performed_at),
             })
+            .map_err(|error| {
+                CallError::protocol(
+                    ProtocolFailure::InternalError,
+                    format!("the Effect journal's output of {key:?} is no JSON: {error}"),
+                )
+            }),
+        Declared::Reconciled { by, at } => Ok(EffectOpened::Reconciled {
+            reconciled_by: by,
+            reconciled_at: PointInTime::from_rfc3339(at),
+        }),
+        Declared::Uncertain(effect) => Err(uncertain(&effect)),
+        Declared::Refused(refused) => Err(refusal(refused)),
+        Declared::Perform { entry, .. } => Err(CallError::protocol(
+            ProtocolFailure::InternalError,
+            format!(
+                "the Effect journal wrote the entry `{entry}` of {key:?} with no body to run it"
+            ),
+        )),
+    }
+}
+
+/// The table's event for a body that ended with `outcome`, the output the
+/// journal keeps, and the size of a returned value over `limit`.
+fn ended(outcome: EffectOutcome, limit: u64) -> (EffectEvent, Option<Value>, Option<u64>) {
+    match outcome {
+        EffectOutcome::Returned { output } => {
+            let size = output.as_ref().map_or(0, |output| output.to_string().len());
+            let size = u64::try_from(size).unwrap_or(u64::MAX);
+            if size > limit {
+                (EffectEvent::Fail, None, Some(size))
+            } else {
+                (EffectEvent::Return, output, None)
+            }
         }
-        Err(_) if state == EffectState::Uncertain => {
-            let row = keyed(connection, namespace, key)?
-                .expect("invariant: an uncertain entry is in the journal");
-            Ok(Declared::Uncertain(row.uncertain()))
-        }
-        Err(refused) => Ok(Declared::Refused(refused)),
+        EffectOutcome::Threw => (EffectEvent::Fail, None, None),
+        EffectOutcome::CutShort => (EffectEvent::Interrupt, None, None),
     }
 }
 
-/// Marks each of `entries` sent, before `first_command` at `since`.
-fn mark_sent(
-    connection: &Connection,
-    entries: &[i64],
-    first_command: &str,
-    since: &str,
-) -> rusqlite::Result<()> {
-    let mut statement = connection.prepare_cached(
-        "UPDATE effect_journal SET state = 'sent', first_command = ?2, since = ?3 \
-         WHERE entry = ?1 AND state = 'open'",
-    )?;
-    for entry in entries {
-        statement.execute((entry, first_command, since))?;
+/// The answer to `effect.close` of `entry`, whose body no longer runs: the
+/// journal's judgment when it is done or uncertain, as for a close
+/// answered again.
+async fn closed_before(
+    run: &Run,
+    entry: &str,
+    number: i64,
+    context: &CallContext,
+) -> Result<EffectClosed, CallError> {
+    let found = run
+        .state()
+        .write_deferred(move |connection| row(connection, number))
+        .await
+        .map_err(|error| unwritten(run, &error, context))?;
+    match found {
+        Some(row) if row.state == "done" => Ok(EffectClosed::Done {
+            performed_at: PointInTime::from_rfc3339(row.performed_at.unwrap_or_default()),
+        }),
+        Some(row) if row.state == "uncertain" => Ok(EffectClosed::Uncertain {
+            effect: row.uncertain(),
+            cause: None,
+        }),
+        Some(_) | None => Err(not_running(entry)),
     }
-    Ok(())
 }
 
-/// Keeps `output` as what the body of `entry` returned, performed at
-/// `performed_at`.
-fn done(
-    connection: &Connection,
-    entry: i64,
-    output: Option<&str>,
-    performed_at: &str,
-) -> rusqlite::Result<()> {
-    connection
-        .prepare_cached(
-            "UPDATE effect_journal SET state = 'done', output = ?2, performed_at = ?3 WHERE entry = ?1",
-        )?
-        .execute((entry, output, performed_at))?;
-    Ok(())
+/// `invalid_params` for an `effect.close` of `entry`, which has no body
+/// running.
+fn not_running(entry: &str) -> CallError {
+    CallError::protocol(
+        ProtocolFailure::InvalidParams,
+        format!(
+            "The Effect journal entry `{entry}` has no body running: `effect.close` closes the entry `effect.open` answered with `perform`, once."
+        ),
+    )
 }
 
-/// Leaves `entry` uncertain for `reason`.
-fn turn_uncertain(
-    connection: &Connection,
-    entry: i64,
-    reason: UncertainReason,
-) -> rusqlite::Result<()> {
-    connection
-        .prepare_cached(
-            "UPDATE effect_journal SET state = 'uncertain', reason = ?2 WHERE entry = ?1",
-        )?
-        .execute((entry, reason.as_str()))?;
-    Ok(())
-}
-
-/// Takes `entry` out of the journal.
-fn drop_entry(connection: &Connection, entry: i64) -> rusqlite::Result<()> {
-    connection
-        .prepare_cached("DELETE FROM effect_journal WHERE entry = ?1")?
-        .execute([entry])?;
-    Ok(())
-}
-
-/// Applies a person's `answer` to `entry`, given `by` at `at`.
-fn answer_about(
-    connection: &Connection,
-    entry: i64,
-    answer: Reconciliation,
-    by: &str,
-    at: &str,
-) -> rusqlite::Result<Answering> {
-    let Some(found) = row(connection, entry)? else {
-        return Ok(Answering::NotUncertain);
-    };
-    if settled(connection, &found)? != EffectState::Uncertain {
-        return Ok(Answering::NotUncertain);
-    }
-    let found = row(connection, entry)?.expect("invariant: an uncertain entry is in the journal");
-    let effect = found.uncertain();
-    match apply(EffectState::Uncertain, answer.event()) {
-        Ok(Next::To(EffectState::Reconciled)) => {
-            connection
-                .prepare_cached(
-                    "UPDATE effect_journal SET state = 'reconciled', reconciled_by = ?2, reconciled_at = ?3 \
-                     WHERE entry = ?1",
-                )?
-                .execute((entry, by, at))?;
-        }
-        Ok(Next::Dropped) => drop_entry(connection, entry)?,
-        Ok(Next::To(_) | Next::Unchanged) => {}
-        Err(refused) => return Ok(Answering::Refused(refused)),
-    }
-    Ok(Answering::Answered(effect))
-}
-
-/// The idempotency key of `key` in `namespace`: HKDF-SHA256 of the Run's
-/// secret, so it reveals neither the Run nor the key.
-fn idempotency_key(secret: &[u8], namespace: &str, key: &str) -> String {
-    let mut info = b"goodfetch effect idempotency key\0".to_vec();
-    info.extend_from_slice(namespace.as_bytes());
-    info.push(0);
-    info.extend_from_slice(key.as_bytes());
-    let mut okm = [0_u8; SECRET_BYTES];
-    Hkdf::<Sha256>::new(None, secret)
-        .expand(&info, &mut okm)
-        .expect("invariant: 32 bytes is a valid HKDF-SHA256 output length");
-    data_encoding::BASE64URL_NOPAD.encode(&okm)
+/// `effect_output_invalid` for the body of `key`, which returned `size`
+/// bytes of JSON, over `limit`, with nothing sent.
+fn output_invalid(key: &str, size: u64, limit: u64) -> CallError {
+    CallError::new(
+        &EFFECT_OUTPUT_INVALID,
+        format!(
+            "The body of the Effect {key:?} returned {size} bytes of JSON, more than `effect.output.max_size`, {limit}: the entry is dropped."
+        ),
+        &json!({ "key": key, "size": size, "limit": limit }),
+    )
 }
 
 /// The live Run `run_id`.

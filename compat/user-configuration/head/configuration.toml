@@ -163,6 +163,9 @@ budget = 4
 [settings.checkpoint]
 interval = 30000
 
+[settings.effect.output]
+max_size = 4
+
 [settings.audit]
 retention = 30000
 otlp = true

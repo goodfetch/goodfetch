@@ -51,9 +51,9 @@ pub use self::progress::{
 };
 
 pub use self::report::{
-    AppliedLimit, AxisReason, EndingError, KindUsage, LimitSetter, ModelAllowance, ModelUsage,
-    NothingDone, PlanReport, PlanStatus, PluginRun, ProxyKindBytes, RecordingReport, RunReport,
-    RunUsage, RunWarning, SeedsKept, UncertainEffect, UsageAmount,
+    AppliedLimit, AxisReason, EndingError, KindUsage, LimitSetter, ModelAllowance, ModelCounts,
+    ModelUsage, NothingDone, PlanReport, PlanStatus, PluginRun, ProxyKindBytes, RecordingReport,
+    RunReport, RunUsage, RunWarning, SeedsKept, UncertainEffect, UsageAmount,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };

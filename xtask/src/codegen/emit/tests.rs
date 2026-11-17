@@ -197,6 +197,48 @@ fn the_bundle_holds_the_schemas_of_the_result_document_and_the_case_log_entry() 
     );
 }
 
+#[test]
+fn the_bundle_holds_the_schemas_of_a_model_call() {
+    let emitted = emit();
+
+    assert_eq!(
+        emitted.bundle["model_provider"],
+        json!({
+            "request": { "$ref": "#/$defs/ModelRequest" },
+            "response_part": { "$ref": "#/$defs/ModelResponsePart" },
+        })
+    );
+}
+
+/// A Run's model Usage is one object on the wire, its counts beside
+/// `by_model`, as ADR 0101 names them, so every SDK reads `usage.calls`.
+#[test]
+fn a_model_usages_counts_are_its_own_properties() {
+    let emitted = emit();
+
+    let mut properties: Vec<&String> = emitted.bundle["$defs"]["ModelUsage"]["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .collect();
+    properties.sort_unstable();
+
+    assert_eq!(
+        properties,
+        [
+            "by_model",
+            "cache_read_tokens",
+            "cache_write_tokens",
+            "calls",
+            "input_tokens",
+            "output_tokens",
+            "price",
+            "reasoning_tokens",
+            "tokens",
+        ]
+    );
+}
+
 /// Covers: story:3-86, story:3-142, setting:network.resolve
 #[rstest]
 #[case::a_key_collie_carries("network.resolve", json!(["collie", "foxhound"]), "every")]

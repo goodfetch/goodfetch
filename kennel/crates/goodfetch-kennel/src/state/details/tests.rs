@@ -86,7 +86,16 @@ fn progress(run: &str, position: u64, parts: Value) -> RunProgress {
 
 fn usage(requests: u64) -> RunUsage {
     serde_json::from_value(json!({
-        "model": {"calls": 3, "tokens": 1200},
+        "model": {
+            "calls": 3,
+            "tokens": 1200,
+            "input_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "price": null,
+        },
         "browser_time": 65_000,
         "proxy_bytes": 2048,
         "requests": requests,

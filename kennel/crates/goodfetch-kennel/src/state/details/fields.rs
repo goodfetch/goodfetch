@@ -282,8 +282,8 @@ pub(super) fn progress_fields(
 pub(super) fn usage_fields(usage: &RunUsage) -> Vec<Field> {
     let mut fields = vec![
         Field::new("Requests", &usage.requests.to_string()),
-        Field::new("Model calls", &usage.model.calls.to_string()),
-        Field::new("Model tokens", &usage.model.tokens.to_string()),
+        Field::new("Model calls", &usage.model.counts.calls.to_string()),
+        Field::new("Model tokens", &usage.model.counts.tokens.to_string()),
         Field::new("Browser time", &format!("{} s", usage.browser_time / 1000)),
         Field::new("Proxy bytes", &usage.proxy_bytes.to_string()),
     ];

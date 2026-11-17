@@ -254,7 +254,13 @@ fn run_finish_reads_the_report_of_the_run_the_attached_engine_stopped(#[case] mo
       "usage": {
         "browser_time": 0,
         "model": {
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
           "calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "price": null,
+          "reasoning_tokens": 0,
           "tokens": 0
         },
         "proxy_bytes": 0,
@@ -290,7 +296,7 @@ fn run_abort_prints_the_report_of_an_ended_run_one_field_per_line(#[case] mode: 
     run_id: first
     started_at: [INSTANT]
     stop_reason: {"by":"client","kind":"abort"}
-    usage: {"browser_time":0,"model":{"calls":0,"tokens":0},"proxy_bytes":0,"requests":0}
+    usage: {"browser_time":0,"model":{"cache_read_tokens":0,"cache_write_tokens":0,"calls":0,"input_tokens":0,"output_tokens":0,"price":null,"reasoning_tokens":0,"tokens":0},"proxy_bytes":0,"requests":0}
     verdict: verified
     ----- stderr -----
     "#);
@@ -394,7 +400,16 @@ fn run_usage_answers_what_the_run_used(#[case] mode: Mode) {
             Some(0),
             &json!({
                 "browser_time": 0,
-                "model": { "calls": 0, "tokens": 0 },
+                "model": {
+                    "calls": 0,
+                    "tokens": 0,
+                    "input_tokens": 0,
+                    "cache_read_tokens": 0,
+                    "cache_write_tokens": 0,
+                    "output_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "price": null
+                },
                 "proxy_bytes": 0,
                 "requests": 0
             })

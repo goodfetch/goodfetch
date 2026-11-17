@@ -223,7 +223,7 @@ fn matched(order: &[String], built: &HashSet<&str>, target: &str) -> Vec<Finding
             Finding::new(
                 "stale-crate",
                 name,
-                "the order file names the crate under an identity the build links it under no more, so the profile misses its code: its version changed, or the build did not compile through ci/musl/stable-metadata/rustc; run `just pgo-refresh`",
+                "the order file names the crate under an identity the build links it under no more, so the profile misses its code: its version changed, or the build did not compile through ci/musl/stable-metadata/sccache; run `just pgo-refresh`",
             )
         })
         .collect();

@@ -17,7 +17,7 @@
 # its raw profiles in the folder, and `use=<folder>` builds with the
 # `merged.profdata` and the `order.txt`, if any, that the folder holds,
 # whatever the profile. Each of these builds, instrumented or guided,
-# compiles through ci/musl/stable-metadata/rustc, so the crates' symbol
+# compiles through ci/musl/stable-metadata/sccache, so the crates' symbol
 # names, which the profile and the order file name, hold across Cargo.toml
 # and Cargo.lock changes.
 set -euo pipefail
@@ -57,15 +57,18 @@ stored() {
   [[ -f "$1" || -f "$1.zst" ]]
 }
 
-# Compiles the build's own crates through ci/musl/stable-metadata/rustc,
+# Compiles the build's own crates through ci/musl/stable-metadata/sccache,
 # which the flag marks them for: Cargo passes its flags to the crates of the
-# target alone, never to build scripts and procedural macros. The marker
-# also keeps the compiler cache, which keys on the flags before that rustc
-# changes them, from serving an object compiled with Cargo's metadata.
+# target alone, never to build scripts and procedural macros. That compiler
+# wrapper runs the build's own one, sccache or none, after it, with the
+# flags it rewrote, so the compiler cache keys on those.
 stable_metadata() {
+  local wrapper="$here/stable-metadata/sccache"
   add_rustflags -Cmetadata=goodfetch-stable-metadata
-  export GOODFETCH_PGO_RUSTC="${RUSTC:-rustc}"
-  export RUSTC="$here/stable-metadata/rustc"
+  if [[ "${RUSTC_WRAPPER:-}" != "$wrapper" ]]; then
+    export GOODFETCH_PGO_RUSTC_WRAPPER="${RUSTC_WRAPPER:-}"
+    export RUSTC_WRAPPER="$wrapper"
+  fi
 }
 
 # Compiles with the profile in folder $1, and links in its order if it has

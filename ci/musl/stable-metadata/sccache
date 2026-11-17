@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# The rustc a profile-guided release build compiles through (ci/musl/cargo,
-# ADR 0057's note of 2026-11-14). sccache calls it under this file name.
+# The compiler wrapper (RUSTC_WRAPPER) a profile-guided release build
+# compiles through (ci/musl/cargo, ADR 0057's note of 2026-11-14). Cargo
+# runs it as `sccache <rustc> <arguments>…`, and it runs the wrapper the
+# build had, saved in GOODFETCH_PGO_RUSTC_WRAPPER, or the compiler itself
+# without one, after it.
 #
 # Cargo's `-C metadata` hashes the whole dependency graph: a changed
 # Cargo.toml or Cargo.lock changes it for every crate depending on what
@@ -19,9 +22,18 @@
 # refuses to build a crate that links both ("found crates … with colliding
 # StableCrateId values"). Crates built for the host get no marker, so their
 # metadata stays Cargo's.
+#
+# It wraps the wrapper, not the compiler (`RUSTC`): sccache compiles the
+# crates it caches with the toolchain's own rustc and never runs `RUSTC`,
+# so those crates kept Cargo's metadata. Run first, it hands sccache the
+# rewritten flags, which sccache also keys its cache on. Its file name is
+# sccache's because the `cc` crate and ci/compiler-launcher.sh send C and
+# C++ compiles through a RUSTC_WRAPPER of that name: it passes them, like
+# every unmarked compile, to the saved wrapper unchanged.
 set -euo pipefail
 
-compiler="${GOODFETCH_PGO_RUSTC:-rustc}"
+wrapper=("${GOODFETCH_PGO_RUSTC_WRAPPER:-}")
+[[ -n "${wrapper[0]}" ]] || wrapper=()
 marker=goodfetch-stable-metadata
 
 marked=false
@@ -29,7 +41,7 @@ for argument in "$@"; do
   [[ "$argument" == "-Cmetadata=$marker" || "$argument" == "metadata=$marker" ]] && marked=true
 done
 if ! $marked || [[ -z "${CARGO_PKG_NAME:-}" ]]; then
-  exec "$compiler" "$@"
+  exec "${wrapper[@]}" "$@"
 fi
 
 if [[ -n "${CARGO_PKG_VERSION_PRE:-}" ]]; then
@@ -57,4 +69,4 @@ while (($#)); do
   esac
   shift
 done
-exec "$compiler" "${arguments[@]}" -C "metadata=$CARGO_PKG_NAME@$compatible"
+exec "${wrapper[@]}" "${arguments[@]}" -C "metadata=$CARGO_PKG_NAME@$compatible"

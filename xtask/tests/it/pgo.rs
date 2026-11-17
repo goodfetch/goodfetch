@@ -17,8 +17,9 @@ use crate::workspace::{Workspace, finding};
 
 const TARGET: &str = "x86_64-unknown-linux-musl";
 const PROFILE: &[u8] = b"an indexed profile";
-/// The rustc a profile-guided build compiles through, in `ci/musl/`.
-const STABLE_RUSTC: &str = "stable-metadata/rustc";
+/// The compiler wrapper a profile-guided build compiles through, in
+/// `ci/musl/`.
+const STABLE_WRAPPER: &str = "stable-metadata/sccache";
 /// The flag that marks a profile-guided build's own crates for it.
 const STABLE_MARK: &str = "-Cmetadata=goodfetch-stable-metadata";
 const ORDER: &str = "_RNvCs1_4main3hot\n.rodata..Lanon.0a1b.3\n.rodata._RNvCs1_4main3hot\n.data.rel.ro..Lanon.0a1b.4\n.rodata..Lanon.ffff.9\n_RNvCs1_4main4cold\n";
@@ -291,7 +292,7 @@ struct Build {
 impl Build {
     fn new() -> Self {
         let workspace = Workspace::from_fixture("empty");
-        for script in ["cargo", "link-cc", "toolchain.sh", STABLE_RUSTC] {
+        for script in ["cargo", "link-cc", "toolchain.sh", STABLE_WRAPPER] {
             let path = workspace.path().join("ci/musl").join(script);
             executable(
                 &path,
@@ -309,7 +310,7 @@ impl Build {
             &toolchain.join("bin"),
             "cargo-zigbuild",
             &format!(
-                "for name in RUSTFLAGS CARGO_ENCODED_RUSTFLAGS GOODFETCH_MUSL_ORDER_FILE GOODFETCH_MUSL_LLVM_TOOLS RUSTC GOODFETCH_PGO_RUSTC; do\n\
+                "for name in RUSTFLAGS CARGO_ENCODED_RUSTFLAGS GOODFETCH_MUSL_ORDER_FILE GOODFETCH_MUSL_LLVM_TOOLS RUSTC_WRAPPER GOODFETCH_PGO_RUSTC_WRAPPER; do\n\
                    if [[ -n \"${{!name+set}}\" ]]; then printf '%s=%s\\n' \"$name\" \"${{!name}}\"; fi\n\
                  done >\"{}\"",
                 stand_in.join("flags").display()
@@ -396,19 +397,19 @@ impl Build {
         entries.remove(0)
     }
 
-    /// The variables of a build through ci/musl/stable-metadata/rustc,
-    /// which runs the caller's rustc, the one on `PATH` here.
-    fn stable_rustc(&self) -> [String; 2] {
+    /// The variables of a build through ci/musl/stable-metadata/sccache,
+    /// which runs the caller's compiler wrapper, none here.
+    fn stable_wrapper(&self) -> [String; 2] {
         [
             format!(
-                "RUSTC={}",
+                "RUSTC_WRAPPER={}",
                 self.workspace
                     .path()
                     .join("ci/musl")
-                    .join(STABLE_RUSTC)
+                    .join(STABLE_WRAPPER)
                     .display()
             ),
-            "GOODFETCH_PGO_RUSTC=rustc".to_owned(),
+            "GOODFETCH_PGO_RUSTC_WRAPPER=".to_owned(),
         ]
     }
 
@@ -455,8 +456,8 @@ fn a_release_musl_build_uses_the_committed_profile(#[case] profile: &[&str]) {
                 copied.join("order.txt").display()
             ),
             build.llvm_tools(),
-            build.stable_rustc()[0].clone(),
-            build.stable_rustc()[1].clone(),
+            build.stable_wrapper()[0].clone(),
+            build.stable_wrapper()[1].clone(),
         ]
     );
     assert_eq!(
@@ -562,7 +563,7 @@ fn an_instrumented_build_writes_its_profiles_where_asked() {
     );
 
     let mut expected = vec![format!("RUSTFLAGS={STABLE_MARK} -Cprofile-generate=/raw")];
-    expected.extend(build.stable_rustc());
+    expected.extend(build.stable_wrapper());
     assert_eq!(flags, expected);
 }
 
@@ -601,12 +602,13 @@ fn a_build_uses_the_profile_in_a_folder_asked_for(#[case] with_order: bool) {
         ));
         expected.push(build.llvm_tools());
     }
-    expected.extend(build.stable_rustc());
+    expected.extend(build.stable_wrapper());
     assert_eq!(flags, expected);
 }
 
 /// Every profile-guided build, instrumented or guided, compiles through
-/// ci/musl/stable-metadata/rustc, the caller's rustc after it, and marks
+/// ci/musl/stable-metadata/sccache, the caller's compiler wrapper after it,
+/// and marks
 /// its crates' flags for it: a crate's symbol names then hold across
 /// Cargo.toml and Cargo.lock changes, so the profile's records still name
 /// the crates they were taken from.
@@ -614,7 +616,7 @@ fn a_build_uses_the_profile_in_a_folder_asked_for(#[case] with_order: bool) {
 #[case::committed(None)]
 #[case::instrumented(Some("generate=/raw"))]
 #[case::asked_for(Some("use=merged"))]
-fn a_profile_guided_build_compiles_through_the_stable_metadata_rustc(
+fn a_profile_guided_build_compiles_through_the_stable_metadata_wrapper(
     #[case] setting: Option<&str>,
 ) {
     let build = Build::new();
@@ -627,7 +629,7 @@ fn a_profile_guided_build_compiles_through_the_stable_metadata_rustc(
             &build.workspace.path().join("merged").display().to_string(),
         )
     });
-    let mut variables = vec![("RUSTC", "/opt/rust/bin/rustc")];
+    let mut variables = vec![("RUSTC_WRAPPER", "/opt/sccache/bin/sccache")];
     if let Some(setting) = &setting {
         variables.push(("GOODFETCH_PGO", setting));
     }
@@ -644,18 +646,18 @@ fn a_profile_guided_build_compiles_through_the_stable_metadata_rustc(
     );
     assert!(
         flags.contains(&format!(
-            "RUSTC={}",
+            "RUSTC_WRAPPER={}",
             build
                 .workspace
                 .path()
                 .join("ci/musl")
-                .join(STABLE_RUSTC)
+                .join(STABLE_WRAPPER)
                 .display()
         )),
         "{flags:?}"
     );
     assert!(
-        flags.contains(&"GOODFETCH_PGO_RUSTC=/opt/rust/bin/rustc".to_owned()),
+        flags.contains(&"GOODFETCH_PGO_RUSTC_WRAPPER=/opt/sccache/bin/sccache".to_owned()),
         "{flags:?}"
     );
 }
@@ -935,9 +937,9 @@ fn a_target_without_an_order_file_is_noted_unordered() {
     assert_eq!(outcome.notes(), [finding("not-ordered", TARGET)]);
 }
 
-/// ci/musl/stable-metadata/rustc compiling crates with the real rustc, as
-/// Cargo asks it to: each crate's package and version in the variables
-/// Cargo sets, and Cargo's own `-C metadata`.
+/// ci/musl/stable-metadata/sccache compiling crates with the real rustc,
+/// as Cargo asks a compiler wrapper to: each crate's package and version in
+/// the variables Cargo sets, and Cargo's own `-C metadata`.
 struct Compiler {
     workspace: Workspace,
 }
@@ -979,16 +981,17 @@ impl Compiler {
         std::fs::write(&file, source).unwrap();
         let (version, pre) = unit.version.split_once('-').unwrap_or((unit.version, ""));
         let parts: Vec<&str> = version.split('.').collect();
-        let mut command = std::process::Command::new(repository_script(STABLE_RUSTC));
+        let mut command = std::process::Command::new(repository_script(STABLE_WRAPPER));
         command
             .current_dir(&folder)
-            .env("GOODFETCH_PGO_RUSTC", "rustc")
+            .env_remove("GOODFETCH_PGO_RUSTC_WRAPPER")
             .env("CARGO_PKG_NAME", unit.name)
             .env("CARGO_PKG_VERSION", unit.version)
             .env("CARGO_PKG_VERSION_MAJOR", parts[0])
             .env("CARGO_PKG_VERSION_MINOR", parts[1])
             .env("CARGO_PKG_VERSION_PATCH", parts[2])
             .env("CARGO_PKG_VERSION_PRE", pre)
+            .arg("rustc")
             .args(["--edition", "2024", "--crate-name", unit.name])
             .args(["-C", &format!("metadata={}", unit.metadata)])
             .args(["-C", "symbol-mangling-version=v0"]);
@@ -1076,6 +1079,45 @@ fn other_crates_names_differ(#[case] before: &str, #[case] after: &str, #[case] 
     let second = compiler.names(&unit(after, "8796a5b4c3d2e1f0"), "after");
 
     assert_ne!(first, second);
+}
+
+/// The compiler wrapper the build had (sccache) runs every compile after
+/// ci/musl/stable-metadata/sccache, a marked crate's with the stable
+/// metadata in place of Cargo's: sccache compiles the crates it caches with
+/// the real rustc, never through `RUSTC`, so it gets the flags rewritten
+/// already, and caches under them. Anything else, a host crate or a C
+/// compile `ci/compiler-launcher.sh` hands it, reaches it unchanged.
+#[rstest]
+#[case::a_marked_crate(
+    &["rustc", "--crate-name", "probe", "-C", "metadata=0f1e2d3c4b5a6978", STABLE_MARK, "--crate-type", "lib", "lib.rs"],
+    &["rustc", "--crate-name", "probe", "--crate-type", "lib", "lib.rs", "-C", "metadata=probe@0.4"],
+)]
+#[case::a_host_crate(
+    &["rustc", "--crate-name", "probe", "-C", "metadata=0f1e2d3c4b5a6978", "lib.rs"],
+    &["rustc", "--crate-name", "probe", "-C", "metadata=0f1e2d3c4b5a6978", "lib.rs"],
+)]
+#[case::a_c_compile(&["cc", "-c", "probe.c"], &["cc", "-c", "probe.c"])]
+fn the_wrapper_it_replaces_gets_the_stable_metadata(
+    #[case] arguments: &[&str],
+    #[case] expected: &[&str],
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let wrapper = recorder(workspace.path(), "sccache", "exit 0");
+
+    let status = std::process::Command::new(repository_script(STABLE_WRAPPER))
+        .env("GOODFETCH_PGO_RUSTC_WRAPPER", &wrapper)
+        .env("CARGO_PKG_NAME", "probe")
+        .env("CARGO_PKG_VERSION", "0.4.1")
+        .env("CARGO_PKG_VERSION_MAJOR", "0")
+        .env("CARGO_PKG_VERSION_MINOR", "4")
+        .env("CARGO_PKG_VERSION_PATCH", "1")
+        .env("CARGO_PKG_VERSION_PRE", "")
+        .args(arguments)
+        .status()
+        .unwrap();
+
+    assert!(status.success());
+    assert_eq!(recorded(workspace.path(), "sccache"), expected);
 }
 
 /// Two crates of one package and version in one build, which Cargo's

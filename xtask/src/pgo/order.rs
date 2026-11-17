@@ -296,7 +296,7 @@ pub(crate) fn crate_root(symbol: &str) -> Option<(&str, &str)> {
 /// The crates the order file names under an identity the build has not,
 /// while the build links them under another: their crate identity changed
 /// since the profile was trained (another release, or a build that does
-/// not compile through ci/musl/stable-metadata/rustc), so the profile's
+/// not compile through ci/musl/stable-metadata/sccache), so the profile's
 /// records and the order file miss all of their code.
 pub(crate) fn stale_crates<'a>(order: &'a [String], built: &HashSet<&str>) -> BTreeSet<&'a str> {
     let mut linked: HashMap<&str, HashSet<&str>> = HashMap::new();

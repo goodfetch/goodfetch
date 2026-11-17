@@ -9,11 +9,19 @@ It gives the fixtures that reach `goodfetch-test-env`'s setup:
 - `proving_ground`, the Proving ground started on `proving_ground_seed`,
   which a test overrides with its seed (ADR 0063);
 - `daemon`, the Daemon of the test's home, run by `product`'s executable,
-  which a test asks for by overriding `with_daemon` to return `True`.
+  which a test asks for by overriding `with_daemon` to return `True`;
+- `anyio_backend`, over asyncio and trio, named: a session where trio does
+  not import fails rather than drop it (ADR 0069).
+
+It fails a session started with `PYTHON_GIL=0` while the GIL is on, and runs
+each `sync_api` test in several threads at once through pytest-run-parallel
+(ADR 0069).
 """
 
+import importlib
 import json
 import os
+import sys
 from collections.abc import Generator, Iterator, Mapping
 from pathlib import Path
 from typing import cast
@@ -23,6 +31,7 @@ import pytest
 from goodfetch_test_support.daemon import Daemon, DaemonNotRequested
 from goodfetch_test_support.environment import Product, TestEnv
 from goodfetch_test_support.proving_ground import ProvingGround, ProvingGroundUnseeded
+from goodfetch_test_support.ways import ASYNC_BACKENDS
 
 _FAILED = pytest.StashKey[bool]()
 """Set on a test's item when its call failed, so its setup keeps the folder."""
@@ -143,8 +152,22 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
+SYNC_API_THREADS = 4
+"""How many threads run each `sync_api` test at once."""
+
+
 def pytest_configure(config: pytest.Config) -> None:
-    """Registers the `journey` and `covers` markers, which `strict_markers` checks."""
+    """Checks the run's claims, registers the markers and the `anyio_backend` fixture.
+
+    Raises:
+        pytest.UsageError: trio does not import, or `PYTHON_GIL=0` is set
+            while the GIL is on.
+    """
+    _require_trio()
+    _require_gil_off_when_asked(os.environ)
+    # Registered once every plugin has loaded, so it overrides anyio's own
+    # fixture, which drops trio when trio does not import.
+    config.pluginmanager.register(_AnyioBackend(), "goodfetch_anyio_backend")
     config.addinivalue_line(
         "markers",
         "journey(id, surface): the Journey variant the test runs, as "
@@ -154,6 +177,46 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "covers(*features): the Features the test proves, as story:3-18 (ADR 0072)",
     )
+    config.addinivalue_line(
+        "markers",
+        f"sync_api: a unit test of the generated sync API, run in {SYNC_API_THREADS} "
+        "threads at once through pytest-run-parallel (ADR 0069)",
+    )
+
+
+def _require_trio() -> None:
+    try:
+        importlib.import_module("trio")
+    except ImportError as error:
+        message = (
+            f"trio does not import ({error}), so async tests would run on asyncio "
+            "alone: install the workspace's dev dependencies (ADR 0069)"
+        )
+        raise pytest.UsageError(message) from error
+
+
+def _require_gil_off_when_asked(environ: Mapping[str, str]) -> None:
+    if environ.get("PYTHON_GIL") != "0":
+        return
+    # Python 3.12 and earlier ignore `PYTHON_GIL` and have no
+    # `sys._is_gil_enabled`: their GIL is always on.
+    gil_enabled: object = getattr(sys, "_is_gil_enabled", None)
+    if not callable(gil_enabled) or gil_enabled():
+        message = (
+            "PYTHON_GIL=0 asks for a free-threaded run, but the GIL is on: run a "
+            "free-threaded build without `-X gil=1`, and import no extension "
+            "module that needs the GIL (ADR 0069)"
+        )
+        raise pytest.UsageError(message)
+
+
+class _AnyioBackend:
+    """Holds the `anyio_backend` fixture, which overrides anyio's."""
+
+    @pytest.fixture(scope="module", params=ASYNC_BACKENDS)
+    def anyio_backend(self, request: pytest.FixtureRequest) -> str:
+        """The backend an async test runs on: asyncio, then trio."""
+        return cast("str", request.param)
 
 
 def pytest_collection_finish(session: pytest.Session) -> None:
@@ -189,12 +252,16 @@ PATCHING_FIXTURES = frozenset({"monkeypatch", "mocker"})
 def pytest_collection_modifyitems(
     session: pytest.Session, items: list[pytest.Item]
 ) -> None:
-    """Fails the collection of each test whose fixture closure patches.
+    """Fails each test whose fixture closure patches; threads each `sync_api` test.
 
     The closure holds every fixture the test requests, directly or through
     another fixture, so a third-party fixture built on `monkeypatch` is
-    refused too (ADR 0062).
+    refused too (ADR 0062). A `sync_api` test gets pytest-run-parallel's
+    `force_parallel_threads` marker.
     """
+    for item in items:
+        if item.get_closest_marker("sync_api") is not None:
+            item.add_marker(pytest.mark.force_parallel_threads(SYNC_API_THREADS))
     refused: list[pytest.Item] = []
     for item in items:
         patching = sorted(PATCHING_FIXTURES.intersection(_fixture_closure(item)))

@@ -54,6 +54,7 @@ from goodfetch_test_support.unicode_record import (
     UnicodeRecord,
     unicode_record,
 )
+from goodfetch_test_support.ways import Way, three_ways
 
 __all__ = [
     "Canary",
@@ -93,11 +94,13 @@ __all__ = [
     "UnicodeField",
     "UnicodeRecord",
     "UnusedStep",
+    "Way",
     "locales",
     "play_script",
     "proving_ground_routes",
     "redact",
     "search_canaries",
+    "three_ways",
     "time_zones",
     "unicode_record",
     "write_journey_document",

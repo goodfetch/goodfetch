@@ -8,8 +8,7 @@ its oracle, and writes one `proved` and one `failed` document.
 
 import http.client
 import json
-import re
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, TypedDict, cast
@@ -163,22 +162,9 @@ def proving_ground(test_env: TestEnv) -> Generator[ProvingGround]:
         serve.communicate()
 
 
-def product(page: str) -> dict[str, str]:
-    """The product a `catalog` product page shows, read as any tool would."""
-
-    def field(pattern: str) -> str:
-        found = re.search(pattern, page)
-        assert found is not None, pattern
-        return found[1]
-
-    return {
-        "id": field(r'<article class="product" data-id="([^"]+)"'),
-        "name": field(r'<h1 class="name">([^<]+)</h1>'),
-        "price": field(r'data-price="([^"]+)"'),
-    }
-
-
-def extract_the_product(test_env: TestEnv, *, wrong_price: bool) -> JourneyOutcome:
+def extract_the_product(
+    test_env: TestEnv, product: Callable[[str], dict[str, str]], *, wrong_price: bool
+) -> JourneyOutcome:
     """A Journey-shaped run of `catalog/2`, which writes its document.
 
     It reads the product page, submits its Record to the oracle (with a
@@ -240,10 +226,10 @@ def extract_the_product(test_env: TestEnv, *, wrong_price: bool) -> JourneyOutco
 
 
 def test_a_journey_shaped_test_writes_a_proved_document_when_the_oracle_verifies(
-    test_env: TestEnv,
+    test_env: TestEnv, catalog_product: Callable[[str], dict[str, str]]
 ) -> None:
     """Every step and check passed and the task is `verified`."""
-    outcome = extract_the_product(test_env, wrong_price=False)
+    outcome = extract_the_product(test_env, catalog_product, wrong_price=False)
 
     path = test_env.folder / "journey.json"
     assert outcome == JourneyOutcome.proved
@@ -252,10 +238,10 @@ def test_a_journey_shaped_test_writes_a_proved_document_when_the_oracle_verifies
 
 
 def test_a_journey_shaped_test_writes_a_failed_document_beside_a_false_success(
-    test_env: TestEnv,
+    test_env: TestEnv, catalog_product: Callable[[str], dict[str, str]]
 ) -> None:
     """A step not reached and a task answering `false_success` fail the variant."""
-    outcome = extract_the_product(test_env, wrong_price=True)
+    outcome = extract_the_product(test_env, catalog_product, wrong_price=True)
 
     path = test_env.folder / "journey.json"
     document = json.loads(path.read_text("utf-8"))

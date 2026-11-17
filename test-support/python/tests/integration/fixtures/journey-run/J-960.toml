@@ -1,0 +1,31 @@
+id = "J-960"
+title = "Ask an executable for its version"
+goal = "A person asks the executable for its version. It MUST name its Product and its Product version."
+area = 3
+product = "collie"
+status = "active"
+covers = []
+
+[surfaces]
+cli = "M1"
+sdk-python = "M2"
+
+[[steps]]
+text = "Ask the executable for its version"
+
+[[steps]]
+text = "Read the version aloud"
+manual = "only a person reads aloud"
+
+[[steps]]
+text = "Ask the executable for its help"
+
+[[steps]]
+text = "Ask the executable for its version once more"
+
+[[expect]]
+text = "The version names the Product"
+
+[[expect]]
+text = "The CLI prints the version on one line"
+surfaces = ["cli"]

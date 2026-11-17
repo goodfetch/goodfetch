@@ -13,6 +13,7 @@
 //! interfaces without reaching its internals (STYLE.md, reason 2); it never
 //! names a Foxhound type.
 
+mod access_mode;
 pub mod blocks;
 mod borrowed;
 mod browser_fetch;

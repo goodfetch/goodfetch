@@ -39,6 +39,46 @@ fn a_line_past_the_limit_is_one_too_large_frame_and_the_next_line_reads() {
 }
 
 #[test]
+fn a_first_line_past_the_opening_limit_is_too_large() {
+    let mut framer = Framer::opening(8, 64);
+    let mut cut = Vec::new();
+
+    framer.feed(b"0123456789\n", &mut cut);
+
+    assert_eq!(cut, [Frame::TooLarge]);
+}
+
+#[test]
+fn lines_after_the_first_read_up_to_the_whole_limit() {
+    let mut framer = Framer::opening(8, 64);
+    let mut cut = Vec::new();
+
+    framer.feed(b"\n  \n{\"a\":1}\n0123456789abcdef\n", &mut cut);
+
+    assert_eq!(
+        cut,
+        [
+            Frame::Line(b"{\"a\":1}".to_vec()),
+            Frame::Line(b"0123456789abcdef".to_vec()),
+        ]
+    );
+}
+
+#[test]
+fn the_framer_says_it_is_skipping_a_line_past_its_limit_before_the_line_ends() {
+    let mut framer = Framer::opening(8, 64);
+    let mut cut = Vec::new();
+
+    framer.feed(b"0123", &mut cut);
+    let before = framer.skipping();
+    framer.feed(b"456789", &mut cut);
+
+    assert!(!before);
+    assert!(framer.skipping());
+    assert_eq!(cut, Vec::<Frame>::new());
+}
+
+#[test]
 fn a_line_at_the_limit_reads() {
     let cut = frames(&[b"0123456789abcdef\n"], 16);
 

@@ -7841,6 +7841,17 @@
       ]
     },
     {
+      "id": "setting:audit.refusals_per_minute",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:audit.retention",
       "kind": "setting",
       "area": 4,
@@ -9117,6 +9128,17 @@
       ]
     },
     {
+      "id": "setting:network.max_hello_size",
+      "kind": "setting",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:network.max_json_depth",
       "kind": "setting",
       "area": 4,
@@ -10002,6 +10024,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:timeout.hello",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },

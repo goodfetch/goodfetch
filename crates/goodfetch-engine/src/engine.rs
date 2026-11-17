@@ -35,6 +35,7 @@ use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError};
 use crate::controls::Controls;
 use crate::daemon::{self, DaemonEnd, DaemonOptions};
+use crate::endpoint::Refusals;
 use crate::engine_context::{EngineContext, Stores, os_user};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
@@ -467,11 +468,17 @@ impl Engine {
             .sending_to(self.audit_events.clone()),
         );
         audit.start_pruning(dependencies.clock, owner);
+        let refusals = Refusals::new(
+            (*audit).clone(),
+            dependencies.clock,
+            part_stopped_with(owner, "listener refusals"),
+        )
+        .limited_under(settings.clone());
         let context = EngineContext::new(
             dependencies.home.clone(),
             dependencies.clock,
             settings,
-            Arc::clone(&audit),
+            (Arc::clone(&audit), refusals),
             stores,
             needs_you,
             sandbox_probe,

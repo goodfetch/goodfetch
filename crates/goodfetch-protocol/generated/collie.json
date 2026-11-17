@@ -13230,6 +13230,24 @@
     {
       "arrived_in": "0.1",
       "authority": "machine",
+      "clearable": false,
+      "default": 10,
+      "description": "How many of one listener's refusals the Audit log records in a minute, from its first: 10. Each refusal past them is still logged, and once the minute ends one `endpoint_refusals_folded` entry counts them, so a peer that retries a wrong token cannot make the engine write an entry per attempt. 0 records none but the counts. Set in user configuration or an Operator policy only.",
+      "name": "audit.refusals_per_minute",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
       "clearable": true,
       "default": null,
       "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, the engine prunes the entries older than it as it starts and then once a day, so an entry may stay up to a day longer, from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only.",
@@ -14479,6 +14497,25 @@
         "foxhound"
       ],
       "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 65536,
+      "description": "The most bytes of one line a Connection to a listener that takes a token may send before its `hello` is accepted, up to the 16 MiB (16777216) of any message: 64 KiB (65536) by default, many times any `hello`. A longer line closes the Connection unanswered as soon as it passes the limit, without being decoded, and the refusal is logged and recorded as `hello_too_large`. Set in user configuration or an Operator policy only.",
+      "name": "network.max_hello_size",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "maximum": 16777216,
         "minimum": 0,
         "type": "integer"
       },
@@ -16264,6 +16301,25 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 5000,
+      "description": "How long a Connection to a listener that takes a token, a Daemon's or an Attached engine's private endpoint, may take to send its complete `hello`, from its accept: 5 s. One that has not by then is closed unanswered, and the refusal logged and recorded as `hello_timed_out`. An Attached engine's stdio takes no token and has no such deadline. Set in user configuration or an Operator policy only.",
+      "name": "timeout.hello",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
       "default": 30000,
@@ -16697,8 +16753,15 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`.",
+      "description": "A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`, or a Connection whose opening sent no `hello` first, in time or within its size limit. `audit.refusals_per_minute` bounds how many one listener records in a minute.",
       "name": "endpoint_authentication_failed",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A listener refused more attempts in a minute than `audit.refusals_per_minute` records: the count of those not recorded one by one, each still logged.",
+      "name": "endpoint_refusals_folded",
       "product": "collie",
       "type": "audit_kind"
     },

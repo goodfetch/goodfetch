@@ -46,6 +46,8 @@ pub struct Framer {
     line: Vec<u8>,
     oversized: bool,
     limit: usize,
+    /// The first line's own limit, until that line ends.
+    first: Option<usize>,
 }
 
 impl Framer {
@@ -55,7 +57,24 @@ impl Framer {
             line: Vec::new(),
             oversized: false,
             limit,
+            first: None,
         }
+    }
+
+    /// A framer that refuses a first line longer than `first` bytes, and
+    /// each later line longer than `limit`: a connection's opening message
+    /// has its own, smaller bound (#2324).
+    pub fn opening(first: usize, limit: usize) -> Self {
+        Self {
+            first: Some(first),
+            ..Self::new(limit)
+        }
+    }
+
+    /// Whether the line being read has passed its limit, so its rest is
+    /// skipped and it will end in [`Frame::TooLarge`].
+    pub fn skipping(&self) -> bool {
+        self.oversized
     }
 
     /// Takes the next bytes of the stream and appends each line they end to
@@ -78,7 +97,7 @@ impl Framer {
         if self.oversized {
             return;
         }
-        if self.line.len() + part.len() > self.limit {
+        if self.line.len() + part.len() > self.first.unwrap_or(self.limit) {
             self.oversized = true;
             self.line = Vec::new();
         } else {
@@ -88,10 +107,15 @@ impl Framer {
 
     fn end_line(&mut self) -> Option<Frame> {
         if std::mem::take(&mut self.oversized) {
+            self.first = None;
             return Some(Frame::TooLarge);
         }
         let line = std::mem::take(&mut self.line);
-        (!line.iter().all(u8::is_ascii_whitespace)).then_some(Frame::Line(line))
+        let frame = (!line.iter().all(u8::is_ascii_whitespace)).then_some(Frame::Line(line));
+        if frame.is_some() {
+            self.first = None;
+        }
+        frame
     }
 }
 

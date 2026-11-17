@@ -14,6 +14,10 @@
 //! - `milestone-too-early`: a surface is due before the milestone that ships
 //!   it;
 //! - `retired-without-reason`: a retired Journey gives no reason;
+//! - `fake-model-setup`: an AI Journey, one covering an AI row of ADR
+//!   0037's matrix or an area 9 story, does not start with an unpinned,
+//!   automated step that points the Model provider setting at the Fake
+//!   model, so a variant could reach a real provider (ADR 0065);
 //! - `missing-task`: a task a Journey names is not in the committed task
 //!   list of its seed, or no list is committed for the seed;
 //! - `task-digest`: the digest a Journey pins is not the one its seed's list
@@ -554,6 +558,7 @@ fn file_findings(
         }
     }
     findings.extend(check_findings(journey, &file.path));
+    findings.extend(fake_model_finding(journey, &file.path));
     let has_reason = journey
         .reason
         .as_deref()
@@ -608,6 +613,36 @@ fn check_findings(journey: &Journey, subject: &str) -> Vec<Finding> {
         }
     }
     findings
+}
+
+/// The words a step names the Fake model by (the glossary's term).
+const FAKE_MODEL: &str = "Fake model";
+
+/// The rule that keeps an AI Journey off real providers (ADR 0065): a
+/// Journey covering an AI row of ADR 0037's matrix (`row:AI-…`) or an area
+/// 9 story (`story:9-…`) starts with a step that names the Fake model,
+/// pinned to no surface and left to no person, so every variant points its
+/// Model provider setting at the Fake model through its own surface before
+/// any step can call a model.
+fn fake_model_finding(journey: &Journey, subject: &str) -> Option<Finding> {
+    let ai = journey.covers.iter().any(|feature| {
+        let id = feature.as_str();
+        id.starts_with("row:AI-") || id.starts_with("story:9-")
+    });
+    let setup = journey.steps.first().is_some_and(|step| {
+        step.text.contains(FAKE_MODEL) && step.on.is_none() && step.manual.is_none()
+    });
+    (ai && !setup).then(|| {
+        Finding::new(
+            "fake-model-setup",
+            subject.to_owned(),
+            format!(
+                "an AI Journey's first step points the Model provider setting at the {FAKE_MODEL} \
+                 through every variant's own surface: name the {FAKE_MODEL}, with no `on` and no \
+                 `manual`, so no variant can reach a real provider"
+            ),
+        )
+    })
 }
 
 /// A seed's committed task list, as the task rule reads it.

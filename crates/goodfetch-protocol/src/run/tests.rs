@@ -119,7 +119,16 @@ fn newer_foxhound_report() -> serde_json::Value {
         "started_at": "2026-10-22T08:00:00Z",
         "ended_at": "2026-10-22T08:05:00Z",
         "usage": {
-            "model": { "calls": 0, "tokens": 0 },
+            "model": {
+                "calls": 0,
+                "tokens": 0,
+                "input_tokens": 0,
+                "cache_read_tokens": 0,
+                "cache_write_tokens": 0,
+                "output_tokens": 0,
+                "reasoning_tokens": 0,
+                "price": null
+            },
             "browser_time": 0,
             "proxy_bytes": 0,
             "requests": 3,
@@ -218,5 +227,43 @@ fn a_crawls_progress_keeps_a_wait_reason_a_newer_engine_sends() {
             serde_json::to_value(&read).unwrap(),
         ),
         ("a_reason_from_a_newer_engine", true, sent)
+    );
+}
+
+/// A Run's model Usage whose price needs a price the table lacks is `null`,
+/// never a partial sum, and each Model reference keeps its own counts and
+/// price (ADR 0101).
+#[test]
+fn a_model_usage_without_a_whole_price_keeps_each_models_priced_part() {
+    let counts = |calls: u64, price: serde_json::Value| {
+        serde_json::json!({
+            "calls": calls,
+            "tokens": calls * 1500,
+            "input_tokens": calls * 1200,
+            "cache_read_tokens": calls * 1000,
+            "cache_write_tokens": 0,
+            "output_tokens": calls * 300,
+            "reasoning_tokens": calls * 100,
+            "price": price
+        })
+    };
+    let mut sent = counts(3, serde_json::Value::Null);
+    sent["by_model"] = serde_json::json!({
+        "anthropic/claude-sonnet-4-5": counts(1, serde_json::json!({ "currency": "USD", "amount": 4200 })),
+        "local/qwen3": counts(2, serde_json::Value::Null)
+    });
+
+    let read: super::ModelUsage = serde_json::from_value(sent.clone()).unwrap();
+
+    assert_eq!(
+        (
+            read.counts.price.is_none(),
+            read.by_model["anthropic/claude-sonnet-4-5"]
+                .price
+                .as_ref()
+                .map(|price| price.amount),
+            serde_json::to_value(&read).unwrap(),
+        ),
+        (true, Some(4200), sent)
     );
 }

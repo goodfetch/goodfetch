@@ -2740,6 +2740,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-model-provider"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "goodfetch-engine",
+ "goodfetch-protocol",
+ "goodfetch-workspace-hack",
+ "tokio-util",
+]
+
+[[package]]
 name = "goodfetch-page"
 version = "0.0.0"
 dependencies = [

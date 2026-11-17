@@ -881,8 +881,10 @@ impl Politeness {
     ) -> Result<Taken, PolitenessError> {
         let key = key.to_owned();
         let holder = holder.clone();
+        // Its round trip counts on `F3.second_copy_round_trips`, where the
+        // second copy takes it.
         let (taken, _) = self
-            .run(move |backend, context| {
+            .answered(move |backend, context| {
                 take_in(backend, context, &key, &holder, &rule, now, false)
             })
             .await?;
@@ -974,14 +976,35 @@ impl Politeness {
         T: Send + 'static,
         F: FnOnce(&mut S) -> (T, S::Writes) + Send + 'static,
     {
-        self.run(move |backend, context| match backend {
-            Backend::File(connection) => sqlite_store::immediate(connection, |transaction| {
-                changed(transaction, key.borrow(), reads, change)
-            })
-            .map_err(|error| sqlite_error(&context.path, &error)),
-            Backend::Memory(store) => Ok(store.change(key.borrow(), reads, change)),
-        })
-        .await
+        self.run(change_job(key, reads, change)).await
+    }
+
+    /// Changes the state `S` keeps under `key` as [`Politeness::change`]
+    /// does, for a read its caller counts on a row of its own, such as a
+    /// robots.txt copy's on `E6.robots_reads`: on a Run's own Politeness
+    /// its round trip does not count on `F3.politeness_read_round_trips`
+    /// (#2171).
+    ///
+    /// # Errors
+    ///
+    /// As [`Politeness::change`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Politeness::change`].
+    pub async fn change_counted_apart<S, K, T, F>(
+        &self,
+        key: K,
+        reads: S::Reads,
+        change: F,
+    ) -> Result<T, PolitenessError>
+    where
+        S: KeyState,
+        K: Borrow<S::Key> + Send + 'static,
+        T: Send + 'static,
+        F: FnOnce(&mut S) -> (T, S::Writes) + Send + 'static,
+    {
+        self.answered(change_job(key, reads, change)).await
     }
 
     /// Changes the state `S` keeps under `key` as [`Politeness::change`]
@@ -1062,8 +1085,22 @@ impl Politeness {
     }
 
     /// Runs `work` on the task that holds the Politeness and answers what
-    /// it returned.
+    /// it returned: on a Run's own, a round trip that counts on
+    /// `F3.politeness_read_round_trips` (#2171).
     async fn run<T, F>(&self, work: F) -> Result<T, PolitenessError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut Backend, &Context) -> Result<T, PolitenessError> + Send + 'static,
+    {
+        if self.0.in_memory {
+            self.0.work.count(Row::PolitenessReadRoundTrips);
+        }
+        self.answered(work).await
+    }
+
+    /// Runs `work` on the task that holds the Politeness and answers what
+    /// it returned, its round trip counted by its caller.
+    async fn answered<T, F>(&self, work: F) -> Result<T, PolitenessError>
     where
         T: Send + 'static,
         F: FnOnce(&mut Backend, &Context) -> Result<T, PolitenessError> + Send + 'static,
@@ -1133,6 +1170,28 @@ impl Politeness {
                 }
             }
         }
+    }
+}
+
+/// The job that changes the state `S` keeps under `key`, in one
+/// transaction on the file ([`Politeness::change`]).
+fn change_job<S, K, T, F>(
+    key: K,
+    reads: S::Reads,
+    change: F,
+) -> impl FnOnce(&mut Backend, &Context) -> Result<T, PolitenessError> + Send + 'static
+where
+    S: KeyState,
+    K: Borrow<S::Key> + Send + 'static,
+    T: Send + 'static,
+    F: FnOnce(&mut S) -> (T, S::Writes) + Send + 'static,
+{
+    move |backend, context| match backend {
+        Backend::File(connection) => sqlite_store::immediate(connection, |transaction| {
+            changed(transaction, key.borrow(), reads, change)
+        })
+        .map_err(|error| sqlite_error(&context.path, &error)),
+        Backend::Memory(store) => Ok(store.change(key.borrow(), reads, change)),
     }
 }
 

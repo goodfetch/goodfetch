@@ -205,7 +205,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 133] = [
+const ROWS: [Row; 134] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -442,6 +442,13 @@ const ROWS: [Row; 133] = [
     // unit is the cell whose handler sends each page's navigation to
     // another domain key, none elsewhere, where its count is 0.
     b1("F3.second_copy_round_trips", SECOND_COPIES, false),
+    // A message whose answer a crawl's task waits for from the task that
+    // holds its Run's own Politeness, held in memory (#2171, the owner's
+    // option A): a paced key's start after its robots.txt, a proxy's
+    // Permit. A robots.txt copy's read counts on `E6.robots_reads` and a
+    // second copy's take on the row above instead; on the file it counts
+    // none, nor where no key is paced and no proxy is set.
+    b1("F3.politeness_read_round_trips", ATTEMPTS_ENDED, false),
     b1("F3.hop_round_trips", HOPS, true),
     b1("F3.hop_round_trips.end", CHAINS, true),
     b1("F3.in_flight_serializations", ATTEMPTS_ENDED, false),

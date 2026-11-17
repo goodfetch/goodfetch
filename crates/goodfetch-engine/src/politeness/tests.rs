@@ -13,6 +13,7 @@
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::home::POLITENESS_FILE;
 use goodfetch_test_support::{CrashVfs, IoFault, TestEnv, damage_table};
@@ -760,4 +761,74 @@ fn a_runs_own_politeness_answers_its_handles_while_served_and_fails_closed_once_
 
     granted(served.unwrap());
     assert!(matches!(gone, Err(PolitenessError::Closed)), "{gone:?}");
+}
+
+/// A message whose answer a handle of a Run's own Politeness waits for
+/// counts once on `F3.politeness_read_round_trips` (option A of #2171); a
+/// one-way note, a second copy's take and a read its caller counts apart
+/// count none, and nothing counts there on the file.
+///
+/// Covers: story:5-90, setting:politeness.sharing
+#[test]
+fn only_an_answered_message_to_a_runs_own_politeness_counts_a_read_round_trip() {
+    let env = TestEnv::new();
+    let now = SystemTime::now();
+    let own_work = CountedWork::default();
+    let file_work = CountedWork::default();
+
+    run(async |owner| {
+        let own_options = PolitenessOptions {
+            work: own_work.clone(),
+            ..PolitenessOptions::default()
+        };
+        let own = Politeness::in_memory(&own_options, owner).unwrap();
+        let file = Politeness::open(
+            env.home().join(POLITENESS_FILE),
+            &PolitenessOptions {
+                work: file_work.clone(),
+                ..PolitenessOptions::default()
+            },
+            Vec::new(),
+            gone_unless_live,
+            "file".to_owned(),
+            owner,
+        )
+        .await
+        .unwrap();
+        for politeness in [&own, &file] {
+            let run_holder = holder(&env, "run");
+            granted(
+                politeness
+                    .take("shop", &run_holder, cap(2), now)
+                    .await
+                    .unwrap(),
+            );
+            granted(
+                politeness
+                    .take_beside("shop", &run_holder, cap(2), now)
+                    .await
+                    .unwrap(),
+            );
+            politeness
+                .change("shop", (), |_: &mut Stateless| ((), ()))
+                .await
+                .unwrap();
+            politeness
+                .change_counted_apart("shop", (), |_: &mut Stateless| ((), ()))
+                .await
+                .unwrap();
+            politeness
+                .note("shop", (), |_: &mut Stateless| ())
+                .await
+                .unwrap();
+        }
+    });
+
+    assert_eq!(
+        (
+            own_work.read(Row::PolitenessReadRoundTrips),
+            file_work.read(Row::PolitenessReadRoundTrips)
+        ),
+        (2, 0)
+    );
 }

@@ -11293,6 +11293,7 @@
             "parses",
             "plugin_answer_parses",
             "plugin_serializations",
+            "politeness_read_round_trips",
             "pool_walks",
             "prepares",
             "press_commands",

@@ -357,7 +357,7 @@ impl SharedRobotsTxt {
         self.politeness.work().count(Row::RobotsReads);
         let copy = self
             .politeness
-            .change(key, true, |copy: &mut RobotsCopy| (copy.0.take(), false))
+            .change_counted_apart(key, true, |copy: &mut RobotsCopy| (copy.0.take(), false))
             .await
             .unwrap_or_else(|error| {
                 tracing::warn!(%error, "the shared robots.txt copy could not be read; it is fetched");
@@ -383,11 +383,13 @@ impl SharedRobotsTxt {
         {
             let key = location.as_str().to_owned();
             let (fetched_at, bytes) = (kept.fetched_at, kept.body.len());
+            // On a Run's own Politeness the copy is kept by a one-way
+            // message, so the read stays its origin's one round trip (#2171).
             match self
                 .politeness
-                .change(key, false, move |copy: &mut RobotsCopy| {
+                .note(key, false, move |copy: &mut RobotsCopy| {
                     copy.0 = Some(kept);
-                    ((), true)
+                    true
                 })
                 .await
             {

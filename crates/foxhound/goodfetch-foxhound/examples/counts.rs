@@ -106,6 +106,12 @@
 //! and its pages and origins count those navigations and their host: each
 //! is a page the document tier fetched, parsed and classified.
 //!
+//! `F3.politeness_read_round_trips` divides by the attempts that ended, the
+//! unit `attempts_ended`: a message whose answer a crawl's task waits for
+//! from the task that holds its Run's own Politeness, held in memory, in the
+//! cells `politeness_sharing_run` and `document_tier_handler_beside`; on
+//! the file, in every other cell, it counts none (#2171).
+//!
 //! `F3.actor_round_trips` and `F3.in_flight_serializations` divide by the
 //! attempts that ended, the unit `attempts_ended`: the attempts the site
 //! served a page to and the one that read each sitemap, which is a Work
@@ -183,8 +189,7 @@ use goodfetch_test_support::callgrind;
 use plants::{Counted as PlantOn, politeness_plant, run_state_plant};
 use scenarios::{
     AfterStart, BARRIER_CALLS, Frontier, Handler, Navigation, Options, PAGES, Plant, body_bytes,
-    crawl_with,
-    entries, page_analysis_plant, run_trace_plant,
+    crawl_with, entries, page_analysis_plant, run_trace_plant,
 };
 use serde_json::{Map, Value, json};
 
@@ -1583,6 +1588,24 @@ fn wire_share_crawl(rest: &[&str]) {
     }
 }
 
+/// Asserts that `cell` counts fewer of each row it removes, and fewer syncs
+/// when it removes them, than the `default` cell.
+fn assert_removes(cell: &Counted, default: &Counted) {
+    for row in cell.removes {
+        assert!(
+            cell.count(*row) < default.count(*row),
+            "the cell {} leaves {} as it is",
+            cell.name,
+            row.name()
+        );
+    }
+    assert!(
+        !cell.removes_syncs || cell.syncs < default.syncs,
+        "the cell {} leaves {SYNCS} as it is",
+        cell.name
+    );
+}
+
 #[expect(
     clippy::disallowed_methods,
     reason = "the ADR 0140 counts harness runs each cell on a scoped thread, none waiting on another"
@@ -1636,19 +1659,7 @@ fn main() {
     });
     let default = &counted[0];
     for cell in &counted {
-        for row in cell.removes {
-            assert!(
-                cell.count(*row) < default.count(*row),
-                "the cell {} leaves {} as it is",
-                cell.name,
-                row.name()
-            );
-        }
-        assert!(
-            !cell.removes_syncs || cell.syncs < default.syncs,
-            "the cell {} leaves {SYNCS} as it is",
-            cell.name
-        );
+        assert_removes(cell, default);
         let counts = counts_of(cell);
         let off = cell.name == OFF_CELL;
         let batched = matches!(cell.level, DURABILITY_BATCH | DURABILITY_OFF);

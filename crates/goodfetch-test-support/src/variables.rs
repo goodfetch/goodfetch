@@ -3,8 +3,9 @@
 //! override, the suite `just test` names in `GOODFETCH_TEST_SUITE`, the tool
 //! manifest's path, the folder Journey variants write their result documents
 //! into, the exercise records' folder with the test's ID as nextest gives
-//! it, the way a runner declares `DnsNamespace` comes up on it, and on
-//! Windows the variables a child needs to start.
+//! it, the way a runner declares `DnsNamespace` comes up on it, what a
+//! Cargo a test starts needs to find its toolchain, and on Windows the
+//! variables a child needs to start.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support reads the test's own variables, never a product's environment (ADR 0062)"
@@ -57,6 +58,17 @@ pub(crate) const PLAYWRIGHT_BROWSERS_VARIABLE: &str = "PLAYWRIGHT_BROWSERS_PATH"
 /// on macOS and Linux, `LOCALAPPDATA` on Windows.
 pub(crate) const USER_FOLDER_VARIABLES: [&str; 2] = ["HOME", "LOCALAPPDATA"];
 
+/// What a Cargo a test starts needs to find its toolchain, since the test's
+/// map clears the environment and gives `HOME` a folder of its own: the
+/// `PATH` of the running test, Cargo's and rustup's homes, and the
+/// toolchain rustup picked for the test's own build.
+pub(crate) const TOOLCHAIN_VARIABLES: [&str; 4] =
+    ["PATH", "CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN"];
+
+/// The user's own folder on Windows, under which Cargo's and rustup's homes
+/// are when no variable names them; `HOME` on macOS and Linux.
+pub(crate) const WINDOWS_USER_VARIABLE: &str = "USERPROFILE";
+
 /// The binary ID of the test nextest runs (`<package>::<target>`).
 pub(crate) const BINARY_ID_VARIABLE: &str = "NEXTEST_BINARY_ID";
 
@@ -103,6 +115,8 @@ impl Variables {
         ]
         .into_iter()
         .chain(USER_FOLDER_VARIABLES)
+        .chain(TOOLCHAIN_VARIABLES)
+        .chain([WINDOWS_USER_VARIABLE])
         .chain(WINDOWS_VARIABLES)
         .filter_map(|name| std::env::var(name).ok().map(|value| (name, value)))
         .collect()

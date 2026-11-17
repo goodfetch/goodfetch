@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 49] = [
+pub const MODULES: [&Entries; 50] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -29,6 +29,7 @@ pub const MODULES: [&Entries; 49] = [
     &needs_you::ENTRIES,
     &page::ENTRIES,
     &page::proxy::ENTRIES,
+    &page::access_mode::ENTRIES,
     &executables::ENTRIES,
     &run::ENTRIES,
     &run::completeness::ENTRIES,
@@ -65,7 +66,16 @@ pub const MODULES: [&Entries; 49] = [
 
 /// Every setting value that yields to another setting, which
 /// `config explain` names in its `yields_to` (#2418).
-pub const YIELDING: [&Yielding; 1] = [&foxhound::fetch::HTTP_FROM_YIELDS_TO_A_LOGIN];
+pub const YIELDING: [&Yielding; 8] = [
+    &foxhound::fetch::HTTP_FROM_YIELDS_TO_A_LOGIN,
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[0],
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[1],
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[2],
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[3],
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[4],
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[5],
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[6],
+];
 
 /// The operations of `product`'s catalog: Collie's own for Collie, every
 /// operation for Foxhound, which contains Collie.

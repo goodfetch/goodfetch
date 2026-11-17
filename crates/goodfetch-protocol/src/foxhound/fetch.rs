@@ -153,7 +153,15 @@ pub const HTTP_FROM_YIELDS_TO_A_LOGIN: Yielding = Yielding {
     key: &FETCH_HTTP_FROM,
     when: not_from_the_browser,
     to: &SESSION_SOURCE,
+    to_values: set,
+    unless: None,
+    reason: "its Sessions hold a login, so their HTTP leaves from the browser",
 };
+
+/// Whether a `session.source` is set: any value but `null`.
+fn set(source: &Value) -> bool {
+    !source.is_null()
+}
 
 /// `fetch.encoding` (ADR 0119).
 pub const FETCH_ENCODING: Setting = Setting {

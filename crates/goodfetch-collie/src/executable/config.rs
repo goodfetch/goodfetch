@@ -29,6 +29,7 @@ use std::process::ExitCode;
 use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::settings::{SettingsError, find_project, project_settings};
 use goodfetch_engine::{Dependencies, Engine};
+use goodfetch_protocol::entries::YIELDING;
 use goodfetch_protocol::settings::{
     CONFIG_EXPLAIN, ConfigExplainParams, ExplainedSetting, ProjectSettings, RunOrigin,
     SettingsExplanation,
@@ -181,8 +182,12 @@ fn describe(setting: &ExplainedSetting) -> String {
         origin.push("weakens a guarantee".to_owned());
     }
     if let Some(to) = &setting.yields_to {
+        let reason = YIELDING
+            .iter()
+            .find(|rule| rule.key.name == setting.key && rule.to.name == to.key)
+            .map_or_else(String::new, |rule| format!(": {}", rule.reason));
         origin.push(format!(
-            "yields to {} = {} ({}): its Sessions hold a login, so their HTTP leaves from the browser",
+            "yields to {} = {} ({}){reason}",
             to.key,
             to.value,
             to.layer.as_str()

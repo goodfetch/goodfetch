@@ -14,6 +14,7 @@ mod affected;
 mod all_green;
 mod allure;
 mod base_console;
+mod browser_releases;
 mod budgets;
 mod ceiling;
 mod check;
@@ -27,6 +28,7 @@ mod containment;
 mod counts;
 mod dco;
 mod dependency_direction;
+mod docs_samples;
 mod egress;
 mod environment;
 mod evict_caches;
@@ -117,6 +119,10 @@ enum Command {
     /// The "all green" check: every needed job succeeded, and no earlier
     /// attempt of the run had a failed test step (ADR 0064).
     AllGreen(all_green::Arguments),
+    /// Writes the release table the version check grades browser builds
+    /// against, from Chromium Dash's milestone schedule and Mozilla's release
+    /// calendar (ADR 0035).
+    BrowserReleases(browser_releases::Arguments),
     /// The budget check (ADR 0061): opens or updates one `needs-triage`
     /// issue per suite or job whose median of its last 20 runs in its own
     /// tier, read from the results store, is past its budget in TESTING.md;
@@ -190,6 +196,14 @@ enum Command {
     },
     /// Fails on a dependency against the workspace's enforced directions.
     DependencyDirection,
+    /// The docs code samples (ADRs 0068 and 0097): `extract` writes each
+    /// sample of each Product's rendering of the docs pages, and of each
+    /// package's README, under `target/docs-samples/`, with a manifest, and
+    /// fails on a code block that carries the other Product's names.
+    DocsSamples {
+        #[command(subcommand)]
+        command: docs_samples::Command,
+    },
     /// ADR 0043's outbound-traffic deny in CI and its Egress canary.
     Egress {
         #[command(subcommand)]
@@ -527,6 +541,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Advisories { command } => advisories::run(&command, environment),
         Command::Affected(arguments) => affected::run(arguments, environment),
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
+        Command::BrowserReleases(arguments) => browser_releases::run(&arguments, environment),
         Command::Budgets(arguments) => budgets::run(&arguments, environment),
         Command::Clients { command } => clients::run(&command, environment),
         Command::Codegen(arguments) => codegen::run(arguments, environment),
@@ -541,6 +556,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::DependencyDirection => {
             Ok(check::report(&dependency_direction::check(cargo, root)?))
         }
+        Command::DocsSamples { command } => docs_samples::run(&command, environment),
         Command::Egress { command } => egress::run(command, environment),
         Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
         Command::ExistingCode { command } => existing_code::run(command, environment),

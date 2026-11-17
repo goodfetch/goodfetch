@@ -10,9 +10,10 @@
 //! entry, through its count. A cell fails here if the work it counts did not
 //! happen, or if a feature off did not take its work away.
 //!
-//! Its Usage charge scenario (`support/charge_counts.rs`) charges under a
-//! Limit in every cell but `no_limit`, whose run no Limit holds and which
-//! takes the Slice's work away. What no wrapper sees of a charge comes from
+//! Its Usage charge scenario (`support/charge_counts.rs`) charges requests,
+//! and proxy bytes as a provider Session's relay reserves them ahead, under
+//! a Limit on each in every cell but `no_limit`, whose run no Limit holds and
+//! which takes the Slice's work away. What no wrapper sees of a charge comes from
 //! outside the process: `E3.prepares` is Callgrind's call count of
 //! `sqlite3_prepare_v3` inside the charges that took a Slice, run again under
 //! Valgrind by this same executable (`--window`), so this needs Valgrind; the

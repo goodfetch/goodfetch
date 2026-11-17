@@ -651,6 +651,7 @@ source = { editable = "test-support/python" }
 dependencies = [
     { name = "anyio" },
     { name = "jsonschema" },
+    { name = "packaging" },
     { name = "pydantic" },
     { name = "pytest" },
     { name = "pytest-run-parallel" },
@@ -661,6 +662,7 @@ dependencies = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.15.1" },
     { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "packaging", specifier = ">=26.3" },
     { name = "pydantic", specifier = ">=2.14.1,<3" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-run-parallel", specifier = ">=0.10.0" },

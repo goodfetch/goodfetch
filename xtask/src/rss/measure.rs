@@ -3,7 +3,8 @@
 //! executable, so the OS's figure is that executable's alone. The crawls'
 //! Proving ground is served from here, outside every probe, and each
 //! executable is dropped from the page cache before each run, so the run
-//! pages it in as a first start does (spec #2165).
+//! pages it in as a first start does (spec #2165), or, with `--page-cache
+//! cached`, read into it, so the run finds it there.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -20,20 +21,31 @@ use crate::output;
 use crate::test_tools::{Tool, ToolManifest};
 
 use super::crawl::{self, Site};
-use super::page_cache;
+use super::page_cache::{self, PageCache};
 use super::peak::{self, Resident};
 use super::peaks::{self, Peak};
 use super::platform::Platform;
 use super::scenario::Scenario;
 
-/// Runs each scenario `runs` times on each executable it runs on and
+/// Runs each scenario `runs` times on each executable it runs on, each run
+/// once `page_cache` has left the executable's pages where it says, and
 /// appends each peak to `out`.
-pub(crate) fn measure(scenarios: &[Scenario], tools: &Path, out: &Path, runs: u32) -> Result<()> {
+pub(crate) fn measure(
+    scenarios: &[Scenario],
+    tools: &Path,
+    out: &Path,
+    runs: u32,
+    page_cache: PageCache,
+) -> Result<()> {
     let tools = ToolManifest::read(tools)?;
     let platform = Platform::current()?;
     let probe = std::env::current_exe().context("finding xtask's own executable")?;
-    if !page_cache::DROPS {
-        output::line(page_cache::NOT_DROPPED);
+    match page_cache {
+        PageCache::Dropped if !page_cache::DROPS => output::line(page_cache::NOT_DROPPED),
+        PageCache::Dropped => {}
+        PageCache::Cached => output::line(
+            "Each executable is read into the page cache before each run: its figures are a cached start's.",
+        ),
     }
     // Every executable a scenario runs on is measured, or none is.
     let mut measured = Vec::new();
@@ -75,7 +87,7 @@ pub(crate) fn measure(scenarios: &[Scenario], tools: &Path, out: &Path, runs: u3
     for run in 1..=runs {
         for &(scenario, product, executable) in &measured {
             let address = address.filter(|_| scenario.crawl().is_some());
-            page_cache::drop_cached(executable)?;
+            page_cache.prepare(executable)?;
             let resident = run_probe(&probe, scenario, product, executable, address)?;
             let bytes = resident.peak_bytes;
             output::line(&format!(

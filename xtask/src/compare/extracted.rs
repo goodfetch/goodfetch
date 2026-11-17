@@ -30,8 +30,6 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::compare::matrix::OutputCheck;
-
 /// The largest article site whose right answers the Proving ground serves
 /// (`ANSWERED_PAGES` of its `crawl/comparison/article.rs`).
 pub(crate) const ANSWERED_PAGES: u64 = 10_000;
@@ -128,18 +126,6 @@ pub(crate) struct Extracted {
     /// Those that still differ once the ad's marker is allowed in the
     /// text: what a tool that removes no ad is held to.
     pub(crate) ad_allowed: Differing,
-}
-
-impl Extracted {
-    /// The pages that differ under `check`: the handled crawl's fields are
-    /// held whole, as the extraction scenario's text is at Foxhound's
-    /// defaults.
-    pub(crate) fn under(&self, check: OutputCheck) -> &Differing {
-        match check {
-            OutputCheck::Whole | OutputCheck::Fields => &self.whole,
-            OutputCheck::AdAllowed => &self.ad_allowed,
-        }
-    }
 }
 
 /// The right answers of the article site of `pages` pages, from the

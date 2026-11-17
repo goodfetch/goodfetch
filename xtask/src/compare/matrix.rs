@@ -21,6 +21,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::extracted::{Differing, Extracted};
 use super::hostile::{LIMITS_IN_FLIGHT, LIMITS_RATE, TRAPS, Task};
 
 /// A tool compared.
@@ -2533,6 +2534,18 @@ pub(crate) enum OutputCheck {
     /// The handled crawl's twenty fields of each page, each its answer
     /// (#2317).
     Fields,
+}
+
+impl OutputCheck {
+    /// The pages of `extracted` that differ under this check: the handled
+    /// crawl's fields are held whole, as the extraction scenario's text is
+    /// at Foxhound's defaults.
+    pub(crate) fn differing(self, extracted: &Extracted) -> &Differing {
+        match self {
+            Self::Whole | Self::Fields => &extracted.whole,
+            Self::AdAllowed => &extracted.ad_allowed,
+        }
+    }
 }
 
 /// Why pagesift's polite cell runs one trial of each pass, where the run

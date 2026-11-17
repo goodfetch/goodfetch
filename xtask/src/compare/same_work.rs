@@ -349,7 +349,7 @@ fn other_output(pass: &Pass<'_>) -> Vec<Finding> {
             ));
             continue;
         };
-        let differing = extracted.under(check);
+        let differing = check.differing(extracted);
         let held = if check == OutputCheck::AdAllowed {
             ", the ad allowed"
         } else {

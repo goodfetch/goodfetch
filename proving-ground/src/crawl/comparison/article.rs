@@ -153,8 +153,8 @@ fn page_of(seed: u64, size: u64, page: u64) -> String {
 
 /// The right answer of each page of the site of `size` pages, its ID, its
 /// name and its nav's links to its children among them, with the nav's
-/// home link and the markers no Main content holds; none for a size that is no site's, or
-/// past [`ANSWERED_PAGES`].
+/// home link and the markers no Main content holds; none for a size that is
+/// no site's, or past [`ANSWERED_PAGES`].
 pub(super) fn answers(seed: u64, size: &str) -> Option<ArticleAnswers> {
     let (size, _) = site_place(&format!("{size}/1"))?;
     (size <= ANSWERED_PAGES).then(|| ArticleAnswers {

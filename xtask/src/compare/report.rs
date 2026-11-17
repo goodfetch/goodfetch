@@ -677,7 +677,7 @@ fn worst<'a>(found: impl Iterator<Item = &'a Extracted>) -> Option<Extracted> {
 /// The label of an output that differs under `check` on a site of
 /// `site_pages` pages; none when every page read right.
 fn output_differs(output: &Extracted, check: OutputCheck, site_pages: u64) -> Option<String> {
-    let differing = output.under(check);
+    let differing = check.differing(output);
     (differing.pages > 0).then(|| format!("output differs: {} of {site_pages}", differing.pages))
 }
 
@@ -937,7 +937,11 @@ fn output_line(text: &mut String, scenario: Scenario, cell: &CellReport) {
     let _ = write!(
         text,
         "  - {label}{allowed}; the first: {}.",
-        output.under(check).first.as_deref().unwrap_or("not named")
+        check
+            .differing(output)
+            .first
+            .as_deref()
+            .unwrap_or("not named")
     );
     if check == OutputCheck::Whole {
         let _ = write!(

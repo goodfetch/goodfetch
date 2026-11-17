@@ -1,0 +1,957 @@
+# The release table the version check grades browser builds against
+# (ADR 0035): each major of Chrome (Chromium Dash) and Firefox
+# (Mozilla's release calendar) with the day it reached Stable,
+# scheduled majors included. Written by `xtask browser-releases`;
+# never edited by hand.
+
+[[chrome]]
+major = 64
+stable = "2018-01-23"
+
+[[chrome]]
+major = 65
+stable = "2018-03-06"
+
+[[chrome]]
+major = 66
+stable = "2018-04-17"
+
+[[chrome]]
+major = 67
+stable = "2018-05-29"
+
+[[chrome]]
+major = 68
+stable = "2018-07-24"
+
+[[chrome]]
+major = 69
+stable = "2018-09-04"
+
+[[chrome]]
+major = 70
+stable = "2018-10-16"
+
+[[chrome]]
+major = 71
+stable = "2018-12-04"
+
+[[chrome]]
+major = 72
+stable = "2019-01-29"
+
+[[chrome]]
+major = 73
+stable = "2019-03-12"
+
+[[chrome]]
+major = 74
+stable = "2019-04-23"
+
+[[chrome]]
+major = 75
+stable = "2019-06-04"
+
+[[chrome]]
+major = 76
+stable = "2019-07-30"
+
+[[chrome]]
+major = 77
+stable = "2019-09-10"
+
+[[chrome]]
+major = 78
+stable = "2019-10-22"
+
+[[chrome]]
+major = 79
+stable = "2019-12-10"
+
+[[chrome]]
+major = 80
+stable = "2020-02-04"
+
+[[chrome]]
+major = 81
+stable = "2020-04-07"
+
+[[chrome]]
+major = 83
+stable = "2020-05-19"
+
+[[chrome]]
+major = 84
+stable = "2020-07-14"
+
+[[chrome]]
+major = 85
+stable = "2020-08-25"
+
+[[chrome]]
+major = 86
+stable = "2020-10-06"
+
+[[chrome]]
+major = 87
+stable = "2020-11-17"
+
+[[chrome]]
+major = 88
+stable = "2021-01-19"
+
+[[chrome]]
+major = 89
+stable = "2021-03-02"
+
+[[chrome]]
+major = 90
+stable = "2021-04-13"
+
+[[chrome]]
+major = 91
+stable = "2021-05-25"
+
+[[chrome]]
+major = 92
+stable = "2021-07-20"
+
+[[chrome]]
+major = 93
+stable = "2021-08-31"
+
+[[chrome]]
+major = 94
+stable = "2021-09-21"
+
+[[chrome]]
+major = 95
+stable = "2021-10-19"
+
+[[chrome]]
+major = 96
+stable = "2021-11-16"
+
+[[chrome]]
+major = 97
+stable = "2022-01-04"
+
+[[chrome]]
+major = 98
+stable = "2022-02-01"
+
+[[chrome]]
+major = 99
+stable = "2022-03-01"
+
+[[chrome]]
+major = 100
+stable = "2022-03-29"
+
+[[chrome]]
+major = 101
+stable = "2022-04-26"
+
+[[chrome]]
+major = 102
+stable = "2022-05-24"
+
+[[chrome]]
+major = 103
+stable = "2022-06-21"
+
+[[chrome]]
+major = 104
+stable = "2022-08-02"
+
+[[chrome]]
+major = 105
+stable = "2022-08-30"
+
+[[chrome]]
+major = 106
+stable = "2022-09-27"
+
+[[chrome]]
+major = 107
+stable = "2022-10-25"
+
+[[chrome]]
+major = 108
+stable = "2022-11-29"
+
+[[chrome]]
+major = 109
+stable = "2023-01-10"
+
+[[chrome]]
+major = 110
+stable = "2023-02-07"
+
+[[chrome]]
+major = 111
+stable = "2023-03-07"
+
+[[chrome]]
+major = 112
+stable = "2023-04-04"
+
+[[chrome]]
+major = 113
+stable = "2023-05-02"
+
+[[chrome]]
+major = 114
+stable = "2023-05-30"
+
+[[chrome]]
+major = 115
+stable = "2023-07-18"
+
+[[chrome]]
+major = 116
+stable = "2023-08-15"
+
+[[chrome]]
+major = 117
+stable = "2023-09-12"
+
+[[chrome]]
+major = 118
+stable = "2023-10-10"
+
+[[chrome]]
+major = 119
+stable = "2023-10-31"
+
+[[chrome]]
+major = 120
+stable = "2023-12-05"
+
+[[chrome]]
+major = 121
+stable = "2024-01-23"
+
+[[chrome]]
+major = 122
+stable = "2024-02-20"
+
+[[chrome]]
+major = 123
+stable = "2024-03-19"
+
+[[chrome]]
+major = 124
+stable = "2024-04-16"
+
+[[chrome]]
+major = 125
+stable = "2024-05-14"
+
+[[chrome]]
+major = 126
+stable = "2024-06-11"
+
+[[chrome]]
+major = 127
+stable = "2024-07-23"
+
+[[chrome]]
+major = 128
+stable = "2024-08-20"
+
+[[chrome]]
+major = 129
+stable = "2024-09-17"
+
+[[chrome]]
+major = 130
+stable = "2024-10-15"
+
+[[chrome]]
+major = 131
+stable = "2024-11-12"
+
+[[chrome]]
+major = 132
+stable = "2025-01-14"
+
+[[chrome]]
+major = 133
+stable = "2025-02-04"
+
+[[chrome]]
+major = 134
+stable = "2025-03-04"
+
+[[chrome]]
+major = 135
+stable = "2025-04-01"
+
+[[chrome]]
+major = 136
+stable = "2025-04-29"
+
+[[chrome]]
+major = 137
+stable = "2025-05-27"
+
+[[chrome]]
+major = 138
+stable = "2025-06-24"
+
+[[chrome]]
+major = 139
+stable = "2025-08-05"
+
+[[chrome]]
+major = 140
+stable = "2025-09-02"
+
+[[chrome]]
+major = 141
+stable = "2025-09-30"
+
+[[chrome]]
+major = 142
+stable = "2025-10-28"
+
+[[chrome]]
+major = 143
+stable = "2025-12-02"
+
+[[chrome]]
+major = 144
+stable = "2026-01-13"
+
+[[chrome]]
+major = 145
+stable = "2026-02-10"
+
+[[chrome]]
+major = 146
+stable = "2026-03-10"
+
+[[chrome]]
+major = 147
+stable = "2026-04-07"
+
+[[chrome]]
+major = 148
+stable = "2026-05-05"
+
+[[chrome]]
+major = 149
+stable = "2026-06-02"
+
+[[chrome]]
+major = 150
+stable = "2026-06-30"
+
+[[chrome]]
+major = 151
+stable = "2026-07-28"
+
+[[chrome]]
+major = 152
+stable = "2026-08-25"
+
+[[chrome]]
+major = 153
+stable = "2026-09-08"
+
+[[chrome]]
+major = 154
+stable = "2026-09-22"
+
+[[chrome]]
+major = 155
+stable = "2026-10-06"
+
+[[chrome]]
+major = 156
+stable = "2026-10-20"
+
+[[chrome]]
+major = 157
+stable = "2026-11-03"
+
+[[chrome]]
+major = 158
+stable = "2026-11-17"
+
+[[chrome]]
+major = 159
+stable = "2026-12-08"
+
+[[chrome]]
+major = 160
+stable = "2027-01-05"
+
+[[chrome]]
+major = 161
+stable = "2027-01-19"
+
+[[chrome]]
+major = 162
+stable = "2027-02-02"
+
+[[chrome]]
+major = 163
+stable = "2027-02-16"
+
+[[chrome]]
+major = 164
+stable = "2027-03-02"
+
+[[chrome]]
+major = 165
+stable = "2027-03-16"
+
+[[chrome]]
+major = 166
+stable = "2027-03-30"
+
+[[chrome]]
+major = 167
+stable = "2027-04-13"
+
+[[chrome]]
+major = 168
+stable = "2027-04-27"
+
+[[chrome]]
+major = 169
+stable = "2027-05-11"
+
+[[chrome]]
+major = 170
+stable = "2027-05-25"
+
+[[firefox]]
+major = 58
+stable = "2018-01-23"
+
+[[firefox]]
+major = 59
+stable = "2018-03-13"
+
+[[firefox]]
+major = 60
+stable = "2018-05-09"
+
+[[firefox]]
+major = 61
+stable = "2018-06-26"
+
+[[firefox]]
+major = 62
+stable = "2018-09-05"
+
+[[firefox]]
+major = 63
+stable = "2018-10-23"
+
+[[firefox]]
+major = 64
+stable = "2018-12-11"
+
+[[firefox]]
+major = 65
+stable = "2019-01-29"
+
+[[firefox]]
+major = 66
+stable = "2019-03-19"
+
+[[firefox]]
+major = 67
+stable = "2019-05-21"
+
+[[firefox]]
+major = 68
+stable = "2019-07-09"
+
+[[firefox]]
+major = 69
+stable = "2019-09-03"
+
+[[firefox]]
+major = 70
+stable = "2019-10-22"
+
+[[firefox]]
+major = 71
+stable = "2019-12-03"
+
+[[firefox]]
+major = 72
+stable = "2020-01-07"
+
+[[firefox]]
+major = 73
+stable = "2020-02-11"
+
+[[firefox]]
+major = 74
+stable = "2020-03-10"
+
+[[firefox]]
+major = 75
+stable = "2020-04-07"
+
+[[firefox]]
+major = 76
+stable = "2020-05-05"
+
+[[firefox]]
+major = 77
+stable = "2020-06-02"
+
+[[firefox]]
+major = 78
+stable = "2020-06-30"
+
+[[firefox]]
+major = 79
+stable = "2020-07-28"
+
+[[firefox]]
+major = 80
+stable = "2020-08-25"
+
+[[firefox]]
+major = 81
+stable = "2020-09-22"
+
+[[firefox]]
+major = 82
+stable = "2020-10-20"
+
+[[firefox]]
+major = 83
+stable = "2020-11-17"
+
+[[firefox]]
+major = 84
+stable = "2020-12-15"
+
+[[firefox]]
+major = 85
+stable = "2021-01-26"
+
+[[firefox]]
+major = 86
+stable = "2021-02-23"
+
+[[firefox]]
+major = 87
+stable = "2021-03-23"
+
+[[firefox]]
+major = 88
+stable = "2021-04-19"
+
+[[firefox]]
+major = 89
+stable = "2021-06-01"
+
+[[firefox]]
+major = 90
+stable = "2021-07-13"
+
+[[firefox]]
+major = 91
+stable = "2021-08-10"
+
+[[firefox]]
+major = 92
+stable = "2021-09-07"
+
+[[firefox]]
+major = 93
+stable = "2021-10-05"
+
+[[firefox]]
+major = 94
+stable = "2021-11-02"
+
+[[firefox]]
+major = 95
+stable = "2021-12-07"
+
+[[firefox]]
+major = 96
+stable = "2022-01-11"
+
+[[firefox]]
+major = 97
+stable = "2022-02-08"
+
+[[firefox]]
+major = 98
+stable = "2022-03-08"
+
+[[firefox]]
+major = 99
+stable = "2022-04-05"
+
+[[firefox]]
+major = 100
+stable = "2022-05-03"
+
+[[firefox]]
+major = 101
+stable = "2022-05-31"
+
+[[firefox]]
+major = 102
+stable = "2022-06-28"
+
+[[firefox]]
+major = 103
+stable = "2022-07-26"
+
+[[firefox]]
+major = 104
+stable = "2022-08-23"
+
+[[firefox]]
+major = 105
+stable = "2022-09-20"
+
+[[firefox]]
+major = 106
+stable = "2022-10-18"
+
+[[firefox]]
+major = 107
+stable = "2022-11-15"
+
+[[firefox]]
+major = 108
+stable = "2022-12-13"
+
+[[firefox]]
+major = 109
+stable = "2023-01-17"
+
+[[firefox]]
+major = 110
+stable = "2023-02-14"
+
+[[firefox]]
+major = 111
+stable = "2023-03-14"
+
+[[firefox]]
+major = 112
+stable = "2023-04-11"
+
+[[firefox]]
+major = 113
+stable = "2023-05-09"
+
+[[firefox]]
+major = 114
+stable = "2023-06-06"
+
+[[firefox]]
+major = 115
+stable = "2023-07-04"
+
+[[firefox]]
+major = 116
+stable = "2023-08-01"
+
+[[firefox]]
+major = 117
+stable = "2023-08-29"
+
+[[firefox]]
+major = 118
+stable = "2023-09-26"
+
+[[firefox]]
+major = 119
+stable = "2023-10-24"
+
+[[firefox]]
+major = 120
+stable = "2023-11-21"
+
+[[firefox]]
+major = 121
+stable = "2023-12-19"
+
+[[firefox]]
+major = 122
+stable = "2024-01-23"
+
+[[firefox]]
+major = 123
+stable = "2024-02-20"
+
+[[firefox]]
+major = 124
+stable = "2024-03-19"
+
+[[firefox]]
+major = 126
+stable = "2024-05-14"
+
+[[firefox]]
+major = 127
+stable = "2024-06-11"
+
+[[firefox]]
+major = 128
+stable = "2024-07-09"
+
+[[firefox]]
+major = 129
+stable = "2024-08-06"
+
+[[firefox]]
+major = 130
+stable = "2024-09-03"
+
+[[firefox]]
+major = 131
+stable = "2024-10-01"
+
+[[firefox]]
+major = 132
+stable = "2024-10-29"
+
+[[firefox]]
+major = 133
+stable = "2024-11-26"
+
+[[firefox]]
+major = 134
+stable = "2025-01-07"
+
+[[firefox]]
+major = 135
+stable = "2025-02-04"
+
+[[firefox]]
+major = 136
+stable = "2025-03-04"
+
+[[firefox]]
+major = 137
+stable = "2025-04-01"
+
+[[firefox]]
+major = 138
+stable = "2025-04-29"
+
+[[firefox]]
+major = 139
+stable = "2025-05-27"
+
+[[firefox]]
+major = 140
+stable = "2025-06-24"
+
+[[firefox]]
+major = 141
+stable = "2025-07-22"
+
+[[firefox]]
+major = 142
+stable = "2025-08-19"
+
+[[firefox]]
+major = 143
+stable = "2025-09-16"
+
+[[firefox]]
+major = 144
+stable = "2025-10-14"
+
+[[firefox]]
+major = 145
+stable = "2025-11-11"
+
+[[firefox]]
+major = 146
+stable = "2025-12-09"
+
+[[firefox]]
+major = 147
+stable = "2026-01-13"
+
+[[firefox]]
+major = 148
+stable = "2026-02-24"
+
+[[firefox]]
+major = 149
+stable = "2026-03-24"
+
+[[firefox]]
+major = 150
+stable = "2026-04-21"
+
+[[firefox]]
+major = 151
+stable = "2026-05-19"
+
+[[firefox]]
+major = 152
+stable = "2026-06-16"
+
+[[firefox]]
+major = 153
+stable = "2026-07-21"
+
+[[firefox]]
+major = 154
+stable = "2026-08-18"
+
+[[firefox]]
+major = 155
+stable = "2026-09-01"
+
+[[firefox]]
+major = 156
+stable = "2026-09-15"
+
+[[firefox]]
+major = 157
+stable = "2026-09-29"
+
+[[firefox]]
+major = 158
+stable = "2026-10-13"
+
+[[firefox]]
+major = 159
+stable = "2026-10-27"
+
+[[firefox]]
+major = 160
+stable = "2026-11-10"
+
+[[firefox]]
+major = 161
+stable = "2026-11-24"
+
+[[firefox]]
+major = 162
+stable = "2026-12-08"
+
+[[firefox]]
+major = 163
+stable = "2027-01-12"
+
+[[firefox]]
+major = 164
+stable = "2027-01-26"
+
+[[firefox]]
+major = 165
+stable = "2027-02-09"
+
+[[firefox]]
+major = 166
+stable = "2027-02-23"
+
+[[firefox]]
+major = 167
+stable = "2027-03-09"
+
+[[firefox]]
+major = 168
+stable = "2027-03-23"
+
+[[firefox]]
+major = 169
+stable = "2027-04-06"
+
+[[firefox]]
+major = 170
+stable = "2027-04-20"
+
+[[firefox]]
+major = 171
+stable = "2027-05-04"
+
+[[firefox]]
+major = 172
+stable = "2027-05-18"
+
+[[firefox]]
+major = 173
+stable = "2027-06-01"
+
+[[firefox]]
+major = 174
+stable = "2027-06-15"
+
+[[firefox]]
+major = 175
+stable = "2027-06-29"
+
+[[firefox]]
+major = 176
+stable = "2027-07-13"
+
+[[firefox]]
+major = 177
+stable = "2027-07-27"
+
+[[firefox]]
+major = 178
+stable = "2027-08-10"
+
+[[firefox]]
+major = 179
+stable = "2027-08-24"
+
+[[firefox]]
+major = 180
+stable = "2027-09-07"
+
+[[firefox]]
+major = 181
+stable = "2027-09-21"
+
+[[firefox]]
+major = 182
+stable = "2027-10-05"
+
+[[firefox]]
+major = 183
+stable = "2027-10-19"
+
+[[firefox]]
+major = 184
+stable = "2027-11-02"
+
+[[firefox]]
+major = 185
+stable = "2027-11-16"
+
+[[firefox]]
+major = 186
+stable = "2027-11-30"
+
+[[firefox]]
+major = 187
+stable = "2027-12-14"
+
+[[firefox]]
+major = 188
+stable = "2028-01-11"
+
+[[firefox]]
+major = 189
+stable = "2028-01-25"
+
+[[firefox]]
+major = 190
+stable = "2028-02-08"

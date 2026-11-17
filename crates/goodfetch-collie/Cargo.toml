@@ -96,6 +96,9 @@ rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 sha2.workspace = true
 # The relay authority's key hash, in base64, as its Provenance entry gives it.
 data-encoding.workspace = true
+# An identified Session's Ed25519 key, whose public half and RFC 7638
+# thumbprint the key directory publishes (tests/it/identified.rs).
+ed25519-dalek.workspace = true
 insta.workspace = true
 # The clean-up's time in the page tests, and the pins' lever
 # (examples/pin-chrome-for-testing.rs), which downloads and unpacks the

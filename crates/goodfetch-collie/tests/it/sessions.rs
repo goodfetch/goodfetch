@@ -31,14 +31,14 @@ const SEED: u64 = 697;
 
 /// The Session `run.new_session` answered.
 #[cfg(unix)]
-fn session_of(answer: &Value) -> SessionId {
+pub(crate) fn session_of(answer: &Value) -> SessionId {
     serde_json::from_value(answer["result"]["session_id"].clone())
         .unwrap_or_else(|error| panic!("{error}: {answer}"))
 }
 
 /// Opens a page in the Session `session`.
 #[cfg(unix)]
-fn page_in(engine: &mut Attached, id: i64, session: &SessionId) -> PageOpened {
+pub(crate) fn page_in(engine: &mut Attached, id: i64, session: &SessionId) -> PageOpened {
     opened(&engine.ask(id, "session.new_page", &json!({ "session_id": session })))
 }
 

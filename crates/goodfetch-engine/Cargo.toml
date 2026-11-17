@@ -21,6 +21,8 @@ chacha20.workspace = true
 chacha20poly1305.workspace = true
 # The Base64 of the page-body chunks `page.body` sends.
 data-encoding.workspace = true
+# An `identified` Session's Ed25519 key, zeroed when dropped (#1551).
+ed25519-dalek = { workspace = true, features = ["std", "zeroize"] }
 # Brotli's decoder alone, for a body under `br` (SC-05).
 brotli-decompressor.workspace = true
 # gzip and deflate bodies (SC-05), and the inflate backend (miniz_oxide) for
@@ -36,6 +38,8 @@ hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }
 hkdf.workspace = true
 # Names from outside input in Unicode's composed form (ADR 0067).
 icu_normalizer.workspace = true
+# What a Web Bot Auth signature covers, in order (#1551).
+indexmap.workspace = true
 # The engine's own HTTP client (ADRs 0043 and 0060), HTTPS over HTTP/1.1
 # (ADR 0057), and the ops listener's server, HTTP/1.1 (`ops`).
 http-body-util.workspace = true
@@ -99,6 +103,8 @@ tracing-subscriber.workspace = true
 ulid.workspace = true
 # The origin a span records of a URL (ADR 0132).
 url.workspace = true
+# Web Bot Auth's signatures (ADR 0045, #1551).
+web-bot-auth.workspace = true
 webpki-roots.workspace = true
 zip = { workspace = true, features = ["deflate-flate2"] }
 # A body under `zstd` (SC-05).

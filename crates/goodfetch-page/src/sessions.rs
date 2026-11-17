@@ -59,10 +59,12 @@ use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::CdpUrlOrigin;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::local_addresses::Unavailable;
-use goodfetch_engine::run::settings_error;
+use goodfetch_engine::request_signing::{KeyError, RequestSigner};
+use goodfetch_engine::run::{secret_error, settings_error};
 use goodfetch_engine::run_key::Sealed;
 use goodfetch_engine::run_state::{RunStateError, RunStateTables, SecretColumn, run_row};
 use goodfetch_engine::runs::{Run, RunError, RunKeyError};
+use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::browser_cache::PinnedBy;
@@ -70,7 +72,10 @@ use goodfetch_protocol::catalog::Authority;
 use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
 use goodfetch_protocol::egress::{EGRESS_LOCAL_ADDRESSES, LocalAddressFailure};
 use goodfetch_protocol::governor::WorkKind;
-use goodfetch_protocol::page::access_mode::{BROWSER_ACCESS_MODE, STEALTH_ITEMS};
+use goodfetch_protocol::page::access_mode::{
+    BROWSER_ACCESS_MODE, IDENTIFIED_ITEMS, IDENTIFIED_SIGNATURE_AGENT, IDENTIFIED_SIGNING_KEY,
+    STEALTH_ITEMS,
+};
 use goodfetch_protocol::page::proxy::PROXY_PROVIDER;
 use goodfetch_protocol::page::session::{NewSessionParams, SessionOpened};
 use goodfetch_protocol::page::{CONTENT_EXTRACTOR, PageId, PageOpened, SessionId};
@@ -90,7 +95,7 @@ pub(crate) use self::lifecycle::PageEvent;
 use self::lifecycle::{
     Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
 };
-use crate::access_mode::{self, BrowserFamily, SessionIdentityPlan, SessionSettings};
+use crate::access_mode::{self, BrowserFamily, SessionIdentityPlan, SessionSettings, SigningPlan};
 use crate::borrowed::{CdpUrl, resolve_of};
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
@@ -441,9 +446,10 @@ impl Sessions {
         let run = live(&params.run_id, context).await?;
         let settings = own_settings(&params.settings, &run, context)?;
         let named = named_source(&run, params.source, context);
-        access_mode_opens(&settings, &run, named.as_ref(), context)?;
+        let identity = access_mode_opens(&settings, &run, named.as_ref(), context)?;
         let borrowed = opening_source(named)?;
         no_local_address_on(&run, source_of(borrowed.as_ref()))?;
+        let signing = open_signing(&run, identity.signing.as_ref(), context).await?;
         self.reach(&run, context).await?;
         let (position, pool) = taken(&mut *self.state.lock().await, &run)?;
         let proxy = open_proxy(&run, &settings, context, position).await?;
@@ -488,7 +494,7 @@ impl Sessions {
                 injections: Injections::default(),
             });
             state.sessions.insert(session.clone(), Arc::clone(&open));
-            self.open_in_interception(&session, &open, borrowed.as_ref());
+            self.open_in_interception(&session, &open, borrowed.as_ref(), signing);
             (session, life, open)
         };
         if let Err(error) = open.seat.open().await {
@@ -520,12 +526,20 @@ impl Sessions {
     ) -> Result<PageOpened, CallError> {
         let run = live(run_id, context).await?;
         let named = named_source(&run, None, context);
-        access_mode_opens(&Values::default(), &run, named.as_ref(), context)?;
+        let identity = access_mode_opens(&Values::default(), &run, named.as_ref(), context)?;
         let borrowed = opening_source(named)?;
         self.reach(&run, context).await?;
         let default = Arc::clone(&reached(&mut *self.state.lock().await, &run)?.default);
         let position = *default
-            .get_or_try_init(|| self.open_held(&run, borrowed.as_ref(), Opener::Default, context))
+            .get_or_try_init(|| {
+                self.open_held(
+                    &run,
+                    borrowed.as_ref(),
+                    identity.signing.as_ref(),
+                    Opener::Default,
+                    context,
+                )
+            })
             .await?;
         if reached(&mut *self.state.lock().await, &run)?
             .closed
@@ -546,17 +560,20 @@ impl Sessions {
 
     /// Opens the default Session of `run`, or a Session its crawl's Session
     /// pool holds, as `opener` says, on the Borrowed browser at `borrowed`
-    /// if there is one, and answers its position: its proxy and the default
-    /// Session's record in run state are opened and written outside the
-    /// table's lock.
+    /// if there is one, signing as `signing` plans when it is `identified`,
+    /// and answers its position: its signing key is resolved, and its proxy
+    /// and the default Session's record in run state are opened and
+    /// written, outside the table's lock.
     async fn open_held(
         &self,
         run: &Run,
         borrowed: Option<&CdpUrl>,
+        signing: Option<&SigningPlan>,
         opener: Opener,
         context: &CallContext,
     ) -> Result<u32, CallError> {
         no_local_address_on(run, source_of(borrowed))?;
+        let signing = open_signing(run, signing, context).await?;
         let (position, pool) = taken(&mut *self.state.lock().await, run)?;
         let proxy = open_proxy(run, &Values::default(), context, position).await?;
         no_proxy_under(borrowed, proxy.as_deref())?;
@@ -611,7 +628,7 @@ impl Sessions {
         let mut state = self.state.lock().await;
         reached(&mut state, run)?;
         state.sessions.insert(session.clone(), Arc::clone(&held));
-        self.open_in_interception(&session, &held, borrowed);
+        self.open_in_interception(&session, &held, borrowed, signing);
         Ok(position)
     }
 
@@ -718,7 +735,7 @@ impl Sessions {
     ) -> Result<SessionId, CallError> {
         let run = live(run_id, context).await?;
         let named = named_source(&run, pooled.source.clone(), context);
-        access_mode_opens(&Values::default(), &run, named.as_ref(), context)?;
+        let identity = access_mode_opens(&Values::default(), &run, named.as_ref(), context)?;
         let borrowed = opening_source(named)?;
         self.reach(&run, context).await?;
         let cell = Arc::clone(
@@ -731,7 +748,15 @@ impl Sessions {
             address_ordinal: pooled.address_ordinal,
         };
         let position = *cell
-            .get_or_try_init(|| self.open_held(&run, borrowed.as_ref(), opener, context))
+            .get_or_try_init(|| {
+                self.open_held(
+                    &run,
+                    borrowed.as_ref(),
+                    identity.signing.as_ref(),
+                    opener,
+                    context,
+                )
+            })
             .await?;
         Ok(session_id(run.id(), position))
     }
@@ -1040,25 +1065,7 @@ impl Sessions {
         if self.state.lock().await.runs.contains_key(run.id()) {
             return Ok(());
         }
-        let recorded = run
-            .state()
-            .read(|connection| {
-                let mut statement = connection.prepare(
-                    "SELECT position, is_default, closed, settings, source FROM page_sessions ORDER BY position",
-                )?;
-                let rows = statement.query_map([], |row| {
-                    Ok((
-                        row.get::<_, u32>(0)?,
-                        row.get::<_, bool>(1)?,
-                        row.get::<_, bool>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, Option<Sealed>>(4)?,
-                    ))
-                })?;
-                rows.collect::<rusqlite::Result<Vec<_>>>()
-            })
-            .await
-            .map_err(|error| unavailable(run, &error, context))?;
+        let recorded = recorded_sessions(run, context).await?;
         let (pool, losses) = Pool::new(
             run.clone(),
             self.launcher.clone(),
@@ -1095,6 +1102,11 @@ impl Sessions {
             };
             let (proxy, relay, reopen_failed) =
                 reopened_egress(run, &settings, &pool, borrowed.as_ref(), position, context).await;
+            let (signing, reopen_failed) =
+                match reopened_signing(run, &settings, borrowed.is_some(), context).await {
+                    Ok(signing) => (signing, reopen_failed),
+                    Err(error) => (None, reopen_failed.or(Some(error))),
+                };
             let session = session_id(run.id(), position);
             let (seat, attributes) = match &borrowed {
                 Some(cdp_url) => (pool.borrowed_seat(cdp_url.clone()), BORROWED),
@@ -1118,15 +1130,15 @@ impl Sessions {
                     .map(|_| session_pages::HeldFrames::default()),
                 injections: Injections::default(),
             };
-            reopened.push((held, borrowed));
+            reopened.push((held, borrowed, signing));
         }
         let mut state = self.state.lock().await;
         if state.runs.contains_key(run.id()) {
             return Ok(());
         }
-        for (open, borrowed) in reopened {
+        for (open, borrowed, signing) in reopened {
             let session = session_id(run.id(), open.position);
-            self.open_in_interception(&session, &open, borrowed.as_ref());
+            self.open_in_interception(&session, &open, borrowed.as_ref(), signing);
             state.sessions.insert(session, Arc::new(open));
         }
         state.runs.insert(run.id().clone(), runs);
@@ -1197,8 +1209,17 @@ impl Sessions {
     /// resolved through the Run's `network.resolve`, and a name the engine
     /// cannot resolve judged by where it would be resolved (ADR 0056;
     /// #2435).
-    fn open_in_interception(&self, session: &SessionId, held: &Session, borrowed: Option<&CdpUrl>) {
+    fn open_in_interception(
+        &self,
+        session: &SessionId,
+        held: &Session,
+        borrowed: Option<&CdpUrl>,
+        signing: Option<Arc<RequestSigner>>,
+    ) {
         self.interception.open_session(session);
+        if let Some(signer) = signing {
+            self.interception.sign_with(session, signer);
+        }
         let held_by = held_browser(borrowed, held.relay.is_some(), held.proxy.is_some());
         if let Some(browser) = held_by {
             self.interception.hold_by_interception_only(
@@ -1404,10 +1425,11 @@ const PROXY_PREFIX: &str = "proxy.";
 
 /// Whether `key` is one of what a Session keeps for its life, which only
 /// its opening sets (ADR 0021; pitfall S05): its Access mode, an item of
-/// its Identity profile or its proxy.
+/// its Identity profile, its signing key and key directory, or its proxy.
 fn fixed_for_the_session(key: &str) -> bool {
     key == BROWSER_ACCESS_MODE.name
         || STEALTH_ITEMS.iter().any(|item| item.name == key)
+        || IDENTIFIED_ITEMS.iter().any(|item| item.name == key)
         || key.starts_with(PROXY_PREFIX)
 }
 
@@ -1512,6 +1534,40 @@ fn recorded_source(recorded: &[u8], run: &Run, context: &CallContext) -> Result<
     })
 }
 
+/// A Session as the run state records it: its position, whether it is the
+/// default Session, whether it closed, its own settings and, for one on a
+/// Borrowed browser, its sealed source.
+type RecordedSession = (u32, bool, bool, String, Option<Sealed>);
+
+/// The Sessions the run state of `run` records, in position order.
+///
+/// # Errors
+///
+/// `unavailable` when the run state cannot be read.
+async fn recorded_sessions(
+    run: &Run,
+    context: &CallContext,
+) -> Result<Vec<RecordedSession>, CallError> {
+    run.state()
+        .read(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT position, is_default, closed, settings, source FROM page_sessions ORDER BY position",
+            )?;
+            let rows = statement.query_map([], |row| {
+                Ok((
+                    row.get::<_, u32>(0)?,
+                    row.get::<_, bool>(1)?,
+                    row.get::<_, bool>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<Sealed>>(4)?,
+                ))
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .await
+        .map_err(|error| unavailable(run, &error, context))
+}
+
 /// The own settings `recorded`, as the run state of `run` holds them, of a
 /// Session reopened from it.
 fn recorded_settings(
@@ -1570,23 +1626,74 @@ struct NamedSource {
     acting_for_model: bool,
 }
 
-/// Whether a Session of `run` opens in the Access mode its `own` settings,
+/// The Access mode a Session of `run` opens in, as its `own` settings,
 /// over the Run's, ask for from the source `named` (ADR 0021): the
-/// [`access_mode`](crate::access_mode) module's refusal when it does not.
-/// Only a `standard` Session opens until the tickets that build the other
-/// modes' effects land.
+/// [`access_mode`](crate::access_mode) module's refusal when it does not
+/// open. A `stealth` Session does not open until the tickets that build its
+/// Identity profile land.
 fn access_mode_opens(
     own: &Values,
     run: &Run,
     named: Option<&NamedSource>,
     context: &CallContext,
-) -> Result<(), CallError> {
+) -> Result<SessionIdentityPlan, CallError> {
     let source = named.map(|named| &named.source);
     let settings = SessionSettings::new(own, run.settings().map(RunSettings::resolved));
     access_mode::resolve(&settings, source, BrowserFamily::of(source))
         .and_then(SessionIdentityPlan::built)
-        .map(|_| ())
         .map_err(|refusal| refusal.call_error(context))
+}
+
+/// The signer of a Session of `run` that opens `identified` with the
+/// signing `plan`, none for one that does not sign: its key resolved now,
+/// once for the Session, from its Secret reference, so a rotated key is
+/// the next Session's, and its nonces drawn from the Run's `Entropy` (ADR
+/// 0045; #1551).
+///
+/// # Errors
+///
+/// The Secret's error when its reference gives no value, and
+/// `setting_invalid` naming the setting, never its value, when the key
+/// cannot sign.
+async fn open_signing(
+    run: &Run,
+    plan: Option<&SigningPlan>,
+    context: &CallContext,
+) -> Result<Option<Arc<RequestSigner>>, CallError> {
+    let Some(plan) = plan else {
+        return Ok(None);
+    };
+    let purpose = Purpose {
+        placeholder: IDENTIFIED_SIGNING_KEY.name,
+        domain: None,
+        domains: &[],
+        layer: Some(plan.layer),
+        run_id: Some(run.id()),
+    };
+    let key = run
+        .secrets()
+        .resolve(&plan.key, &purpose)
+        .await
+        .map_err(|error| secret_error(&error))?;
+    let signer =
+        RequestSigner::new(&key, &plan.agent, run.fork_entropy().await).map_err(|error| {
+            let setting = match error {
+                KeyError::BadAgent => &IDENTIFIED_SIGNATURE_AGENT,
+                KeyError::NotJwk
+                | KeyError::NotEd25519
+                | KeyError::BadPrivateKey
+                | KeyError::MismatchedPublicKey => &IDENTIFIED_SIGNING_KEY,
+            };
+            settings_error(
+                &SettingsError::Invalid {
+                    key: setting.name.to_owned(),
+                    layer: Some(plan.layer),
+                    reason: error.to_string(),
+                },
+                context,
+            )
+        })?;
+    Ok(Some(Arc::new(signer)))
 }
 
 /// The Borrowed browser a Session opens on from the source `named`: none
@@ -1742,6 +1849,28 @@ async fn reopened_egress(
         Ok(relay) => (proxy, relay, None),
         Err(error) => (proxy, None, Some(error)),
     }
+}
+
+/// The signer of a Session of `run` reopened from run state with its own
+/// `settings`, as [`open_signing`] makes it when a Session opens: its key
+/// resolved again, once for the reopened Session. One on a Borrowed
+/// browser, when `borrowed`, never signs (ADR 0021).
+///
+/// # Errors
+///
+/// As [`access_mode_opens`] and [`open_signing`] say: the Session then
+/// raises it from each page it is asked for.
+async fn reopened_signing(
+    run: &Run,
+    settings: &Values,
+    borrowed: bool,
+    context: &CallContext,
+) -> Result<Option<Arc<RequestSigner>>, CallError> {
+    if borrowed {
+        return Ok(None);
+    }
+    let identity = access_mode_opens(settings, run, None, context)?;
+    open_signing(run, identity.signing.as_ref(), context).await
 }
 
 /// The browser interception alone holds for a Session: a Borrowed one at

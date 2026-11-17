@@ -66,7 +66,7 @@ pub const MODULES: [&Entries; 50] = [
 
 /// Every setting value that yields to another setting, which
 /// `config explain` names in its `yields_to` (#2418).
-pub const YIELDING: [&Yielding; 8] = [
+pub const YIELDING: [&Yielding; 10] = [
     &foxhound::fetch::HTTP_FROM_YIELDS_TO_A_LOGIN,
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[0],
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[1],
@@ -75,6 +75,8 @@ pub const YIELDING: [&Yielding; 8] = [
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[4],
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[5],
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[6],
+    &page::access_mode::SIGNING_YIELDS_TO_THE_ACCESS_MODE[0],
+    &page::access_mode::SIGNING_YIELDS_TO_THE_ACCESS_MODE[1],
 ];
 
 /// The operations of `product`'s catalog: Collie's own for Collie, every

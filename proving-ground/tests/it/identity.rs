@@ -13,7 +13,7 @@
 )]
 #![expect(
     clippy::disallowed_methods,
-    reason = "the agent's key directory is served on a thread of the test's own"
+    reason = "the agent's key directory is served on a thread of the test's own, and `web-bot-auth` dates the test's signatures by the wall clock the site checks them by"
 )]
 
 use std::io::{Read as _, Write as _};

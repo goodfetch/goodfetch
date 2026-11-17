@@ -13405,7 +13405,7 @@
       "authority": "every",
       "clearable": false,
       "default": "standard",
-      "description": "The Access mode a Session opens in and keeps for its life: `standard` (the default), the browser's own identity; `identified`, which declares who the program is and masks nothing; or `stealth`, which turns on the whole stealth catalog, each `stealth.*` item of which can be switched off. A non-`none` `stealth.fingerprint_method` makes the Session `stealth`; an explicit `standard` or `identified` beside one at the same scope is `setting_invalid` naming both keys. A stealth item set explicitly where a `standard` Session opens is `setting_not_applicable`, and one set explicitly on an `identified` Session is `setting_invalid` naming both keys; an inherited one yields, which `config explain` names in the item's `yields_to`. `stealth` on WebKit is `capability_unavailable`; a Borrowed browser stays `standard` with its own identity, and `stealth` set where one opens is `setting_not_applicable`, as is `identified` at an import or on a Profile directory used in place. Changing the mode, the Identity profile or the proxy means opening a new Session. A Label refuses it with `setting_not_applicable`.",
+      "description": "The Access mode a Session opens in and keeps for its life: `standard` (the default), the browser's own identity; `identified`, which declares who the program is, signing each request it sends with `identified.signing_key` (Web Bot Auth), and masks nothing; or `stealth`, which turns on the whole stealth catalog, each `stealth.*` item of which can be switched off. A non-`none` `stealth.fingerprint_method` makes the Session `stealth`; an explicit `standard` or `identified` beside one at the same scope is `setting_invalid` naming both keys. A stealth item set explicitly where a `standard` Session opens is `setting_not_applicable`, and one set explicitly on an `identified` Session is `setting_invalid` naming both keys; an inherited one yields, which `config explain` names in the item's `yields_to`. `stealth` on WebKit is `capability_unavailable`; a Borrowed browser stays `standard` with its own identity, and `stealth` set where one opens is `setting_not_applicable`, as is `identified` at an import or on a Profile directory used in place. Changing the mode, the Identity profile or the proxy means opening a new Session. A Label refuses it with `setting_not_applicable`.",
       "name": "browser.access_mode",
       "product": "collie",
       "products": [
@@ -14505,6 +14505,45 @@
             "description": "One worker thread a core."
           }
         ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": null,
+      "description": "Where a site reads the key directory of an `identified` Session's key, sent with each signed request as `Signature-Agent`, in the string form Cloudflare accepts: the `https://` origin that serves `goodfetch signing-key directory`'s output at `/.well-known/http-message-signatures-directory`, such as `https://bot.example`, or an inline `data:application/http-message-signatures-directory;base64,` directory. None by default; an `identified` Session needs it, with `identified.signing_key`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. A Label refuses it with `setting_not_applicable`.",
+      "name": "identified.signature_agent",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "Where a site reads the key directory: an `https://` or `http://` URL of the origin that serves it at `/.well-known/http-message-signatures-directory`, or an inline `data:application/http-message-signatures-directory;base64,` directory.",
+        "maxLength": 4096,
+        "pattern": "^(https?://|data:application/http-message-signatures-directory)[ !#-\\[\\]-~]+$",
+        "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "not_by_recipe_or_model",
+      "clearable": true,
+      "default": null,
+      "description": "The Secret reference of the Ed25519 key an `identified` Session signs each of its requests with (Web Bot Auth), such as `env:BOT_KEY`: never a value. It resolves to the key as a private JSON Web Key (`kty` `OKP`, `crv` `Ed25519`, with `d` and `x`), resolved once when the Session opens and never written to a log, a trace, a process's arguments or a file; a rotated key is read by the next Session. None by default; an `identified` Session needs it, with `identified.signature_agent`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. Set only by the program's own code, configuration and an Operator policy: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`. A Label refuses it with `setting_not_applicable`.",
+      "name": "identified.signing_key",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A Secret reference, such as `env:NAME`.",
+        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+        "type": "string"
       },
       "weakens": false
     },

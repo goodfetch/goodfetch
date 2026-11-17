@@ -68,6 +68,8 @@ mod help;
 ))]
 mod huge_pages;
 mod human_output;
+#[cfg(unix)]
+mod identified;
 mod invalid_calls;
 mod journeys;
 #[cfg(unix)]

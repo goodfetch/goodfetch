@@ -283,8 +283,9 @@ tokio-rustls = { version = "0.26.4", default-features = false }
 # The Proving ground's identity site verifies Web Bot Auth signatures with
 # Cloudflare's own verifier, as the lab's did with its npm package (#162).
 web-bot-auth = { version = "0.7.0", default-features = false }
-# The identity site's tests sign as an agent would: web-bot-auth's signer
-# takes its covered components as an `IndexMap` and its keys as Ed25519.
+# An identified Session signs each request it sends, and the identity
+# site's tests sign as an agent would: web-bot-auth's signer takes its
+# covered components as an `IndexMap` and its keys as Ed25519.
 ed25519-dalek = { version = "2.2.0", default-features = false }
 indexmap = { version = "2.14.2", default-features = false }
 # The Frontier holds each visited identity memory keeps as a slot number,

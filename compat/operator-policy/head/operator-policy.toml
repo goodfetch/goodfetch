@@ -143,6 +143,10 @@ os = ["example"]
 device = ["example"]
 brand = ["example"]
 
+[settings.identified]
+signing_key = "env:EXAMPLE"
+signature_agent = "https://bot.example"
+
 [settings.run_state]
 location = "example"
 durability = "full"
@@ -526,6 +530,10 @@ allowed_builds = ["example"]
 os = ["example"]
 device = ["example"]
 brand = ["example"]
+
+[lock.identified]
+signing_key = "env:EXAMPLE"
+signature_agent = "https://bot.example"
 
 [lock.run_state]
 location = "example"

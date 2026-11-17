@@ -944,7 +944,7 @@ impl BrowserPages for Opener {
             let steps = self
                 .pages
                 .interception
-                .engine_requests_of(&run, &own)
+                .engine_requests_of(&session, &run, &own)
                 .await?;
             let limits = Limits::of_run(run.settings());
             let headers: BTreeMap<String, String> = request.headers.iter().cloned().collect();

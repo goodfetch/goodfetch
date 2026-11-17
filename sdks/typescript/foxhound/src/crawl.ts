@@ -123,8 +123,20 @@ export interface CrawlContext {
     payload?: Q,
     options?: EnqueueLinksOptions,
   ): Promise<EnqueuedLinks>;
-  /** Pushes one Record into `dataset`, committed with the attempt (ADR 0103). */
-  push<I extends object>(dataset: Dataset<I>, record: I): Promise<void>;
+  /**
+   * Pushes one Record, or a list of Records in one message, into
+   * `dataset`, each typed from the Dataset alone and committed with the
+   * attempt (ADRs 0103 and 0147). Each Record is checked: those that hold
+   * are staged, and when any does not, the push fails with
+   * `record_invalid`, naming each such Record by its position in the list
+   * and each issue by its path. A handler that catches it keeps what it
+   * staged, this push's other Records included. An empty list pushes
+   * nothing and sends no message.
+   */
+  push<I extends object>(
+    dataset: Dataset<I>,
+    records: NoInfer<I> | readonly NoInfer<I>[],
+  ): Promise<void>;
 }
 
 /**

@@ -1,0 +1,290 @@
+{
+  "description": "A Foxhound Client starts a crawl whose handler pushes fifty Records into the keyed Dataset `products` with one `push` of a list: one `crawl_request.push` carries the fifty, in the order pushed, and the handler call is answered `{}`. Closing the Connection then aborts the Run.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "foxhound",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "labels": {
+            "page": {}
+          },
+          "datasets": [
+            {
+              "name": "products",
+              "key": ["id"]
+            }
+          ],
+          "seeds": [
+            {
+              "url": "https://shop.test/a",
+              "label": "page"
+            }
+          ],
+          "run_id": "nightly"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly",
+          "lifecycle": "running",
+          "needs": "foxhound",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "send": {
+        "request": {
+          "method": "crawl_request.handle",
+          "params": {
+            "run_id": "nightly",
+            "crawl_request": {
+              "id": "1",
+              "label": "page",
+              "method": "GET",
+              "url": "https://shop.test/a"
+            },
+            "attempt": 1,
+            "lease_epoch": 1,
+            "page_id": "page-1",
+            "session": {
+              "id": "session-1",
+              "proxy_tier": "none",
+              "revalidate": false
+            },
+            "tier": "http"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl_request.push",
+        "params": {
+          "run_id": "nightly",
+          "crawl_request_id": "1",
+          "lease_epoch": 1,
+          "dataset": "products",
+          "records": [
+            {
+              "id": "P-0001"
+            },
+            {
+              "id": "P-0002"
+            },
+            {
+              "id": "P-0003"
+            },
+            {
+              "id": "P-0004"
+            },
+            {
+              "id": "P-0005"
+            },
+            {
+              "id": "P-0006"
+            },
+            {
+              "id": "P-0007"
+            },
+            {
+              "id": "P-0008"
+            },
+            {
+              "id": "P-0009"
+            },
+            {
+              "id": "P-0010"
+            },
+            {
+              "id": "P-0011"
+            },
+            {
+              "id": "P-0012"
+            },
+            {
+              "id": "P-0013"
+            },
+            {
+              "id": "P-0014"
+            },
+            {
+              "id": "P-0015"
+            },
+            {
+              "id": "P-0016"
+            },
+            {
+              "id": "P-0017"
+            },
+            {
+              "id": "P-0018"
+            },
+            {
+              "id": "P-0019"
+            },
+            {
+              "id": "P-0020"
+            },
+            {
+              "id": "P-0021"
+            },
+            {
+              "id": "P-0022"
+            },
+            {
+              "id": "P-0023"
+            },
+            {
+              "id": "P-0024"
+            },
+            {
+              "id": "P-0025"
+            },
+            {
+              "id": "P-0026"
+            },
+            {
+              "id": "P-0027"
+            },
+            {
+              "id": "P-0028"
+            },
+            {
+              "id": "P-0029"
+            },
+            {
+              "id": "P-0030"
+            },
+            {
+              "id": "P-0031"
+            },
+            {
+              "id": "P-0032"
+            },
+            {
+              "id": "P-0033"
+            },
+            {
+              "id": "P-0034"
+            },
+            {
+              "id": "P-0035"
+            },
+            {
+              "id": "P-0036"
+            },
+            {
+              "id": "P-0037"
+            },
+            {
+              "id": "P-0038"
+            },
+            {
+              "id": "P-0039"
+            },
+            {
+              "id": "P-0040"
+            },
+            {
+              "id": "P-0041"
+            },
+            {
+              "id": "P-0042"
+            },
+            {
+              "id": "P-0043"
+            },
+            {
+              "id": "P-0044"
+            },
+            {
+              "id": "P-0045"
+            },
+            {
+              "id": "P-0046"
+            },
+            {
+              "id": "P-0047"
+            },
+            {
+              "id": "P-0048"
+            },
+            {
+              "id": "P-0049"
+            },
+            {
+              "id": "P-0050"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {}
+      }
+    },
+    {
+      "await_reply": {
+        "result": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "run.abort",
+        "params": {
+          "run_id": "nightly"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly",
+          "lifecycle": "stopped",
+          "verdict": "verified",
+          "completeness": "incomplete",
+          "stop_reason": {
+            "kind": "abort",
+            "by": "client"
+          },
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 1
+          }
+        }
+      }
+    }
+  ]
+}

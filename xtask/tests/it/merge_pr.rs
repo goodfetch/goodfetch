@@ -2,7 +2,9 @@
 //! Commands) around its gate: it refuses to start one while the file system
 //! of the gate's `target/` is short of space (#1822), keeps a failing gate's
 //! log and test results in the repository's common folder (#2087), and
-//! sweeps the gate's `target/` after each gate, still holding its lock; a
+//! sweeps the gate's `target/` after each gate, still holding its lock; it
+//! gates a head without its base's tip merged with that tip, and refuses one
+//! that conflicts with it; a
 //! gate waits for the run in the backstop's worktree, a test-health run or
 //! the backstop's own, unless that one waits for it; it files the merge's stress
 //! listings; and the gate outlives the shell that started it, whose output it
@@ -1862,4 +1864,90 @@ fn a_gate_waits_for_no_run_that_died(#[case] held: HeldBy) {
     let said = std::fs::read_to_string(&output).unwrap();
     assert!(!said.contains("Waiting for"), "{said}");
     assert!(!said.contains("Stopped"), "{said}");
+}
+
+/// [`pull_request`] whose `main` then took a commit that writes `content` to
+/// `file`, so the head no longer holds the base's tip; the checkout is left
+/// on no branch, as the gate host's never has the pull request's branch out,
+/// and with an identity of its own, as the gate host's has. Returns the
+/// repository, the head and `main`'s tip.
+fn pull_request_behind_main(file: &str, content: &[u8]) -> (Workspace, String, String) {
+    let (workspace, head) = pull_request();
+    workspace.git(&["config", "user.name", "Gate host"]);
+    workspace.git(&["config", "user.email", "gate@example.invalid"]);
+    workspace.git(&["switch", "--quiet", "main"]);
+    workspace.write(file, content);
+    commit_all(&workspace, "Another change");
+    let tip = workspace.git(&["rev-parse", "main"]).trim().to_owned();
+    workspace.git(&["switch", "--quiet", "--detach"]);
+    (workspace, head, tip)
+}
+
+/// A pull request whose head lacks its base's tip is gated on, and merged
+/// at, the merge of its head and that tip, which the gate makes and pushes
+/// to the pull request's branch: no one has to merge `main` into it and wait
+/// for its checks again first (the owner's decision of 2026-11-17, ADR 0135).
+#[test]
+fn a_head_without_its_bases_tip_is_gated_and_merged_with_it() {
+    let (workspace, head, tip) = pull_request_behind_main("main.txt", b"on main\n");
+    let stand_in = stand_ins(&workspace, &head);
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    let merged = workspace
+        .git(&["rev-parse", "refs/heads/change"])
+        .trim()
+        .to_owned();
+    let parents = workspace.git(&["rev-list", "--parents", "-n", "1", &merged]);
+    assert_eq!(parents.trim(), format!("{merged} {head} {tip}"));
+    let files = workspace.git(&["ls-tree", "--name-only", &merged]);
+    assert!(files.lines().any(|file| file == "change.txt"), "{files}");
+    assert!(files.lines().any(|file| file == "main.txt"), "{files}");
+    let affected = &run.calls[call(&run, "cargo run --quiet --locked --bin xtask -- affected")];
+    assert!(affected.contains(&format!("--head {merged}")), "{affected}");
+    let gh_merge = &run.calls[call(&run, "gh pr merge ")];
+    assert!(
+        gh_merge.contains(&format!("--match-head-commit {merged}")),
+        "{gh_merge}"
+    );
+}
+
+/// A head that conflicts with its base's tip merges nothing and runs no
+/// step: the gate cannot resolve a conflict, and says what to do.
+#[test]
+fn a_head_that_conflicts_with_its_bases_tip_is_refused_before_any_step() {
+    let (workspace, head, _) = pull_request_behind_main("change.txt", b"another change\n");
+    let stand_in = stand_ins(&workspace, &head);
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert!(
+        run.stdout.contains(&format!(
+            "error: pull request #{NUMBER} conflicts with the tip of main; merge main into it and resolve the conflict"
+        )),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        !run.calls
+            .iter()
+            .any(|call| call.starts_with("just ") || call.starts_with("gh pr merge")),
+        "{:?}",
+        run.calls
+    );
+    assert_eq!(
+        workspace.git(&["rev-parse", "refs/heads/change"]).trim(),
+        head
+    );
+    assert!(!gate_lock(&workspace).exists());
 }

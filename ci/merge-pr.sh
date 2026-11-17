@@ -2,7 +2,9 @@
 # Merges a pull request on the local gate (AGENTS.md, "Merging"). GitHub
 # Actions runs only the Release suite, so no required check can block a
 # merge: this command is the lock instead. In a clean checkout of the pull
-# request's exact head it runs one gate and merges only when it passes.
+# request's head, which it first makes the merge of that head and the base's
+# tip when the head lacks it (ADR 0135's amendment of 2026-11-17), it runs one
+# gate and merges only when it passes.
 # Which gate (ADR 0135's amendment of 2026-11-10, the owner's decision for
 # the refactor: quick per merge, the full gate once per finished spec; its
 # note of 2026-11-13: a spec is finished by the pull request that leaves none
@@ -171,7 +173,10 @@ trap stop TERM HUP INT
 
 # Reads the pull request, its state, head, base, head branch and title, and
 # refuses one the gate cannot merge: closed, a draft, past the merge cap,
-# moved while it was read, or without its base's tip.
+# moved while it was read, or in conflict with its base's tip. A head
+# without that tip leaves in `with_base` the tree of its merge with it, which
+# the gate commits and gates (merge_the_bases_tip); one that holds it leaves
+# it empty.
 read_pull_request() {
   IFS=$'\t' read -r state draft head base branch title < <(
     gh pr view "$number" --json state,isDraft,headRefOid,baseRefName,headRefName,title \
@@ -194,11 +199,15 @@ read_pull_request() {
     echo "error: pull request #$number moved while it was read; run the command again" >&2
     exit 1
   fi
-  # A head that contains its base's tip merges into the same tree it was tested
-  # on, so the gate's verdict holds for what lands on the base.
+  # The gate tests what lands on the base: the head itself when it holds the
+  # base's tip, else the merge of the two, so its verdict holds either way
+  # (the owner's decision of 2026-11-17, ADR 0135).
+  with_base=""
   if ! git merge-base --is-ancestor "origin/$base" "$head"; then
-    echo "error: pull request #$number does not contain the tip of $base; merge $base into it first" >&2
-    exit 1
+    if ! with_base=$(git merge-tree --write-tree "$head" "origin/$base"); then
+      echo "error: pull request #$number conflicts with the tip of $base; merge $base into it and resolve the conflict" >&2
+      exit 1
+    fi
   fi
 }
 # Before the lock and any wait, so a pull request the gate refuses is refused
@@ -206,7 +215,7 @@ read_pull_request() {
 read_pull_request
 
 # One worktree for every gate, locked and held by one gate at a time, reset
-# to the exact head (ci/gate-worktree.sh).
+# to the head it gates (ci/gate-worktree.sh).
 # shellcheck source=ci/gate-worktree.sh
 source "$(dirname "$0")/gate-worktree.sh"
 # shellcheck source=ci/output-value.sh
@@ -295,6 +304,25 @@ if ((free_gb < min_free_gb)); then
   exit 1
 fi
 echo "The gate's target/ is on $mount, with $free_gb GB free (at least $min_free_gb GB needed)"
+
+# A head without its base's tip becomes the merge of the two, pushed to the
+# pull request's branch so the pull request's head is the commit the gate
+# tests and merges. The push only moves the branch forward: one that moved
+# since it was read refuses it. The pre-push hook's checks are the gate's own
+# first steps, so the push skips them.
+merge_the_bases_tip() {
+  local merge
+  merge=$(git commit-tree "$with_base" -p "$head" -p "origin/$base" \
+    -m "Merge branch '$base' into $branch" \
+    -m "Signed-off-by: $(git config user.name) <$(git config user.email)>")
+  if ! git push --quiet --no-verify origin "$merge:refs/heads/$branch"; then
+    echo "error: pull request #$number moved while it was read; run the command again" >&2
+    exit 1
+  fi
+  echo "The head $head lacks the tip of $base: the gate merged it in as $merge and pushed that to $branch"
+  head=$merge
+}
+[[ -z $with_base ]] || merge_the_bases_tip
 
 gate_worktree_checkout "$head"
 
@@ -454,7 +482,7 @@ echo "Merged #$number at $head"
 
 # The next gate's stress run reads its base's listings from here, the base
 # being the tip of the base branch it must contain: this merge, whose tree is
-# the head's when the head contained the base's tip, as checked above. Saved
+# the head's when the head contained the base's tip, as the gate made it. Saved
 # only then; otherwise the next stress run lists its base from a checkout of
 # it, as it does without them. The head's test binaries are built, so listing
 # them takes seconds.

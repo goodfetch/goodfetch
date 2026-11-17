@@ -6003,9 +6003,23 @@
       ],
       "type": "object"
     },
-    "ModelUsage": {
-      "description": "A Run's model calls (ADR 0101).",
+    "ModelCounts": {
+      "description": "What model calls used, and its price (ADR 0101).",
       "properties": {
+        "cache_read_tokens": {
+          "arrived_in": "0.1",
+          "description": "The input tokens read from the provider's cache, part of\n`input_tokens`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cache_write_tokens": {
+          "arrived_in": "0.1",
+          "description": "The input tokens written to the provider's cache, part of\n`input_tokens`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "calls": {
           "arrived_in": "0.1",
           "description": "The calls, retries and Repairs included.",
@@ -6013,9 +6027,42 @@
           "minimum": 0,
           "type": "integer"
         },
+        "input_tokens": {
+          "arrived_in": "0.1",
+          "description": "The input tokens, the cached ones included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output_tokens": {
+          "arrived_in": "0.1",
+          "description": "The output tokens, the reasoning ones included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UsageAmount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Their price at the price table's list prices, in its currency: an\nestimate, never a bill (ADR 0012). `null` when it needs a price or\na rate the table lacks, never a partial sum."
+        },
+        "reasoning_tokens": {
+          "arrived_in": "0.1",
+          "description": "The output tokens the model spent reasoning, part of\n`output_tokens`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "tokens": {
           "arrived_in": "0.1",
-          "description": "The tokens, input and output.",
+          "description": "The tokens, input and output, what the `model_tokens` Usage kind\ncounts.",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -6023,7 +6070,96 @@
       },
       "required": [
         "calls",
-        "tokens"
+        "tokens",
+        "input_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "output_tokens",
+        "reasoning_tokens"
+      ],
+      "type": "object"
+    },
+    "ModelUsage": {
+      "description": "The Usage of a Run's model calls (ADR 0101): their counts and price,\nand the same per Model reference.",
+      "properties": {
+        "by_model": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ModelCounts"
+          },
+          "arrived_in": "0.1",
+          "description": "The counts and price of each model called, by Model reference.",
+          "type": "object"
+        },
+        "cache_read_tokens": {
+          "arrived_in": "0.1",
+          "description": "The input tokens read from the provider's cache, part of\n`input_tokens`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cache_write_tokens": {
+          "arrived_in": "0.1",
+          "description": "The input tokens written to the provider's cache, part of\n`input_tokens`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "calls": {
+          "arrived_in": "0.1",
+          "description": "The calls, retries and Repairs included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "input_tokens": {
+          "arrived_in": "0.1",
+          "description": "The input tokens, the cached ones included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output_tokens": {
+          "arrived_in": "0.1",
+          "description": "The output tokens, the reasoning ones included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UsageAmount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Their price at the price table's list prices, in its currency: an\nestimate, never a bill (ADR 0012). `null` when it needs a price or\na rate the table lacks, never a partial sum."
+        },
+        "reasoning_tokens": {
+          "arrived_in": "0.1",
+          "description": "The output tokens the model spent reasoning, part of\n`output_tokens`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens": {
+          "arrived_in": "0.1",
+          "description": "The tokens, input and output, what the `model_tokens` Usage kind\ncounts.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "calls",
+        "tokens",
+        "input_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "output_tokens",
+        "reasoning_tokens"
       ],
       "type": "object"
     },

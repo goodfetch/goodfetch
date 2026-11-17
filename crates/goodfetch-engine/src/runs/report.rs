@@ -262,8 +262,8 @@ pub(super) fn usage(
     for counted in counted {
         let (usage_kind, currency, amount) = counted?;
         match (usage_kind.as_str(), currency) {
-            (MODEL_CALLS, None) => usage.model.calls = amount,
-            (MODEL_TOKENS, None) => usage.model.tokens = amount,
+            (MODEL_CALLS, None) => usage.model.counts.calls = amount,
+            (MODEL_TOKENS, None) => usage.model.counts.tokens = amount,
             (BROWSER_TIME, None) => usage.browser_time = amount,
             (PROXY_BYTES, None) => usage.proxy_bytes = amount,
             (PROXY_BYTES, Some(currency)) => usage.proxy_price.push(UsageAmount {

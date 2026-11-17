@@ -1184,18 +1184,6 @@ class MetaTag(BaseModel):
     """Its `property`, else its `name`, as written, such as `og:title`."""
 
 
-class ModelUsage(BaseModel):
-    """A Run's model calls (ADR 0101)."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    calls: Annotated[int, Field(ge=0)]
-    """The calls, retries and Repairs included."""
-    tokens: Annotated[int, Field(ge=0)]
-    """The tokens, input and output."""
-
-
 class NeedsYouAllowConsentDomainParams(BaseModel):
     """What `needs_you.allow_consent_domain` takes."""
 
@@ -4430,6 +4418,91 @@ class Media(BaseModel):
     """
     Its `src` resolved against the document's base URL; `null` when it
     does not parse.
+    """
+
+
+class ModelCounts(BaseModel):
+    """What model calls used, and its price (ADR 0101)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cache_read_tokens: Annotated[int, Field(ge=0)]
+    """
+    The input tokens read from the provider's cache, part of
+    `input_tokens`.
+    """
+    cache_write_tokens: Annotated[int, Field(ge=0)]
+    """
+    The input tokens written to the provider's cache, part of
+    `input_tokens`.
+    """
+    calls: Annotated[int, Field(ge=0)]
+    """The calls, retries and Repairs included."""
+    input_tokens: Annotated[int, Field(ge=0)]
+    """The input tokens, the cached ones included."""
+    output_tokens: Annotated[int, Field(ge=0)]
+    """The output tokens, the reasoning ones included."""
+    price: UsageAmount | None = None
+    """
+    Their price at the price table's list prices, in its currency: an
+    estimate, never a bill (ADR 0012). `null` when it needs a price or
+    a rate the table lacks, never a partial sum.
+    """
+    reasoning_tokens: Annotated[int, Field(ge=0)]
+    """
+    The output tokens the model spent reasoning, part of
+    `output_tokens`.
+    """
+    tokens: Annotated[int, Field(ge=0)]
+    """
+    The tokens, input and output, what the `model_tokens` Usage kind
+    counts.
+    """
+
+
+class ModelUsage(BaseModel):
+    """
+    The Usage of a Run's model calls (ADR 0101): their counts and price,
+    and the same per Model reference.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    by_model: dict[str, ModelCounts] | None = None
+    """The counts and price of each model called, by Model reference."""
+    cache_read_tokens: Annotated[int, Field(ge=0)]
+    """
+    The input tokens read from the provider's cache, part of
+    `input_tokens`.
+    """
+    cache_write_tokens: Annotated[int, Field(ge=0)]
+    """
+    The input tokens written to the provider's cache, part of
+    `input_tokens`.
+    """
+    calls: Annotated[int, Field(ge=0)]
+    """The calls, retries and Repairs included."""
+    input_tokens: Annotated[int, Field(ge=0)]
+    """The input tokens, the cached ones included."""
+    output_tokens: Annotated[int, Field(ge=0)]
+    """The output tokens, the reasoning ones included."""
+    price: UsageAmount | None = None
+    """
+    Their price at the price table's list prices, in its currency: an
+    estimate, never a bill (ADR 0012). `null` when it needs a price or
+    a rate the table lacks, never a partial sum.
+    """
+    reasoning_tokens: Annotated[int, Field(ge=0)]
+    """
+    The output tokens the model spent reasoning, part of
+    `output_tokens`.
+    """
+    tokens: Annotated[int, Field(ge=0)]
+    """
+    The tokens, input and output, what the `model_tokens` Usage kind
+    counts.
     """
 
 

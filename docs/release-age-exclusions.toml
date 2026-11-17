@@ -1,0 +1,84 @@
+# ADR 0030's release-age exclusion snippets: what a user adds to let a
+# hotfix through their package manager's release-age gate, one per manager.
+# The release notes and the advisory print `text` as written (#138), and the
+# install harness writes it into each project it installs Goodfetch's packed
+# npm packages into (ADR 0069; `@goodfetch/test-support/install`), so the
+# published text is the tested text. uv's is not tested: the PyPI runs
+# install with `--no-index`, where no gate applies.
+#
+# Each snippet covers `goodfetch` and `@goodfetch/*`, the platform packages
+# included. Bun matches exact names only, so its list names every package of
+# both Products. `file` is where the snippet goes, from the project's root.
+# The setting names were checked on 2026-11-17 against npm 11.17, pnpm 12.9,
+# Yarn 4.18.1, Bun 1.4.2, Deno 2.9.7 and uv's settings reference.
+
+[npm]
+file = ".npmrc"
+text = """
+# Lets Goodfetch's hotfix through min-release-age; remove these lines once it is a day old.
+min-release-age-exclude[]=goodfetch
+min-release-age-exclude[]=@goodfetch/*
+"""
+
+[pnpm]
+file = "pnpm-workspace.yaml"
+text = """
+# Lets Goodfetch's hotfix through minimumReleaseAge; remove these lines once it is a day old.
+minimumReleaseAgeExclude:
+  - goodfetch
+  - "@goodfetch/*"
+"""
+
+[yarn]
+file = ".yarnrc.yml"
+text = """
+# Lets Goodfetch's hotfix through npmMinimalAgeGate; remove these lines once it is a day old.
+npmPreapprovedPackages:
+  - goodfetch
+  - "@goodfetch/*"
+"""
+
+[bun]
+file = "bunfig.toml"
+text = """
+# Lets Goodfetch's hotfix through minimumReleaseAge; remove these lines once it is a day old.
+[install]
+minimumReleaseAgeExcludes = [
+  "goodfetch",
+  "@goodfetch/collie",
+  "@goodfetch/collie-client",
+  "@goodfetch/collie-darwin-arm64",
+  "@goodfetch/collie-darwin-x64",
+  "@goodfetch/collie-linux-arm64",
+  "@goodfetch/collie-linux-x64",
+  "@goodfetch/collie-win32-arm64",
+  "@goodfetch/collie-win32-x64",
+  "@goodfetch/foxhound",
+  "@goodfetch/foxhound-darwin-arm64",
+  "@goodfetch/foxhound-darwin-x64",
+  "@goodfetch/foxhound-linux-arm64",
+  "@goodfetch/foxhound-linux-x64",
+  "@goodfetch/foxhound-win32-arm64",
+  "@goodfetch/foxhound-win32-x64",
+]
+"""
+
+[deno]
+file = "deno.json"
+text = """
+{
+  // Lets Goodfetch's hotfix through minimumDependencyAge; remove the exclude list once it is a day old.
+  "minimumDependencyAge": {
+    "age": "P1D",
+    "exclude": ["npm:goodfetch", "npm:@goodfetch/*"]
+  }
+}
+"""
+
+[uv]
+file = "pyproject.toml"
+text = """
+# Lets Goodfetch's hotfix through exclude-newer; remove these lines once it is a day old.
+[tool.uv]
+exclude-newer-package = { goodfetch-collie = false, goodfetch-foxhound = false, goodfetch-collie-client = false }
+"""

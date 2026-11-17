@@ -98,3 +98,26 @@ only = "compiled-filter-lists"
 [[license]]
 id = "CC-BY-4.0"
 only = { ecosystem = "npm", package = "caniuse-lite" }
+
+# The owner's decision of 2026-11-17 (#408): Verdaccio, the npm registry the
+# install harness serves packed packages from (ADR 0069), brings these five;
+# they run on the machine that tests and none of them reaches a Product.
+[[license]]
+id = "BlueOak-1.0.0"
+only = { ecosystem = "npm", package = "@isaacs/nonrecursive-glob-match" }
+
+[[license]]
+id = "BlueOak-1.0.0"
+only = { ecosystem = "npm", package = "lru-cache" }
+
+[[license]]
+id = "BlueOak-1.0.0"
+only = { ecosystem = "npm", package = "minimatch" }
+
+[[license]]
+id = "PSF-2.0"
+only = { ecosystem = "npm", package = "argparse" }
+
+[[license]]
+id = "WTFPL"
+only = { ecosystem = "npm", package = "truncate-utf8-bytes" }

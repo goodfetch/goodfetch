@@ -1,0 +1,4 @@
+# Which of goodfetch-model-provider's top-level modules may import which
+# (ADR 0126).
+[modules]
+call = []

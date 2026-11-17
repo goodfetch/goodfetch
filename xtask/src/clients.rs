@@ -13,8 +13,12 @@
 //! SDK packages (`sdks/typescript/`), read from Vitest's listing with
 //! `--listings`, in the Pre-merge suite (`just clients-tests`): each carries
 //! its case as the tag `client_case/<id>` and its mode as the tag `attached`
-//! or `daemon`. Without the listings, and for the surfaces whose runners do
-//! not write a case log yet, a case they list is only noted.
+//! or `daemon`. The `sdk-python` surface's tests are the pytest tests of the
+//! Python SDK packages (`sdks/python/`), read from pytest's listing in the
+//! same folder: each carries its case and mode as the marker
+//! `client_case(id="<id>", mode="attached")`. Without the listings, and for
+//! the surface whose runner does not write a case log yet, `sdk-rust`, a case
+//! they list is only noted.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -47,7 +51,7 @@ pub(crate) enum Command {
     Check {
         /// The folder of the runners' listings `xtask journeys listings`
         /// writes, whose Vitest listing gives the `sdk-typescript` surface's
-        /// tests.
+        /// tests and whose pytest listing gives the `sdk-python` surface's.
         #[arg(long = "listings")]
         listings: Option<PathBuf>,
     },
@@ -67,6 +71,13 @@ const TYPESCRIPT_PACKAGES: &str = "sdks/typescript/";
 const CASE_TAG: &str = "client_case/";
 /// Vitest's listing in the listings folder.
 const VITEST_LISTING: &str = "vitest.json";
+/// The folder of the packages whose pytest tests implement the `sdk-python`
+/// surface's cases: each Product's Python SDK packages.
+const PYTHON_PACKAGES: &str = "sdks/python/";
+/// The pytest marker that carries a case's ID and mode.
+const CASE_MARKER: &str = "client_case";
+/// pytest's listing in the listings folder, with each test's markers.
+const PYTEST_LISTING: &str = "pytest.json";
 
 /// A Client surface a case applies to (ADR 0069).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
@@ -260,66 +271,103 @@ fn check(cargo: &OsStr, root: &Path, listings: Option<&Path>) -> Result<Verdict>
         .iter()
         .map(|case| (case.id.as_str(), *case))
         .collect();
-    let typescript = listings
-        .map(|folder| typescript_tests(root, folder, &by_id, &mut findings))
-        .transpose()?;
+    let tested = Tested {
+        cli,
+        typescript: listings
+            .map(|folder| typescript_tests(root, folder, &by_id, &mut findings))
+            .transpose()?,
+        python: listings
+            .map(|folder| python_tests(folder, &by_id, &mut findings))
+            .transpose()?,
+    };
     for case in unique {
-        for &surface in &case.surfaces {
-            let modes = case.modes_on(surface);
-            if modes.is_empty() {
-                findings.push(Finding::new(
-                    "no-mode-on-surface",
-                    format!("{} {surface}", case.id),
-                    "none of the case's modes is a mode of this surface",
-                ));
-                continue;
-            }
-            let (implemented, carrier) = match (surface, &typescript) {
-                (Surface::Cli, _) => (
-                    &cli,
-                    format!(
-                        "no test of {} carries `{CASES_MODULE}::{}`",
-                        EXECUTABLE_CRATES.join(" or "),
-                        case.module()
-                    ),
+        check_case(case, &tested, &mut findings, &mut notes);
+    }
+    findings.sort_by(|left, right| (left.kind, &left.subject).cmp(&(right.kind, &right.subject)));
+    Ok(Verdict { findings, notes })
+}
+
+/// Each case and mode a runner's tests run, by surface; `None` for an SDK
+/// whose listing was not given.
+struct Tested<'a> {
+    cli: BTreeSet<(&'a str, Mode)>,
+    typescript: Option<BTreeSet<(&'a str, Mode)>>,
+    python: Option<BTreeSet<(&'a str, Mode)>>,
+}
+
+/// Finds each surface and mode of `case` that no test runs, and notes each
+/// surface whose tests are not read.
+fn check_case(
+    case: &Case,
+    tested: &Tested<'_>,
+    findings: &mut Vec<Finding>,
+    notes: &mut Vec<Finding>,
+) {
+    for &surface in &case.surfaces {
+        let modes = case.modes_on(surface);
+        if modes.is_empty() {
+            findings.push(Finding::new(
+                "no-mode-on-surface",
+                format!("{} {surface}", case.id),
+                "none of the case's modes is a mode of this surface",
+            ));
+            continue;
+        }
+        let (implemented, carrier) = match (surface, &tested.typescript, &tested.python) {
+            (Surface::Cli, _, _) => (
+                &tested.cli,
+                format!(
+                    "no test of {} carries `{CASES_MODULE}::{}`",
+                    EXECUTABLE_CRATES.join(" or "),
+                    case.module()
                 ),
-                (Surface::SdkTypescript, Some(implemented)) => (
-                    implemented,
-                    format!(
-                        "no Vitest test of `{TYPESCRIPT_PACKAGES}` carries the tag `{CASE_TAG}{}`",
-                        case.id
-                    ),
+            ),
+            (Surface::SdkTypescript, Some(implemented), _) => (
+                implemented,
+                format!(
+                    "no Vitest test of `{TYPESCRIPT_PACKAGES}` carries the tag `{CASE_TAG}{}`",
+                    case.id
                 ),
-                (Surface::SdkTypescript, None) => {
-                    notes.push(Finding::new(
+            ),
+            (Surface::SdkPython, _, Some(implemented)) => (
+                implemented,
+                format!(
+                    "no pytest test of `{PYTHON_PACKAGES}` carries `{CASE_MARKER}(id=\"{}\", mode=…)`",
+                    case.id
+                ),
+            ),
+            (Surface::SdkTypescript | Surface::SdkPython, _, _) => {
+                let runner = if surface == Surface::SdkTypescript {
+                    "Vitest's"
+                } else {
+                    "pytest's"
+                };
+                notes.push(Finding::new(
                         "unread-surface",
                         format!("{} {surface}", case.id),
-                        "this surface's tests are read from Vitest's listing, with --listings (`just clients-tests`)",
+                        format!("this surface's tests are read from {runner} listing, with --listings (`just clients-tests`)"),
                     ));
-                    continue;
-                }
-                (Surface::SdkRust | Surface::SdkPython, _) => {
-                    notes.push(Finding::new(
+                continue;
+            }
+            (Surface::SdkRust, _, _) => {
+                notes.push(Finding::new(
                         "unread-surface",
                         format!("{} {surface}", case.id),
                         "this surface's tests are not read yet; its runner's listing joins with its case-log writer (M2)",
                     ));
-                    continue;
-                }
-            };
-            for mode in modes {
-                if !implemented.contains(&(case.id.as_str(), mode)) {
-                    findings.push(Finding::new(
-                        "missing",
-                        format!("{} {surface} {mode}", case.id),
-                        format!("{carrier} in this mode"),
-                    ));
-                }
+                continue;
+            }
+        };
+        for mode in modes {
+            if !implemented.contains(&(case.id.as_str(), mode)) {
+                findings.push(Finding::new(
+                    "missing",
+                    format!("{} {surface} {mode}", case.id),
+                    format!("{carrier} in this mode"),
+                ));
             }
         }
     }
-    findings.sort_by(|left, right| (left.kind, &left.subject).cmp(&(right.kind, &right.subject)));
-    Ok(Verdict { findings, notes })
 }
 
 /// The cases of the case list, in its order, or why it does not parse;
@@ -494,6 +542,104 @@ fn typescript_tests<'a>(
                 continue;
             }
             implemented.insert((case.id.as_str(), *mode));
+        }
+    }
+    Ok(implemented)
+}
+
+#[derive(Deserialize)]
+struct PytestListing {
+    tests: Vec<PytestTest>,
+}
+
+#[derive(Deserialize)]
+struct PytestTest {
+    /// The node ID, its file's path from the workspace's folder first.
+    id: String,
+    /// The keyword arguments of each of its `client_case` markers; none in
+    /// a listing written before the field.
+    #[serde(default)]
+    client_case: Vec<serde_json::Map<String, serde_json::Value>>,
+    /// Whether a `skip` or `skipif` marker may keep it from running.
+    #[serde(default)]
+    skipped: bool,
+}
+
+/// Each case and mode a pytest test of the Python SDK packages implements
+/// on the `sdk-python` surface, from pytest's listing in `folder`; a test
+/// whose `client_case` marker is not `client_case(id=…, mode=…)`, or that
+/// carries an unknown case, a case or mode the case does not list, or no
+/// mode, is a finding.
+fn python_tests<'a>(
+    folder: &Path,
+    cases: &BTreeMap<&str, &'a Case>,
+    findings: &mut Vec<Finding>,
+) -> Result<BTreeSet<(&'a str, Mode)>> {
+    let path = folder.join(PYTEST_LISTING);
+    let bytes = std::fs::read(&path).with_context(|| {
+        format!(
+            "reading {}; `xtask journeys listings` writes it",
+            path.display()
+        )
+    })?;
+    let listing: PytestListing =
+        serde_json::from_slice(&bytes).with_context(|| format!("reading {}", path.display()))?;
+    let mut implemented = BTreeSet::new();
+    for test in listing.tests {
+        if !test.id.starts_with(PYTHON_PACKAGES) {
+            continue;
+        }
+        let subject = format!("pytest {}", test.id);
+        for marker in &test.client_case {
+            let id = marker.get("id").and_then(serde_json::Value::as_str);
+            let known = marker.keys().all(|key| key == "id" || key == "mode");
+            let (Some(id), true) = (id, known) else {
+                findings.push(Finding::new(
+                    "malformed",
+                    &subject,
+                    format!("its `{CASE_MARKER}` marker is not `{CASE_MARKER}(id=\"<case>\", mode=\"attached\")`"),
+                ));
+                continue;
+            };
+            let Some(case) = cases.get(id) else {
+                findings.push(Finding::new(
+                    "unknown-case",
+                    &subject,
+                    format!("no case of {CASE_LIST} has the ID `{id}`"),
+                ));
+                continue;
+            };
+            let mode = marker
+                .get("mode")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|name| Mode::ALL.into_iter().find(|mode| mode.as_str() == name));
+            let Some(mode) = mode else {
+                findings.push(Finding::new(
+                    "no-mode",
+                    &subject,
+                    format!("give its `{CASE_MARKER}` marker the mode it runs in, `mode=\"attached\"` or `mode=\"daemon\"`"),
+                ));
+                continue;
+            };
+            if !case.surfaces.contains(&Surface::SdkPython)
+                || !case.modes_on(Surface::SdkPython).contains(&mode)
+            {
+                findings.push(Finding::new(
+                    "unlisted",
+                    &subject,
+                    format!("the case does not list the sdk-python surface in the {mode} mode"),
+                ));
+                continue;
+            }
+            if test.skipped {
+                findings.push(Finding::new(
+                    "gated",
+                    &subject,
+                    "a test behind `skip` or `skipif` may never run, so it implements no case",
+                ));
+                continue;
+            }
+            implemented.insert((case.id.as_str(), mode));
         }
     }
     Ok(implemented)

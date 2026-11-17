@@ -966,7 +966,16 @@ fn run_usage_gives_what_the_run_used_and_the_limits_that_apply() {
     };
     let used = |left: u64| {
         json!({
-            "model": { "calls": 2, "tokens": 300 },
+            "model": {
+                "calls": 2,
+                "tokens": 300,
+                "input_tokens": 0,
+                "cache_read_tokens": 0,
+                "cache_write_tokens": 0,
+                "output_tokens": 0,
+                "reasoning_tokens": 0,
+                "price": null,
+            },
             "browser_time": 1_500,
             "proxy_bytes": 4_096,
             "requests": 3,

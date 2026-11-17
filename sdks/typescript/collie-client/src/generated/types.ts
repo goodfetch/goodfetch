@@ -4164,18 +4164,117 @@ export interface SettingLimit1 {
   };
 }
 /**
- * A Run's model calls (ADR 0101).
+ * What model calls used, and its price (ADR 0101).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ModelCounts".
+ */
+export interface ModelCounts {
+  /**
+   * The input tokens read from the provider's cache, part of
+   * `input_tokens`.
+   */
+  cache_read_tokens: number;
+  /**
+   * The input tokens written to the provider's cache, part of
+   * `input_tokens`.
+   */
+  cache_write_tokens: number;
+  /**
+   * The calls, retries and Repairs included.
+   */
+  calls: number;
+  /**
+   * The input tokens, the cached ones included.
+   */
+  input_tokens: number;
+  /**
+   * The output tokens, the reasoning ones included.
+   */
+  output_tokens: number;
+  /**
+   * Their price at the price table's list prices, in its currency: an
+   * estimate, never a bill (ADR 0012). `null` when it needs a price or
+   * a rate the table lacks, never a partial sum.
+   */
+  price?: UsageAmount | null;
+  /**
+   * The output tokens the model spent reasoning, part of
+   * `output_tokens`.
+   */
+  reasoning_tokens: number;
+  /**
+   * The tokens, input and output, what the `model_tokens` Usage kind
+   * counts.
+   */
+  tokens: number;
+}
+/**
+ * An amount of a Usage kind counted in a currency, or as a count.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UsageAmount".
+ */
+export interface UsageAmount {
+  /**
+   * A count, or millionths of the currency.
+   */
+  amount: number;
+  /**
+   * The currency, an ISO 4217 code; none for a count.
+   */
+  currency?: string | null;
+}
+/**
+ * The Usage of a Run's model calls (ADR 0101): their counts and price,
+ * and the same per Model reference.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "ModelUsage".
  */
 export interface ModelUsage {
   /**
+   * The counts and price of each model called, by Model reference.
+   */
+  by_model?: {
+    [k: string]: ModelCounts;
+  };
+  /**
+   * The input tokens read from the provider's cache, part of
+   * `input_tokens`.
+   */
+  cache_read_tokens: number;
+  /**
+   * The input tokens written to the provider's cache, part of
+   * `input_tokens`.
+   */
+  cache_write_tokens: number;
+  /**
    * The calls, retries and Repairs included.
    */
   calls: number;
   /**
-   * The tokens, input and output.
+   * The input tokens, the cached ones included.
+   */
+  input_tokens: number;
+  /**
+   * The output tokens, the reasoning ones included.
+   */
+  output_tokens: number;
+  /**
+   * Their price at the price table's list prices, in its currency: an
+   * estimate, never a bill (ADR 0012). `null` when it needs a price or
+   * a rate the table lacks, never a partial sum.
+   */
+  price?: UsageAmount | null;
+  /**
+   * The output tokens the model spent reasoning, part of
+   * `output_tokens`.
+   */
+  reasoning_tokens: number;
+  /**
+   * The tokens, input and output, what the `model_tokens` Usage kind
+   * counts.
    */
   tokens: number;
 }
@@ -6836,29 +6935,49 @@ export interface RunUsage {
  */
 export interface ModelUsage1 {
   /**
+   * The counts and price of each model called, by Model reference.
+   */
+  by_model?: {
+    [k: string]: ModelCounts;
+  };
+  /**
+   * The input tokens read from the provider's cache, part of
+   * `input_tokens`.
+   */
+  cache_read_tokens: number;
+  /**
+   * The input tokens written to the provider's cache, part of
+   * `input_tokens`.
+   */
+  cache_write_tokens: number;
+  /**
    * The calls, retries and Repairs included.
    */
   calls: number;
   /**
-   * The tokens, input and output.
+   * The input tokens, the cached ones included.
+   */
+  input_tokens: number;
+  /**
+   * The output tokens, the reasoning ones included.
+   */
+  output_tokens: number;
+  /**
+   * Their price at the price table's list prices, in its currency: an
+   * estimate, never a bill (ADR 0012). `null` when it needs a price or
+   * a rate the table lacks, never a partial sum.
+   */
+  price?: UsageAmount | null;
+  /**
+   * The output tokens the model spent reasoning, part of
+   * `output_tokens`.
+   */
+  reasoning_tokens: number;
+  /**
+   * The tokens, input and output, what the `model_tokens` Usage kind
+   * counts.
    */
   tokens: number;
-}
-/**
- * An amount of a Usage kind counted in a currency, or as a count.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "UsageAmount".
- */
-export interface UsageAmount {
-  /**
-   * A count, or millionths of the currency.
-   */
-  amount: number;
-  /**
-   * The currency, an ISO 4217 code; none for a count.
-   */
-  currency?: string | null;
 }
 /**
  * What a Run warns of (ADR 0102): a code of the warning table, or of a

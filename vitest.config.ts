@@ -29,6 +29,10 @@ const outside = [
   "target/**",
 ];
 const visualTests = VITEST_VISUAL_TESTS;
+// Install harness tests (`*.install.test.ts`) form the `install` project: they
+// publish packed packages to a local Verdaccio and install them with each
+// package manager (ADR 0069; TESTING.md, Installed packages).
+const installTests = "**/*.install.test.ts";
 
 // A `.test.tsx` file renders or needs the DOM, so it runs in Vitest Browser
 // Mode with the Playwright provider (ADR 0068; TESTING.md, Components), never
@@ -134,7 +138,7 @@ const config: ViteUserConfig = defineConfig({
         test: {
           name: "unit",
           include: ["**/src/**/*.test.ts"],
-          exclude: [...outside, visualTests],
+          exclude: [...outside, visualTests, installTests],
           testTimeout: 10_000,
         },
       },
@@ -143,8 +147,18 @@ const config: ViteUserConfig = defineConfig({
         test: {
           name: "integration",
           include: ["**/tests/**/*.test.ts"],
-          exclude: [...outside, visualTests],
+          exclude: [...outside, visualTests, installTests],
           testTimeout: 300_000,
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "install",
+          include: [installTests],
+          exclude: outside,
+          testTimeout: 300_000,
+          hookTimeout: 300_000,
         },
       },
       component,

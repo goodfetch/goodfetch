@@ -7901,9 +7901,72 @@
       ],
       "type": "object"
     },
-    "ModelUsage": {
-      "description": "A Run's model calls (ADR 0101).",
+    "ModelContent": {
+      "description": "One part of what the model is shown.",
+      "oneOf": [
+        {
+          "description": "Text.",
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "text": {
+              "arrived_in": "0.1",
+              "description": "The text.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An image, such as a screenshot of the page.",
+          "properties": {
+            "data": {
+              "arrived_in": "0.1",
+              "description": "Its bytes, in base64.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "image",
+              "type": "string"
+            },
+            "media_type": {
+              "arrived_in": "0.1",
+              "description": "Its media type, such as `image/png`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "media_type",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ModelCounts": {
+      "description": "What model calls used, and its price (ADR 0101).",
       "properties": {
+        "cache_read_tokens": {
+          "arrived_in": "0.1",
+          "description": "The input tokens read from the provider's cache, part of\n`input_tokens`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cache_write_tokens": {
+          "arrived_in": "0.1",
+          "description": "The input tokens written to the provider's cache, part of\n`input_tokens`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "calls": {
           "arrived_in": "0.1",
           "description": "The calls, retries and Repairs included.",
@@ -7911,9 +7974,42 @@
           "minimum": 0,
           "type": "integer"
         },
+        "input_tokens": {
+          "arrived_in": "0.1",
+          "description": "The input tokens, the cached ones included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output_tokens": {
+          "arrived_in": "0.1",
+          "description": "The output tokens, the reasoning ones included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UsageAmount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Their price at the price table's list prices, in its currency: an\nestimate, never a bill (ADR 0012). `null` when it needs a price or\na rate the table lacks, never a partial sum."
+        },
+        "reasoning_tokens": {
+          "arrived_in": "0.1",
+          "description": "The output tokens the model spent reasoning, part of\n`output_tokens`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "tokens": {
           "arrived_in": "0.1",
-          "description": "The tokens, input and output.",
+          "description": "The tokens, input and output, what the `model_tokens` Usage kind\ncounts.",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -7921,7 +8017,442 @@
       },
       "required": [
         "calls",
-        "tokens"
+        "tokens",
+        "input_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "output_tokens",
+        "reasoning_tokens"
+      ],
+      "type": "object"
+    },
+    "ModelMessage": {
+      "description": "One message of a model call's conversation, by who said it.",
+      "oneOf": [
+        {
+          "description": "The instructions the engine gives the model.",
+          "properties": {
+            "role": {
+              "const": "system",
+              "type": "string"
+            },
+            "text": {
+              "arrived_in": "0.1",
+              "description": "Their text.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "role",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "What the model is shown: the task, an observation of the page.",
+          "properties": {
+            "content": {
+              "arrived_in": "0.1",
+              "description": "Its parts, in order.",
+              "items": {
+                "$ref": "#/$defs/ModelContent"
+              },
+              "type": "array"
+            },
+            "role": {
+              "const": "user",
+              "type": "string"
+            }
+          },
+          "required": [
+            "role",
+            "content"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "What the model answered earlier in the conversation.",
+          "properties": {
+            "role": {
+              "const": "assistant",
+              "type": "string"
+            },
+            "text": {
+              "arrived_in": "0.1",
+              "description": "Its text; empty when it only called tools.",
+              "type": "string"
+            },
+            "tool_calls": {
+              "arrived_in": "0.1",
+              "description": "The tools it called.",
+              "items": {
+                "$ref": "#/$defs/ModelToolCall"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "role"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "What one of the model's tool calls gave back.",
+          "properties": {
+            "role": {
+              "const": "tool",
+              "type": "string"
+            },
+            "text": {
+              "arrived_in": "0.1",
+              "description": "What the tool gave back, as text.",
+              "type": "string"
+            },
+            "tool_call_id": {
+              "arrived_in": "0.1",
+              "description": "The call it answers, by the ID the model gave it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "role",
+            "tool_call_id",
+            "text"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ModelRequest": {
+      "description": "What the engine asks a Model provider in one call.",
+      "properties": {
+        "max_output_tokens": {
+          "arrived_in": "0.1",
+          "description": "The most tokens the answer may hold, `ai.max_output_tokens` bounded\nby the model's declared maximum; none leaves the provider's own.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "messages": {
+          "arrived_in": "0.1",
+          "description": "The conversation so far, oldest message first.",
+          "items": {
+            "$ref": "#/$defs/ModelMessage"
+          },
+          "type": "array"
+        },
+        "model": {
+          "arrived_in": "0.1",
+          "description": "The model it asks, by its Model reference: the provider's name, a\nslash and the provider's own identifier for the model, such as\n`anthropic/claude-sonnet-4-5` (ADR 0101).",
+          "type": "string"
+        },
+        "response_schema": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema the answer's text must match, as the structured\noutput strategy adapted it to the model (ADR 0082); none for free\ntext."
+        },
+        "tool_choice": {
+          "$ref": "#/$defs/ModelToolChoice",
+          "arrived_in": "0.1",
+          "description": "Whether the model must call one of `tools`."
+        },
+        "tools": {
+          "arrived_in": "0.1",
+          "description": "The tools the model may call; none when it only answers.",
+          "items": {
+            "$ref": "#/$defs/ModelTool"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "model",
+        "messages"
+      ],
+      "type": "object"
+    },
+    "ModelResponse": {
+      "description": "A Model provider's whole answer to one call.",
+      "properties": {
+        "finish_reason": {
+          "arrived_in": "0.1",
+          "description": "Why the model stopped: `stop`, `length` (it reached\n`max_output_tokens`), `tool_calls`, `content_filter` or `refusal`;\na reason this reader does not know is kept as it is.",
+          "type": "string"
+        },
+        "refusal": {
+          "arrived_in": "0.1",
+          "description": "The provider's refusal message, a vendor safety signal journaled\nwith the call (ADR 0014); none when it did not refuse.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The answer's text; empty when the model only called tools.",
+          "type": "string"
+        },
+        "tool_calls": {
+          "arrived_in": "0.1",
+          "description": "The tools the model called.",
+          "items": {
+            "$ref": "#/$defs/ModelToolCall"
+          },
+          "type": "array"
+        },
+        "usage": {
+          "$ref": "#/$defs/ModelTokens",
+          "arrived_in": "0.1",
+          "description": "The tokens the call used, which every provider reports."
+        }
+      },
+      "required": [
+        "text",
+        "finish_reason",
+        "usage"
+      ],
+      "type": "object"
+    },
+    "ModelResponsePart": {
+      "description": "One part of a Model provider's streamed answer: pieces of text as they\narrive, then the whole response, last.",
+      "oneOf": [
+        {
+          "description": "A piece of the answer's text.",
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "text": {
+              "arrived_in": "0.1",
+              "description": "The piece.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The whole response, which ends the stream.",
+          "properties": {
+            "kind": {
+              "const": "done",
+              "type": "string"
+            },
+            "response": {
+              "$ref": "#/$defs/ModelResponse",
+              "arrived_in": "0.1",
+              "description": "The response."
+            }
+          },
+          "required": [
+            "kind",
+            "response"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ModelTokens": {
+      "description": "The tokens of model calls, by part, as OpenTelemetry's `GenAI` conventions\ncount them whatever the provider's own counts (ADR 0101): the cached\ninput is part of the input, and the reasoning part of the output.",
+      "properties": {
+        "cache_read_tokens": {
+          "arrived_in": "0.1",
+          "description": "The input tokens read from the provider's cache, part of\n`input_tokens`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cache_write_tokens": {
+          "arrived_in": "0.1",
+          "description": "The input tokens written to the provider's cache, part of\n`input_tokens`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "input_tokens": {
+          "arrived_in": "0.1",
+          "description": "The input tokens, the cached ones included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output_tokens": {
+          "arrived_in": "0.1",
+          "description": "The output tokens, the reasoning ones included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reasoning_tokens": {
+          "arrived_in": "0.1",
+          "description": "The output tokens the model spent reasoning, part of\n`output_tokens`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "input_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "output_tokens",
+        "reasoning_tokens"
+      ],
+      "type": "object"
+    },
+    "ModelTool": {
+      "description": "A tool the model may call.",
+      "properties": {
+        "description": {
+          "arrived_in": "0.1",
+          "description": "What it does, for the model.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, which the model's calls give.",
+          "type": "string"
+        },
+        "parameters": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema of its arguments."
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "parameters"
+      ],
+      "type": "object"
+    },
+    "ModelToolCall": {
+      "description": "A tool call the model made.",
+      "properties": {
+        "arguments": {
+          "arrived_in": "0.1",
+          "description": "Its arguments, the JSON text the model wrote, which the engine\nparses and validates against the tool's `parameters`.",
+          "type": "string"
+        },
+        "id": {
+          "arrived_in": "0.1",
+          "description": "The ID the model gave it, which the tool's answer names.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The tool's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "arguments"
+      ],
+      "type": "object"
+    },
+    "ModelToolChoice": {
+      "description": "Whether the model must call a tool.",
+      "oneOf": [
+        {
+          "const": "auto",
+          "description": "The model answers or calls a tool, as it chooses.",
+          "type": "string"
+        },
+        {
+          "const": "required",
+          "description": "The model calls one of the tools.",
+          "type": "string"
+        }
+      ]
+    },
+    "ModelUsage": {
+      "description": "The Usage of a Run's model calls (ADR 0101): their counts and price,\nand the same per Model reference.",
+      "properties": {
+        "by_model": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ModelCounts"
+          },
+          "arrived_in": "0.1",
+          "description": "The counts and price of each model called, by Model reference.",
+          "type": "object"
+        },
+        "cache_read_tokens": {
+          "arrived_in": "0.1",
+          "description": "The input tokens read from the provider's cache, part of\n`input_tokens`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cache_write_tokens": {
+          "arrived_in": "0.1",
+          "description": "The input tokens written to the provider's cache, part of\n`input_tokens`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "calls": {
+          "arrived_in": "0.1",
+          "description": "The calls, retries and Repairs included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "input_tokens": {
+          "arrived_in": "0.1",
+          "description": "The input tokens, the cached ones included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output_tokens": {
+          "arrived_in": "0.1",
+          "description": "The output tokens, the reasoning ones included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UsageAmount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Their price at the price table's list prices, in its currency: an\nestimate, never a bill (ADR 0012). `null` when it needs a price or\na rate the table lacks, never a partial sum."
+        },
+        "reasoning_tokens": {
+          "arrived_in": "0.1",
+          "description": "The output tokens the model spent reasoning, part of\n`output_tokens`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens": {
+          "arrived_in": "0.1",
+          "description": "The tokens, input and output, what the `model_tokens` Usage kind\ncounts.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "calls",
+        "tokens",
+        "input_tokens",
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "output_tokens",
+        "reasoning_tokens"
       ],
       "type": "object"
     },
@@ -26436,6 +26967,14 @@
       "version": "0.1"
     }
   ],
+  "model_provider": {
+    "request": {
+      "$ref": "#/$defs/ModelRequest"
+    },
+    "response_part": {
+      "$ref": "#/$defs/ModelResponsePart"
+    }
+  },
   "outputs": {
     "browser.clean": {
       "$ref": "#/$defs/BrowserCleaned"

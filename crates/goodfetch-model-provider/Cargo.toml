@@ -1,0 +1,19 @@
+[package]
+name = "goodfetch-model-provider"
+description = "The Model provider interface every model call goes through (spec #602; ADR 0125): its call and the context it carries, apart from any adapter."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+futures-util.workspace = true
+goodfetch-engine.workspace = true
+goodfetch-protocol.workspace = true
+tokio-util.workspace = true
+goodfetch-workspace-hack.workspace = true
+
+[lints]
+workspace = true

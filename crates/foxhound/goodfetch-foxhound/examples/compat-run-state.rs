@@ -32,8 +32,11 @@
 //! `crawl.max_segment_repeats` refuses, so it finishes at once; and a Run its
 //! program drives, under an Operator policy and with a setting that
 //! weakens a guarantee, whose Key-value store keeps a cursor, a note in its
-//! row and an archive over 1 MiB as a kept file, and whose run
-//! state holds its data key wrapped, which `run.abort` stops; and a Run
+//! row and an archive over 1 MiB as a kept file, whose run
+//! state holds its data key wrapped, and whose Effect journal holds an
+//! Effect its program declared and closed, beside one left uncertain and
+//! one a person reconciled, which the writer's own contribution records
+//! since no window marks a send here, which `run.abort` stops; and a Run
 //! bound to a
 //! Browser host and holding to a Clean-up rules digest, started through a
 //! contribution of the writer's own since no Client sets those yet, with a
@@ -213,6 +216,20 @@ fn scenario() -> Vec<Value> {
             json!({ "run_id": "aborted", "key": "archive", "content": "A".repeat(1_398_104), "content_type": "application/octet-stream" }),
         ),
         call(12, "compat.keyed", json!({ "run_id": "aborted" })),
+        // The Effect journal's Run secret, fixed, and an Effect left
+        // uncertain and one a person reconciled, then an Effect its program
+        // declares and closes, entry 3 since the journal holds two.
+        call(18, "compat.effects", json!({ "run_id": "aborted" })),
+        call(
+            19,
+            "effect.open",
+            json!({ "run_id": "aborted", "key": "receipt", "repeatable": true }),
+        ),
+        call(
+            20,
+            "effect.close",
+            json!({ "run_id": "aborted", "entry": "3", "outcome": { "ended": "returned", "output": { "order": "A-1" } } }),
+        ),
         call(4, "run.abort", json!({ "run_id": "aborted" })),
         call(
             16,
@@ -288,6 +305,42 @@ async fn keyed(params: Value, context: CallContext) -> Result<Value, CallError> 
         .await
         .expect("the wrapped data key is kept");
     Ok(json!({ "keyed": true }))
+}
+
+/// Stores the Effect journal's Run secret in a live Run's run state, fixed,
+/// since a real one is random and the set must be the same at each write,
+/// and two entries no call of a Client's leaves yet, since no window marks
+/// a command sent here and no operation answers about an uncertain Effect:
+/// one left uncertain after its first command went out, and one a person
+/// answered "it happened" about (ADR 0106).
+const EFFECTS: Operation = Operation {
+    name: "compat.effects",
+    description: "Stores a fixed Effect secret and an uncertain and a reconciled Effect.",
+    ..BOUND
+};
+
+async fn effects(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default()).expect("a Run ID");
+    let run = context.runs().live(run_id).await.expect("the Run is live");
+    let secret: Vec<u8> = (0..32).map(|byte: u8| byte.wrapping_mul(53)).collect();
+    run.state()
+        .write(move |connection| {
+            connection.execute("INSERT INTO effect_secret (id, secret) VALUES (1, ?1)", [secret])?;
+            connection.execute(
+                "INSERT INTO effect_journal (namespace, key, repeatable, state, reason, first_command, since) \
+                 VALUES ('', 'refund', 0, 'uncertain', 'interrupted', 'Input.dispatchMouseEvent', '2026-01-05T09:00:01Z')",
+                [],
+            )?;
+            connection.execute(
+                "INSERT INTO effect_journal (namespace, key, repeatable, state, reason, first_command, since, reconciled_by, reconciled_at) \
+                 VALUES ('', 'payment', 0, 'reconciled', 'failed_after_send', 'Input.dispatchKeyEvent', '2026-01-05T09:00:02Z', 'ada', '2026-01-05T09:00:03Z')",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("the Effect journal's entries are kept");
+    Ok(json!({ "journaled": true }))
 }
 
 /// Hands the Frontier of a live crawl the pages of its `list.test/items`
@@ -612,6 +665,7 @@ impl goodfetch_frontier::EndMerged for Ending {
 fn bound() -> Contribution {
     Contribution::new("compat-run-state")
         .with_handler(Handler::new(&KEYED, keyed))
+        .with_handler(Handler::new(&EFFECTS, effects))
         .with_handler(Handler::new(&LEARNED, learned))
         .with_handler(Handler::new(
         &BOUND,

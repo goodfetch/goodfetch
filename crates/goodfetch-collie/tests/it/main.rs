@@ -32,7 +32,6 @@ mod background_traffic;
 #[cfg(unix)]
 mod borrowed_browser;
 mod browser;
-#[cfg(unix)]
 mod browser_pool;
 #[cfg(all(
     target_os = "linux",
@@ -80,6 +79,10 @@ mod locator;
 mod log;
 mod navigation_egress;
 mod needs_you;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod no_console;
 mod operations_guide;
 mod ops;

@@ -7,9 +7,20 @@
 //! the Proving ground's record of what each request sent shows; and a
 //! browser the pool launched writes its crash dumps where the test's
 //! environment names (ADR 0074).
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+#![cfg_attr(
+    unix,
+    expect(
+        clippy::doc_markdown,
+        reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+    )
+)]
+#![cfg_attr(
+    not(unix),
+    expect(
+        dead_code,
+        unused_imports,
+        reason = "off Unix only the abandoned navigation's test runs: the others count the browser processes `ps` lists"
+    )
 )]
 #![expect(
     clippy::disallowed_methods,
@@ -45,6 +56,7 @@ fn pool(pool: Value) -> Map<String, Value> {
 /// The browser processes the test's engine runs: a browser's own helpers
 /// (renderers, its GPU and network processes, Linux's zygote) each name the
 /// `--type` they are.
+#[cfg(unix)]
 fn browsers(env: &TestEnv) -> usize {
     crate::page::browser_command_lines(env)
         .iter()
@@ -55,6 +67,7 @@ fn browsers(env: &TestEnv) -> usize {
 /// The number of browser processes once it is `expected`, or after
 /// [`SETTLE`] whatever it is then: browsers start and exit on their own
 /// time.
+#[cfg(unix)]
 fn browsers_once(env: &TestEnv, expected: usize) -> usize {
     let deadline = Instant::now() + SETTLE;
     loop {

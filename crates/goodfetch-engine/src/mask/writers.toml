@@ -263,6 +263,11 @@ count = 1
 how = "holds no value: the browser profile's starting preferences"
 
 [[writer]]
+path = "crates/goodfetch-page/src/launch/named_pipes.rs"
+count = 1
+how = "holds no value: the browser's ends of its debugging pipe on Windows, which the engine opens only to hand them to the browser and never writes through"
+
+[[writer]]
 path = "crates/goodfetch-page/src/proxy/limits.rs"
 count = 1
 how = "holds no value: proxy limits by endpoint and username, never a password"

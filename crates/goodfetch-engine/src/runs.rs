@@ -5210,6 +5210,13 @@ impl Registry {
     /// Run's Durability level now being the one its `settings` name: under
     /// its writer lock, as a discard does, so another engine's live Run is
     /// never touched.
+    #[cfg_attr(
+        windows,
+        expect(
+            clippy::result_large_err,
+            reason = "a Windows path is wider than a Unix one, and the error is a start's rare failure"
+        )
+    )]
     async fn discard_unclean(
         &mut self,
         run_id: &RunId,

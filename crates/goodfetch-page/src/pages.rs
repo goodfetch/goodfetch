@@ -654,11 +654,15 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
             &RUN_NEW_PAGE,
             move |params: NewPageParams, context: CallContext| {
                 let pages = opening.clone();
+                // Boxed: a page's opening, its browser's launch included, is
+                // past clippy's large-future size on Windows.
                 async move {
-                    pages
-                        .sessions
-                        .new_default_page(&params.run_id, &params.settings, &context)
-                        .await
+                    Box::pin(pages.sessions.new_default_page(
+                        &params.run_id,
+                        &params.settings,
+                        &context,
+                    ))
+                    .await
                 }
             },
         ))

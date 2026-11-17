@@ -60,6 +60,8 @@ pub const ROUTES: Routes = Routes {
 pub struct ArticleAnswers {
     /// Each page's answer, in the pages' order.
     pub pages: Vec<ArticleAnswer>,
+    /// The link every page's nav holds to the site's first page.
+    pub home: ArticleLink,
     /// The markers of each page's header, nav, aside and footer: text no
     /// Main content holds.
     pub boilerplate: Vec<String>,
@@ -77,19 +79,21 @@ pub struct ArticleAnswer {
     pub title: String,
     /// The paragraphs of its article, each as its text reads.
     pub paragraphs: Vec<String>,
+    /// The ID its article's `data-id` holds.
+    pub id: String,
     /// The name its heading holds.
     pub name: String,
     /// The links its nav's list holds to its children, in order.
     pub children: Vec<ArticleLink>,
 }
 
-/// One link of an article page's nav to a child page.
+/// One link of an article page's nav: to a child page, or home.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ArticleLink {
-    /// The child's path on the site's host.
+    /// The page's path on the site's host.
     pub path: String,
-    /// The link's text: the child's name.
+    /// The link's text: the child's name, or `Home`.
     pub name: String,
 }
 

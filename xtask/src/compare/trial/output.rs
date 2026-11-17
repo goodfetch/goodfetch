@@ -53,30 +53,23 @@ impl Plan<'_> {
     /// the measured processes are gone: the code-free crawl's Dataset, or
     /// the one Foxhound's program pushes to.
     pub(super) fn records(&self, home: &Path) -> Result<Vec<Record>> {
-        let (mut child, mut engine, dataset) = match self.config {
-            Config::FoxhoundProgram => {
-                let executable = self
-                    .engine
-                    .context("Foxhound's program takes Foxhound's executable, --engine")?;
-                let mut command = Command::new(executable);
-                command
-                    .arg(goodfetch_protocol::cli::ATTACHED_ENGINE)
-                    .env(goodfetch_protocol::settings::HOME_VARIABLE, home)
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::inherit());
-                for name in self.goodfetch_variables {
-                    command.env_remove(name);
-                }
-                let mut child = command.spawn().context("starting Foxhound's engine")?;
-                let engine = super::opened(&mut child)?;
-                (child, engine, foxhound::PROGRAM_DATASET)
-            }
-            _ => {
-                let mut driven = self.spawn(home, 1, &Mode::Timed, None)?;
-                let engine = driven.engine.take().context("Foxhound's engine")?;
-                (driven.child, engine, CODE_FREE_DATASET)
-            }
+        let (mut child, mut engine, dataset) = if let Config::FoxhoundProgram = self.config {
+            // The program's own executable is Node's: the engine is the one
+            // its SDK started.
+            let executable = self
+                .engine
+                .context("Foxhound's program takes Foxhound's executable, --engine")?;
+            let mut command = Command::new(executable);
+            command.stderr(Stdio::inherit());
+            self.without_goodfetch_variables(&mut command);
+            super::attached_engine(&mut command, home);
+            let mut child = command.spawn().context("starting Foxhound's engine")?;
+            let engine = super::opened(&mut child)?;
+            (child, engine, foxhound::PROGRAM_DATASET)
+        } else {
+            let mut driven = self.spawn(home, 1, &Mode::Timed, None)?;
+            let engine = driven.engine.take().context("Foxhound's engine")?;
+            (driven.child, engine, CODE_FREE_DATASET)
         };
         let read = engine.records(&self.site, dataset);
         engine.close();

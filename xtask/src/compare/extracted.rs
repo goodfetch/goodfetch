@@ -30,6 +30,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::compare::matrix::OutputCheck;
+
 /// The largest article site whose right answers the Proving ground serves
 /// (`ANSWERED_PAGES` of its `crawl/comparison/article.rs`).
 pub(crate) const ANSWERED_PAGES: u64 = 10_000;
@@ -41,6 +43,8 @@ pub(crate) const ANSWERED_PAGES: u64 = 10_000;
 #[derive(Debug, Deserialize)]
 pub(crate) struct Answers {
     pages: Vec<Answer>,
+    /// The link every page's nav holds to the site's first page.
+    home: Link,
     /// The markers of each page's header, nav, aside and footer, in this
     /// order.
     boilerplate: Vec<String>,
@@ -48,18 +52,19 @@ pub(crate) struct Answers {
 }
 
 /// One page's right answer: its path, its title as a reader reads it, its
-/// article's paragraphs in order, its heading's name and its nav's links
-/// to its children.
+/// article's paragraphs in order, its article's ID, its heading's name and
+/// its nav's links to its children.
 #[derive(Debug, Deserialize)]
 struct Answer {
     path: String,
     title: String,
     paragraphs: Vec<String>,
+    id: String,
     name: String,
     children: Vec<Link>,
 }
 
-/// One link of a page's nav to a child page.
+/// One link of a page's nav: to a child page, or home.
 #[derive(Debug, Deserialize)]
 struct Link {
     path: String,
@@ -123,6 +128,18 @@ pub(crate) struct Extracted {
     /// Those that still differ once the ad's marker is allowed in the
     /// text: what a tool that removes no ad is held to.
     pub(crate) ad_allowed: Differing,
+}
+
+impl Extracted {
+    /// The pages that differ under `check`: the handled crawl's fields are
+    /// held whole, as the extraction scenario's text is at Foxhound's
+    /// defaults.
+    pub(crate) fn under(&self, check: OutputCheck) -> &Differing {
+        match check {
+            OutputCheck::Whole | OutputCheck::Fields => &self.whole,
+            OutputCheck::AdAllowed => &self.ad_allowed,
+        }
+    }
 }
 
 /// The right answers of the article site of `pages` pages, from the
@@ -268,24 +285,23 @@ enum Kind {
 /// name and the article's `data-id`, its nav's home link and the label,
 /// the header's, nav's and footer's markers, its first two children's
 /// links and names, and its article's first eight paragraphs.
-fn fields_of(
-    answers: &Answers,
-    answer: &Answer,
-    number: usize,
-) -> Vec<(String, Kind, Option<String>)> {
-    let size = answers.pages.len();
+fn fields_of(answers: &Answers, answer: &Answer) -> Vec<(String, Kind, Option<String>)> {
     let marker = |index: usize| answers.boilerplate.get(index).cloned();
     let child = |index: usize| answer.children.get(index);
     let mut fields = vec![
         ("title".to_owned(), Kind::Text, Some(answer.title.clone())),
         ("name".to_owned(), Kind::Text, Some(answer.name.clone())),
-        ("id".to_owned(), Kind::Text, Some(format!("S-{number:07}"))),
+        ("id".to_owned(), Kind::Text, Some(answer.id.clone())),
         (
             "home".to_owned(),
             Kind::Href,
-            Some(format!("/sites/{size}/1")),
+            Some(answers.home.path.clone()),
         ),
-        ("home_label".to_owned(), Kind::Text, Some("Home".to_owned())),
+        (
+            "home_label".to_owned(),
+            Kind::Text,
+            Some(answers.home.name.clone()),
+        ),
         ("header".to_owned(), Kind::Text, marker(0)),
         ("nav".to_owned(), Kind::Text, marker(1)),
         ("footer".to_owned(), Kind::Text, marker(3)),
@@ -315,16 +331,11 @@ fn fields_of(
 
 /// How a page's written fields differ from its answers, if they do: the
 /// first field that differs.
-fn field_difference(
-    answers: &Answers,
-    answer: &Answer,
-    number: usize,
-    page: Option<&Fielded>,
-) -> Option<String> {
+fn field_difference(answers: &Answers, answer: &Answer, page: Option<&Fielded>) -> Option<String> {
     let Some(page) = page else {
         return Some("no page written".to_owned());
     };
-    fields_of(answers, answer, number)
+    fields_of(answers, answer)
         .into_iter()
         .find_map(|(name, kind, expected)| {
             let written = page.fields.get(&name).filter(|value| !value.is_null());
@@ -356,9 +367,9 @@ pub(crate) fn check_fields(answers: &Answers, pages: &[Fielded]) -> Extracted {
         written.entry(path_of(&page.url)).or_insert(page);
     }
     let mut differing = Differing::default();
-    for (index, answer) in answers.pages.iter().enumerate() {
+    for answer in &answers.pages {
         let page = written.get(answer.path.as_str()).copied();
-        if let Some(difference) = field_difference(answers, answer, index + 1, page) {
+        if let Some(difference) = field_difference(answers, answer, page) {
             differing.add(format!("{}: {difference}", answer.path));
         }
     }

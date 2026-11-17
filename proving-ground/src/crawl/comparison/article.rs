@@ -48,6 +48,13 @@ const ASIDE: &str = "Related reading sidebar";
 const FOOTER: &str = "Tidewater Supply imprint and terms";
 /// The ad's marker.
 const AD: &str = "Sponsored offer from Harbourline Freight";
+/// The text of the nav's link to the site's first page.
+const HOME: &str = "Home";
+
+/// The ID page `page`'s article holds in its `data-id`.
+fn item_id(page: u64) -> String {
+    format!("S-{page:07}")
+}
 
 pub(super) fn respond(seed: u64, path: &str) -> Page {
     match path.strip_prefix("/sites/").and_then(site_place) {
@@ -113,7 +120,7 @@ fn page_of(seed: u64, size: u64, page: u64) -> String {
     };
     line(format_args!("<header>\n<p>{HEADER}</p>\n</header>"));
     line(format_args!(
-        "<nav>\n<p>{NAV}</p>\n<a href=\"/sites/{size}/1\">Home</a>\n<ul class=\"pages\">"
+        "<nav>\n<p>{NAV}</p>\n<a href=\"/sites/{size}/1\">{HOME}</a>\n<ul class=\"pages\">"
     ));
     for child in children(size, page) {
         line(format_args!(
@@ -123,7 +130,8 @@ fn page_of(seed: u64, size: u64, page: u64) -> String {
     }
     line(format_args!("</ul>\n</nav>"));
     line(format_args!(
-        "<main>\n<article class=\"item\" data-id=\"S-{page:07}\">\n<h1 class=\"name\">{name}</h1>"
+        "<main>\n<article class=\"item\" data-id=\"{}\">\n<h1 class=\"name\">{name}</h1>",
+        item_id(page)
     ));
     for (index, paragraph) in paragraphs(seed, page).iter().enumerate() {
         line(format_args!("<p>{paragraph}</p>"));
@@ -143,9 +151,9 @@ fn page_of(seed: u64, size: u64, page: u64) -> String {
     document(&title(seed, page).0, &body)
 }
 
-/// The right answer of each page of the site of `size` pages, its name and
-/// its nav's links to its children among them, with the markers no Main
-/// content holds; none for a size that is no site's, or
+/// The right answer of each page of the site of `size` pages, its ID, its
+/// name and its nav's links to its children among them, with the nav's
+/// home link and the markers no Main content holds; none for a size that is no site's, or
 /// past [`ANSWERED_PAGES`].
 pub(super) fn answers(seed: u64, size: &str) -> Option<ArticleAnswers> {
     let (size, _) = site_place(&format!("{size}/1"))?;
@@ -155,6 +163,7 @@ pub(super) fn answers(seed: u64, size: &str) -> Option<ArticleAnswers> {
                 path: format!("/sites/{size}/{page}"),
                 title: title(seed, page).1,
                 paragraphs: paragraphs(seed, page),
+                id: item_id(page),
                 name: item_name(seed, page),
                 children: children(size, page)
                     .map(|child| ArticleLink {
@@ -164,6 +173,10 @@ pub(super) fn answers(seed: u64, size: &str) -> Option<ArticleAnswers> {
                     .collect(),
             })
             .collect(),
+        home: ArticleLink {
+            path: format!("/sites/{size}/1"),
+            name: HOME.to_owned(),
+        },
         boilerplate: [HEADER, NAV, ASIDE, FOOTER].map(str::to_owned).to_vec(),
         ad: AD.to_owned(),
     })

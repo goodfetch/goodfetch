@@ -21,7 +21,7 @@ use std::fmt::Write as _;
 
 use serde::Serialize;
 
-use super::extracted::{Differing, Extracted};
+use super::extracted::Extracted;
 use super::matrix::{
     self, CELLS, Cell, FILTER_LISTS_OFF, OutputCheck, Reading, Row, Scenario, Status,
 };
@@ -657,14 +657,6 @@ fn growth_of<'a>(growth: &'a GrowthCell, cell: &Cell) -> Result<Vec<&'a Trial>, 
     }
 }
 
-/// The pages that differ under `check`.
-fn differing(extracted: &Extracted, check: OutputCheck) -> &Differing {
-    match check {
-        OutputCheck::Whole | OutputCheck::Fields => &extracted.whole,
-        OutputCheck::AdAllowed => &extracted.ad_allowed,
-    }
-}
-
 /// Under each check, the worst of what the output check found of some
 /// crawls: the one with the most differing pages. None when it read none.
 fn worst<'a>(found: impl Iterator<Item = &'a Extracted>) -> Option<Extracted> {
@@ -685,7 +677,7 @@ fn worst<'a>(found: impl Iterator<Item = &'a Extracted>) -> Option<Extracted> {
 /// The label of an output that differs under `check` on a site of
 /// `site_pages` pages; none when every page read right.
 fn output_differs(output: &Extracted, check: OutputCheck, site_pages: u64) -> Option<String> {
-    let differing = differing(output, check);
+    let differing = output.under(check);
     (differing.pages > 0).then(|| format!("output differs: {} of {site_pages}", differing.pages))
 }
 
@@ -945,10 +937,7 @@ fn output_line(text: &mut String, scenario: Scenario, cell: &CellReport) {
     let _ = write!(
         text,
         "  - {label}{allowed}; the first: {}.",
-        differing(output, check)
-            .first
-            .as_deref()
-            .unwrap_or("not named")
+        output.under(check).first.as_deref().unwrap_or("not named")
     );
     if check == OutputCheck::Whole {
         let _ = write!(

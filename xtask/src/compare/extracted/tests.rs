@@ -17,6 +17,7 @@ fn answers() -> Answers {
         path: format!("/sites/3/{number}"),
         title: title.to_owned(),
         paragraphs: paragraphs.iter().map(|&text| text.to_owned()).collect(),
+        id: format!("S-{number:07}"),
         name: NAMES[number as usize - 1].to_owned(),
         children: if number == 1 {
             vec![link(2), link(3)]
@@ -38,6 +39,10 @@ fn answers() -> Answers {
                 &["Rope coil is piece number 3."],
             ),
         ],
+        home: ArticleLink {
+            path: "/sites/3/1".to_owned(),
+            name: "Home".to_owned(),
+        },
         boilerplate: [HEADER, NAV, ASIDE, FOOTER].map(str::to_owned).to_vec(),
         ad: AD.to_owned(),
     };
@@ -283,9 +288,9 @@ fn fielded(number: u32) -> Fielded {
     let mut fields = json!({
         "title": answer.title,
         "name": answer.name,
-        "id": format!("S-{number:07}"),
-        "home": "/sites/3/1",
-        "home_label": "Home",
+        "id": answer.id,
+        "home": answers.home.path,
+        "home_label": answers.home.name,
         "header": HEADER,
         "nav": NAV,
         "footer": FOOTER,

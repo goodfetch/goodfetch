@@ -40,6 +40,16 @@ if (
   process.exit(2);
 }
 
+/** Whether `value` is a JSON object, as `--settings` is. */
+const isObject = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const runSettings: unknown = JSON.parse(settings);
+if (!isObject(runSettings)) {
+  process.stderr.write("--settings takes a JSON object of the Run's settings\n");
+  process.exit(2);
+}
+
 /** The element `selector` matches, read as its text, or its `attribute`. */
 const css = (selector: string, attribute?: string): PageField => ({
   locator: { kind: "css", selector },
@@ -87,7 +97,7 @@ try {
   const run = await foxhound.startCrawl(crawl, {
     seeds: [seed(url, page)],
     runId,
-    settings: JSON.parse(settings),
+    settings: runSettings,
   });
   const report = await run.finish();
   if (report.lifecycle !== "finished" || report.completeness !== "complete") {

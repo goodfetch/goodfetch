@@ -11,6 +11,10 @@
           },
           "type": "array"
         },
+        "id": {
+          "description": "The ID its article's `data-id` holds.",
+          "type": "string"
+        },
         "name": {
           "description": "The name its heading holds.",
           "type": "string"
@@ -35,6 +39,7 @@
         "path",
         "title",
         "paragraphs",
+        "id",
         "name",
         "children"
       ],
@@ -42,14 +47,14 @@
     },
     "ArticleLink": {
       "additionalProperties": false,
-      "description": "One link of an article page's nav to a child page.",
+      "description": "One link of an article page's nav: to a child page, or home.",
       "properties": {
         "name": {
-          "description": "The link's text: the child's name.",
+          "description": "The link's text: the child's name, or `Home`.",
           "type": "string"
         },
         "path": {
-          "description": "The child's path on the site's host.",
+          "description": "The page's path on the site's host.",
           "type": "string"
         }
       },
@@ -75,6 +80,10 @@
       },
       "type": "array"
     },
+    "home": {
+      "$ref": "#/$defs/ArticleLink",
+      "description": "The link every page's nav holds to the site's first page."
+    },
     "pages": {
       "description": "Each page's answer, in the pages' order.",
       "items": {
@@ -85,6 +94,7 @@
   },
   "required": [
     "pages",
+    "home",
     "boilerplate",
     "ad"
   ],

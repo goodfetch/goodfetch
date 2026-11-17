@@ -331,6 +331,17 @@ enum Route<'a> {
 
 /// The Attached engine `child` runs, opened on its stdin and stdout; the
 /// child stopped when it does not open.
+/// `command`, Foxhound's executable, as shipped: its Attached engine, with
+/// its own data folder `home` and its default logging, which it writes to
+/// stderr, the protocol on its stdin and stdout.
+fn attached_engine(command: &mut Command, home: &Path) {
+    command
+        .arg(goodfetch_protocol::cli::ATTACHED_ENGINE)
+        .env(goodfetch_protocol::settings::HOME_VARIABLE, home)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
+}
+
 fn opened(child: &mut Child) -> Result<Engine> {
     let stdin = child.stdin.take().context("the engine's stdin is piped")?;
     let stdout = child
@@ -388,6 +399,15 @@ impl Plan<'_> {
         )
     }
 
+    /// `command` without Goodfetch's variables a shell may hold, such as a
+    /// test's: no tool reads them, and Foxhound refuses one it does not
+    /// deploy with.
+    fn without_goodfetch_variables(&self, command: &mut Command) {
+        for name in self.goodfetch_variables {
+            command.env_remove(name);
+        }
+    }
+
     /// Starts the tool's `process`-th process on `home`, Foxhound's
     /// engine opened, with its Browser cache at `cache`, if any.
     fn spawn(
@@ -416,11 +436,7 @@ impl Plan<'_> {
         let config = output::traced(self.cell, self.config, mode, self.site.pages);
         let mut command = command(&invocation(config, self.executable), mode, process);
         command.stderr(Stdio::inherit());
-        // No tool reads Goodfetch's variables a shell may hold, such as a
-        // test's: Foxhound refuses one it does not deploy with.
-        for name in self.goodfetch_variables {
-            command.env_remove(name);
-        }
+        self.without_goodfetch_variables(&mut command);
         if let Config::FoxhoundProgram = self.config {
             // The program starts the crawl from its arguments and prints
             // its count last on stdout; the SDK starts Foxhound's
@@ -447,13 +463,7 @@ impl Plan<'_> {
                 command.env(goodfetch_protocol::settings::BROWSERS_PATH_VARIABLE, cache);
             }
         } else if let Config::Foxhound { .. } = self.config {
-            // The executable as shipped, with its own data folder and its
-            // default logging, which it writes to stderr.
-            command
-                .arg(goodfetch_protocol::cli::ATTACHED_ENGINE)
-                .env(goodfetch_protocol::settings::HOME_VARIABLE, home)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped());
+            attached_engine(&mut command, home);
             if let Some(cache) = cache {
                 command.env(goodfetch_protocol::settings::BROWSERS_PATH_VARIABLE, cache);
             }

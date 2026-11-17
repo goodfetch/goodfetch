@@ -11,7 +11,7 @@ use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashMap};
 
 use goodfetch_engine::admission::Waiting;
-use goodfetch_frontier::SharedBudget;
+use goodfetch_frontier::{SharedBudget, hash_table_bytes};
 use rusqlite::Connection;
 use serde_json::Value;
 
@@ -127,12 +127,20 @@ impl Kept {
 
     /// Keeps the attempt of `leased` settled once `committed` commits were
     /// acknowledged: its work item pending again as its next lease takes
-    /// it, `retried`, else ended.
-    pub(super) fn settled(&mut self, leased: Leased, retried: bool, committed: u64) {
+    /// it, `retried`, else ended. A retry spills every pending work item
+    /// once they no longer fit within the budget beside the Frontier's
+    /// visits, which hold `beside` bytes.
+    pub(super) fn settled(
+        &mut self,
+        leased: Leased,
+        retried: bool,
+        committed: u64,
+        beside: impl FnOnce() -> u64,
+    ) {
         let id = leased.crawl_request.id.clone();
         let known = if retried {
             let next = leased.next();
-            self.keep_whole(|whole| whole.insert(&next));
+            self.keep_whole(|whole| whole.insert(&next, beside()));
             Known::Pending(Box::new(next), committed)
         } else {
             Known::Gone(committed)
@@ -142,9 +150,16 @@ impl Kept {
 
     /// Keeps `leased` pending, as its next lease takes it, in a write
     /// answered once `committed` commits were acknowledged; answers how it
-    /// waits for its domain's queue.
-    pub(super) fn added(&mut self, leased: Leased, committed: u64) -> Waiting {
-        self.keep_whole(|whole| whole.insert(&leased));
+    /// waits for its domain's queue. Spills every pending work item once
+    /// they no longer fit within the budget beside the Frontier's visits,
+    /// which hold `beside` bytes.
+    pub(super) fn added(
+        &mut self,
+        leased: Leased,
+        committed: u64,
+        beside: impl FnOnce() -> u64,
+    ) -> Waiting {
+        self.keep_whole(|whole| whole.insert(&leased, beside()));
         let waiting = leased.waiting.clone();
         self.known.insert(
             waiting.id.clone(),
@@ -208,21 +223,48 @@ fn place(waiting: &Waiting) -> Place {
     )
 }
 
-/// What memory holds of each pending work item past its text: its row,
-/// its place in its queue, and the maps' entries.
-const ROW_BYTES: usize = size_of::<Leased>() + size_of::<Place>() + 2 * size_of::<(String, u64)>();
+/// The least memory holds of a pending work item: its row's slot and its
+/// place's in its queue.
+const ROW_BYTES: usize = size_of::<(String, Leased)>() + size_of::<Place>();
 
-/// The bytes memory holds of `leased`, roughly: its row, its ID's copies
-/// and its text, its Payload's included.
-fn bytes(leased: &Leased) -> u64 {
+/// The text memory holds of `leased`: its ID's four copies, in its row's
+/// key, its request, how it waits and its place, and the rest of its
+/// row's, its Payload's included.
+fn text(leased: &Leased) -> usize {
     let request = &leased.crawl_request;
-    let text = 4 * request.id.len()
+    4 * request.id.len()
         + request.url.len()
         + request.label.len()
+        + request.method.as_str().len()
         + leased.waiting.key.len()
         + request.body.as_ref().map_or(0, |body| body.bytes().len())
-        + request.payload.as_ref().map_or(0, value_bytes);
-    u64::try_from(ROW_BYTES + text).unwrap_or(u64::MAX)
+        + request.payload.as_ref().map_or(0, value_bytes)
+}
+
+/// The bytes a leaf of a queue's tree takes, as std's `BTreeSet` lays it
+/// out: its parent, its index in it and its length, and room for eleven
+/// places.
+const LEAF_BYTES: usize = (size_of::<usize>() + 2 * size_of::<u16>() + 11 * size_of::<Place>())
+    .next_multiple_of(align_of::<Place>());
+
+/// The bytes an inner node of a queue's tree takes: a leaf's, and room
+/// for twelve edges.
+const INNER_BYTES: usize = LEAF_BYTES + 12 * size_of::<usize>();
+
+/// The bytes the tree of a queue of `len` work items takes, at most. One
+/// leaf holds up to eleven places; past them, a node holds at least five,
+/// each beside the place its parent keeps between it and the next, as an
+/// insert splits it or a removal merges it: a leaf for each six places,
+/// and an inner node for each five leaves, the nodes above them counted.
+const fn tree(len: usize) -> usize {
+    match len {
+        0 => 0,
+        1..=11 => LEAF_BYTES,
+        _ => {
+            let leaves = len.div_ceil(6);
+            leaves * LEAF_BYTES + leaves.div_ceil(5) * INNER_BYTES
+        }
+    }
 }
 
 /// The bytes memory holds of `value`, roughly.
@@ -242,11 +284,15 @@ fn value_bytes(value: &Value) -> usize {
 /// Every pending work item that is not leased, as its next lease takes it,
 /// each in its domain's queue, within the Run's memory budget, which it
 /// shares with the Frontier's visits: it tells the budget the bytes it
-/// holds as they change, and none once it is dropped.
+/// holds as they change, and none once it is dropped. Like the Frontier's
+/// ([`hash_table_bytes`]), it counts its maps by their room, not by their
+/// entries.
 pub(crate) struct Whole {
     rows: HashMap<String, Leased>,
     queues: HashMap<String, BTreeSet<Place>>,
-    bytes: u64,
+    /// The bytes held past the maps' tables: the rows' text, and each
+    /// queue's key and tree.
+    held: usize,
     budget: SharedBudget,
 }
 
@@ -283,11 +329,11 @@ impl Whole {
         let mut whole = Self {
             rows: HashMap::with_capacity(ids.len()),
             queues: HashMap::new(),
-            bytes: 0,
+            held: 0,
             budget,
         };
         for leased in work_items::leasable(connection, &ids)? {
-            if !whole.insert(&leased) {
+            if !whole.insert(&leased, beside) {
                 return Ok(None);
             }
         }
@@ -295,23 +341,26 @@ impl Whole {
     }
 
     /// Keeps `leased` pending in its domain's queue, in place of any row
-    /// kept of it; answers whether they all still fit within the budget,
-    /// and whether it has a domain key.
-    fn insert(&mut self, leased: &Leased) -> bool {
+    /// kept of it; answers whether they all still fit within the budget
+    /// beside the Frontier's visits, which hold `beside` bytes, and
+    /// whether it has a domain key.
+    fn insert(&mut self, leased: &Leased, beside: u64) -> bool {
         let key = &leased.waiting.key;
         if key.is_empty() {
             return false;
         }
         self.remove(&leased.crawl_request.id);
-        self.bytes = self.bytes.saturating_add(bytes(leased));
-        self.budget.pending_hold(self.bytes);
-        self.queues
-            .entry(key.clone())
-            .or_default()
-            .insert(place(&leased.waiting));
+        let queue = self.queues.entry(key.clone()).or_default();
+        let len = queue.len();
+        queue.insert(place(&leased.waiting));
+        self.held += text(leased) + tree(len + 1) - tree(len);
+        if len == 0 {
+            self.held += key.len();
+        }
         self.rows
             .insert(leased.crawl_request.id.clone(), leased.clone());
-        self.bytes <= self.budget.bytes()
+        self.budget.pending_hold(self.bytes());
+        self.within(beside)
     }
 
     /// Lets `id` go: it is no longer pending.
@@ -319,20 +368,31 @@ impl Whole {
         let Some(leased) = self.rows.remove(id) else {
             return;
         };
-        self.bytes = self.bytes.saturating_sub(bytes(&leased));
-        self.budget.pending_hold(self.bytes);
+        self.held -= text(&leased);
         let key = &leased.waiting.key;
         if let Some(queue) = self.queues.get_mut(key) {
+            let len = queue.len();
             queue.remove(&place(&leased.waiting));
+            self.held -= tree(len) - tree(len - 1);
             if queue.is_empty() {
+                self.held -= key.len();
                 self.queues.remove(key);
             }
         }
+        self.budget.pending_hold(self.bytes());
+    }
+
+    /// The bytes they hold: past their text and trees, the tables of the
+    /// two maps, by their room.
+    fn bytes(&self) -> u64 {
+        let tables = hash_table_bytes::<(String, Leased)>(self.rows.capacity())
+            + hash_table_bytes::<(String, BTreeSet<Place>)>(self.queues.capacity());
+        u64::try_from(self.held + tables).unwrap_or(u64::MAX)
     }
 
     /// Whether they all fit within the budget beside `beside` bytes.
     fn within(&self, beside: u64) -> bool {
-        self.bytes.saturating_add(beside) <= self.budget.bytes()
+        self.bytes().saturating_add(beside) <= self.budget.bytes()
     }
 
     /// The pending work items of `key`, or of every key when `None`, at
@@ -364,3 +424,6 @@ impl Whole {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests;

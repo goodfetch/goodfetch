@@ -1,0 +1,15 @@
+# The pinned image of uv on Alpine Linux (musl), where the install harness
+# installs wheels into fresh environments with uv and pip and runs their
+# `tests/integration` (ADR 0069; TESTING.md, Installed packages). Its uv is
+# the repository's, ci/image/Containerfile's UV_VERSION, which
+# ci/tool-versions.sh holds the tag to: change them together. Its `digest`
+# is the multi-platform index of `repository:tag`, so the Release suite's
+# x64 and arm64 Linux cells each run their own architecture's image, and the
+# image cannot move.
+#
+# Read by ci/alpine/fetch.sh (`just fetch`), which pulls it before ADR
+# 0043's deny, and by goodfetch_test_support.install, which runs it with no
+# network.
+repository = "ghcr.io/astral-sh/uv"
+tag = "0.9.28-python3.14-alpine3.23"
+digest = "sha256:54419a99f65f6ab61ac885d8d8871bd255b62539e48d745bdb6b1b963f49fe45"

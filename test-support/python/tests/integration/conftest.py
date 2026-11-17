@@ -1,15 +1,25 @@
-"""Runs pytest on sample tests in the test's folder, the plugin loaded as in any run."""
+"""Runs pytest on sample tests in the test's folder, the plugin loaded as in any run.
+
+The installed-package runs of `test_install.py` are the Release suite's alone.
+"""
 
 import json
 import os
+import re
 import sys
 import xml.etree.ElementTree as ElementTree
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 from goodfetch_test_support import TestEnv
+
+collect_ignore_glob = (
+    [] if os.environ.get("GOODFETCH_TEST_SUITE") == "release" else ["test_install.py"]
+)
+"""The installed-package runs, which the Release suite alone runs (TESTING.md,
+Installed packages)."""
 
 CONFIGURATION = """\
 [tool.pytest]
@@ -114,3 +124,22 @@ def _results(junit: Path) -> dict[str, str]:
 def sample_run(test_env: TestEnv) -> SampleRun:
     """Runs pytest on sample tests written into the test's folder."""
     return SampleRun(test_env)
+
+
+def _catalog_product(page: str) -> dict[str, str]:
+    def field(pattern: str) -> str:
+        found = re.search(pattern, page)
+        assert found is not None, pattern
+        return found[1]
+
+    return {
+        "id": field(r'<article class="product" data-id="([^"]+)"'),
+        "name": field(r'<h1 class="name">([^<]+)</h1>'),
+        "price": field(r'data-price="([^"]+)"'),
+    }
+
+
+@pytest.fixture
+def catalog_product() -> Callable[[str], dict[str, str]]:
+    """Reads the product a `catalog` product page shows, as any tool would."""
+    return _catalog_product

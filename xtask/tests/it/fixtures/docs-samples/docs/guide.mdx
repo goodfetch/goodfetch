@@ -1,0 +1,56 @@
+---
+title: Guide
+---
+
+# Guide
+
+```ts title="open.ts"
+import { {{connection}} } from "{{npm}}";
+// ---cut---
+const engine = await {{connection}}.connect();
+await engine.page.goto("https://proving-ground.goodfetch.dev/catalog");
+```
+
+```tsx
+export const Home = () => <a href="https://proving-ground.goodfetch.dev/">Home</a>;
+```
+
+```python
+from {{import}} import {{connection}}
+
+engine = {{connection}}.connect()
+engine.page.goto("https://proving-ground.goodfetch.dev/catalog")
+```
+
+```rust
+let catalog = "https://proving-ground.goodfetch.dev/catalog";
+assert!(catalog.ends_with("/catalog"));
+```
+
+```console
+$ {{executable}} fetch https://proving-ground.goodfetch.dev/catalog
+...
+```
+
+```json mcp-request
+{
+  "method": "tools/call",
+  "params": {
+    "name": "fetch",
+    "arguments": { "url": "https://proving-ground.goodfetch.dev/catalog" }
+  }
+}
+```
+
+```json mcp-answer
+{ "result": { "content": [] } }
+```
+
+```toml
+[engine]
+path = "{{executable}}"
+```
+
+```json
+{ "settings": {} }
+```

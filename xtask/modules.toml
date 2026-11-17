@@ -20,6 +20,7 @@ containment = ["check"]
 counts = ["check", "child_cargo", "environment", "markdown", "metadata", "output", "perf", "products", "register"]
 dco = ["check", "git"]
 dependency_direction = ["check", "foxhound_module", "metadata"]
+docs_samples = ["check", "environment", "output", "products", "tree"]
 egress = ["check", "environment", "output", "workflow"]
 environment = []
 evict_caches = ["environment", "github", "output"]
@@ -103,6 +104,13 @@ deleted = []
 evidence = ["list"]
 list = []
 sweep = []
+
+# Which of `docs_samples`'s own modules may import which.
+[submodules.docs_samples]
+blocks = ["render"]
+names = ["blocks"]
+origin = []
+render = []
 
 # Which of `budgets`'s own modules may import which.
 [submodules.budgets]

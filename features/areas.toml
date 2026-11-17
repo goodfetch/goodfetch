@@ -1342,6 +1342,13 @@ number = 8
 kind = "block-cause"
 prefix = ""
 
+# A Session's Identity profile, the `stealth.*` items (#904).
+# `browser.access_mode` stays with area 5's `browser.` entry.
+[[area]]
+number = 8
+kind = "setting"
+prefix = "stealth."
+
 # Area 6, Collection, Foxhound (specs #581 and #582): what the Frontier
 # answers each seed and a handler's enqueue (#828), and the call on an
 # attempt that ended, which every member of a handler's context answers

@@ -632,3 +632,60 @@ fn a_foxhound_keys_refusal_names_foxhound_and_its_install() {
         serde_json::to_string_pretty(&reply["error"]).unwrap()
     );
 }
+
+/// A stealth item a Run sets yields to an Access mode that is not
+/// `stealth`, and `config explain` names that mode, its value and its
+/// layer, in human and `--json` output; under `stealth` it yields to
+/// nothing (spec #599).
+///
+/// Covers: story:8-5, story:8-6, command:config.explain, setting:stealth.human_input, setting:browser.access_mode
+#[rstest]
+#[case::standard_by_default(
+    &[],
+    json!({ "key": "browser.access_mode", "value": "standard", "layer": "default" }),
+    "yields to browser.access_mode = \"standard\" (default): only a `stealth` Session runs a stealth item",
+)]
+#[case::identified_from_a_flag(
+    &["browser.access_mode=identified"],
+    json!({ "key": "browser.access_mode", "value": "identified", "layer": "run" }),
+    "yields to browser.access_mode = \"identified\" (run): only a `stealth` Session runs a stealth item",
+)]
+#[case::stealth_from_a_flag(&["browser.access_mode=stealth"], Value::Null, "")]
+fn config_explain_names_the_access_mode_a_stealth_item_yields_to(
+    #[case] set: &[&str],
+    #[case] yields_to: Value,
+    #[case] says: &str,
+) {
+    let env = TestEnv::new();
+    let layout = HomeLayout::of(env.home());
+    fs::create_dir_all(layout.per_major()).unwrap();
+    fs::write(
+        layout.user_configuration(),
+        "version = \"0.1\"\n\n[settings.stealth]\nhuman_input = true\n",
+    )
+    .unwrap();
+    let flags: Vec<&str> = set.iter().flat_map(|value| ["--set", value]).collect();
+    let arguments = |json: bool| {
+        let mut arguments = vec!["stealth.human_input"];
+        arguments.extend(&flags);
+        if json {
+            arguments.push("--json");
+        }
+        arguments
+    };
+
+    let (stdout, stderr, succeeded) = explain(&env, Mode::Attached, &arguments(true));
+    let (human, _, _) = explain(&env, Mode::Attached, &arguments(false));
+
+    assert!(succeeded, "{stderr}");
+    let output: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        (
+            output["settings"][0]["yields_to"].clone(),
+            human.contains("yields to"),
+            human.contains(says),
+        ),
+        (yields_to, !says.is_empty(), true),
+        "{human}"
+    );
+}

@@ -28,6 +28,7 @@ mod containment;
 mod counts;
 mod dco;
 mod dependency_direction;
+mod docs_samples;
 mod egress;
 mod environment;
 mod evict_caches;
@@ -195,6 +196,14 @@ enum Command {
     },
     /// Fails on a dependency against the workspace's enforced directions.
     DependencyDirection,
+    /// The docs code samples (ADRs 0068 and 0097): `extract` writes each
+    /// sample of each Product's rendering of the docs pages, and of each
+    /// package's README, under `target/docs-samples/`, with a manifest, and
+    /// fails on a code block that carries the other Product's names.
+    DocsSamples {
+        #[command(subcommand)]
+        command: docs_samples::Command,
+    },
     /// ADR 0043's outbound-traffic deny in CI and its Egress canary.
     Egress {
         #[command(subcommand)]
@@ -547,6 +556,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::DependencyDirection => {
             Ok(check::report(&dependency_direction::check(cargo, root)?))
         }
+        Command::DocsSamples { command } => docs_samples::run(&command, environment),
         Command::Egress { command } => egress::run(command, environment),
         Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
         Command::ExistingCode { command } => existing_code::run(command, environment),

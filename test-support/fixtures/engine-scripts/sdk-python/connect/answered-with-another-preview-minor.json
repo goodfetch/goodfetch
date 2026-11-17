@@ -1,0 +1,27 @@
+{
+  "description": "A Collie Client's hello answered by an engine of a newer 0.y minor, which ADR 0030 counts as a major during previews, so the Client refuses it itself.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "form": "python"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.2",
+          "product": "collie",
+          "product_version": "0.2.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    }
+  ]
+}

@@ -1339,8 +1339,9 @@ targets:
 # fault-around to one page for them). Run it when the Products' code has
 # moved enough that `just targets` or a comparison reads slower, and commit
 # both files. `--order-only` maps the pages again and writes the order file on
-# the guided build the last refresh recorded: run it in a quiet window, since
-# the map's order depends on timing.
+# the guided build the last refresh recorded and kept in
+# target/pgo/guided-target: run it in a quiet window, since the map's order
+# depends on timing.
 # Retrains the release build's committed profile and order file.
 pgo-refresh *arguments:
     ci/musl/install.sh

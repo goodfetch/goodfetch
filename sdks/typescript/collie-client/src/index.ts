@@ -23,6 +23,7 @@ export {
   type StoredValue,
 } from "./key-value-store.ts";
 export * from "./generated/errors.ts";
+export type { FieldValue, FieldValues } from "./field-values.ts";
 export type {
   Acted,
   BlockCause,
@@ -32,6 +33,7 @@ export type {
   Lifecycle,
   Navigated,
   PageClosed,
+  PageField,
   PageFormats,
   PageRead,
   PageResponse,
@@ -41,5 +43,7 @@ export type {
   StartedAs,
   StopReason,
   StoppedBy,
+  UnreadField,
+  UnreadReason,
   Verdict,
 } from "./generated/index.ts";

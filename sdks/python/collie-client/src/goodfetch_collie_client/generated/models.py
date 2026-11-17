@@ -6010,7 +6010,9 @@ class PageRead(BaseModel):
     """
     Each field's value, by name: a value field's value or null, a
     list's array of values or nulls, rows' array of objects, each
-    holding every field of its row, null where its row lacks it.
+    holding every field of its row, null where its row lacks it. Its
+    names and types follow `fields` (`typed_by`), from which each SDK
+    types it (ADR 0147).
     """
 
 

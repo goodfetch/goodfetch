@@ -210,6 +210,38 @@ class DialogAlreadyHandledError(ProgramError):
         super().__init__(message, code="dialog_already_handled", group="program", retryable=False)
 
 
+class EffectKeyInvalidError(ProgramError):
+    """An Effect key is empty or longer than 255 Unicode code points (ADR 0106). The details name the key."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="effect_key_invalid", group="program", retryable=False)
+
+
+class EffectKeyReusedError(ProgramError):
+    """An Effect key was declared again in one attempt while its body runs, or after this attempt got its answer (ADR 0106): a loop that left its varying part out of the key would otherwise perform one Effect for many. Put what varies in the key. The details name the key."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="effect_key_reused", group="program", retryable=False)
+
+
+class EffectOutputInvalidError(ProgramError):
+    """An Effect's body returned a value that is not JSON or is larger than `effect.output.max_size`, when nothing was sent for it (ADR 0106); the entry is dropped. After a send it is the cause of `effect_uncertain`. The details name the key, the value's size and the limit."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="effect_output_invalid", group="program", retryable=False)
+
+
+class EffectUncertainError(PageError):
+    """An Effect may or may not have happened (ADRs 0091 and 0106): its body sent something and did not return a value the Effect journal keeps, so the engine never runs it again until a person reconciles it ("it happened", "it did not happen" or "leave uncertain"). The details name the Effect journal `entry`, the `key`, the `crawl_request`, the `reason` (`failed_after_send`, `interrupted` or `journal_incomplete`), the `first_command` sent and `since` when."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="effect_uncertain", group="page", retryable=False)
+
+
 class EgressRefusedError(RefusedError):
     """The run's egress policy refused a request before it connected: a host the domain policy does not allow, an address that is not globally reachable, or a scheme no request may use. The details name the URL, the rule, the address when there is one and the setting that would allow it."""
 
@@ -768,6 +800,10 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "daemon_draining": DaemonDrainingError,
     "daemon_unreachable": DaemonUnreachableError,
     "dialog_already_handled": DialogAlreadyHandledError,
+    "effect_key_invalid": EffectKeyInvalidError,
+    "effect_key_reused": EffectKeyReusedError,
+    "effect_output_invalid": EffectOutputInvalidError,
+    "effect_uncertain": EffectUncertainError,
     "egress_refused": EgressRefusedError,
     "engine_exited": EngineExitedError,
     "engine_not_found": EngineNotFoundError,

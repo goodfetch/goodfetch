@@ -29,6 +29,7 @@ pub mod daemon;
 pub mod deadline;
 pub mod dns;
 mod durable;
+pub mod effect;
 pub mod egress;
 pub mod endpoint;
 mod engine;
@@ -100,5 +101,5 @@ pub use composition::{
 };
 pub use engine::{AttachedFailure, Dependencies, Engine};
 pub use engine_context::EngineContext;
-pub use info::contribution;
+pub use info::{contribution, contribution_sharing};
 pub use product::{Channel, Identity, Requested};

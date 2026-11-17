@@ -432,47 +432,6 @@ impl Staging {
             .and_then(|entry| entry.fetched.robots_txt)
     }
 
-    /// Notes that a declared Effect's body begins in the attempt, which
-    /// stages nothing until it ends (ADR 0106); `false` once the attempt
-    /// ended.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "`effect.open` calls it once the Effect journal lands (#1550)"
-        )
-    )]
-    pub(crate) fn begin_effect(&self, work_item: &str, lease_epoch: u64) -> bool {
-        self.entries()
-            .get_mut(&AttemptKey::of(work_item, lease_epoch))
-            .map(|entry| entry.effects += 1)
-            .is_some()
-    }
-
-    /// Notes that a declared Effect's body ended in the attempt.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "`effect.close` calls it once the Effect journal lands (#1550)"
-        )
-    )]
-    pub(crate) fn end_effect(&self, work_item: &str, lease_epoch: u64) {
-        if let Some(entry) = self
-            .entries()
-            .get_mut(&AttemptKey::of(work_item, lease_epoch))
-        {
-            entry.effects = entry.effects.saturating_sub(1);
-        }
-    }
-
-    /// Whether the attempt of `work_item` under `lease_epoch` still
-    /// stages.
-    pub(crate) fn holds(&self, work_item: &str, lease_epoch: u64) -> bool {
-        self.entries()
-            .contains_key(&AttemptKey::of(work_item, lease_epoch))
-    }
-
     /// Stages `records`, as their Datasets checked them, with the attempt of
     /// `work_item` under `lease_epoch`, after those it staged before:
     /// `None` once the attempt ended, or the refusal of a declared
@@ -684,6 +643,27 @@ impl AttemptWrites for Staging {
             .get(&AttemptKey::of(crawl_request_id, lease_epoch))
             .map(|entry| last_of(&entry.writes, key))
             .ok_or_else(|| ended(crawl_request_id, lease_epoch))
+    }
+
+    fn begin_effect(&self, crawl_request_id: &str, lease_epoch: u64) -> Result<(), Unstaged> {
+        self.entries()
+            .get_mut(&AttemptKey::of(crawl_request_id, lease_epoch))
+            .map(|entry| entry.effects += 1)
+            .ok_or_else(|| ended(crawl_request_id, lease_epoch))
+    }
+
+    fn end_effect(&self, crawl_request_id: &str, lease_epoch: u64) {
+        if let Some(entry) = self
+            .entries()
+            .get_mut(&AttemptKey::of(crawl_request_id, lease_epoch))
+        {
+            entry.effects = entry.effects.saturating_sub(1);
+        }
+    }
+
+    fn holds(&self, crawl_request_id: &str, lease_epoch: u64) -> bool {
+        self.entries()
+            .contains_key(&AttemptKey::of(crawl_request_id, lease_epoch))
     }
 }
 

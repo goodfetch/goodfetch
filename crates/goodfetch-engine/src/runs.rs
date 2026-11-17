@@ -2945,13 +2945,13 @@ impl Runs {
         {
             let chosen = rules
                 .versions
-                .choose(self.rules_context(rules, start.settings.as_ref()))
+                .choose(self.rules_context(rules, start.settings.as_ref(), start.kind))
                 .await
                 .map_err(|refused| StartError::Refused(Box::new(refused)))?;
             start.clean_up_digest = Some(chosen.digest);
             fallback = chosen.fallback;
         }
-        let settings = start.settings.clone();
+        let (settings, kind) = (start.settings.clone(), start.kind);
         let started = self.start_chosen(start).await;
         if let (Ok(Started::New(run)), Some(rules)) = (&started, &self.clean_up) {
             rules
@@ -2959,22 +2959,24 @@ impl Runs {
                 .held(
                     run,
                     Holding::Started { fallback },
-                    self.rules_context(rules, settings.as_ref()),
+                    self.rules_context(rules, settings.as_ref(), kind),
                 )
                 .await;
         }
         started
     }
 
-    /// What the Clean-up rules `rules` are told of a Run whose start
-    /// resolved `settings`.
+    /// What the Clean-up rules `rules` are told of a Run of the kind `kind`
+    /// whose start resolved `settings`.
     fn rules_context<'a>(
         &'a self,
         rules: &'a CleanUpRules,
         settings: Option<&'a RunSettings>,
+        kind: RunKind,
     ) -> RulesContext<'a> {
         RulesContext {
             settings,
+            kind,
             home: self.engine.home(),
             clock: self.engine.clock(),
             product: self.limits.product,
@@ -3373,13 +3375,13 @@ impl Runs {
             .await
             .map_err(|_| RunError::Stopped)?;
         let resumed = answered.await.map_err(|_| RunError::Stopped)?;
-        if let (Ok(Resumed::New { run, .. }), Some(rules)) = (&resumed, &self.clean_up) {
+        if let (Ok(Resumed::New { run, kind, .. }), Some(rules)) = (&resumed, &self.clean_up) {
             rules
                 .versions
                 .held(
                     run,
                     Holding::Resumed,
-                    self.rules_context(rules, settings.as_ref()),
+                    self.rules_context(rules, settings.as_ref(), *kind),
                 )
                 .await;
         }

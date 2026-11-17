@@ -456,6 +456,11 @@ impl CodeFree {
         self.extraction.formats
     }
 
+    /// Whether it reads any format of its pages.
+    pub(crate) fn reads_formats(&self) -> bool {
+        self.extraction.formats != FormatsRequest::default()
+    }
+
     /// Handles the attempt `params` gives, as a handler would: reads its
     /// page's formats and fields, under `follow: scope` stages every link
     /// of its page with the attempt, for its commit to admit in its

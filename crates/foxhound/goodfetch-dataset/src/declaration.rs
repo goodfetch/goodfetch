@@ -10,7 +10,10 @@
 //! A pushed Record names a declared Dataset, else `dataset_unknown`; it is
 //! a JSON object that fits its Dataset's schema and, for a Dataset with a
 //! key and no schema, holds every field of the key, else `record_invalid`
-//! names each issue by its path, a JSON Pointer into the Record. Each
+//! names it by its position among the Records pushed together, or the
+//! first by its position in the answer, and each issue by its path, a JSON
+//! Pointer into the Record
+//! (ADR 0147). Each
 //! schema's validator is built once, with the Datasets, as the crawl starts
 //! or resumes, and a Record's check builds none (ADR 0138); a reader of its
 //! Records takes the declarations alone, building none, and a run file no
@@ -24,8 +27,8 @@ use goodfetch_engine::CallError;
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::{
     DATASET_DUPLICATE, DATASET_KEY_INVALID, DATASET_UNKNOWN, DatasetDeclaration,
-    DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, KeyRefused,
-    RECORD_INVALID, RecordInvalidDetails, RecordIssue,
+    DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, InvalidRecord,
+    KeyRefused, RECORD_INVALID, RecordInvalidDetails, RecordIssue,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use rusqlite::Connection;
@@ -36,15 +39,16 @@ use crate::records::Checked;
 use crate::rejections::{Rejection, Why};
 use crate::run_tables::DATASETS_TABLE;
 
-/// A pushed Record the check refused: the error `crawl_request.push`
-/// answers, and what to stage in the Record's place, its rejection when
-/// the crawl declares its Dataset, else nothing.
+/// A push the check refused: the error `crawl_request.push` answers, and
+/// what to stage: the Records that hold and, in the place of each that
+/// does not, its rejection; nothing when the crawl does not declare their
+/// Dataset.
 #[derive(Debug)]
 pub struct Refused {
     /// The error.
     pub error: CallError,
     /// What to stage instead.
-    pub rejected: Checked,
+    pub staged: Checked,
 }
 
 /// The Datasets a crawl declares, in the order declared, each checked, with
@@ -278,9 +282,10 @@ impl Datasets {
     /// # Errors
     ///
     /// The first failing Record's: `dataset_unknown` when the crawl does not
-    /// declare its Dataset; `record_invalid`, naming each issue's path, when
-    /// it is no JSON object, does not fit its Dataset's schema, or lacks a
-    /// field of the key of a Dataset with no schema.
+    /// declare its Dataset; `record_invalid`, naming its position in
+    /// `records` and each issue's path, when it is no JSON object, does not
+    /// fit its Dataset's schema, or lacks a field of the key of a Dataset
+    /// with no schema.
     pub fn check(
         &self,
         records: Vec<PushedRecord>,
@@ -292,63 +297,103 @@ impl Datasets {
             }
             return Ok(Checked::default());
         }
-        let schema_hashes = records
-            .iter()
-            .map(|record| self.check_one(record, work))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut schema_hashes = Vec::with_capacity(records.len());
+        for (position, record) in records.iter().enumerate() {
+            let Found {
+                declaration,
+                validator,
+                schema_hash,
+            } = self.declared(&record.dataset)?;
+            let issues = issues(declaration, validator, &record.data, work);
+            if !issues.is_empty() {
+                let message = if records.len() == 1 {
+                    record_message(&record.dataset, &issues)
+                } else {
+                    format!(
+                        "The first Record of the handler's answer that does not hold, at position {position}, of the Dataset `{}`, was not staged: {}",
+                        record.dataset,
+                        described(&issues)
+                    )
+                };
+                return Err(invalid(
+                    &record.dataset,
+                    vec![InvalidRecord {
+                        position: position_of(position),
+                        issues,
+                    }],
+                    message,
+                ));
+            }
+            schema_hashes.push(schema_hash.cloned());
+        }
         Ok(Checked::new(
             records.into_iter().zip(schema_hashes).collect(),
         ))
     }
 
-    /// `record`, once it holds for the Dataset it names, as
-    /// `crawl_request.push` stages it.
+    /// `records`, pushed together into the Dataset `dataset`, once each
+    /// holds for it, as `crawl_request.push` stages them (ADR 0147).
     ///
     /// # Errors
     ///
-    /// [`check`](Self::check)'s, with the rejection to stage in its place
-    /// when the crawl declares its Dataset: the Record, the error's
-    /// message as the reason, and each issue (ADR 0103).
+    /// `dataset_unknown` when the crawl does not declare `dataset`, with
+    /// nothing to stage; `record_invalid` when any Record does not hold, as
+    /// [`check`](Self::check) finds it, naming each such Record by its
+    /// position in `records` and each of its issues by its path, with the
+    /// Records that hold to stage and, in the place of each that does not,
+    /// its rejection: the Record, its own message as the reason, and each
+    /// issue (ADR 0103).
     pub fn check_pushed(
         &self,
-        record: PushedRecord,
+        dataset: &str,
+        records: Vec<Value>,
         work: &CountedWork,
     ) -> Result<Checked, Refused> {
-        if !self.keeps_records() {
-            return match self.declared(&record.dataset) {
-                Ok(_) => Ok(Checked::default()),
-                Err(error) => Err(Refused {
-                    error,
-                    rejected: Checked::default(),
-                }),
-            };
-        }
-        let issues = match self.issues(&record, work) {
-            Ok((issues, schema_hash)) if issues.is_empty() => {
-                return Ok(Checked::new(vec![(record, schema_hash)]));
-            }
-            Ok((issues, _)) => issues,
-            Err(error) => {
-                return Err(Refused {
-                    error,
-                    rejected: Checked::default(),
-                });
-            }
-        };
-        let error = invalid(&record.dataset, issues.clone());
-        let reason = error.message().to_owned();
-        Err(Refused {
+        let found = self.declared(dataset).map_err(|error| Refused {
             error,
-            rejected: Checked::rejected(Rejection {
+            staged: Checked::default(),
+        })?;
+        if !self.keeps_records() {
+            return Ok(Checked::default());
+        }
+        let together = records.len();
+        let mut holding = Vec::with_capacity(together);
+        let mut rejected = Vec::new();
+        let mut invalid_records = Vec::new();
+        for (position, data) in records.into_iter().enumerate() {
+            let issues = issues(found.declaration, found.validator, &data, work);
+            let dataset = dataset.to_owned();
+            if issues.is_empty() {
+                holding.push((PushedRecord { dataset, data }, found.schema_hash.cloned()));
+                continue;
+            }
+            rejected.push(Rejection {
                 why: Why {
-                    reason,
-                    issues,
+                    reason: record_message(&dataset, &issues),
+                    issues: issues.clone(),
                     hook: None,
                 },
-                dataset: record.dataset,
-                data: record.data,
+                dataset,
+                data,
+            });
+            invalid_records.push(InvalidRecord {
+                position: position_of(position),
+                issues,
+            });
+        }
+        let message = match (together, rejected.as_slice()) {
+            (_, []) => None,
+            (1, [alone]) => Some(alone.why.reason.clone()),
+            _ => Some(several_message(dataset, together, &invalid_records)),
+        };
+        let staged = Checked::with_rejected(holding, rejected);
+        match message {
+            None => Ok(staged),
+            Some(message) => Err(Refused {
+                error: invalid(dataset, invalid_records, message),
+                staged,
             }),
-        })
+        }
     }
 
     /// The declaration of the Dataset `name`, with its schema's validator
@@ -379,37 +424,11 @@ impl Datasets {
                 )
             })
     }
+}
 
-    /// The hash of the schema `record` holds under, its Dataset's.
-    fn check_one(
-        &self,
-        record: &PushedRecord,
-        work: &CountedWork,
-    ) -> Result<Option<Arc<str>>, CallError> {
-        let (issues, schema_hash) = self.issues(record, work)?;
-        if issues.is_empty() {
-            return Ok(schema_hash);
-        }
-        Err(invalid(&record.dataset, issues))
-    }
-
-    /// Each way `record` does not hold for the Dataset it names, checked
-    /// once, and the hash of that Dataset's schema.
-    fn issues(
-        &self,
-        record: &PushedRecord,
-        work: &CountedWork,
-    ) -> Result<(Vec<RecordIssue>, Option<Arc<str>>), CallError> {
-        let Found {
-            declaration,
-            validator,
-            schema_hash,
-        } = self.declared(&record.dataset)?;
-        Ok((
-            issues(declaration, validator, &record.data, work),
-            schema_hash.cloned(),
-        ))
-    }
+/// `position`, an index into a list held in memory, as the wire's number.
+fn position_of(position: usize) -> u64 {
+    u64::try_from(position).expect("invariant: a list's index fits in 64 bits")
 }
 
 /// The Datasets a crawl declares, as a reader of its Records takes them:
@@ -511,18 +530,48 @@ fn unknown(declarations: &[DatasetDeclaration], name: &str, message: String) -> 
     )
 }
 
-/// `record_invalid` for a Record of the Dataset `name` with `issues`.
-fn invalid(name: &str, issues: Vec<RecordIssue>) -> CallError {
+/// `record_invalid` for the Records `records` of the Dataset `name`, at
+/// least one, said by `message`.
+fn invalid(name: &str, records: Vec<InvalidRecord>, message: String) -> CallError {
     CallError::new(
         &RECORD_INVALID,
-        format!(
-            "A Record of the Dataset `{name}` does not hold, so it was not staged: {}",
-            described(&issues)
-        ),
+        message,
         &RecordInvalidDetails {
             dataset: name.to_owned(),
-            issues,
+            records,
         },
+    )
+}
+
+/// Why `records` of the Dataset `name`, among the `together` pushed
+/// together, were not staged, naming each by its position.
+fn several_message(name: &str, together: usize, records: &[InvalidRecord]) -> String {
+    format!(
+        "Of the {together} Records pushed together, {} of the Dataset `{name}` {}: {}",
+        records.len(),
+        if records.len() == 1 {
+            "does not hold, so it was not staged"
+        } else {
+            "do not hold, so they were not staged"
+        },
+        records
+            .iter()
+            .map(|record| format!(
+                "the one at position {}: {}",
+                record.position,
+                described(&record.issues)
+            ))
+            .collect::<Vec<_>>()
+            .join("; ")
+    )
+}
+
+/// Why one Record of the Dataset `name` with `issues` was not staged, the
+/// reason its rejection keeps.
+fn record_message(name: &str, issues: &[RecordIssue]) -> String {
+    format!(
+        "A Record of the Dataset `{name}` does not hold, so it was not staged: {}",
+        described(issues)
     )
 }
 

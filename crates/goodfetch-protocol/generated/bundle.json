@@ -2502,7 +2502,7 @@
     },
     "CrawlRequestPushParams": {
       "additionalProperties": false,
-      "description": "What `crawl_request.push` takes: one Record an attempt pushes into one\nof its crawl's Datasets.",
+      "description": "What `crawl_request.push` takes: the Records of one push of an\nattempt into one of its crawl's Datasets, one or several (ADR 0147).",
       "properties": {
         "_meta": {
           "$ref": "#/$defs/TraceContext",
@@ -2512,10 +2512,6 @@
           "arrived_in": "0.1",
           "description": "The ID of the crawl request whose attempt pushes.",
           "type": "string"
-        },
-        "data": {
-          "arrived_in": "0.1",
-          "description": "The Record."
         },
         "dataset": {
           "arrived_in": "0.1",
@@ -2529,6 +2525,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "The Records, at least one, in the order pushed: a Record's position\nin this list is how `record_invalid` names it.",
+          "items": true,
+          "minItems": 1,
+          "type": "array"
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
@@ -2540,12 +2543,12 @@
         "crawl_request_id",
         "lease_epoch",
         "dataset",
-        "data"
+        "records"
       ],
       "type": "object"
     },
     "CrawlRequestPushed": {
-      "description": "What `crawl_request.push` answers once the Record is staged.",
+      "description": "What `crawl_request.push` answers once every Record is staged.",
       "type": "object"
     },
     "CrawlRunReport": {
@@ -9194,8 +9197,9 @@
         "values": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "Each field's value, by name: a value field's value or null, a\nlist's array of values or nulls, rows' array of objects, each\nholding every field of its row, null where its row lacks it.",
-          "type": "object"
+          "description": "Each field's value, by name: a value field's value or null, a\nlist's array of values or nulls, rows' array of objects, each\nholding every field of its row, null where its row lacks it. Its\nnames and types follow `fields` (`typed_by`), from which each SDK\ntypes it (ADR 0147).",
+          "type": "object",
+          "typed_by": "fields"
         }
       },
       "required": [

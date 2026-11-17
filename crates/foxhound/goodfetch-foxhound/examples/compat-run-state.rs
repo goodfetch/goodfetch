@@ -759,7 +759,7 @@ fn reject(request: &Value) -> Value {
             "crawl_request_id": request["params"]["crawl_request"]["id"],
             "lease_epoch": request["params"]["lease_epoch"],
             "dataset": "pages",
-            "data": { "title": "No address" },
+            "records": [{ "title": "No address" }],
         },
     })
 }

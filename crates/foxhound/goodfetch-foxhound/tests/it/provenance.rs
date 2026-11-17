@@ -48,7 +48,7 @@ pub(crate) fn push(inside: &mut Inside<'_>, handle: &Value, dataset: &str, data:
             "crawl_request_id": handle["crawl_request"]["id"],
             "lease_epoch": handle["lease_epoch"],
             "dataset": dataset,
-            "data": data,
+            "records": [data],
         }),
     )
 }

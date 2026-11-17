@@ -74,7 +74,11 @@ struct Request<'a, P> {
     params: &'a P,
 }
 
-/// The line of the handler request `method` with `params`, sent under `id`.
+/// The line of the handler request `method` with `params`, sent under `id`: a
+/// function of its own, never inlined in the build `xtask counts` reads under
+/// Callgrind (`--cfg goodfetch_callgrind_names`), so that the run can name it
+/// in `E1.handled_page_wire_share` (ADR 0140).
+#[cfg_attr(goodfetch_callgrind_names, inline(never))]
 pub(crate) fn request_line(
     id: &RequestId,
     method: &str,
@@ -98,8 +102,11 @@ struct Success<'a, R> {
     result: &'a R,
 }
 
-/// The line of the success of the request `id`, its `result` encoded
-/// straight into it.
+/// The line of the success of the request `id`, its `result` encoded straight
+/// into it: a function of its own, never inlined in the build `xtask counts`
+/// reads under Callgrind (`--cfg goodfetch_callgrind_names`), so that the run
+/// can name it in `E1.handled_page_wire_share` (ADR 0140).
+#[cfg_attr(goodfetch_callgrind_names, inline(never))]
 pub(crate) fn success_line(
     id: &RequestId,
     result: &impl Serialize,
@@ -140,11 +147,15 @@ impl Received {
         &self.line[self.range.clone()]
     }
 
-    /// It, read as `T`.
+    /// It, read as `T`: a function of its own, never inlined in the build
+    /// `xtask counts` reads under Callgrind
+    /// (`--cfg goodfetch_callgrind_names`), so that the run can name it in
+    /// `E1.handled_page_wire_share` (ADR 0140).
     ///
     /// # Errors
     ///
     /// When it is no `T`.
+    #[cfg_attr(goodfetch_callgrind_names, inline(never))]
     pub fn read<T: DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
         serde_json::from_str(self.json())
     }

@@ -89,10 +89,14 @@ fn crawl_keying(
         .collect();
     // The `www.` host the `/forms/` pages link.
     resolve.insert("www.learning.test".to_owned(), json!([ip]));
+    // Each attempt's outcome is a batch of its own, whose end teaches what
+    // its page noted: a rule is learned one batch late (ADR 0142's note of
+    // 2026-11-10), after the handler that noted it, before the next page.
     let mut settings = json!({
         "fetch": { "tier": "http" },
         "egress": { "private_ranges": resolve.keys().collect::<Vec<_>>() },
         "network": { "resolve": resolve },
+        "run_state": { "batch": { "per_attempt": true } },
     });
     if let (Some(settings), Value::Object(own)) = (settings.as_object_mut(), own) {
         settings.extend(own);
@@ -573,9 +577,11 @@ fn with_learning_off_an_offset_listing_is_paged_to_its_end() {
 /// its trailing slash teach that form, and the third guide's slashed URL,
 /// still pending, ends `skipped` with `duplicate` and is never handed a
 /// handler; three docs pages naming their folder as `rel=canonical` teach
-/// the `index.html` form, ending the folders already pending and making
-/// the next a `duplicate`; news pages whose canonical names the section's
-/// index teach nothing and are each fetched; and pages that read otherwise
+/// the `index.html` form one batch late (ADR 0142's note of 2026-11-10),
+/// ending the folders already pending, and merging the third folder, which
+/// the page that taught the form enqueued `added` before its lesson, before
+/// it is fetched; news pages whose canonical names the section's index
+/// teach nothing and are each fetched; and pages that read otherwise
 /// on `www.` and on the bare host are both kept. The report lists each
 /// `equivalent_form` rule with its evidence and the URLs it merged.
 ///
@@ -601,6 +607,7 @@ fn equivalent_forms_merge_only_on_evidence() {
             handled(&on("/forms/docs/1/")),
             handled(&on("/forms/docs/2/")),
             crawled.answers.get(&on("/forms/docs/3/")),
+            handled(&on("/forms/docs/3/")),
             [1, 2, 3].map(|page| handled(&on(&format!("/forms/news/{page}")))),
             [1, 2, 3].map(|page| {
                 let path = format!("/forms/split/{page}");
@@ -613,7 +620,8 @@ fn equivalent_forms_merge_only_on_evidence() {
             false,
             false,
             false,
-            Some(&"duplicate".to_owned()),
+            Some(&"added".to_owned()),
+            false,
             [true; 3],
             [(true, true); 3],
             json!([{ "name": "duplicate", "count": 3 }]),

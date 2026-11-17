@@ -4,7 +4,7 @@
 
 use std::collections::BTreeSet;
 
-use super::{NOT_RUN_YET, ROWS};
+use super::{NOT_RUN_YET, ROWS, UnderValgrind};
 
 /// The rows whose figure a benchmark reads outside Counted work: Callgrind's
 /// call counts of SQLite's prepare and of `CountedWork`'s constructor, its
@@ -66,4 +66,25 @@ fn the_commands_rows_are_the_counters_and_the_figures_read_elsewhere() {
         read_elsewhere,
         "counted rows with no counter, against those read under Valgrind or elsewhere"
     );
+}
+
+/// Under Valgrind a family's cells come from its example or from its
+/// benchmark, never both, so no row of the other goes unread.
+#[test]
+fn a_family_reads_its_rows_under_valgrind_from_one_place() {
+    let families = |example: bool| -> BTreeSet<&str> {
+        ROWS.iter()
+            .filter(|row| match row.valgrind {
+                Some(UnderValgrind::Example) => example,
+                Some(UnderValgrind::Benchmark(_)) => !example,
+                None => false,
+            })
+            .map(|row| row.family)
+            .collect()
+    };
+    let both: Vec<_> = families(true)
+        .intersection(&families(false))
+        .copied()
+        .collect();
+    assert!(both.is_empty(), "families read from both: {both:?}");
 }

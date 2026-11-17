@@ -21,6 +21,9 @@ use super::{PANICS, Reply, crawl, dependencies, page_of, run_file, work_items};
 /// work item is tried again up to `crawl.retry.max` (2 in the tests'
 /// policy) with `crawl.retry.engine_panicked` on, its default, and ends
 /// `failed` at once with it off; the Run finishes with nothing leased.
+/// Each panicked attempt settled its Session, so the third seed's request
+/// is drawn in the one Session the first opened, which has room again
+/// (#2178): no draw opened another.
 ///
 /// Covers: story:3-41, setting:crawl.retry.engine_panicked, error:engine_panicked
 #[rstest]
@@ -60,11 +63,17 @@ fn an_attempt_that_panics_ends_failed_and_gives_back_what_it_held(
             let report = client
                 .call("run.finish", json!({ "run_id": "panics" }), &mut handler)
                 .await;
-            let sent: Vec<(String, tokio::time::Instant)> = client
+            let sent: Vec<(String, tokio::time::Instant, Value)> = client
                 .arrivals
                 .iter()
                 .filter(|(message, _)| message["method"] == "crawl_request.handle")
-                .map(|(message, at)| (page_of(&message["params"]), *at))
+                .map(|(message, at)| {
+                    (
+                        page_of(&message["params"]),
+                        *at,
+                        message["params"]["session"]["id"].clone(),
+                    )
+                })
                 .collect();
             (report, sent)
         },
@@ -82,7 +91,8 @@ fn an_attempt_that_panics_ends_failed_and_gives_back_what_it_held(
             |row| row.get(0),
         )
         .unwrap();
-    let urls: Vec<&str> = sent.iter().map(|(url, _)| url.as_str()).collect();
+    let urls: Vec<&str> = sent.iter().map(|(url, ..)| url.as_str()).collect();
+    let sessions: Vec<&Value> = sent.iter().map(|(.., session)| session).collect();
     assert_eq!(
         (
             &report["result"]["lifecycle"],
@@ -91,6 +101,7 @@ fn an_attempt_that_panics_ends_failed_and_gives_back_what_it_held(
             items,
             details.map(|details| serde_json::from_str::<Value>(&details).unwrap()),
             urls,
+            sessions,
             sent[1].1 - sent[0].1,
         ),
         (
@@ -108,6 +119,7 @@ fn an_attempt_that_panics_ends_failed_and_gives_back_what_it_held(
             ],
             Some(json!({ "ended": "attempt" })),
             vec!["https://shop.test/page/1", "https://shop.test/page/2"],
+            vec![&json!("session-1"); 2],
             Duration::ZERO,
         ),
         "{report}"

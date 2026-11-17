@@ -187,7 +187,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 130] = [
+const ROWS: [Row; 131] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -483,6 +483,15 @@ const ROWS: [Row; 130] = [
         family: "B2",
         unit: "pages_opened",
         happens: true,
+        valgrind: None,
+    },
+    // A Session's browser context, made as it opens in the pool; the
+    // Borrowed browser of the default cell makes none.
+    Row {
+        name: "C7.contexts_created",
+        family: "B2",
+        unit: "sessions_opened",
+        happens: false,
         valgrind: None,
     },
     Row {

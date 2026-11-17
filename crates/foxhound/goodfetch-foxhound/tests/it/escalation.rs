@@ -19,6 +19,7 @@
 
 use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, TestEnv};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::fetch_tiers::{engine, settings, tiers};
@@ -627,16 +628,26 @@ fn under_transport_a_call_only_the_browser_serves_runs_again_in_a_browser_sessio
 /// Session's own transport fetched moves its domain to the browser as
 /// under `browser`, and the request runs again in the same attempt in
 /// another Session, one whose client is its browser; the domain's next
-/// request starts on the browser (#2416).
+/// request starts on the browser (#2416). The escalation opens its
+/// browser Session once a browser-page place can be had, and its page
+/// takes that place: with one place in the engine, the sample's page gave
+/// it back, and the escalated request runs on it (#2178).
 ///
-/// Covers: story:8-216, story:8-209, setting:fetch.http_from
-#[test]
+/// Covers: story:8-216, story:8-209, setting:fetch.http_from, setting:governor.browser_page.ceiling
 #[expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
-fn under_transport_a_challenge_moves_its_request_to_a_browser_session() {
+#[rstest]
+#[case::with_the_default_places(None)]
+#[case::with_one_place(Some(1))]
+fn under_transport_a_challenge_moves_its_request_to_a_browser_session(#[case] places: Option<u64>) {
     let env = TestEnv::new();
+    if let Some(places) = places {
+        env.user_configuration(&format!(
+            "[settings.governor.browser_page]\nfloor = {places}\nceiling = {places}\n"
+        ));
+    }
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
 

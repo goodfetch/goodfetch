@@ -78,7 +78,9 @@ use goodfetch_engine::{
 };
 use goodfetch_page::Launcher;
 use goodfetch_page::blocks::{Block, BlockClassifier};
-use goodfetch_page::page_value::{BrowserPages, HandlerPages, Observer, PageValue, PooledSession};
+use goodfetch_page::page_value::{
+    BrowserPages, HandlerPages, HeldPlace, Observer, PageValue, PooledSession,
+};
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, PROTOCOL_VERSION, Product, Reach, Stability,
     schema_of,
@@ -258,6 +260,8 @@ pub(crate) struct Counted {
     pub(crate) field_rows: BTreeMap<usize, u64>,
     /// The pages the browser opened (`Target.createTarget`), each once.
     pub(crate) pages_opened: u64,
+    /// The Sessions the program opened its pages in, each once.
+    pub(crate) sessions_opened: u64,
     /// The requests the browser paused, each once.
     pub(crate) requests: u64,
     /// The browser's `Fetch.requestPaused` events: a request's, and a
@@ -1098,13 +1102,14 @@ impl Client {
 /// navigates it to each of [`PAGES`], so a navigation sits in the middle; in
 /// the browser pool, opens a page at each and closes it after. On each
 /// document, it does [`on_page`]'s work. Answers once the browser heard all
-/// of it, with the actions the engine answered, by kind.
+/// of it, with the actions the engine answered, by kind, and the Sessions it
+/// opened.
 async fn program(
     client: &mut Client,
     (browsers, cdp_url, settings): (Browsers, &str, Map<String, Value>),
     (heard, work): (&Heard, &CountedWork),
     (during_reads, by_fields): (&mut BTreeMap<&'static str, u64>, &mut ByFields),
-) -> BTreeMap<&'static str, u64> {
+) -> (BTreeMap<&'static str, u64>, u64) {
     client
         .call(
             "hello",
@@ -1116,6 +1121,7 @@ async fn program(
         .await;
     let mut attempts = BTreeMap::new();
     if browsers == Browsers::Pool {
+        // Every page opens in the one Session `pooled` names.
         for url in PAGES {
             let opened = client
                 .call(OPEN_POOL_PAGE.name, &json!({ "run_id": RUN, "url": url }))
@@ -1135,7 +1141,7 @@ async fn program(
                 )
                 .await;
         }
-        return attempts;
+        return (attempts, 1);
     }
     let session = client
         .call(
@@ -1165,7 +1171,7 @@ async fn program(
         )
         .await;
     }
-    attempts
+    (attempts, 1)
 }
 
 /// What [`FIELD_READ_ROWS`] counted and the commands the browser read over
@@ -1354,6 +1360,7 @@ fn pooled() -> PooledSession {
         id: SessionId("pooled".to_owned()),
         source: Some(None),
         address_ordinal: None,
+        place: HeldPlace::default(),
     }
 }
 
@@ -1461,13 +1468,12 @@ pub(crate) fn counted(
     let (launcher, started) = Launcher::scripted(Some(std::process::id()));
     let engine = engine(metrics, launcher);
     let heard = Heard::default();
-    let mut during_reads = BTreeMap::new();
-    let mut by_fields = ByFields::new();
+    let (mut during_reads, mut by_fields) = (BTreeMap::new(), ByFields::new());
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("invariant: the runtime starts");
-    let attempts = runtime.block_on(async {
+    let (attempts, sessions_opened) = runtime.block_on(async {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("invariant: loopback binds");
@@ -1489,7 +1495,7 @@ pub(crate) fn counted(
                 writer,
                 next_id: 0,
             };
-            let attempts = program(
+            let programmed = program(
                 &mut client,
                 (browsers, &cdp_url, settings),
                 (&heard, &work),
@@ -1503,7 +1509,7 @@ pub(crate) fn counted(
                 .await
                 .expect("invariant: in memory");
             while let Ok(Some(_)) = client.lines.next_line().await {}
-            attempts
+            programmed
         };
         let dependencies = dependencies(home);
         let ran = async {
@@ -1514,12 +1520,12 @@ pub(crate) fn counted(
         };
         tokio::pin!(ran);
         // The pool's browsers are played until the engine is done with them.
-        let (engine_ended, attempts) = tokio::select! {
+        let (engine_ended, programmed) = tokio::select! {
             ran = &mut ran => ran,
             () = served => ran.await,
         };
         engine_ended.expect("invariant: the engine got its Connection");
-        attempts
+        programmed
     });
     let reading = &heard.reading;
     let documents = reading
@@ -1548,6 +1554,7 @@ pub(crate) fn counted(
             .map(|(count, (rows, _))| (count, rows))
             .collect(),
         pages_opened: heard.pages.load(Ordering::Relaxed),
+        sessions_opened,
         requests,
         paused,
         refused,

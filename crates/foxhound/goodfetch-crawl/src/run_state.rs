@@ -37,7 +37,7 @@
 //! answers that it changed, so a live crawl's progress is built from this
 //! state and reads no count from the run file (#2167).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -47,13 +47,17 @@ use futures_util::StreamExt as _;
 use futures_util::stream::FuturesUnordered;
 
 use goodfetch_engine::admission::Waiting;
+use goodfetch_engine::governor::RunShare;
 use goodfetch_engine::local_addresses::{SessionAddresses, Unavailable};
 use goodfetch_engine::run_state::{BatchRows, BatchWriter, RunStateError};
 use goodfetch_engine::runs::{ChargeError, Run, UnjournaledCharges};
-use goodfetch_fetch_tier::{Choosing, HttpFrom, PooledSession, SetTier, TierChoice};
+use goodfetch_fetch_tier::{Choosing, HeldPlace, HttpFrom, PooledSession, SetTier, TierChoice};
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
-use goodfetch_session_pool::{Effect, LabelPools, PoolKey, PoolSettings, SendsFrom, SessionPool};
+use goodfetch_protocol::governor::WorkKind;
+use goodfetch_session_pool::{
+    Effect, LabelPools, PoolKey, PoolSettings, SendsFrom, SessionPool, Wanted,
+};
 use rusqlite::Connection;
 
 use crate::labels;
@@ -154,6 +158,21 @@ pub(crate) struct Drawing<'a> {
     pub(crate) reads_site_files: bool,
     /// The wall clock, and in milliseconds since the Unix epoch.
     pub(crate) wall: (SystemTime, u64),
+    /// The Run's share of the Resource governor, which a draw tries for a
+    /// browser-page place before it opens a Session of the browser client
+    /// (#2178).
+    pub(crate) places: &'a RunShare,
+}
+
+/// A work item leased whose Session is still to be drawn: its pool, how
+/// its tier is chosen, and the clients its draw wants.
+struct Planned {
+    leased: Leased,
+    key: PoolKey,
+    chosen: Chosen,
+    sends_from: SendsFrom,
+    /// Whether a Session of the transport is drawn beside it (#2421).
+    from_transport: bool,
 }
 
 /// The tier choices whose count of requests served moved since the run
@@ -300,6 +319,10 @@ pub(crate) struct RunState {
     /// reaches them, so their lock is never contended: it only lets a
     /// shared Run state cross threads.
     claims: tokio::sync::Mutex<FuturesUnordered<Claim>>,
+    /// The work items leased whose request needs the browser and waits
+    /// for a Session of the browser client to have room, or for a
+    /// browser-page place, in the order they were leased (#2178).
+    undrawn: VecDeque<Planned>,
 }
 
 /// A claim queued with the run-state writer: answers the IDs it did not
@@ -325,6 +348,7 @@ impl RunState {
             stored,
             kept: Kept::new(whole),
             claims: tokio::sync::Mutex::new(FuturesUnordered::new()),
+            undrawn: VecDeque::new(),
         }
     }
 
@@ -514,19 +538,28 @@ impl RunState {
     /// escalated from a Session's own transport runs again in (#2416), as
     /// `escalated` says: as a lease's draw does, so one already open serves
     /// it while the pool has no room, and the pool keeps it for the run
-    /// file as it keeps any draw.
+    /// file as it keeps any draw. The attempt holds the browser-page place
+    /// its page takes, so the draw may open a Session for it (#2178).
     fn escalated(&mut self, escalated: &Escalated) -> DrawnSession {
-        let session = self.pool.draw(
-            &escalated.pool,
-            &escalated.domain_key,
-            SendsFrom::Browser,
-            &escalated.settings,
-            escalated.now,
-        );
+        let wanted = Wanted {
+            domain_key: &escalated.domain_key,
+            host: &escalated.host,
+            sends_from: SendsFrom::Browser,
+        };
+        let session = self
+            .pool
+            .draw(
+                &escalated.pool,
+                &wanted,
+                &escalated.settings,
+                escalated.now,
+                || true,
+            )
+            .expect("invariant: a draw that holds a place always draws a Session");
         self.drawn_session(
             (&escalated.labels.pools, &escalated.pool),
             session,
-            SendsFrom::Browser,
+            (SendsFrom::Browser, escalated.place.clone()),
         )
     }
 
@@ -568,10 +601,50 @@ impl RunState {
         } else {
             self.claiming(Box::pin(claim), &leased);
         }
-        Ok(leased
-            .into_iter()
-            .map(|leased| self.draw(drawing, leased))
-            .collect())
+        let mut drawn = Vec::with_capacity(leased.len());
+        for leased in leased {
+            let planned = self.plan(drawing, leased);
+            match self.draw(drawing, planned) {
+                Ok(one) => drawn.push(one),
+                Err(waits) => self.undrawn.push_back(*waits),
+            }
+        }
+        Ok(drawn)
+    }
+
+    /// Draws again, in the order they were leased, the Sessions of at most
+    /// `room` work items whose request waits for a Session of the browser
+    /// client to have room or for a browser-page place (#2178): those
+    /// drawn now, each still waiting kept in its turn.
+    pub(crate) fn redraw(&mut self, drawing: &Drawing<'_>, room: usize) -> Vec<Drawn> {
+        let mut drawn = Vec::new();
+        let mut still = VecDeque::with_capacity(self.undrawn.len());
+        while let Some(planned) = self.undrawn.pop_front() {
+            if drawn.len() == room {
+                still.push_back(planned);
+                continue;
+            }
+            match self.draw(drawing, planned) {
+                Ok(one) => drawn.push(one),
+                Err(waits) => still.push_back(*waits),
+            }
+        }
+        self.undrawn = still;
+        drawn
+    }
+
+    /// How many work items leased wait for their Session to be drawn
+    /// ([`redraw`](Self::redraw)).
+    pub(crate) fn undrawn(&self) -> usize {
+        self.undrawn.len()
+    }
+
+    /// Whether the work item `id` was leased and waits for its Session to
+    /// be drawn.
+    pub(crate) fn waits_to_draw(&self, id: &str) -> bool {
+        self.undrawn
+            .iter()
+            .any(|planned| planned.leased.crawl_request.id == id)
     }
 
     /// Each pending work item of `asked`, by ID with the domain key its
@@ -658,24 +731,18 @@ impl RunState {
         &mut self.pool
     }
 
-    /// Draws the Session of the pool that serves `leased`, and chooses how
-    /// its tier is chosen, as its Label and the Run's `fetch.tier` choose
+    /// Chooses how the tier of `leased` is chosen, and so the client its
+    /// Session is drawn for, as its Label and the Run's `fetch.tier` choose
     /// and, under `auto`, on the browser for a domain a Challenge moved
     /// there (ADR 0021), else, when the Run races its tiers, as a sample
     /// while its Label on its domain is due one, else as a race, else as
     /// its Label on its domain learned, its HTTP sent from the client its
     /// Label's `fetch.http_from`, else the Run's, says, or from the browser
-    /// when its pool holds a login (#2418). A sample whose
-    /// `http` run is sent from the transport, and a race whose Label
-    /// learned to send its HTTP from there, draw a second Session in the
-    /// same draw, for that run or the race's first request (#2421). While
-    /// the Run reads site files, an
-    /// attempt whose Sessions all send from the browser draws, in the same
-    /// draw, a Session of the transport to read them, one already open
-    /// while there is one (#2422). A choice whose count of requests served
-    /// moved is kept for the run file, so a resumed crawl goes on counting
-    /// toward its refresh.
-    fn draw(&mut self, drawing: &Drawing<'_>, leased: Leased) -> Drawn {
+    /// when its pool holds a login (#2418). A choice whose count of
+    /// requests served moved is kept for the run file, so a resumed crawl
+    /// goes on counting toward its refresh; it is counted once, however
+    /// long its draw waits.
+    fn plan(&mut self, drawing: &Drawing<'_>, leased: Leased) -> Planned {
         let request = &leased.crawl_request;
         let labels = drawing.labels;
         let key = labels.pools.pool(&request.label);
@@ -731,78 +798,129 @@ impl RunState {
             Chosen::Racing(learned) => learned.sends_from(from) == SendsFrom::Transport,
             Chosen::Planned(_) => false,
         };
-        let domain_key = leased.waiting.key.as_str();
-        let session = self.pool.draw(
-            &key,
-            domain_key,
+        Planned {
+            leased,
+            key,
+            chosen,
             sends_from,
-            &drawing.settings,
-            drawing.wall.0,
-        );
-        let session = self.drawn_session((&labels.pools, &key), session, sends_from);
-        let transport = from_transport.then(|| {
-            let transport = self.pool.draw(
-                &key,
-                domain_key,
-                SendsFrom::Transport,
-                &drawing.settings,
-                drawing.wall.0,
-            );
-            self.drawn_session((&labels.pools, &key), transport, SendsFrom::Transport)
+            from_transport,
+        }
+    }
+
+    /// Draws the Session of the pool that serves `planned`, for the client
+    /// its plan sends from, preferring one whose last request went to its
+    /// host. A Session of the browser client opens only while a
+    /// browser-page place can be had, which the draw tries the Run's share
+    /// for and holds for that Session's first page; with none, and no open
+    /// Session of that client with room, it answers `planned` back to wait
+    /// (#2178), boxed, as only a request that waits pays for it. A sample
+    /// whose `http` run is sent from the transport, and a race whose Label
+    /// learned to send its HTTP from there, draw a second Session in the
+    /// same draw, for that run or the race's first request (#2421). While the Run reads site files, an attempt whose
+    /// Sessions all send from the browser draws, in the same draw, a
+    /// Session of the transport to read them, one already open while there
+    /// is one (#2422).
+    fn draw(&mut self, drawing: &Drawing<'_>, planned: Planned) -> Result<Drawn, Box<Planned>> {
+        let labels = drawing.labels;
+        let (key, sends_from) = (&planned.key, planned.sends_from);
+        let domain_key = planned.leased.waiting.key.as_str();
+        let host = goodfetch_frontier::host_of(&planned.leased.crawl_request.url);
+        let mut place = None;
+        let wanted = Wanted {
+            domain_key,
+            host,
+            sends_from,
+        };
+        let session = self
+            .pool
+            .draw(key, &wanted, &drawing.settings, drawing.wall.0, || {
+                place = drawing.places.try_admit(WorkKind::BrowserPage);
+                place.is_some()
+            });
+        let Some(session) = session else {
+            return Err(Box::new(planned));
+        };
+        let place = place.map(HeldPlace::holding).unwrap_or_default();
+        let session = self.drawn_session((&labels.pools, key), session, (sends_from, place));
+        let transport_wanted = Wanted {
+            sends_from: SendsFrom::Transport,
+            ..wanted
+        };
+        let transport = planned.from_transport.then(|| {
+            let transport = self.transport(key, &transport_wanted, drawing);
+            self.drawn_session(
+                (&labels.pools, key),
+                transport,
+                untaken(SendsFrom::Transport),
+            )
         });
         // A site file is never read from a browser page, nor from a client
         // other than a Session's own transport (#2422). A pool that holds a
         // login has its read by a Session of the Run's pool, drawn even
         // when it must make room, so its own Sessions' transports send
         // nothing (#2418).
-        let login = labels.login(&request.label).is_some();
+        let login = labels.login(&planned.leased.crawl_request.label).is_some();
         let reading = if login { PoolKey::Run } else { key.clone() };
-        let site_files = (drawing.reads_site_files
-            && sends_from == SendsFrom::Browser
-            && transport.is_none())
-        .then(|| {
-            let (key, wall) = (&reading, drawing.wall.0);
-            if login {
-                Some(self.pool.draw(
-                    key,
-                    domain_key,
-                    SendsFrom::Transport,
-                    &drawing.settings,
-                    wall,
-                ))
-            } else {
-                self.pool.draw_reusing(
-                    key,
-                    domain_key,
-                    SendsFrom::Transport,
-                    &drawing.settings,
-                    wall,
-                )
-            }
-        })
-        .flatten()
-        .map(|reader| self.drawn_session((&labels.pools, &reading), reader, SendsFrom::Transport));
-        Drawn {
+        let site_files =
+            (drawing.reads_site_files && sends_from == SendsFrom::Browser && transport.is_none())
+                .then(|| {
+                    if login {
+                        Some(self.transport(&reading, &transport_wanted, drawing))
+                    } else {
+                        self.pool.draw_reusing(
+                            &reading,
+                            domain_key,
+                            SendsFrom::Transport,
+                            &drawing.settings,
+                            drawing.wall.0,
+                        )
+                    }
+                })
+                .flatten()
+                .map(|reader| {
+                    self.drawn_session(
+                        (&labels.pools, &reading),
+                        reader,
+                        untaken(SendsFrom::Transport),
+                    )
+                });
+        let Planned { leased, chosen, .. } = planned;
+        Ok(Drawn {
             leased,
             session,
             chosen,
             transport,
             site_files,
-        }
+        })
+    }
+
+    /// A Session of the pool `key` drawn for `wanted`, a request sent from
+    /// a Session's own transport, which takes no browser-page place.
+    fn transport(
+        &mut self,
+        key: &PoolKey,
+        wanted: &Wanted<'_>,
+        drawing: &Drawing<'_>,
+    ) -> ServingSession {
+        self.pool
+            .draw(key, wanted, &drawing.settings, drawing.wall.0, || true)
+            .expect("invariant: a draw for a Session's own transport never waits for a place")
     }
 
     /// `session`, drawn from the pool `key` of `pools`, sending from
-    /// `sends_from`, as it runs in the browser, with its local addresses.
+    /// `sends_from`, as it runs in the browser holding `place` for its
+    /// first page, with its local addresses.
     fn drawn_session(
         &self,
         (pools, key): (&LabelPools, &PoolKey),
         session: ServingSession,
-        sends_from: SendsFrom,
+        (sends_from, place): (SendsFrom, HeldPlace),
     ) -> DrawnSession {
         let in_browser = PooledSession {
             id: session.id.clone(),
             source: pools.source(key),
             address_ordinal: self.pool.address_ordinal(&session.id),
+            place,
         };
         let local = self.pool.local_addresses(&session.id);
         DrawnSession {
@@ -841,6 +959,12 @@ impl RunState {
     pub(crate) fn race_delay(&self, label: &str, domain_key: &str) -> Duration {
         self.latencies.delay(label, domain_key)
     }
+}
+
+/// A draw of a Session sending from `sends_from` that holds no
+/// browser-page place.
+fn untaken(sends_from: SendsFrom) -> (SendsFrom, HeldPlace) {
+    (sends_from, HeldPlace::default())
 }
 
 #[cfg(test)]

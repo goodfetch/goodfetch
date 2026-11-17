@@ -104,7 +104,7 @@ fn three() -> Value {
 /// `session.pool.max_size` (ADR 0006).
 pub const SESSION_POOL_MAX_SIZE: Setting = Setting {
     name: "session.pool.max_size",
-    description: "How many Sessions a crawl's Session pool keeps open at once, whether each sends from its own HTTP transport or from its browser: 100. A request goes to a new Session while the pool has room, then to one drawn among those open that send from the client it needs.",
+    description: "How many Sessions a crawl's Session pool keeps open at once, whether each sends from its own HTTP transport or from its browser: 100. A request goes to an open Session of the client it needs at its domain's proxy tier that has room under `session.pool.session_concurrency`, a new Session opening only when none has room and the pool is under this size; a full pool draws among the busy ones.",
     kind: ValueKind::Count,
     default: one_hundred,
     clearable: false,
@@ -157,6 +157,67 @@ pub const SESSION_POOL_MAX_ERROR_SCORE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// The rules by which a crawl's Session pool opens a new Session (spec
+/// #2139).
+pub const GROWTHS: &[&str] = &["on_demand", "eager"];
+
+fn on_demand() -> Value {
+    Value::from("on_demand")
+}
+
+/// `session.pool.growth` (spec #2139, ADR 0006).
+pub const SESSION_POOL_GROWTH: Setting = Setting {
+    name: "session.pool.growth",
+    description: "When a crawl's Session pool opens a new Session. `on_demand` opens one only when no open Session of the client a request needs, at its domain's proxy tier, has room under `session.pool.session_concurrency`, or when a block that retired a Session leaves the domain owing one; a browser Session opens only while a browser page can be admitted for it, else the request waits for a browser Session with room. `eager` opens a new Session for every request while the pool is under `session.pool.max_size`, as Crawlee does.",
+    kind: ValueKind::Choice(GROWTHS),
+    default: on_demand,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn one() -> Value {
+    Value::from(1_u64)
+}
+
+/// `session.pool.session_concurrency` (spec #2139).
+pub const SESSION_POOL_SESSION_CONCURRENCY: Setting = Setting {
+    name: "session.pool.session_concurrency",
+    description: "How many requests one Session of a crawl's Session pool serves at once under `session.pool.growth: on_demand`: 1. Unset, a Session serves any number, so the pool opens one Session for each client and proxy tier.",
+    kind: ValueKind::Count,
+    default: one,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The Sessions a crawl's Session pool prefers for a request (spec #2139).
+pub const AFFINITIES: &[&str] = &["host", "none"];
+
+fn host() -> Value {
+    Value::from("host")
+}
+
+/// `session.pool.affinity` (spec #2139).
+pub const SESSION_POOL_AFFINITY: Setting = Setting {
+    name: "session.pool.affinity",
+    description: "Which open Session with room a crawl's Session pool prefers for a request under `session.pool.growth: on_demand`. `host` prefers one whose last request went to the request's host; `none` draws among them at random. It never opens a Session.",
+    kind: ValueKind::Choice(AFFINITIES),
+    default: host,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -171,6 +232,9 @@ pub const ENTRIES: Entries = Entries {
         SESSION_POOL_MAX_USES,
         SESSION_POOL_MAX_AGE,
         SESSION_POOL_MAX_ERROR_SCORE,
+        SESSION_POOL_GROWTH,
+        SESSION_POOL_SESSION_CONCURRENCY,
+        SESSION_POOL_AFFINITY,
     ],
     hook_stages: &[],
     shared_type_values: &[],

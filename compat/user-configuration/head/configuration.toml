@@ -222,6 +222,9 @@ max_size = 4
 max_uses = 4
 max_age = 30000
 max_error_score = 4
+growth = "on_demand"
+session_concurrency = 4
+affinity = "host"
 
 [settings.webhook]
 signing = true

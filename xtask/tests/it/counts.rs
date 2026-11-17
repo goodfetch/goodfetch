@@ -949,6 +949,7 @@ const B2_ROWS: &str = "\
 | `C2.live_view_commands` | CDP commands per Live view read | no cap (ratchet) | not run yet (#1683) | B2 | must not grow | `just counts --path C2` | implementer done |
 | `C7.pool_walks` | walks per page opened | 0 | after #1583 | B2 | must not grow | `just counts` | implementer done |
 | `C7.opening_commands` | CDP commands awaited per page opened | no cap (ratchet) | 12 | B2 | must not grow | `just counts` | implementer done |
+| `C7.contexts_created` | browser contexts created per Session opened | ≤ 1 | 1 | B2 | must not grow | `just counts` | implementer done |
 | `C4.detection_reads` | detection reads per navigation | ≤ 1 | 4 | B2 | must not grow | `just counts` | implementer done |
 | `C4.compilations` | glob and regex compilations per navigation | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
 | `C4.script_compilations` | script compilations per navigation | 0 | after #1583 | B2 | must not grow | `just counts` | implementer done |
@@ -967,7 +968,7 @@ const B2_ROWS: &str = "\
 ";
 
 /// A stand-in of B2 over 20 commands, 4 reads, 2 documents, 2 serializations,
-/// 4 fields' reads, 1 page opened,
+/// 4 fields' reads, 1 page opened in 1 Session,
 /// 4 requests paused 6 times, 2 of them refused, one check and attempt of each
 /// action kind and 3 navigations, each row at its limit, which counts `extra`
 /// more of `planted` when told to plant it.
@@ -984,6 +985,7 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
         ("C2.read_commands", 8),
         ("C7.pool_walks", 0),
         ("C7.opening_commands", 12),
+        ("C7.contexts_created", 0),
         ("C5.fetch_messages_no_rule", 13),
         ("C5.spawns", 2),
         ("C5.file_opens", 4),
@@ -1008,7 +1010,7 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
     format!(
         "#!/bin/sh\nplant=$2\n\
          planted() {{ if [ \"$1\" = \"$plant\" ] && [ \"$1\" = {planted} ]; then echo {extra}; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"commands\":20,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3}},\"counts\":{{{counts}}}}}'\n"
+         echo '{{\"cell\":\"default\",\"units\":{{\"commands\":20,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"sessions_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3}},\"counts\":{{{counts}}}}}'\n"
     )
 }
 
@@ -1176,8 +1178,8 @@ fn b2_doing_a_live_view_frames_work_fails_while_its_rows_say_not_run() {
     let b2 = executable_script(
         &workspace,
         "B2.sh",
-        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"C2.serialization_commands\":4,\"C2.read_commands\":8,\"C7.pool_walks\":0,\"C7.opening_commands\":12,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":2,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":0}}'\n\
-         echo '{\"cell\":\"no_viewer\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"C2.serialization_commands\":4,\"C2.read_commands\":8,\"C7.pool_walks\":0,\"C7.opening_commands\":12,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":2,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":1}}'\n",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"sessions_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"C2.serialization_commands\":4,\"C2.read_commands\":8,\"C7.pool_walks\":0,\"C7.opening_commands\":12,\"C7.contexts_created\":0,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":2,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":0}}'\n\
+         echo '{\"cell\":\"no_viewer\",\"units\":{\"commands\":4,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"sessions_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3},\"counts\":{\"C1.encodes\":4,\"C1.sends\":4,\"C1.file_opens\":6,\"C1.log_sends_off\":4,\"C2.commands\":8,\"C2.world_creations\":4,\"C2.document_worlds\":4,\"C2.serialization_commands\":4,\"C2.read_commands\":8,\"C7.pool_walks\":0,\"C7.opening_commands\":12,\"C7.contexts_created\":0,\"C5.fetch_messages_no_rule\":13,\"C5.spawns\":2,\"C5.file_opens\":4,\"C5.matches\":4,\"C5.answers\":6,\"C5.compilations\":0,\"C5.entries\":2,\"C3.script_sends\":1,\"C3.check_commands\":1,\"C3.commands.click\":6,\"C3.commands.fill\":2,\"C3.commands.press\":4,\"C4.detection_reads\":12,\"C4.compilations\":0,\"C4.script_compilations\":0,\"C4.provenance_entries\":4,\"C6.acknowledgements\":1}}'\n",
     );
 
     let outcome = workspace.xtask(&[

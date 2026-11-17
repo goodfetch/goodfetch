@@ -19,9 +19,9 @@ use goodfetch_protocol::page::SessionId;
 use rstest::rstest;
 use rusqlite::Connection;
 
-use super::{Effect, LocalAddressing, Rotated, SendsFrom, SessionPool};
+use super::{Effect, LocalAddressing, Rotated, SendsFrom, SessionPool, Wanted};
 use crate::labels::PoolKey;
-use crate::settings::PoolSettings;
+use crate::settings::{Affinity, Growth, PoolSettings};
 use crate::store::TABLES;
 
 /// One Session at a time, so the next request goes to the same Session
@@ -31,7 +31,42 @@ const ONE: PoolSettings = PoolSettings {
     max_uses: 50,
     max_age: Duration::from_mins(50),
     max_error_score: 3,
+    growth: Growth::OnDemand,
+    session_concurrency: Some(1),
+    affinity: Affinity::Host,
 };
+
+/// The pool's draws as the cases before on-demand growth make them: on the
+/// domain's own host, a browser-page place always to be had.
+trait Draws {
+    fn drawn(
+        &mut self,
+        pool: &PoolKey,
+        domain_key: &str,
+        sends_from: SendsFrom,
+        settings: &PoolSettings,
+        now: SystemTime,
+    ) -> ServingSession;
+}
+
+impl Draws for SessionPool {
+    fn drawn(
+        &mut self,
+        pool: &PoolKey,
+        domain_key: &str,
+        sends_from: SendsFrom,
+        settings: &PoolSettings,
+        now: SystemTime,
+    ) -> ServingSession {
+        let wanted = Wanted {
+            domain_key,
+            host: domain_key,
+            sends_from,
+        };
+        self.draw(pool, &wanted, settings, now, || true)
+            .expect("a place is always to be had")
+    }
+}
 
 /// 2026-01-05T09:00:00Z.
 fn start() -> SystemTime {
@@ -100,7 +135,7 @@ fn a_session_is_retired_once_its_error_score_reaches_the_maximum(
 ) {
     let mut pool = pool(1);
     for effect in effects {
-        let session = pool.draw(
+        let session = pool.drawn(
             &PoolKey::Run,
             "shop.test",
             SendsFrom::Browser,
@@ -110,7 +145,7 @@ fn a_session_is_retired_once_its_error_score_reaches_the_maximum(
         pool.settle(&session, "shop.test", effect, &ONE);
     }
 
-    let session = pool.draw(
+    let session = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
@@ -129,7 +164,7 @@ fn a_session_is_retired_after_its_uses() {
 
     let served: Vec<ServingSession> = (0..4)
         .map(|_| {
-            pool.draw(
+            pool.drawn(
                 &PoolKey::Run,
                 "shop.test",
                 SendsFrom::Browser,
@@ -151,7 +186,7 @@ fn a_session_is_retired_after_its_uses() {
 #[case::at_its_age(Duration::from_mins(50), "session-2")]
 fn a_session_is_retired_at_its_age(#[case] later: Duration, #[case] next: &str) {
     let mut pool = pool(1);
-    pool.draw(
+    pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
@@ -159,7 +194,7 @@ fn a_session_is_retired_at_its_age(#[case] later: Duration, #[case] next: &str) 
         start(),
     );
 
-    let session = pool.draw(
+    let session = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
@@ -182,7 +217,7 @@ fn requests_rotate_across_the_sessions_open_once_the_pool_is_full() {
 
     let served: Vec<ServingSession> = (0..300)
         .map(|_| {
-            pool.draw(
+            pool.drawn(
                 &PoolKey::Run,
                 "shop.test",
                 SendsFrom::Browser,
@@ -228,7 +263,7 @@ fn a_draw_reusing_takes_an_open_session_of_its_client_while_one_is_open() {
         let drawn = if reusing {
             pool.draw_reusing(&PoolKey::Run, "shop.test", sends_from, &settings, start())
         } else {
-            Some(pool.draw(&PoolKey::Run, "shop.test", sends_from, &settings, start()))
+            Some(pool.drawn(&PoolKey::Run, "shop.test", sends_from, &settings, start()))
         };
         drawn.map(|drawn| drawn.id.0)
     };
@@ -253,7 +288,7 @@ fn a_draw_reusing_takes_an_open_session_of_its_client_while_one_is_open() {
 fn a_draw_reusing_retires_no_session_to_make_room() {
     let settings = PoolSettings { max_size: 1, ..ONE };
     let mut pool = pool(5);
-    let browser = pool.draw(
+    let browser = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
@@ -268,7 +303,7 @@ fn a_draw_reusing_retires_no_session_to_make_room() {
         &settings,
         start(),
     );
-    let next = pool.draw(
+    let next = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
@@ -296,7 +331,7 @@ fn which_session_serves_a_request_is_drawn_from_the_entropy_seed(
         let mut pool = pool(seed);
         (0..40)
             .map(|_| {
-                pool.draw(
+                pool.drawn(
                     &PoolKey::Run,
                     "shop.test",
                     SendsFrom::Browser,
@@ -325,7 +360,7 @@ fn a_block_that_escalates_retires_its_session_and_the_replacement_opens_at_its_t
     #[case] tier: ProxyTier,
 ) {
     let mut pool = pool(1);
-    let blocked = pool.draw(
+    let blocked = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
@@ -334,14 +369,14 @@ fn a_block_that_escalates_retires_its_session_and_the_replacement_opens_at_its_t
     );
     pool.settle(&blocked, "shop.test", Effect::Blocked(cause), &ONE);
 
-    let replacement = pool.draw(
+    let replacement = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
         &ONE,
         start(),
     );
-    let elsewhere = pool.draw(
+    let elsewhere = pool.drawn(
         &PoolKey::Run,
         "books.test",
         SendsFrom::Browser,
@@ -361,7 +396,7 @@ fn each_escalation_moves_its_domain_one_proxy_tier_up_to_the_top() {
     let mut pool = pool(1);
     let mut tiers = Vec::new();
     for _ in 0..5 {
-        let session = pool.draw(
+        let session = pool.drawn(
             &PoolKey::Run,
             "shop.test",
             SendsFrom::Browser,
@@ -378,7 +413,7 @@ fn each_escalation_moves_its_domain_one_proxy_tier_up_to_the_top() {
     }
 
     tiers.push(
-        pool.draw(
+        pool.drawn(
             &PoolKey::Run,
             "shop.test",
             SendsFrom::Browser,
@@ -409,7 +444,7 @@ fn each_escalation_moves_its_domain_one_proxy_tier_up_to_the_top() {
 #[test]
 fn a_refused_transport_retires_its_session_without_moving_the_proxy_tier() {
     let mut pool = pool(1);
-    let refused = pool.draw(
+    let refused = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Transport,
@@ -417,7 +452,7 @@ fn a_refused_transport_retires_its_session_without_moving_the_proxy_tier() {
         start(),
     );
     pool.settle(&refused, "shop.test", Effect::TransportRefused, &ONE);
-    let browser = pool.draw(
+    let browser = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
@@ -431,7 +466,7 @@ fn a_refused_transport_retires_its_session_without_moving_the_proxy_tier() {
         &ONE,
     );
 
-    let next = pool.draw(
+    let next = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
@@ -459,7 +494,7 @@ fn a_block_that_never_rotates_leaves_its_session_serving(#[case] cause: BlockCau
         ..ONE
     };
     let mut pool = pool(1);
-    let blocked = pool.draw(
+    let blocked = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
@@ -468,7 +503,7 @@ fn a_block_that_never_rotates_leaves_its_session_serving(#[case] cause: BlockCau
     );
     pool.settle(&blocked, "shop.test", Effect::Blocked(cause), &settings);
 
-    let next = pool.draw(
+    let next = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
@@ -484,14 +519,14 @@ fn a_block_that_never_rotates_leaves_its_session_serving(#[case] cause: BlockCau
 fn a_block_on_a_session_already_retired_still_moves_its_domain_up() {
     let settings = PoolSettings { max_uses: 1, ..ONE };
     let mut pool = pool(1);
-    let blocked = pool.draw(
+    let blocked = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
         &settings,
         start(),
     );
-    pool.draw(
+    pool.drawn(
         &PoolKey::Run,
         "books.test",
         SendsFrom::Browser,
@@ -505,7 +540,7 @@ fn a_block_on_a_session_already_retired_still_moves_its_domain_up() {
         &settings,
     );
 
-    let next = pool.draw(
+    let next = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
@@ -522,7 +557,7 @@ fn a_pool_read_again_from_run_state_keeps_its_sessions_and_revalidates_each_on_i
     let settings = PoolSettings { max_size: 2, ..ONE };
     let file = run_file();
     let mut pool = SessionPool::open(&file, Entropy::seeded(1)).unwrap();
-    let blocked = pool.draw(
+    let blocked = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
@@ -535,14 +570,14 @@ fn a_pool_read_again_from_run_state_keeps_its_sessions_and_revalidates_each_on_i
         Effect::Blocked(BlockCause::IpBlock),
         &settings,
     );
-    pool.draw(
+    pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
         &settings,
         start(),
     );
-    pool.draw(
+    pool.drawn(
         &PoolKey::Run,
         "books.test",
         SendsFrom::Browser,
@@ -553,21 +588,21 @@ fn a_pool_read_again_from_run_state_keeps_its_sessions_and_revalidates_each_on_i
 
     let mut resumed = SessionPool::open(&file, Entropy::seeded(2)).unwrap();
     let served = [
-        resumed.draw(
+        resumed.drawn(
             &PoolKey::Run,
             "shop.test",
             SendsFrom::Browser,
             &settings,
             start(),
         ),
-        resumed.draw(
+        resumed.drawn(
             &PoolKey::Run,
             "books.test",
             SendsFrom::Browser,
             &settings,
             start(),
         ),
-        resumed.draw(
+        resumed.drawn(
             &PoolKey::Run,
             "books.test",
             SendsFrom::Browser,
@@ -596,35 +631,35 @@ fn a_labels_own_pool_keeps_its_sessions_apart_from_the_runs() {
     let mut pool = pool(1);
 
     let served = [
-        pool.draw(
+        pool.drawn(
             &PoolKey::Run,
             "shop.test",
             SendsFrom::Browser,
             &ONE,
             start(),
         ),
-        pool.draw(
+        pool.drawn(
             &label("account"),
             "shop.test",
             SendsFrom::Browser,
             &ONE,
             start(),
         ),
-        pool.draw(
+        pool.drawn(
             &PoolKey::Run,
             "shop.test",
             SendsFrom::Browser,
             &ONE,
             start(),
         ),
-        pool.draw(
+        pool.drawn(
             &label("account"),
             "shop.test",
             SendsFrom::Browser,
             &ONE,
             start(),
         ),
-        pool.draw(
+        pool.drawn(
             &label("orders"),
             "shop.test",
             SendsFrom::Browser,
@@ -654,7 +689,7 @@ fn a_block_on_a_pools_session_retires_it_and_the_replacement_is_a_new_session(
     #[case] replacement: &str,
 ) {
     let mut pool = pool(1);
-    let blocked = pool.draw(&key, "shop.test", SendsFrom::Browser, &ONE, start());
+    let blocked = pool.drawn(&key, "shop.test", SendsFrom::Browser, &ONE, start());
     pool.settle(
         &blocked,
         "shop.test",
@@ -662,7 +697,7 @@ fn a_block_on_a_pools_session_retires_it_and_the_replacement_is_a_new_session(
         &ONE,
     );
 
-    let next = pool.draw(&key, "shop.test", SendsFrom::Browser, &ONE, start());
+    let next = pool.drawn(&key, "shop.test", SendsFrom::Browser, &ONE, start());
 
     assert_eq!(next, serving(replacement, ProxyTier::Datacenter, false));
 }
@@ -679,7 +714,7 @@ fn a_challenge_moves_its_domain_to_the_browser_tier(
     #[case] browser: bool,
 ) {
     let mut pool = pool(1);
-    let blocked = pool.draw(
+    let blocked = pool.drawn(
         &label("account"),
         "shop.test",
         SendsFrom::Browser,
@@ -697,14 +732,14 @@ fn a_challenge_moves_its_domain_to_the_browser_tier(
 #[test]
 fn a_retired_session_closes_once_no_attempt_holds_it() {
     let mut pool = pool(1);
-    let blocked = pool.draw(
+    let blocked = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
         &ONE,
         start(),
     );
-    let also = pool.draw(
+    let also = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
@@ -736,14 +771,14 @@ fn a_retired_session_closes_once_no_attempt_holds_it() {
 fn the_pools_read_again_from_run_state_keep_each_labels_sessions_and_the_browser_tier() {
     let file = run_file();
     let mut pool = SessionPool::open(&file, Entropy::seeded(1)).unwrap();
-    pool.draw(
+    pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
         &ONE,
         start(),
     );
-    let blocked = pool.draw(
+    let blocked = pool.drawn(
         &label("account"),
         "shop.test",
         SendsFrom::Browser,
@@ -756,7 +791,7 @@ fn the_pools_read_again_from_run_state_keep_each_labels_sessions_and_the_browser
         Effect::Blocked(BlockCause::Challenge),
         &ONE,
     );
-    pool.draw(
+    pool.drawn(
         &label("account"),
         "shop.test",
         SendsFrom::Browser,
@@ -767,14 +802,14 @@ fn the_pools_read_again_from_run_state_keep_each_labels_sessions_and_the_browser
 
     let mut resumed = SessionPool::open(&file, Entropy::seeded(2)).unwrap();
     let served = [
-        resumed.draw(
+        resumed.drawn(
             &PoolKey::Run,
             "shop.test",
             SendsFrom::Browser,
             &ONE,
             start(),
         ),
-        resumed.draw(
+        resumed.drawn(
             &label("account"),
             "shop.test",
             SendsFrom::Browser,
@@ -816,9 +851,10 @@ impl Host for EveryAddress {
     }
 }
 
-/// Room for ten Sessions, so each request opens a new one.
+/// Room for ten Sessions, each request opening a new one (`eager`).
 const ROOMY: PoolSettings = PoolSettings {
     max_size: 10,
+    growth: Growth::Eager,
     ..ONE
 };
 
@@ -854,7 +890,7 @@ fn address_of(pool: &SessionPool, served: &ServingSession) -> [u8; 4] {
 /// Draws a Session for `domain` and settles it with `effect`, answering
 /// its address.
 fn served(pool: &mut SessionPool, domain: &str, effect: Effect) -> [u8; 4] {
-    let served = pool.draw(&PoolKey::Run, domain, SendsFrom::Browser, &ROOMY, start());
+    let served = pool.drawn(&PoolKey::Run, domain, SendsFrom::Browser, &ROOMY, start());
     let address = address_of(pool, &served);
     pool.settle(&served, domain, effect, &ROOMY);
     address
@@ -957,7 +993,7 @@ fn a_pool_read_again_from_run_state_keeps_its_addresses_and_blocked_blocks() {
         .unwrap()
         .with_local_addresses(local(&addresses, false));
     served(&mut pool, "shop.test", Effect::Blocked(BlockCause::IpBlock));
-    let open = pool.draw(
+    let open = pool.drawn(
         &PoolKey::Run,
         "books.test",
         SendsFrom::Browser,
@@ -992,14 +1028,14 @@ fn a_block_met_after_its_session_was_retired_still_blocks_its_block() {
         ..ROOMY
     };
     let mut pool = pool(1).with_local_addresses(local(&[[127, 0, 0, 2], [127, 0, 0, 4]], false));
-    let blocked = pool.draw(
+    let blocked = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
         &settings,
         start(),
     );
-    let other = pool.draw(
+    let other = pool.drawn(
         &PoolKey::Run,
         "books.test",
         SendsFrom::Browser,
@@ -1015,7 +1051,7 @@ fn a_block_met_after_its_session_was_retired_still_blocks_its_block() {
     let other_address = address_of(&pool, &other);
     pool.settle(&other, "books.test", Effect::Success, &settings);
 
-    let replacement = pool.draw(
+    let replacement = pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
@@ -1039,7 +1075,7 @@ fn clients_by_session(
     let mut by_session: std::collections::BTreeMap<_, std::collections::BTreeSet<_>> =
         std::collections::BTreeMap::new();
     for client in clients {
-        let served = pool.draw(&PoolKey::Run, "shop.test", client, settings, start());
+        let served = pool.drawn(&PoolKey::Run, "shop.test", client, settings, start());
         by_session.entry(served.id.0).or_default().insert(client);
     }
     by_session
@@ -1099,21 +1135,21 @@ fn the_pools_size_bounds_both_clients_together_and_a_full_pool_makes_room_for_th
     let mut pool = SessionPool::open(&file, Entropy::seeded(1)).unwrap();
 
     let served = [
-        pool.draw(
+        pool.drawn(
             &PoolKey::Run,
             "shop.test",
             SendsFrom::Transport,
             &ONE,
             start(),
         ),
-        pool.draw(
+        pool.drawn(
             &PoolKey::Run,
             "shop.test",
             SendsFrom::Browser,
             &ONE,
             start(),
         ),
-        pool.draw(
+        pool.drawn(
             &PoolKey::Run,
             "shop.test",
             SendsFrom::Transport,
@@ -1152,7 +1188,7 @@ fn a_pool_with_room_for_both_keeps_one_session_of_each_client() {
         SendsFrom::Transport,
         SendsFrom::Browser,
     ]
-    .map(|client| pool.draw(&PoolKey::Run, "shop.test", client, &settings, start()));
+    .map(|client| pool.drawn(&PoolKey::Run, "shop.test", client, &settings, start()));
 
     assert_eq!(
         ids(&served),
@@ -1168,14 +1204,14 @@ fn a_sessions_client_reads_back_from_the_run_file_after_a_resume() {
     let settings = PoolSettings { max_size: 2, ..ONE };
     let file = run_file();
     let mut pool = SessionPool::open(&file, Entropy::seeded(1)).unwrap();
-    pool.draw(
+    pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Transport,
         &settings,
         start(),
     );
-    pool.draw(
+    pool.drawn(
         &PoolKey::Run,
         "shop.test",
         SendsFrom::Browser,
@@ -1186,14 +1222,14 @@ fn a_sessions_client_reads_back_from_the_run_file_after_a_resume() {
 
     let mut resumed = SessionPool::open(&file, Entropy::seeded(2)).unwrap();
     let served = [
-        resumed.draw(
+        resumed.drawn(
             &PoolKey::Run,
             "shop.test",
             SendsFrom::Browser,
             &settings,
             start(),
         ),
-        resumed.draw(
+        resumed.drawn(
             &PoolKey::Run,
             "shop.test",
             SendsFrom::Transport,
@@ -1241,3 +1277,5 @@ fn a_run_file_whose_pool_table_predates_the_sessions_client_is_not_resumed() {
 
     assert_eq!(refused.to_string(), crate::store::PREDATES_CLIENTS);
 }
+
+mod on_demand;

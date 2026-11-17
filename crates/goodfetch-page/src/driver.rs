@@ -771,7 +771,10 @@ impl<B: Connect> SessionDriver<B> {
                         &opening,
                     )
                     .await
-                    .map(|created| created.browser_context_id)
+                    .map(|created| {
+                        browser.work.count(Row::ContextsCreated);
+                        created.browser_context_id
+                    })
             })
             .await
             .cloned()

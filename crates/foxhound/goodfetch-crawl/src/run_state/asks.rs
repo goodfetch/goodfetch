@@ -83,10 +83,6 @@ pub(crate) enum HopAsk {
 
 /// One message to the loop: a question the run file answers, or an
 /// escalated attempt's draw, which memory answers.
-#[expect(
-    clippy::large_enum_variant,
-    reason = "a question always travels boxed on the mailbox, so boxing its larger variant again would add an allocation an ask"
-)]
 pub(crate) enum Question {
     /// A question the run file answers.
     Stored(Ask),
@@ -99,14 +95,17 @@ pub(crate) enum Question {
 
 /// The draw of a Session whose client is its browser, for an attempt that
 /// escalated from a Session's own transport (#2416): from the pool `pool`
-/// of the crawl's `labels`, for a request on `domain_key`, under the Run's
-/// pool `settings` at `now`.
+/// of the crawl's `labels`, for a request on `domain_key` to `host`, under
+/// the Run's pool `settings` at `now`, holding `place`, the browser-page
+/// place its page takes (#2178).
 pub(crate) struct Escalated {
     pub(crate) labels: std::sync::Arc<labels::Declared>,
     pub(crate) pool: PoolKey,
     pub(crate) domain_key: String,
+    pub(crate) host: String,
     pub(crate) settings: PoolSettings,
     pub(crate) now: SystemTime,
+    pub(crate) place: goodfetch_fetch_tier::HeldPlace,
 }
 
 /// A question the run file answers.

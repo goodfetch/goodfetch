@@ -1429,6 +1429,7 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `C5.entries` | entries sent to the Run-trace writer per refused request | 1 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C7.pool_walks` | memory walks per page opened in the browser pool (ADR 0143; was `E4.pool_walks`) | 0 | 0.667 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C7.opening_commands` | CDP commands awaited in turn per page target created, before the page is ready (owner, 2026-11-10, G-05 Q9); sending them together is #2183's write-up's (#2254 Q7) | no cap (ratchet) | 13 | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C7.contexts_created` | browser contexts created per Session opened in the browser pool (ADR 0143); a Borrowed browser's Session makes none | ≤ 1 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `E1.deep_copies` | deep copies per incoming message | 0 | 0 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E1.encodes` | encodes per answer or event | 1 | 1 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E1.decodes` | decodes of its params per request, straight into typed params | 1 | 1 | B3 | must not grow | `just counts` | implementer done, merge gate |

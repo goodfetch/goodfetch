@@ -46,6 +46,7 @@ use std::sync::Arc;
 
 use bytestring::ByteString;
 use goodfetch_counted_work::{CountedWork, ParsedHtml};
+use goodfetch_engine::governor;
 pub use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::response_limits::LimitExceeded;
 use goodfetch_engine::runs::Run;
@@ -297,7 +298,56 @@ pub struct PooledSession {
     /// browser requests leave from the address its HTTP requests do (ADR
     /// 0044): `None` without local addresses.
     pub address_ordinal: Option<u64>,
+    /// The browser-page place the pool's draw took for its first page
+    /// (#2178), which that page takes instead of waiting for a second one.
+    pub place: HeldPlace,
 }
+
+/// A browser-page place a crawl took from its Run's share of the Resource
+/// governor before its Session pool opened a Session for it, held for that
+/// Session's first page (#2178); given back if no page takes it. Its
+/// copies share it: the first page to open takes it. Two are equal when
+/// they are copies of one, or both hold none.
+#[derive(Clone, Debug, Default)]
+pub struct HeldPlace(
+    #[expect(
+        clippy::disallowed_types,
+        reason = "one value taken in one step, never held across another lock or an `.await` (ADR 0060)"
+    )]
+    Option<Arc<std::sync::Mutex<Option<governor::Permit>>>>,
+);
+
+impl HeldPlace {
+    /// `permit`, held for a Session's first page.
+    #[expect(
+        clippy::disallowed_types,
+        reason = "one value taken in one step, never held across another lock or an `.await` (ADR 0060)"
+    )]
+    pub fn holding(permit: governor::Permit) -> Self {
+        Self(Some(Arc::new(std::sync::Mutex::new(Some(permit)))))
+    }
+
+    /// The place, once: `None` when it held none or a page took it.
+    pub fn take(&self) -> Option<governor::Permit> {
+        self.0
+            .as_ref()?
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+    }
+}
+
+impl PartialEq for HeldPlace {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (None, None) => true,
+            (Some(held), Some(other)) => Arc::ptr_eq(held, other),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for HeldPlace {}
 
 /// A request the navigation gate is asked to admit.
 #[derive(Clone, Debug, PartialEq, Eq)]

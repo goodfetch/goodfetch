@@ -15647,6 +15647,7 @@
             "compilations",
             "configuration_reads",
             "constant_lookups",
+            "contexts_created",
             "cpu_stat_opens",
             "declaration_reads",
             "decodes",
@@ -21945,6 +21946,44 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": "host",
+      "description": "Which open Session with room a crawl's Session pool prefers for a request under `session.pool.growth: on_demand`. `host` prefers one whose last request went to the request's host; `none` draws among them at random. It never opens a Session.",
+      "name": "session.pool.affinity",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "host",
+          "none"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "on_demand",
+      "description": "When a crawl's Session pool opens a new Session. `on_demand` opens one only when no open Session of the client a request needs, at its domain's proxy tier, has room under `session.pool.session_concurrency`, or when a block that retired a Session leaves the domain owing one; a browser Session opens only while a browser page can be admitted for it, else the request waits for a browser Session with room. `eager` opens a new Session for every request while the pool is under `session.pool.max_size`, as Crawlee does.",
+      "name": "session.pool.growth",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "on_demand",
+          "eager"
+        ]
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": 3000000,
       "description": "How long after it opened a Session of a crawl's Session pool is retired: 3,000 s, Crawlee's `maxAgeSecs`.",
       "name": "session.pool.max_age",
@@ -21981,7 +22020,7 @@
       "authority": "every",
       "clearable": false,
       "default": 100,
-      "description": "How many Sessions a crawl's Session pool keeps open at once, whether each sends from its own HTTP transport or from its browser: 100. A request goes to a new Session while the pool has room, then to one drawn among those open that send from the client it needs.",
+      "description": "How many Sessions a crawl's Session pool keeps open at once, whether each sends from its own HTTP transport or from its browser: 100. A request goes to an open Session of the client it needs at its domain's proxy tier that has room under `session.pool.session_concurrency`, a new Session opening only when none has room and the pool is under this size; a full pool draws among the busy ones.",
       "name": "session.pool.max_size",
       "product": "foxhound",
       "products": [
@@ -22000,6 +22039,23 @@
       "default": 50,
       "description": "How many requests one Session of a crawl's Session pool serves before it is retired: 50, Crawlee's `maxUsageCount`.",
       "name": "session.pool.max_uses",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": 1,
+      "description": "How many requests one Session of a crawl's Session pool serves at once under `session.pool.growth: on_demand`: 1. Unset, a Session serves any number, so the pool opens one Session for each client and proxy tier.",
+      "name": "session.pool.session_concurrency",
       "product": "foxhound",
       "products": [
         "foxhound"

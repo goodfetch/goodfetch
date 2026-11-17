@@ -465,6 +465,38 @@ fn a_pool_pages_opening_counts_its_windows_identity_too() {
     );
 }
 
+/// A Session of the browser pool makes its browser context once, as it
+/// opens, whatever the pages it opens; a Borrowed browser's Session finds
+/// the browser's default one and makes none (C7).
+#[rstest]
+#[case::pool(Browsers::Pool, 1)]
+#[case::borrowed(Browsers::Borrowed, 0)]
+fn a_session_makes_its_browser_context_once(#[case] browsers: Browsers, #[case] made: u64) {
+    let Counted {
+        sessions_opened,
+        work,
+        ..
+    } = run_in(browsers, Map::new(), None);
+
+    assert_eq!(
+        (sessions_opened, work.read(Row::ContextsCreated)),
+        (1, made)
+    );
+}
+
+/// A plant adds one browser context per command the browser reads.
+#[test]
+fn a_planted_unit_adds_one_context_a_command() {
+    let unplanted = run_in(Browsers::Pool, Map::new(), None);
+
+    let planted = run_in(Browsers::Pool, Map::new(), Some(Row::ContextsCreated));
+
+    assert_eq!(
+        planted.work.read(Row::ContextsCreated),
+        unplanted.work.read(Row::ContextsCreated) + planted.commands
+    );
+}
+
 /// A plant adds one unit of C7's row per command the browser reads.
 #[test]
 fn a_planted_unit_adds_one_an_opening_command_a_command() {

@@ -871,6 +871,82 @@ fn browser_cache_max_unused_age_is_set_only_by_the_machines_own_layers(
     assert_eq!(outcome.err().map(|error| error.code()), refused);
 }
 
+/// Covers: setting:stealth.allowed_builds
+#[rstest]
+#[case::the_operator_policy(SettingsLayer::OperatorPolicy, None)]
+#[case::user_configuration(SettingsLayer::UserConfiguration, Some("setting_not_applicable"))]
+#[case::project_configuration(SettingsLayer::ProjectConfiguration, Some("setting_not_applicable"))]
+#[case::the_recipe(SettingsLayer::Recipe, Some("setting_not_applicable"))]
+#[case::the_run(SettingsLayer::Run, Some("setting_not_applicable"))]
+fn stealth_allowed_builds_is_set_only_in_an_operator_policy(
+    #[case] layer: SettingsLayer,
+    #[case] refused: Option<&str>,
+) {
+    let layers = only(
+        layer,
+        "stealth.allowed_builds",
+        &json!(["sha256:0123456789abcdef"]),
+    );
+
+    let outcome = resolve(&layers, Product::Foxhound, Product::Foxhound);
+
+    assert_eq!(outcome.err().map(|error| error.code()), refused);
+}
+
+/// The layers with `set` for the user configuration and `run` for the Run.
+fn user_and_run(set: Value, run: Value) -> Layers {
+    Layers {
+        user_configuration: values(SettingsLayer::UserConfiguration, set),
+        run: values(SettingsLayer::Run, run),
+        ..Layers::default()
+    }
+}
+
+/// Covers: story:8-5, story:8-6, setting:stealth.human_input
+#[rstest]
+#[case::set_for_the_run_of_a_standard_session(
+    user_and_run(json!({}), json!({ "stealth.human_input": true })),
+    Some(json!({ "key": "browser.access_mode", "value": "standard", "layer": "default" }))
+)]
+#[case::set_by_the_user_for_an_identified_run(
+    user_and_run(
+        json!({ "stealth.human_input": true }),
+        json!({ "browser.access_mode": "identified" }),
+    ),
+    Some(json!({ "key": "browser.access_mode", "value": "identified", "layer": "run" }))
+)]
+#[case::set_by_the_user_for_a_stealth_run(
+    user_and_run(
+        json!({ "stealth.human_input": true }),
+        json!({ "browser.access_mode": "stealth" }),
+    ),
+    None
+)]
+#[case::beside_a_fingerprint_method_set_closer_than_the_mode(
+    user_and_run(
+        json!({ "browser.access_mode": "standard" }),
+        json!({ "stealth.human_input": true, "stealth.fingerprint_method": "basic" }),
+    ),
+    None
+)]
+#[case::beside_a_fingerprint_method_set_farther_than_the_mode(
+    user_and_run(
+        json!({ "stealth.human_input": true, "stealth.fingerprint_method": "basic" }),
+        json!({ "browser.access_mode": "identified" }),
+    ),
+    Some(json!({ "key": "browser.access_mode", "value": "identified", "layer": "run" }))
+)]
+#[case::left_to_its_default(user_and_run(json!({}), json!({})), None)]
+fn an_inherited_stealth_item_yields_to_an_access_mode_that_is_not_stealth(
+    #[case] layers: Layers,
+    #[case] yields_to: Option<Value>,
+) {
+    let explained = resolved(&layers).explain(&["stealth.human_input".to_owned()], Vec::new());
+
+    let setting = serde_json::to_value(&explained).unwrap()["settings"][0].clone();
+    assert_eq!(setting.get("yields_to").cloned(), yields_to);
+}
+
 /// Covers: story:3-88, setting:crawl.handler.concurrency
 #[test]
 fn a_value_above_an_operator_policy_cap_is_refused() {

@@ -45,6 +45,7 @@ use crate::jsonrpc::{ErrorData, RequestId};
 use crate::run::RunId;
 use crate::settings::SettingLimit;
 
+pub mod access_mode;
 pub mod dialog;
 pub mod events;
 pub mod functions;

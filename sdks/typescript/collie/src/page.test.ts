@@ -126,6 +126,58 @@ describe("a Run's page", () => {
   );
 });
 
+describe("a Session's Access mode", () => {
+  test(
+    "refuses a Session whose settings its Access mode cannot take, with the setting that cannot",
+    {
+      tags: [
+        "story:8-5",
+        "story:8-6",
+        "story:8-9",
+        "error:setting_not_applicable",
+        "error:setting_invalid",
+        "error:capability_unavailable",
+      ],
+    },
+    async () => {
+      const { collie, played } = await collieOn("page/access-mode-refused.json");
+      const run = await collie.start();
+
+      const item = await failure(run.newSession({ settings: { stealth: { human_input: true } } }));
+      const beside = await failure(
+        run.newSession({
+          settings: {
+            browser: { access_mode: "standard" },
+            stealth: { fingerprint_method: "basic" },
+          },
+        }),
+      );
+      const unbuilt = await failure(
+        run.newSession({ settings: { stealth: { fingerprint_method: "engine" } } }),
+      );
+
+      expect(item).toMatchObject({
+        code: "setting_not_applicable",
+        group: "program",
+        details: { key: "stealth.human_input", layer: "run" },
+      });
+      expect(beside).toMatchObject({
+        code: "setting_invalid",
+        group: "program",
+        details: { key: "browser.access_mode", layer: "run" },
+      });
+      expect(unbuilt).toMatchObject({
+        code: "capability_unavailable",
+        group: "unavailable",
+        details: { key: "browser.access_mode", kind: "stealth" },
+      });
+      await run.finish();
+      await collie.close();
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+});
+
 /** A CSS locator of `selector`. */
 const css = (selector: string) => ({ kind: "css", selector }) as const;
 

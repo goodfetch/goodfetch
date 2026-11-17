@@ -8277,7 +8277,7 @@
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "The page's own settings, nested by key (ADR 0083), which it takes\nover its Session's and its Run's: `content.extractor`, the\nmain-content step its formats read with. Any other key is refused\nwith `setting_not_applicable`, as only its Session or its Run sets\nit.",
+          "description": "The page's own settings, nested by key (ADR 0083), which it takes\nover its Session's and its Run's: `content.extractor`, the\nmain-content step its formats read with. Any other key is refused\nwith `setting_not_applicable`, as only its Session or its Run sets\nit; the Session's Access mode, Identity profile and proxy only its\nopening sets.",
           "type": "object"
         }
       },
@@ -8302,7 +8302,7 @@
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "The Session's own settings, nested by key: `filter_lists.ads`,\n`.trackers`, `.annoyances`, `.first_party_scripts`,\n`browser.block_resources` and `live_view.hiding` choose its pages'\nClean-up rules over the Run's, and `browser.service_workers` whether\na site's service workers run in them, and `session.page_check` the\nPage check its pages are judged against, and `content.extractor`\nthe main-content step their formats read with. `session.source` is\nrefused here with `setting_not_applicable`,\nas the call's own `source` sets it, and so is any other key, which\nonly the Run sets.",
+          "description": "The Session's own settings, nested by key: `filter_lists.ads`,\n`.trackers`, `.annoyances`, `.first_party_scripts`,\n`browser.block_resources` and `live_view.hiding` choose its pages'\nClean-up rules over the Run's, and `browser.service_workers` whether\na site's service workers run in them, and `session.page_check` the\nPage check its pages are judged against, and `content.extractor`\nthe main-content step their formats read with; `browser.access_mode`\nand the `stealth.*` items its Access mode and Identity profile, and\nthe `proxy.*` keys its proxy, which it keeps for its life.\n`session.source` is refused here with `setting_not_applicable`,\nas the call's own `source` sets it, and so is any other key, which\nonly the Run sets.",
           "type": "object"
         },
         "source": {
@@ -17853,6 +17853,14 @@
               "browser": {
                 "additionalProperties": false,
                 "properties": {
+                  "access_mode": {
+                    "description": "The Access mode a Session opens in and keeps for its life: `standard` (the default), the browser's own identity; `identified`, which declares who the program is and masks nothing; or `stealth`, which turns on the whole stealth catalog, each `stealth.*` item of which can be switched off. A non-`none` `stealth.fingerprint_method` makes the Session `stealth`; an explicit `standard` or `identified` beside one at the same scope is `setting_invalid` naming both keys. A stealth item set explicitly where a `standard` Session opens is `setting_not_applicable`, and one set explicitly on an `identified` Session is `setting_invalid` naming both keys; an inherited one yields, which `config explain` names in the item's `yields_to`. `stealth` on WebKit is `capability_unavailable`; a Borrowed browser stays `standard` with its own identity, and `stealth` set where one opens is `setting_not_applicable`, as is `identified` at an import or on a Profile directory used in place. Changing the mode, the Identity profile or the proxy means opening a new Session. A Label refuses it with `setting_not_applicable`.",
+                    "enum": [
+                      "standard",
+                      "identified",
+                      "stealth"
+                    ]
+                  },
                   "block_resources": {
                     "description": "The resource kinds the Session's pages never load, failed as `BlockedByClient` by its interception before every navigation: any of `image`, `media`, `font` and `stylesheet`; none by default. The never-block list still loads a challenge's own. In `standard` and `stealth` the Run warns once per Session that the site can see the missing loads.",
                     "items": {
@@ -20378,6 +20386,71 @@
                       }
                     ],
                     "description": "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder."
+                  }
+                },
+                "type": "object"
+              },
+              "stealth": {
+                "additionalProperties": false,
+                "properties": {
+                  "allowed_builds": {
+                    "description": "The digests of the third-party stealth builds the Operator allows; empty by default. Set only in an Operator policy: set at any other layer, `setting_not_applicable`.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "chromium_build": {
+                    "description": "The Chromium build a `stealth` Session runs: `goodfetch` (the default), `fingerprint_chromium` or `clearcote`, the last two only where `stealth.allowed_builds` allows their digest. A Label refuses it with `setting_not_applicable`.",
+                    "enum": [
+                      "goodfetch",
+                      "fingerprint_chromium",
+                      "clearcote"
+                    ]
+                  },
+                  "fingerprint_method": {
+                    "description": "How a `stealth` Session masks its browser's fingerprint: `none`, `js_injection`, `basic` or `engine`, the default under `stealth`; `none` elsewhere. Any method but `none` makes the Session `stealth`, its other items keeping the values set and the rest taking `stealth`'s defaults. A Label refuses it with `setting_not_applicable`.",
+                    "enum": [
+                      "none",
+                      "js_injection",
+                      "basic",
+                      "engine"
+                    ]
+                  },
+                  "generated_identity": {
+                    "description": "Whether a `stealth` Session runs under an identity generated from real traffic's shares: `true` under `stealth`, `false` elsewhere. Off, the Goodfetch Chromium keeps its own identity, matched to the exit as in `standard`. A Label refuses it with `setting_not_applicable`.",
+                    "type": "boolean"
+                  },
+                  "human_input": {
+                    "description": "Whether a `stealth` Session moves, clicks and types as a person does: `true` under `stealth`, `false` elsewhere. A Label refuses it with `setting_not_applicable`.",
+                    "type": "boolean"
+                  },
+                  "identity": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "brand": {
+                        "description": "The browser brands a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "device": {
+                        "description": "The devices a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "os": {
+                        "description": "The operating systems a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -20649,6 +20722,14 @@
               "browser": {
                 "additionalProperties": false,
                 "properties": {
+                  "access_mode": {
+                    "description": "The Access mode a Session opens in and keeps for its life: `standard` (the default), the browser's own identity; `identified`, which declares who the program is and masks nothing; or `stealth`, which turns on the whole stealth catalog, each `stealth.*` item of which can be switched off. A non-`none` `stealth.fingerprint_method` makes the Session `stealth`; an explicit `standard` or `identified` beside one at the same scope is `setting_invalid` naming both keys. A stealth item set explicitly where a `standard` Session opens is `setting_not_applicable`, and one set explicitly on an `identified` Session is `setting_invalid` naming both keys; an inherited one yields, which `config explain` names in the item's `yields_to`. `stealth` on WebKit is `capability_unavailable`; a Borrowed browser stays `standard` with its own identity, and `stealth` set where one opens is `setting_not_applicable`, as is `identified` at an import or on a Profile directory used in place. Changing the mode, the Identity profile or the proxy means opening a new Session. A Label refuses it with `setting_not_applicable`.",
+                    "enum": [
+                      "standard",
+                      "identified",
+                      "stealth"
+                    ]
+                  },
                   "block_resources": {
                     "description": "The resource kinds the Session's pages never load, failed as `BlockedByClient` by its interception before every navigation: any of `image`, `media`, `font` and `stylesheet`; none by default. The never-block list still loads a challenge's own. In `standard` and `stealth` the Run warns once per Session that the site can see the missing loads.",
                     "items": {
@@ -23174,6 +23255,71 @@
                       }
                     ],
                     "description": "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder."
+                  }
+                },
+                "type": "object"
+              },
+              "stealth": {
+                "additionalProperties": false,
+                "properties": {
+                  "allowed_builds": {
+                    "description": "The digests of the third-party stealth builds the Operator allows; empty by default. Set only in an Operator policy: set at any other layer, `setting_not_applicable`.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "chromium_build": {
+                    "description": "The Chromium build a `stealth` Session runs: `goodfetch` (the default), `fingerprint_chromium` or `clearcote`, the last two only where `stealth.allowed_builds` allows their digest. A Label refuses it with `setting_not_applicable`.",
+                    "enum": [
+                      "goodfetch",
+                      "fingerprint_chromium",
+                      "clearcote"
+                    ]
+                  },
+                  "fingerprint_method": {
+                    "description": "How a `stealth` Session masks its browser's fingerprint: `none`, `js_injection`, `basic` or `engine`, the default under `stealth`; `none` elsewhere. Any method but `none` makes the Session `stealth`, its other items keeping the values set and the rest taking `stealth`'s defaults. A Label refuses it with `setting_not_applicable`.",
+                    "enum": [
+                      "none",
+                      "js_injection",
+                      "basic",
+                      "engine"
+                    ]
+                  },
+                  "generated_identity": {
+                    "description": "Whether a `stealth` Session runs under an identity generated from real traffic's shares: `true` under `stealth`, `false` elsewhere. Off, the Goodfetch Chromium keeps its own identity, matched to the exit as in `standard`. A Label refuses it with `setting_not_applicable`.",
+                    "type": "boolean"
+                  },
+                  "human_input": {
+                    "description": "Whether a `stealth` Session moves, clicks and types as a person does: `true` under `stealth`, `false` elsewhere. A Label refuses it with `setting_not_applicable`.",
+                    "type": "boolean"
+                  },
+                  "identity": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "brand": {
+                        "description": "The browser brands a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "device": {
+                        "description": "The devices a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "os": {
+                        "description": "The operating systems a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -23461,6 +23607,14 @@
               "browser": {
                 "additionalProperties": false,
                 "properties": {
+                  "access_mode": {
+                    "description": "The Access mode a Session opens in and keeps for its life: `standard` (the default), the browser's own identity; `identified`, which declares who the program is and masks nothing; or `stealth`, which turns on the whole stealth catalog, each `stealth.*` item of which can be switched off. A non-`none` `stealth.fingerprint_method` makes the Session `stealth`; an explicit `standard` or `identified` beside one at the same scope is `setting_invalid` naming both keys. A stealth item set explicitly where a `standard` Session opens is `setting_not_applicable`, and one set explicitly on an `identified` Session is `setting_invalid` naming both keys; an inherited one yields, which `config explain` names in the item's `yields_to`. `stealth` on WebKit is `capability_unavailable`; a Borrowed browser stays `standard` with its own identity, and `stealth` set where one opens is `setting_not_applicable`, as is `identified` at an import or on a Profile directory used in place. Changing the mode, the Identity profile or the proxy means opening a new Session. A Label refuses it with `setting_not_applicable`.",
+                    "enum": [
+                      "standard",
+                      "identified",
+                      "stealth"
+                    ]
+                  },
                   "block_resources": {
                     "description": "The resource kinds the Session's pages never load, failed as `BlockedByClient` by its interception before every navigation: any of `image`, `media`, `font` and `stylesheet`; none by default. The never-block list still loads a challenge's own. In `standard` and `stealth` the Run warns once per Session that the site can see the missing loads.",
                     "items": {
@@ -25986,6 +26140,71 @@
                       }
                     ],
                     "description": "The operator's own robots.txt product token, letters, `_` and `-`: a crawl obeys the robots.txt groups naming it merged with those naming `goodfetch-foxhound`, each matched as a whole token in any case, and the `*` group only when neither has one. None by default. A value is listed in the run's result as one that presses a site harder."
+                  }
+                },
+                "type": "object"
+              },
+              "stealth": {
+                "additionalProperties": false,
+                "properties": {
+                  "allowed_builds": {
+                    "description": "The digests of the third-party stealth builds the Operator allows; empty by default. Set only in an Operator policy: set at any other layer, `setting_not_applicable`.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "chromium_build": {
+                    "description": "The Chromium build a `stealth` Session runs: `goodfetch` (the default), `fingerprint_chromium` or `clearcote`, the last two only where `stealth.allowed_builds` allows their digest. A Label refuses it with `setting_not_applicable`.",
+                    "enum": [
+                      "goodfetch",
+                      "fingerprint_chromium",
+                      "clearcote"
+                    ]
+                  },
+                  "fingerprint_method": {
+                    "description": "How a `stealth` Session masks its browser's fingerprint: `none`, `js_injection`, `basic` or `engine`, the default under `stealth`; `none` elsewhere. Any method but `none` makes the Session `stealth`, its other items keeping the values set and the rest taking `stealth`'s defaults. A Label refuses it with `setting_not_applicable`.",
+                    "enum": [
+                      "none",
+                      "js_injection",
+                      "basic",
+                      "engine"
+                    ]
+                  },
+                  "generated_identity": {
+                    "description": "Whether a `stealth` Session runs under an identity generated from real traffic's shares: `true` under `stealth`, `false` elsewhere. Off, the Goodfetch Chromium keeps its own identity, matched to the exit as in `standard`. A Label refuses it with `setting_not_applicable`.",
+                    "type": "boolean"
+                  },
+                  "human_input": {
+                    "description": "Whether a `stealth` Session moves, clicks and types as a person does: `true` under `stealth`, `false` elsewhere. A Label refuses it with `setting_not_applicable`.",
+                    "type": "boolean"
+                  },
+                  "identity": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "brand": {
+                        "description": "The browser brands a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "device": {
+                        "description": "The devices a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "os": {
+                        "description": "The operating systems a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"

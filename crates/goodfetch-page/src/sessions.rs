@@ -66,9 +66,11 @@ use goodfetch_engine::runs::{Run, RunError, RunKeyError};
 use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::browser_cache::PinnedBy;
+use goodfetch_protocol::catalog::Authority;
 use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
 use goodfetch_protocol::egress::{EGRESS_LOCAL_ADDRESSES, LocalAddressFailure};
 use goodfetch_protocol::governor::WorkKind;
+use goodfetch_protocol::page::access_mode::{BROWSER_ACCESS_MODE, STEALTH_ITEMS};
 use goodfetch_protocol::page::proxy::PROXY_PROVIDER;
 use goodfetch_protocol::page::session::{NewSessionParams, SessionOpened};
 use goodfetch_protocol::page::{CONTENT_EXTRACTOR, PageId, PageOpened, SessionId};
@@ -88,6 +90,7 @@ pub(crate) use self::lifecycle::PageEvent;
 use self::lifecycle::{
     Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
 };
+use crate::access_mode::{self, BrowserFamily, SessionIdentityPlan, SessionSettings};
 use crate::borrowed::{CdpUrl, resolve_of};
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
@@ -437,7 +440,9 @@ impl Sessions {
     ) -> Result<SessionOpened, CallError> {
         let run = live(&params.run_id, context).await?;
         let settings = own_settings(&params.settings, &run, context)?;
-        let borrowed = opening_source(&run, params.source, context)?;
+        let named = named_source(&run, params.source, context);
+        access_mode_opens(&settings, &run, named.as_ref(), context)?;
+        let borrowed = opening_source(named)?;
         no_local_address_on(&run, source_of(borrowed.as_ref()))?;
         self.reach(&run, context).await?;
         let (position, pool) = taken(&mut *self.state.lock().await, &run)?;
@@ -514,7 +519,9 @@ impl Sessions {
         context: &CallContext,
     ) -> Result<PageOpened, CallError> {
         let run = live(run_id, context).await?;
-        let borrowed = opening_source(&run, None, context)?;
+        let named = named_source(&run, None, context);
+        access_mode_opens(&Values::default(), &run, named.as_ref(), context)?;
+        let borrowed = opening_source(named)?;
         self.reach(&run, context).await?;
         let default = Arc::clone(&reached(&mut *self.state.lock().await, &run)?.default);
         let position = *default
@@ -710,7 +717,9 @@ impl Sessions {
         context: &CallContext,
     ) -> Result<SessionId, CallError> {
         let run = live(run_id, context).await?;
-        let borrowed = opening_source(&run, pooled.source.clone(), context)?;
+        let named = named_source(&run, pooled.source.clone(), context);
+        access_mode_opens(&Values::default(), &run, named.as_ref(), context)?;
+        let borrowed = opening_source(named)?;
         self.reach(&run, context).await?;
         let cell = Arc::clone(
             reached(&mut *self.state.lock().await, &run)?
@@ -1292,9 +1301,18 @@ fn own_settings(
                 !SESSION_KEYS.contains(key)
                     && *key != SESSION_PAGE_CHECK.name
                     && *key != CONTENT_EXTRACTOR.name
-                    && !key.starts_with(PROXY_PREFIX)
+                    && !fixed_for_the_session(key)
             })
-            .map(|key| (key, "set it on the Run, whose Sessions all take it"))
+            .map(|key| {
+                let operator_alone = setting(key).is_some_and(|setting| {
+                    matches!(setting.authority, Authority::OperatorPolicyAlone)
+                });
+                if operator_alone {
+                    (key, "set it in an Operator policy")
+                } else {
+                    (key, "set it on the Run, whose Sessions all take it")
+                }
+            })
     };
     if let Some((key, fix)) = refused {
         return Err(settings_error(
@@ -1364,11 +1382,16 @@ fn page_settings(
         values = values.from_model();
     }
     if let Some(key) = values.keys().find(|key| *key != CONTENT_EXTRACTOR.name) {
+        let fix = if fixed_for_the_session(key) {
+            "a Session keeps its Access mode, Identity profile and proxy for its life: open a new Session with it"
+        } else {
+            "set it on the page's Session or its Run, whose pages all take it"
+        };
         return Err(settings_error(
             &SettingsError::NotApplicable {
                 key: key.to_owned(),
                 layer: SettingsLayer::Run,
-                fix: "set it on the page's Session or its Run, whose pages all take it".to_owned(),
+                fix: fix.to_owned(),
             },
             context,
         ));
@@ -1378,6 +1401,15 @@ fn page_settings(
 
 /// What starts the `proxy.*` keys a Session's own `settings` may set.
 const PROXY_PREFIX: &str = "proxy.";
+
+/// Whether `key` is one of what a Session keeps for its life, which only
+/// its opening sets (ADR 0021; pitfall S05): its Access mode, an item of
+/// its Identity profile or its proxy.
+fn fixed_for_the_session(key: &str) -> bool {
+    key == BROWSER_ACCESS_MODE.name
+        || STEALTH_ITEMS.iter().any(|item| item.name == key)
+        || key.starts_with(PROXY_PREFIX)
+}
 
 /// The proxy a Session of `run` opens with: the one its own settings `own`
 /// name, beneath the Run's, within the Run's locks and each key's
@@ -1496,56 +1528,93 @@ fn recorded_settings(
 
 /// The Session source a Session of `run` opens from: `own`, the call's own
 /// `source` when it gave one (`null` for a fresh Session), else the Run's
-/// `session.source`. A fresh Session, or a Borrowed browser at a `cdp_url`
-/// (ADRs 0056 and 0115), whose address is judged when it opens, by who
-/// gave it: the layer, and whether a Client acting for a model gave it or
-/// makes the call that opens it (O8 of the deep review). Any other kind raises `capability_unavailable` naming it, until
-/// the ticket of that kind builds its reader, and so does a `cdp_url` with
-/// `headers`, whose Secret references the `cdp_url` Session resolves
-/// (#743).
+/// `session.source`; with who gave it: the layer, and whether a Client
+/// acting for a model gave it or makes the call that opens it (O8 of the
+/// deep review). None for a fresh Session.
 #[expect(
     clippy::option_option,
     reason = "a setting's three states (ADR 0083): left out inherits, `null` clears, a value sets"
 )]
-fn opening_source(
+fn named_source(
     run: &Run,
     own: Option<Option<SessionSource>>,
     context: &CallContext,
-) -> Result<Option<CdpUrl>, CallError> {
+) -> Option<NamedSource> {
     let opener_for_model = context.surface().acts_for_model();
-    let source = match own {
-        Some(own) => own.map(|source| (source, SettingsLayer::Run, opener_for_model)),
+    match own {
+        Some(own) => own.map(|source| NamedSource {
+            source,
+            layer: SettingsLayer::Run,
+            acting_for_model: opener_for_model,
+        }),
         None => run
             .settings()
             .and_then(|settings| settings.resolved().effective(&SESSION_SOURCE))
             .and_then(|effective| {
                 serde_json::from_value::<SessionSource>(effective.value.clone())
                     .ok()
-                    .map(|source| {
-                        (
-                            source,
-                            effective.layer,
-                            effective.for_model || opener_for_model,
-                        )
+                    .map(|source| NamedSource {
+                        source,
+                        layer: effective.layer,
+                        acting_for_model: effective.for_model || opener_for_model,
                     })
             }),
+    }
+}
+
+/// A Session source, with the layer that named it and whether a Client
+/// acting for a model gave it or opens the Session.
+struct NamedSource {
+    source: SessionSource,
+    layer: SettingsLayer,
+    acting_for_model: bool,
+}
+
+/// Whether a Session of `run` opens in the Access mode its `own` settings,
+/// over the Run's, ask for from the source `named` (ADR 0021): the
+/// [`access_mode`](crate::access_mode) module's refusal when it does not.
+/// Only a `standard` Session opens until the tickets that build the other
+/// modes' effects land.
+fn access_mode_opens(
+    own: &Values,
+    run: &Run,
+    named: Option<&NamedSource>,
+    context: &CallContext,
+) -> Result<(), CallError> {
+    let source = named.map(|named| &named.source);
+    let settings = SessionSettings::new(own, run.settings().map(RunSettings::resolved));
+    access_mode::resolve(&settings, source, BrowserFamily::of(source))
+        .and_then(SessionIdentityPlan::built)
+        .map(|_| ())
+        .map_err(|refusal| refusal.call_error(context))
+}
+
+/// The Borrowed browser a Session opens on from the source `named`: none
+/// for a fresh Session, the browser at a `cdp_url` (ADRs 0056 and 0115),
+/// whose address is judged when it opens, by who gave it. Any other kind
+/// raises `capability_unavailable` naming it, until the ticket of that kind
+/// builds its reader, and so does a `cdp_url` with `headers`, whose Secret
+/// references the `cdp_url` Session resolves (#743).
+fn opening_source(named: Option<NamedSource>) -> Result<Option<CdpUrl>, CallError> {
+    let Some(NamedSource {
+        source,
+        layer,
+        acting_for_model,
+    }) = named
+    else {
+        return Ok(None);
     };
     match source {
-        None => Ok(None),
-        Some((
-            SessionSource::CdpUrl {
-                url, headers: None, ..
-            },
-            layer,
-            acting_for_model,
-        )) => Ok(Some(CdpUrl {
+        SessionSource::CdpUrl {
+            url, headers: None, ..
+        } => Ok(Some(CdpUrl {
             url,
             origin: CdpUrlOrigin {
                 layer,
                 acting_for_model,
             },
         })),
-        Some((source, layer, _)) => {
+        source => {
             let kind = source.kind();
             let what = if matches!(source, SessionSource::CdpUrl { .. }) {
                 "a `cdp_url` Session source with `headers`".to_owned()

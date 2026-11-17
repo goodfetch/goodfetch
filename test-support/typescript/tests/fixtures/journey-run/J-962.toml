@@ -1,0 +1,27 @@
+id = "J-962"
+title = "Read a product twice"
+goal = "A person reads the product a catalog page shows, twice. Each Record MUST be that product."
+area = 3
+product = "foxhound"
+status = "active"
+covers = []
+
+[proving_ground]
+seed = 962
+tasks = [
+  { id = "catalog/2", digest = "0000000000000000000000000000000000000000000000000000000000000000" },
+]
+
+[surfaces]
+sdk-typescript = "M2"
+
+[[steps]]
+text = "Read the product its task's start page shows, twice"
+
+[[expect]]
+text = "The oracle verifies the first read's Record"
+task = "catalog/2"
+
+[[expect]]
+text = "The oracle verifies the second read's Record"
+task = "catalog/2"

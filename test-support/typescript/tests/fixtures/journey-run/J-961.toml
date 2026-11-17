@@ -1,0 +1,26 @@
+id = "J-961"
+title = "Read a product"
+goal = "A person reads the product a catalog page shows. The Record MUST be that product."
+area = 3
+product = "collie"
+status = "active"
+covers = []
+
+[proving_ground]
+seed = 961
+tasks = [
+  { id = "catalog/2", digest = "0000000000000000000000000000000000000000000000000000000000000000" },
+]
+
+[surfaces]
+sdk-typescript = "M2"
+
+[[steps]]
+text = "Ask the executable for its version"
+
+[[steps]]
+text = "Read the product its task's start page shows"
+
+[[expect]]
+text = "The oracle verifies the product's Record"
+task = "catalog/2"

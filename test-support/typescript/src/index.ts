@@ -21,6 +21,14 @@ export {
   type SpawnOptions,
 } from "./process-record.ts";
 export {
+  journey,
+  startJourneyRun,
+  type FinishedJourneyRun,
+  type JourneyRun,
+  type JourneyRunStart,
+  type TaskSubmission,
+} from "./journey.ts";
+export {
   journeyDocument,
   writeJourneyDocument,
   type JourneyFacts,

@@ -118,6 +118,10 @@ fn a_labels_tier_forces_its_own_requests_over_the_runs(
     "setting_not_applicable",
     "session.pool.max_size"
 )]
+/// Covers: setting:browser.access_mode
+#[case::an_access_mode(json!({ "browser": { "access_mode": "stealth" } }), "setting_not_applicable", "browser.access_mode")]
+/// Covers: setting:stealth.fingerprint_method
+#[case::a_stealth_item(json!({ "stealth": { "fingerprint_method": "engine" } }), "setting_not_applicable", "stealth.fingerprint_method")]
 fn a_label_setting_it_cannot_take_is_refused(
     #[case] settings: Value,
     #[case] code: &str,

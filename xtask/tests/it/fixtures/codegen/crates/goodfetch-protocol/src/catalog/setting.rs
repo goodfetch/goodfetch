@@ -297,6 +297,10 @@ pub enum Authority {
     ConfigurationProjectLimited(fn(&Value) -> bool),
     /// Only Operator policy, as `wall.denied_domains` (ADR 0052).
     OperatorPolicy,
+    /// Only Operator policy, as `stealth.allowed_builds` (spec #599);
+    /// anywhere else it is `setting_not_applicable`, unlike
+    /// [`Authority::OperatorPolicy`]'s `setting_locked`.
+    OperatorPolicyAlone,
     /// Only Operator policy and user configuration, the machine's own
     /// layers, as `browser_cache.max_unused_age` (ADR 0098); anywhere else
     /// it is `setting_not_applicable`.
@@ -346,6 +350,7 @@ impl Authority {
             Self::ConfigurationExcept(_) => "configuration_except",
             Self::ConfigurationProjectLimited(_) => "configuration_project_limited",
             Self::OperatorPolicy => "operator_policy",
+            Self::OperatorPolicyAlone => "operator_policy_alone",
             Self::Machine => "machine",
             Self::NotByRecipe => "not_by_recipe",
             Self::NotByRecipeOrModel => "not_by_recipe_or_model",

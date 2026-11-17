@@ -413,7 +413,7 @@ impl Resolved {
                 weakens: effective.weakens,
                 user_settable: effective.locked_by.is_none() && user_settable(key),
                 fixed_for_run: keys::fixed_for_run(key),
-                yields_to: self.yields_to(key, &effective.value),
+                yields_to: self.yields_to(key, effective),
             })
             .chain(
                 self.unapplied
@@ -444,21 +444,31 @@ impl Resolved {
         }
     }
 
-    /// The setting `key`'s `value` yields to, with its value and layer:
-    /// the first rule of [`YIELDING`] whose values hold `value` and whose
-    /// setting is set for the Run (#2418).
-    fn yields_to(&self, key: &str, value: &Value) -> Option<SettingLimit> {
+    /// The setting `key`'s value, `effective` for the Run, yields to, with
+    /// its value and layer: the first rule of [`YIELDING`] whose values
+    /// hold it and whose setting holds a value it yields to, unless its
+    /// overruling setting holds an overruling value at a closer layer
+    /// (#2418; spec #599). A built-in default yields to nothing.
+    fn yields_to(&self, key: &str, effective: &Effective) -> Option<SettingLimit> {
+        if effective.layer == SettingsLayer::Default {
+            return None;
+        }
         YIELDING
             .into_iter()
-            .filter(|rule| rule.key.name == key && (rule.when)(value))
+            .filter(|rule| rule.key.name == key && (rule.when)(&effective.value))
             .find_map(|rule| {
-                self.effective(rule.to)
-                    .filter(|to| !to.value.is_null())
-                    .map(|to| SettingLimit {
-                        key: rule.to.name.to_owned(),
-                        value: to.value.clone(),
-                        layer: to.layer,
-                    })
+                let to = self
+                    .effective(rule.to)
+                    .filter(|to| (rule.to_values)(&to.value))?;
+                let overruled = rule.unless.as_ref().is_some_and(|unless| {
+                    self.effective(unless.by)
+                        .is_some_and(|by| by.layer > to.layer && (unless.when)(&by.value))
+                });
+                (!overruled).then(|| SettingLimit {
+                    key: rule.to.name.to_owned(),
+                    value: to.value.clone(),
+                    layer: to.layer,
+                })
             })
     }
 }
@@ -635,7 +645,7 @@ fn user_settable(key: &str) -> bool {
     keys::find(key).is_some_and(|found| {
         !matches!(
             found.setting.authority,
-            Authority::OperatorPolicy | Authority::Fixed
+            Authority::OperatorPolicy | Authority::OperatorPolicyAlone | Authority::Fixed
         )
     })
 }
@@ -1095,6 +1105,34 @@ fn take(
     Ok(())
 }
 
+/// `setting_not_applicable` for `setting`, set in `layer`, unless `layer`
+/// is one its authority takes it from: a machine's setting from user
+/// configuration or an Operator policy, an Operator's alone from an
+/// Operator policy.
+fn only_in(setting: &Setting, layer: SettingsLayer) -> Result<(), SettingsError> {
+    let (layers, where_set): (&[SettingsLayer], &str) =
+        if matches!(setting.authority, Authority::OperatorPolicyAlone) {
+            (&[SettingsLayer::OperatorPolicy], "an Operator policy")
+        } else {
+            (
+                &[
+                    SettingsLayer::OperatorPolicy,
+                    SettingsLayer::UserConfiguration,
+                ],
+                "user configuration or an Operator policy",
+            )
+        };
+    if layers.contains(&layer) {
+        return Ok(());
+    }
+    let name = setting.name;
+    Err(SettingsError::NotApplicable {
+        key: name.to_owned(),
+        layer,
+        fix: format!("set `{name}` in {where_set}"),
+    })
+}
+
 /// The key's own authority over `layer` (ADR 0028 and its amendments);
 /// `for_model` when a Client acting for a model gave `value`.
 fn authority(
@@ -1121,14 +1159,7 @@ fn authority(
             current.clone(),
             format!("`{name}` is an honesty guarantee no layer changes"),
         )),
-        Authority::Machine => match layer {
-            SettingsLayer::OperatorPolicy | SettingsLayer::UserConfiguration => Ok(()),
-            _ => Err(SettingsError::NotApplicable {
-                key: name.to_owned(),
-                layer,
-                fix: format!("set `{name}` in user configuration or an Operator policy"),
-            }),
-        },
+        Authority::Machine | Authority::OperatorPolicyAlone => only_in(key.setting, layer),
         Authority::OperatorPolicy if layer != SettingsLayer::OperatorPolicy => Err(refused(
             current.clone(),
             format!("`{name}` is set only in an Operator policy"),

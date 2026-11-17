@@ -1,0 +1,17 @@
+# A fixture wheel of the install harness's tests (spec #326, Seam B): a
+# Product named as the real one is, with its executable, pinning the Collie
+# client exactly (ADRs 0094 and 0095).
+[project]
+name = "goodfetch-collie"
+version = "0.2.0"
+description = "A fixture of the install harness's tests; never published."
+requires-python = ">=3.11"
+classifiers = ["Private :: Do Not Upload"]
+dependencies = ["goodfetch-collie-client==0.2.0"]
+
+[project.scripts]
+goodfetch-collie = "goodfetch_collie:main"
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10"]
+build-backend = "uv_build"

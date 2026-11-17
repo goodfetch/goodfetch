@@ -418,6 +418,7 @@ fetch:
     pnpm install --frozen-lockfile
     uv sync --frozen --all-extras
     ci/lightpanda-fetch.sh
+    ci/alpine/fetch.sh
 
 # Builds Rust (with the given Cargo profile), TypeScript and Python.
 build profile="dev":

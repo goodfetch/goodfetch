@@ -4,7 +4,8 @@
 # jobs' host-tools action, ci/runtimes.toml, package.json's
 # packageManager, the pnpm catalog's Playwright, the workspace's gungraun,
 # which gungraun's runner must match, the hosted jobs' gitleaks
-# (ci/host/gitleaks.sh), the hosts' OSV-Scanner (ci/host/osv-scanner.sh)
+# (ci/host/gitleaks.sh), the hosts' OSV-Scanner (ci/host/osv-scanner.sh),
+# the uv of the install harness's Alpine image (ci/alpine/image.toml)
 # and the sanitizer toolchain and cargo-fuzz of
 # ci/sanitizer-toolchain.toml. The image's tag hashes only its Containerfile, so a version changed
 # elsewhere alone would leave the image and the hosted jobs apart.
@@ -37,6 +38,8 @@ done
 agree uv "$(image_arg UV_VERSION)" "$(action_tool uv)" "the CI image and the host-tools action"
 # The image runs the Pre-merge suite's Node line, the pre-merge set's.
 pre_merge_node=$("$root/ci/host/runtimes.sh" ids pre-merge | grep '^node-' | head -n1)
+agree uv-alpine "$(image_arg UV_VERSION)" "$(sed -n 's/^tag = "\([0-9.]*\)-.*"$/\1/p' "$root/ci/alpine/image.toml")" \
+  "the CI image and ci/alpine/image.toml"
 agree node "$(image_arg NODE_VERSION)" "$("$root/ci/host/runtimes.sh" version "$pre_merge_node")" \
   "the CI image and ci/runtimes.toml's pre-merge set"
 agree pnpm "$(image_arg PNPM_VERSION)" "$(sed -n 's/^  "packageManager": "pnpm@\(.*\)"$/\1/p' "$root/package.json")" \

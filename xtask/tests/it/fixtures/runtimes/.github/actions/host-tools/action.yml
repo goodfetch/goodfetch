@@ -1,0 +1,39 @@
+# Installs each Node line, Bun and Deno of the job's set.
+name: Host tools
+description: Installs the runtimes of a job's set.
+
+inputs:
+  runtimes:
+    description: A set of ci/runtimes.toml.
+    required: false
+    default: pre-merge
+
+runs:
+  using: composite
+  steps:
+    - name: Read the set's runtimes
+      id: runtimes
+      shell: bash
+      env:
+        SET: ${{ inputs.runtimes }}
+      run: ci/host/runtimes.sh outputs "$SET" >>"$GITHUB_OUTPUT"
+    - name: Install Node 26
+      if: steps.runtimes.outputs.node-26 != ''
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: ${{ steps.runtimes.outputs.node-26 }}
+    - name: Install Node 24
+      if: steps.runtimes.outputs.node-24 != ''
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: ${{ steps.runtimes.outputs.node-24 }}
+    - name: Install Bun
+      if: steps.runtimes.outputs.bun-1 != ''
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      with:
+        bun-version: ${{ steps.runtimes.outputs.bun-1 }}
+    - name: Install Deno 2
+      if: steps.runtimes.outputs.deno-2 != ''
+      uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+      with:
+        deno-version: ${{ steps.runtimes.outputs.deno-2 }}

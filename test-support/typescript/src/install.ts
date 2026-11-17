@@ -458,7 +458,7 @@ const require = createRequire(import.meta.url);
  * The manager's program: npm as the running Node carries it, the pnpm
  * running the tests (`pnpm exec`, as every suite runs Vitest), Yarn from
  * test support's pinned dependency, and Bun and Deno from `PATH`, as the
- * runners install them (`ci/host/runtimes.env`).
+ * runners install them (`ci/runtimes.toml`).
  */
 function managerProgram(manager: PackageManager): Program {
   switch (manager) {

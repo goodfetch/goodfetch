@@ -6,6 +6,8 @@ use std::fmt;
 
 use anyhow::{Result, bail};
 
+use crate::runtimes::Set;
+
 pub(crate) use crate::rate::Rate;
 
 /// Where a cell runs while the repository is private (ADR 0108).
@@ -14,25 +16,6 @@ pub(crate) enum Runner {
     Hosted(Rate),
     /// The owner's machine, on `main` only; it uses no included minutes.
     OwnerMachine,
-}
-
-/// The runtimes a cell tests (ADR 0069; TESTING.md, SDK and CLI tests).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Runtimes {
-    /// Every supported Node line, Bun, Deno 2 and every supported Python line.
-    All,
-    /// The oldest and newest Node line and Python line, and Bun and Deno 2
-    /// through the SDK smoke scripts.
-    Ends,
-}
-
-impl Runtimes {
-    fn key(self) -> &'static str {
-        match self {
-            Self::All => "all",
-            Self::Ends => "ends",
-        }
-    }
 }
 
 /// The Linux jobs of the Release workflow: one per architecture, whose
@@ -134,11 +117,15 @@ impl Cell {
         }
     }
 
-    /// Every runtime on Linux x64 (glibc); the oldest and newest elsewhere.
-    pub(crate) fn runtimes(self) -> Runtimes {
+    /// The set of `ci/runtimes.toml` the cell tests (ADR 0069): every
+    /// runtime on Linux x64 (glibc), the ends of each line with the
+    /// free-threaded builds on the other Linux cells, and the ends without
+    /// them on Windows and macOS.
+    pub(crate) fn runtimes(self) -> Set {
         match self {
-            Self::LinuxX64Gnu => Runtimes::All,
-            _ => Runtimes::Ends,
+            Self::LinuxX64Gnu => Set::ReleaseLinuxX64Gnu,
+            Self::LinuxX64Musl | Self::LinuxArm64Gnu | Self::LinuxArm64Musl => Set::ReleaseLinux,
+            Self::WindowsX64 | Self::MacosArm64 | Self::MacosX64 => Set::ReleaseOther,
         }
     }
 

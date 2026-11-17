@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Checks that every tool pinned in more than one place is pinned at one
 # version (`just lint`): the CI image's (ci/image/Containerfile), the hosted
-# jobs' host-tools action, ci/host/runtimes.env, package.json's
+# jobs' host-tools action, ci/runtimes.toml, package.json's
 # packageManager, the pnpm catalog's Playwright, the workspace's gungraun,
 # which gungraun's runner must match, the hosted jobs' gitleaks
 # (ci/host/gitleaks.sh), the hosts' OSV-Scanner (ci/host/osv-scanner.sh)
@@ -35,8 +35,10 @@ for tool in just cargo-nextest cargo-insta; do
   agree "$tool" "$(image_tool "$tool")" "$(action_tool "$tool")" "the CI image and the host-tools action"
 done
 agree uv "$(image_arg UV_VERSION)" "$(action_tool uv)" "the CI image and the host-tools action"
-agree node "$(image_arg NODE_VERSION)" "$(sed -n 's/^NODE_24=//p' "$root/ci/host/runtimes.env")" \
-  "the CI image and ci/host/runtimes.env"
+# The image runs the Pre-merge suite's Node line, the pre-merge set's.
+pre_merge_node=$("$root/ci/host/runtimes.sh" ids pre-merge | grep '^node-' | head -n1)
+agree node "$(image_arg NODE_VERSION)" "$("$root/ci/host/runtimes.sh" version "$pre_merge_node")" \
+  "the CI image and ci/runtimes.toml's pre-merge set"
 agree pnpm "$(image_arg PNPM_VERSION)" "$(sed -n 's/^  "packageManager": "pnpm@\(.*\)"$/\1/p' "$root/package.json")" \
   "the CI image and package.json"
 agree mold "$(image_arg MOLD_VERSION)" "$(sed -n 's/^ *mold-version: //p' "$action")" \

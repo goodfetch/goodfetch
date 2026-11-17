@@ -83,6 +83,7 @@ use settings_flags::SettingsFlags;
 pub use command_line::printed_command_line;
 
 mod allocator;
+mod attached_ops;
 mod audit;
 mod audit_events;
 mod browsers;
@@ -888,6 +889,17 @@ fn run_attached(
     } else {
         None
     };
+    // An Attached engine that runs its Runs itself serves the ops listener
+    // `ops.attached_address` asks for; one that hands them to the Daemon
+    // opens none.
+    let ops = if daemon.is_none() {
+        match attached_ops::AttachedOps::asked(settings, machine) {
+            Ok(ops) => ops,
+            Err(exit) => return exit,
+        }
+    } else {
+        None
+    };
     let runtime = runtime::multi_thread(runtime::Threads::of(settings));
     let served = runtime.block_on(async {
         if let Some((endpoint, token)) = daemon {
@@ -900,10 +912,16 @@ fn run_attached(
                 Err(error) => Err(format!("the Daemon at {endpoint} does not answer: {error}")),
             };
         }
-        engine
-            .run_attached(Network::Os, dependencies)
-            .await
-            .map_err(|error| error.to_string())
+        match &ops {
+            Some(ops) => {
+                let listening = ops.listen().await?;
+                ops.engine(engine)
+                    .run_attached_with_ops(Network::Os, dependencies, listening)
+                    .await
+            }
+            None => engine.run_attached(Network::Os, dependencies).await,
+        }
+        .map_err(|error| error.to_string())
     });
     // Tokio's stdin reads on a blocking thread that only new input wakes, so
     // the runtime is not waited for once the Connection has closed.

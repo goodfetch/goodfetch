@@ -20,7 +20,10 @@
 //! records the command and round counts so far, the CPU time of the tool's
 //! process tree ([`Relay::follow`]) and the moment, before it answers, so
 //! the figures between the marks are the measured part's alone. Without a
-//! browser ([`Relay::marks_only`]), it answers only the marks.
+//! browser ([`Relay::marks_only`]), it answers only the marks; given a
+//! reader of the tool's engine's own counts ([`Relay::marks_reading`]),
+//! each mark records them too, read outside the measured part: before the
+//! start mark's CPU time and moment, after the end mark's.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: the relay copies each connection's bytes on threads of its own (STYLE.md)"
@@ -238,6 +241,19 @@ impl Awaited {
     }
 }
 
+/// The Counted work a tool's engine reported (ADR 0140): the C5 `answers`
+/// and C1 `sends` it counted since it started.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct EngineCounts {
+    /// The paused requests it answered, C5 `answers`.
+    pub(crate) paused: u64,
+    /// The CDP commands it sent, C1 `sends`.
+    pub(crate) commands: u64,
+}
+
+/// Reads the tool's engine's counts; none when they cannot be read.
+pub(crate) type EngineReader = Box<dyn Fn() -> Option<EngineCounts> + Send + Sync>;
+
 /// What a mark recorded.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Mark {
@@ -251,6 +267,8 @@ pub(crate) struct Mark {
     /// (issue 2406).
     pub(crate) driver_cpu_seconds: f64,
     pub(crate) at: Instant,
+    /// The tool's engine's counts, when the relay reads them and could.
+    pub(crate) engine: Option<EngineCounts>,
 }
 
 /// What the relay's threads share.
@@ -260,6 +278,8 @@ struct Shared {
     /// The process whose tree a mark reads the CPU time of; 0 for none.
     tool: AtomicU32,
     marks: Mutex<(Option<Mark>, Option<Mark>)>,
+    /// What reads the tool's engine's counts at each mark, if anything.
+    engine: Option<EngineReader>,
     stop: AtomicBool,
 }
 
@@ -274,16 +294,22 @@ impl Relay {
     /// Starts relaying a loopback port of its own to the browser's
     /// remote-debugging port `browser`.
     pub(crate) fn start(browser: u16) -> Result<Self> {
-        Self::bind(Some(browser))
+        Self::bind(Some(browser), None)
     }
 
     /// Starts answering the marks alone, for a trial whose tool launches
     /// its own browser.
     pub(crate) fn marks_only() -> Result<Self> {
-        Self::bind(None)
+        Self::bind(None, None)
     }
 
-    fn bind(browser: Option<u16>) -> Result<Self> {
+    /// Starts answering the marks alone, each also recording what `engine`
+    /// reads of the tool's engine's counts.
+    pub(crate) fn marks_reading(engine: EngineReader) -> Result<Self> {
+        Self::bind(None, Some(engine))
+    }
+
+    fn bind(browser: Option<u16>, engine: Option<EngineReader>) -> Result<Self> {
         let listener =
             TcpListener::bind("127.0.0.1:0").context("binding the counting relay's port")?;
         let address = listener
@@ -294,6 +320,7 @@ impl Relay {
             rounds: AtomicU64::new(0),
             tool: AtomicU32::new(0),
             marks: Mutex::new((None, None)),
+            engine,
             stop: AtomicBool::new(false),
         });
         let accepting = Arc::clone(&shared);
@@ -375,6 +402,51 @@ fn head(stream: &mut TcpStream) -> Result<(Vec<u8>, Vec<u8>)> {
     }
 }
 
+/// Which of the two marks a request asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Which {
+    Start,
+    End,
+}
+
+/// Records the mark `which` once, and returns the answer to its request.
+fn mark(shared: &Shared, which: Which) -> &'static str {
+    // The engine's counts are read outside the measured part, so its
+    // answering them is no part of the figures between the marks.
+    let engine = || shared.engine.as_ref().and_then(|read| read());
+    let before = if which == Which::Start {
+        engine()
+    } else {
+        None
+    };
+    let (cpu_seconds, driver_cpu_seconds) = match shared.tool.load(Ordering::Relaxed) {
+        0 => (0.0, 0.0),
+        pid => (sampler::cpu_seconds(pid), sampler::own_cpu_seconds(pid)),
+    };
+    let mut mark = Mark {
+        commands: shared.commands.load(Ordering::SeqCst),
+        rounds: shared.rounds.load(Ordering::SeqCst),
+        cpu_seconds,
+        driver_cpu_seconds,
+        at: trial::now(),
+        engine: before,
+    };
+    if which == Which::End {
+        mark.engine = engine();
+    }
+    let mut marks = shared.marks.lock().unwrap_or_else(PoisonError::into_inner);
+    let slot = match which {
+        Which::Start => &mut marks.0,
+        Which::End => &mut marks.1,
+    };
+    if slot.is_some() {
+        "HTTP/1.1 409 Conflict\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    } else {
+        *slot = Some(mark);
+        "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n"
+    }
+}
+
 /// Serves one connection: a mark, or a relayed request to the browser,
 /// when there is one.
 fn connection(mut client: TcpStream, browser: Option<u16>, shared: &Shared) -> Result<()> {
@@ -389,36 +461,11 @@ fn connection(mut client: TcpStream, browser: Option<u16>, shared: &Shared) -> R
         .and_then(|line| line.split_whitespace().nth(1))
         .unwrap_or_default();
     if let Some(which) = match target {
-        "/start" => Some(0),
-        "/end" => Some(1),
+        "/start" => Some(Which::Start),
+        "/end" => Some(Which::End),
         _ => None,
     } {
-        let (cpu_seconds, driver_cpu_seconds) = match shared.tool.load(Ordering::Relaxed) {
-            0 => (0.0, 0.0),
-            pid => (sampler::cpu_seconds(pid), sampler::own_cpu_seconds(pid)),
-        };
-        let mark = Mark {
-            commands: shared.commands.load(Ordering::SeqCst),
-            rounds: shared.rounds.load(Ordering::SeqCst),
-            cpu_seconds,
-            driver_cpu_seconds,
-            at: trial::now(),
-        };
-        let answer = {
-            let mut marks = shared.marks.lock().unwrap_or_else(PoisonError::into_inner);
-            let slot = if which == 0 {
-                &mut marks.0
-            } else {
-                &mut marks.1
-            };
-            if slot.is_some() {
-                "HTTP/1.1 409 Conflict\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-            } else {
-                *slot = Some(mark);
-                "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n"
-            }
-        };
-        client.write_all(answer.as_bytes())?;
+        client.write_all(mark(shared, which).as_bytes())?;
         return Ok(());
     }
     let Some(browser) = browser else {

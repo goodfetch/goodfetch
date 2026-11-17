@@ -126,6 +126,10 @@ fn load(page: LoadPage, row: Row, number: u32, wall: f64) -> LoadTrial {
         cpu_seconds: wall / 2.0,
         wall_seconds: wall,
         peak_bytes: 300 << 20,
+        // Collie's engine counts its paused requests and CDP commands;
+        // Playwright has neither.
+        paused: (row.tool() == Contender::Collie).then(|| page.own() + 1),
+        commands: (row.tool() == Contender::Collie).then(|| 400 + u64::from(number)),
         retried: None,
     }
 }
@@ -220,6 +224,23 @@ fn a_row_stopped_twice_is_not_measured_and_owes_no_trial() {
     assert_eq!(ads_defaults["page"], "ads");
     assert_eq!(ads_defaults["row"], "defaults");
     assert_eq!(ads_defaults["wall_seconds"]["status"], "not_measured");
+    assert_eq!(ads_defaults["paused"]["status"], "not_measured");
+}
+
+#[test]
+fn a_collie_trial_without_its_engines_counts_leaves_them_not_measured() {
+    let mut loads = every(2, |_, _| 0.5);
+    for trial in &mut loads {
+        if trial.page == LoadPage::Plain && trial.row == Row::Defaults && trial.number == 2 {
+            trial.paused = None;
+            trial.commands = None;
+        }
+    }
+    let section = section(&loads, &[]);
+    let report = serde_json::to_value(&section).unwrap();
+    assert_eq!(report["rows"][0]["paused"]["status"], "not_measured");
+    assert_eq!(report["rows"][0]["commands"]["status"], "not_measured");
+    assert_eq!(report["rows"][1]["paused"]["median"], 151.0);
 }
 
 /// The wall times of a run where each default costs its own time.
@@ -279,10 +300,16 @@ fn the_section_gives_each_defaults_cost_on_the_plain_page_and_the_target_on_both
         "the table names each row: {text}"
     );
     assert!(
-        text.contains("| missing (#2635) | missing (#2635) |"),
-        "{text}"
+        text.contains("| 151 (151–151) | 401.5 (401–402) |"),
+        "Collie's rows give its engine's paused requests and CDP commands: {text}"
     );
+    assert!(!text.contains("missing"), "{text}");
     assert!(text.contains("| n/a | n/a |"), "{text}");
+    assert_eq!(report["rows"][0]["commands"]["median"], 401.5);
+    assert!(
+        report["rows"][5].get("commands").is_none(),
+        "Playwright's rows have no counts"
+    );
     assert!(text.contains("`filter_lists`: +50.0 ms"), "{text}");
     assert!(text.contains("#1895"), "{text}");
     assert!(text.contains("(#2435)"), "{text}");
@@ -331,4 +358,41 @@ fn the_order_runs_each_rows_trials_on_each_page_once() {
     order.sort();
     order.dedup();
     assert_eq!(order.len(), 28);
+}
+
+#[test]
+fn the_engines_counts_are_its_c5_answers_and_c1_sends_in_its_metrics() {
+    let scraped = "\
+# HELP goodfetch_counted_work_total The Counted work.
+# TYPE goodfetch_counted_work_total counter
+goodfetch_counted_work_total{shared_path=\"cdp_command\",work=\"sends\",otel_scope_name=\"goodfetch\"} 412
+goodfetch_counted_work_total{shared_path=\"cdp_command\",work=\"decodes\",otel_scope_name=\"goodfetch\"} 900
+goodfetch_counted_work_total{shared_path=\"intercepted_request\",work=\"answers\",otel_scope_name=\"goodfetch\"} 151
+goodfetch_counted_work_total{shared_path=\"intercepted_request\",work=\"decisions\",otel_scope_name=\"goodfetch\"} 3
+";
+    assert_eq!(
+        engine_counts(scraped),
+        Some(EngineCounts {
+            paused: 151,
+            commands: 412
+        })
+    );
+    let no_answers = scraped.replace("work=\"answers\"", "work=\"other\"");
+    assert_eq!(engine_counts(&no_answers), None);
+}
+
+#[test]
+fn the_counts_it_reads_are_the_engines_c5_answers_and_c1_sends_rows() {
+    use goodfetch_counted_work::Row;
+
+    assert_eq!(
+        (PAUSED, COMMANDS),
+        (
+            (
+                Row::InterceptedAnswers.path(),
+                Row::InterceptedAnswers.work()
+            ),
+            (Row::CdpSends.path(), Row::CdpSends.work()),
+        )
+    );
 }

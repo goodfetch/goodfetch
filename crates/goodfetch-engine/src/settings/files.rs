@@ -101,6 +101,20 @@ impl SettingsFiles {
                     layer,
                 }
             }
+            SettingsError::NotApplicable { key, layer, .. }
+                if keys::find(&key).is_some_and(|found| {
+                    matches!(found.setting.authority, Authority::OperatorPolicyAlone)
+                }) =>
+            {
+                SettingsError::NotApplicable {
+                    fix: format!(
+                        "set `{key}` in an Operator policy, `{}`",
+                        self.operator_policy.display()
+                    ),
+                    key,
+                    layer,
+                }
+            }
             error => error,
         }
     }

@@ -108,6 +108,7 @@ headless = true
 cdp_command_log = true
 block_resources = ["image"]
 service_workers = "allow"
+access_mode = "standard"
 
 [settings.live_view]
 hiding = "auto"
@@ -129,6 +130,18 @@ kind = "datacenter"
 country = "US"
 sticky_lifetime = 30000
 providers = { "example.test" = { endpoint = "http://proxy.example:8000", password = "env:PROXY_PASSWORD", price = "5 USD", servers = [{ country = "US", kind = "datacenter", server = "http://203.0.113.7:3128" }], username = "account", zones = { residential = "residential_proxy1" } } }
+
+[settings.stealth]
+fingerprint_method = "none"
+generated_identity = true
+human_input = true
+chromium_build = "goodfetch"
+allowed_builds = ["example"]
+
+[settings.stealth.identity]
+os = ["example"]
+device = ["example"]
+brand = ["example"]
 
 [settings.run_state]
 location = "example"
@@ -479,6 +492,7 @@ headless = true
 cdp_command_log = true
 block_resources = ["image"]
 service_workers = "allow"
+access_mode = "standard"
 
 [lock.live_view]
 hiding = "auto"
@@ -500,6 +514,18 @@ kind = "datacenter"
 country = "US"
 sticky_lifetime = 30000
 providers = { "example.test" = { endpoint = "http://proxy.example:8000", password = "env:PROXY_PASSWORD", price = "5 USD", servers = [{ country = "US", kind = "datacenter", server = "http://203.0.113.7:3128" }], username = "account", zones = { residential = "residential_proxy1" } } }
+
+[lock.stealth]
+fingerprint_method = "none"
+generated_identity = true
+human_input = true
+chromium_build = "goodfetch"
+allowed_builds = ["example"]
+
+[lock.stealth.identity]
+os = ["example"]
+device = ["example"]
+brand = ["example"]
 
 [lock.run_state]
 location = "example"

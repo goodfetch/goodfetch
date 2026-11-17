@@ -1,0 +1,61 @@
+#:schema ./journey.schema.json
+# Golden scenario 09, area 9's spec (#602). The variants it makes proved, and
+# the tickets that make each one proved:
+# - sdk-typescript, sdk-python: the verbs on a Borrowed page (#917), with
+#   area 5's main-frame watch, compiled `extract` (#902), the Run's Verdict
+#   (#858) and Usage (#951).
+# - sdk-rust: the same tickets, the Rust program sharing the browser through
+#   its `cdp_url`.
+id = "J-036"
+title = "Add an AI step to an existing Playwright program on a Borrowed browser"
+goal = """
+A developer adds one AI step to a Playwright program that keeps driving its own browser, which Collie borrows. The AI step MUST read the item page the program opened, and a popup the page opened, as on any page, the Run holding their Plan, Limits and Usage; a call whose document a navigation the program started replaces MUST fail with `page_navigated_during_call`, naming both addresses, writing no Plan entry and running no Repair; and the browser MUST stay the program's to drive."""
+area = 9
+product = "collie"
+status = "active"
+covers = ["story:9-18", "story:9-97", "row:V3-01"]
+
+[proving_ground]
+seed = 36
+tasks = [
+  { id = "rendered/2", digest = "e5e658a9f1038fb86da1af8991ac4017e2b68bdf055cb4b9de6026118bcf4dfa" },
+]
+
+[surfaces]
+sdk-typescript = "M4"
+sdk-python = "M4"
+sdk-rust = "M4"
+
+[[steps]]
+text = "Point the Model provider setting at the Fake model through this variant's surface: the provider's base URL at the Proving ground's `model.test`"
+
+[[steps]]
+text = "Open the task's item page with Playwright in a browser the program launched, and lend that browser to Collie as a Borrowed browser (the Rust program through the browser's shared `cdp_url`)"
+
+[[steps]]
+text = "In a Run, extract the item from the Borrowed page with the task's instruction and a schema of its fields"
+
+[[steps]]
+text = "Open the item page in a popup from the page with Playwright, and extract the item from the popup in the same Run"
+
+[[steps]]
+text = "In a second Run, start another extraction from the Borrowed page and, while it runs, navigate the page to the shop's next item with Playwright"
+
+[[steps]]
+text = "Navigate the Borrowed page back to the task's item with Playwright after both Runs end"
+
+[[expect]]
+text = "The oracle verifies the item the first Run extracted from the Borrowed page"
+task = "rendered/2"
+
+[[expect]]
+text = "The extraction from the popup returned the same item, and the first Run, which ended with the Verdict `verified`, held the Plan, the Limits and the Usage of both calls"
+
+[[expect]]
+text = "The second Run's extraction failed with `page_navigated_during_call`, naming the address it started on and the one the navigation reached, wrote no Plan entry and ran no Repair"
+
+[[expect]]
+text = "Playwright drove the browser after both Runs ended, its pages still open"
+
+[[expect]]
+text = "Each Run's Usage equals the Fake model's own count of the calls it served during that Run (`GET /model-calls`)"

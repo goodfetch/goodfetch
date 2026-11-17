@@ -7,6 +7,7 @@ network.resolve = {"staging.example":["127.0.0.1"]}  (operator_policy, locked by
 timeout.action = 30000  (default)
 timeout.close = 30000  (default)
 timeout.first_byte = 10000  (project_configuration)
+timeout.hello = 5000  (default)
 timeout.navigation = 60000  (project_configuration)
 timeout.run = null  (default)
 timeout.secret = 30000  (default)

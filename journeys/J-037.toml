@@ -1,0 +1,64 @@
+#:schema ./journey.schema.json
+# Golden scenario 11, area 9's spec (#602). The variants it makes proved, and
+# the tickets that make each one proved:
+# - sdk-typescript, sdk-python, sdk-rust, cli (and cli@foxhound-cli),
+#   mcp-stdio, mcp-http: `page.agent` (#957), its Success check and Grounded
+#   output (#971), its bounds (#979) and its task as one Plan entry (#990),
+#   with the Run's Verdict (#858) and Usage (#951); the CLI and MCP through
+#   area 11's `page_agent` and `success_check_evaluate` (spec #604).
+id = "J-037"
+title = "Reach a goal from one instruction with the Agent, within its limits, and get a verdict"
+goal = """
+A developer gives the Agent one objective on the demo page, booking a demo, with a schema, a Success check, a step limit and the domains it may visit. Each task MUST end `finished` with a complete output only once the Success check held, with the Verdict `verified`; the Agent MUST never leave the start page's registrable domain nor delete the account; and the task the Plan holds MUST replay as one entry, with no model call where the page has not changed, checking before each Effect the targets the recorded run saw, the live loop taking over where they changed."""
+area = 9
+product = "collie"
+status = "active"
+covers = ["story:9-54", "story:9-55", "story:9-57", "story:9-63", "story:9-69", "row:AI-05", "row:AI-08", "row:V3-04"]
+
+[proving_ground]
+seed = 37
+tasks = [
+  { id = "agent/1", digest = "4fe6dee4455817a797c5e7fc75ccaf17f31f951887057807c5a301569033ddbd" },
+]
+
+[surfaces]
+sdk-typescript = "M4"
+sdk-python = "M4"
+sdk-rust = "M4"
+cli = "M4"
+mcp-stdio = "M4"
+mcp-http = "M4"
+
+[[steps]]
+text = "Point the Model provider setting at the Fake model through this variant's surface: the provider's base URL at the Proving ground's `model.test`"
+
+[[steps]]
+text = "Turn on `plan.auto_approve_effects`, so that a `verified` Run promotes the booking's step"
+
+[[steps]]
+text = "At time step 0, give the Agent the task's instruction on the demo page, with a schema of the booking, a Success check that the page confirms the booking, `maxSteps` of 20 and `domains` left to its default, in a Run that names a Plan file"
+
+[[steps]]
+text = "Start the Proving ground again from the same seed, keeping the Plan file"
+
+[[steps]]
+text = "Give the Agent the same task at each of the task's time steps in turn, 0 to 3, each in a Run that names the Plan file"
+
+[[expect]]
+text = "The oracle verifies the bookings the Runs after the restart made, one per time step"
+task = "agent/1"
+
+[[expect]]
+text = "Each task ended `finished` with a complete output, its Success check run each time the model reported done, and each Run ended with the Verdict `verified`"
+
+[[expect]]
+text = "At time step 0 after the restart, the task replayed its one Plan entry whole with no model call: the Fake model served no call during it"
+
+[[expect]]
+text = "At the later time steps, each replay checked before each Effect the targets the recorded run saw; where one had changed, the live loop took over from that step, and no Effect went to a changed target"
+
+[[expect]]
+text = "The Proving ground recorded no `delete_account` Effect, and every navigation of every task stayed within `agent.test`"
+
+[[expect]]
+text = "Each Run's Usage equals the Fake model's own count of the calls it served during that Run (`GET /model-calls`)"

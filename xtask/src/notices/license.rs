@@ -198,6 +198,11 @@ enum Token {
     Id(String),
 }
 
+/// Whether `text` is an SPDX expression the check can read.
+pub(super) fn readable(text: &str) -> bool {
+    options(text).is_some()
+}
+
 /// The expression's options, each the identifiers all of which apply (its
 /// disjunctive normal form); `None` when it is no expression.
 fn options(text: &str) -> Option<Vec<Vec<String>>> {

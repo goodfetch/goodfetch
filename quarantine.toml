@@ -16,3 +16,9 @@
 #   vitest      its full name, suites and title joined by ` > `;
 #   playwright  its file, suites and title joined by ` › `;
 #   pytest      its node ID, `tests/test_page.py::test_title`.
+
+[[test]]
+runner = "nextest"
+id = "goodfetch-conformance::it protocol::the_fetch_suite_is_proved_against_foxhounds_attached_engine"
+issue = 2732
+date = 2026-11-17

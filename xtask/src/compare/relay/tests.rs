@@ -236,6 +236,38 @@ fn a_relay_with_no_browser_answers_its_marks_and_nothing_else() {
     assert_eq!((start.unwrap().rounds, end.unwrap().commands), (0, 0));
 }
 
+#[test]
+fn each_mark_records_the_engines_counts_as_they_stand_then() {
+    let commands = Arc::new(AtomicU64::new(7));
+    let read = Arc::clone(&commands);
+    let relay = Relay::marks_reading(Box::new(move || {
+        let commands = read.load(Ordering::SeqCst);
+        Some(EngineCounts {
+            paused: commands / 2,
+            commands,
+        })
+    }))
+    .unwrap();
+    let address = relay.address().to_string();
+    assert!(get(&address, "/start").starts_with("HTTP/1.1 204"));
+    commands.store(30, Ordering::SeqCst);
+    assert!(get(&address, "/end").starts_with("HTTP/1.1 204"));
+    let (start, end) = relay.marks();
+    assert_eq!(
+        (start.unwrap().engine, end.unwrap().engine),
+        (
+            Some(EngineCounts {
+                paused: 3,
+                commands: 7
+            }),
+            Some(EngineCounts {
+                paused: 15,
+                commands: 30
+            })
+        )
+    );
+}
+
 /// A browser's endpoint that accepts one WebSocket, answers its handshake
 /// as Chrome does, then answers each command it receives once whole.
 fn answering_browser() -> u16 {

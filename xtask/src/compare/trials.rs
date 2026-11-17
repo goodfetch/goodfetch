@@ -722,6 +722,16 @@ pub(crate) struct LoadTrial {
     /// The highest resident memory of the tool's process tree, its browser
     /// in it, from its start to its exit.
     pub(crate) peak_bytes: u64,
+    /// The requests Collie's engine paused between the marks, its C5
+    /// `answers`: none for Playwright, or where the engine's counts were
+    /// not read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) paused: Option<u64>,
+    /// The CDP commands Collie's engine sent between the marks, its C1
+    /// `sends`: none for Playwright, or where the engine's counts were not
+    /// read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) commands: Option<u64>,
     /// Why its first attempt was stopped, when these are its retry's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) retried: Option<String>,

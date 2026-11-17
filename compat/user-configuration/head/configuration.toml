@@ -22,6 +22,7 @@ drain_grace = 30000
 
 [settings.ops]
 address = "example"
+attached_address = "example"
 
 [settings.governor]
 memory_allowance = 4

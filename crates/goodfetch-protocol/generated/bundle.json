@@ -18929,6 +18929,17 @@
                       }
                     ],
                     "description": "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`."
+                  },
+                  "attached_address": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Where an Attached engine that runs its Runs itself serves an ops listener, as a loopback `host:port` such as `127.0.0.1:9465`: `/livez` and `/readyz` answer a status and no body, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token; its `goodfetch_counted_work_total` gives the engine's Counted work, such as the CDP commands it sent and the requests it paused. Unset by default: no ops listener, and the engine keeps no meter for one. An Attached engine in the per-install layout hands its Runs to the Daemon, whose `ops.address` serves them, and opens none. One address serves one engine: a second engine started with it fails to start."
                   }
                 },
                 "type": "object"
@@ -21698,6 +21709,17 @@
                       }
                     ],
                     "description": "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`."
+                  },
+                  "attached_address": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Where an Attached engine that runs its Runs itself serves an ops listener, as a loopback `host:port` such as `127.0.0.1:9465`: `/livez` and `/readyz` answer a status and no body, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token; its `goodfetch_counted_work_total` gives the engine's Counted work, such as the CDP commands it sent and the requests it paused. Unset by default: no ops listener, and the engine keeps no meter for one. An Attached engine in the per-install layout hands its Runs to the Daemon, whose `ops.address` serves them, and opens none. One address serves one engine: a second engine started with it fails to start."
                   }
                 },
                 "type": "object"
@@ -24483,6 +24505,17 @@
                       }
                     ],
                     "description": "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`."
+                  },
+                  "attached_address": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Where an Attached engine that runs its Runs itself serves an ops listener, as a loopback `host:port` such as `127.0.0.1:9465`: `/livez` and `/readyz` answer a status and no body, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token; its `goodfetch_counted_work_total` gives the engine's Counted work, such as the CDP commands it sent and the requests it paused. Unset by default: no ops listener, and the engine keeps no meter for one. An Attached engine in the per-install layout hands its Runs to the Daemon, whose `ops.address` serves them, and opens none. One address serves one engine: a second engine started with it fails to start."
                   }
                 },
                 "type": "object"

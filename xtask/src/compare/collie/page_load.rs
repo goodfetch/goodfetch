@@ -14,20 +14,26 @@
 //! process tree, its browser in it, beside that tree's peak resident memory
 //! and the requests the Proving ground received. The same-work check holds
 //! every trial to its page's own subresources and `#content` text; a
-//! request the Filter lists blocked is no missing work.
+//! request the Filter lists blocked is no missing work. Collie's engine
+//! serves its own Counted work at `ops.attached_address` (issue 2635),
+//! which the relay reads at each mark: the paused requests it answered and
+//! the CDP commands it sent between them.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
+use std::net::SocketAddr;
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
+use goodfetch_protocol::home::DaemonFile;
+use goodfetch_protocol::ops::{COUNTED_WORK, COUNTED_WORK_PATH_LABEL, COUNTED_WORK_WORK_LABEL};
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 
 use crate::check::Finding;
 
-use super::super::relay::Relay;
+use super::super::relay::{EngineCounts, EngineReader, Mark, Relay};
 use super::super::report::{Figure, Unit, cell_text, float, median, spread};
 use super::super::trial::{self, Outcome};
 use super::super::trials::{Contender, LoadPage, LoadStopped, LoadTrial, Row};
@@ -36,10 +42,9 @@ use super::Tools;
 /// The host name the Proving ground serves both pages on.
 pub(crate) const HOST: &str = "page-load.test";
 
-/// The issue that gives Collie's engine the counters of the paused requests
-/// and of the CDP commands of a launched Session, which this cell reads as
-/// missing until then.
-pub(crate) const COUNTERS_ISSUE: &str = "#2635";
+/// The ops token of each Collie trial's engine, in the trial's own home,
+/// for its `/metrics` on loopback.
+const OPS_TOKEN: &str = "xtask-compare-page-load";
 
 /// The pages, in the order the report gives them.
 pub(crate) const PAGES: [LoadPage; 2] = [LoadPage::Plain, LoadPage::Ads];
@@ -286,8 +291,12 @@ pub(crate) fn trial(
             )
         })?;
     let folder = tempfile::tempdir().context("creating the trial's folder")?;
-    let relay = Relay::marks_only()?;
     let tool = row.tool();
+    let ops = counted_by(row).then(free_address).transpose()?;
+    let relay = match ops {
+        Some(address) => Relay::marks_reading(engine_reader(address))?,
+        None => Relay::marks_only()?,
+    };
     let mut command = super::tools::node(tools, &tools.driver.with_file_name("load.ts"));
     command
         .args(["--tool", tool.name(), "--url"])
@@ -298,12 +307,23 @@ pub(crate) fn trial(
     let mut cache = None;
     match tool {
         Contender::Collie => {
-            super::collie_home(
-                &mut command,
-                folder.path(),
-                tools,
-                &configuration(port, ad_hosts, row)?,
-            )?;
+            let mut configuration = configuration(port, ad_hosts, row)?;
+            if let Some(address) = ops {
+                let _ = write!(
+                    configuration,
+                    "\n[settings.ops]\nattached_address = \"{address}\"\n"
+                );
+            }
+            super::collie_home(&mut command, folder.path(), tools, &configuration)?;
+            std::fs::write(
+                folder
+                    .path()
+                    .join("home")
+                    .join(super::version_line()?)
+                    .join(DaemonFile::OpsToken.name()),
+                OPS_TOKEN,
+            )
+            .context("writing the engine's ops token")?;
             let browsers = trial::browser_cache(tools.browser)?;
             command.env(
                 goodfetch_protocol::settings::BROWSERS_PATH_VARIABLE,
@@ -354,8 +374,89 @@ pub(crate) fn trial(
         cpu_seconds: (end.cpu_seconds - start.cpu_seconds).max(0.0),
         wall_seconds: end.at.duration_since(start.at).as_secs_f64(),
         peak_bytes: driven.peak_bytes,
+        paused: engine(start, end, |counts| counts.paused),
+        commands: engine(start, end, |counts| counts.commands),
         retried: None,
     }))
+}
+
+/// A loopback address no listener holds now, for the engine's ops
+/// listener.
+#[expect(
+    clippy::disallowed_types,
+    reason = "xtask is no engine crate (ADR 0060): it holds a loopback port only to learn it is free"
+)]
+fn free_address() -> Result<SocketAddr> {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|listener| listener.local_addr())
+        .context("finding a free port for the engine's ops listener")
+}
+
+/// What reads the Counted work of the engine whose ops listener is at
+/// `address`: none when it does not answer.
+fn engine_reader(address: SocketAddr) -> EngineReader {
+    Box::new(move || {
+        let text = ureq::get(&format!("http://{address}/metrics"))
+            .header("Authorization", format!("Bearer {OPS_TOKEN}"))
+            .call()
+            .ok()?
+            .body_mut()
+            .read_to_string()
+            .ok()?;
+        engine_counts(&text)
+    })
+}
+
+/// C5 `answers`, the engine's paused requests, as its Shared path and work
+/// label it (`goodfetch-counted-work`'s `Row::InterceptedAnswers`).
+pub(crate) const PAUSED: (&str, &str) = ("intercepted_request", "answers");
+
+/// C1 `sends`, the engine's CDP commands, as its Shared path and work label
+/// it (`goodfetch-counted-work`'s `Row::CdpSends`).
+pub(crate) const COMMANDS: (&str, &str) = ("cdp_command", "sends");
+
+/// The engine's own counts in its `/metrics` `text`: its
+/// `goodfetch_counted_work_total` series of C5 `answers` and C1 `sends`;
+/// none when either is missing.
+pub(crate) fn engine_counts(text: &str) -> Option<EngineCounts> {
+    let series = format!("{}_total{{", COUNTED_WORK.name.replace('.', "_"));
+    let label = |name: &str, value: &str| format!("{name}=\"{value}\"");
+    let row = |(path, work): (&str, &str)| {
+        [
+            label(COUNTED_WORK_PATH_LABEL.name, path),
+            label(COUNTED_WORK_WORK_LABEL.name, work),
+        ]
+    };
+    let (answers, sends) = (row(PAUSED), row(COMMANDS));
+    let (mut paused, mut commands) = (None, None);
+    for line in text.lines() {
+        let Some((labels, value)) = line
+            .strip_prefix(series.as_str())
+            .and_then(|rest| rest.rsplit_once('}'))
+        else {
+            continue;
+        };
+        let Ok(value) = value.trim().parse::<u64>() else {
+            continue;
+        };
+        let labels: Vec<&str> = labels.split(',').collect();
+        let has = |row: &[String; 2]| row.iter().all(|label| labels.contains(&label.as_str()));
+        if has(&answers) {
+            paused = Some(paused.unwrap_or(0) + value);
+        } else if has(&sends) {
+            commands = Some(commands.unwrap_or(0) + value);
+        }
+    }
+    Some(EngineCounts {
+        paused: paused?,
+        commands: commands?,
+    })
+}
+
+/// One of the engine's counts between the marks `start` and `end`, when
+/// both read it.
+fn engine(start: Mark, end: Mark, count: fn(EngineCounts) -> u64) -> Option<u64> {
+    Some(count(end.engine?).saturating_sub(count(start.engine?)))
 }
 
 /// Every page-load trial, `trials` of each row on each page, in one random
@@ -454,6 +555,12 @@ pub(crate) struct RowFigures {
     pub(crate) cpu_seconds: Figure,
     pub(crate) peak_bytes: Figure,
     pub(crate) sent: Figure,
+    /// The requests Collie's engine paused; none for Playwright.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) paused: Option<Figure>,
+    /// The CDP commands Collie's engine sent; none for Playwright.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) commands: Option<Figure>,
 }
 
 /// What one default costs on the plain page: the median wall time to
@@ -518,6 +625,8 @@ pub(crate) fn section(loads: &[LoadTrial], stopped: &[LoadStopped]) -> LoadSecti
                 cpu_seconds: figure(),
                 peak_bytes: figure(),
                 sent: figure(),
+                paused: counted_by(row).then(figure),
+                commands: counted_by(row).then(figure),
             });
             continue;
         }
@@ -539,6 +648,8 @@ pub(crate) fn section(loads: &[LoadTrial], stopped: &[LoadStopped]) -> LoadSecti
             cpu_seconds: spread(&values(&|trial| trial.cpu_seconds), Unit::Seconds),
             peak_bytes: spread(&values(&|trial| float(trial.peak_bytes)), Unit::Bytes),
             sent: spread(&values(&|trial| float(trial.sent)), Unit::Count),
+            paused: counted_by(row).then(|| counts(&ran, |trial| trial.paused)),
+            commands: counted_by(row).then(|| counts(&ran, |trial| trial.commands)),
         });
     }
     let less = |page: LoadPage, with: Row, without: Row| -> Option<f64> {
@@ -574,6 +685,33 @@ pub(crate) fn section(loads: &[LoadTrial], stopped: &[LoadStopped]) -> LoadSecti
     }
 }
 
+/// Whether `row`'s tool is Collie, whose engine counts its paused requests
+/// and CDP commands.
+fn counted_by(row: Row) -> bool {
+    match row.tool() {
+        Contender::Collie => true,
+        Contender::CollieProgram
+        | Contender::Playwright
+        | Contender::PuppeteerLocator
+        | Contender::PuppeteerPage
+        | Contender::Stagehand
+        | Contender::AgentBrowser
+        | Contender::Chromiumoxide => false,
+    }
+}
+
+/// The spread of one of the engine's counts over `ran`, not measured when
+/// a trial has none.
+fn counts(ran: &[&LoadTrial], count: fn(&LoadTrial) -> Option<u64>) -> Figure {
+    let values: Option<Vec<f64>> = ran.iter().map(|trial| count(trial).map(float)).collect();
+    values.map_or_else(
+        || Figure::NotMeasured {
+            reason: "a trial gave no count of the engine's".to_owned(),
+        },
+        |values| spread(&values, Unit::Count),
+    )
+}
+
 /// A difference of seconds as the report writes it, in milliseconds.
 fn milliseconds(seconds: Option<f64>) -> String {
     seconds.map_or_else(
@@ -592,8 +730,8 @@ pub(crate) fn markdown(text: &mut String, section: &LoadSection) {
          Each figure is the median (lowest–highest) of the row's trials on the page; wall time \
          and CPU are between the marks around the load, CPU and peak memory the tool's process \
          tree, its browser in it; requests sent are those the Proving ground received. Collie's \
-         paused requests and CDP commands are missing until its engine counts them \
-         ({COUNTERS_ISSUE}); Playwright has neither.\n",
+         paused requests and CDP commands are its engine's own counts between the marks, \
+         C5 `answers` and C1 `sends`, read from its ops listener; Playwright has neither.\n",
         crate::test_facts::CHROME_FOR_TESTING_BUILD
     );
     text.push_str(
@@ -601,19 +739,11 @@ pub(crate) fn markdown(text: &mut String, section: &LoadSection) {
          |---|---|---:|---:|---:|---:|---:|---:|\n",
     );
     for figures in &section.rows {
-        let counters = match figures.row.tool() {
-            Contender::Collie => format!("missing ({COUNTERS_ISSUE})"),
-            Contender::CollieProgram
-            | Contender::Playwright
-            | Contender::PuppeteerLocator
-            | Contender::PuppeteerPage
-            | Contender::Stagehand
-            | Contender::AgentBrowser
-            | Contender::Chromiumoxide => "n/a".to_owned(),
-        };
+        let count =
+            |figure: &Option<Figure>| figure.as_ref().map_or_else(|| "n/a".to_owned(), cell_text);
         let _ = writeln!(
             text,
-            "| {} {} | {} | {} | {} | {} | {} | {counters} | {counters} |",
+            "| {} {} | {} | {} | {} | {} | {} | {} | {} |",
             figures.row.number(),
             figures.row.label(),
             figures.page.name(),
@@ -621,6 +751,8 @@ pub(crate) fn markdown(text: &mut String, section: &LoadSection) {
             cell_text(&figures.cpu_seconds),
             cell_text(&figures.peak_bytes),
             cell_text(&figures.sent),
+            count(&figures.paused),
+            count(&figures.commands),
         );
     }
     text.push_str(

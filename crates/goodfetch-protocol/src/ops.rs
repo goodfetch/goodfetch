@@ -1,8 +1,8 @@
-//! The Daemon's ops contracts (ADR 0050): where its ops listener listens,
-//! where its metrics are exported over OTLP, and the runtime's metrics,
-//! whose names under `goodfetch.*` (rendered `goodfetch_*` for Prometheus)
-//! are a versioned contract, each Stable or Experimental, each label taking
-//! a bounded set of values. Every Daemon of either Product serves them, so
+//! The ops contracts (ADR 0050): where the Daemon's ops listener listens,
+//! and an Attached engine's, where the Daemon's metrics are exported over
+//! OTLP, and the runtime's metrics, whose names under `goodfetch.*`
+//! (rendered `goodfetch_*` for Prometheus) are a versioned contract, each
+//! Stable or Experimental, each label taking a bounded set of values. Every Daemon of either Product serves them, so
 //! everything here is Collie's.
 
 use crate::catalog::{
@@ -24,6 +24,21 @@ fn unset() -> serde_json::Value {
 pub const ADDRESS: Setting = Setting {
     name: "ops.address",
     description: "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`.",
+    kind: ValueKind::Text,
+    default: unset,
+    clearable: true,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `ops.attached_address` (ADR 0050): where an Attached engine serving
+/// itself serves an ops listener, if anywhere.
+pub const ATTACHED_ADDRESS: Setting = Setting {
+    name: "ops.attached_address",
+    description: "Where an Attached engine that runs its Runs itself serves an ops listener, as a loopback `host:port` such as `127.0.0.1:9465`: `/livez` and `/readyz` answer a status and no body, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token; its `goodfetch_counted_work_total` gives the engine's Counted work, such as the CDP commands it sent and the requests it paused. Unset by default: no ops listener, and the engine keeps no meter for one. An Attached engine in the per-install layout hands its Runs to the Daemon, whose `ops.address` serves them, and opens none. One address serves one engine: a second engine started with it fails to start.",
     kind: ValueKind::Text,
     default: unset,
     clearable: true,
@@ -221,7 +236,7 @@ include!("../generated/counted_work.rs");
 /// `goodfetch.counted_work`: the Counted work of each Shared path (ADR 0140).
 pub const COUNTED_WORK: Metric = Metric {
     name: "goodfetch.counted_work",
-    description: "The Counted work the Daemon did, by Shared path and kind of work: what `xtask counts` holds to the Quality register's limits, per unit, on its benchmarks.",
+    description: "The Counted work the Daemon, or an Attached engine serving `ops.attached_address`, did, by Shared path and kind of work: what `xtask counts` holds to the Quality register's limits, per unit, on its benchmarks.",
     instrument: Instrument::Counter,
     unit: "{work}",
     labels: &[COUNTED_WORK_PATH_LABEL, COUNTED_WORK_WORK_LABEL],
@@ -313,7 +328,7 @@ pub const ENTRIES: Entries = Entries {
         RUN_STATE_SPILLED_LOOKUPS,
         ENGINE_PANICS,
     ],
-    settings: &[ADDRESS, OTLP_METRICS_ENDPOINT],
+    settings: &[ADDRESS, ATTACHED_ADDRESS, OTLP_METRICS_ENDPOINT],
     hook_stages: &[],
     shared_type_values: &[],
 };

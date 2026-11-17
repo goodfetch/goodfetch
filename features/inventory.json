@@ -9150,6 +9150,17 @@
       ]
     },
     {
+      "id": "setting:ops.attached_address",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:otlp.logs_endpoint",
       "kind": "setting",
       "area": 3,

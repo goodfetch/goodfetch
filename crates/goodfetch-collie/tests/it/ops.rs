@@ -1,5 +1,6 @@
-//! The foreground Daemon's ops listener and metrics, and `daemon health`,
-//! through Collie's executable (spec #213's Seam 1; ADR 0050): the ops
+//! The foreground Daemon's ops listener and metrics, an Attached engine's
+//! at `ops.attached_address`, and `daemon health`, through Collie's
+//! executable (spec #213's Seam 1; ADR 0050): the ops
 //! listener passes its column of the endpoint table; its probes answer
 //! whether the Daemon is live and ready with a status alone; `/metrics`
 //! answers the ops token with the runtime's metrics, each label taking a
@@ -31,8 +32,8 @@ use goodfetch_protocol::entries::MODULES;
 use goodfetch_protocol::home::DaemonFile;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
-    Canaries, DaemonEndpoint, Endpoint, EndpointRunner, Listener, ListenerKind, TestEnv,
-    browser_cache, cli,
+    Canaries, DaemonEndpoint, Endpoint, EndpointRunner, Listener, ListenerKind, ProvingGround,
+    TestEnv, browser_cache, cli,
 };
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use prost::Message as _;
@@ -559,4 +560,79 @@ fn daemon_health_fails_when_no_daemon_answers() {
             json!({ "probe": "ready", "healthy": false, "daemon": null })
         )
     );
+}
+
+/// The Proving ground's own seed for these tests.
+const SEED: u64 = 732;
+
+/// A port on loopback no listener holds now.
+fn free_port() -> u16 {
+    TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+/// An Attached engine that runs its Runs itself serves the ops listener
+/// `ops.attached_address` names while it runs: `/metrics` answers the ops
+/// token alone, with the engine's Counted work among it: the CDP commands
+/// it sent for a page it loaded, and the requests it paused, counted on the
+/// same connection's Counted work (a load pauses none once the relay
+/// enforces egress, the Quality register's X18).
+///
+/// Covers: setting:ops.attached_address, story:3-101
+#[test]
+fn an_attached_engine_serves_its_counted_work_at_ops_attached_address() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let address = SocketAddr::from(([127, 0, 0, 1], free_port()));
+    env.user_configuration(&format!("ops.attached_address = \"{address}\"\n"));
+    let mut engine = crate::page::started(&env, &cache, &proving_ground, "counted");
+    let page = crate::page::opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "counted" })));
+    let went = engine.ask(
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("catalog.test", "/catalog/1") }),
+    );
+
+    let refused = get(address, "/metrics", None).0;
+    let (status, text) = get(address, "/metrics", Some(&ops_token(&env)));
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "counted" }));
+
+    assert_eq!(engine.finish(), (vec![], true));
+    assert_eq!(went["result"]["response"]["status"], json!(200), "{went}");
+    assert_eq!((refused, status), (401, 200), "{text}");
+    let counted = |path: &str, work: &str| -> Option<u64> {
+        series(&text)
+            .into_iter()
+            .find(|(name, labels, _)| {
+                name == "goodfetch_counted_work_total"
+                    && labels["shared_path"] == path
+                    && labels["work"] == work
+            })
+            .map(|(_, _, value)| value.parse::<u64>().unwrap())
+    };
+    let (sends, answers) = (
+        counted("cdp_command", "sends"),
+        counted("intercepted_request", "answers"),
+    );
+    assert!(
+        sends.is_some_and(|sends| sends > 0) && answers.is_some(),
+        "sends {sends:?}, answers {answers:?}: {text}"
+    );
+}
+
+/// An `ops.attached_address` that is no loopback `host:port` stops the
+/// Attached engine before it serves, its Client reading no message.
+///
+/// Covers: setting:ops.attached_address
+#[test]
+fn an_attached_engine_refuses_an_ops_attached_address_off_loopback() {
+    let env = TestEnv::new();
+    env.user_configuration("ops.attached_address = \"0.0.0.0:9465\"\n");
+    let engine = goodfetch_test_client::Attached::start(&env, COLLIE);
+
+    assert_eq!(engine.finish(), (vec![], false));
 }

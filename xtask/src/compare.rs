@@ -86,6 +86,8 @@ use trials::{CollieScenario, Comparison};
 const CRAWLEE: &str = "xtask/compare-crawlee/crawl.mjs";
 /// Scrapy's side's script, as the recipe runs it.
 const SCRAPY: &str = "xtask/compare-scrapy/crawl.py";
+/// Foxhound's program, the handled cell's (#2317), as the recipe runs it.
+const FOXHOUND_PROGRAM: &str = "xtask/compare-foxhound/crawl.ts";
 /// The Collie scenario's side's script, as the recipe runs it.
 const COLLIE_DRIVER: &str = "xtask/compare-collie/act.ts";
 /// The Collie scenario's arms' script, as the recipe runs it.
@@ -146,6 +148,10 @@ pub(crate) struct RunArguments {
     /// once its packages are installed beside it.
     #[arg(long, default_value = CRAWLEE)]
     crawlee: PathBuf,
+    /// The handled cell's Foxhound program, `xtask/compare-foxhound`'s
+    /// script, run by Node.js once its packages are installed beside it.
+    #[arg(long, default_value = FOXHOUND_PROGRAM)]
+    foxhound_program: PathBuf,
     /// Scrapy's side, `xtask/compare-scrapy`'s script, run by the Python
     /// environment `uv sync` makes beside it.
     #[arg(long, default_value = SCRAPY)]
@@ -197,8 +203,8 @@ pub(crate) struct RunArguments {
         long,
         conflicts_with_all = [
             "scenarios", "trials", "growth", "spider_pages", "machine",
-            "foxhound_settings", "browser", "crawlee", "scrapy", "collie_driver",
-            "collie_arms_driver",
+            "foxhound_settings", "browser", "crawlee", "scrapy", "foxhound_program",
+            "collie_driver", "collie_arms_driver",
         ]
     )]
     redo: bool,
@@ -233,6 +239,7 @@ enum Asked {
     #[value(name = "crawl-like")]
     CrawlLike,
     Auto,
+    Handled,
     Collie,
 }
 
@@ -266,6 +273,7 @@ impl Asked {
             Self::Hostile16 => Some(Scenario::Hostile16),
             Self::CrawlLike => Some(Scenario::CrawlLike),
             Self::Auto => Some(Scenario::Auto),
+            Self::Handled => Some(Scenario::Handled),
             Self::Collie => None,
         }
     }
@@ -328,6 +336,10 @@ pub(crate) struct TrialArguments {
     /// `run` gives the trial; repeatable.
     #[arg(long = "foxhound-setting")]
     foxhound_settings: Vec<String>,
+    /// Foxhound's executable, which the handled cell's program starts
+    /// through its SDK.
+    #[arg(long)]
+    engine: Option<PathBuf>,
 }
 
 /// `path` made absolute, for a child that runs in another folder.
@@ -399,6 +411,7 @@ fn measure(given: &RunArguments, environment: &Environment) -> Result<ExitCode> 
         .transpose()?;
     let crawlee = environment.path(&arguments.crawlee);
     let scrapy = environment.path(&arguments.scrapy);
+    let foxhound_program = environment.path(&arguments.foxhound_program);
     let executables = run::Executables {
         proving_ground,
         foxhound: tools.path(Tool::Foxhound)?,
@@ -407,6 +420,7 @@ fn measure(given: &RunArguments, environment: &Environment) -> Result<ExitCode> 
         browser: &browser,
         crawlee: &crawlee,
         scrapy: &scrapy,
+        foxhound_program: &foxhound_program,
         collie,
         foxhound_settings: &arguments.foxhound_settings,
     };
@@ -590,6 +604,12 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             // folder.
             let executable = std::path::absolute(&arguments.executable)
                 .context("finding the tool's executable")?;
+            let engine = arguments
+                .engine
+                .as_deref()
+                .map(std::path::absolute)
+                .transpose()
+                .context("finding Foxhound's executable")?;
             let authority = cell
                 .scenario
                 .network()
@@ -611,6 +631,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 executable_pages: arguments.executable_pages,
                 certificate_authority: authority.as_ref().map(tempfile::NamedTempFile::path),
                 foxhound_settings: &arguments.foxhound_settings,
+                engine: engine.as_deref(),
             };
             let line = match plan.mode {
                 trial::Mode::Timed => serde_json::to_string(&plan.timed()?)?,

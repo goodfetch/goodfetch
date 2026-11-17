@@ -371,6 +371,7 @@ fn handed_over(
         profile_folder: "release",
         crawlee: nowhere,
         scrapy: nowhere,
+        foxhound_program: nowhere,
         browser: nowhere,
         collie: None,
         foxhound_settings: &[],
@@ -578,6 +579,7 @@ fn the_sizes_cell_runs_spider_at_16_and_at_64_on_a_wider_channel() {
             let capacity = match config {
                 Config::Spider { capacity, .. } => Some(capacity),
                 Config::Foxhound { .. }
+                | Config::FoxhoundProgram
                 | Config::Crawlee
                 | Config::Scrapy
                 | Config::CrawleeRs

@@ -7,7 +7,8 @@ use anyhow::{Result, bail};
 use clap::ValueEnum as _;
 
 use super::{
-    COLLIE_ARMS_DRIVER, COLLIE_DRIVER, CRAWLEE, RunArguments, SCRAPY, TRIALS_FILE, trials,
+    COLLIE_ARMS_DRIVER, COLLIE_DRIVER, CRAWLEE, FOXHOUND_PROGRAM, RunArguments, SCRAPY,
+    TRIALS_FILE, trials,
 };
 
 /// `word` as one word of a POSIX shell's command: as it is when no
@@ -66,6 +67,11 @@ pub(super) fn of(arguments: &RunArguments) -> String {
     for (flag, path, default) in [
         ("--crawlee", &arguments.crawlee, CRAWLEE),
         ("--scrapy", &arguments.scrapy, SCRAPY),
+        (
+            "--foxhound-program",
+            &arguments.foxhound_program,
+            FOXHOUND_PROGRAM,
+        ),
         ("--collie-driver", &arguments.collie_driver, COLLIE_DRIVER),
         (
             "--collie-arms-driver",

@@ -660,7 +660,7 @@ fn growth_of<'a>(growth: &'a GrowthCell, cell: &Cell) -> Result<Vec<&'a Trial>, 
 /// The pages that differ under `check`.
 fn differing(extracted: &Extracted, check: OutputCheck) -> &Differing {
     match check {
-        OutputCheck::Whole => &extracted.whole,
+        OutputCheck::Whole | OutputCheck::Fields => &extracted.whole,
         OutputCheck::AdAllowed => &extracted.ad_allowed,
     }
 }
@@ -933,15 +933,13 @@ fn output_line(text: &mut String, scenario: Scenario, cell: &CellReport) {
         );
         return;
     };
-    let allowed = match check {
-        OutputCheck::Whole => "",
-        OutputCheck::AdAllowed => ", the ad allowed",
+    let (allowed, read) = match check {
+        OutputCheck::Whole => ("", "title and Main content"),
+        OutputCheck::AdAllowed => (", the ad allowed", "title and Main content"),
+        OutputCheck::Fields => ("", "twenty fields"),
     };
     let Some(label) = output_differs(output, check, *site_pages) else {
-        let _ = writeln!(
-            text,
-            "  - output: every page's title and Main content read right{allowed}."
-        );
+        let _ = writeln!(text, "  - output: every page's {read} read right{allowed}.");
         return;
     };
     let _ = write!(

@@ -25,7 +25,7 @@ use super::super::scale::{children, item_name, site_place};
 use super::super::{Page, document};
 use super::realistic::SENTENCES;
 use crate::generator;
-use crate::interface::{ArticleAnswer, ArticleAnswers};
+use crate::interface::{ArticleAnswer, ArticleAnswers, ArticleLink};
 
 /// The site's host.
 pub(super) const HOST: &str = "article.localhost";
@@ -143,8 +143,9 @@ fn page_of(seed: u64, size: u64, page: u64) -> String {
     document(&title(seed, page).0, &body)
 }
 
-/// The right answer of each page of the site of `size` pages, with the
-/// markers no Main content holds; none for a size that is no site's, or
+/// The right answer of each page of the site of `size` pages, its name and
+/// its nav's links to its children among them, with the markers no Main
+/// content holds; none for a size that is no site's, or
 /// past [`ANSWERED_PAGES`].
 pub(super) fn answers(seed: u64, size: &str) -> Option<ArticleAnswers> {
     let (size, _) = site_place(&format!("{size}/1"))?;
@@ -154,6 +155,13 @@ pub(super) fn answers(seed: u64, size: &str) -> Option<ArticleAnswers> {
                 path: format!("/sites/{size}/{page}"),
                 title: title(seed, page).1,
                 paragraphs: paragraphs(seed, page),
+                name: item_name(seed, page),
+                children: children(size, page)
+                    .map(|child| ArticleLink {
+                        path: format!("/sites/{size}/{child}"),
+                        name: item_name(seed, child),
+                    })
+                    .collect(),
             })
             .collect(),
         boilerplate: [HEADER, NAV, ASIDE, FOOTER].map(str::to_owned).to_vec(),

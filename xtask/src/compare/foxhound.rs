@@ -16,7 +16,6 @@ use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::events::CREDIT;
-use goodfetch_protocol::foxhound::crawl::CODE_FREE_DATASET;
 use goodfetch_protocol::foxhound::dataset::RECORD;
 use serde_json::{Value, json};
 
@@ -25,7 +24,10 @@ use crate::rss::crawl::Site;
 use super::matrix::{Cell, Scenario};
 
 /// The Run every trial crawls in.
-const RUN: &str = "crawl";
+pub(crate) const RUN: &str = "crawl";
+
+/// The Dataset Foxhound's program pushes each page's Record to (#2317).
+pub(crate) const PROGRAM_DATASET: &str = "pages";
 
 /// A JSON-RPC connection to an Attached engine, its output read by a
 /// thread of its own so the engine never waits on a full pipe while the
@@ -165,13 +167,13 @@ impl Engine {
         Ok(())
     }
 
-    /// Each Record of the crawl's Dataset.
-    pub(crate) fn records(&mut self, site: &Site<'_>) -> Result<Vec<Record>> {
+    /// Each Record of the crawl's Dataset `dataset`.
+    pub(crate) fn records(&mut self, site: &Site<'_>, dataset: &str) -> Result<Vec<Record>> {
         let id = "records";
         let mut records = Vec::new();
         self.send(&json!({
             "jsonrpc": "2.0", "id": id, "method": "run.records",
-            "params": { "run_id": RUN, "dataset": CODE_FREE_DATASET },
+            "params": { "run_id": RUN, "dataset": dataset },
         }))?;
         // Credit for every Record at once: a crawl with duplicates after
         // a kill still commits one Record a page.
@@ -199,6 +201,7 @@ impl Engine {
                     id: text(&record["value"]["id"]),
                     name: text(&record["value"]["name"]),
                     tier: text(&record["provenance"]["tier"]["tier"]),
+                    value: record["value"].clone(),
                 });
             }
         }
@@ -233,6 +236,8 @@ pub(crate) struct Record {
     pub(crate) name: Option<String>,
     /// The tier its page was served on, as its Provenance names it.
     pub(crate) tier: Option<String>,
+    /// Its value whole: the handled crawl's twenty fields (#2317).
+    pub(crate) value: Value,
 }
 
 /// What each page's Record holds: in the extraction scenario, the text of
@@ -264,7 +269,8 @@ fn extraction(scenario: Scenario) -> Value {
         | Scenario::Raw256
         | Scenario::Hostile
         | Scenario::Hostile16
-        | Scenario::CrawlLike => json!({ "formats": {}, "follow": "scope" }),
+        | Scenario::CrawlLike
+        | Scenario::Handled => json!({ "formats": {}, "follow": "scope" }),
     }
 }
 
@@ -278,7 +284,7 @@ fn extraction(scenario: Scenario) -> Value {
 pub(crate) fn keeps_records(scenario: Scenario) -> bool {
     matches!(
         scenario.settings(),
-        Scenario::Durable | Scenario::Extraction | Scenario::Auto
+        Scenario::Durable | Scenario::Extraction | Scenario::Auto | Scenario::Handled
     )
 }
 
@@ -296,7 +302,7 @@ pub(crate) fn keeps_records(scenario: Scenario) -> bool {
 /// off, at `durability`, on the `browser` tier in the headless browser
 /// scenario and the `http` tier otherwise; on the extraction scenario's row
 /// that says so (#2136), the ads, trackers and annoyances Filter lists off.
-fn settings(
+pub(crate) fn settings(
     site: &Site<'_>,
     cell: &Cell,
     (durability, commit_interval): (&str, Option<u64>),
@@ -346,7 +352,8 @@ fn settings(
         | Scenario::Raw64
         | Scenario::Raw256
         | Scenario::Hostile16
-        | Scenario::CrawlLike => json!({
+        | Scenario::CrawlLike
+        | Scenario::Handled => json!({
             "fetch": {
                 "tier": if scenario == Scenario::Browser { "browser" } else { "http" },
                 "block_classification": false,

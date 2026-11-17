@@ -11,6 +11,9 @@ packages:
   # The Collie scenario's sides of `just compare` (issue 2282): Collie's SDK and
   # Playwright, the workspace's own packages, so it needs no lock of its own.
   - xtask/compare-collie
+  # The handled scenario's Foxhound program (issue 2317), on Foxhound's own
+  # SDK.
+  - xtask/compare-foxhound
 
 overrides:
   # The Allure report (`allure`, its `@allurereport/core` and `ci`) takes

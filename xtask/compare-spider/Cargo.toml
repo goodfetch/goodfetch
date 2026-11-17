@@ -57,7 +57,8 @@ mimalloc = { version = "=0.1.52", default-features = false, optional = true }
 spider_transformations = { version = "=2.39.13", optional = true }
 llm_readability = { version = "=0.0.17", features = ["tokio"], optional = true }
 html-escape = { version = "=0.2.15", optional = true }
-# The auto scenario's Records (#2411), set by the `smart` feature below:
+# The auto scenario's Records (#2411), set by the `smart` feature below,
+# and the handled crawl's fields (#2317), set by the `handled` feature:
 # `lol_html` at the version Spider's own smart mode reads pages with.
 lol_html = { version = "=2.9.0", optional = true }
 
@@ -93,6 +94,10 @@ extraction = ["dep:spider_transformations", "dep:llm_readability", "dep:html-esc
 # page over HTTP and renders it in the Chrome `CHROME_BIN` names where it
 # finds it needs one, and each page's Records read with `lol_html`.
 smart = ["spider/smart", "dep:lol_html"]
+# The handled crawl's (#2317): each page's twenty fields read with
+# `lol_html` as it streams, their character references decoded with
+# `html-escape`, in Spider's HTTP mode.
+handled = ["dep:lol_html", "dep:html-escape"]
 
 # Spider's `basic` features take native TLS for its `disk` feature's
 # SQLite (`sqlx`), which is OpenSSL on Linux: built from its source there,

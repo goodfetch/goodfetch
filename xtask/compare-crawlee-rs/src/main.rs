@@ -20,7 +20,11 @@
 //! - `hostile`: the hostile pages' pass at each tool's defaults (#2439):
 //!   `Configuration::default()` and the crawler's builder with no option but
 //!   the `Host` it sends, so `max_concurrency` 200 (its default), robots.txt
-//!   not obeyed and links on the same hostname; `--concurrency` is unread.
+//!   not obeyed and links on the same hostname; `--concurrency` is unread;
+//! - `handled` (#2317): `raw` with each page's twenty fields read from its
+//!   `Document`, each the first element its selector matches, as its text
+//!   or one attribute, `null` when none matches, given with the page's URL
+//!   to `push_data`, its default Dataset kept on disk under `./storage`.
 //!
 //! The crawl-like scenario (#2284) runs `raw` on an `https` site, which
 //! its `reqwest` client fetches over HTTP/2 when ALPN offers it.
@@ -42,7 +46,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use crawlee::{
-    Configuration, EnqueueLinksOptions, EnqueueStrategy, HtmlContext, HtmlCrawler,
+    Configuration, Document, EnqueueLinksOptions, EnqueueStrategy, HtmlContext, HtmlCrawler,
     HttpCrawlerOptions, Services,
 };
 
@@ -60,10 +64,64 @@ enum Scenario {
     Polite,
     Extraction,
     Hostile,
+    Handled,
+}
+
+/// The handled crawl's twenty fields of a page of the article site: each
+/// one's name, selector and, for a link, the attribute it reads in place of
+/// the text.
+const FIELDS: [(&str, &str, Option<&str>); 20] = [
+    ("title", "title", None),
+    ("name", "article.item > h1.name", None),
+    ("id", "article.item", Some("data-id")),
+    ("home", "nav > a", Some("href")),
+    ("home_label", "nav > a", None),
+    ("header", "header > p", None),
+    ("nav", "nav > p", None),
+    ("footer", "footer > p", None),
+    (
+        "first_child",
+        "ul.pages > li:nth-child(1) > a",
+        Some("href"),
+    ),
+    ("first_child_name", "ul.pages > li:nth-child(1) > a", None),
+    (
+        "second_child",
+        "ul.pages > li:nth-child(2) > a",
+        Some("href"),
+    ),
+    ("second_child_name", "ul.pages > li:nth-child(2) > a", None),
+    ("paragraph_1", "article.item > p:nth-of-type(1)", None),
+    ("paragraph_2", "article.item > p:nth-of-type(2)", None),
+    ("paragraph_3", "article.item > p:nth-of-type(3)", None),
+    ("paragraph_4", "article.item > p:nth-of-type(4)", None),
+    ("paragraph_5", "article.item > p:nth-of-type(5)", None),
+    ("paragraph_6", "article.item > p:nth-of-type(6)", None),
+    ("paragraph_7", "article.item > p:nth-of-type(7)", None),
+    ("paragraph_8", "article.item > p:nth-of-type(8)", None),
+];
+
+/// The handled crawl's fields of `document` with its `url`, `null` where
+/// none matches.
+fn fields(url: &str, document: &Document) -> Result<serde_json::Value, String> {
+    let mut read = serde_json::Map::with_capacity(FIELDS.len() + 1);
+    read.insert("url".to_owned(), url.into());
+    for (name, selector, attribute) in FIELDS {
+        let element = document
+            .select_first(selector)
+            .map_err(|error| error.to_string())?;
+        let value = match (element, attribute) {
+            (None, _) => serde_json::Value::Null,
+            (Some(element), None) => element.text().into(),
+            (Some(element), Some(attribute)) => element.attr(attribute).into(),
+        };
+        read.insert(name.to_owned(), value);
+    }
+    Ok(read.into())
 }
 
 fn arguments() -> Result<Arguments, String> {
-    let usage = "usage: goodfetch-compare-crawlee-rs --url <url> [--host <host:port>] --concurrency <n> --scenario <raw|durable|polite|extraction|hostile>";
+    let usage = "usage: goodfetch-compare-crawlee-rs --url <url> [--host <host:port>] --concurrency <n> --scenario <raw|durable|polite|extraction|hostile|handled>";
     let mut url = None;
     let mut host = None;
     let mut concurrency = None;
@@ -90,6 +148,7 @@ fn arguments() -> Result<Arguments, String> {
                     "polite" => Scenario::Polite,
                     "extraction" => Scenario::Extraction,
                     "hostile" => Scenario::Hostile,
+                    "handled" => Scenario::Handled,
                     other => return Err(format!("crawlee-rs runs no `{other}` scenario")),
                 });
             }
@@ -110,7 +169,10 @@ async fn crawl(arguments: Arguments) -> Result<u64, String> {
         Configuration::default()
     } else {
         Configuration {
-            persist_storage: matches!(scenario, Scenario::Durable | Scenario::Extraction),
+            persist_storage: matches!(
+                scenario,
+                Scenario::Durable | Scenario::Extraction | Scenario::Handled
+            ),
             // The resumed process keeps what the killed one left; the first
             // starts in an empty home.
             purge_on_start: scenario != Scenario::Durable,
@@ -174,6 +236,13 @@ async fn crawl(arguments: Arguments) -> Result<u64, String> {
                     "title": title,
                     "text": text,
                 }))?;
+            } else if scenario == Scenario::Handled {
+                let url = context.url().as_str().to_owned();
+                let read = context
+                    .with_html(move |document| fields(&url, document))
+                    .await?
+                    .map_err(anyhow::Error::msg)?;
+                context.push_data(&read)?;
             }
             context
                 .enqueue_links(EnqueueLinksOptions::new().strategy(strategy))

@@ -183,9 +183,9 @@ pub use proving_ground::{
     serve_arguments,
 };
 pub use proving_ground_format::{
-    ArticleAnswer, ArticleAnswers, FixtureAddresses, OWN_TARGETS, Observations, ObservedRequest,
-    OracleSubmission, ProxyCredentials, ROUTES, ReceivedRequests, RequestTiming, Routes, ServeLine,
-    ToolStatus,
+    ArticleAnswer, ArticleAnswers, ArticleLink, FixtureAddresses, OWN_TARGETS, Observations,
+    ObservedRequest, OracleSubmission, ProxyCredentials, ROUTES, ReceivedRequests, RequestTiming,
+    Routes, ServeLine, ToolStatus,
 };
 pub use proxy_in_front::proxy_in_front;
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};

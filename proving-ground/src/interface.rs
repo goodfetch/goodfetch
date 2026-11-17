@@ -77,6 +77,20 @@ pub struct ArticleAnswer {
     pub title: String,
     /// The paragraphs of its article, each as its text reads.
     pub paragraphs: Vec<String>,
+    /// The name its heading holds.
+    pub name: String,
+    /// The links its nav's list holds to its children, in order.
+    pub children: Vec<ArticleLink>,
+}
+
+/// One link of an article page's nav to a child page.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ArticleLink {
+    /// The child's path on the site's host.
+    pub path: String,
+    /// The link's text: the child's name.
+    pub name: String,
 }
 
 /// The first line `serve` prints once its listeners are bound: where it

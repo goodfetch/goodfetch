@@ -141,6 +141,10 @@ pub(crate) enum Scenario {
     /// whose Records it got wrong, read against the site's manifest, not
     /// timed.
     Auto,
+    /// A program's crawl of the article site (#2317): its handler reads
+    /// each page's twenty fields, pushes one Record and enqueues the
+    /// page's links, each Record held to the page's answers.
+    Handled,
 }
 
 /// What a scenario's trials read of each tool.
@@ -274,7 +278,7 @@ impl Site {
 }
 
 impl Scenario {
-    pub(crate) const ALL: [Self; 13] = [
+    pub(crate) const ALL: [Self; 14] = [
         Self::Raw,
         Self::Durable,
         Self::Polite,
@@ -288,6 +292,7 @@ impl Scenario {
         Self::Hostile16,
         Self::CrawlLike,
         Self::Auto,
+        Self::Handled,
     ];
 
     pub(crate) fn name(self) -> &'static str {
@@ -305,6 +310,7 @@ impl Scenario {
             Self::Hostile16 => "hostile-16",
             Self::CrawlLike => "crawl-like",
             Self::Auto => "auto",
+            Self::Handled => "handled",
         }
     }
 
@@ -327,7 +333,8 @@ impl Scenario {
             | Self::Extraction
             | Self::Browser
             | Self::Hostile
-            | Self::Auto => self,
+            | Self::Auto
+            | Self::Handled => self,
         }
     }
 
@@ -342,6 +349,7 @@ impl Scenario {
             Self::CrawlLike => Some("#2284"),
             Self::Hostile | Self::Hostile16 => Some("#2439, Q3"),
             Self::Auto => Some("#2411, G-04 Q11"),
+            Self::Handled => Some("#2317"),
         }
     }
 
@@ -362,7 +370,8 @@ impl Scenario {
             | Self::Raw64
             | Self::Raw256
             | Self::Hostile
-            | Self::Hostile16 => Network::Loopback,
+            | Self::Hostile16
+            | Self::Handled => Network::Loopback,
         }
     }
 
@@ -383,7 +392,8 @@ impl Scenario {
             | Self::Raw64
             | Self::Raw256
             | Self::CrawlLike
-            | Self::Auto => &[],
+            | Self::Auto
+            | Self::Handled => &[],
         }
     }
 
@@ -420,7 +430,8 @@ impl Scenario {
             | Self::Hostile
             | Self::Hostile16
             | Self::CrawlLike
-            | Self::Auto => crate::rss::crawl::CONCURRENCY,
+            | Self::Auto
+            | Self::Handled => crate::rss::crawl::CONCURRENCY,
         }
     }
 
@@ -435,7 +446,7 @@ impl Scenario {
     pub(crate) fn site(self) -> Site {
         match self {
             Self::Raw | Self::Durable | Self::Long | Self::Raw64 | Self::Raw256 => Site::Scale,
-            Self::Extraction | Self::CrawlLike => Site::Article,
+            Self::Extraction | Self::CrawlLike | Self::Handled => Site::Article,
             Self::Polite => Site::MultiDomain,
             Self::Browser => Site::Rendered,
             Self::Realistic => Site::Realistic,
@@ -504,6 +515,9 @@ impl Scenario {
             }
             Self::Auto => {
                 "Auto: each tool's own choice of HTTP or a browser, page by page, on the rungs site of static, browser-identity, script-rendered, refused and blocked pages, each page's Records held to the site's manifest"
+            }
+            Self::Handled => {
+                "Handled crawl: scenario 1 on the article site with a program's handler on each page, which reads its twenty fields, pushes one Record and enqueues its links, each Record held to the page's answers"
             }
         }
     }
@@ -589,6 +603,9 @@ pub(crate) enum SpiderBuild {
     /// rendered in Chrome only where Spider finds it needs a browser, its
     /// Records read from what Spider delivers (#2411).
     Smart,
+    /// With `lol_html`, which reads the handled crawl's twenty fields from
+    /// each page as it streams, and the decoding of their text (#2317).
+    Handled,
 }
 
 impl SpiderBuild {
@@ -604,6 +621,7 @@ impl SpiderBuild {
             Self::Extraction => Some("extraction"),
             Self::ExtractionMimalloc => Some("extraction,mimalloc"),
             Self::Smart => Some("smart"),
+            Self::Handled => Some("handled"),
         }
     }
 
@@ -689,13 +707,19 @@ pub(crate) enum Config {
     /// crawlberg's side at the scenario's settings: its engine's streaming
     /// crawl.
     Crawlberg,
+    /// Foxhound's TypeScript program on `@goodfetch/foxhound`, run by
+    /// Node with Foxhound's executable as its Attached engine: a handler on
+    /// each page that reads its fields, pushes a Record and enqueues its
+    /// links (#2317), `fetch.tier` not set, so the engine's own tier
+    /// choice samples pages on `http` and in a browser (#1602).
+    FoxhoundProgram,
 }
 
 impl Config {
     /// The tool this configuration runs.
     pub(crate) fn tool(self) -> Tool {
         match self {
-            Self::Foxhound { .. } => Tool::Foxhound,
+            Self::Foxhound { .. } | Self::FoxhoundProgram => Tool::Foxhound,
             Self::Spider { .. } => Tool::Spider,
             Self::Crawlee => Tool::Crawlee,
             Self::Scrapy => Tool::Scrapy,
@@ -708,9 +732,13 @@ impl Config {
     }
 
     /// Whether the row leaves Foxhound's `fetch.tier` at `auto`, so its
-    /// samples fetch their pages twice, on `http` and then in a browser.
+    /// samples fetch their pages twice, on `http` and then in a browser:
+    /// the program sets no tier.
     pub(crate) fn samples(self) -> bool {
-        matches!(self, Self::Foxhound { auto: true, .. })
+        matches!(
+            self,
+            Self::Foxhound { auto: true, .. } | Self::FoxhoundProgram
+        )
     }
 }
 
@@ -743,7 +771,7 @@ pub(crate) struct Cell {
 }
 
 /// Every cell, in the report's order.
-pub(crate) const CELLS: [Cell; 123] = [
+pub(crate) const CELLS: [Cell; 130] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
@@ -2285,6 +2313,93 @@ pub(crate) const CELLS: [Cell; 123] = [
         row: Row::Main,
         status: Status::Measured(Config::Crawlee),
     },
+    Cell {
+        scenario: Scenario::Handled,
+        tool: Tool::Foxhound,
+        name: "foxhound",
+        mapping: "a TypeScript program on `@goodfetch/foxhound` (`xtask/compare-foxhound/crawl.ts`) \
+                  run by Node, Foxhound's executable its Attached engine, with one handler for \
+                  the Label `page` that makes four exchanges a page: the handled request, one \
+                  `page.read` of the twenty fields, one `push` of them to the Dataset `pages` and \
+                  one `enqueueLinks` of the page's links; `fetch.tier` not set, so the engine's \
+                  own tier choice samples pages on `http` and in Chrome for Testing (#1602), and \
+                  scenario 1's other settings, `run_state.durability: off`, robots.txt not \
+                  obeyed, `politeness.domain` delay 0 and concurrency 16 (`sharing: run`), \
+                  `crawl.handler.concurrency: 16`, `dataset.records: true`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::FoxhoundProgram),
+    },
+    Cell {
+        scenario: Scenario::Handled,
+        tool: Tool::Foxhound,
+        name: "foxhound rust",
+        mapping: "the foxhound row's handler written in Rust on the Rust SDK",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Pending(HANDLED_RUST_PENDING),
+    },
+    Cell {
+        scenario: Scenario::Handled,
+        tool: Tool::Foxhound,
+        name: "foxhound getters",
+        mapping: "the foxhound row's handler reading each field with the TypeScript getters, one \
+                  call a field, in place of one `page.read`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Pending(HANDLED_GETTERS_PENDING),
+    },
+    Cell {
+        scenario: Scenario::Handled,
+        tool: Tool::Spider,
+        name: "spider",
+        mapping: "scenario 1's settings, each page's twenty fields read with `lol_html` 2.9.0 \
+                  CSS selectors as Spider delivers it, text with its character references \
+                  decoded, written with its URL as one JSON line to `pages.jsonl`, the page's \
+                  links followed by Spider's own crawl; each page read in a task of its own from \
+                  `subscribe(64)`, as the extraction scenario's spider row does",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Handled,
+            capacity: SPIDER_EXTRACTION_CAPACITY,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Handled,
+        tool: Tool::Crawlee,
+        name: "crawlee",
+        mapping: "scenario 1's `CheerioCrawler`, its request handler reading each page's twenty \
+                  fields with Cheerio, giving them to `pushData` and calling `enqueueLinks()`, \
+                  its default Dataset kept on disk (`persistStorage: true`, its default, which \
+                  keeps its request queue on disk too)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlee),
+    },
+    Cell {
+        scenario: Scenario::Handled,
+        tool: Tool::Scrapy,
+        name: "scrapy",
+        mapping: "scenario 1's settings, its callback reading each page's twenty fields with \
+                  Scrapy's CSS selectors and yielding them as an Item, which an Item pipeline \
+                  writes as one JSON line to `items.jsonl`, then following the page's links",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Scrapy),
+    },
+    Cell {
+        scenario: Scenario::Handled,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "scenario 1's `HtmlCrawler`, its handler reading each page's twenty fields from \
+                  its `Document`, giving them to `push_data` and enqueueing the page's links, its \
+                  default Dataset kept on disk (`persist_storage: true`, its default, which \
+                  keeps its request queue on disk too)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
+    },
 ];
 
 /// The cell at the catalog's defaults (#2175) in `scenario`, one of
@@ -2302,6 +2417,14 @@ const fn defaults(scenario: Scenario) -> Cell {
         status: Status::Pending(DEFAULTS_PENDING),
     }
 }
+
+/// Why the handled crawl's Rust row gives no figure yet.
+pub(crate) const HANDLED_RUST_PENDING: &str =
+    "#1469, which brings the Rust SDK's crawl handler that the row's program is written on";
+
+/// Why the handled crawl's getters row gives no figure yet.
+pub(crate) const HANDLED_GETTERS_PENDING: &str = "#724 and #1296's TypeScript part, which bring \
+     the TypeScript getters the row's handler reads each field with";
 
 /// Why the cell at the catalog's defaults gives no figure yet.
 const DEFAULTS_PENDING: &str = "#2175, which brings the cell at the catalog's defaults";
@@ -2407,6 +2530,9 @@ pub(crate) enum OutputCheck {
     /// The same with the ad's marker allowed, since nothing removes the ad
     /// there.
     AdAllowed,
+    /// The handled crawl's twenty fields of each page, each its answer
+    /// (#2317).
+    Fields,
 }
 
 /// Why pagesift's polite cell runs one trial of each pass, where the run
@@ -2448,13 +2574,15 @@ impl Cell {
     /// labelled. The crawl-like scenario crawls the same site at scenario
     /// 1's settings, which extract nothing.
     pub(crate) fn output_check(&self) -> Option<OutputCheck> {
-        (self.scenario == Scenario::Extraction).then(|| {
-            if self.filter_lists_off() {
+        match (self.scenario, self.status) {
+            (Scenario::Extraction, _) => Some(if self.filter_lists_off() {
                 OutputCheck::AdAllowed
             } else {
                 OutputCheck::Whole
-            }
-        })
+            }),
+            (Scenario::Handled, Status::Measured(_)) => Some(OutputCheck::Fields),
+            _ => None,
+        }
     }
 }
 

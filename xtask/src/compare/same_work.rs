@@ -349,7 +349,7 @@ fn other_output(pass: &Pass<'_>) -> Vec<Finding> {
             continue;
         };
         let (differing, held) = match check {
-            OutputCheck::Whole => (&extracted.whole, ""),
+            OutputCheck::Whole | OutputCheck::Fields => (&extracted.whole, ""),
             OutputCheck::AdAllowed => (&extracted.ad_allowed, ", the ad allowed"),
         };
         if cell.tool == matrix::Tool::Foxhound && differing.pages > 0 {

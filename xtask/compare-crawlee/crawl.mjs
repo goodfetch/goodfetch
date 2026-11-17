@@ -26,7 +26,11 @@
 // - `hostile`: the hostile pages' pass at each tool's defaults (#2439):
 //   `CheerioCrawler` with no option but the `Host` it sends, at Crawlee's
 //   defaults (`maxConcurrency` 200, robots.txt not obeyed, its storage on
-//   disk), `--concurrency` unread.
+//   disk), `--concurrency` unread;
+// - `handled` (#2317): `raw` with each page's twenty fields read with
+//   Cheerio, each the first element its selector matches, as its text or
+//   one attribute, `null` when none matches, given with the page's URL to
+//   `pushData`, its default Dataset kept on disk (`persistStorage: true`).
 //
 // The crawl-like scenario (#2284) runs `raw` on an `https` site, which
 // `got-scraping` fetches over HTTP/2 when ALPN offers it, its default.
@@ -44,7 +48,7 @@ import { parseArgs } from "node:util";
 
 import { CheerioCrawler, Configuration } from "@crawlee/cheerio";
 
-const SCENARIOS = ["raw", "polite", "extraction", "browser", "auto", "hostile"];
+const SCENARIOS = ["raw", "polite", "extraction", "browser", "auto", "hostile", "handled"];
 
 const { values } = parseArgs({
   options: {
@@ -66,7 +70,7 @@ if (
 ) {
   process.stderr.write(
     "usage: node crawl.mjs --url <url> [--host <host:port>] --concurrency <n> " +
-      "--scenario <raw|polite|extraction|browser|auto|hostile> [--browser <chrome>]\n",
+      "--scenario <raw|polite|extraction|browser|auto|hostile|handled> [--browser <chrome>]\n",
   );
   process.exit(2);
 }
@@ -75,6 +79,43 @@ const { scenario } = values;
 let pages = 0;
 /** `text` with its runs of white space made one space, and trimmed. */
 const collapsed = (text) => text.replace(/\s+/g, " ").trim();
+const ITEM = "article.item";
+/** The `k`th child page's link in a page's list of children. */
+const child = (k) => `ul.pages > li:nth-child(${k}) > a`;
+/**
+ * The handled crawl's twenty fields of a page of the article site, by name:
+ * each one's selector and, for a link, the attribute it reads in place of
+ * the text.
+ */
+const FIELDS = {
+  title: ["title"],
+  name: [`${ITEM} > h1.name`],
+  id: [ITEM, "data-id"],
+  home: ["nav > a", "href"],
+  home_label: ["nav > a"],
+  header: ["header > p"],
+  nav: ["nav > p"],
+  footer: ["footer > p"],
+  first_child: [child(1), "href"],
+  first_child_name: [child(1)],
+  second_child: [child(2), "href"],
+  second_child_name: [child(2)],
+  ...Object.fromEntries(
+    Array.from({ length: 8 }, (_, index) => [
+      `paragraph_${index + 1}`,
+      [`${ITEM} > p:nth-of-type(${index + 1})`],
+    ]),
+  ),
+};
+/** The handled crawl's fields of the page `$` holds, `null` where none matches. */
+const fields = ($) =>
+  Object.fromEntries(
+    Object.entries(FIELDS).map(([name, [selector, attribute]]) => {
+      const element = $(selector).first();
+      if (element.length === 0) return [name, null];
+      return [name, attribute === undefined ? element.text() : (element.attr(attribute) ?? null)];
+    }),
+  );
 // At most 16 in flight, as the other tools. Its autoscaled pool starts at
 // the crawler's desired concurrency and grows toward the limit as the system
 // allows: Crawlee's own behaviour, kept. At its defaults, no limit is set.
@@ -174,13 +215,15 @@ if (scenario === "browser") {
             title: $("title").text(),
             text: $("main").text().trim(),
           });
+        } else if (scenario === "handled") {
+          await pushData({ url: request.url, ...fields($) });
         }
         await enqueueLinks(enqueued);
       },
     },
     scenario === "hostile"
       ? new Configuration()
-      : new Configuration({ persistStorage: scenario === "extraction" }),
+      : new Configuration({ persistStorage: ["extraction", "handled"].includes(scenario) }),
   );
 }
 

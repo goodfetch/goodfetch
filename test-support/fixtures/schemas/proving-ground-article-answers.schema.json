@@ -4,6 +4,17 @@
       "additionalProperties": false,
       "description": "One page's right answer.",
       "properties": {
+        "children": {
+          "description": "The links its nav's list holds to its children, in order.",
+          "items": {
+            "$ref": "#/$defs/ArticleLink"
+          },
+          "type": "array"
+        },
+        "name": {
+          "description": "The name its heading holds.",
+          "type": "string"
+        },
         "paragraphs": {
           "description": "The paragraphs of its article, each as its text reads.",
           "items": {
@@ -23,7 +34,28 @@
       "required": [
         "path",
         "title",
-        "paragraphs"
+        "paragraphs",
+        "name",
+        "children"
+      ],
+      "type": "object"
+    },
+    "ArticleLink": {
+      "additionalProperties": false,
+      "description": "One link of an article page's nav to a child page.",
+      "properties": {
+        "name": {
+          "description": "The link's text: the child's name.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The child's path on the site's host.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "name"
       ],
       "type": "object"
     }

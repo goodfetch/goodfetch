@@ -62,6 +62,9 @@ pub(crate) struct Executables<'a> {
     /// Python environment beside it.
     pub(crate) crawlee: &'a Path,
     pub(crate) scrapy: &'a Path,
+    /// The handled cell's Foxhound program, run by Node.js, which starts
+    /// `foxhound` through its SDK.
+    pub(crate) foxhound_program: &'a Path,
     /// Chrome for Testing's folder, which every tool of the headless
     /// browser scenario runs.
     pub(crate) browser: &'a Path,
@@ -315,6 +318,7 @@ impl Crawl {
 
 /// The executables a trial of `config` runs: the tool's, the interpreter
 /// that runs it when it is a script, and fastCRW's server, which its side
+/// starts, or Foxhound's executable, which Foxhound's program's SDK
 /// starts.
 fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf> {
     let executable = match config {
@@ -324,6 +328,7 @@ fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf>
         }
         Config::Crawlee => executables.crawlee.to_owned(),
         Config::Scrapy => executables.scrapy.to_owned(),
+        Config::FoxhoundProgram => executables.foxhound_program.to_owned(),
         Config::CrawleeRs => {
             crawlee_rs_executable(executables.spider_builds, executables.profile_folder)
         }
@@ -341,12 +346,23 @@ fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf>
         }
     };
     let program = trial::invocation(config, &executable).program;
-    let server = matches!(config, Config::FastCrw).then(|| trial::fastcrw_server(&executable));
+    let beside = match config {
+        Config::FastCrw => Some(trial::fastcrw_server(&executable)),
+        Config::FoxhoundProgram => Some(executables.foxhound.to_owned()),
+        Config::Foxhound { .. }
+        | Config::Spider { .. }
+        | Config::Crawlee
+        | Config::Scrapy
+        | Config::CrawleeRs
+        | Config::Pagesift
+        | Config::OpenSpider
+        | Config::Crawlberg => None,
+    };
     let mut run = vec![executable];
     if program != run[0] {
         run.push(program);
     }
-    run.extend(server);
+    run.extend(beside);
     run
 }
 
@@ -401,6 +417,9 @@ fn trial<T: serde::de::DeserializeOwned>(
     for setting in executables.foxhound_settings {
         command.args(["--foxhound-setting", setting]);
     }
+    if let Config::FoxhoundProgram = config {
+        command.arg("--engine").arg(executables.foxhound);
+    }
     // A file rather than a pipe: a watched trial is waited for by polling,
     // with no reader of a pipe beside it.
     let mut printed = tempfile::tempfile().context("creating the trial's output file")?;
@@ -448,6 +467,7 @@ fn pages_of(scenario: Scenario, config: Config, pages: u64, spider_pages: Option
     match config {
         Config::Spider { .. } => spider_pages.unwrap_or(pages),
         Config::Foxhound { .. }
+        | Config::FoxhoundProgram
         | Config::Crawlee
         | Config::Scrapy
         | Config::CrawleeRs
@@ -524,6 +544,7 @@ fn at_concurrency(config: Config, concurrency: u32) -> Config {
             capacity: matrix::SPIDER_CAPACITY_AT_64,
         },
         Config::Foxhound { .. }
+        | Config::FoxhoundProgram
         | Config::Spider { .. }
         | Config::Crawlee
         | Config::Scrapy

@@ -1,9 +1,12 @@
 //! B3's charge scenario (ADR 0140), shared by `examples/counts.rs` and its
 //! tests: one run starts as a Run does, its Limits read on the connection
 //! it keeps, then charges one Usage at a time against a Limit of the Usage
-//! ledger, on the crash VFS, which counts its syncs. A charge its held
-//! Slices cover and a charge that takes a Slice are each their own outcome,
-//! so neither averages the other away: each charge's work goes to its own.
+//! ledger, on the crash VFS, which counts its syncs. Each round charges a
+//! request, and reserves proxy bytes ahead and settles them as a provider
+//! Session's relay does through `Run::reserve_part` and `Run::settle_part`
+//! (#2392), each against a Limit on its own kind. A charge its held Slices
+//! cover and a charge that takes a Slice are each their own outcome, so
+//! neither averages the other away: each charge's work goes to its own.
 //!
 //! With no Limit holding the run, no charge takes a Slice: that cell takes
 //! the Slice's work away.
@@ -11,23 +14,30 @@
 use std::path::Path;
 
 use goodfetch_counted_work::{CountedWork, Row};
-use goodfetch_engine::ledger::{Charging, Holder, Ledger, Placement, SliceId, SliceSizing};
+use goodfetch_engine::ledger::{
+    Change, Charging, Holder, Ledger, Placement, Refusal, SliceId, SliceSizing, Unmade,
+};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::{LimitScope, LimitSetter};
-use goodfetch_protocol::usage::{INSTALL, Limit, REQUESTS};
+use goodfetch_protocol::usage::{INSTALL, Limit, PROXY_BYTES, REQUESTS};
 use goodfetch_test_support::CrashVfs;
 use jiff::Timestamp;
 use rusqlite::{Connection, OpenFlags};
 
-/// The charges one cell makes, one of Usage each.
-const CHARGES: u64 = 40;
+/// The rounds one cell makes, each one charge of a request and one
+/// allowance of proxy bytes.
+const ROUNDS: u64 = 40;
 
-/// The Limit's amount, of which [`SliceSizing::default`] takes a Slice of
-/// [`SLICE`].
+/// Each Limit's amount, in requests or in allowances of proxy bytes, of
+/// which [`SliceSizing::default`] takes a Slice of [`SLICE`].
 const AMOUNT: u64 = 1_000;
 
-/// What one Slice holds.
+/// What one Slice holds, in requests or in allowances of proxy bytes.
 const SLICE: u64 = 10;
+
+/// The bytes a relayed connection's first allowance reserves ahead, as a
+/// provider Session's relay does, and carries in full before it settles.
+const ALLOWANCE: u64 = 16 * 1024;
 
 /// The outcome of one charge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +46,30 @@ pub(crate) enum Outcome {
     Covered,
     /// It took a Slice.
     SliceTaken,
+}
+
+/// What one charge of a round charges, each against a Limit on its kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Charge {
+    /// One request, as `Run::charge` charges it.
+    Request = 0,
+    /// One allowance of proxy bytes ([`proxy_bytes`]).
+    ProxyBytes = 1,
+}
+
+impl Charge {
+    /// Makes this charge on `charging`; answers what it used of each Slice.
+    fn make(self, charging: &mut Charging, now: Timestamp) -> Vec<(SliceId, u64)> {
+        match self {
+            Self::Request => {
+                charging
+                    .charge(REQUESTS, 1, now)
+                    .expect("invariant: the Limit has room")
+                    .used
+            }
+            Self::ProxyBytes => proxy_bytes(charging, now),
+        }
+    }
 }
 
 /// What one cell counted, each by the outcome that did it.
@@ -112,17 +146,46 @@ fn install() -> LimitScope {
     }
 }
 
-/// The Limit of `requests` on the install that holds a limited cell's run.
-fn limit() -> Limit {
+/// The Limit of `amount` on `usage_kind` on the install, which holds a
+/// limited cell's run.
+fn limit(usage_kind: &str, amount: u64) -> Limit {
     Limit {
         scope: install(),
-        usage_kind: REQUESTS.to_owned(),
+        usage_kind: usage_kind.to_owned(),
         currency: None,
         period: None,
-        amount: AMOUNT,
+        amount,
         must_understand: true,
         set_by: LimitSetter::Person,
     }
+}
+
+/// One allowance of [`ALLOWANCE`] proxy bytes, reserved ahead, down to one
+/// byte as the Limits allow, and settled once the connection carried all of
+/// it: the path of a provider Session's relay through `Run::reserve_part`
+/// and `Run::settle_part`, a step in memory when the held Slices cover it
+/// and a change on the ledger when not. Answers what it used of each Slice.
+fn proxy_bytes(charging: &mut Charging, now: Timestamp) -> Vec<(SliceId, u64)> {
+    let reserve = |change: &mut Change<'_>| {
+        let mut amount = ALLOWANCE;
+        loop {
+            match change.reserve(PROXY_BYTES, None, amount) {
+                Err(Unmade::Refused(Refusal::Reached(_))) if amount > 1 => {
+                    amount = (amount / 2).max(1);
+                }
+                reserved => break reserved,
+            }
+        }
+    };
+    let (reservation, charged) = match charging.change_held(now, reserve) {
+        Some(reserved) => reserved,
+        None => charging
+            .change(now, reserve)
+            .expect("invariant: the Limit has room"),
+    };
+    // What the run would journal of the settlement: a step in memory.
+    let _ = charging.settle(reservation, ALLOWANCE);
+    charged.used
 }
 
 /// The one run's charging on `ledger`, standing on the install.
@@ -163,15 +226,20 @@ pub(crate) fn charges(
     let work = CountedWork::default();
     let setting = Ledger::at(folder.join("usage-ledger.sqlite"), Some(name.clone()));
     if limited {
-        setting
-            .add_limit(&limit(), now)
-            .expect("invariant: the ledger is writable");
+        for limit in [
+            limit(REQUESTS, AMOUNT),
+            limit(PROXY_BYTES, AMOUNT * ALLOWANCE),
+        ] {
+            setting
+                .add_limit(&limit, now)
+                .expect("invariant: the ledger is writable");
+        }
     }
     let ledger = setting.counting(work.clone());
     let mut charging = run_charging(&ledger, folder);
     charging
         .may_start(now)
-        .expect("invariant: the Limit has room for a run to start");
+        .expect("invariant: the Limits have room for a run to start");
     let spare = Connection::open_with_flags_and_vfs(
         folder.join("spare.sqlite"),
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
@@ -179,9 +247,11 @@ pub(crate) fn charges(
     )
     .expect("invariant: the crash VFS opens a file");
     let mut counted = Counted::default();
-    let mut last_slice: Option<SliceId> = None;
-    for index in 0..CHARGES {
-        let outcome = if limited && index % SLICE == 0 {
+    let mut last_slices: [Option<SliceId>; 2] = [None; 2];
+    let rounds =
+        (0..ROUNDS).flat_map(|round| [(round, Charge::Request), (round, Charge::ProxyBytes)]);
+    for (round, kind) in rounds {
+        let outcome = if limited && round % SLICE == 0 {
             Outcome::SliceTaken
         } else {
             Outcome::Covered
@@ -194,12 +264,7 @@ pub(crate) fn charges(
         );
         let mut used = None;
         let mut charge = || {
-            used = Some(
-                charging
-                    .charge(REQUESTS, 1, now)
-                    .expect("invariant: the Limit has room")
-                    .used,
-            );
+            used = Some(kind.make(&mut charging, now));
             if let Some(planted) = planted {
                 plant(planted, outcome, &ledger, &spare, &work);
             }
@@ -219,14 +284,14 @@ pub(crate) fn charges(
         assert_eq!(
             limited,
             slice.is_some(),
-            "charge {index}: a Limit holds the run, or nothing does"
+            "round {round}'s {kind:?}: a Limit holds the run, or nothing does"
         );
         assert_eq!(
-            slice != last_slice,
+            slice != last_slices[kind as usize],
             outcome == Outcome::SliceTaken,
-            "charge {index} is not the outcome a Slice of {SLICE} predicts"
+            "round {round}'s {kind:?} is not the outcome a Slice of {SLICE} predicts"
         );
-        last_slice = slice;
+        last_slices[kind as usize] = slice;
         counted.opens += work.read(Row::ChargeOpens) - before.3;
         match outcome {
             Outcome::Covered => {

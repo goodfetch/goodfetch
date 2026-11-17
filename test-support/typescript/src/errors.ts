@@ -92,7 +92,19 @@ export type TestSupportErrorCode =
   /** The Client closed its end, or the script ended, with a step of the Scripted engine's script unused (ADR 0069). */
   | "unused_step"
   /** A `reply` or `await_reply` step of a Scripted engine's script follows no request to answer (ADR 0069). */
-  | "nothing_to_answer";
+  | "nothing_to_answer"
+  /** A Journey file cannot be read (ADR 0063). */
+  | "journey_unreadable"
+  /** A Journey file is not TOML, or fails `journeys/journey.schema.json` (ADR 0063). */
+  | "journey_invalid"
+  /** `journeys/<id>.toml` holds another Journey's ID (ADR 0063). */
+  | "journey_other"
+  /** A Journey variant is started on a surface its Journey does not list (ADR 0063). */
+  | "surface_unlisted"
+  /** A Journey's executable does not report its Product and version through `--version` (ADR 0063). */
+  | "engine_version"
+  /** A Journey variant run's document is not `proved`, or the run recorded a failure (ADR 0063). */
+  | "variant_not_proved";
 
 /** An error of test support, matched on its `code`. */
 export class TestSupportError extends Error {

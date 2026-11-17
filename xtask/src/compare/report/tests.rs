@@ -1,6 +1,6 @@
 use super::standing::Standing;
 use super::{CellStatus, Figure, Report, markdown, of};
-use crate::compare::matrix::Scenario;
+use crate::compare::matrix::{HANDLED_GETTERS_PENDING, HANDLED_RUST_PENDING, Scenario};
 use crate::compare::trials::{Comparison, Measured, Work, fixture};
 
 /// The pages of the site every trial crawls.
@@ -270,8 +270,8 @@ fn a_run_given_no_name_says_machine_not_named() {
 /// Each cell of #2316's scenarios says it carries no bar, and each measured
 /// one gives its rate, latency percentiles and peak memory; no cell of the
 /// matrix's own five says so, and the hostile pages' cells say it for
-/// #2439, the crawl-like scenario's for #2284 and the auto cells for
-/// #2411 (their own tests). The cell at the catalog's defaults says it is
+/// #2439, the crawl-like scenario's for #2284, the auto cells for #2411
+/// and the handled cell's for #2317 (their own tests). The cell at the catalog's defaults says it is
 /// pending #2175 and gives no figure.
 #[test]
 fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
@@ -343,8 +343,10 @@ fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
                     scenario,
                     if scenario.no_bar().is_some()
                         && !scenario.hostile()
-                        && scenario != Scenario::CrawlLike
-                        && scenario != Scenario::Auto
+                        && !matches!(
+                            scenario,
+                            Scenario::CrawlLike | Scenario::Auto | Scenario::Handled
+                        )
                     {
                         every(scenario)
                     } else {
@@ -384,6 +386,42 @@ fn the_crawl_like_scenarios_cells_carry_no_bar() {
             "fastcrw",
             "crawlberg"
         ]
+    );
+}
+
+/// Each cell of the handled crawl says it carries no bar, for #2317; its
+/// Rust and getters rows say what they are pending, and Foxhound's mapping
+/// says it sets no tier, so the engine chooses one (#1602).
+#[test]
+fn the_handled_cells_carry_no_bar_and_name_what_two_wait_on() {
+    let trials = comparison(&[]);
+
+    let markdown = markdown(&of(&trials), &trials);
+    let handled = section(&markdown, Scenario::Handled.title());
+
+    assert_eq!(
+        (
+            cells_saying(
+                handled,
+                "  - no bar: none is set on this cell until the owner sets one (#2317)."
+            ),
+            [HANDLED_RUST_PENDING, HANDLED_GETTERS_PENDING]
+                .map(|why| { cells_saying(handled, &format!("  - not measured: pending {why}.")) }),
+            handled.contains("`fetch.tier` not set, so the engine's own tier choice"),
+        ),
+        (
+            vec![
+                "foxhound",
+                "foxhound rust",
+                "foxhound getters",
+                "spider",
+                "crawlee",
+                "scrapy",
+                "crawlee-rs"
+            ],
+            [vec!["foxhound rust"], vec!["foxhound getters"]],
+            true,
+        )
     );
 }
 

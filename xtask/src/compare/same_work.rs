@@ -328,8 +328,9 @@ fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
 
 /// Every trial of a pass on the article site whose output is refused:
 /// Foxhound's whose pages differ from the right answer under its cell's
-/// check, and any tool's that no check read, on a site whose answers the
-/// Proving ground serves.
+/// check, any tool's whose Records' fields differ from the handled crawl's
+/// answers (#2317), and any tool's that no check read, on a site whose
+/// answers the Proving ground serves.
 fn other_output(pass: &Pass<'_>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for done in &pass.done {
@@ -348,11 +349,14 @@ fn other_output(pass: &Pass<'_>) -> Vec<Finding> {
             ));
             continue;
         };
-        let (differing, held) = match check {
-            OutputCheck::Whole => (&extracted.whole, ""),
-            OutputCheck::AdAllowed => (&extracted.ad_allowed, ", the ad allowed"),
+        let differing = check.differing(extracted);
+        let held = if check == OutputCheck::AdAllowed {
+            ", the ad allowed"
+        } else {
+            ""
         };
-        if cell.tool == matrix::Tool::Foxhound && differing.pages > 0 {
+        let refused = cell.tool == matrix::Tool::Foxhound || check == OutputCheck::Fields;
+        if refused && differing.pages > 0 {
             findings.push(Finding::new(
                 "output_differs",
                 pass.subject(done),

@@ -18,12 +18,17 @@
 //! ad sits inside the article, where only a Clean-up rule removes it, so a
 //! tool with no ad removal, and Foxhound's row with its Filter lists off,
 //! are read without it.
+//!
+//! The handled crawl (#2317) holds each page to its answers field by field
+//! instead ([`check_fields`]): the twenty fields its handler reads.
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 /// The largest article site whose right answers the Proving ground serves
 /// (`ANSWERED_PAGES` of its `crawl/comparison/article.rs`).
@@ -36,17 +41,41 @@ pub(crate) const ANSWERED_PAGES: u64 = 10_000;
 #[derive(Debug, Deserialize)]
 pub(crate) struct Answers {
     pages: Vec<Answer>,
+    /// The link every page's nav holds to the site's first page.
+    home: Link,
+    /// The markers of each page's header, nav, aside and footer, in this
+    /// order.
     boilerplate: Vec<String>,
     ad: String,
 }
 
-/// One page's right answer: its path, its title as a reader reads it, and
-/// its article's paragraphs in order.
+/// One page's right answer: its path, its title as a reader reads it, its
+/// article's paragraphs in order, its article's ID, its heading's name and
+/// its nav's links to its children.
 #[derive(Debug, Deserialize)]
 struct Answer {
     path: String,
     title: String,
     paragraphs: Vec<String>,
+    id: String,
+    name: String,
+    children: Vec<Link>,
+}
+
+/// One link of a page's nav: to a child page, or home.
+#[derive(Debug, Deserialize)]
+struct Link {
+    path: String,
+    name: String,
+}
+
+/// What a tool wrote of one page of the handled crawl (#2317): its URL and
+/// its fields by name.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub(crate) struct Fielded {
+    pub(crate) url: String,
+    #[serde(flatten)]
+    pub(crate) fields: Map<String, Value>,
 }
 
 /// What a tool wrote of one page.
@@ -113,7 +142,7 @@ pub(crate) fn answers(address: &str, pages: u64) -> Result<Answers> {
 }
 
 /// The pages a tool left in `home`, the folder it ran in.
-pub(crate) fn read(written: Written, home: &Path) -> Result<Vec<Page>> {
+pub(crate) fn read<T: DeserializeOwned>(written: Written, home: &Path) -> Result<Vec<T>> {
     match written {
         Written::Lines(name) => {
             let file = home.join(name);
@@ -227,6 +256,113 @@ pub(crate) fn check(answers: &Answers, pages: &[Page]) -> Extracted {
         }
     }
     extracted
+}
+
+/// How a field of the handled crawl is compared: as text, white space
+/// collapsed, or as a link, by its path.
+#[derive(Clone, Copy)]
+enum Kind {
+    Text,
+    Href,
+}
+
+/// The twenty fields of a page of the article site and each one's answer,
+/// `None` where the page has no element for it: its title, its heading's
+/// name and the article's `data-id`, its nav's home link and the label,
+/// the header's, nav's and footer's markers, its first two children's
+/// links and names, and its article's first eight paragraphs.
+fn fields_of(answers: &Answers, answer: &Answer) -> Vec<(String, Kind, Option<String>)> {
+    let marker = |index: usize| answers.boilerplate.get(index).cloned();
+    let child = |index: usize| answer.children.get(index);
+    let mut fields = vec![
+        ("title".to_owned(), Kind::Text, Some(answer.title.clone())),
+        ("name".to_owned(), Kind::Text, Some(answer.name.clone())),
+        ("id".to_owned(), Kind::Text, Some(answer.id.clone())),
+        (
+            "home".to_owned(),
+            Kind::Href,
+            Some(answers.home.path.clone()),
+        ),
+        (
+            "home_label".to_owned(),
+            Kind::Text,
+            Some(answers.home.name.clone()),
+        ),
+        ("header".to_owned(), Kind::Text, marker(0)),
+        ("nav".to_owned(), Kind::Text, marker(1)),
+        ("footer".to_owned(), Kind::Text, marker(3)),
+    ];
+    for (index, ordinal) in [(0, "first"), (1, "second")] {
+        let link = child(index);
+        fields.push((
+            format!("{ordinal}_child"),
+            Kind::Href,
+            link.map(|link| link.path.clone()),
+        ));
+        fields.push((
+            format!("{ordinal}_child_name"),
+            Kind::Text,
+            link.map(|link| link.name.clone()),
+        ));
+    }
+    for k in 1..=8 {
+        fields.push((
+            format!("paragraph_{k}"),
+            Kind::Text,
+            answer.paragraphs.get(k - 1).cloned(),
+        ));
+    }
+    fields
+}
+
+/// How a page's written fields differ from its answers, if they do: the
+/// first field that differs.
+fn field_difference(answers: &Answers, answer: &Answer, page: Option<&Fielded>) -> Option<String> {
+    let Some(page) = page else {
+        return Some("no page written".to_owned());
+    };
+    fields_of(answers, answer)
+        .into_iter()
+        .find_map(|(name, kind, expected)| {
+            let written = page.fields.get(&name).filter(|value| !value.is_null());
+            let read = written.map(|value| match (value.as_str(), kind) {
+                (Some(text), Kind::Text) => Some(collapsed(text)),
+                (Some(href), Kind::Href) => Some(path_of(href).to_owned()),
+                (None, _) => None,
+            });
+            let right = match (&read, &expected) {
+                (None, None) => true,
+                (Some(Some(read)), Some(expected)) => read == expected,
+                _ => false,
+            };
+            (!right).then(|| {
+                let got = written.map_or_else(|| "none".to_owned(), ToString::to_string);
+                let want = expected.map_or_else(|| "none".to_owned(), |text| format!("{text:?}"));
+                format!("{name} {got}, not {want}")
+            })
+        })
+}
+
+/// Holds what a tool wrote of the handled crawl, `pages`, to the site's
+/// `answers`, field by field (#2317). No ad is among the fields: both
+/// counts are the same.
+pub(crate) fn check_fields(answers: &Answers, pages: &[Fielded]) -> Extracted {
+    // A page written twice is read as first written.
+    let mut written: HashMap<&str, &Fielded> = HashMap::with_capacity(pages.len());
+    for page in pages {
+        written.entry(path_of(&page.url)).or_insert(page);
+    }
+    let mut differing = Differing::default();
+    for answer in &answers.pages {
+        let page = written.get(answer.path.as_str()).copied();
+        if let Some(difference) = field_difference(answers, answer, page) {
+            differing.add(format!("{}: {difference}", answer.path));
+        }
+    }
+    Extracted {
+        whole: differing.clone(),
+        ad_allowed: differing,
+    }
 }
 
 #[cfg(test)]

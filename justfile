@@ -1190,9 +1190,15 @@ rss-propose *scenarios:
 # register row's Today;
 # `--scenario collie` runs it alone. It gates nothing and is no Live check;
 # run it when the 1-minute load is under 4.
+# The handled scenario (issue 2317) crawls the article site with a program's
+# handler on each page, which reads its twenty fields, pushes them as one
+# Record and enqueues its links: Foxhound's is a TypeScript program on its
+# SDK (xtask/compare-foxhound, a member of the repository's pnpm workspace),
+# run by Node.js with Foxhound's executable its Attached engine; Spider's is
+# its `handled` build.
 # Spider's, crawlee-rs's, pagesift's, OpenSpider's, fastCRW's, crawlberg's
 # and chromiumoxide's crates and the sides' packages are downloaded once,
-# free. Spider's eight builds, crawlee-rs's, pagesift's, OpenSpider's,
+# free. Spider's nine builds, crawlee-rs's, pagesift's, OpenSpider's,
 # fastCRW's (its server's build in fastcrw-server, the server installed into
 # the side's profile folder), crawlberg's and chromiumoxide's go to target/compare-spider/, or to the folder GOODFETCH_COMPARE_SPIDER_BUILDS
 # names: one outside every checkout keeps them from one measurement to the
@@ -1226,6 +1232,7 @@ compare profile="release" *args:
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features extraction --target-dir {{ compare_spider_builds }}/spider-extraction
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features extraction,mimalloc --target-dir {{ compare_spider_builds }}/spider-extraction-mimalloc
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features smart --target-dir {{ compare_spider_builds }}/spider-smart
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features handled --target-dir {{ compare_spider_builds }}/spider-handled
     cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/crawlee-rs
     cargo build --quiet --locked --manifest-path xtask/compare-pagesift/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/pagesift
     cargo build --quiet --locked --manifest-path xtask/compare-openspider/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/openspider
@@ -1236,6 +1243,7 @@ compare profile="release" *args:
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy
     pnpm install --frozen-lockfile --reporter=silent --filter goodfetch-compare-collie...
+    pnpm install --frozen-lockfile --reporter=silent --filter goodfetch-compare-foxhound...
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-collie-arms
     "$xtask" compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile {{ profile }} "${@:2}"
 

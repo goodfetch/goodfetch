@@ -16,6 +16,7 @@ export type { ErrorClasses } from "./errors.ts";
 export type { Transport } from "./rpc.ts";
 export { holdInRealm } from "./realm.ts";
 export { ensureRunOpen, pageOf, type RunHost } from "./run.ts";
+export { idOfLocator } from "./generated/handles.ts";
 export {
   locateEngine,
   openAttached,

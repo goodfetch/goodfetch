@@ -23,8 +23,8 @@
     }
   },
   "sdks/typescript/foxhound/src/generated/types.ts": {
-    "input": "fe9ebb97a0a55468f0fd3bc4ca2f3a38d70a94efb867cf995d77a74392f9b333",
-    "output": "a97800c5b56e16fdba9763071c1dc2bac1095a4f5b6c99bb28dc9d92d83c1335",
+    "input": "9b6892a32cd8b4025631609c9f749e6410e3ee08c7b63e852e518043ebc2fe96",
+    "output": "f9fee1e7641a4377c7ed5676096eeb2b9e2b12db2c76984511bae4d3946edcca",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }

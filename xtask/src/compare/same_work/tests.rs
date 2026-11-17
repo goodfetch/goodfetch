@@ -1,6 +1,6 @@
 use super::{check, strace_runs_of_other_work_set_aside};
 use crate::compare::auto::Judged;
-use crate::compare::extracted::Extracted;
+use crate::compare::extracted::{Differing, Extracted};
 use crate::compare::matrix::{self, Row, Scenario};
 use crate::compare::trials::{
     AutoRun, Comparison, CountedCell, CountedRun, INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS,
@@ -380,6 +380,31 @@ fn a_browser_trial_that_never_rendered_the_links_misses_the_script_rendered_page
         .iter()
         .map(|(kind, subject, message)| (*kind, subject.as_str(), *message))
         .collect::<Vec<_>>()
+    );
+}
+
+/// The handled crawl holds every tool to its pages' fields (#2317): a
+/// competitor's trial whose Records differ from the answers is refused as
+/// Foxhound's is, where the extraction scenario only labels it.
+#[test]
+fn a_handled_trial_of_any_tool_whose_fields_differ_is_refused() {
+    let mut trials = comparison(|_, _| work(0));
+    for trial in &mut trials.trials {
+        if trial.scenario == Scenario::Handled && trial.number == 2 {
+            trial.measured.extracted = Some(Extracted {
+                whole: Differing {
+                    pages: 1,
+                    first: Some("/sites/4/3: name null, not \"Page 3\"".to_owned()),
+                },
+                ..Extracted::default()
+            });
+        }
+    }
+
+    assert_eq!(
+        named(&trials),
+        ["foxhound", "spider", "crawlee", "scrapy", "crawlee-rs"]
+            .map(|cell| ("output_differs", format!("handled {cell} trial 2")))
     );
 }
 

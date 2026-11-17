@@ -21,7 +21,7 @@ use std::fmt::Write as _;
 
 use serde::Serialize;
 
-use super::extracted::{Differing, Extracted};
+use super::extracted::Extracted;
 use super::matrix::{
     self, CELLS, Cell, FILTER_LISTS_OFF, OutputCheck, Reading, Row, Scenario, Status,
 };
@@ -657,14 +657,6 @@ fn growth_of<'a>(growth: &'a GrowthCell, cell: &Cell) -> Result<Vec<&'a Trial>, 
     }
 }
 
-/// The pages that differ under `check`.
-fn differing(extracted: &Extracted, check: OutputCheck) -> &Differing {
-    match check {
-        OutputCheck::Whole => &extracted.whole,
-        OutputCheck::AdAllowed => &extracted.ad_allowed,
-    }
-}
-
 /// Under each check, the worst of what the output check found of some
 /// crawls: the one with the most differing pages. None when it read none.
 fn worst<'a>(found: impl Iterator<Item = &'a Extracted>) -> Option<Extracted> {
@@ -685,7 +677,7 @@ fn worst<'a>(found: impl Iterator<Item = &'a Extracted>) -> Option<Extracted> {
 /// The label of an output that differs under `check` on a site of
 /// `site_pages` pages; none when every page read right.
 fn output_differs(output: &Extracted, check: OutputCheck, site_pages: u64) -> Option<String> {
-    let differing = differing(output, check);
+    let differing = check.differing(output);
     (differing.pages > 0).then(|| format!("output differs: {} of {site_pages}", differing.pages))
 }
 
@@ -933,21 +925,20 @@ fn output_line(text: &mut String, scenario: Scenario, cell: &CellReport) {
         );
         return;
     };
-    let allowed = match check {
-        OutputCheck::Whole => "",
-        OutputCheck::AdAllowed => ", the ad allowed",
+    let (allowed, read) = match check {
+        OutputCheck::Whole => ("", "title and Main content"),
+        OutputCheck::AdAllowed => (", the ad allowed", "title and Main content"),
+        OutputCheck::Fields => ("", "twenty fields"),
     };
     let Some(label) = output_differs(output, check, *site_pages) else {
-        let _ = writeln!(
-            text,
-            "  - output: every page's title and Main content read right{allowed}."
-        );
+        let _ = writeln!(text, "  - output: every page's {read} read right{allowed}.");
         return;
     };
     let _ = write!(
         text,
         "  - {label}{allowed}; the first: {}.",
-        differing(output, check)
+        check
+            .differing(output)
             .first
             .as_deref()
             .unwrap_or("not named")

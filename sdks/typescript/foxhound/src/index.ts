@@ -22,9 +22,16 @@ export {
   seed,
   type CrawlContext,
   type DatasetOptions,
+  type EnqueueLinksOptions,
   type Handler,
   type LabelOptions,
   type RequestOptions,
 } from "./crawl.ts";
 export { CrawlRun, type RecordsOptions } from "./crawl-run.ts";
-export type { DatasetRecord, Enqueued, RequestSeed } from "./generated/index.ts";
+export type {
+  DatasetRecord,
+  Enqueued,
+  EnqueuedLink,
+  EnqueuedLinks,
+  RequestSeed,
+} from "./generated/index.ts";

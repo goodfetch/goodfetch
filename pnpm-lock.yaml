@@ -363,6 +363,19 @@ importers:
         specifier: 'catalog:'
         version: 7.0.2
 
+  xtask/compare-foxhound:
+    dependencies:
+      '@goodfetch/foxhound':
+        specifier: workspace:*
+        version: link:../../sdks/typescript/foxhound
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.5
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+
 packages:
 
   '@allurereport/aql@3.20.1':

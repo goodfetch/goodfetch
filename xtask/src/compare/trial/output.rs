@@ -6,13 +6,16 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::process::{Command, Stdio};
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
+use goodfetch_protocol::foxhound::crawl::CODE_FREE_DATASET;
+use serde_json::Value;
 
 use super::{Mode, Plan};
 use crate::compare::extracted::{self, Extracted, Written};
-use crate::compare::foxhound::Record;
-use crate::compare::matrix::{Cell, Config};
+use crate::compare::foxhound::{self, Record};
+use crate::compare::matrix::{Cell, Config, OutputCheck};
 
 /// `cell`'s configuration as a run in `mode` on the site of `pages` pages
 /// gives it to its tool. On the article site Spider's side reads each page
@@ -47,15 +50,30 @@ const SCRAPY_ITEMS: &str = "items.jsonl";
 
 impl Plan<'_> {
     /// Foxhound's Records, read by an engine of their own on `home` once
-    /// the measured processes are gone.
+    /// the measured processes are gone: the code-free crawl's Dataset, or
+    /// the one Foxhound's program pushes to.
     pub(super) fn records(&self, home: &Path) -> Result<Vec<Record>> {
-        let mut driven = self.spawn(home, 1, &Mode::Timed, None)?;
-        let engine = driven.engine.as_mut().context("Foxhound's engine")?;
-        let read = engine.records(&self.site);
-        if let Some(engine) = driven.engine.take() {
-            engine.close();
-        }
-        let _ = driven.child.wait();
+        let (mut child, mut engine, dataset) = if let Config::FoxhoundProgram = self.config {
+            // The program's own executable is Node's: the engine is the one
+            // its SDK started.
+            let executable = self
+                .engine
+                .context("Foxhound's program takes Foxhound's executable, --engine")?;
+            let mut command = Command::new(executable);
+            command.stderr(Stdio::inherit());
+            self.without_goodfetch_variables(&mut command);
+            super::attached_engine(&mut command, home);
+            let mut child = command.spawn().context("starting Foxhound's engine")?;
+            let engine = super::opened(&mut child)?;
+            (child, engine, foxhound::PROGRAM_DATASET)
+        } else {
+            let mut driven = self.spawn(home, 1, &Mode::Timed, None)?;
+            let engine = driven.engine.take().context("Foxhound's engine")?;
+            (driven.child, engine, CODE_FREE_DATASET)
+        };
+        let read = engine.records(&self.site, dataset);
+        engine.close();
+        let _ = child.wait();
         read
     }
 
@@ -75,6 +93,26 @@ impl Plan<'_> {
         if !self.checks_output() {
             return Ok(None);
         }
+        let answers = extracted::answers(self.site.address, self.site.pages)?;
+        if let Some(OutputCheck::Fields) = self.cell.output_check() {
+            let pages = match self.config {
+                Config::FoxhoundProgram => records
+                    .context("Foxhound's program keeps its Records")?
+                    .into_iter()
+                    .map(|record| {
+                        let Value::Object(fields) = record.value else {
+                            bail!("a Record of {} holds no fields", record.url);
+                        };
+                        Ok(extracted::Fielded {
+                            url: record.url,
+                            fields,
+                        })
+                    })
+                    .collect::<Result<_>>()?,
+                config => extracted::read(written(config)?, home)?,
+            };
+            return Ok(Some(extracted::check_fields(&answers, &pages)));
+        }
         let pages = match self.config {
             Config::Foxhound { .. } => records
                 .context("Foxhound's extraction crawl keeps its Records")?
@@ -85,17 +123,27 @@ impl Plan<'_> {
                     text: record.text,
                 })
                 .collect(),
-            Config::Spider { .. }
-            | Config::Pagesift
-            | Config::OpenSpider
-            | Config::FastCrw
-            | Config::Crawlberg => extracted::read(Written::Lines(SPIDER_PAGES), home)?,
-            Config::Scrapy => extracted::read(Written::Lines(SCRAPY_ITEMS), home)?,
-            Config::Crawlee | Config::CrawleeRs => extracted::read(Written::Dataset, home)?,
+            config => extracted::read(written(config)?, home)?,
         };
-        let answers = extracted::answers(self.site.address, self.site.pages)?;
         Ok(Some(extracted::check(&answers, &pages)))
     }
+}
+
+/// Where `config`'s side writes the pages it extracts, in the folder it
+/// runs in: Foxhound's are its Records.
+fn written(config: Config) -> Result<Written> {
+    Ok(match config {
+        Config::Spider { .. }
+        | Config::Pagesift
+        | Config::OpenSpider
+        | Config::FastCrw
+        | Config::Crawlberg => Written::Lines(SPIDER_PAGES),
+        Config::Scrapy => Written::Lines(SCRAPY_ITEMS),
+        Config::Crawlee | Config::CrawleeRs => Written::Dataset,
+        Config::Foxhound { .. } | Config::FoxhoundProgram => {
+            bail!("Foxhound's pages are its Records, not a file")
+        }
+    })
 }
 
 /// What a trial reads of Foxhound's Records.

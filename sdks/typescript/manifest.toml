@@ -191,6 +191,14 @@ form = "round_trip"
 [[member]]
 package = "@goodfetch/foxhound"
 receiver = "CrawlContext"
+member = "enqueueLinks"
+entry = "crawl_request.enqueue_links"
+words = ["enqueue", "links"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlContext"
 member = "push"
 entry = "crawl_request.push"
 words = ["push"]
@@ -314,6 +322,15 @@ member = "pageOf"
 entry = "none"
 reason = "The Collie `Page` a Product's handler is served, bound to its Run and its attempt's signal (ADR 0093)."
 words = ["page", "of"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "idOfLocator"
+entry = "none"
+reason = "The `{page_id, selector}` a Collie `Locator`'s calls carry, which a Product's own calls name, such as a crawl's `crawl_request.enqueue_links` (ADR 0093)."
+words = ["id", "of", "locator"]
 form = "runtime"
 
 [[member]]

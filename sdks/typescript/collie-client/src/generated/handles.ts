@@ -5,8 +5,19 @@ import { defined, type HandleHost } from "../handle.ts";
 import type { CollieOperationTypes } from "./operations.ts";
 import type * as types from "./types.ts";
 
+let idInRun: (handle: Run) => types.RunId;
+
+/** @internal The ID `handle`'s calls carry, for a Product's package whose own calls name it (ADR 0093); never for programs. */
+export function idOfRun(handle: Run): types.RunId {
+  return idInRun(handle);
+}
+
 /** A `run` a program holds: the members the catalog gives it (ADR 0099). */
 export class Run {
+  static {
+    idInRun = (handle) => handle.#host.id;
+  }
+
   readonly #host: HandleHost<types.RunId, CollieOperationTypes>;
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
@@ -134,8 +145,19 @@ export class Run {
   }
 }
 
+let idInSession: (handle: Session) => types.SessionId;
+
+/** @internal The ID `handle`'s calls carry, for a Product's package whose own calls name it (ADR 0093); never for programs. */
+export function idOfSession(handle: Session): types.SessionId {
+  return idInSession(handle);
+}
+
 /** A `session` a program holds: the members the catalog gives it (ADR 0099). */
 export class Session implements AsyncDisposable {
+  static {
+    idInSession = (handle) => handle.#host.id;
+  }
+
   readonly #host: HandleHost<types.SessionId, CollieOperationTypes>;
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
@@ -176,8 +198,19 @@ export class Session implements AsyncDisposable {
   }
 }
 
+let idInPage: (handle: Page) => types.PageId;
+
+/** @internal The ID `handle`'s calls carry, for a Product's package whose own calls name it (ADR 0093); never for programs. */
+export function idOfPage(handle: Page): types.PageId {
+  return idInPage(handle);
+}
+
 /** A `page` a program holds: the members the catalog gives it (ADR 0099). */
 export class Page implements AsyncDisposable {
+  static {
+    idInPage = (handle) => handle.#host.id;
+  }
+
   readonly #host: HandleHost<types.PageId, CollieOperationTypes>;
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
@@ -336,8 +369,19 @@ export class Page implements AsyncDisposable {
   }
 }
 
+let idInLocator: (handle: Locator) => types.Locator;
+
+/** @internal The ID `handle`'s calls carry, for a Product's package whose own calls name it (ADR 0093); never for programs. */
+export function idOfLocator(handle: Locator): types.Locator {
+  return idInLocator(handle);
+}
+
 /** A `locator` a program holds: the members the catalog gives it (ADR 0099). */
 export class Locator {
+  static {
+    idInLocator = (handle) => handle.#host.id;
+  }
+
   readonly #host: HandleHost<types.Locator, CollieOperationTypes>;
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */

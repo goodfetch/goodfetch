@@ -4,6 +4,21 @@
       "additionalProperties": false,
       "description": "One page's right answer.",
       "properties": {
+        "children": {
+          "description": "The links its nav's list holds to its children, in order.",
+          "items": {
+            "$ref": "#/$defs/ArticleLink"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "The ID its article's `data-id` holds.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name its heading holds.",
+          "type": "string"
+        },
         "paragraphs": {
           "description": "The paragraphs of its article, each as its text reads.",
           "items": {
@@ -23,7 +38,29 @@
       "required": [
         "path",
         "title",
-        "paragraphs"
+        "paragraphs",
+        "id",
+        "name",
+        "children"
+      ],
+      "type": "object"
+    },
+    "ArticleLink": {
+      "additionalProperties": false,
+      "description": "One link of an article page's nav: to a child page, or home.",
+      "properties": {
+        "name": {
+          "description": "The link's text: the child's name, or `Home`.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The page's path on the site's host.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "name"
       ],
       "type": "object"
     }
@@ -43,6 +80,10 @@
       },
       "type": "array"
     },
+    "home": {
+      "$ref": "#/$defs/ArticleLink",
+      "description": "The link every page's nav holds to the site's first page."
+    },
     "pages": {
       "description": "Each page's answer, in the pages' order.",
       "items": {
@@ -53,6 +94,7 @@
   },
   "required": [
     "pages",
+    "home",
     "boilerplate",
     "ad"
   ],

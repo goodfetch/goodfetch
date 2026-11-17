@@ -215,7 +215,7 @@ impl Talk {
 
     /// Reads events until `count` of `name` came, and answers how long that
     /// took on the paused clock.
-    async fn events_until(&mut self, name: &str, count: usize) -> Duration {
+    pub(super) async fn events_until(&mut self, name: &str, count: usize) -> Duration {
         let began = tokio::time::Instant::now();
         while self
             .events

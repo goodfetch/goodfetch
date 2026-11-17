@@ -10,6 +10,7 @@
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -34,13 +35,22 @@ const COMMITTED: &str = "ci/pgo";
 const PROFILE: &str = "merged.profdata";
 /// The order file's name in its folder.
 const ORDER: &str = "order.txt";
+/// The share of the order file's symbols, in percent, below which a build
+/// is not the one the profile was trained on: halfway between the 90% a
+/// build held of the 2026-11-14 profile's symbols in the crates whose names
+/// held, and the 69% it held in all, once Cargo's metadata had renamed
+/// seven of the Products' crates (#2203).
+const LOWEST_MATCH: usize = 80;
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
     /// Fails when a Product's release executable for the target does not
     /// start `.text` with the committed order file's first functions, in
     /// its order, as the link map beside the executable's build places
-    /// them (Zig's linker strips the symbol table from the executable).
+    /// them (Zig's linker strips the symbol table from the executable);
+    /// and when the order file names a crate under an identity the build
+    /// links it under no more, or the builds hold less than 80% of its
+    /// symbols, a share it notes.
     Check(CheckArguments),
     /// Trains the profile and rewrites the committed profile and order
     /// file: an instrumented build runs the training workloads, its
@@ -145,6 +155,8 @@ fn check_order(root: &Path, tools: &Path, target: Option<&str>) -> Result<Vec<Fi
     let order: Vec<String> = order.lines().map(str::to_owned).collect();
     let manifest = ToolManifest::read(tools)?;
     let mut findings = Vec::new();
+    // Every symbol the Products' maps place, while each one has a map.
+    let mut built = Some(HashSet::new());
     for tool in [Tool::Collie, Tool::Foxhound] {
         let executable = manifest.path(tool)?;
         let subject = executable.display().to_string();
@@ -154,11 +166,20 @@ fn check_order(root: &Path, tools: &Path, target: Option<&str>) -> Result<Vec<Fi
                 subject,
                 "its build wrote no link map beside it, so ci/musl/link-cc linked it without the order file",
             ));
+            built = None;
             continue;
         };
         let text =
             std::fs::read_to_string(&map).with_context(|| format!("reading {}", map.display()))?;
-        let functions = order::text_functions(&order::placed(&text));
+        let placed = order::placed(&text);
+        if let Some(built) = &mut built {
+            built.extend(
+                placed
+                    .iter()
+                    .flat_map(|section| section.symbols.iter().map(|(_, name)| name.clone())),
+            );
+        }
+        let functions = order::text_functions(&placed);
         let Some(departure) = order::departure(&order, &functions) else {
             continue;
         };
@@ -184,7 +205,50 @@ fn check_order(root: &Path, tools: &Path, target: Option<&str>) -> Result<Vec<Fi
             ),
         });
     }
+    if let Some(built) = built {
+        let built: HashSet<&str> = built.iter().map(String::as_str).collect();
+        findings.extend(matched(&order, &built, target.unwrap_or("host")));
+    }
     Ok(findings)
+}
+
+/// The findings on the order file against `built`, every symbol the
+/// Products' builds hold: a crate the file names under an identity the
+/// build links it under no more, and too low a share of the file's
+/// symbols, which a note prints.
+fn matched(order: &[String], built: &HashSet<&str>, target: &str) -> Vec<Finding> {
+    let mut findings: Vec<Finding> = order::stale_crates(order, built)
+        .into_iter()
+        .map(|name| {
+            Finding::new(
+                "stale-crate",
+                name,
+                "the order file names the crate under an identity the build links it under no more, so the profile misses its code: its version changed, or the build did not compile through ci/musl/stable-metadata/sccache; run `just pgo-refresh`",
+            )
+        })
+        .collect();
+    let order::Share { matched, total } = order::match_share(order, built);
+    let share = if total == 0 {
+        100.0
+    } else {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a share of symbol counts, printed to a tenth of a percent"
+        )]
+        let share = matched as f64 * 100.0 / total as f64;
+        share
+    };
+    let message =
+        format!("{matched} of the order file's {total} symbols ({share:.1}%) are in the build");
+    check::note(&[Finding::new("order-match", target, message.clone())]);
+    if matched * 100 < total * LOWEST_MATCH {
+        findings.push(Finding::new(
+            "low-match",
+            target,
+            format!("{message}, below {LOWEST_MATCH}%: the profile and order file are another build's; run `just pgo-refresh`"),
+        ));
+    }
+    findings
 }
 
 /// The link map of `executable`, a Cargo build's: the map ci/musl/link-cc

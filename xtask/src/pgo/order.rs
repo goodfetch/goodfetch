@@ -3,7 +3,7 @@
 //! layout as LLD's link map places it (`-Map`, with `--no-demangle`, which
 //! ci/musl/link-cc passes whenever it links with an order file).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 /// The functions the training ran, hottest first: from `llvm-profdata show
 /// --all-functions --counts`, each function's largest block count, those
@@ -267,6 +267,73 @@ pub(crate) fn departure(order: &[String], functions: &[(u64, String)]) -> Option
             function: followed[position + 1].0.to_owned(),
             before: followed[position].0.to_owned(),
         })
+}
+
+/// The crate a Rust symbol's path starts from, and its disambiguator,
+/// which rustc derives from the crate's `-C metadata`: from the v0 mangling
+/// `_R`, its namespaces (`N<ns>`), then `C[s<base-62>_]<length>[_]<name>`
+/// (an `_` comes before a name that starts with a digit or an `_`). None
+/// for a symbol whose path starts elsewhere (an impl's method, a generic
+/// instance) or that is no Rust symbol: every crate has functions of the
+/// first kind.
+pub(crate) fn crate_root(symbol: &str) -> Option<(&str, &str)> {
+    let mut rest = symbol.strip_prefix("_R")?;
+    while let Some(namespace) = rest.strip_prefix('N') {
+        rest = namespace.get(1..)?;
+    }
+    rest = rest.strip_prefix('C')?;
+    let (disambiguator, rest) = match rest.strip_prefix('s') {
+        Some(hashed) => hashed.split_once('_')?,
+        None => ("", rest),
+    };
+    let digits = rest.find(|character: char| !character.is_ascii_digit())?;
+    let length: usize = rest[..digits].parse().ok()?;
+    let rest = &rest[digits..];
+    let name = rest.strip_prefix('_').unwrap_or(rest);
+    Some((name.get(..length)?, disambiguator))
+}
+
+/// The crates the order file names under an identity the build has not,
+/// while the build links them under another: their crate identity changed
+/// since the profile was trained (another release, or a build that does
+/// not compile through ci/musl/stable-metadata/sccache), so the profile's
+/// records and the order file miss all of their code.
+pub(crate) fn stale_crates<'a>(order: &'a [String], built: &HashSet<&str>) -> BTreeSet<&'a str> {
+    let mut linked: HashMap<&str, HashSet<&str>> = HashMap::new();
+    for (name, disambiguator) in built.iter().filter_map(|symbol| crate_root(symbol)) {
+        linked.entry(name).or_default().insert(disambiguator);
+    }
+    order
+        .iter()
+        .filter_map(|symbol| crate_root(symbol))
+        .filter(|(name, disambiguator)| {
+            linked
+                .get(name)
+                .is_some_and(|identities| !identities.contains(disambiguator))
+        })
+        .map(|(name, _)| name)
+        .collect()
+}
+
+/// How many of the order file's symbols the build holds, of how many.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Share {
+    pub(crate) matched: usize,
+    pub(crate) total: usize,
+}
+
+/// The order file's symbols that `built` holds: its section names (a
+/// constant's `.rodata..Lanon.<hash>.<n>`) are left out, since their
+/// counters shift with any change to the code before them.
+pub(crate) fn match_share(order: &[String], built: &HashSet<&str>) -> Share {
+    let symbols = order.iter().filter(|entry| !entry.starts_with('.'));
+    let (matched, total) = symbols.fold((0, 0), |(matched, total), symbol| {
+        (
+            matched + usize::from(built.contains(symbol.as_str())),
+            total + 1,
+        )
+    });
+    Share { matched, total }
 }
 
 #[cfg(test)]

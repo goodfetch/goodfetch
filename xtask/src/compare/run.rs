@@ -830,6 +830,16 @@ fn counted(
 }
 
 /// What a run of `options` declares before its first trial.
+/// The cells `options` names, each `<scenario>/<cell>` as the trials file
+/// records them: none when the run measures every cell of its scenarios.
+fn cell_names(options: &Options) -> Vec<String> {
+    options
+        .only
+        .iter()
+        .map(|(scenario, cell)| format!("{}/{cell}", scenario.name()))
+        .collect()
+}
+
 fn declared(options: &Options) -> Declared {
     Declared {
         trials: options.trials,
@@ -848,6 +858,7 @@ fn declared(options: &Options) -> Declared {
         scrapy_playwright: SCRAPY_PLAYWRIGHT_VERSION.to_owned(),
         browser: crate::test_facts::CHROME_FOR_TESTING_BUILD.to_owned(),
         scenarios: options.scenarios.clone(),
+        cells: cell_names(options),
         command: options.command.clone(),
     }
 }
@@ -1275,11 +1286,7 @@ pub(crate) fn redo(
     let mut state = order_seed;
     preflown(executables, options)?;
     earlier.redone.push(Redone {
-        cells: options
-            .only
-            .iter()
-            .map(|(scenario, cell)| format!("{}/{cell}", scenario.name()))
-            .collect(),
+        cells: cell_names(options),
         order_seed,
     });
     parts(

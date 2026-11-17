@@ -55,6 +55,7 @@ pub(crate) fn comparison(site_pages: u64, measured: impl Fn(&Cell, u32) -> Measu
             scrapy_playwright: "0.0.48".to_owned(),
             browser: "156.0.8078.4".to_owned(),
             scenarios: Scenario::ALL.to_vec(),
+            cells: Vec::new(),
             command: "just compare release".to_owned(),
         },
         machine: Machine {

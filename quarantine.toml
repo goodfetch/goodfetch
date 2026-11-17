@@ -19,6 +19,6 @@
 
 [[test]]
 runner = "nextest"
-id = "goodfetch-engine engine::tests::report::a_periodic_checkpoint_that_fails_warns_naming_its_folder"
-issue = 2729
+id = "goodfetch-conformance::it protocol::the_fetch_suite_is_proved_against_foxhounds_attached_engine"
+issue = 2732
 date = 2026-11-17

@@ -30,6 +30,7 @@ use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
+use super::checkpoint::Talk;
 use super::run::{call, run_folder};
 use super::{Client, attached_on, engine_with, hello};
 use crate::call_error::CallError;
@@ -850,6 +851,11 @@ fn a_warning_handed_over_appears_with_what_it_concerns(
 
 /// A periodic Checkpoint whose file cannot be written, its destination a
 /// folder, warns `file_write_failed` naming the Run's folder (ADR 0122).
+/// The finish follows the first periodic Checkpoint's announcement, and
+/// waits for that Checkpoint's end as it stops the Run's tasks; the
+/// paused clock's auto-advance, which runs on while the Checkpoint's
+/// blocking work does, sets how many more are tried, never whether the
+/// test ends (#2729).
 /// Covers: story:3-155, setting:checkpoint.interval
 #[test]
 #[expect(
@@ -859,28 +865,20 @@ fn a_warning_handed_over_appears_with_what_it_concerns(
 fn a_periodic_checkpoint_that_fails_warns_naming_its_folder() {
     let env = TestEnv::new();
     let folder = run_folder(&env, "periodic");
-    let blocking = folder.join("checkpoint.sqlite");
+    std::fs::create_dir_all(folder.join("checkpoint.sqlite").join("in the way")).unwrap();
     let engine = engine_with(Product::Collie, Some(reporting()));
 
-    let finished = attached_on(&engine, &env, |mut client: Client| async move {
-        client.send(&[hello("collie", "0.1")]).await;
-        client.next().await;
-        call(
-            &mut client,
-            1,
+    let finished = attached_on(&engine, &env, |client: Client| async move {
+        let mut talk = Talk::open(client).await;
+        talk.ok(
+            2,
             "run.start",
             json!({ "run_id": "periodic", "settings": { "checkpoint": { "interval": 1_000 } } }),
         )
         .await;
-        std::fs::create_dir_all(blocking.join("in the way")).unwrap();
-        call(&mut client, 2, "test.sleep", json!({})).await;
-        call(
-            &mut client,
-            3,
-            "run.finish",
-            json!({ "run_id": "periodic" }),
-        )
-        .await
+        talk.events_until("run.checkpointing", 1).await;
+        talk.call(3, "run.finish", json!({ "run_id": "periodic" }))
+            .await
     });
 
     let warning = &finished["result"]["warnings"][0];

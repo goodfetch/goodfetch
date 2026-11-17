@@ -38,7 +38,7 @@ use crate::environment::Environment;
 use crate::{journeys, output};
 
 pub(crate) use command::{CommandLines, SECTION as COMMANDS};
-pub(crate) use files::{INVENTORY, schemas};
+pub(crate) use files::{INVENTORY, MATRIX, schemas};
 pub(crate) use inventory::{FoxhoundNames, Sources};
 pub(crate) use report::manual_exceptions;
 pub(crate) use scan::tests;

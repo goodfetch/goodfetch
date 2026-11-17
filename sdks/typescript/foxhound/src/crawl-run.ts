@@ -253,11 +253,19 @@ export class CrawlRun extends Run {
           options,
         );
       },
-      async push(dataset, record) {
+      async push(dataset, records) {
         signal.throwIfAborted();
+        // A Record is a JSON object, never a list, so a list is the Records of one push.
+        const [first, ...rest] = Array.isArray(records) ? records : [records];
+        // An empty list pushes no Record, so it sends nothing.
+        if (first === undefined) return;
         await calls.call(
           "crawl_request.push",
-          { ...attempt, dataset: dataset.name, records: [wireObject(record)] },
+          {
+            ...attempt,
+            dataset: dataset.name,
+            records: [wireObject(first), ...rest.map(wireObject)],
+          },
           options,
         );
       },

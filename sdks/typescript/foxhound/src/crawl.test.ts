@@ -6,7 +6,14 @@
 import { playScript, protocolCounts, test } from "@goodfetch/test-support";
 import { describe, expect, vi } from "vitest";
 import { crawl, listing, products } from "../tests/programs/two-page-types.ts";
-import { ClosedError, Crawl, seed, type DatasetRecord, type EnqueuedLinks } from "./index.ts";
+import {
+  ClosedError,
+  Crawl,
+  RecordInvalidError,
+  seed,
+  type DatasetRecord,
+  type EnqueuedLinks,
+} from "./index.ts";
 import { connectOver } from "./testing.ts";
 
 describe("a Crawl", () => {
@@ -256,6 +263,146 @@ describe("a Crawl", () => {
       expect(played.done()).toEqual({ kind: "finished" });
     },
   );
+
+  test(
+    "pushes a list of fifty Records with one request",
+    { tags: ["operation:crawl_request.push"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-push-list.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label("page");
+      const ids = pages.dataset<{ readonly id: string }>("products", { key: ["id"] });
+      const fifty = Array.from({ length: 50 }, (_, index) => ({
+        id: `P-${String(index + 1).padStart(4, "0")}`,
+      }));
+      pages.handle(page, async (context) => {
+        await context.push(ids, fifty);
+      });
+
+      await foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", page)],
+        runId: "nightly",
+      });
+      await vi.waitFor(() => {
+        expect(protocolCounts(played.messages).replies).toBe(1);
+      });
+      await foxhound.close();
+
+      expect(played.done()).toEqual({ kind: "finished" });
+      expect(protocolCounts(played.messages)).toMatchInlineSnapshot(`
+        {
+          "answers": 4,
+          "events": 0,
+          "replies": 1,
+          "requests": [
+            "hello",
+            "crawl.start",
+            "crawl_request.push",
+            "run.abort",
+          ],
+          "served": [
+            "crawl_request.handle",
+          ],
+        }
+      `);
+    },
+  );
+
+  test(
+    "keeps the Records a handler pushed when it catches a list's record_invalid, naming the failing Record by its position",
+    { tags: ["story:6-267", "error:record_invalid"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-push-list-record-invalid.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label("page");
+      const kettles = pages.dataset<{ readonly id?: string; readonly name: string }>("products", {
+        key: ["id"],
+      });
+      let failure: unknown;
+      pages.handle(page, async (context) => {
+        await context.push(kettles, { id: "P-0001", name: "Blue kettle" });
+        try {
+          await context.push(kettles, [
+            { id: "P-0002", name: "Red kettle" },
+            { name: "Kettle lid" },
+            { id: "P-0003", name: "Green kettle" },
+          ]);
+        } catch (error) {
+          failure = error;
+        }
+      });
+
+      const run = await foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", page)],
+        runId: "nightly",
+      });
+      await vi.waitFor(() => {
+        expect(protocolCounts(played.messages).replies).toBe(1);
+      });
+      await run.finish();
+      const records: DatasetRecord[] = [];
+      for await (const record of run.records(kettles)) records.push(record);
+      await foxhound.close();
+
+      expect(failure).toBeInstanceOf(RecordInvalidError);
+      expect(failure).toMatchObject({
+        code: "record_invalid",
+        details: {
+          dataset: "products",
+          records: [{ position: 1, issues: [{ path: "/id" }] }],
+        },
+      });
+      expect(records.map((record) => record.value)).toEqual([
+        { id: "P-0001", name: "Blue kettle" },
+        { id: "P-0002", name: "Red kettle" },
+        { id: "P-0003", name: "Green kettle" },
+      ]);
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "sends nothing for an empty list, which pushes no Record",
+    { tags: ["operation:crawl_request.push"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-push-empty-list.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label("page");
+      const ids = pages.dataset<{ readonly id: string }>("products", { key: ["id"] });
+      pages.handle(page, async (context) => {
+        await context.push(ids, []);
+      });
+
+      await foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", page)],
+        runId: "nightly",
+      });
+      await vi.waitFor(() => {
+        expect(protocolCounts(played.messages).replies).toBe(1);
+      });
+      await foxhound.close();
+
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test("types each Record of a pushed list from its Dataset alone", () => {
+    const pages = new Crawl();
+    const kettles = pages.dataset<{ readonly id: string }>("products");
+
+    // Compiles only while `push` takes a list of the Dataset's Records,
+    // and refuses one whose Record is not of the Dataset's type.
+    pages.handle(pages.label("page"), async (context) => {
+      await context.push(kettles, [{ id: "P-0001" }, { id: "P-0002" }]);
+      // @ts-expect-error -- the second Record lacks the Dataset's `id`.
+      await context.push(kettles, [{ id: "P-0001" }, { name: "Kettle lid" }]);
+      // @ts-expect-error -- a Record's type is the Dataset's, never inferred from the Record.
+      await context.push(kettles, { id: 1 });
+    });
+  });
 
   test("takes a handler whose expression body enqueues to its own Label", () => {
     const pages = new Crawl();

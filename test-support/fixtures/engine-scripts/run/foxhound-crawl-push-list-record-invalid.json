@@ -1,0 +1,283 @@
+{
+  "description": "A Foxhound Client starts a crawl whose handler pushes one Record into the keyed Dataset `products`, then a list of three whose second lacks the key's field `id`: the engine stages the two that hold and answers the list's push with `record_invalid`, naming that Record by its position, 1, and its issue by its path, `/id`. The handler catches it and returns, and its call is answered `{}` with nothing more pushed. The Client then finishes the Run and reads the three Records the attempt committed, the first push's and the list's two, through run.records with 64 credits, and closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "foxhound",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "labels": {
+            "page": {}
+          },
+          "datasets": [
+            {
+              "name": "products",
+              "key": ["id"]
+            }
+          ],
+          "seeds": [
+            {
+              "url": "https://shop.test/a",
+              "label": "page"
+            }
+          ],
+          "run_id": "nightly"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly",
+          "lifecycle": "running",
+          "needs": "foxhound",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "send": {
+        "request": {
+          "method": "crawl_request.handle",
+          "params": {
+            "run_id": "nightly",
+            "crawl_request": {
+              "id": "1",
+              "label": "page",
+              "method": "GET",
+              "url": "https://shop.test/a"
+            },
+            "attempt": 1,
+            "lease_epoch": 1,
+            "page_id": "page-1",
+            "session": {
+              "id": "session-1",
+              "proxy_tier": "none",
+              "revalidate": false
+            },
+            "tier": "http"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl_request.push",
+        "params": {
+          "run_id": "nightly",
+          "crawl_request_id": "1",
+          "lease_epoch": 1,
+          "dataset": "products",
+          "records": [
+            {
+              "id": "P-0001",
+              "name": "Blue kettle"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl_request.push",
+        "params": {
+          "run_id": "nightly",
+          "crawl_request_id": "1",
+          "lease_epoch": 1,
+          "dataset": "products",
+          "records": [
+            {
+              "id": "P-0002",
+              "name": "Red kettle"
+            },
+            {
+              "name": "Kettle lid"
+            },
+            {
+              "id": "P-0003",
+              "name": "Green kettle"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32001,
+          "message": "Of the 3 Records pushed together, 1 of the Dataset `products` does not hold, so it was not staged: the one at position 1: /id: the key's field `id` is missing",
+          "data": {
+            "code": "record_invalid",
+            "retryable": false,
+            "dataset": "products",
+            "records": [
+              {
+                "position": 1,
+                "issues": [
+                  {
+                    "path": "/id",
+                    "message": "the key's field `id` is missing"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "await_reply": {
+        "result": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
+        "params": {
+          "run_id": "nightly"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 1
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.records",
+        "params": {
+          "run_id": "nightly",
+          "dataset": "products"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 5,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/record",
+          "params": {
+            "id": 5,
+            "record": {
+              "number": 1,
+              "value": {
+                "id": "P-0001",
+                "name": "Blue kettle"
+              },
+              "request_id": "1",
+              "url": "https://shop.test/a",
+              "committed_at": "2026-01-01T00:00:00Z",
+              "provenance": {
+                "request_id": "1"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/record",
+          "params": {
+            "id": 5,
+            "record": {
+              "number": 2,
+              "value": {
+                "id": "P-0002",
+                "name": "Red kettle"
+              },
+              "request_id": "1",
+              "url": "https://shop.test/a",
+              "committed_at": "2026-01-01T00:00:00Z",
+              "provenance": {
+                "request_id": "1"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/record",
+          "params": {
+            "id": 5,
+            "record": {
+              "number": 3,
+              "value": {
+                "id": "P-0003",
+                "name": "Green kettle"
+              },
+              "request_id": "1",
+              "url": "https://shop.test/a",
+              "committed_at": "2026-01-01T00:00:00Z",
+              "provenance": {
+                "request_id": "1"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "count": 3,
+          "last": 3
+        }
+      }
+    }
+  ]
+}

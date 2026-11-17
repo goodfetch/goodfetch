@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing_extensions import deprecated
 
-from goodfetch_collie_client.caller import AsyncCaller, Caller, fields_of
+from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 
 from .models import SampleEchoParams, SampleEchoResult
 
@@ -27,7 +27,7 @@ class AsyncCollieOperations:
 
         Deprecated since 0.1: A sample entry, which the real catalog replaces.
         """
-        return SampleEchoResult.model_construct(**fields_of(await self._caller.call("sample.echo", params)))
+        return result_of(SampleEchoResult, await self._caller.call("sample.echo", params))
 
 
 class CollieOperations:
@@ -45,4 +45,4 @@ class CollieOperations:
 
         Deprecated since 0.1: A sample entry, which the real catalog replaces.
         """
-        return SampleEchoResult.model_construct(**fields_of(self._caller.call("sample.echo", params)))
+        return result_of(SampleEchoResult, self._caller.call("sample.echo", params))

@@ -294,7 +294,7 @@ fn operations(layer: &Layer) -> String {
     let _ = writeln!(
         text,
         "from {CALLER_MODULE} import AsyncCaller, Caller{}",
-        if returns { ", fields_of" } else { "" }
+        if returns { ", result_of" } else { "" }
     );
     let imports = model_imports(layer, &types);
     if !imports.is_empty() {
@@ -332,7 +332,7 @@ fn operations(layer: &Layer) -> String {
             ));
             let _ = writeln!(
                 text,
-                "        return {result}.model_construct(**fields_of({}self._caller.call({:?}, params)))",
+                "        return result_of({result}, {}self._caller.call({:?}, params))",
                 if asynchronous { "await " } else { "" },
                 operation.name
             );

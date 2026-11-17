@@ -37,6 +37,11 @@ const READS_OBSERVATIONS: &str = "the-socks5-proxy-credentials-reach-it-through-
 /// back.
 const CONFIGURES: &str = "a-block-never-replaces-the-programs-or-the-agents-session";
 
+/// A case with a `run.outcomes` call in flight while it adds seeds one call
+/// at a time.
+const ADDS_SEEDS_WHILE_POLLING: &str =
+    "a-redirect-the-scope-the-domain-policy-or-the-address-check-refuses-ends-skipped-live";
+
 /// A case that reads its Run's Provenance whatever the target answers.
 const READS_THE_TRACE: &str =
     "the-run-trace-holds-each-formats-call-with-the-rules-version-and-what-they-removed";
@@ -59,7 +64,8 @@ fn suite(product: &str, cases: &[&str]) -> ProtocolSuite {
 
 /// A stand-in target in `env`'s folder: an Attached engine of whichever
 /// Product `hello` needs, which answers each call with an empty result,
-/// `crawl.start` with a new Run followed by the line `after_crawl_start`.
+/// `crawl.start` with a new Run followed by the line `after_crawl_start`,
+/// `run.outcomes` with a last page that holds none.
 fn stand_in_target(env: &TestEnv, after_crawl_start: &str) -> EngineTarget {
     let executable = env.folder().join("stand-in-engine");
     let script = format!(
@@ -79,6 +85,9 @@ while IFS= read -r line; do
     crawl.start)
       printf '{{"jsonrpc":"2.0","id":%s,"result":{{"started_as":"new"}}}}\n' "$id"
       printf '%s\n' '{after_crawl_start}'
+      ;;
+    run.outcomes)
+      printf '{{"jsonrpc":"2.0","id":%s,"result":{{"outcomes":[],"ended":true}}}}\n' "$id"
       ;;
     *)
       printf '{{"jsonrpc":"2.0","id":%s,"result":{{}}}}\n' "$id"
@@ -103,6 +112,11 @@ done
 /// answers.
 const HANDLER_REQUEST: &str =
     r#"{"jsonrpc":"2.0","id":1,"method":"crawl.request.handle","params":{}}"#;
+
+/// A handler request on a page, as `crawl.start` is followed by in the case
+/// [`ADDS_SEEDS_WHILE_POLLING`], which reads the page before it answers.
+const HANDLER_REQUEST_ON_A_PAGE: &str =
+    r#"{"jsonrpc":"2.0","id":1,"method":"crawl_request.handle","params":{"page_id":"page-1"}}"#;
 
 /// A stand-in Proving ground that serves the fetch case's task and the
 /// `socks5` proxy, and answers `GET /observations` with `observations`, a
@@ -210,6 +224,38 @@ fn a_message_with_no_id_to_answer_fails_its_case_and_the_next_case_still_runs(
     assert!(failed.iter().any(|name| name == check), "{failed:?}");
     assert!(
         !failed.iter().any(|name| name.contains("the Connection")),
+        "{failed:?}"
+    );
+    assert_eq!(
+        failed_checks(&document, ASKS_THE_ENGINE),
+        (CaseOutcome::Passed, vec![])
+    );
+}
+
+/// An answer that comes while the case waits for another call's is still
+/// the answer its own call gets: the stand-in answers the `run.outcomes`
+/// call at once, before the case reads the answer to the seed it adds next,
+/// and the case reads it without waiting for the target again.
+#[test]
+fn an_answer_read_while_waiting_for_another_is_kept_for_its_call() {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let target = stand_in_target(&env, HANDLER_REQUEST_ON_A_PAGE);
+
+    let document = run_protocol_suite(
+        &suite("foxhound", &[ADDS_SEEDS_WHILE_POLLING, ASKS_THE_ENGINE]),
+        &target,
+        &proving_ground,
+    )
+    .unwrap();
+
+    let (outcome, failed) = failed_checks(&document, ADDS_SEEDS_WHILE_POLLING);
+    assert_eq!(outcome, CaseOutcome::Failed);
+    assert!(
+        !failed
+            .iter()
+            .any(|name| name.starts_with("the target answers the case's calls")),
         "{failed:?}"
     );
     assert_eq!(

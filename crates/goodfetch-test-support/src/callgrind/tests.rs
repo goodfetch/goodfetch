@@ -1,4 +1,6 @@
-use super::{Calls, MOST_AT_ONCE, bounded, calls_beneath_in, calls_in, most_at_once, total_in};
+use super::{
+    Calls, MOST_AT_ONCE, bounded, calls_beneath_in, calls_in, entered_in, most_at_once, total_in,
+};
 
 /// A piece of what Callgrind writes: two callers of the symbol, a call of
 /// another symbol between them, and the symbol's own cost line.
@@ -140,4 +142,25 @@ fn the_instructions_collected_are_the_outputs_total() {
 #[test]
 fn an_output_with_no_total_holds_no_instruction_count() {
     assert_eq!(total_in(OUTPUT), None);
+}
+
+#[test]
+fn a_function_is_entered_when_the_output_holds_its_costs() {
+    assert!(entered_in(OUTPUT, "rusqlite::Connection::prepare"));
+    assert!(!entered_in(OUTPUT, "rusqlite::Connection::prepare_cached"));
+}
+
+#[test]
+fn a_called_function_whose_costs_were_not_collected_was_not_entered() {
+    // A `cfn=` line names a callee whose own costs another `fn=` holds.
+    assert!(!entered_in(OUTPUT, "sqlite3_step"));
+}
+
+#[test]
+fn a_star_stands_for_any_text_in_a_function_name() {
+    assert!(entered_in(OUTPUT, "rusqlite::Connection::*"));
+    assert!(entered_in(OUTPUT, "*::execute_batch"));
+    assert!(entered_in(OUTPUT, "sqlite3_*_v3"));
+    assert!(!entered_in(OUTPUT, "rusqlite::*::step"));
+    assert!(!entered_in(OUTPUT, "rusqlite::Connection::prepare*x"));
 }

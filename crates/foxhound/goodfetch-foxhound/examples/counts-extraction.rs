@@ -438,7 +438,7 @@ fn crawl_on(cell: &Cell, planted: Option<&str>, metrics: Metrics) -> CountedWork
             seed: 0,
             metrics,
             run_state_vfs: None,
-            handler: false,
+            handler: None,
             credits: u64::try_from(cell.pages()).expect("invariant: a few thousand pages"),
             after_start: AfterStart::Finish,
         },

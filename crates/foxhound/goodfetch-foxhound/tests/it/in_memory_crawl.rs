@@ -23,8 +23,8 @@ use serde_json::{Map, Value, json};
 
 use crate::crawl_plants::{Counted, politeness_plant, run_state_plant};
 use crate::crawl_scenario::{
-    Frontier, Options, PAGES, Plant, body_bytes, crawl, crawl_with, entries, page_analysis_plant,
-    run_trace_plant,
+    Frontier, Handler, Options, PAGES, Plant, body_bytes, crawl, crawl_with, entries,
+    page_analysis_plant, run_trace_plant,
 };
 
 /// The total body bytes `benches/pages.source.toml` records.
@@ -263,7 +263,7 @@ fn a_handlers_waits_on_a_document_tier_count_as_the_pages_work() {
         env.seed(),
         Options {
             metrics,
-            handler: true,
+            handler: Some(Handler::Waits),
             ..Options::default()
         },
     );
@@ -304,7 +304,7 @@ fn a_call_a_document_tier_answers_decodes_its_params_once() {
         env.seed(),
         Options {
             metrics,
-            handler: true,
+            handler: Some(Handler::Waits),
             ..Options::default()
         },
     );
@@ -354,7 +354,7 @@ fn a_page_makes_one_analysis_hand_off_when_a_reader_needs_its_tree_and_none_othe
             ..Options::default()
         },
         Options {
-            handler: true,
+            handler: Some(Handler::Waits),
             ..Options::default()
         },
         Options {

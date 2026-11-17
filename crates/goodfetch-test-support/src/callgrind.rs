@@ -86,10 +86,13 @@ pub enum CallgrindError {
 }
 
 /// How many instructions `program`, run with `arguments` under Callgrind,
-/// ran in each of `functions` and in whatever it called: Callgrind collects
-/// only while one of them, each named as Callgrind names a function, is on
-/// the stack. None when the program never entered one: a function renamed
-/// would otherwise read as free. What ran before the program entered the
+/// ran in each of `functions` and in whatever it called. Each is named as
+/// Callgrind names a function, where `*` stands for any text, and none may
+/// call another: Callgrind turns its collection on as one is entered and
+/// off as it returns, so a second one entered beneath the first turns it
+/// off for the time it runs. None when the program never entered one of
+/// them: a function renamed, or inlined into its callers, would otherwise
+/// read as free. What ran before the program entered the
 /// function `from`, when one is named, is left out: Callgrind zeroes its
 /// costs there, so a program can do first what its figure must not hold,
 /// such as work done once however many units follow. A `from` the program
@@ -113,7 +116,42 @@ pub fn instructions_beneath(
     let mut options = vec!["--collect-atstart=no"];
     options.extend(named.iter().map(String::as_str));
     let text = output(&options, program, arguments)?;
+    if !functions.iter().all(|function| entered_in(&text, function)) {
+        return Ok(None);
+    }
     Ok(total_in(&text).filter(|total| *total > 0))
+}
+
+/// Whether `text`, a Callgrind output with its strings uncompressed, holds
+/// costs of a function `pattern` names, `*` standing for any text: a
+/// function the program entered while Callgrind collected.
+fn entered_in(text: &str, pattern: &str) -> bool {
+    text.lines()
+        .filter_map(|line| line.strip_prefix("fn="))
+        .any(|name| named_by(pattern, name))
+}
+
+/// Whether `pattern`, where `*` stands for any text, names all of `name`.
+fn named_by(pattern: &str, name: &str) -> bool {
+    let mut parts = pattern.split('*');
+    let first = parts.next().unwrap_or_default();
+    let Some(mut rest) = name.strip_prefix(first) else {
+        return false;
+    };
+    let mut parts = parts.peekable();
+    if parts.peek().is_none() {
+        return rest.is_empty();
+    }
+    while let Some(part) = parts.next() {
+        if parts.peek().is_none() {
+            return rest.ends_with(part);
+        }
+        let Some(at) = rest.find(part) else {
+            return false;
+        };
+        rest = &rest[at + part.len()..];
+    }
+    true
 }
 
 /// The events `text`, a Callgrind output, collected in all: its `totals:`

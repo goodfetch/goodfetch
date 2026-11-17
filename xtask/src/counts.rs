@@ -18,7 +18,9 @@
 //! `--valgrind` runs the rows read under Valgrind in place of the counted ones
 //! (ADR 0140's "Runs at"): each family's Callgrind and DHAT targets, whose
 //! figure per unit is the difference between a scenario and the run of its
-//! benchmark that sends nothing, so no start-up cost hides a change.
+//! benchmark that sends nothing, so no start-up cost hides a change, and
+//! B1's example in the benchmarks' profile, which runs its handled cell
+//! under Callgrind for `E1.handled_page_wire_share`.
 //!
 //! Size: one concern, the command's one register of counted rows (`ROWS`, a
 //! row per counted work of every family) and the run, verdict and proof that
@@ -128,6 +130,12 @@ const VALGRIND_OUT: &str = "target/counts";
 /// benchmark, under its family's name.
 const EXECUTABLES_OUT: &str = "target/counts/executables";
 
+/// The `cfg` of the build a row is read in under Callgrind, and the name of
+/// that build's folder in the workspace's target folder: the wire's
+/// functions are never inlined there, so that Callgrind names them in
+/// `E1.handled_page_wire_share` (ADR 0140).
+const CALLGRIND_NAMES: &str = "goodfetch_callgrind_names";
+
 /// One counted row of the register.
 struct Row {
     /// Its name in the register, `<path>.<work>`, and the name its
@@ -148,7 +156,17 @@ struct Row {
     /// 0 says no; its plant still proves its counter.
     happens: bool,
     /// Where a row read under Valgrind gets its figure.
-    valgrind: Option<ValgrindFigure>,
+    valgrind: Option<UnderValgrind>,
+}
+
+/// Where a row read under Valgrind gets its figure.
+#[derive(Clone, Copy)]
+enum UnderValgrind {
+    /// A scenario of its family's benchmark under Valgrind.
+    Benchmark(ValgrindFigure),
+    /// Its family's example, run as `<target> --valgrind`, which runs itself
+    /// under Callgrind and prints its cells as `xtask counts` reads them.
+    Example,
 }
 
 /// A figure read under Valgrind, of one scenario of its family's benchmark.
@@ -173,11 +191,11 @@ const fn message_row(
         family: "B3",
         unit: "messages",
         happens: true,
-        valgrind: Some(ValgrindFigure {
+        valgrind: Some(UnderValgrind::Benchmark(ValgrindFigure {
             target,
             figure,
             scenario,
-        }),
+        })),
     }
 }
 
@@ -187,7 +205,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 130] = [
+const ROWS: [Row; 131] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -631,6 +649,17 @@ const ROWS: [Row; 130] = [
         Figure::TotalBytes,
         LARGE,
     ),
+    // The wire's share of a handled page (#2407): B1's example runs its
+    // handled cell's crawl under Callgrind, with the reference handler, and
+    // prints the instructions spent on messages, both sides, over a
+    // hundredth of the page's, so the figure reads as a percent.
+    Row {
+        name: "E1.handled_page_wire_share",
+        family: "B1",
+        unit: HANDLED_PAGE_HUNDREDTHS,
+        happens: true,
+        valgrind: Some(UnderValgrind::Example),
+    },
     Row {
         name: "E3.statements",
         family: "B3",
@@ -1139,6 +1168,10 @@ const CALLGRIND_PAGES: &str = "callgrind_pages";
 /// The one crawl of that cell its run under Callgrind counts.
 const CALLGRIND_CRAWLS: &str = "callgrind_crawls";
 
+/// A hundredth of the instructions the pages B1's handled cell adds take,
+/// the unit of `E1.handled_page_wire_share`, which reads as a percent.
+const HANDLED_PAGE_HUNDREDTHS: &str = "handled_page_hundredths";
+
 /// The clean-up's instructions per page, which B4's benchmark reads under
 /// Callgrind in its own run: a figure that varies, so held within the
 /// tolerance of a figure read under Valgrind (the register's ratchet).
@@ -1281,11 +1314,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
             row.name, row.builder
         ));
     }
-    let executables = if arguments.valgrind {
-        BTreeMap::new()
-    } else {
-        executables(arguments, environment, &rows)?
-    };
+    let executables = executables(arguments, environment, &rows)?;
     if arguments.prove {
         return prove(&rows, &executables, &limits, arguments, environment);
     }
@@ -1423,10 +1452,12 @@ fn family_cells(
     arguments: &Arguments,
     environment: &Environment,
 ) -> Result<Vec<Cell>> {
-    if arguments.valgrind {
-        valgrind_cells(family, rows, plant, environment)
+    if !arguments.valgrind {
+        cells(&executables[family], plant, false)
+    } else if let Some(executable) = executables.get(family) {
+        cells(executable, plant, true)
     } else {
-        cells(&executables[family], plant)
+        valgrind_cells(family, rows, plant, environment)
     }
 }
 
@@ -1447,7 +1478,10 @@ fn valgrind_cells(
     let figures: Vec<(&Row, ValgrindFigure)> = rows
         .iter()
         .filter(|row| row.family == family)
-        .filter_map(|row| row.valgrind.map(|figure| (*row, figure)))
+        .filter_map(|row| match row.valgrind {
+            Some(UnderValgrind::Benchmark(figure)) => Some((*row, figure)),
+            Some(UnderValgrind::Example) | None => None,
+        })
         .collect();
     let mut targets: Vec<&str> = figures.iter().map(|(_, figure)| figure.target).collect();
     targets.sort_unstable();
@@ -1573,8 +1607,9 @@ fn done_though_not_run(row: &NotRunYet, cells: &[Cell]) -> Option<Finding> {
     ))
 }
 
-/// Each family's executable: the one `--executable` names, else its built
-/// target.
+/// Each family's executable that this run runs: the one `--executable`
+/// names, else its built target. Under `--valgrind`, only a family whose
+/// example reads a row, in the benchmarks' optimized build.
 fn executables(
     arguments: &Arguments,
     environment: &Environment,
@@ -1587,23 +1622,47 @@ fn executables(
         .collect();
     let mut executables = BTreeMap::new();
     for family in FAMILIES {
-        if !rows.iter().any(|row| row.family == family.name) {
+        if !rows.iter().any(|row| {
+            row.family == family.name
+                && (!arguments.valgrind || matches!(row.valgrind, Some(UnderValgrind::Example)))
+        }) {
             continue;
         }
         let executable = match named.get(family.name) {
             Some(path) => environment.path(Path::new(path)),
-            None => build(&family, environment)?,
+            None => build(&family, arguments.valgrind, environment)?,
         };
         executables.insert(family.name, executable);
     }
     Ok(executables)
 }
 
-/// Builds `family`'s target and answers its executable.
-fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
-    let output = crate::child_cargo::command(&environment.cargo)
+/// Builds `family`'s target and answers its executable: in the benchmarks'
+/// profile when it runs `optimized`, as what it reads under Valgrind is
+/// read in the build `just perf` measures, else in the dev profile.
+///
+/// The optimized build also sets [`CALLGRIND_NAMES`], under which the wire's
+/// functions are never inlined so that Callgrind names them, in a build
+/// folder of its own: the product, and every other benchmark, keep them
+/// inlined. A `RUSTFLAGS` in the environment would replace the setting, and
+/// the run would then fail on a wire function it never saw entered.
+fn build(family: &Family, optimized: bool, environment: &Environment) -> Result<PathBuf> {
+    let mut command = crate::child_cargo::command(&environment.cargo);
+    command
         .args(["build", "--message-format", "json-render-diagnostics"])
-        .args(["-p", family.package, "--example", family.target])
+        .args(["-p", family.package, "--example", family.target]);
+    if optimized {
+        let folder = crate::metadata::target_directory(&environment.cargo, &environment.root)?
+            .join(CALLGRIND_NAMES);
+        command
+            .args(["--profile", "bench", "--target-dir"])
+            .arg(folder)
+            .args([
+                "--config",
+                &format!("build.rustflags = [\"--cfg\", \"{CALLGRIND_NAMES}\"]"),
+            ]);
+    }
+    let output = command
         .current_dir(&environment.root)
         .stderr(Stdio::inherit())
         .output()
@@ -1617,10 +1676,12 @@ fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
         .with_context(|| format!("cargo build reported no executable for {}", family.name))?;
     // Every family's example is `counts`, which Cargo leaves at one path, so
     // the next family's build would replace this one before it runs.
-    let own = environment
-        .root
-        .join(EXECUTABLES_OUT)
-        .join(format!("{}-{}", family.name, family.target));
+    let own = environment.root.join(EXECUTABLES_OUT).join(format!(
+        "{}-{}{}",
+        family.name,
+        family.target,
+        if optimized { "-bench" } else { "" }
+    ));
     if let Some(folder) = own.parent() {
         std::fs::create_dir_all(folder)
             .with_context(|| format!("creating {}", folder.display()))?;
@@ -1630,9 +1691,13 @@ fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
     Ok(own)
 }
 
-/// What `executable` counted, each extra unit of `plant` done.
-fn cells(executable: &Path, plant: Option<&str>) -> Result<Vec<Cell>> {
+/// What `executable` counted, each extra unit of `plant` done: its rows
+/// read under Valgrind when `valgrind`, its counted rows else.
+fn cells(executable: &Path, plant: Option<&str>, valgrind: bool) -> Result<Vec<Cell>> {
     let mut command = Command::new(executable);
+    if valgrind {
+        command.arg("--valgrind");
+    }
     if let Some(plant) = plant {
         command.args(["--plant", plant]);
     }
@@ -1671,6 +1736,7 @@ fn one_of(unit: &str) -> &str {
         ATTEMPTS_ENDED => "attempt",
         BATCHED_LEASES | SPILLED_LEASES => "lease",
         CALLGRIND_CRAWLS => "crawl",
+        HANDLED_PAGE_HUNDREDTHS => "hundredth of a handled page",
         unit => unit.trim_end_matches('s'),
     }
 }

@@ -1247,7 +1247,7 @@
     {
       "id": "error:effect_key_invalid",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1258,7 +1258,7 @@
     {
       "id": "error:effect_key_reused",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1269,7 +1269,7 @@
     {
       "id": "error:effect_output_invalid",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1290,7 +1290,7 @@
     {
       "id": "error:effect_uncertain",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -3147,7 +3147,7 @@
     {
       "id": "operation:effect.close",
       "kind": "operation",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -3158,7 +3158,7 @@
     {
       "id": "operation:effect.open",
       "kind": "operation",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -8420,7 +8420,7 @@
     {
       "id": "setting:effect.output.max_size",
       "kind": "setting",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

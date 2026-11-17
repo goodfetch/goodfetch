@@ -5,7 +5,8 @@
 //! Journeys share a number and none reaches `journeys/catalog.toml`'s next
 //! free number; every surface is one ADR 0063 lists, never named for a
 //! milestone before the surface ships; a retired Journey gives its reason;
-//! each task a Journey names is in its seed's committed task list, with the
+//! an AI Journey's first step sets up the Fake model on every variant; each
+//! task a Journey names is in its seed's committed task list, with the
 //! digest it pins. Each finding names the file and the rule it breaks.
 //!
 //! `xtask journeys tasks`, in the Pre-merge suite, writes and drift-checks
@@ -206,6 +207,74 @@ fn check_naming_a_task_the_journey_does_not_pin_fails() {
     assert_eq!(
         outcome.findings(),
         vec![finding("check-task-unpinned", "journeys/J-003.toml")],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// The setup step an AI Journey starts with: it points the Model provider
+/// setting at the Fake model through the variant's own surface.
+const FAKE_MODEL_SETUP: &str =
+    "[[steps]]\ntext = \"Point the Model provider setting at the Fake model\"\n\n";
+
+/// J-003 made an AI Journey by covering `feature`, its steps starting with
+/// `setup`.
+fn ai_journey(workspace: &Workspace, feature: &str, setup: &str) {
+    workspace.edit(
+        "journeys/J-003.toml",
+        "covers = [\"row:SA-01\", \"story:3-23\"]",
+        &format!("covers = [\"row:SA-01\", \"story:3-23\", \"{feature}\"]"),
+    );
+    workspace.edit(
+        "journeys/J-003.toml",
+        "[[steps]]\ntext = \"Crawl",
+        &format!("{setup}[[steps]]\ntext = \"Crawl"),
+    );
+}
+
+/// An AI Journey (one covering an AI row of ADR 0037's matrix or an area 9
+/// story) whose first step points the Model provider at the Fake model
+/// through every variant's own surface reaches no real provider.
+#[rstest]
+#[case::ai_row("row:AI-03")]
+#[case::area_9_story("story:9-5")]
+fn ai_journey_starting_on_the_fake_model_passes(#[case] feature: &str) {
+    let workspace = catalog();
+    ai_journey(&workspace, feature, FAKE_MODEL_SETUP);
+
+    let outcome = check(&workspace);
+
+    assert_eq!(outcome.findings(), Vec::new(), "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0);
+}
+
+/// A variant of an AI Journey whose steps could call a model before one
+/// of them points the Model provider at the Fake model, on that variant's
+/// own surface, could reach a real provider (ADR 0065).
+#[rstest]
+#[case::no_setup_step("")]
+#[case::setup_not_naming_the_fake_model(
+    "[[steps]]\ntext = \"Point the Model provider setting at a model\"\n\n"
+)]
+#[case::setup_after_another_step(
+    "[[steps]]\ntext = \"Open the catalog\"\n\n[[steps]]\ntext = \"Point the Model provider setting at the Fake model\"\n\n"
+)]
+#[case::setup_pinned_to_one_surface(
+    "[[steps]]\ntext = \"Point the Model provider setting at the Fake model\"\non = \"cli\"\n\n"
+)]
+#[case::setup_left_to_a_person(
+    "[[steps]]\ntext = \"Point the Model provider setting at the Fake model\"\nmanual = \"a person types the URL\"\n\n"
+)]
+fn ai_journey_whose_variants_could_reach_a_real_provider_fails(#[case] setup: &str) {
+    let workspace = catalog();
+    ai_journey(&workspace, "row:AI-03", setup);
+
+    let outcome = check(&workspace);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("fake-model-setup", "journeys/J-003.toml")],
         "{}",
         outcome.stderr
     );

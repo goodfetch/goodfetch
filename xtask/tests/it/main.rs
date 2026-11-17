@@ -34,6 +34,7 @@ mod dco;
 mod deny_products;
 mod dependency_direction;
 mod diagnostic;
+mod docs_samples;
 mod egress;
 mod egress_canary;
 mod egress_hosts;

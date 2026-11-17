@@ -1800,7 +1800,8 @@ proofs:
 hooks:
     git config core.hooksPath .githooks
 
-# Merges a pull request only when its gate passes on its exact head, in a
+# Merges a pull request only when its gate passes on its head, merged with
+# the base's tip when it lacks it (ADR 0135's amendment of 2026-11-17), in a
 # clean checkout in the gate's own worktree (AGENTS.md, "Merging"): `just
 # pre-merge docs` when it is documents alone (`xtask affected`'s
 # `gate=docs`), `just pre-merge quick` when no test reads the change

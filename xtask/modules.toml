@@ -219,7 +219,7 @@ entry = []
 inputs = ["entry"]
 license = ["entry"]
 npm = ["entry"]
-python = ["entry"]
+python = ["entry", "license"]
 
 # Which of `codegen`'s own modules may import which.
 [submodules.codegen]

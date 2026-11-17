@@ -430,7 +430,8 @@ impl RunState {
     /// work item waits again for a retry, `retried`, as its next lease
     /// takes it, or else it ended.
     pub(crate) fn settled(&mut self, leased: Leased, retried: bool, committed: u64) {
-        self.kept.settled(leased, retried, committed);
+        self.kept
+            .settled(leased, retried, committed, || self.stored.frontier_bytes());
     }
 
     /// Takes `added`, the work items a job of the writer that ran once
@@ -440,7 +441,10 @@ impl RunState {
     pub(crate) fn added(&mut self, added: Vec<Leased>, committed: u64) -> Vec<Waiting> {
         added
             .into_iter()
-            .map(|leased| self.kept.added(leased, committed))
+            .map(|leased| {
+                self.kept
+                    .added(leased, committed, || self.stored.frontier_bytes())
+            })
             .collect()
     }
 

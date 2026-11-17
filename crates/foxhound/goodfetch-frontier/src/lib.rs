@@ -73,7 +73,7 @@ pub use robots_txt::{SharedRobotsTxt, TABLES as ROBOTS_TXT_TABLES};
 pub use rules::{TABLES as RULES_TABLES, learned_rules};
 pub use scope::{Narrowing, Patterns, Scope, Strategy as ScopeStrategy, TABLES as SCOPE_TABLES};
 pub use staged::{Admitting, Refused, Staged};
-pub use unwritten::{Lookup, SharedBudget, UnwrittenVisits};
+pub use unwritten::{Lookup, SharedBudget, UnwrittenVisits, hash_table_bytes};
 pub use url::{document_base, resolve_link};
 
 /// A URL as the WHATWG URL Standard parsed it.

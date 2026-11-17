@@ -154,12 +154,11 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
     let mut runtimes = Vec::new();
     let empty = toml::Table::new();
-    let declared = match file.get("runtimes") {
-        Some(toml::Value::Table(table)) => table,
-        _ => {
-            findings.push(finding("runtimes", "has no [runtimes] table"));
-            &empty
-        }
+    let declared = if let Some(toml::Value::Table(table)) = file.get("runtimes") {
+        table
+    } else {
+        findings.push(finding("runtimes", "has no [runtimes] table"));
+        &empty
     };
     for (id, value) in declared {
         let Some(family) = Family::parse(id) else {

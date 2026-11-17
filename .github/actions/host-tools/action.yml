@@ -89,13 +89,16 @@ runs:
       run: ci/musl/install.sh
 
     # Each runtime of the set becomes an output, `<id>=<version>`; an install
-    # step below runs when its runtime has one.
+    # step below runs when its runtime has one. The set's name then reaches
+    # the job's later steps, the smoke-script runner's among them, as
+    # GOODFETCH_RUNTIME_SET. Only a set of ci/runtimes.toml gets there:
+    # runtimes.sh fails the step on any other value before the write.
     - name: Read the set's pinned runtimes
       id: runtimes
       shell: bash
       env:
         SET: ${{ inputs.runtimes }}
-      run: |
+      run: | # zizmor: ignore[github-env] only a set name of ci/runtimes.toml is written
         ci/host/runtimes.sh outputs "$SET" >>"$GITHUB_OUTPUT"
         echo "GOODFETCH_RUNTIME_SET=$SET" >>"$GITHUB_ENV"
 

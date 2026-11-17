@@ -6,7 +6,7 @@
 import { playScript, protocolCounts, test } from "@goodfetch/test-support";
 import { describe, expect, vi } from "vitest";
 import { crawl, listing, products } from "../tests/programs/two-page-types.ts";
-import { ClosedError, Crawl, seed, type DatasetRecord } from "./index.ts";
+import { ClosedError, Crawl, seed, type DatasetRecord, type EnqueuedLinks } from "./index.ts";
 import { connectOver } from "./testing.ts";
 
 describe("a Crawl", () => {
@@ -89,6 +89,65 @@ describe("a Crawl", () => {
       await foxhound.close();
 
       expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "enqueues the links a locator matches with one Payload in one call, after a read and a push: four exchanges a page",
+    { tags: ["operation:crawl_request.enqueue_links"] },
+    async () => {
+      const played = playScript("run/foxhound-crawl-enqueue-links.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label<{ readonly from: string } | undefined>("page");
+      const titles = pages.dataset<{ readonly title: unknown }>("pages");
+      let enqueued: EnqueuedLinks | undefined;
+      pages.handle(page, async (context) => {
+        const { values } = await context.page.read({
+          title: { locator: { kind: "css", selector: "h1" } },
+        });
+        await context.push(titles, { title: values["title"] });
+        enqueued = await context.enqueueLinks(
+          context.page.locator("ul.pages a"),
+          page,
+          { from: "listing" },
+          { exclude: ["*/logout"], limit: 2 },
+        );
+      });
+
+      await foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", page)],
+        runId: "nightly",
+      });
+      await vi.waitFor(() => {
+        expect(protocolCounts(played.messages).replies).toBe(1);
+      });
+      await foxhound.close();
+
+      expect(enqueued?.links).toEqual([
+        { kind: "added", id: "2", url: "https://shop.test/b" },
+        { kind: "not_added", reason: "duplicate", url: "https://shop.test/a" },
+        { kind: "no_link" },
+      ]);
+      expect(played.done()).toEqual({ kind: "finished" });
+      expect(protocolCounts(played.messages)).toMatchInlineSnapshot(`
+        {
+          "answers": 6,
+          "events": 0,
+          "replies": 1,
+          "requests": [
+            "hello",
+            "crawl.start",
+            "page.read",
+            "crawl_request.push",
+            "crawl_request.enqueue_links",
+            "run.abort",
+          ],
+          "served": [
+            "crawl_request.handle",
+          ],
+        }
+      `);
     },
   );
 

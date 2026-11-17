@@ -1,0 +1,208 @@
+{
+  "description": "A Foxhound Client starts a crawl whose handler reads its page's title, pushes it as a Record into the Dataset `pages`, then enqueues the links `ul.pages a` matches under the Label `page`, each with the one constant Payload `{from: \"listing\"}`, at most two, none under `*/logout`: the engine answers one added, one duplicate and one element with no link, and the handler call is answered `{}`. Four exchanges a page: the handler call, the read, the push and the links. Closing the Connection then aborts the Run.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "foxhound",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "labels": {
+            "page": {}
+          },
+          "datasets": [
+            {
+              "name": "pages"
+            }
+          ],
+          "seeds": [
+            {
+              "url": "https://shop.test/a",
+              "label": "page"
+            }
+          ],
+          "run_id": "nightly"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly",
+          "lifecycle": "running",
+          "needs": "foxhound",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "send": {
+        "request": {
+          "method": "crawl_request.handle",
+          "params": {
+            "run_id": "nightly",
+            "crawl_request": {
+              "id": "1",
+              "label": "page",
+              "method": "GET",
+              "url": "https://shop.test/a"
+            },
+            "attempt": 1,
+            "lease_epoch": 1,
+            "page_id": "page-1",
+            "session": {
+              "id": "session-1",
+              "proxy_tier": "none",
+              "revalidate": false
+            },
+            "tier": "http"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.read",
+        "params": {
+          "page_id": "page-1",
+          "fields": {
+            "title": {
+              "locator": {
+                "kind": "css",
+                "selector": "h1"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "values": {
+            "title": "Kettles"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl_request.push",
+        "params": {
+          "run_id": "nightly",
+          "crawl_request_id": "1",
+          "lease_epoch": 1,
+          "dataset": "pages",
+          "records": [
+            {
+              "title": "Kettles"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl_request.enqueue_links",
+        "params": {
+          "run_id": "nightly",
+          "crawl_request_id": "1",
+          "lease_epoch": 1,
+          "locator": {
+            "page_id": "page-1",
+            "selector": "ul.pages a"
+          },
+          "label": "page",
+          "payload": {
+            "from": "listing"
+          },
+          "exclude": ["*/logout"],
+          "limit": 2
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "links": [
+            {
+              "kind": "added",
+              "id": "2",
+              "url": "https://shop.test/b"
+            },
+            {
+              "kind": "not_added",
+              "reason": "duplicate",
+              "url": "https://shop.test/a"
+            },
+            {
+              "kind": "no_link"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "await_reply": {
+        "result": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "run.abort",
+        "params": {
+          "run_id": "nightly"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly",
+          "lifecycle": "stopped",
+          "verdict": "verified",
+          "completeness": "incomplete",
+          "stop_reason": {
+            "kind": "abort",
+            "by": "client"
+          },
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 1
+          }
+        }
+      }
+    }
+  ]
+}

@@ -15,11 +15,13 @@ import {
 import type { Caller, RunStarted } from "@goodfetch/collie-client/generated";
 import {
   ensureRunOpen,
+  idOfLocator,
   pageOf,
   type ClientConnection,
   type RunHost,
 } from "@goodfetch/collie-client/runtime";
 import {
+  enqueueLinksOptions,
   handlerOf,
   payloadOf,
   requestOptions,
@@ -233,6 +235,20 @@ export class CrawlRun extends Run {
             label: label.name,
             ...payloadOf(payload),
             ...requestOptions(requestOptionsGiven),
+          },
+          options,
+        );
+      },
+      async enqueueLinks(locator, label, payload, optionsGiven = {}) {
+        signal.throwIfAborted();
+        return calls.call(
+          "crawl_request.enqueue_links",
+          {
+            ...attempt,
+            locator: idOfLocator(locator),
+            label: label.name,
+            ...payloadOf(payload),
+            ...enqueueLinksOptions(optionsGiven),
           },
           options,
         );

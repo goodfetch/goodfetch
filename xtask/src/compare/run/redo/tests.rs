@@ -189,6 +189,7 @@ fn a_redo_is_refused_at_another_commit_or_on_another_machine() {
         profile_folder: "release",
         crawlee: nowhere,
         scrapy: nowhere,
+        foxhound_program: nowhere,
         browser: nowhere,
         collie: None,
         foxhound_settings: &[],

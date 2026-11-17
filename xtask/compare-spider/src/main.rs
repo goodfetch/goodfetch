@@ -18,8 +18,12 @@
 //! URL, whether Spider rendered it in Chrome, and the Records its HTML
 //! holds, each `article.item`'s `p.id` and `h1.name` text, read with
 //! `lol_html`, the parser Spider's smart mode reads pages with, as one JSON
-//! line to `pages.jsonl`. Every other scenario crawls in Spider's HTTP
-//! mode.
+//! line to `pages.jsonl`. `handled`, the handled crawl's (#2317), crawls
+//! in Spider's HTTP mode, which only the executable built with the
+//! `handled` feature does: it writes each page's URL and its twenty fields,
+//! read with `lol_html` as `handled()` says, as one JSON line to
+//! `pages.jsonl`, Spider's own crawl following the page's links. Every
+//! other scenario crawls in Spider's HTTP mode.
 //! `hostile`, the hostile pages' pass at each tool's defaults (#2439), sets
 //! neither the requests in flight nor robots.txt, leaving Spider's defaults.
 //!
@@ -61,7 +65,8 @@ static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-/// The file the `extraction` and `auto` scenarios write each page to.
+/// The file the `extraction`, `auto` and `handled` scenarios write each
+/// page to.
 const PAGES_FILE: &str = "pages.jsonl";
 
 /// A page's line of `pages.jsonl`, as its scenario reads it.
@@ -76,7 +81,7 @@ struct Fetched {
     written: Option<Written>,
 }
 
-/// The `extraction` and `auto` scenarios' pages: the file they are written
+/// The `extraction`, `auto` and `handled` scenarios' pages: the file they are written
 /// to, how the scenario reads a page, and the tasks reading them. Each page
 /// is read in a task of its own, as `Website::subscribe`'s example
 /// processes a page, so the one reader of the stream keeps up with the
@@ -113,7 +118,7 @@ impl Fetched {
 }
 
 /// White space collapsed to single spaces, Unicode's included, and trimmed.
-#[cfg(any(feature = "extraction", feature = "smart"))]
+#[cfg(any(feature = "extraction", feature = "smart", feature = "handled"))]
 fn collapsed(text: &str) -> String {
     let mut collapsed = String::with_capacity(text.len());
     for word in text.split_whitespace() {
@@ -225,6 +230,122 @@ fn records(_page: &spider::page::Page) -> Line {
     Err("the auto scenario takes the `smart` feature's executable".to_owned())
 }
 
+/// The handled crawl's twenty fields (#2317): each one's name, the CSS
+/// selector of the element it reads, and the attribute it reads of it, or
+/// its text when none. The same selectors as every other tool's program.
+#[cfg(feature = "handled")]
+const FIELDS: [(&str, &str, Option<&str>); 20] = [
+    ("title", "title", None),
+    ("name", "article.item > h1.name", None),
+    ("id", "article.item", Some("data-id")),
+    ("home", "nav > a", Some("href")),
+    ("home_label", "nav > a", None),
+    ("header", "header > p", None),
+    ("nav", "nav > p", None),
+    ("footer", "footer > p", None),
+    (
+        "first_child",
+        "ul.pages > li:nth-child(1) > a",
+        Some("href"),
+    ),
+    ("first_child_name", "ul.pages > li:nth-child(1) > a", None),
+    (
+        "second_child",
+        "ul.pages > li:nth-child(2) > a",
+        Some("href"),
+    ),
+    ("second_child_name", "ul.pages > li:nth-child(2) > a", None),
+    ("paragraph_1", "article.item > p:nth-of-type(1)", None),
+    ("paragraph_2", "article.item > p:nth-of-type(2)", None),
+    ("paragraph_3", "article.item > p:nth-of-type(3)", None),
+    ("paragraph_4", "article.item > p:nth-of-type(4)", None),
+    ("paragraph_5", "article.item > p:nth-of-type(5)", None),
+    ("paragraph_6", "article.item > p:nth-of-type(6)", None),
+    ("paragraph_7", "article.item > p:nth-of-type(7)", None),
+    ("paragraph_8", "article.item > p:nth-of-type(8)", None),
+];
+
+/// A page's line of `pages.jsonl` in the `handled` scenario: its URL and its
+/// twenty fields, each read from the first element its selector matches,
+/// as `document.querySelector` finds it, with `lol_html` as the page
+/// streams: an attribute's value, or the element's text, character
+/// references decoded and white space collapsed; null when no element
+/// matches.
+#[cfg(feature = "handled")]
+fn handled(page: &spider::page::Page) -> Line {
+    use std::cell::RefCell;
+
+    use lol_html::{ElementContentHandlers, HtmlRewriter, Selector, Settings};
+
+    /// One field's value as it is read: none until its first element
+    /// starts, and whether the text arriving is that element's.
+    #[derive(Default)]
+    struct Field {
+        value: Option<String>,
+        reading: bool,
+    }
+    let read: RefCell<Vec<Field>> = RefCell::new(FIELDS.iter().map(|_| Field::default()).collect());
+    let mut handlers = Vec::with_capacity(FIELDS.len());
+    for (index, (_, selector, attribute)) in FIELDS.iter().enumerate() {
+        let selector: Selector = selector
+            .parse()
+            .map_err(|error| format!("parsing the selector {selector}: {error}"))?;
+        let read = &read;
+        let found = move |element: &mut lol_html::html_content::Element<'_, '_>| {
+            let field = &mut read.borrow_mut()[index];
+            field.reading = field.value.is_none();
+            if field.reading {
+                field.value = Some(attribute.map_or_else(String::new, |name| {
+                    element.get_attribute(name).unwrap_or_default()
+                }));
+                // An attribute is read whole at its element's start.
+                field.reading = attribute.is_none();
+            }
+            Ok(())
+        };
+        let handler = ElementContentHandlers::default().element(found);
+        let handler = if attribute.is_none() {
+            handler.text(move |chunk: &mut lol_html::html_content::TextChunk<'_>| {
+                let field = &mut read.borrow_mut()[index];
+                if field.reading
+                    && let Some(value) = field.value.as_mut()
+                {
+                    value.push_str(chunk.as_str());
+                }
+                Ok(())
+            })
+        } else {
+            handler
+        };
+        handlers.push((std::borrow::Cow::Owned(selector), handler));
+    }
+    let mut rewriter = HtmlRewriter::new(
+        Settings {
+            element_content_handlers: handlers,
+            ..Settings::new()
+        },
+        |_: &[u8]| {},
+    );
+    let parsing =
+        |error: lol_html::errors::RewritingError| format!("parsing {}: {error}", page.get_url());
+    rewriter.write(page.get_html_bytes_u8()).map_err(parsing)?;
+    rewriter.end().map_err(parsing)?;
+    let mut line = serde_json::Map::with_capacity(FIELDS.len() + 1);
+    line.insert("url".to_owned(), page.get_url().into());
+    for ((name, _, _), field) in FIELDS.iter().zip(read.into_inner()) {
+        let value = field
+            .value
+            .map(|value| collapsed(&html_escape::decode_html_entities(&value)));
+        line.insert((*name).to_owned(), value.into());
+    }
+    Ok(serde_json::Value::Object(line))
+}
+
+#[cfg(not(feature = "handled"))]
+fn handled(_page: &spider::page::Page) -> Line {
+    Err("the handled scenario takes the `handled` feature's executable".to_owned())
+}
+
 impl Fetched {
     /// Writes the pages still being read and flushes the file, once the
     /// stream is drained.
@@ -233,7 +354,10 @@ impl Fetched {
             while let Some(read) = written.reading.join_next().await {
                 written.write(read)?;
             }
-            written.file.flush().map_err(|error| format!("writing {PAGES_FILE}: {error}"))?;
+            written
+                .file
+                .flush()
+                .map_err(|error| format!("writing {PAGES_FILE}: {error}"))?;
         }
         Ok(self)
     }
@@ -303,12 +427,20 @@ async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
         "raw" | "hostile" => Mode::Http,
         "extraction" if cfg!(feature = "extraction") => Mode::Http,
         "extraction" => {
-            return Err("the extraction scenario takes the `extraction` feature's executable".to_owned());
+            return Err(
+                "the extraction scenario takes the `extraction` feature's executable".to_owned(),
+            );
         }
         "browser" if cfg!(feature = "chrome") => Mode::Chrome,
-        "browser" => return Err("the browser scenario takes the `chrome` feature's executable".to_owned()),
+        "browser" => {
+            return Err("the browser scenario takes the `chrome` feature's executable".to_owned());
+        }
         "auto" if cfg!(feature = "smart") => Mode::Smart,
         "auto" => return Err("the auto scenario takes the `smart` feature's executable".to_owned()),
+        "handled" if cfg!(feature = "handled") => Mode::Http,
+        "handled" => {
+            return Err("the handled scenario takes the `handled` feature's executable".to_owned());
+        }
         other => return Err(format!("Spider runs no `{other}` scenario")),
     };
     let mut site = Website::new(&arguments.url);
@@ -330,12 +462,14 @@ async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
     let read: Option<fn(&spider::page::Page) -> Line> = match arguments.scenario.as_str() {
         "extraction" => Some(extracted),
         "auto" => Some(records),
+        "handled" => Some(handled),
         _ => None,
     };
     let written = match read {
         Some(read) => Some(Written {
             file: std::io::BufWriter::new(
-                std::fs::File::create(PAGES_FILE).map_err(|error| format!("creating {PAGES_FILE}: {error}"))?,
+                std::fs::File::create(PAGES_FILE)
+                    .map_err(|error| format!("creating {PAGES_FILE}: {error}"))?,
             ),
             read,
             reading: tokio::task::JoinSet::new(),
@@ -354,7 +488,10 @@ async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
     let mut pages = site.subscribe(arguments.capacity);
     let (done, mut ended) = tokio::sync::oneshot::channel::<()>();
     let reading = tokio::spawn(async move {
-        let mut fetched = Fetched { written, ..Fetched::default() };
+        let mut fetched = Fetched {
+            written,
+            ..Fetched::default()
+        };
         loop {
             tokio::select! {
                 page = pages.recv() => match page {

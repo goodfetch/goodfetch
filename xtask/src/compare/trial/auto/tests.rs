@@ -11,6 +11,7 @@ fn record(tier: &str, id: Option<&str>, name: Option<&str>) -> foxhound::Record 
         id: id.map(str::to_owned),
         name: name.map(str::to_owned),
         tier: Some(tier.to_owned()),
+        value: serde_json::Value::Null,
     }
 }
 

@@ -5,11 +5,13 @@
 // its seeds; the engine then leases each work item to the handler of its
 // Label, which reads its page and enqueues requests and pushes Records
 // through its `CrawlContext`.
-import type { Page } from "@goodfetch/collie-client";
+import type { Locator, Page } from "@goodfetch/collie-client";
 import type {
+  CrawlRequestEnqueueLinksParams,
   CrawlStartParams,
   DatasetDeclaration,
   Enqueued,
+  EnqueuedLinks,
   HttpBody,
   LabelDeclaration,
   RequestSeed,
@@ -77,6 +79,18 @@ export interface RequestOptions {
   readonly key?: string | null | undefined;
 }
 
+/** What `context.enqueueLinks` takes besides the locator, the Label and the Payload. */
+export interface EnqueueLinksOptions {
+  /** URL patterns, globs as `crawl.scope.include`'s, of which a link must match one when there are any; they only narrow the crawl's scope. */
+  readonly include?: readonly string[] | undefined;
+  /** URL patterns a link must match none of. */
+  readonly exclude?: readonly string[] | undefined;
+  /** At most this many links are added; each later one is not added, with `link_limit`. */
+  readonly limit?: number | undefined;
+  /** Their place in the Frontier, as `enqueue`'s: a higher priority is fetched first. */
+  readonly priority?: number | undefined;
+}
+
 /**
  * What a handler's attempt at one work item holds (ADR 0093): the page the
  * engine lends it, and what it adds to the crawl, staged with the attempt.
@@ -96,6 +110,19 @@ export interface CrawlContext {
     payload?: Q,
     options?: RequestOptions,
   ): Promise<Enqueued>;
+  /**
+   * Adds every link `locator` matches on the attempt's page, under
+   * `label`, each with `payload`, and answers what became of each matched
+   * element in document order: added, with its ID, not added, with its
+   * reason, or with no link. Each `href` resolves against the document's
+   * base URL (ADR 0093).
+   */
+  enqueueLinks<Q extends object | undefined>(
+    locator: Locator,
+    label: Label<Q>,
+    payload?: Q,
+    options?: EnqueueLinksOptions,
+  ): Promise<EnqueuedLinks>;
   /** Pushes one Record into `dataset`, committed with the attempt (ADR 0103). */
   push<I extends object>(dataset: Dataset<I>, record: I): Promise<void>;
 }
@@ -199,6 +226,24 @@ export function payloadOf(payload: object | undefined): { readonly payload?: Wir
 /** `value`'s own enumerable fields as the JSON object the wire carries. */
 export function wireObject(value: object): WireObject {
   return Object.fromEntries(Object.entries(value));
+}
+
+/** The fields of `context.enqueueLinks`'s `options` the wire carries, those left out omitted. */
+export function enqueueLinksOptions({
+  include,
+  exclude,
+  limit,
+  priority,
+}: EnqueueLinksOptions): Pick<
+  CrawlRequestEnqueueLinksParams,
+  "include" | "exclude" | "limit" | "priority"
+> {
+  return {
+    ...(include === undefined ? {} : { include: [...include] }),
+    ...(exclude === undefined ? {} : { exclude: [...exclude] }),
+    ...(limit === undefined ? {} : { limit }),
+    ...(priority === undefined ? {} : { priority }),
+  };
 }
 
 /** The fields of `options` the wire carries, those left out omitted. */

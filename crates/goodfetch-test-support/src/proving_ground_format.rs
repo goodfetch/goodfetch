@@ -25,7 +25,7 @@ use serde_json::Value;
 mod interface;
 
 pub use interface::{
-    ArticleAnswer, ArticleAnswers, FixtureAddresses, OWN_TARGETS, ObservedRequest,
+    ArticleAnswer, ArticleAnswers, ArticleLink, FixtureAddresses, OWN_TARGETS, ObservedRequest,
     ProxyCredentials, ROUTES, ReceivedRequests, RequestTiming, Routes, ServeLine, ToolStatus,
 };
 pub(crate) use interface::{

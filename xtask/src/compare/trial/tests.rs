@@ -39,6 +39,22 @@ fn each_tool_runs_as_its_executable_or_its_sides_interpreter() {
     );
 }
 
+/// Foxhound's handled-crawl row (#2317) runs its TypeScript program on
+/// Node.js, which starts Foxhound's engine through the SDK: the tool's
+/// process is the interpreter running the program, the engine its child.
+#[test]
+fn foxhounds_program_runs_on_node() {
+    let program = invocation(Config::FoxhoundProgram, Path::new("/f/crawl.ts"));
+
+    assert_eq!(
+        (
+            program.program.file_name().and_then(|name| name.to_str()),
+            program.arguments,
+        ),
+        (Some("node"), vec!["/f/crawl.ts".into()])
+    );
+}
+
 /// crawlee-rs's side runs as its executable, with nothing but the
 /// arguments every side takes.
 #[test]
@@ -174,6 +190,7 @@ fn trial_of<'a>(scenario: Scenario, cell: &str, settings: &'a [String]) -> Plan<
         executable_pages: false,
         certificate_authority: None,
         foxhound_settings: settings,
+        engine: None,
     }
 }
 

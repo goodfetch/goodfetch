@@ -110,6 +110,7 @@ pub struct EngineContext {
     needs_you: NeedsYou,
     sandbox_probe: SandboxProbe,
     person: Arc<str>,
+    refusals: Refusals,
 }
 
 impl std::fmt::Debug for EngineContext {
@@ -123,8 +124,9 @@ impl std::fmt::Debug for EngineContext {
 
 impl EngineContext {
     /// The engine at `home` on `clock` under `settings`, recording in
-    /// `audit`, with `stores`, its blocking work under their owner, with
-    /// `needs_you` and `sandbox_probe`, acting for `person`.
+    /// `audit` and its listeners' refusals in `refusals`, with `stores`, its
+    /// blocking work under their owner, with `needs_you` and
+    /// `sandbox_probe`, acting for `person`.
     #[expect(
         clippy::too_many_arguments,
         reason = "each is one of the engine's own values, built once at its start and held together here"
@@ -133,7 +135,7 @@ impl EngineContext {
         home: Home,
         clock: Clock,
         settings: Settings,
-        audit: Arc<AuditLog>,
+        (audit, refusals): (Arc<AuditLog>, Refusals),
         stores: Stores,
         needs_you: NeedsYou,
         sandbox_probe: SandboxProbe,
@@ -151,6 +153,7 @@ impl EngineContext {
             needs_you,
             sandbox_probe,
             person: Arc::from(person),
+            refusals,
         }
     }
 
@@ -218,9 +221,10 @@ impl EngineContext {
     }
 
     /// Where the engine's listeners record their refusals: the user's
-    /// Audit log (`endpoint`).
+    /// Audit log, each listener's at most `audit.refusals_per_minute` in a
+    /// minute (`endpoint`).
     pub(crate) fn refusals(&self) -> Refusals {
-        Refusals::new(self.audit().clone(), self.clock)
+        self.refusals.clone()
     }
 }
 

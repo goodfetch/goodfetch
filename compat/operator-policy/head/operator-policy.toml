@@ -1,6 +1,25 @@
 version = "0.1"
 lowest_minor = 0
 
+[settings.timeout]
+hello = 30000
+secret = 30000
+run = 30000
+close = 30000
+action = 30000
+navigation = 30000
+wait = 30000
+first_byte = 30000
+handler = 30000
+dataset_query = 30000
+
+[settings.network]
+max_hello_size = 4
+max_body_size = 4
+max_decompression_ratio = 4
+max_json_depth = 4
+resolve = { "example.test" = ["127.0.0.1"] }
+
 [settings.log]
 level = "example"
 output = "stdout"
@@ -79,12 +98,6 @@ local_addresses = ["192.0.2.10", "2001:db8::10"]
 ipv4 = 24
 ipv6 = 64
 
-[settings.network]
-max_body_size = 4
-max_decompression_ratio = 4
-max_json_depth = 4
-resolve = { "example.test" = ["127.0.0.1"] }
-
 [settings.tls]
 trusted_cas = { "example.test" = ["example"] }
 client_certificates = { "example.test" = { certificate = "client.pem", key = "env:CLIENT_KEY" } }
@@ -140,17 +153,7 @@ interval = 30000
 [settings.audit]
 retention = 30000
 otlp = true
-
-[settings.timeout]
-secret = 30000
-run = 30000
-close = 30000
-action = 30000
-navigation = 30000
-wait = 30000
-first_byte = 30000
-handler = 30000
-dataset_query = 30000
+refusals_per_minute = 4
 
 [settings.secrets]
 resolve_each_use = ["env:EXAMPLE"]
@@ -369,6 +372,25 @@ records = true
 memory_limit = 4
 max_rows = 4
 
+[lock.timeout]
+hello = 30000
+secret = 30000
+run = 30000
+close = 30000
+action = 30000
+navigation = 30000
+wait = 30000
+first_byte = 30000
+handler = 30000
+dataset_query = 30000
+
+[lock.network]
+max_hello_size = 4
+max_body_size = 4
+max_decompression_ratio = 4
+max_json_depth = 4
+resolve = { "example.test" = ["127.0.0.1"] }
+
 [lock.log]
 level = "example"
 output = "stdout"
@@ -447,12 +469,6 @@ local_addresses = ["192.0.2.10", "2001:db8::10"]
 ipv4 = 24
 ipv6 = 64
 
-[lock.network]
-max_body_size = 4
-max_decompression_ratio = 4
-max_json_depth = 4
-resolve = { "example.test" = ["127.0.0.1"] }
-
 [lock.tls]
 trusted_cas = { "example.test" = ["example"] }
 client_certificates = { "example.test" = { certificate = "client.pem", key = "env:CLIENT_KEY" } }
@@ -508,17 +524,7 @@ interval = 30000
 [lock.audit]
 retention = 30000
 otlp = true
-
-[lock.timeout]
-secret = 30000
-run = 30000
-close = 30000
-action = 30000
-navigation = 30000
-wait = 30000
-first_byte = 30000
-handler = 30000
-dataset_query = 30000
+refusals_per_minute = 4
 
 [lock.secrets]
 resolve_each_use = ["env:EXAMPLE"]
@@ -737,6 +743,24 @@ records = true
 memory_limit = 4
 max_rows = 4
 
+[cap.timeout]
+hello = 30000
+secret = 30000
+run = 30000
+close = 30000
+action = 30000
+navigation = 30000
+wait = 30000
+first_byte = 30000
+handler = 30000
+dataset_query = 30000
+
+[cap.network]
+max_hello_size = 4
+max_body_size = 4
+max_decompression_ratio = 4
+max_json_depth = 4
+
 [cap.log.file]
 max_size = 4
 max_files = 4
@@ -783,11 +807,6 @@ max_unused_age = 30000
 resolution_delay = 30000
 attempt_delay = 30000
 
-[cap.network]
-max_body_size = 4
-max_decompression_ratio = 4
-max_json_depth = 4
-
 [cap.proxy]
 sticky_lifetime = 30000
 
@@ -802,17 +821,7 @@ interval = 30000
 
 [cap.audit]
 retention = 30000
-
-[cap.timeout]
-secret = 30000
-run = 30000
-close = 30000
-action = 30000
-navigation = 30000
-wait = 30000
-first_byte = 30000
-handler = 30000
-dataset_query = 30000
+refusals_per_minute = 4
 
 [cap.sample]
 echo_repeats = 4

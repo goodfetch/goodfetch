@@ -134,6 +134,11 @@
           "audit": {
             "additionalProperties": false,
             "properties": {
+              "refusals_per_minute": {
+                "description": "How many of one listener's refusals the Audit log records in a minute, from its first: 10. Each refusal past them is still logged, and once the minute ends one `endpoint_refusals_folded` entry counts them, so a peer that retries a wrong token cannot make the engine write an entry per attempt. 0 records none but the counts. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "retention": {
                 "anyOf": [
                   {
@@ -608,6 +613,12 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "max_hello_size": {
+                "description": "The most bytes of one line a Connection to a listener that takes a token may send before its `hello` is accepted, up to the 16 MiB (16777216) of any message: 64 KiB (65536) by default, many times any `hello`. A longer line closes the Connection unanswered as soon as it passes the limit, without being decoded, and the refusal is logged and recorded as `hello_too_large`. Set in user configuration or an Operator policy only.",
+                "maximum": 16777216,
+                "minimum": 0,
+                "type": "integer"
+              },
               "max_json_depth": {
                 "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside, from 0 to 1024: 128 by default; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
                 "maximum": 1024,
@@ -897,6 +908,11 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "hello": {
+                "description": "How long a Connection to a listener that takes a token, a Daemon's or an Attached engine's private endpoint, may take to send its complete `hello`, from its accept: 5 s. One that has not by then is closed unanswered, and the refusal logged and recorded as `hello_timed_out`. An Attached engine's stdio takes no token and has no such deadline. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "navigation": {
                 "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
                 "minimum": 0,
@@ -960,6 +976,11 @@
               "otlp": {
                 "description": "Whether an engine process also sends each new Audit log entry, the hash with it, as an OpenTelemetry event to the OTLP/HTTP collector `otlp.logs_endpoint` names: off by default, and nothing is sent while `otlp.logs_endpoint` is unset. Read when the process starts; set in user configuration or an Operator policy only.",
                 "type": "boolean"
+              },
+              "refusals_per_minute": {
+                "description": "How many of one listener's refusals the Audit log records in a minute, from its first: 10. Each refusal past them is still logged, and once the minute ends one `endpoint_refusals_folded` entry counts them, so a peer that retries a wrong token cannot make the engine write an entry per attempt. 0 records none but the counts. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
               },
               "retention": {
                 "anyOf": [
@@ -2041,6 +2062,12 @@
               },
               "max_decompression_ratio": {
                 "description": "The most decoded bytes per received byte of a body the engine reads, once its decoded bytes pass 1 MiB, so a decompression bomb is stopped as it expands. 100 by default; set for a connection or a Run. A body past it fails the call with `response_limit_exceeded`.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "max_hello_size": {
+                "description": "The most bytes of one line a Connection to a listener that takes a token may send before its `hello` is accepted, up to the 16 MiB (16777216) of any message: 64 KiB (65536) by default, many times any `hello`. A longer line closes the Connection unanswered as soon as it passes the limit, without being decoded, and the refusal is logged and recorded as `hello_too_large`. Set in user configuration or an Operator policy only.",
+                "maximum": 16777216,
                 "minimum": 0,
                 "type": "integer"
               },
@@ -3558,6 +3585,11 @@
               },
               "handler": {
                 "description": "How long a crawl's handler has for one attempt, which also bounds every action inside it, and from which a work item's lease is derived: the timeout plus the larger of 10 s and a tenth of it. 60 s, Crawlee's `requestHandlerTimeoutSecs`.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "hello": {
+                "description": "How long a Connection to a listener that takes a token, a Daemon's or an Attached engine's private endpoint, may take to send its complete `hello`, from its accept: 5 s. One that has not by then is closed unanswered, and the refusal logged and recorded as `hello_timed_out`. An Attached engine's stdio takes no token and has no such deadline. Set in user configuration or an Operator policy only.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -3741,6 +3773,11 @@
                 "description": "Whether an engine process also sends each new Audit log entry, the hash with it, as an OpenTelemetry event to the OTLP/HTTP collector `otlp.logs_endpoint` names: off by default, and nothing is sent while `otlp.logs_endpoint` is unset. Read when the process starts; set in user configuration or an Operator policy only.",
                 "type": "boolean"
               },
+              "refusals_per_minute": {
+                "description": "How many of one listener's refusals the Audit log records in a minute, from its first: 10. Each refusal past them is still logged, and once the minute ends one `endpoint_refusals_folded` entry counts them, so a peer that retries a wrong token cannot make the engine write an entry per attempt. 0 records none but the counts. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "retention": {
                 "anyOf": [
                   {
@@ -4821,6 +4858,12 @@
               },
               "max_decompression_ratio": {
                 "description": "The most decoded bytes per received byte of a body the engine reads, once its decoded bytes pass 1 MiB, so a decompression bomb is stopped as it expands. 100 by default; set for a connection or a Run. A body past it fails the call with `response_limit_exceeded`.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "max_hello_size": {
+                "description": "The most bytes of one line a Connection to a listener that takes a token may send before its `hello` is accepted, up to the 16 MiB (16777216) of any message: 64 KiB (65536) by default, many times any `hello`. A longer line closes the Connection unanswered as soon as it passes the limit, without being decoded, and the refusal is logged and recorded as `hello_too_large`. Set in user configuration or an Operator policy only.",
+                "maximum": 16777216,
                 "minimum": 0,
                 "type": "integer"
               },
@@ -6338,6 +6381,11 @@
               },
               "handler": {
                 "description": "How long a crawl's handler has for one attempt, which also bounds every action inside it, and from which a work item's lease is derived: the timeout plus the larger of 10 s and a tenth of it. 60 s, Crawlee's `requestHandlerTimeoutSecs`.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "hello": {
+                "description": "How long a Connection to a listener that takes a token, a Daemon's or an Attached engine's private endpoint, may take to send its complete `hello`, from its accept: 5 s. One that has not by then is closed unanswered, and the refusal logged and recorded as `hello_timed_out`. An Attached engine's stdio takes no token and has no such deadline. Set in user configuration or an Operator policy only.",
                 "minimum": 0,
                 "type": "integer"
               },

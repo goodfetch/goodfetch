@@ -104,6 +104,7 @@ fn audit(env: &TestEnv, owner: &TaskOwner) -> (AuditLog, Refusals) {
     let refusals = Refusals::new(
         log.clone(),
         Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001)),
+        Arc::new(owner.child()),
     );
     (log, refusals)
 }

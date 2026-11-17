@@ -983,14 +983,16 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[],
+    settings: &[TIMEOUT_HELLO, NETWORK_MAX_HELLO_SIZE],
     hook_stages: &[],
     shared_type_values: &[],
 };
 
 mod engine_panicked;
+mod opening;
 
 pub use engine_panicked::{ENGINE_PANICKED, EnginePanickedDetails, PanicEnded};
+pub use opening::{NETWORK_MAX_HELLO_SIZE, TIMEOUT_HELLO};
 
 #[cfg(test)]
 mod tests;

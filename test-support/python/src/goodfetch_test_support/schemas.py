@@ -68,12 +68,13 @@ def _uint8(value: object) -> bool:
     return not isinstance(value, int) or 0 <= value <= 255
 
 
-def validate(value: object, schema: str) -> None:
+def validate(value: object, schema: str | Path) -> None:
     """Checks `value` against the committed schema file named `schema`.
 
     Args:
         value: The parsed JSON value.
-        schema: The schema's file name, such as `test-env-description.schema.json`.
+        schema: The schema's file name in `test-support/fixtures/schemas/`, such
+            as `test-env-description.schema.json`, or a schema file's path.
 
     Raises:
         SchemaError: The value fails the schema.

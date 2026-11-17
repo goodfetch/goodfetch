@@ -50,3 +50,26 @@ impl SharedBudget {
         self.bytes.saturating_sub(self.pending())
     }
 }
+
+/// The bytes a hash table with room for `capacity` entries of `T` takes,
+/// as hashbrown's lays it out, std's too: for each bucket a slot and a
+/// control byte, one bucket in eight kept empty past seven, and a group
+/// of control bytes more. A table never gives back the room it grew to,
+/// and grows past what it holds as entries leave and others come, so its
+/// room, not its entries, is what it costs: each holder of the budget
+/// counts its tables so.
+#[must_use]
+pub const fn hash_table_bytes<T>(capacity: usize) -> usize {
+    if capacity == 0 {
+        return 0;
+    }
+    let buckets = if capacity < 8 {
+        capacity + 1
+    } else {
+        capacity / 7 * 8
+    };
+    buckets * (size_of::<T>() + 1) + CONTROL_GROUP
+}
+
+/// The control bytes a hash table holds past its buckets.
+const CONTROL_GROUP: usize = 16;

@@ -19,6 +19,7 @@ use std::hash::{BuildHasher, RandomState};
 use hashbrown::HashTable;
 
 use super::Space;
+use super::budget::hash_table_bytes;
 
 /// A slot's number.
 pub(super) type Id = u32;
@@ -511,15 +512,15 @@ impl Entries {
     }
 
     /// The bytes the slab, tables and queues holding the entries take, by
-    /// the room each has ([`table`]).
+    /// the room each has ([`hash_table_bytes`]).
     pub(super) fn containers(&self) -> u64 {
         let slab = self.slab.room() * size_of::<Slot>()
             + self.slab.chunks.capacity() * size_of::<Vec<Slot>>()
             + self.slab.freed.capacity() * size_of::<Id>();
         let bytes = slab
-            + table::<Id>(self.visited.capacity())
-            + table::<(Id, i64)>(self.learned.capacity())
-            + table::<Id>(self.seeds.capacity())
+            + hash_table_bytes::<Id>(self.visited.capacity())
+            + hash_table_bytes::<(Id, i64)>(self.learned.capacity())
+            + hash_table_bytes::<Id>(self.seeds.capacity())
             + self.written.places.capacity() * size_of::<(u64, Id)>()
             + self.resident.places.capacity() * size_of::<Id>();
         u64::try_from(bytes).unwrap_or(u64::MAX)
@@ -531,9 +532,9 @@ impl Entries {
         let (slots, chunks) = Slab::least(self.slab.live);
         let bytes = slots * size_of::<Slot>()
             + chunks * size_of::<Vec<Slot>>()
-            + table::<Id>(room(ample(self.visited.len())))
-            + table::<(Id, i64)>(room(ample(self.learned.len())))
-            + table::<Id>(room(ample(self.seeds.len())))
+            + hash_table_bytes::<Id>(room(ample(self.visited.len())))
+            + hash_table_bytes::<(Id, i64)>(room(ample(self.learned.len())))
+            + hash_table_bytes::<Id>(room(ample(self.seeds.len())))
             + ample(self.written.places.len()) * size_of::<(u64, Id)>()
             + ample(self.resident.places.len() + queued) * size_of::<Id>();
         u64::try_from(bytes).unwrap_or(u64::MAX)
@@ -642,27 +643,6 @@ impl Entries {
         self.slab.freed = Vec::new();
     }
 }
-
-/// The bytes a hash table with room for `capacity` entries of `T` takes,
-/// as hashbrown's lays it out, std's too: for each bucket a slot and a
-/// control byte, one bucket in eight kept empty past seven, and a group
-/// of control bytes more. A table never gives back the room it grew to,
-/// and grows past what it holds as entries leave and others come, so its
-/// room, not its entries, is what it costs.
-pub(super) fn table<T>(capacity: usize) -> usize {
-    if capacity == 0 {
-        return 0;
-    }
-    let buckets = if capacity < 8 {
-        capacity + 1
-    } else {
-        capacity / 7 * 8
-    };
-    buckets * (size_of::<T>() + 1) + CONTROL_GROUP
-}
-
-/// The control bytes a hash table holds past its buckets.
-const CONTROL_GROUP: usize = 16;
 
 /// The room a container holding `len` entries keeps once it gives back
 /// what it does not need: an eighth more, and one, so the next entries

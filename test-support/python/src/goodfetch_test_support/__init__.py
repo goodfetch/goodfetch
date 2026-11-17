@@ -14,6 +14,12 @@ from goodfetch_test_support.canaries import (
     SecretKind,
     search_canaries,
 )
+from goodfetch_test_support.case_log import (
+    CaseListInvalid,
+    CaseLogEntryInvalid,
+    ClientCaseRecord,
+    ClientCaseUntagged,
+)
 from goodfetch_test_support.daemon import Daemon, DaemonNotRequested
 from goodfetch_test_support.environment import (
     ProcessesAlive,
@@ -60,6 +66,10 @@ __all__ = [
     "Canary",
     "CanaryHit",
     "CanaryOutputUnreadable",
+    "CaseListInvalid",
+    "CaseLogEntryInvalid",
+    "ClientCaseRecord",
+    "ClientCaseUntagged",
     "Closed",
     "Daemon",
     "DaemonNotRequested",

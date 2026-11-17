@@ -219,10 +219,12 @@ features-tests: journeys-tests
     cargo run --quiet --bin xtask -- features check --listings target/journey-listings
 
 # ADR 0069's Client conformance case-list check with the runners' listings,
-# in the Pre-merge suite: after `journeys-tests`, it reads Vitest's listing,
-# so a case listing `sdk-typescript` fails without a Vitest test of the
-# TypeScript SDK packages tagged `client_case/<id>` in each of its modes; the
-# Quick suite's `xtask clients check`, which reads no listing, only notes it.
+# in the Pre-merge suite: after `journeys-tests`, it reads Vitest's and
+# pytest's listings, so a case listing `sdk-typescript` fails without a
+# Vitest test of the TypeScript SDK packages tagged `client_case/<id>` in
+# each of its modes, and one listing `sdk-python` without a pytest test of
+# the Python SDK packages marked `client_case(id=..., mode=...)`; the Quick
+# suite's `xtask clients check`, which reads no listing, only notes them.
 clients-tests: journeys-tests
     cargo run --quiet --bin xtask -- clients check --listings target/journey-listings
 

@@ -1,0 +1,32 @@
+{
+  "tests": [
+    {
+      "id": "sdks/python/collie-client/tests/test_runs.py::test_cancels_a_run[attached]",
+      "journey": [],
+      "covers": [],
+      "client_case": [{ "id": "cancel-a-run", "mode": "attached" }],
+      "skipped": false
+    },
+    {
+      "id": "sdks/python/collie-client/tests/test_runs.py::test_cancels_a_run[daemon]",
+      "journey": [],
+      "covers": [],
+      "client_case": [{ "id": "cancel-a-run", "mode": "daemon" }],
+      "skipped": false
+    },
+    {
+      "id": "website/tests/test_runs.py::test_shows_the_cancelled_run",
+      "journey": [],
+      "covers": [],
+      "client_case": [{ "id": "cancel-a-run", "mode": "attached" }],
+      "skipped": false
+    },
+    {
+      "id": "sdks/python/collie-client/tests/test_framing.py::test_frames_a_message",
+      "journey": [],
+      "covers": ["story:1-4"],
+      "client_case": [],
+      "skipped": false
+    }
+  ]
+}

@@ -38,3 +38,11 @@ id = "start-a-run"
 covers = ["story:1-4"]
 surfaces = ["sdk-typescript"]
 task = "catalog/1"
+
+[[capability]]
+name = "runs.cancel"
+
+[[capability.case]]
+id = "cancel-a-run"
+covers = ["story:1-5"]
+surfaces = ["sdk-python"]

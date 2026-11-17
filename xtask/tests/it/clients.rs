@@ -34,6 +34,7 @@ fn check_notes_each_listed_surface_whose_tests_it_does_not_read_yet() {
         vec![
             finding("unread-surface", "hello-refused sdk-rust"),
             finding("unread-surface", "start-a-run sdk-typescript"),
+            finding("unread-surface", "cancel-a-run sdk-python"),
         ]
     );
 }
@@ -203,9 +204,10 @@ fn check_fails_when_the_case_list_is_missing() {
 
 /// Where the fixture's runner listings sit, as `xtask journeys listings`
 /// writes them; the check reads the `sdk-typescript` surface's tests from
-/// Vitest's.
+/// Vitest's and the `sdk-python` surface's from pytest's.
 const LISTINGS: &str = "listings";
 const VITEST: &str = "listings/vitest.json";
+const PYTEST: &str = "listings/pytest.json";
 
 #[test]
 fn check_with_listings_passes_on_a_clean_workspace() {
@@ -297,6 +299,92 @@ fn check_with_listings_notes_only_the_surfaces_whose_tests_it_does_not_read_yet(
     )],
 )]
 fn check_with_listings_fails_on_each_vitest_cause(
+    #[case] file: &str,
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] expected: Vec<Finding>,
+) {
+    let workspace = Workspace::from_fixture("clients");
+    workspace.edit(file, from, to);
+
+    let outcome = workspace.xtask(&["clients", "check", "--listings", LISTINGS]);
+
+    assert_eq!(outcome.findings(), expected, "{}", outcome.stderr);
+    assert_eq!(outcome.code, 1);
+}
+
+/// The pytest test of the fixture that carries no case.
+const FRAMING: &str =
+    "pytest sdks/python/collie-client/tests/test_framing.py::test_frames_a_message";
+
+#[rstest]
+#[case::case_listing_sdk_python_with_no_pytest_test(
+    CASES,
+    "surfaces = [\"cli\", \"sdk-rust\"]",
+    "surfaces = [\"cli\", \"sdk-rust\", \"sdk-python\"]",
+    vec![
+        finding("missing", "hello-refused sdk-python attached"),
+        finding("missing", "hello-refused sdk-python daemon"),
+    ],
+)]
+#[case::case_missing_in_one_mode(
+    PYTEST,
+    "{ \"id\": \"cancel-a-run\", \"mode\": \"daemon\" }",
+    "",
+    vec![finding("missing", "cancel-a-run sdk-python daemon")],
+)]
+#[case::case_carried_only_by_a_test_outside_the_sdk_packages(
+    PYTEST,
+    "\"id\": \"sdks/python/collie-client/tests/test_runs.py::test_cancels_a_run[attached]\"",
+    "\"id\": \"test-support/python/tests/test_runs.py::test_cancels_a_run[attached]\"",
+    vec![finding("missing", "cancel-a-run sdk-python attached")],
+)]
+#[case::test_carrying_an_unknown_case(
+    PYTEST,
+    "\"client_case\": []",
+    "\"client_case\": [{\"id\": \"gone-case\", \"mode\": \"attached\"}]",
+    vec![finding("unknown-case", FRAMING)],
+)]
+#[case::test_on_a_surface_the_case_does_not_list(
+    PYTEST,
+    "\"client_case\": []",
+    "\"client_case\": [{\"id\": \"hello-refused\", \"mode\": \"attached\"}]",
+    vec![finding("unlisted", FRAMING)],
+)]
+#[case::test_in_a_mode_the_surface_does_not_have(
+    PYTEST,
+    "\"client_case\": []",
+    "\"client_case\": [{\"id\": \"cancel-a-run\", \"mode\": \"linked\"}]",
+    vec![finding("unlisted", FRAMING)],
+)]
+#[case::test_carrying_no_mode(
+    PYTEST,
+    "\"client_case\": []",
+    "\"client_case\": [{\"id\": \"cancel-a-run\"}]",
+    vec![finding("no-mode", FRAMING)],
+)]
+#[case::marker_naming_no_case(
+    PYTEST,
+    "\"client_case\": []",
+    "\"client_case\": [{\"mode\": \"attached\"}]",
+    vec![finding("malformed", FRAMING)],
+)]
+#[case::marker_with_another_keyword(
+    PYTEST,
+    "\"client_case\": []",
+    "\"client_case\": [{\"id\": \"cancel-a-run\", \"mode\": \"attached\", \"surface\": \"sdk-python\"}]",
+    vec![finding("malformed", FRAMING)],
+)]
+#[case::skipped_test_carrying_a_case(
+    PYTEST,
+    "{ \"id\": \"cancel-a-run\", \"mode\": \"daemon\" }],\n      \"skipped\": false",
+    "{ \"id\": \"cancel-a-run\", \"mode\": \"daemon\" }],\n      \"skipped\": true",
+    vec![
+        finding("gated", "pytest sdks/python/collie-client/tests/test_runs.py::test_cancels_a_run[daemon]"),
+        finding("missing", "cancel-a-run sdk-python daemon"),
+    ],
+)]
+fn check_with_listings_fails_on_each_pytest_cause(
     #[case] file: &str,
     #[case] from: &str,
     #[case] to: &str,

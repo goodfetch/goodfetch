@@ -1,4 +1,7 @@
-"""Runs pytest on sample tests in the test's folder, the plugin loaded as in any run."""
+"""Runs pytest on sample tests in the test's folder, the plugin loaded as in any run.
+
+The installed-package runs of `test_install.py` are the Release suite's alone.
+"""
 
 import json
 import os
@@ -10,6 +13,12 @@ from pathlib import Path
 
 import pytest
 from goodfetch_test_support import TestEnv
+
+collect_ignore_glob = (
+    [] if os.environ.get("GOODFETCH_TEST_SUITE") == "release" else ["test_install.py"]
+)
+"""The installed-package runs, which the Release suite alone runs (TESTING.md,
+Installed packages)."""
 
 CONFIGURATION = """\
 [tool.pytest]

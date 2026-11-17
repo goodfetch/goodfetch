@@ -4387,6 +4387,50 @@
       ]
     },
     {
+      "id": "row:AI-42",
+      "kind": "row",
+      "area": 9,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "row:AI-43",
+      "kind": "row",
+      "area": 9,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "row:AI-44",
+      "kind": "row",
+      "area": 9,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "row:AI-45",
+      "kind": "row",
+      "area": 9,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "row:CL-01",
       "kind": "row",
       "area": 13,
@@ -4674,6 +4718,17 @@
     },
     {
       "id": "row:CO-10",
+      "kind": "row",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "row:CO-100",
       "kind": "row",
       "area": 6,
       "milestone": null,
@@ -5619,6 +5674,28 @@
       ]
     },
     {
+      "id": "row:CO-98",
+      "kind": "row",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "row:CO-99",
+      "kind": "row",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "row:RT-01",
       "kind": "row",
       "area": 3,
@@ -6018,6 +6095,50 @@
       "id": "row:RT-37",
       "kind": "row",
       "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "row:RT-43",
+      "kind": "row",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "row:RT-44",
+      "kind": "row",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "row:RT-45",
+      "kind": "row",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "row:RT-46",
+      "kind": "row",
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -6983,6 +7104,28 @@
       ]
     },
     {
+      "id": "row:SC-14",
+      "kind": "row",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "row:SC-15",
+      "kind": "row",
+      "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "row:SDK-01",
       "kind": "row",
       "area": 11,
@@ -7336,6 +7479,17 @@
     },
     {
       "id": "row:ST-10",
+      "kind": "row",
+      "area": 8,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "row:ST-11",
       "kind": "row",
       "area": 8,
       "milestone": null,

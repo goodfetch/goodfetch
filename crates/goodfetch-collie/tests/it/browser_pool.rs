@@ -7,9 +7,12 @@
 //! the Proving ground's record of what each request sent shows; and a
 //! browser the pool launched writes its crash dumps where the test's
 //! environment names (ADR 0074).
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+#![cfg_attr(
+    unix,
+    expect(
+        clippy::doc_markdown,
+        reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+    )
 )]
 #![cfg_attr(
     not(unix),

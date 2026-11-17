@@ -8,12 +8,9 @@
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
-#![cfg_attr(
-    unix,
-    expect(
-        clippy::disallowed_methods,
-        reason = "the test reads the Run trace, lists processes and polls the Proving ground on its own thread, never an async worker"
-    )
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the clock and the Run trace, lists processes and polls the Proving ground on its own thread, never an async worker"
 )]
 
 use std::collections::BTreeSet;
@@ -23,7 +20,9 @@ use std::process::Command;
 use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, CleanUp};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::catalog::Product;
+#[cfg(unix)]
 use goodfetch_protocol::connection::Surface;
+#[cfg(unix)]
 use goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
 use goodfetch_protocol::page::{Navigated, PageOpened};
 use goodfetch_test_client::HomeLayout;
@@ -74,6 +73,7 @@ pub(crate) fn started_with(
 /// As [`started_with`], its Client a person's, the CLI: the engine admits
 /// from it the operations only a person may call, such as
 /// `config.user_write`.
+#[cfg(unix)]
 pub(crate) fn started_by_a_person(
     env: &TestEnv,
     cache: &Path,
@@ -141,6 +141,7 @@ pub(crate) fn resumed_with(
 /// The next `engine.system_info` the engine sends on the subscription
 /// `samples`, every other message read past, and one credit given for the
 /// sample after it.
+#[cfg(unix)]
 pub(crate) fn next_sample(engine: &mut Attached) -> Value {
     loop {
         let message = engine

@@ -13,6 +13,7 @@
 //! interfaces without reaching its internals (STYLE.md, reason 2); it never
 //! names a Foxhound type.
 
+mod access_mode;
 pub mod blocks;
 mod borrowed;
 mod browser_fetch;
@@ -45,6 +46,7 @@ pub mod robots_txt;
 mod sessions;
 mod trace;
 pub mod url_pattern;
+mod version_check;
 
 pub use clean_up_versions::manifest_file;
 pub use launch::{Launcher, Scripted, ScriptedBrowsers};

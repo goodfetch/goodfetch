@@ -1,0 +1,12 @@
+# The crate `cargo_consumer`'s tests package (TESTING.md, Installed packages):
+# a library whose `greet` lives in a module file of its own, so a package that
+# leaves that file out fails its consumer's build. Its empty `[workspace]`
+# keeps it out of the repository's workspace.
+[package]
+name = "goodfetch-consumer-fixture"
+version = "0.3.0"
+edition = "2024"
+description = "A fixture crate of goodfetch-test-support's tests."
+license = "MIT OR Apache-2.0"
+
+[workspace]

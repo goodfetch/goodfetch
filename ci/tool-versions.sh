@@ -4,7 +4,8 @@
 # jobs' host-tools action, ci/host/runtimes.env, package.json's
 # packageManager, the pnpm catalog's Playwright, the workspace's gungraun,
 # which gungraun's runner must match, the hosted jobs' gitleaks
-# (ci/host/gitleaks.sh), the hosts' OSV-Scanner (ci/host/osv-scanner.sh)
+# (ci/host/gitleaks.sh), the hosts' OSV-Scanner (ci/host/osv-scanner.sh),
+# the uv of the install harness's Alpine image (ci/alpine/image.toml)
 # and the sanitizer toolchain and cargo-fuzz of
 # ci/sanitizer-toolchain.toml. The image's tag hashes only its Containerfile, so a version changed
 # elsewhere alone would leave the image and the hosted jobs apart.
@@ -35,6 +36,8 @@ for tool in just cargo-nextest cargo-insta; do
   agree "$tool" "$(image_tool "$tool")" "$(action_tool "$tool")" "the CI image and the host-tools action"
 done
 agree uv "$(image_arg UV_VERSION)" "$(action_tool uv)" "the CI image and the host-tools action"
+agree uv-alpine "$(image_arg UV_VERSION)" "$(sed -n 's/^tag = "\([0-9.]*\)-.*"$/\1/p' "$root/ci/alpine/image.toml")" \
+  "the CI image and ci/alpine/image.toml"
 agree node "$(image_arg NODE_VERSION)" "$(sed -n 's/^NODE_24=//p' "$root/ci/host/runtimes.env")" \
   "the CI image and ci/host/runtimes.env"
 agree pnpm "$(image_arg PNPM_VERSION)" "$(sed -n 's/^  "packageManager": "pnpm@\(.*\)"$/\1/p' "$root/package.json")" \

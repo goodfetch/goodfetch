@@ -55,6 +55,8 @@ serde_json = { workspace = true, features = ["raw_value"] }
 # its Session ID, so the provider never sees the Run's own ID.
 sha2.workspace = true
 thiserror.workspace = true
+# The release table the version check reads (ADR 0035).
+toml.workspace = true
 # `net` and `io-util` for the per-Session SOCKS5 relay (the `proxy` module).
 tokio = { workspace = true, features = ["io-util", "net", "process", "sync", "time", "macros"] }
 tokio-btls.workspace = true

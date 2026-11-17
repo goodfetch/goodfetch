@@ -566,6 +566,13 @@ fn plugins(layer: &Layer) -> String {
 /// generated handle reaches its engine through.
 const HANDLE_MODULE: &str = "../handle.ts";
 
+/// The hand-written module of Collie's client package that types a result
+/// by the fields its call declares (ADR 0147).
+const FIELD_VALUES_MODULE: &str = "../field-values.ts";
+
+/// The type parameter of a member typed by the fields its caller declares.
+const FIELDS: &str = "Fields";
+
 /// The words TypeScript reserves, which a positional parameter cannot be
 /// named: it takes a trailing `_` in the declaration, which no caller
 /// writes (ADR 0099).
@@ -634,18 +641,24 @@ fn positional_name(name: &str) -> String {
 /// with the handle's ID as `id`: positional parameters first, then the
 /// options object, which holds the named ones and, for a call that can be
 /// cancelled, `signal`. Each type is the params type's own,
-/// `types.<Params>["<name>"]`.
+/// `types.<Params>["<name>"]`, but the one the fields that type a result
+/// are declared by, `typed`, which is the member's type parameter.
 fn signature(
     parameters: &Parameters,
     type_name: &str,
     cancellable: bool,
     id: &str,
+    typed: Option<&str>,
 ) -> (String, String) {
     let mut declared = Vec::new();
     let mut entries = vec![format!("{id}: this.#host.id")];
     for name in &parameters.positional {
         let local = positional_name(name);
-        declared.push(format!("{local}: types.{type_name}[{name:?}]"));
+        if typed == Some(name.as_str()) {
+            declared.push(format!("{local}: {FIELDS}"));
+        } else {
+            declared.push(format!("{local}: types.{type_name}[{name:?}]"));
+        }
         entries.push(if local == *name {
             local
         } else {
@@ -693,7 +706,14 @@ fn signature(
 fn member(member: &Member<'_>, id: &HandleId) -> String {
     let operation = member.operation;
     let (params, result) = (&operation.params.0, &operation.result.0);
-    let (declared, sent) = signature(&member.parameters, params, operation.cancellable, &id.param);
+    let typed = member.typed_by.as_ref();
+    let (declared, sent) = signature(
+        &member.parameters,
+        params,
+        operation.cancellable,
+        &id.param,
+        typed.map(|typed| typed.param.as_str()),
+    );
     let call_options = if operation.cancellable {
         "{ signal: options.signal }"
     } else {
@@ -711,12 +731,25 @@ fn member(member: &Member<'_>, id: &HandleId) -> String {
     );
     let name = camel(member.name);
     match &member.form {
-        Form::RoundTrip | Form::Query | Form::Waiter => {
-            let _ = write!(
-                text,
-                "  async {name}({declared}): Promise<types.{result}> {{\n    return {call};\n  }}\n"
-            );
-        }
+        Form::RoundTrip | Form::Query | Form::Waiter => match typed {
+            None => {
+                let _ = write!(
+                    text,
+                    "  async {name}({declared}): Promise<types.{result}> {{\n    return {call};\n  }}\n"
+                );
+            }
+            // Its result is typed by the fields the caller passes, which
+            // the member takes as a type parameter (ADR 0147).
+            Some(typed) => {
+                let typed_result =
+                    format!("TypedBy<types.{result}, {:?}, {FIELDS}>", typed.property);
+                let _ = write!(
+                    text,
+                    "  async {name}<const {FIELDS} extends types.{params}[{:?}]>({declared}): Promise<{typed_result}> {{\n    return typedBy<types.{result}, {:?}, {FIELDS}>(await {call});\n  }}\n",
+                    typed.param, typed.property
+                );
+            }
+        },
         Form::Opens(opened) => {
             let class = pascal(opened);
             let _ = write!(
@@ -735,14 +768,32 @@ fn member(member: &Member<'_>, id: &HandleId) -> String {
     text
 }
 
+/// The handles module's header and imports: the field values' types only
+/// when a member's result is typed by the fields it declares (ADR 0147).
+fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> String {
+    let typed = handles.iter().any(|handle| {
+        handle
+            .members
+            .iter()
+            .chain(handle.sub_objects.iter().flat_map(|held| &held.members))
+            .any(|member| member.typed_by.is_some())
+    });
+    let field_values = if typed {
+        format!("import {{ typedBy, type TypedBy }} from \"{FIELD_VALUES_MODULE}\";\n")
+    } else {
+        String::new()
+    };
+    format!(
+        "{HEADER}\n{field_values}import {{ defined, type HandleHost }} from \"{HANDLE_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\nimport type * as types from \"./types.ts\";\n"
+    )
+}
+
 /// The handles of Collie's client package (ADR 0099): one class a
 /// namespace, with its members in the form their kind gives them, the
 /// values it builds without a call and its sub-objects.
 fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
     let operation_types = format!("{}OperationTypes", layer.product.name());
-    let mut text = format!(
-        "{HEADER}\nimport {{ defined, type HandleHost }} from \"{HANDLE_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\nimport type * as types from \"./types.ts\";\n"
-    );
+    let mut text = handles_imports(handles, &operation_types);
     for handle in handles {
         let class = pascal(handle.namespace);
         let host = format!(
@@ -804,6 +855,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
                 &builder.type_name,
                 false,
                 &handle.id.param,
+                None,
             );
             text.push('\n');
             text.push_str(&doc(

@@ -4,7 +4,7 @@
 // (`withBrowser`). The form program is the one the unit tests run on the
 // Scripted engine.
 import { Collie } from "@goodfetch/collie";
-import { failure, taskStartUrl, test } from "@goodfetch/test-support";
+import { failure, judgeTask, taskStartUrl, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 import { fillTheForm } from "./programs/form.ts";
 
@@ -74,6 +74,44 @@ describe("a program's pages on an Attached engine", () => {
       await clientCase.check("a page of another Session reads nothing of it", () =>
         expect(apart.value).toBeNull(),
       );
+    },
+  );
+
+  test(
+    "reads a product page's fields in one call, typed by their declaration",
+    { tags: ["client_case/page-read-fields", "attached", "story:11-77", "operation:page.read"] },
+    async ({ env, provingGround, clientCase }) => {
+      const product = await taskStartUrl(provingGround, "catalog/2");
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      await using collie = await Collie.connect({ env });
+      const run = await collie.start();
+      const page = await run.newPage();
+      await page.goto(product);
+
+      const read = await page.read({
+        id: { locator: { kind: "css", selector: "span.id" } },
+        name: { locator: { kind: "css", selector: "h1.name" } },
+        price: {
+          locator: { kind: "css", selector: "span.price" },
+          attribute: "data-price",
+          transform: { kind: "number", locale: "en" },
+        },
+        missing: { locator: { kind: "css", selector: ".no-such-element" } },
+      });
+      const { missing, ...record } = read.values;
+      const answer = await judgeTask(provingGround, { task: "catalog/2", records: [record] });
+      clientCase.oracleAnswer(answer);
+
+      await clientCase.check("the oracle verifies the Record the fields answer", () =>
+        expect(answer.outcome).toBe("verified"),
+      );
+      await clientCase.check("the number field answers a number", () =>
+        expect(typeof record.price).toBe("number"),
+      );
+      await clientCase.check("a field with no element is null, with its reason", () => {
+        expect(missing).toBeNull();
+        expect(read.unread).toEqual([{ field: "/missing", reason: "no_element" }]);
+      });
     },
   );
 

@@ -7203,8 +7203,9 @@
         "values": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "Each field's value, by name: a value field's value or null, a\nlist's array of values or nulls, rows' array of objects, each\nholding every field of its row, null where its row lacks it.",
-          "type": "object"
+          "description": "Each field's value, by name: a value field's value or null, a\nlist's array of values or nulls, rows' array of objects, each\nholding every field of its row, null where its row lacks it. Its\nnames and types follow `fields` (`typed_by`), from which each SDK\ntypes it (ADR 0147).",
+          "type": "object",
+          "typed_by": "fields"
         }
       },
       "required": [

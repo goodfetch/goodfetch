@@ -2,7 +2,7 @@
 // generates from the forms catalog (ADR 0099): `tsc` fails on a wrong one.
 import { expectTypeOf } from "vitest";
 import type { Locator, Page, PageKeyboard, Run } from "./generated/handles.ts";
-import type { Acted, Navigated, Readiness } from "./generated/types.ts";
+import type { Acted, Field, Navigated, Readiness } from "./generated/types.ts";
 
 declare const run: Run;
 declare const page: Page;
@@ -31,6 +31,24 @@ expectTypeOf(page.isReady).parameters.toEqualTypeOf<[]>();
 expectTypeOf(page.isReady).returns.toEqualTypeOf<Promise<Readiness>>();
 // @ts-expect-error a query has no timeout
 void page.isReady({ timeout: 1 });
+
+// A result typed by the fields its call declares: each field's value under
+// its name, a number for a number field, an array for a list.
+const read = page.read({
+  title: { selector: "h1" },
+  price: { selector: ".price", transform: { kind: "number" } },
+  tags: { list: { selector: ".tag" } },
+});
+expectTypeOf(read).resolves.toEqualTypeOf<{
+  values: { title: string | null; price: number | null; tags: (string | null)[] };
+  unread: string[];
+}>();
+declare const field: Field;
+expectTypeOf(page.read({ field })).resolves.toHaveProperty("values").toEqualTypeOf<{
+  field: string | number | null | (string | number | null)[];
+}>();
+// @ts-expect-error a field is declared as its type says
+void page.read({ title: { selector: 1 } });
 
 // A waiter keeps its timeout.
 expectTypeOf(page.waitForReady).toBeCallableWith({ timeout: 1 });

@@ -130,6 +130,12 @@ const VALGRIND_OUT: &str = "target/counts";
 /// benchmark, under its family's name.
 const EXECUTABLES_OUT: &str = "target/counts/executables";
 
+/// The `cfg` of the build a row is read in under Callgrind, and the name of
+/// that build's folder in the workspace's target folder: the wire's
+/// functions are never inlined there, so that Callgrind names them in
+/// `E1.handled_page_wire_share` (ADR 0140).
+const CALLGRIND_NAMES: &str = "goodfetch_callgrind_names";
+
 /// One counted row of the register.
 struct Row {
     /// Its name in the register, `<path>.<work>`, and the name its
@@ -1634,13 +1640,27 @@ fn executables(
 /// Builds `family`'s target and answers its executable: in the benchmarks'
 /// profile when it runs `optimized`, as what it reads under Valgrind is
 /// read in the build `just perf` measures, else in the dev profile.
+///
+/// The optimized build also sets [`CALLGRIND_NAMES`], under which the wire's
+/// functions are never inlined so that Callgrind names them, in a build
+/// folder of its own: the product, and every other benchmark, keep them
+/// inlined. A `RUSTFLAGS` in the environment would replace the setting, and
+/// the run would then fail on a wire function it never saw entered.
 fn build(family: &Family, optimized: bool, environment: &Environment) -> Result<PathBuf> {
     let mut command = crate::child_cargo::command(&environment.cargo);
     command
         .args(["build", "--message-format", "json-render-diagnostics"])
         .args(["-p", family.package, "--example", family.target]);
     if optimized {
-        command.args(["--profile", "bench"]);
+        let folder = crate::metadata::target_directory(&environment.cargo, &environment.root)?
+            .join(CALLGRIND_NAMES);
+        command
+            .args(["--profile", "bench", "--target-dir"])
+            .arg(folder)
+            .args([
+                "--config",
+                &format!("build.rustflags = [\"--cfg\", \"{CALLGRIND_NAMES}\"]"),
+            ]);
     }
     let output = command
         .current_dir(&environment.root)

@@ -54,10 +54,11 @@
 //! beneath [`WIRE`] over a hundredth of what they take beneath
 //! [`WHOLE_RUN`]. `xtask counts --valgrind` builds this example in the
 //! benchmarks' profile for it: unoptimized, the decoding and encoding code
-//! would weigh several times what the product's does. The engine's wire
-//! functions are never inlined, so that Callgrind names them there; the
-//! line's read is an `async` function, whose body Callgrind names as its
-//! closure.
+//! would weigh several times what the product's does. It builds it with
+//! `--cfg goodfetch_callgrind_names`, in a build folder of its own, under
+//! which the engine's wire functions are never inlined, so that Callgrind
+//! names them; the product keeps them inlined. The line's read is an `async`
+//! function, whose body Callgrind names as its closure.
 //!
 //! The cells of the run file's own switches (`concurrency_1`,
 //! `concurrency_16`, `durability_fast`, `durability_full`,

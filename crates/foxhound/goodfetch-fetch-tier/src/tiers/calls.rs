@@ -373,9 +373,10 @@ fn ready(answer: Result<Box<RawValue>, CallError>) -> Served {
 }
 
 /// `value` as a call's result, encoded into bytes once: a function of its own,
-/// never inlined, so that `xtask counts`' Callgrind run can name it in
+/// never inlined in the build `xtask counts` reads under Callgrind
+/// (`--cfg goodfetch_callgrind_names`), so that the run can name it in
 /// `E1.handled_page_wire_share` (ADR 0140).
-#[inline(never)]
+#[cfg_attr(goodfetch_callgrind_names, inline(never))]
 fn encoded(value: &impl Serialize) -> Box<RawValue> {
     serde_json::value::to_raw_value(value).expect("invariant: a protocol type encodes as JSON")
 }

@@ -1,0 +1,55 @@
+#:schema ./journey.schema.json
+# Area 9's spec (#602), story 36, with the Console's Live view replaced by a
+# headful window the CLI opens (ADR 0137; spec #1937's #1105). The variants it
+# makes proved, and the tickets that make each one proved:
+# - cli (and cli@foxhound-cli): the recorder (#1050), recording from
+#   `plan record` in a headful window (#1105), the replay on the TypeScript
+#   SDK with a Run that names a Plan file (#870).
+id = "J-039"
+title = "Record an automation by acting in a browser, then replay it from code with no model call"
+goal = """
+A person fills a form in a headful browser window the CLI opened for recording. The recorder MUST turn what the person did into a Plan in the Plan file's format, preferring a route the page's script calls with the browser as its fallback, together with matching TypeScript code; and that code, run with that Plan, MUST fill the form again with no model call."""
+area = 9
+product = "collie"
+status = "active"
+covers = ["story:9-36"]
+
+[proving_ground]
+seed = 39
+tasks = [
+  { id = "actionability/20", digest = "92380b4e86604cc42c65ed6bf101f929f736d54efba326bce439807b2f09ff8c" },
+]
+
+[surfaces]
+cli = "M4"
+
+[[steps]]
+text = "Point the Model provider setting at the Fake model through this variant's surface: the provider's base URL at the Proving ground's `model.test`"
+
+[[steps]]
+text = "Start a recording with `plan record` on the task's start page, which opens a headful browser window"
+on = "cli"
+
+[[steps]]
+text = "Fill the task's form in that window as a person does, with the pointer and the keyboard, then stop the recording"
+on = "cli"
+
+[[steps]]
+text = "Start the Proving ground again from the same seed, keeping the recorded Plan and code"
+
+[[steps]]
+text = "Run the TypeScript code the recorder wrote, with the Plan it wrote"
+on = "sdk-typescript"
+
+[[expect]]
+text = "The recording wrote a Plan file the Plan format's reader accepts, each step preferring the route the page's script called where the recorder found one and keeping the browser as its fallback, and TypeScript code that names that Plan"
+
+[[expect]]
+text = "The replay filled the form with no model call: the Fake model served no call during it"
+
+[[expect]]
+text = "The oracle verifies the form the replay filled"
+task = "actionability/20"
+
+[[expect]]
+text = "The replay's Run ended with the Verdict `verified`, and its Usage equals the Fake model's own count of the calls it served during that Run (`GET /model-calls`)"

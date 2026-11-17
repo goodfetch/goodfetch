@@ -1,0 +1,66 @@
+#:schema ./journey.schema.json
+# Golden scenario 02, area 9's spec (#602). The variants it makes proved, and
+# the tickets that make each one proved:
+# - sdk-typescript, sdk-python, sdk-rust, cli (and cli@foxhound-cli),
+#   mcp-stdio, mcp-http: compiled `extract` (#902), `extract`'s missing
+#   fields (#841), the Model provider interface (#820), the built-in Model
+#   providers (#934), the Run's Verdict (#858) and Usage with prices (#951),
+#   each surface's verbs coming from area 11's spec (#604).
+id = "J-034"
+title = "Extract a typed object with a chosen, a hosted and a local Model reference, and see each call's tokens and price"
+goal = """
+A developer extracts the shop's products as a typed object, once with a Model reference to a provider, once with a gateway's Model reference and once with a local server's. Each extraction MUST return every product the shop lists, typed by the developer's schema and read in compiled mode; an extraction whose required field the page lacks MUST fail with `extraction_incomplete`, naming each missing field and carrying the fields found; and each result and error MUST carry the Usage of its model calls, calls, tokens and price, equal to the count of the model that served them."""
+area = 9
+product = "collie"
+status = "active"
+covers = ["story:9-5", "story:9-7", "story:9-76", "story:9-85", "row:AI-03", "row:AI-10", "row:AI-14"]
+
+[proving_ground]
+seed = 34
+tasks = [
+  { id = "extraction/2", digest = "73483ac144a4ed0cc8a141ce132ece2c069c1bb160b1a7a8f8d322d3c08522cf" },
+]
+
+[surfaces]
+sdk-typescript = "M4"
+sdk-python = "M4"
+sdk-rust = "M4"
+cli = "M4"
+mcp-stdio = "M4"
+mcp-http = "M4"
+
+[[steps]]
+text = "Point the Model provider setting at the Fake model through this variant's surface: the Anthropic, the Vercel AI Gateway's and Ollama's base URLs all at the Proving ground's `model.test`"
+
+[[steps]]
+text = "Extract the shop's products with the task's instruction and a schema of their fields, with `ai.model` set to `anthropic/claude-sonnet-4-5`, in a Run of its own that names no Plan file"
+
+[[steps]]
+text = "Extract them again, giving `vercel/anthropic/claude-sonnet-4.5` to the call itself, in another Run of its own"
+
+[[steps]]
+text = "Extract them again with `ollama/qwen3:8b`, in another Run of its own"
+
+[[steps]]
+text = "Extract them with a schema that also requires a field the shop does not show, `gtin`"
+
+[[expect]]
+text = "The oracle verifies the products the Anthropic Model reference extracted"
+task = "extraction/2"
+
+[[expect]]
+text = "The oracle verifies the products the gateway's Model reference extracted"
+task = "extraction/2"
+
+[[expect]]
+text = "The oracle verifies the products the local Model reference extracted"
+task = "extraction/2"
+
+[[expect]]
+text = "Each extraction returned the schema's output type, read in compiled mode, and each of its Runs ended with the Verdict `verified`"
+
+[[expect]]
+text = "The extraction that required `gtin` failed with `extraction_incomplete`, naming `gtin` and its reason and carrying the fields found"
+
+[[expect]]
+text = "Every result and that error carried `ModelUsage`: its calls and tokens equal to the Fake model's own count of the calls it served (`GET /model-calls`), `byModel` holding them under the model its Model reference named, and a price for them"

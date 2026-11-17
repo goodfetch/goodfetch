@@ -16,9 +16,3 @@
 #   vitest      its full name, suites and title joined by ` > `;
 #   playwright  its file, suites and title joined by ` › `;
 #   pytest      its node ID, `tests/test_page.py::test_title`.
-
-[[test]]
-runner = "nextest"
-id = "goodfetch-engine engine::tests::report::a_periodic_checkpoint_that_fails_warns_naming_its_folder"
-issue = 2729
-date = 2026-11-17

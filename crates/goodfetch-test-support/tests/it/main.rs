@@ -16,6 +16,7 @@
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod browser_cache;
 mod canaries;
+mod cargo_consumer;
 mod cli;
 mod cli_json;
 #[cfg(target_os = "linux")]

@@ -39,8 +39,10 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::path::Path;
+use std::pin::{Pin, pin};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::task::{Context, Poll};
 use std::time::SystemTime;
 
 use bytes::Bytes;
@@ -52,7 +54,7 @@ use goodfetch_engine::ledger::Ledger;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
-use goodfetch_engine::transport::{self, ConnectionWriter, Network};
+use goodfetch_engine::transport::{self, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
 use goodfetch_fetch_tier::{Body, FetchTiers, Hop, Reuse, Sending, Sent, Transport};
 use goodfetch_protocol::catalog::Product;
@@ -63,7 +65,7 @@ use goodfetch_protocol::usage::{INSTALL, Limit, REQUESTS};
 use goodfetch_test_client::Hello;
 use jiff::Timestamp;
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 
 /// The paragraphs every page's body is made of, each 128 bytes.
 const PARAGRAPHS: &[u8] = include_bytes!("fixtures/paragraphs.html");
@@ -517,9 +519,8 @@ pub(crate) struct Options {
     /// The formats the crawl's extraction asks for: none by default.
     pub(crate) formats: serde_json::Map<String, Value>,
     /// A handler serves each page, on its document tier, in place of the
-    /// code-free extraction: it waits on the page's `h1` as attached, then as
-    /// visible, which the tier answers from the page's own document.
-    pub(crate) handler: bool,
+    /// code-free extraction.
+    pub(crate) handler: Option<Handler>,
     /// The Frontier's outcomes beyond a links batch.
     pub(crate) frontier: Option<Frontier>,
     /// Every page without its paragraphs: the same batches, hops and sitemaps
@@ -547,6 +548,20 @@ pub(crate) struct Options {
     pub(crate) linked_pages: Option<usize>,
     /// What the crawl is sent once it started.
     pub(crate) after_start: AfterStart,
+}
+
+/// The handler that serves each page of a handled crawl, on its document
+/// tier.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Handler {
+    /// Waits on the page's `h1` as attached, then as visible, which the
+    /// tier answers from the page's own document, and answers no Record.
+    Waits,
+    /// The reference handler of `E1.handled_page_wire_share` (#2407): one
+    /// `page.read` of [`REFERENCE_FIELDS`] fields, one `crawl_request.push`
+    /// of what it read and one `crawl_request.enqueue_links` of the page's
+    /// links, then an answer with no Record.
+    Reference,
 }
 
 /// What a crawl is sent once it started.
@@ -701,8 +716,8 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
 /// What [`drive`] runs a crawl on: the Goodfetch home `home`, a paused
 /// clock starting at `start`, entropy seeded with `seed`, `metrics`, where
 /// its engine records, among them its Counted work, and the VFS its run
-/// file opens through; whether a `handler` serves its pages, so it keeps no
-/// Record; and the `credits` its read of the Records gives, at least one a
+/// file opens through; the `handler` that serves its pages, if any, so it
+/// keeps no Record of the code-free extraction; and the `credits` its read of the Records gives, at least one a
 /// Record.
 pub(crate) struct Driven<'a> {
     pub(crate) home: &'a Path,
@@ -710,7 +725,7 @@ pub(crate) struct Driven<'a> {
     pub(crate) seed: u64,
     pub(crate) metrics: Metrics,
     pub(crate) run_state_vfs: Option<String>,
-    pub(crate) handler: bool,
+    pub(crate) handler: Option<Handler>,
     pub(crate) credits: u64,
     /// What the crawl is sent once it started.
     pub(crate) after_start: AfterStart,
@@ -752,14 +767,13 @@ pub(crate) fn drive(
                 .split();
             let mut lines = BufReader::new(reader).lines();
             send(&mut writer, &hello()).await;
-            send(&mut writer, &crawl_start.to_string()).await;
+            send(&mut writer, &encode(crawl_start)).await;
             let mut records = Vec::new();
-            let mut waits = Waits::default();
+            let mut handled = Handled::of(handler);
             let mut calls_out = 0;
-            while let Ok(Some(line)) = lines.next_line().await {
-                let message: Value =
-                    serde_json::from_str(&line).expect("invariant: the engine writes JSON");
-                if waits.read(&message, &mut writer).await {
+            while let Some(line) = next_line(&mut lines).await {
+                let message = decode(&line);
+                if handled.read(&message, &mut writer).await {
                     continue;
                 }
                 if message["id"] == "start" && after_start == AfterStart::BarrierCalls {
@@ -778,7 +792,7 @@ pub(crate) fn drive(
                     }
                 } else if message["id"] == "finish" {
                     assert!(message.get("result").is_some(), "{message}");
-                    if handler {
+                    if handler.is_some() {
                         break;
                     }
                     send(&mut writer, RECORDS).await;
@@ -792,7 +806,7 @@ pub(crate) fn drive(
             }
             writer.shutdown().await.expect("invariant: in memory");
             while let Ok(Some(_)) = lines.next_line().await {}
-            (records, waits.answered)
+            (records, handled.answered())
         };
         let (served, read) = tokio::join!(
             engine.run_attached(
@@ -980,7 +994,7 @@ fn crawl_start(
         serde_json::Map<String, Value>,
         serde_json::Map<String, Value>,
     ),
-    handler: bool,
+    handler: Option<Handler>,
     frontier: Option<Frontier>,
     linked: usize,
 ) -> Value {
@@ -1020,7 +1034,7 @@ fn crawl_start(
             } } });
         }
     }
-    if handler {
+    if let Some(handler) = handler {
         settings.insert(
             "crawl".to_owned(),
             json!({ "handler": { "concurrency": 1 } }),
@@ -1031,16 +1045,22 @@ fn crawl_start(
             .collect();
         seeds.splice(0..0, pages);
         labels["page"] = json!({});
+        let mut params = json!({
+            "run_id": "pages",
+            "seeds": seeds,
+            "labels": labels,
+            "settings": settings,
+        });
+        // The reference handler pushes what it read into a Dataset of its
+        // own.
+        if handler == Handler::Reference {
+            params["datasets"] = json!([{ "name": "pages" }]);
+        }
         return json!({
             "jsonrpc": "2.0",
             "id": "start",
             "method": "crawl.start",
-            "params": {
-                "run_id": "pages",
-                "seeds": seeds,
-                "labels": labels,
-                "settings": settings,
-            },
+            "params": params,
         });
     }
     fields.insert(
@@ -1068,6 +1088,42 @@ fn crawl_start(
             "settings": settings,
         },
     })
+}
+
+/// The handler a crawl's pages are served by, and what it holds between
+/// its messages.
+enum Handled {
+    None,
+    Waits(Waits),
+    Reference(Reference),
+}
+
+impl Handled {
+    fn of(handler: Option<Handler>) -> Self {
+        match handler {
+            None => Self::None,
+            Some(Handler::Waits) => Self::Waits(Waits::default()),
+            Some(Handler::Reference) => Self::Reference(Reference::default()),
+        }
+    }
+
+    /// Whether `message` was the handler's, having done its next step.
+    async fn read(&mut self, message: &Value, writer: &mut ConnectionWriter) -> bool {
+        match self {
+            Self::None => false,
+            Self::Waits(waits) => waits.read(message, writer).await,
+            Self::Reference(reference) => reference.read(message, writer).await,
+        }
+    }
+
+    /// The requests it answered.
+    fn answered(&self) -> u64 {
+        match self {
+            Self::None => 0,
+            Self::Waits(waits) => waits.answered,
+            Self::Reference(reference) => reference.answered,
+        }
+    }
 }
 
 /// The handler of a crawl: on each `crawl_request.handle`, waits on its page's
@@ -1127,11 +1183,159 @@ fn wait_for(id: &str, page: &Value, state: &str) -> String {
     .to_string()
 }
 
+/// The fields the reference handler reads of each page in one `page.read`.
+pub(crate) const REFERENCE_FIELDS: usize = 20;
+
+/// The paragraphs of the fixture's smallest page, each of which the
+/// reference handler's fields read in turn: every page holds as many.
+const READ_PARAGRAPHS: usize = PAGES[0];
+
+/// The reference handler (#2407): on each `crawl_request.handle`, one
+/// `page.read` of [`REFERENCE_FIELDS`] fields, then one `crawl_request.push`
+/// of the values it read, then one `crawl_request.enqueue_links` of the
+/// page's links, which the crawl's seeds already hold, then an answer with
+/// no Record.
+#[derive(Default)]
+struct Reference {
+    /// Each request a step is out for: the handle's params.
+    handling: BTreeMap<String, Value>,
+    answered: u64,
+}
+
+impl Reference {
+    /// Whether `message` was the handler's, having done its next step.
+    async fn read(&mut self, message: &Value, writer: &mut ConnectionWriter) -> bool {
+        let id = message["id"].as_str().unwrap_or_default();
+        if message["method"] == "crawl_request.handle" {
+            let key = self.handling.len().to_string();
+            let handle = &message["params"];
+            let read = request(
+                &format!("read-{key}"),
+                "page.read",
+                &json!({ "page_id": handle["page_id"], "fields": reference_fields() }),
+            );
+            send(writer, &encode(&read)).await;
+            let mut handling = handle.clone();
+            handling["request"] = message["id"].clone();
+            self.handling.insert(key, handling);
+        } else if let Some(key) = id.strip_prefix("read-") {
+            let values = &message["result"]["values"];
+            assert_eq!(
+                values.as_object().map(serde_json::Map::len),
+                Some(REFERENCE_FIELDS),
+                "{message}"
+            );
+            let handle = &self.handling[key];
+            let push = request(
+                &format!("push-{key}"),
+                "crawl_request.push",
+                &json!({
+                    "run_id": handle["run_id"],
+                    "crawl_request_id": handle["crawl_request"]["id"],
+                    "lease_epoch": handle["lease_epoch"],
+                    "dataset": "pages",
+                    "records": [values],
+                }),
+            );
+            send(writer, &encode(&push)).await;
+        } else if let Some(key) = id.strip_prefix("push-") {
+            assert!(message.get("result").is_some(), "{message}");
+            let handle = &self.handling[key];
+            let enqueue = request(
+                &format!("enqueue-{key}"),
+                "crawl_request.enqueue_links",
+                &json!({
+                    "run_id": handle["run_id"],
+                    "crawl_request_id": handle["crawl_request"]["id"],
+                    "lease_epoch": handle["lease_epoch"],
+                    "locator": { "page_id": handle["page_id"], "selector": "nav a" },
+                    "label": "page",
+                }),
+            );
+            send(writer, &encode(&enqueue)).await;
+        } else if let Some(key) = id.strip_prefix("enqueue-") {
+            assert!(message.get("result").is_some(), "{message}");
+            let answer = json!({
+                "jsonrpc": "2.0",
+                "id": self.handling[key]["request"],
+                "result": { "records": [] },
+            });
+            send(writer, &encode(&answer)).await;
+            self.answered += 1;
+        } else {
+            return false;
+        }
+        true
+    }
+}
+
+/// The request `method` with `params`, sent under `id`.
+fn request(id: &str, method: &str, params: &Value) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
+}
+
+/// The reference handler's [`REFERENCE_FIELDS`] fields: the page's title,
+/// its heading, its first link's `href`, and its paragraphs' texts in turn
+/// for the rest.
+fn reference_fields() -> Value {
+    let css = |selector: &str| json!({ "kind": "css", "selector": selector });
+    let mut fields = serde_json::Map::from_iter([
+        ("title".to_owned(), json!({ "locator": css("title") })),
+        ("heading".to_owned(), json!({ "locator": css("h1") })),
+        (
+            "link".to_owned(),
+            json!({ "locator": css("nav a"), "attribute": "href" }),
+        ),
+    ]);
+    for field in fields.len()..REFERENCE_FIELDS {
+        let paragraph = field % READ_PARAGRAPHS + 1;
+        fields.insert(
+            format!("paragraph_{field}"),
+            json!({ "locator": css(&format!("main > p:nth-of-type({paragraph})")) }),
+        );
+    }
+    Value::Object(fields)
+}
+
+/// The client's wire, each step in a function of its own that Callgrind
+/// names (`E1.handled_page_wire_share`): `message` encoded as its line.
+#[inline(never)]
+pub(crate) fn encode(message: &Value) -> String {
+    message.to_string()
+}
+
+/// The message `line` holds, decoded.
+#[inline(never)]
+pub(crate) fn decode(line: &str) -> Value {
+    serde_json::from_str(line).expect("invariant: the engine writes JSON")
+}
+
+/// The next line the engine wrote, `None` once it wrote its last.
+async fn next_line(lines: &mut Lines<BufReader<ConnectionReader>>) -> Option<String> {
+    Wire(pin!(lines.next_line())).await.ok().flatten()
+}
+
 /// Writes `line` and its newline.
 async fn send(writer: &mut ConnectionWriter, line: &str) {
-    writer
-        .write_all(line.as_bytes())
-        .await
-        .expect("invariant: in memory");
-    writer.write_all(b"\n").await.expect("invariant: in memory");
+    Wire(pin!(async {
+        writer
+            .write_all(line.as_bytes())
+            .await
+            .expect("invariant: in memory");
+        writer.write_all(b"\n").await.expect("invariant: in memory");
+    }))
+    .await;
+}
+
+/// The client reading or writing its Connection, `future`, each poll in a
+/// function of its own that Callgrind names (`E1.handled_page_wire_share`).
+struct Wire<'a, F>(Pin<&'a mut F>);
+
+impl<F: Future> Future for Wire<'_, F> {
+    type Output = F::Output;
+
+    #[inline(never)]
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<F::Output> {
+        self.0.as_mut().poll(context)
+    }
 }

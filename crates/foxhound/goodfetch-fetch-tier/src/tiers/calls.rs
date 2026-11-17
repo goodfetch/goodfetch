@@ -372,7 +372,10 @@ fn ready(answer: Result<Box<RawValue>, CallError>) -> Served {
     Box::pin(std::future::ready(answer))
 }
 
-/// `value` as a call's result, encoded into bytes once.
+/// `value` as a call's result, encoded into bytes once: a function of its own,
+/// never inlined, so that `xtask counts`' Callgrind run can name it in
+/// `E1.handled_page_wire_share` (ADR 0140).
+#[inline(never)]
 fn encoded(value: &impl Serialize) -> Box<RawValue> {
     serde_json::value::to_raw_value(value).expect("invariant: a protocol type encodes as JSON")
 }

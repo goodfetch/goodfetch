@@ -4,7 +4,7 @@
 //! counted as one JSON line, which `xtask counts` divides and holds to the
 //! Quality register's limits. An example and not a `[[bench]]`, as `xtask
 //! perf` runs every bench target under gungraun: counts need no optimized
-//! build.
+//! build, but for `E1.handled_page_wire_share`.
 //!
 //! `F3.prepares` is what no wrapper sees (the spec's "What wrappers cannot
 //! see"): each outcome's is Callgrind's call count of SQLite's prepare inside
@@ -46,6 +46,16 @@
 //! admission builds counts for its page. The whole run must see the engine
 //! build its own, or the constructor's name has changed. It goes unprinted
 //! without Valgrind too.
+//!
+//! `E1.handled_page_wire_share` (#2407) is the wire's share of a handled
+//! page: `--valgrind` runs the handled cell, its pages served by the
+//! reference handler, under Callgrind as `--wire-share`, on the whole site
+//! and on [`SHORTER`] of its pages, and prints what the added pages take
+//! beneath [`WIRE`] over a hundredth of what they take beneath
+//! [`WHOLE_RUN`]. `xtask counts --valgrind` builds this example in the
+//! benchmarks' profile for it: unoptimized, the decoding and encoding code
+//! would weigh several times what the product's does. The engine's wire
+//! functions are never inlined, so that Callgrind names them there.
 //!
 //! The cells of the run file's own switches (`concurrency_1`,
 //! `concurrency_16`, `durability_fast`, `durability_full`,
@@ -159,10 +169,48 @@ use goodfetch_test_support::CountingVfs;
 use goodfetch_test_support::callgrind;
 use plants::{Counted as PlantOn, politeness_plant, run_state_plant};
 use scenarios::{
-    AfterStart, BARRIER_CALLS, Frontier, Options, PAGES, Plant, body_bytes, crawl_with, entries,
-    page_analysis_plant, run_trace_plant,
+    AfterStart, BARRIER_CALLS, Frontier, Handler, Options, PAGES, Plant, body_bytes, crawl_with,
+    entries, page_analysis_plant, run_trace_plant,
 };
 use serde_json::{Map, Value, json};
+
+/// The cell whose pages a handler serves, on their document tier.
+const HANDLED_CELL: &str = "document_tier_handler";
+
+/// The wire's share of a handled page, which `--valgrind` reads.
+const WIRE_SHARE: &str = "E1.handled_page_wire_share";
+
+/// Its unit: a hundredth of the instructions the pages the whole site adds
+/// take, so the figure reads as a percent.
+const HANDLED_PAGE_HUNDREDTHS: &str = "handled_page_hundredths";
+
+/// What a `--wire-share` run does once it started, as Callgrind names it:
+/// all of a handled page's work is beneath it.
+const WHOLE_RUN: &str = "counts::main";
+
+/// The wire, as Callgrind names its functions: on the engine's side, each
+/// message's line read from the connection, framed and decoded, its params
+/// read, each answer the handler gives read, and each result, answer and
+/// request encoded and written; on the client's, the reference handler's,
+/// each line encoded, written, read and decoded. A handled page sends no
+/// notification. None calls another, so Callgrind counts each instruction
+/// once, and each must be entered, or the work has moved. The engine's routing of a message to its handler and the hops
+/// between its tasks are not the wire's, nor the handler's building of the
+/// messages it sends. The writing task's poll stands for its writing, its
+/// one work.
+const WIRE: [&str; 11] = [
+    "<goodfetch_engine::rpc::connection::Reading>::read::{closure#0}",
+    "goodfetch_engine::rpc::framing::decode",
+    "<goodfetch_engine::composition::params::Params>::read::<*>",
+    "goodfetch_fetch_tier::tiers::calls::encoded::<*>",
+    "goodfetch_engine::wire::success_line::<*>",
+    "goodfetch_engine::wire::request_line::<*>",
+    "<goodfetch_engine::wire::Received>::read::<*>",
+    "tokio::runtime::task::raw::poll::<*goodfetch_engine::rpc::connection::write_lines*>",
+    "counts::scenarios::encode",
+    "counts::scenarios::decode",
+    "<counts::scenarios::Wire<*> as core::future::future::Future>::poll",
+];
 
 /// The Limit of `requests` the default cell's crawl meets, far above what it
 /// charges.
@@ -208,6 +256,15 @@ fn plant(name: &str, work: &CountedWork, vfs: &str) -> Plant {
     }
     if name == LEASE_READS_SPILLED {
         return counting(work.clone(), Row::LeaseReads);
+    }
+    if name == WIRE_SHARE {
+        // One message more a page, encoded and decoded as the reference
+        // handler's are.
+        return Arc::new(|head: &str| {
+            let message =
+                json!({ "jsonrpc": "2.0", "method": "planted", "params": { "head": head } });
+            std::hint::black_box(scenarios::decode(&scenarios::encode(&message)));
+        });
     }
     if name == CONSTRUCTIONS {
         return Arc::new(|_: &str| {
@@ -699,7 +756,7 @@ fn cells() -> Vec<Cell> {
         },
         learning_off(),
         Cell {
-            name: "document_tier_handler",
+            name: HANDLED_CELL,
             settings: json!({}),
             frontier: None,
             removes: &[],
@@ -889,7 +946,13 @@ enum Pages {
 
 /// The crawl of `cell`, on an engine and in a home of its own, with the row
 /// `planted` or the bypass `bypassed` planted.
-fn crawl(cell: &Cell, planted: Option<&str>, bypassed: Option<&str>, pages: Pages) -> Crawl {
+fn crawl(
+    cell: &Cell,
+    planted: Option<&str>,
+    bypassed: Option<&str>,
+    pages: Pages,
+    handler: Handler,
+) -> Crawl {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
@@ -925,7 +988,7 @@ fn crawl(cell: &Cell, planted: Option<&str>, bypassed: Option<&str>, pages: Page
             } else {
                 number_field()
             },
-            handler: cell.handler,
+            handler: cell.handler.then_some(handler),
             frontier: cell.frontier,
             small_pages: pages == Pages::Small,
             run_state_vfs: Some(vfs.name().to_owned()),
@@ -989,7 +1052,7 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
             vfs_files,
             setup_syncs,
             entries,
-        } = crawl(cell, planted, bypassed, Pages::Whole);
+        } = crawl(cell, planted, bypassed, Pages::Whole, Handler::Waits);
         assert!(
             entries > 0 || !logs_provenance(cell),
             "the crawl wrote no Run-trace entry"
@@ -1316,6 +1379,66 @@ fn asked<'a>(arguments: &[&'a str]) -> (Pages, Option<&'a str>, Option<&'a str>,
     }
 }
 
+/// Prints `E1.handled_page_wire_share` (#2407), with `planted`'s plant: the
+/// handled cell's crawl, its pages served by the reference handler, runs
+/// under Callgrind on the whole site and as `--shorter`, each twice side by
+/// side, once counting beneath [`WIRE`] and once beneath [`WHOLE_RUN`]. The
+/// row is what the whole site adds beneath the first over a hundredth of
+/// what it adds beneath the second, so what the crawl does once, its start
+/// and its end, counts for no page. Without Valgrind the row goes
+/// unprinted, which `xtask counts` fails as a row not counted.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the ADR 0140 counts harness runs each run under Callgrind on a scoped thread, none waiting on another"
+)]
+fn wire_share(planted: Option<&str>) {
+    let program = std::env::current_exe().expect("invariant: this executable has a path");
+    let beneath = |functions: &[&str], shorter: bool| {
+        let mut arguments = vec!["--wire-share"];
+        if shorter {
+            arguments.push("--shorter");
+        }
+        if let Some(planted) = planted {
+            arguments.extend(["--plant", planted]);
+        }
+        match callgrind::instructions_beneath(functions, None, &program, &arguments) {
+            Ok(Some(instructions)) => Some(instructions),
+            // A function renamed or inlined would otherwise read as free.
+            Ok(None) => panic!(
+                "Callgrind never entered one of {functions:?}: the work {WIRE_SHARE} counts has moved"
+            ),
+            Err(error) => {
+                eprintln!("{WIRE_SHARE} is not read: {error}");
+                None
+            }
+        }
+    };
+    let [wire, shorter_wire, page, shorter_page] = std::thread::scope(|scope| {
+        [
+            (&WIRE[..], false),
+            (&WIRE[..], true),
+            (&[WHOLE_RUN][..], false),
+            (&[WHOLE_RUN][..], true),
+        ]
+        .map(|(functions, shorter)| scope.spawn(move || beneath(functions, shorter)))
+        .map(|run| {
+            run.join()
+                .expect("invariant: the run under Callgrind passed")
+        })
+    });
+    let (units, counts) = match (wire, shorter_wire, page, shorter_page) {
+        (Some(wire), Some(shorter_wire), Some(page), Some(shorter_page)) => (
+            json!({ HANDLED_PAGE_HUNDREDTHS: page.saturating_sub(shorter_page) / 100 }),
+            json!({ WIRE_SHARE: wire.saturating_sub(shorter_wire) }),
+        ),
+        _ => (json!({}), json!({})),
+    };
+    println!(
+        "{}",
+        json!({ "cell": HANDLED_CELL, "units": units, "counts": counts })
+    );
+}
+
 /// The shorter site's crawl of `cell`, `ran`, served [`added_pages`] pages
 /// fewer than the whole site's, as its Records or its handler count them; a
 /// cell that keeps no Record has none to count.
@@ -1335,6 +1458,35 @@ fn assert_shorter(cell: &Cell, ran: &Crawl) {
     );
 }
 
+/// One run [`wire_share`] reads under Callgrind, as `rest` asks: the handled
+/// cell's crawl, each page served by the reference handler, on the whole site
+/// or on [`SHORTER`] of its pages.
+fn wire_share_crawl(rest: &[&str]) {
+    let (pages, planted) = match rest {
+        [] => (Pages::Callgrind, None),
+        ["--shorter"] => (Pages::CallgrindShorter, None),
+        ["--plant", row] => (Pages::Callgrind, Some(*row)),
+        ["--shorter", "--plant", row] => (Pages::CallgrindShorter, Some(*row)),
+        other => {
+            panic!("usage: counts --wire-share [--shorter] [--plant <row>], not {other:?}")
+        }
+    };
+    let cell = cells()
+        .into_iter()
+        .find(|cell| cell.name == HANDLED_CELL)
+        .expect("invariant: B1 has a handled cell");
+    let ran = crawl(&cell, planted, None, pages, Handler::Reference);
+    if pages == Pages::CallgrindShorter {
+        assert_shorter(&cell, &ran);
+    } else {
+        assert_eq!(
+            usize::try_from(ran.crawled.handled).unwrap_or(usize::MAX),
+            pages_of(&cell, PAGES.len()),
+            "the reference handler answers every page"
+        );
+    }
+}
+
 #[expect(
     clippy::disallowed_methods,
     reason = "the ADR 0140 counts harness runs each cell on a scoped thread, none waiting on another"
@@ -1342,6 +1494,19 @@ fn assert_shorter(cell: &Cell, ran: &Crawl) {
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    if let ["--valgrind", rest @ ..] = arguments.as_slice() {
+        let planted = match rest {
+            [] => None,
+            ["--plant", row] => Some(*row),
+            other => panic!("usage: counts --valgrind [--plant <row>], not {other:?}"),
+        };
+        wire_share(planted);
+        return;
+    }
+    if let ["--wire-share", rest @ ..] = arguments.as_slice() {
+        wire_share_crawl(rest);
+        return;
+    }
     let (pages, cell, planted, watched) = asked(&arguments);
     let bypassed = matches!(watched, Watched::Traced { bypass: Some(_) });
     if let Some(name) = cell {
@@ -1349,7 +1514,7 @@ fn main() {
             .into_iter()
             .find(|cell| cell.name == name)
             .expect("invariant: its parent named a cell");
-        let ran = crawl(&cell, planted, None, pages);
+        let ran = crawl(&cell, planted, None, pages, Handler::Waits);
         if pages == Pages::CallgrindShorter {
             assert_shorter(&cell, &ran);
         }

@@ -121,11 +121,14 @@ impl<'a> Params<'a> {
     /// They, read as `P` in one pass, each struct and map only from an
     /// object, without their `_meta`. Counts one decode. A read that goes
     /// through every member of the params also finds, in the same pass,
-    /// what dispatch takes of them and the page they name.
+    /// what dispatch takes of them and the page they name. A function of
+    /// its own, never inlined, so that `xtask counts`' Callgrind run can
+    /// name it in `E1.handled_page_wire_share` (ADR 0140).
     ///
     /// # Errors
     ///
     /// `invalid_params` when they are no `P`.
+    #[inline(never)]
     pub fn read<P: DeserializeOwned>(&self) -> Result<P, CallError> {
         self.0.work.count(Row::MessageDecodes);
         let mut noted = Noted::default();

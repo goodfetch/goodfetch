@@ -98,7 +98,7 @@ pub(super) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     for family in families {
         let executable = match named.iter().find(|(name, _)| *name == family.name) {
             Some((_, path)) => environment.path(Path::new(path)),
-            None => super::build(family, environment)?,
+            None => super::build(family, false, environment)?,
         };
         if arguments.prove {
             for bypass in family.bypasses {

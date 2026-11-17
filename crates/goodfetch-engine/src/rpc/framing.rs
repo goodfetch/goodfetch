@@ -197,7 +197,10 @@ const NOTIFICATION_FIELDS: &[&str] = &["jsonrpc", "method", "params"];
 
 /// Decodes one line into a request, a notification or a reply, which keeps
 /// the line: one pass reads its envelope, and its params, result or error
-/// are read later from where they are.
+/// are read later from where they are. A function of its own, never inlined,
+/// so that `xtask counts`' Callgrind run can name it in
+/// `E1.handled_page_wire_share` (ADR 0140).
+#[inline(never)]
 pub fn decode(line: Vec<u8>) -> Result<Incoming, DecodeError> {
     if nesting_exceeds(&line, MAX_DEPTH) {
         return Err(DecodeError::new(

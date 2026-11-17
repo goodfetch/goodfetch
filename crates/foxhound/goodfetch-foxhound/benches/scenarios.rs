@@ -717,8 +717,8 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
 /// clock starting at `start`, entropy seeded with `seed`, `metrics`, where
 /// its engine records, among them its Counted work, and the VFS its run
 /// file opens through; the `handler` that serves its pages, if any, so it
-/// keeps no Record of the code-free extraction; and the `credits` its read of the Records gives, at least one a
-/// Record.
+/// keeps no Record of the code-free extraction; and the `credits` its read
+/// of the Records gives, at least one a Record.
 pub(crate) struct Driven<'a> {
     pub(crate) home: &'a Path,
     pub(crate) start: SystemTime,

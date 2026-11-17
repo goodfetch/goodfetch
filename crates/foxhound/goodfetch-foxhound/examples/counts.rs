@@ -55,7 +55,9 @@
 //! [`WHOLE_RUN`]. `xtask counts --valgrind` builds this example in the
 //! benchmarks' profile for it: unoptimized, the decoding and encoding code
 //! would weigh several times what the product's does. The engine's wire
-//! functions are never inlined, so that Callgrind names them there.
+//! functions are never inlined, so that Callgrind names them there; the
+//! line's read is an `async` function, whose body Callgrind names as its
+//! closure.
 //!
 //! The cells of the run file's own switches (`concurrency_1`,
 //! `concurrency_16`, `durability_fast`, `durability_full`,
@@ -194,10 +196,12 @@ const WHOLE_RUN: &str = "counts::main";
 /// request encoded and written; on the client's, the reference handler's,
 /// each line encoded, written, read and decoded. A handled page sends no
 /// notification. None calls another, so Callgrind counts each instruction
-/// once, and each must be entered, or the work has moved. The engine's routing of a message to its handler and the hops
-/// between its tasks are not the wire's, nor the handler's building of the
-/// messages it sends. The writing task's poll stands for its writing, its
-/// one work.
+/// once, and each must be entered, or the work has moved. The engine's
+/// routing of a message to its handler and the hops between its tasks are
+/// not the wire's, nor the handler's building of the messages it sends. The
+/// writing task's poll stands for its writing, its one work, with the two
+/// small steps it takes on each line beside it: the line's receipt from the
+/// channel that hands it over, and the Connection's mask pass.
 const WIRE: [&str; 11] = [
     "<goodfetch_engine::rpc::connection::Reading>::read::{closure#0}",
     "goodfetch_engine::rpc::framing::decode",

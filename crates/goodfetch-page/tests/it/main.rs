@@ -23,3 +23,4 @@ mod robots_txt;
 mod served_calls;
 mod session_counts;
 mod url_pattern;
+mod version_check;

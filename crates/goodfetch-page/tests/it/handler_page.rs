@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use goodfetch_engine::browser_cache::{BuildPlatform, CHROME_FOR_TESTING, PinnedArtifact};
 use goodfetch_engine::clock::Clock;
@@ -346,13 +346,33 @@ pub(crate) fn with_handler_page(
 
 /// As [`with_handler_page`], with the settings `settings_of` the test's
 /// Proving ground, such as one naming its proxies' addresses.
+pub(crate) fn with_handler_page_of(
+    gate: &RecordingGate,
+    settings_of: impl FnOnce(&ProvingGround) -> Map<String, Value>,
+    test: impl AsyncFnOnce(&mut Program),
+) {
+    handler_page(gate, settings_of, None, test);
+}
+
+/// As [`with_handler_page`], on an engine whose clock reads `start` as the
+/// test begins and moves on in real time, as the browser does.
+pub(crate) fn with_handler_page_on(
+    gate: &RecordingGate,
+    start: SystemTime,
+    settings: Map<String, Value>,
+    test: impl AsyncFnOnce(&mut Program),
+) {
+    handler_page(gate, |_| settings, Some(start), test);
+}
+
 #[expect(
     clippy::disallowed_methods,
     reason = "the tests build their own runtime with real time, since a real browser answers in real time (ADR 0060)"
 )]
-pub(crate) fn with_handler_page_of(
+fn handler_page(
     gate: &RecordingGate,
     settings_of: impl FnOnce(&ProvingGround) -> Map<String, Value>,
+    start: Option<SystemTime>,
     test: impl AsyncFnOnce(&mut Program),
 ) {
     let env = TestEnv::new();
@@ -378,13 +398,13 @@ pub(crate) fn with_handler_page_of(
         .expect("invariant: the runtime starts");
     runtime.block_on(async {
         // The dispatch records go into the test's exercise record (ADR 0072).
-        let clock = Clock::system();
+        let clock = start.map_or_else(Clock::system, Clock::paused);
         let _subscriber =
             tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || {
                 clock.wall()
             }));
         let (network, dialer) = transport::in_memory();
-        let dependencies = dependencies(env.home(), &cache);
+        let dependencies = dependencies(env.home(), &cache, clock);
         let program = async {
             let (reader, writer) = dialer
                 .connect()
@@ -480,18 +500,18 @@ impl<F: Future> Future for Unwinding<F> {
     }
 }
 
-/// What the engine runs on: the test's home, its Browser cache, the OS's
-/// clock and threads.
+/// What the engine runs on: the test's home, its Browser cache, `clock`
+/// and the OS's threads.
 #[expect(
     clippy::disallowed_methods,
     reason = "the engine's entropy is seeded from the test's own seed (ADR 0059)"
 )]
-fn dependencies(home: &Path, cache: &Path) -> Dependencies {
+fn dependencies(home: &Path, cache: &Path, clock: Clock) -> Dependencies {
     Dependencies {
         environment: std::collections::BTreeMap::new(),
         keychain: goodfetch_engine::secrets::Keychain::absent(),
         home: Home::new(home.to_owned()).with_browsers_path(Some(cache.to_owned())),
-        clock: Clock::system(),
+        clock,
         entropy: Entropy::seeded(720),
         blocking: BlockingPolicy::Threads,
         run_state_location: RunStateLocation::PerMajor,

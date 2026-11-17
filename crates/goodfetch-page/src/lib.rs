@@ -45,6 +45,7 @@ pub mod robots_txt;
 mod sessions;
 mod trace;
 pub mod url_pattern;
+mod version_check;
 
 pub use clean_up_versions::manifest_file;
 pub use launch::{Launcher, Scripted, ScriptedBrowsers};

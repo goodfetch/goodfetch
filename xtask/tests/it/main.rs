@@ -17,6 +17,7 @@ mod advisories;
 mod affected;
 mod all_green;
 mod allure;
+mod browser_releases;
 mod budgets;
 mod clients;
 mod codegen;

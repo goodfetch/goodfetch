@@ -14,6 +14,7 @@ mod affected;
 mod all_green;
 mod allure;
 mod base_console;
+mod browser_releases;
 mod budgets;
 mod ceiling;
 mod check;
@@ -117,6 +118,10 @@ enum Command {
     /// The "all green" check: every needed job succeeded, and no earlier
     /// attempt of the run had a failed test step (ADR 0064).
     AllGreen(all_green::Arguments),
+    /// Writes the release table the version check grades browser builds
+    /// against, from Chromium Dash's milestone schedule and Mozilla's release
+    /// calendar (ADR 0035).
+    BrowserReleases(browser_releases::Arguments),
     /// The budget check (ADR 0061): opens or updates one `needs-triage`
     /// issue per suite or job whose median of its last 20 runs in its own
     /// tier, read from the results store, is past its budget in TESTING.md;
@@ -527,6 +532,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Advisories { command } => advisories::run(&command, environment),
         Command::Affected(arguments) => affected::run(arguments, environment),
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
+        Command::BrowserReleases(arguments) => browser_releases::run(&arguments, environment),
         Command::Budgets(arguments) => budgets::run(&arguments, environment),
         Command::Clients { command } => clients::run(&command, environment),
         Command::Codegen(arguments) => codegen::run(arguments, environment),

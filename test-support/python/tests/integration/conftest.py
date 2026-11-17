@@ -27,7 +27,10 @@ class Outcome:
     status: int
     """pytest's exit code."""
     results: Mapping[str, str]
-    """Each reported test's name: `passed`, `failure`, `error` or `skipped`."""
+    """Each reported test's name: `passed`, `failure`, `error` or `skipped`.
+
+    Empty when the session was refused before it started.
+    """
     project: Path
     """The folder the sample tests ran in."""
     output: str
@@ -46,6 +49,8 @@ class SampleRun:
         *,
         tools: Mapping[str, str] | None = None,
         args: Sequence[str] = (),
+        env: Mapping[str, str] | None = None,
+        interpreter: Sequence[str] = (),
     ) -> Outcome:
         """Writes `tests` as a test module and runs pytest on it.
 
@@ -54,6 +59,8 @@ class SampleRun:
             tools: The test tool manifest's entries the run reads; the real
                 manifest's unless given.
             args: More pytest arguments.
+            env: More environment variables, over this run's own.
+            interpreter: Options for the Python interpreter, before `-m pytest`.
         """
         project = self.test_env.folder / "project"
         (project / "tests").mkdir(parents=True)
@@ -64,10 +71,12 @@ class SampleRun:
             manifest = self.test_env.folder / "test-tools.json"
             manifest.write_text(json.dumps(tools), "utf-8")
             environ["GOODFETCH_TEST_TOOLS"] = str(manifest)
+        environ.update(env or {})
         junit = project / "junit.xml"
         process = self.test_env.start(
             [
                 sys.executable,
+                *interpreter,
                 "-m",
                 "pytest",
                 "-p",
@@ -90,6 +99,9 @@ class SampleRun:
 
 def _results(junit: Path) -> dict[str, str]:
     results: dict[str, str] = {}
+    # A session refused before it starts writes no JUnit file.
+    if not junit.exists():
+        return results
     for case in ElementTree.parse(junit).iter("testcase"):
         kinds = [
             child.tag for child in case if child.tag in {"failure", "error", "skipped"}

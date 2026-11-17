@@ -27,15 +27,6 @@ from goodfetch_test_support.schemas import SchemaError
 
 pytestmark = pytest.mark.anyio
 
-
-@pytest.fixture(
-    params=[pytest.param("asyncio", id="asyncio"), pytest.param("trio", id="trio")]
-)
-def anyio_backend(request: pytest.FixtureRequest) -> str:
-    """Both backends, named, so trio is never left out (#401 moves it to the plugin)."""
-    return cast("str", request.param)
-
-
 COLLIE_HELLO = {
     "protocol_version": "0.1",
     "surface": "sdk_typescript",

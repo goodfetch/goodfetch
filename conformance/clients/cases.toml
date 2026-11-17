@@ -20,7 +20,7 @@
 
 [suite]
 name = "clients"
-version = "9"
+version = "10"
 
 [[capability]]
 name = "lifecycle"
@@ -167,22 +167,23 @@ modes = ["attached"]
 
 # A Run's Key-value store outside a handler, on Collie's executable (ADR
 # 0103; #791): in TypeScript `tsc` rejects `set(key, null)`, and in Python
-# and Rust it fails with `value_invalid`. The Python and Rust SDKs have no
-# Connection yet, so `xtask clients check` only notes their surfaces until
-# area 11 builds them (M2).
+# and Rust it fails with `value_invalid`. The Python SDK has no Connection
+# yet, so `sdk-python` joins these cases with area 11's Python Connection;
+# `xtask clients check` only notes `sdk-rust` until its runner writes a case
+# log (M2).
 [[capability]]
 name = "key-value-store"
 
 [[capability.case]]
 id = "key-value-store-get-absent-answers-null"
 covers = ["story:6-28", "story:6-31"]
-surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "key-value-store-set-null-refused"
 covers = ["story:6-29"]
-surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-rust"]
 modes = ["attached", "linked"]
 
 # Bytes with their content type (#792): `getBytes` answers what `setBytes`
@@ -190,11 +191,11 @@ modes = ["attached", "linked"]
 [[capability.case]]
 id = "key-value-store-bytes-round-trip"
 covers = ["story:6-30"]
-surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "key-value-store-read-of-the-other-type-refused"
 covers = ["story:6-30"]
-surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-rust"]
 modes = ["attached", "linked"]

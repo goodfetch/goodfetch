@@ -14,6 +14,7 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use super::entry::{Ecosystem, Entry, Usage};
+use super::license;
 
 const LOCKFILE: &str = "uv.lock";
 
@@ -251,28 +252,76 @@ fn site_packages(environment: &Path) -> Vec<PathBuf> {
 struct Metadata {
     name: Option<String>,
     version: Option<String>,
-    /// `License-Expression` (PEP 639), or else the older `License` field.
+    /// `License-Expression` (PEP 639), or else the older `License` field
+    /// when it is an SPDX expression, or else the one license the Trove
+    /// classifiers name without doubt, or else the `License` field as stated.
     license: Option<String>,
+}
+
+/// The Trove license classifiers that name one SPDX license without doubt.
+/// `BSD License` names no clause count, so it maps to none.
+const CLASSIFIERS: [(&str, &str); 4] = [
+    (
+        "License :: OSI Approved :: Apache Software License",
+        "Apache-2.0",
+    ),
+    ("License :: OSI Approved :: MIT License", "MIT"),
+    ("License :: OSI Approved :: ISC License (ISCL)", "ISC"),
+    (
+        "License :: OSI Approved :: Python Software Foundation License",
+        "PSF-2.0",
+    ),
+];
+
+/// A classifier that says only that a license is OSI-approved, beside the
+/// one that names it.
+const OSI_APPROVED: &str = "License :: OSI Approved";
+
+/// The one license `classifiers` name without doubt: each license classifier
+/// maps to it, and none names another or one with no mapping.
+fn classified(classifiers: &[String]) -> Option<&'static str> {
+    let mut named = None;
+    for classifier in classifiers {
+        if !classifier.starts_with("License ::") || classifier == OSI_APPROVED {
+            continue;
+        }
+        let (_, id) = CLASSIFIERS.iter().find(|(trove, _)| trove == classifier)?;
+        if named.is_some_and(|named| named != *id) {
+            return None;
+        }
+        named = Some(*id);
+    }
+    named
 }
 
 impl Metadata {
     fn parse(text: &str) -> Self {
         let mut fields: BTreeMap<String, String> = BTreeMap::new();
+        let mut classifiers = Vec::new();
         // The headers end at the first empty line, where the description begins.
         for line in text.lines().take_while(|line| !line.is_empty()) {
             if let Some((field, value)) = line.split_once(':')
                 && !line.starts_with(char::is_whitespace)
             {
+                let field = field.to_ascii_lowercase();
+                if field == "classifier" {
+                    classifiers.push(value.trim().to_owned());
+                }
                 fields
-                    .entry(field.to_ascii_lowercase())
+                    .entry(field)
                     .or_insert_with(|| value.trim().to_owned());
             }
         }
-        let license = fields
-            .get("license-expression")
-            .or_else(|| fields.get("license"))
-            .filter(|license| !license.is_empty() && *license != "UNKNOWN")
-            .cloned();
+        let stated = |field: &str| {
+            fields
+                .get(field)
+                .filter(|license| !license.is_empty() && *license != "UNKNOWN")
+        };
+        let license = stated("license-expression")
+            .or_else(|| stated("license").filter(|license| license::readable(license)))
+            .cloned()
+            .or_else(|| classified(&classifiers).map(str::to_owned))
+            .or_else(|| stated("license").cloned());
         Self {
             name: fields.remove("name"),
             version: fields.remove("version"),
@@ -280,3 +329,6 @@ impl Metadata {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

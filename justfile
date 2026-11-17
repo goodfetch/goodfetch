@@ -219,10 +219,12 @@ features-tests: journeys-tests
     cargo run --quiet --bin xtask -- features check --listings target/journey-listings
 
 # ADR 0069's Client conformance case-list check with the runners' listings,
-# in the Pre-merge suite: after `journeys-tests`, it reads Vitest's listing,
-# so a case listing `sdk-typescript` fails without a Vitest test of the
-# TypeScript SDK packages tagged `client_case/<id>` in each of its modes; the
-# Quick suite's `xtask clients check`, which reads no listing, only notes it.
+# in the Pre-merge suite: after `journeys-tests`, it reads Vitest's and
+# pytest's listings, so a case listing `sdk-typescript` fails without a
+# Vitest test of the TypeScript SDK packages tagged `client_case/<id>` in
+# each of its modes, and one listing `sdk-python` without a pytest test of
+# the Python SDK packages marked `client_case(id=..., mode=...)`; the Quick
+# suite's `xtask clients check`, which reads no listing, only notes them.
 clients-tests: journeys-tests
     cargo run --quiet --bin xtask -- clients check --listings target/journey-listings
 
@@ -1798,7 +1800,8 @@ proofs:
 hooks:
     git config core.hooksPath .githooks
 
-# Merges a pull request only when its gate passes on its exact head, in a
+# Merges a pull request only when its gate passes on its head, merged with
+# the base's tip when it lacks it (ADR 0135's amendment of 2026-11-17), in a
 # clean checkout in the gate's own worktree (AGENTS.md, "Merging"): `just
 # pre-merge docs` when it is documents alone (`xtask affected`'s
 # `gate=docs`), `just pre-merge quick` when no test reads the change

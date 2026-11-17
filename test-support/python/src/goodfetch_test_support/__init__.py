@@ -14,6 +14,12 @@ from goodfetch_test_support.canaries import (
     SecretKind,
     search_canaries,
 )
+from goodfetch_test_support.case_log import (
+    CaseListInvalid,
+    CaseLogEntryInvalid,
+    ClientCaseRecord,
+    ClientCaseUntagged,
+)
 from goodfetch_test_support.daemon import Daemon, DaemonNotRequested
 from goodfetch_test_support.environment import (
     ProcessesAlive,
@@ -54,11 +60,16 @@ from goodfetch_test_support.unicode_record import (
     UnicodeRecord,
     unicode_record,
 )
+from goodfetch_test_support.ways import Way, three_ways
 
 __all__ = [
     "Canary",
     "CanaryHit",
     "CanaryOutputUnreadable",
+    "CaseListInvalid",
+    "CaseLogEntryInvalid",
+    "ClientCaseRecord",
+    "ClientCaseUntagged",
     "Closed",
     "Daemon",
     "DaemonNotRequested",
@@ -93,11 +104,13 @@ __all__ = [
     "UnicodeField",
     "UnicodeRecord",
     "UnusedStep",
+    "Way",
     "locales",
     "play_script",
     "proving_ground_routes",
     "redact",
     "search_canaries",
+    "three_ways",
     "time_zones",
     "unicode_record",
     "write_journey_document",

@@ -1,4 +1,7 @@
-"""The `journey` and `covers` markers, and their listing (ADRs 0063 and 0072)."""
+"""The `journey`, `covers` and `client_case` markers, and their listing.
+
+ADRs 0063, 0069 and 0072.
+"""
 
 import json
 from typing import TYPE_CHECKING
@@ -35,6 +38,13 @@ def test_journey() -> None:
 
 def test_module_level() -> None:
     pass
+
+
+@pytest.mark.skipif(True, reason="the Daemon mode comes later")
+@pytest.mark.client_case(id="hello-refused", mode="daemon")
+@pytest.mark.client_case(id="hello-refused", mode="attached")
+def test_skipped_case() -> None:
+    pass
 """
 
 
@@ -57,10 +67,15 @@ def test_strict_markers_refuse_a_marker_the_plugin_does_not_register(
     assert (outcome.status, outcome.results) == (status, results), outcome.output
 
 
-def test_marker_listing_names_each_test_with_its_journey_and_covers_values(
+def test_marker_listing_names_each_test_with_its_markers_values(
     sample_run: "SampleRun", test_env: TestEnv
 ) -> None:
-    """The listing the Feature scanner and the Journey check read (ADR 0072)."""
+    """The listing the Feature scanner, the Journey check and the clients check read.
+
+    It gives each test's `journey`, `covers` and `client_case` values, and
+    whether a `skip` or `skipif` marker may keep it from running (ADRs 0069
+    and 0072).
+    """
     listing = test_env.folder / "markers.json"
 
     outcome = sample_run.run(
@@ -74,11 +89,25 @@ def test_marker_listing_names_each_test_with_its_journey_and_covers_values(
                 "id": "tests/test_sample.py::test_journey",
                 "journey": [{"id": "J-002", "surface": "sdk-python"}],
                 "covers": ["operation:run.start", "error:run_not_found", "story:3-18"],
+                "client_case": [],
+                "skipped": False,
             },
             {
                 "id": "tests/test_sample.py::test_module_level",
                 "journey": [],
                 "covers": ["story:3-18"],
+                "client_case": [],
+                "skipped": False,
+            },
+            {
+                "id": "tests/test_sample.py::test_skipped_case",
+                "journey": [],
+                "covers": ["story:3-18"],
+                "client_case": [
+                    {"id": "hello-refused", "mode": "attached"},
+                    {"id": "hello-refused", "mode": "daemon"},
+                ],
+                "skipped": True,
             },
         ]
     }

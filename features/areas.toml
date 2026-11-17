@@ -1493,3 +1493,15 @@ prefix = "dataset.query."
 number = 12
 kind = "error"
 prefix = "query_"
+
+# Area 11, the Client surfaces (spec #608): the MCP profiles and the agent
+# skills, each a Feature once it exists.
+[[area]]
+number = 11
+kind = "mcp-profile"
+prefix = ""
+
+[[area]]
+number = 11
+kind = "skill"
+prefix = ""

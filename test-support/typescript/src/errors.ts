@@ -104,7 +104,13 @@ export type TestSupportErrorCode =
   /** A Journey's executable does not report its Product and version through `--version` (ADR 0063). */
   | "engine_version"
   /** A Journey variant run's document is not `proved`, or the run recorded a failure (ADR 0063). */
-  | "variant_not_proved";
+  | "variant_not_proved"
+  /** A package manager the install harness runs is not installed, or `pnpm` is not the one running the tests (ADR 0069). */
+  | "manager_missing"
+  /** `docs/release-age-exclusions.toml` cannot be read, or lacks a manager's `file` or `text` (ADRs 0030 and 0069). */
+  | "exclusions_invalid"
+  /** The install harness could not start its registry, or pack or publish a package to it (ADR 0069). */
+  | "publish_failed";
 
 /** An error of test support, matched on its `code`. */
 export class TestSupportError extends Error {

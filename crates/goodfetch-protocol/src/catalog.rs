@@ -642,8 +642,9 @@ pub struct Setting {
     pub arrived_in: ProtocolVersion,
 }
 
-/// A setting whose value yields to another setting's: where `to` is set,
-/// a value of `key` that `when` matches does not take effect, and
+/// A setting whose value yields to another setting's: where `to` holds a
+/// value `to_values` matches, a value of `key` that `when` matches, set at
+/// any layer but the built-in default, does not take effect, and
 /// `config explain` names `to`, its value and its layer in the setting's
 /// `yields_to` (#2418).
 pub struct Yielding {
@@ -651,8 +652,26 @@ pub struct Yielding {
     pub key: &'static Setting,
     /// The values of `key` that yield.
     pub when: fn(&serde_json::Value) -> bool,
-    /// The setting it yields to, whenever its value is not `null`.
+    /// The setting it yields to.
     pub to: &'static Setting,
+    /// The values of `to` it yields to.
+    pub to_values: fn(&serde_json::Value) -> bool,
+    /// The setting whose value, set at a layer closer than `to`'s, keeps
+    /// `key` from yielding; `None` when none does.
+    pub unless: Option<Overruling>,
+    /// Why it yields, as `config explain` says it after `to`.
+    pub reason: &'static str,
+}
+
+/// What keeps a [`Yielding`] from taking effect: a value of `by` that
+/// `when` matches, set at a layer closer than the one it would yield to,
+/// as a `stealth.fingerprint_method` that makes a Session `stealth` over
+/// the `browser.access_mode` its items would yield to (spec #599).
+pub struct Overruling {
+    /// The setting that overrules.
+    pub by: &'static Setting,
+    /// The values of `by` that overrule.
+    pub when: fn(&serde_json::Value) -> bool,
 }
 
 /// A Hook stage: a fixed stage of a request, a navigation, a page, a Record

@@ -33,6 +33,8 @@ Only a real trade-off still unmade is `open`, and it becomes a grilling ticket o
 >
 > Note (the grilling session's own, 2026-11-11, same grilling, awaiting the owner's reading): held is `decided` or `spec`, to decide is `open → #N`, and refused is `excluded`, so the batch of a re-read is one grilling ticket, as the paragraph above already makes of an `open` row. Which existing row covers a need, and so gets a note rather than a row, is the grilling session's reading. The capabilities an earlier decision refuses by name are `excluded` citing it, and five that rested on a reading went back to the owner, who answered them (Q30, Q31). ADR 0025's own list of tools (:51) and `just compare`'s arms (the `justfile`'s `compare` recipe) do not point to the table yet.
 
+> Note (the owner's decision of 2026-11-17, on [#2743](https://github.com/goodfetch/goodfetch/issues/2743), the grilling of the compared tools' re-read of that day, answered « Mes 11 recos (Recommandé) », each question on its recommended option): Q1 to Q7 and Q9 take their capability, each as a setting off by default, so CO-98, CO-99, RT-43, RT-44, RT-45, SC-14, CO-100 and AI-43 are `spec`, the spec of the Features line that holds their area picking them up. Q8, Q10 and Q11 are covered, so AI-42, AI-44 and ST-11 are `decided`, each citing the row that covers it (AI-20; AI-33; CO-15 and ST-09), whose note now names the need; Q10 also refuses a marketplace of paid tools with billing between providers. The matrix has no `open` row, and no area waits on #2743. That the covered rows stay as `decided` rows citing their cover, rather than being folded into it, is the recording session's choice: it keeps the Feature inventory's rows unchanged.
+
 ## Order of `/to-spec`
 
 One spec per area. An area goes to `/to-spec` only after every area whose contracts it consumes, except between areas that use each other's contracts (below), and after every ticket that holds one of its `open` rows in the matrix; the "Waits on" column is derived from those rows, and a pull request that changes them updates it:
@@ -42,14 +44,14 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 | 1 | Repository, CI and release | 0018, 0030, 0032, 0034, 0039, 0049, 0057, 0060, 0061, 0062, 0064, 0065, 0066, 0067, 0068, 0069, 0071, 0072, 0073, 0074, 0075, 0076, 0084, 0087, 0088, 0090, 0094, 0095, 0097, 0099, 0108, 0124, 0125, 0126 |  |
 | 2 | Proving ground and conformance | 0025, 0063, 0065, 0067, 0069, 0071, 0072, 0073, 0074, 0075, 0094, 0119, 0121, 0123 |  |
 | 3 | Engine runtime | 0002–0004, 0024, 0028, 0040, 0041, 0049–0051, 0053–0057, 0060, 0066, 0071, 0073, 0075, 0080, 0082, 0083, 0084, 0086, 0087, 0088, 0093, 0094, 0095, 0096, 0098, 0099, 0101, 0102, 0103, 0104, 0106, 0107, 0113, 0115, 0116, 0117, 0118, 0122, 0127, 0128, 0129 |  |
-| 4 | Security and egress | 0015–0017, 0042–0044, 0049–0051, 0055, 0056, 0066, 0067, 0086, 0089, 0092, 0093, 0120, 0121, 0124 | [#2743](https://github.com/goodfetch/goodfetch/issues/2743) |
+| 4 | Security and egress | 0015–0017, 0042–0044, 0049–0051, 0055, 0056, 0066, 0067, 0086, 0089, 0092, 0093, 0120, 0121, 0124 |  |
 | 5 | Site access | 0019–0023, 0045, 0047–0049, 0052, 0053, 0056, 0066, 0080, 0081, 0083, 0085, 0086, 0087, 0088, 0089, 0090, 0092, 0093, 0096, 0100, 0103, 0104, 0110, 0113, 0114, 0115, 0117, 0118, 0119, 0121, 0127, 0128, 0129 |  |
-| 6 | Collection | 0005–0008, 0026, 0040, 0046, 0054, 0056, 0066, 0073, 0082, 0086, 0087, 0088, 0093, 0102, 0103, 0104, 0105, 0106, 0107, 0110, 0116, 0119, 0120, 0121, 0122, 0123, 0127, 0129 | [#2743](https://github.com/goodfetch/goodfetch/issues/2743) |
+| 6 | Collection | 0005–0008, 0026, 0040, 0046, 0054, 0056, 0066, 0073, 0082, 0086, 0087, 0088, 0093, 0102, 0103, 0104, 0105, 0106, 0107, 0110, 0116, 0119, 0120, 0121, 0122, 0123, 0127, 0129 |  |
 | 7 | Plugin protocol | 0033, 0049, 0056, 0066, 0088, 0101, 0104, 0129 |  |
-| 8 | Stealth and Challenge solving | 0035, 0056, 0074, 0083, 0088, 0092, 0121 | [#2743](https://github.com/goodfetch/goodfetch/issues/2743) |
-| 9 | AI and agent | 0009–0014, 0051, 0056, 0065, 0066, 0082, 0088, 0091, 0092, 0100, 0101, 0106, 0107, 0114, 0117, 0121, 0123, 0125, 0127, 0129 | [#2743](https://github.com/goodfetch/goodfetch/issues/2743) |
-| 10 | Scheduling | 0036, 0041, 0055, 0066, 0084, 0088, 0098, 0103 | [#2743](https://github.com/goodfetch/goodfetch/issues/2743) |
-| 11 | Client surfaces (SDKs, CLI, MCP, skills, adapters, Integrations, Notifications) | 0011, 0024, 0027, 0049, 0055, 0056, 0065, 0069, 0070, 0071, 0073, 0077, 0078, 0079, 0080, 0081, 0082, 0083, 0085, 0086, 0087, 0088, 0089, 0090, 0091, 0092, 0093, 0094, 0095, 0097, 0098, 0099, 0100, 0101, 0102, 0103, 0104, 0105, 0106, 0107, 0109, 0110, 0111, 0112, 0113, 0114, 0115, 0116, 0117, 0118, 0119, 0120, 0121 | [#2743](https://github.com/goodfetch/goodfetch/issues/2743) |
+| 8 | Stealth and Challenge solving | 0035, 0056, 0074, 0083, 0088, 0092, 0121 |  |
+| 9 | AI and agent | 0009–0014, 0051, 0056, 0065, 0066, 0082, 0088, 0091, 0092, 0100, 0101, 0106, 0107, 0114, 0117, 0121, 0123, 0125, 0127, 0129 |  |
+| 10 | Scheduling | 0036, 0041, 0055, 0066, 0084, 0088, 0098, 0103 |  |
+| 11 | Client surfaces (SDKs, CLI, MCP, skills, adapters, Integrations, Notifications) | 0011, 0024, 0027, 0049, 0055, 0056, 0065, 0069, 0070, 0071, 0073, 0077, 0078, 0079, 0080, 0081, 0082, 0083, 0085, 0086, 0087, 0088, 0089, 0090, 0091, 0092, 0093, 0094, 0095, 0097, 0098, 0099, 0100, 0101, 0102, 0103, 0104, 0105, 0106, 0107, 0109, 0110, 0111, 0112, 0113, 0114, 0115, 0116, 0117, 0118, 0119, 0120, 0121 |  |
 | 12 | Console | 0029, 0031, 0049, 0055–0057, 0068, 0071, 0073, 0084, 0087, 0088, 0092, 0094, 0096, 0098, 0099, 0102, 0106, 0113, 0122, 0130 |  |
 | 13 | Self-hosted deployment and operations | 0024, 0049, 0050, 0053, 0055, 0056, 0066, 0088, 0090, 0094, 0096, 0122 |  |
 | 14 | Cloud-readiness contracts | 0001, 0049, 0056, 0068, 0096 |  |

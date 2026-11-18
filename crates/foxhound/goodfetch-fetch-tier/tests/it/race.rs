@@ -35,7 +35,6 @@ const IPV6: IpAddr = IpAddr::V6(Ipv6Addr::LOCALHOST);
 /// and leave the connection unanswered (`proving-ground`'s `blackhole`).
 ///
 /// Covers: setting:resolver.attempt_delay
-#[cfg(target_os = "linux")]
 #[rstest]
 fn a_host_whose_ipv6_path_drops_packets_is_reached_over_ipv4_after_the_sessions_attempt_delay(
     #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,

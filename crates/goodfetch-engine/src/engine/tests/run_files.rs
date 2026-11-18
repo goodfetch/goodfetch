@@ -15,7 +15,9 @@
 
 use std::collections::BTreeSet;
 use std::io::Cursor;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::{

@@ -29,16 +29,20 @@ use goodfetch_engine::run_state::run_row;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::CLEAN_UP_RULES;
 use goodfetch_protocol::home::{RUN_FILE, RUN_TRACE_PROVENANCE};
+#[cfg(unix)]
 use goodfetch_protocol::page::PageOpened;
 use goodfetch_protocol::run::warning::CLEAN_UP_RULES_STALE;
 use goodfetch_test_client::HomeLayout;
-use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
+#[cfg(unix)]
+use goodfetch_test_support::browser_cache;
+use goodfetch_test_support::{ProvingGround, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 use sha2::Digest as _;
 
 use self::stand_in::{StandIn, channel, manifest_path};
 use crate::COLLIE;
+#[cfg(unix)]
 use crate::page::{BROWSER_DEADLINE, opened};
 use goodfetch_test_client::{Attached, hello};
 
@@ -178,10 +182,13 @@ const REGISTRY: &str = "registry.test";
 const LISTS: &str = "lists.test";
 
 /// The Proving ground's seed.
+#[cfg(unix)]
 const SEED: u64 = 714;
 
 /// The `/ads` page of `clean-up.test`'s ad, and its tracker.
+#[cfg(unix)]
 const AD: &str = "/img/top-ad-sidebar.gif";
+#[cfg(unix)]
 const TRACKER: &str = "/js/adobe-analytics.js";
 
 /// The files of a version of the Clean-up rules from `source`, published
@@ -283,6 +290,7 @@ fn settings(proving_ground: Option<&ProvingGround>, clean_up: Value) -> Map<Stri
 }
 
 /// Starts an Attached engine on `env` whose Browser cache is `cache`.
+#[cfg(unix)]
 fn engine_with_browser(env: &TestEnv, cache: &Path) -> Attached {
     let mut engine = Attached::start_with(env, COLLIE, BROWSER_DEADLINE, |command| {
         command.env(goodfetch_test_support::BROWSERS_PATH_VARIABLE, cache);
@@ -293,6 +301,7 @@ fn engine_with_browser(env: &TestEnv, cache: &Path) -> Attached {
 }
 
 /// Answers `answer`'s result, failing the test with it when it has none.
+#[cfg(unix)]
 fn result(answer: Value) -> Value {
     match answer {
         Value::Object(mut fields) if fields.contains_key("result") => fields["result"].take(),
@@ -303,6 +312,7 @@ fn result(answer: Value) -> Value {
 /// Opens a page of the Run `run_id`, loads `clean-up.test`'s `/ads` page
 /// on it, and answers which of its ad and tracker the Proving ground
 /// received a request for during the load.
+#[cfg(unix)]
 fn loads(
     engine: &mut Attached,
     id: i64,
@@ -316,6 +326,7 @@ fn loads(
 /// Loads `clean-up.test`'s `/ads` page on `page`, and answers which of its
 /// ad and tracker the Proving ground received a request for during the
 /// load.
+#[cfg(unix)]
 fn loads_on(
     engine: &mut Attached,
     id: i64,
@@ -343,6 +354,7 @@ fn loads_on(
 }
 
 /// The targets of the requests `clean-up.test` received, in order.
+#[cfg(unix)]
 fn requests(proving_ground: &ProvingGround) -> Vec<String> {
     proving_ground
         .received_requests()

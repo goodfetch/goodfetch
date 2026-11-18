@@ -36,6 +36,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::home::{RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS};
 use goodfetch_test_client::{HomeLayout, robots_txt_read};
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, cli};
+#[cfg(unix)]
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
@@ -349,10 +350,12 @@ fn another_local_process_without_the_sessions_credentials_is_refused_and_the_ses
 }
 
 /// The variable the engine's environment holds a proxy password in.
+#[cfg(unix)]
 const PASSWORD_VARIABLE: &str = "PROVING_GROUND_PROXY_PASSWORD";
 
 /// The relays the Proving ground's proxies carried out, each as its proxy
 /// and target.
+#[cfg(unix)]
 fn relays(proving_ground: &ProvingGround) -> Vec<(String, String)> {
     proving_ground.observations().unwrap()["relays"]
         .as_array()

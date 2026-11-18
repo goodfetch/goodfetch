@@ -17,6 +17,7 @@ mod fetch_edge;
 mod fingerprint;
 mod light_browser;
 mod lookups;
+#[cfg(target_os = "linux")]
 mod race;
 mod transport_failures;
 mod tunnels;

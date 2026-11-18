@@ -4,7 +4,13 @@
 # It runs no check twice on one tree (TESTING.md, Checks by role): a push whose
 # trees a green `just quick` already recorded (ci/quick.sh, in the repository's
 # common folder) runs no `just quick`. Otherwise `just quick` reads the change
-# against the commit the remote ref holds, so it checks what the push adds.
+# against the commit the remote ref holds, so it checks what the push adds,
+# when the push only adds the branch's own commits to it. After a rebase, or a
+# merge of the branch's own base (ci/change-base.sh: its integration branch,
+# else `origin/main`, or `GOODFETCH_QUICK_BASE` when the pusher names one),
+# that commit is no base: read against it, the change would hold every file
+# the base gained since. The hook then says so in one line and gives `just
+# quick` no base of its own, so it reads the change against the branch's own.
 #
 # A recorded tree says nothing of the messages of the commits that hold it,
 # since a reworded commit keeps its tree. So every push first judges the
@@ -19,6 +25,8 @@ set -euo pipefail
 # the repository as bare: every `just` here finds the repository from its
 # folder.
 for variable in $(git rev-parse --local-env-vars); do unset "$variable"; done
+# shellcheck source=ci/change-base.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../ci/change-base.sh"
 stamps="$(git rev-parse --path-format=absolute --git-common-dir)/goodfetch-quick-green"
 head=$(git rev-parse HEAD)
 base=""
@@ -36,6 +44,14 @@ while read -r _local_ref local_oid _remote_ref remote_oid; do
   due=1
   if [[ $local_oid == "$head" && ! $remote_oid =~ ^0+$ ]] && git cat-file -e "$remote_oid^{commit}" 2>/dev/null; then
     base=$remote_oid
+    own=${GOODFETCH_QUICK_BASE:-$(branch_base)}
+    if ! git merge-base --is-ancestor "$remote_oid" "$local_oid"; then
+      echo "pre-push: the commit the remote ref holds, $remote_oid, is no ancestor of the pushed head (a rebase or another rewrite), so \`just quick\` reads the change against the branch's own base, $own."
+      base=""
+    elif fork=$(git merge-base "$local_oid" "$own" 2>/dev/null) && ! git merge-base --is-ancestor "$fork" "$remote_oid"; then
+      echo "pre-push: the push brings commits of $own (a merge of it) after the commit the remote ref holds, $remote_oid, so \`just quick\` reads the change against the branch's own base, $own."
+      base=""
+    fi
   fi
 done
 # Both checks run on every pushed head even after one failed, so one push
@@ -50,4 +66,5 @@ if ((commits)); then
   exit 1
 fi
 ((due)) || exit 0
-GOODFETCH_QUICK_BASE=$base exec just quick
+# The pusher's own base, when the hook keeps none.
+GOODFETCH_QUICK_BASE=${base:-${GOODFETCH_QUICK_BASE:-}} exec just quick

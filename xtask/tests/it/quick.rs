@@ -1,12 +1,15 @@
 //! The pre-push tier (T1), `just quick` (`ci/quick.sh`), which the pre-push
-//! hook runs: the compiler cache's coverage, the floor guard and the scan of
-//! the change's commits first, then the checks the change's own gate would run
-//! at merge. A change of documents alone (`xtask affected`'s `gate=docs`) takes
-//! the docs gate's checks, as `just merge` does (ADR 0135); any other change,
-//! and `all`, takes every lint and the Quick suite. What changed is read
+//! hook runs: the compiler cache's coverage, then the checks of the change's
+//! commits (sign-offs, subjects, the floor guard and the scan for secrets),
+//! then the checks the change's own gate would run at merge. A change of
+//! documents alone (`xtask affected`'s `gate=docs`) takes the docs gate's
+//! checks, as `just merge` does (ADR 0135); any other change, and `all`,
+//! takes the notices, every lint and the Quick suite. What changed is read
 //! against the base the hook gives, else the branch's upstream off `main`
 //! when it is another branch, never the branch's own remote copy, else
-//! `origin/main`. A green run on a clean checkout records its tree, and the
+//! `origin/main`. The hook gives the commit the push's remote ref holds only
+//! when the push adds the branch's own commits on top of it, not after a
+//! rebase or a merge of the branch's base. A green run on a clean checkout records its tree, and the
 //! hook runs no `just quick` on a push of a recorded tree, so it never runs
 //! twice on one tree (`TESTING.md`, Checks by role). The hook first judges
 //! the sign-offs and subjects of the pushed commits, on every push, since a
@@ -159,6 +162,8 @@ fn a_change_of_documents_alone_runs_the_docs_gates_checks_and_no_code_lint_or_su
         run.calls,
         [
             "compiler-cache",
+            "dco origin/main",
+            "commit-messages origin/main",
             "floor-guard origin/main",
             "commit-leaks origin/main",
             "lint-documents",
@@ -184,8 +189,11 @@ fn any_other_change_runs_every_lint_and_the_quick_suite_over_what_changed(#[case
         run.calls,
         [
             "compiler-cache",
+            "dco origin/main",
+            "commit-messages origin/main",
             "floor-guard origin/main",
             "commit-leaks origin/main",
+            "notices",
             "lint",
             "test-affected quick --local --since origin/main",
             "_skips-report"
@@ -212,8 +220,11 @@ fn the_change_is_read_against_the_base_the_pre_push_hook_gives() {
         run.calls,
         [
             "compiler-cache",
+            "dco 4b825dc6",
+            "commit-messages 4b825dc6",
             "floor-guard 4b825dc6",
             "commit-leaks 4b825dc6",
+            "notices",
             "lint",
             "test-affected quick --local --since 4b825dc6",
             "_skips-report"
@@ -263,9 +274,11 @@ fn the_floor_guard_the_commit_scan_and_the_selection_judge_the_change_against_it
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
     assert_eq!(
-        run.calls[..3],
+        run.calls[..5],
         [
             "compiler-cache".to_owned(),
+            format!("dco {base}"),
+            format!("commit-messages {base}"),
             format!("floor-guard {base}"),
             format!("commit-leaks {base}"),
         ]
@@ -318,8 +331,11 @@ fn a_pushed_branch_is_judged_against_origin_main_never_against_its_own_remote_co
         run.calls,
         [
             "compiler-cache",
+            "dco origin/main",
+            "commit-messages origin/main",
             "floor-guard origin/main",
             "commit-leaks origin/main",
+            "notices",
             "lint",
             "test-affected quick --local --since origin/main",
             "_skips-report"
@@ -351,8 +367,11 @@ fn the_base_the_pre_push_hook_gives_wins_on_a_pushed_branch() {
         run.calls,
         [
             "compiler-cache",
+            "dco 4b825dc6",
+            "commit-messages 4b825dc6",
             "floor-guard 4b825dc6",
             "commit-leaks 4b825dc6",
+            "notices",
             "lint",
             "test-affected quick --local --since 4b825dc6",
             "_skips-report"
@@ -373,7 +392,7 @@ fn no_step_inherits_the_git_dir_quick_was_started_with() {
     let run = quick_with_env(&workspace, &stand_in, &[], &[("GIT_DIR", &git_dir)]);
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    assert_eq!(inherited_git_dirs(&stand_in), ["unset"; 6]);
+    assert_eq!(inherited_git_dirs(&stand_in), ["unset"; 8]);
 }
 
 /// The file in the repository's common folder where a green run records its
@@ -622,6 +641,131 @@ fn a_push_of_another_tree_runs_quick_against_the_commit_the_remote_ref_holds() {
     assert_eq!(run.calls, calls);
 }
 
+/// A repository whose `ticket` branch, off `main` with no upstream, added a
+/// document and was pushed; `origin/main` then gained a code change, which
+/// `main` holds too. Returns the pushed commit.
+fn a_pushed_ticket_behind_origin_main(workspace: &Workspace) -> String {
+    std::fs::write(
+        workspace.path().join(".gitignore"),
+        "/stand-in/\n/target/\n",
+    )
+    .unwrap();
+    workspace.git(&["init", "--quiet", "--initial-branch=main"]);
+    workspace.commit_all();
+    workspace.git(&["switch", "--quiet", "--create", "ticket"]);
+    workspace.write("notes.md", b"# Notes\n");
+    let pushed = workspace.commit_all();
+    workspace.git(&["switch", "--quiet", "main"]);
+    workspace.write("crates/x/lib.rs", b"//! A code change.\n");
+    workspace.commit_all();
+    workspace.git(&["update-ref", "refs/remotes/origin/main", "main"]);
+    workspace.git(&["switch", "--quiet", "ticket"]);
+    pushed
+}
+
+/// After a rebase onto a newer base, or a merge of it into the branch, the
+/// commit the remote ref holds is not the branch's base: read against it,
+/// the change would hold every file the base gained. The hook gives no base,
+/// so `just quick` takes the branch's own, and says why in one line.
+#[rstest]
+#[case::a_rebase(&["rebase", "--quiet", "origin/main"])]
+#[case::a_merge_of_the_base(&["merge", "--quiet", "--no-edit", "origin/main"])]
+fn a_push_after_the_branch_took_its_bases_commits_runs_quick_against_its_own_base(
+    #[case] taking: &[&str],
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let pushed = a_pushed_ticket_behind_origin_main(&workspace);
+    workspace.git(taking);
+    let head = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!("refs/heads/ticket {head} refs/heads/ticket {pushed}\n"),
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let mut calls = commit_checks(&head).to_vec();
+    calls.push("quick base=".to_owned());
+    assert_eq!(run.calls, calls);
+    let said: Vec<&str> = run
+        .stdout
+        .lines()
+        .filter(|line| line.contains(&pushed))
+        .collect();
+    assert_eq!(said.len(), 1, "{}", run.stdout);
+    assert!(said[0].contains("origin/main"), "{}", run.stdout);
+}
+
+/// A branch whose upstream is an integration branch takes it as its own
+/// base: a merge of that branch's newer tip sets the remote ref's commit
+/// aside, though no `origin/main` exists to compare with.
+#[test]
+fn a_push_after_a_merge_of_the_integration_branch_runs_quick_against_it() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let (_, pushed) = two_commits(&workspace);
+    workspace.git(&["switch", "--quiet", "--create", "side", "origin/spec"]);
+    workspace.write("spec.txt", b"the integration branch moved\n");
+    let moved = workspace.commit_all();
+    workspace.git(&["update-ref", "refs/remotes/origin/spec", &moved]);
+    workspace.git(&["switch", "--quiet", "ticket"]);
+    workspace.git(&["merge", "--quiet", "--no-edit", "origin/spec"]);
+    let merged = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!("refs/heads/ticket {merged} refs/heads/ticket {pushed}\n"),
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let mut calls = commit_checks(&merged).to_vec();
+    calls.push("quick base=".to_owned());
+    assert_eq!(run.calls, calls);
+    assert!(run.stdout.contains("origin/spec"), "{}", run.stdout);
+}
+
+/// A base the pusher names reaches `just quick` when the hook gives none of
+/// its own, and the remote ref's commit wins over it when the push only adds
+/// the branch's own commits.
+#[rstest]
+#[case::the_hook_gives_none(true)]
+#[case::the_remote_refs_commit(false)]
+fn a_base_the_pusher_names_reaches_quick_unless_the_remote_refs_commit_is_the_base(
+    #[case] rebased: bool,
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let pushed = a_pushed_ticket_behind_origin_main(&workspace);
+    if rebased {
+        workspace.git(&["rebase", "--quiet", "origin/main"]);
+    } else {
+        workspace.write("more.md", b"# More\n");
+        workspace.commit_all();
+    }
+    let head = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+
+    let run = pre_push_with_env(
+        &workspace,
+        &stand_in,
+        &format!("refs/heads/ticket {head} refs/heads/ticket {pushed}\n"),
+        &[("GOODFETCH_QUICK_BASE", "origin/main")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let expected = if rebased {
+        "origin/main"
+    } else {
+        pushed.as_str()
+    };
+    assert_eq!(
+        run.calls.last().map(String::as_str),
+        Some(format!("quick base={expected}").as_str())
+    );
+}
+
 /// git gives the hook of a push from a linked worktree that worktree's
 /// `GIT_DIR`. `just quick` must not inherit it: a build script's `git init`
 /// (btls-sys's) would then reinitialize the repository as bare. Neither do
@@ -694,8 +838,11 @@ fn all_runs_every_lint_and_the_whole_quick_suite_without_asking_what_changed() {
         run.calls,
         [
             "compiler-cache",
+            "dco origin/main",
+            "commit-messages origin/main",
             "floor-guard origin/main",
             "commit-leaks origin/main",
+            "notices",
             "lint",
             "_suite quick all",
             "_skips-report"
@@ -709,8 +856,11 @@ fn all_runs_every_lint_and_the_whole_quick_suite_without_asking_what_changed() {
 /// summary names each failed step.
 #[rstest]
 #[case::compiler_cache("compiler-cache", "compiler-cache")]
+#[case::sign_offs("dco", "dco origin/main")]
+#[case::commit_messages("commit-messages", "commit-messages origin/main")]
 #[case::floor_guard("floor-guard", "floor-guard origin/main")]
 #[case::commit_leaks("commit-leaks", "commit-leaks origin/main")]
+#[case::notices("notices", "notices")]
 #[case::lint("lint", "lint")]
 fn a_red_step_still_runs_every_later_step_and_the_summary_names_it(
     #[case] failing: &str,
@@ -728,8 +878,11 @@ fn a_red_step_still_runs_every_later_step_and_the_summary_names_it(
         run.calls,
         [
             "compiler-cache",
+            "dco origin/main",
+            "commit-messages origin/main",
             "floor-guard origin/main",
             "commit-leaks origin/main",
+            "notices",
             "lint",
             "test-affected quick --local --since origin/main",
             "_skips-report"
@@ -764,6 +917,8 @@ fn a_red_affected_ends_the_tier_before_any_lint() {
         run.calls,
         [
             "compiler-cache",
+            "dco origin/main",
+            "commit-messages origin/main",
             "floor-guard origin/main",
             "commit-leaks origin/main",
             "_skips-report"
@@ -794,6 +949,8 @@ fn a_selection_without_its_gate_or_with_it_twice_ends_the_tier_before_any_lint(
         run.calls,
         [
             "compiler-cache",
+            "dco origin/main",
+            "commit-messages origin/main",
             "floor-guard origin/main",
             "commit-leaks origin/main",
             "_skips-report"

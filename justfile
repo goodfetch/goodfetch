@@ -1990,12 +1990,29 @@ gate-backstop ref="origin/main":
 # Checks issue <issue>'s `Existing code` list against `origin/main`, fetched
 # first (ADR 0144): each citation's path, symbol and lines, or a spec that
 # lacks its list. A cited line that only moved passes and prints where it
-# went; one that changed names the merge that changed it. Reads the tracker
-# with GITHUB_TOKEN or the GitHub CLI's token, and changes nothing there.
-existing-code issue:
+# went; one that changed names the merge that changed it. It first runs
+# `just load-proofs <issue>`, the other check before `ready-for-agent`.
+# Reads the tracker with GITHUB_TOKEN or the GitHub CLI's token, and changes
+# nothing there.
+existing-code issue: (load-proofs issue)
     git fetch --quiet origin
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
       cargo run --quiet --bin xtask -- existing-code check {{ issue }}
+
+# Fails when issue <issue>'s acceptance criteria or task-list items ask for a
+# proof under artificial load: `stress-ng`, busy loops, or a count of runs in
+# a row (TESTING.md, A flaky test found after merge). Run before the issue
+# takes `ready-for-agent` and before a run or relay takes it. Reads the
+# tracker with GITHUB_TOKEN or the GitHub CLI's token, and changes nothing
+# there.
+load-proofs issue:
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet --bin xtask -- load-proofs check {{ issue }}
+
+# The same check over every open issue; it changes nothing in the tracker.
+load-proofs-sweep:
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet --bin xtask -- load-proofs sweep
 
 # The same check over every open `ready-for-agent` issue (ADR 0144), but
 # those of a spec whose run has started (`spec/<n>`). A dry run by default,

@@ -20,6 +20,7 @@ use tokio_util::time::delay_queue::Key;
 
 use crate::error::Error;
 use crate::handler::Streams;
+use crate::line;
 use crate::transport::Link;
 
 /// What a call's caller hands the Connection's tasks.
@@ -131,14 +132,13 @@ async fn correlate(
                         method: call.method,
                         params: Some(call.params),
                     };
-                    let mut line = match serde_json::to_vec(&request) {
+                    let line = match line::encode(&request) {
                         Ok(line) => line,
                         Err(error) => {
                             let _gone = call.reply.send(Err(Error::Shape(error)));
                             continue;
                         }
                     };
-                    line.push(b'\n');
                     if lines.send(line).is_err() {
                         let _gone = call.reply.send(Err(Error::Closed));
                         continue;

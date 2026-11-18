@@ -16,6 +16,7 @@ mod call;
 mod connection;
 mod error;
 mod handler;
+mod line;
 mod rpc;
 mod run;
 mod sync;

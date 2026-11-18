@@ -18,6 +18,7 @@ use serde_json::{Map, Value};
 use tokio::sync::mpsc;
 
 use crate::error::Error;
+use crate::line;
 use crate::sync::{Mutex, MutexGuard};
 
 /// The streams the engine's requests go to, by method, or `None` once the
@@ -49,6 +50,12 @@ impl Streams {
                 method: method.to_owned(),
             });
         }
+        // Unbounded because the engine bounds it: it sends a Client at most
+        // `crawl.handler.concurrency` requests at once, so the SDK keeps no
+        // queue of its own (ADR 0081, How many at once). A smaller bound
+        // would stall the Connection's input, the replies to the program's
+        // own calls included, or refuse requests the engine was allowed to
+        // send.
         let (stream, requests) = mpsc::unbounded_channel();
         streams.insert(method.to_owned(), stream);
         Ok(HandlerRequests(requests))
@@ -102,7 +109,9 @@ impl Streams {
 pub struct HandlerRequests(mpsc::UnboundedReceiver<HandlerCall>);
 
 impl HandlerRequests {
-    /// The engine's next request, or `None` once the Connection has ended.
+    /// The engine's next request, or `None` once the Connection has ended
+    /// and the requests it handed out before are taken; those can no longer
+    /// be answered.
     ///
     /// # Cancel safety
     ///
@@ -191,8 +200,7 @@ impl HandlerCall {
     /// Writes `answer` as the request's one answer.
     fn send(&mut self, answer: &impl Serialize) -> Result<(), Error> {
         self.answered = true;
-        let mut line = serde_json::to_vec(answer).map_err(Error::Shape)?;
-        line.push(b'\n');
+        let line = line::encode(answer).map_err(Error::Shape)?;
         let lines = self.lines.upgrade().ok_or(Error::Closed)?;
         lines.send(line).map_err(|_closed| Error::Closed)
     }

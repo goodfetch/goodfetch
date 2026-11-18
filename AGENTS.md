@@ -21,7 +21,7 @@ Nightlies freeze nothing (ADR 0066) and get no upgrade of their own.
 
 ## Money
 
-Goodfetch has no revenue: spend nothing until the owner says so (ADR 0076). For every runner, credit, account, service or assessment, choose the free tier or a local alternative and record the paid option as declined; never create, enable or list as pending anything that bills. Live model calls go through the Vercel AI Gateway's free tier. The owner approved renting one Hetzner Cloud CCX43 server by the hour (€0.531 an hour including VAT), with its Primary IPv4 and a 500 GB volume (about €25 a month; the owner enlarged it from 200 GB to 300 GB, then to 400 GB, then to 500 GB, on 2026-11-12), for the implementation and its gate, until the owner ends it. While it is rented, it also runs the nightly fuzzing, which is no reason to keep it; #2454 builds that job. Each published version's comparison report also comes from it while the owner rents it (ADR 0025).
+Goodfetch has no revenue: spend nothing until the owner says so (ADR 0076). For every runner, credit, account, service or assessment, choose the free tier or a local alternative and record the paid option as declined; never create, enable or list as pending anything that bills. Live model calls go through the Vercel AI Gateway's free tier. The owner approved renting one Hetzner Cloud CCX43 server by the hour (€0.531 an hour including VAT), with its Primary IPv4 and a 500 GB volume (about €25 a month; the owner's size since 2026-11-12, ADR 0076), for the implementation and its gate, until the owner ends it. While it is rented, it also runs the nightly fuzzing, which is no reason to keep it. Each published version's comparison report also comes from it while the owner rents it (ADR 0025).
 
 ## Secrets
 
@@ -29,13 +29,15 @@ Local secrets live in the git-ignored `.env`, filled by `scripts/env-setup.sh` f
 
 ## Code style
 
+Write every repository and tracker artifact (ADRs, specs, tickets, glossary entries, `STYLE.md`/`TESTING.md` edits, pull request bodies) in English, even when the owner talks in French; owner quotes may keep their language.
+
 Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Tests follow [`TESTING.md`](TESTING.md): read its Contents, then only the sections for what you touch. The checks each role runs, implementer, merger or pull request, are its [Checks by role](TESTING.md#checks-by-role); an orchestrator's brief points there and lists none.
 
 The quality bar lives in the Quality register of [`TESTING.md`](TESTING.md#quality-register); the project has no `CONSTRAINTS.md`. Read the register before writing code on a Shared path (ADR 0140). Change a limit only by the register's rules: tighten it in the same pull request, loosen it with the owner.
 
 Traps that break things, each explained in `STYLE.md`:
 
-- Write to stdout or stderr only from the protocol transport, the CLI's output writer and the `tracing` subscriber's writer; everything else logs through `tracing`. Stdout is the JSON-RPC channel when the binary is an Attached engine started by an SDK, or the stdio MCP server. Test-only executables are exceptions: `goodfetch-scripted-engine` (ADR 0069), `goodfetch-test-env` (ADR 0062) and the counts benchmark harnesses that `xtask counts` reads (`examples/counts.rs` and `examples/counts-extraction.rs`, ADR 0140) write their own stdout, and none ships in a Product.
+- Write to stdout or stderr only from the protocol transport, the CLI's output writer and the `tracing` subscriber's writer; everything else logs through `tracing`. Stdout is the JSON-RPC channel when the binary is an Attached engine started by an SDK, or the stdio MCP server. Test-only executables are exceptions: `goodfetch-scripted-engine` (ADR 0069), `goodfetch-test-env` (ADR 0062) and the counts benchmarks that `xtask counts` reads (`examples/counts.rs` of `goodfetch-engine`, `goodfetch-page` and `goodfetch-foxhound`, and the last's `examples/counts-extraction.rs`, ADR 0140) write their own stdout, and none ships in a Product.
 - Change contracts in `goodfetch-protocol`'s Rust types, then run `xtask codegen` and commit its output in the same change; generated code (`generated/` folders, the committed JSON Schema bundle and catalog file) is never edited by hand.
 - Spawn every task through its owner's tracker, never with a bare `tokio::spawn` or `spawn_blocking`. Outside tests, return an error or `expect("invariant: …")` rather than `unwrap()`. Silence a lint with `#[expect(lint, reason = "…")]`, never `#[allow]`.
 - Make a capability a setting, never a Cargo feature. Outside `crates/foxhound/`, only `xtask` depends on a crate inside it (ADR 0087).
@@ -50,7 +52,7 @@ CI runs locally (ADR 0135); GitHub Actions runs the Release suite only.
 - Before `just merge` of the pull request that finishes a spec, which takes the full gate, run `just preflight` on its head in its own worktree.
 - The backstop has a switch, `ci/gate-backstop.state` (`on` or `off`), which only the owner changes; it is off since 2026-11-10 (ADR 0135's amendment of that date). While it is on, `just merge` refuses once 10 merges have landed on `main` since the backstop's last green run, and only the owner passes `--past-cap` (ADR 0135's amendment of 2026-11-04); while it is off, that cap counts nothing.
 - In a stack of pull requests, merge the bottom one first.
-- When several ready pull requests would each get the full gate, combine them into one branch and run `just merge` once.
+- Combine every ready pull request into one batch branch and run `just merge` once, whatever gate each would take (the owner's rule of 2026-11-18, « je t'ai dit un full gate par spec, pourquoi tu continues à faire des dizaines de gates »; first batch #2782).
 - Dispatch the Release suite with `just release-ci`. On `main`, name the hosted cells: the default, `all`, includes the macOS cells, which queue for the unregistered `owner-machine` runner and fail after 24 hours.
 - Keep every other workflow disabled: when a merge brings a new workflow file to `main`, disable it in the repository's Actions settings unless an ADR turns it on.
 - Change a repository setting only together with the text that records it: open the pull request amending the ADR or this file when the setting changes, never after.

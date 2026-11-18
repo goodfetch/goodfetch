@@ -6296,8 +6296,8 @@
       "arrived_in": "0.1",
       "authority": "machine",
       "clearable": false,
-      "default": 4,
-      "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: 4, a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
+      "default": "per_core",
+      "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: `per_core` for one a core, or a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
       "name": "governor.blocking_threads",
       "product": "collie",
       "products": [
@@ -6305,9 +6305,17 @@
         "foxhound"
       ],
       "value": {
-        "description": "The most blocking threads.",
-        "minimum": 1,
-        "type": "integer"
+        "oneOf": [
+          {
+            "description": "This many threads.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "const": "per_core",
+            "description": "One thread a core."
+          }
+        ]
       },
       "weakens": false
     },
@@ -6669,13 +6677,13 @@
       "value": {
         "oneOf": [
           {
-            "description": "This many worker threads.",
+            "description": "This many threads.",
             "minimum": 1,
             "type": "integer"
           },
           {
             "const": "per_core",
-            "description": "One worker thread a core."
+            "description": "One thread a core."
           }
         ]
       },
@@ -9324,6 +9332,25 @@
       "default": 86400000,
       "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
       "name": "timeout.human_pause",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
+      "name": "timeout.launch",
       "product": "collie",
       "products": [
         "collie",

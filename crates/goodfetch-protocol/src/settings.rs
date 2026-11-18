@@ -1039,6 +1039,20 @@ pub const TIMEOUT_NAVIGATION: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `timeout.launch` (ADR 0080's note of issue 2813), a browser's bring-up.
+pub const TIMEOUT_LAUNCH: Setting = Setting {
+    name: "timeout.launch",
+    description: "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `timeout.wait` (ADRs 0080 and 0083), an app-state wait's.
 pub const TIMEOUT_WAIT: Setting = Setting {
     name: "timeout.wait",
@@ -1214,6 +1228,7 @@ pub const ENTRIES: Entries = Entries {
         TIMEOUT_CLOSE,
         TIMEOUT_ACTION,
         TIMEOUT_NAVIGATION,
+        TIMEOUT_LAUNCH,
         TIMEOUT_WAIT,
         TIMEOUT_FIRST_BYTE,
         TIMEOUT_HOOK,

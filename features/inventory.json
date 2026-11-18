@@ -10355,6 +10355,17 @@
       ]
     },
     {
+      "id": "setting:timeout.launch",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:timeout.model",
       "kind": "setting",
       "area": 3,

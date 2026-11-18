@@ -5,16 +5,16 @@
 //! threads carry names of their own, so `/proc/<pid>/task` tells Tokio's
 //! workers from its blocking threads.
 
+use std::num::NonZeroUsize;
+
 use goodfetch_engine::settings::{Resolved, get_or_default};
-use goodfetch_protocol::governor::{
-    BLOCKING_THREADS, BlockingThreadCap, WORKER_THREADS, WorkerThreads,
-};
+use goodfetch_protocol::governor::{BLOCKING_THREADS, ThreadCount, WORKER_THREADS};
 
 /// How many threads of each kind a runtime has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Threads {
-    workers: WorkerThreads,
-    blocking: BlockingThreadCap,
+    workers: ThreadCount,
+    blocking: ThreadCount,
 }
 
 impl Threads {
@@ -36,12 +36,19 @@ impl Threads {
 /// If the OS refuses the runtime its threads.
 pub(crate) fn multi_thread(threads: Threads) -> tokio::runtime::Runtime {
     let workers = match threads.workers {
-        WorkerThreads::Count(count) => Some(count),
-        WorkerThreads::PerCore => None,
+        ThreadCount::Count(count) => Some(count),
+        ThreadCount::PerCore => None,
     };
-    goodfetch_runtime::named(goodfetch_runtime::Threads {
-        workers,
-        blocking: threads.blocking.into(),
-    })
-    .expect("invariant: the OS gives the runtime its threads")
+    let blocking = match threads.blocking {
+        ThreadCount::Count(count) => count,
+        ThreadCount::PerCore => cores(),
+    };
+    goodfetch_runtime::named(goodfetch_runtime::Threads { workers, blocking })
+        .expect("invariant: the OS gives the runtime its threads")
+}
+
+/// The cores the engine may use, as Tokio counts them for its workers: one
+/// when the OS cannot tell.
+fn cores() -> NonZeroUsize {
+    std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN)
 }

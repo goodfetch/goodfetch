@@ -13,7 +13,9 @@
 //! its `proxy` module a Session's proxy, its `dialog` module a page's
 //! JavaScript dialogs, its `tabs` module a Session's pages and popups
 //! and `page.close`, its `functions` module the page functions,
-//! `page.evaluate` and `page.add_init_script`, and its `waits` module the
+//! `page.evaluate` and `page.add_init_script`, its `signing_key` module an
+//! `identified` Session's Web Bot Auth key and key directory, and its
+//! `waits` module the
 //! app-state waits, each armed when its call arrives.
 //!
 //! Page bodies as handles (ADRs 0024 and 0031): a body is a file in its
@@ -55,6 +57,7 @@ pub mod request;
 pub mod route;
 pub mod session;
 pub mod session_pages;
+pub mod signing_key;
 pub mod waits;
 
 use self::dialog::{

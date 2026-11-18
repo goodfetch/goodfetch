@@ -4332,6 +4332,44 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Makes a new Ed25519 key for an `identified` Session's Web Bot Auth signatures, from the OS generator, and keeps it as a private JSON Web Key in the item a `keychain:` or `secretfile:` Secret reference names; answers the reference, the key's ID and its public key, never the private key. An item that holds an Ed25519 key already keeps it and answers it with `created` false; one that holds anything else is refused. Set `identified.signing_key` to the reference, then export the key directory with `signing_key.directory`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "signing_key.create",
+      "params": {
+        "$ref": "#/$defs/SigningKeyCreateParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SigningKeyCreated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Exports the Web Bot Auth key directory of the keys the Secret references name, for the user to serve at `/.well-known/http-message-signatures-directory` of the origin `identified.signature_agent` names: the body, a JSON key set of each key's public JSON Web Key named by its RFC 7638 thumbprint, and the `Content-Type`, `Signature-Input` and `Signature` fields its response carries, where each key signs the origin's authority with the tag `http-message-signatures-directory` to prove it holds the key. Valid for `valid_for` milliseconds, seven days by default; export it again before `expires`. A reference that gives no Ed25519 private JSON Web Key is refused.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "signing_key.directory",
+      "params": {
+        "$ref": "#/$defs/SigningKeyDirectoryParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SigningKeyDirectory"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "read",
       "deprecated": null,
       "description": "Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.",

@@ -24,6 +24,7 @@ Commands:
   page             Calls the catalog's `page` operations
   locator          Calls the catalog's `locator` operations
   response         Calls the catalog's `response` operations
+  signing-key      Calls the catalog's `signing_key` operations
   key-value-store  Calls the catalog's `key_value_store` operations
   sample           Calls the catalog's `sample` operations
 
@@ -1089,6 +1090,47 @@ Options:
       --daemon                   Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>             When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                     Print help
+
+$ goodfetch-collie signing-key --help
+Calls the catalog's `signing_key` operations
+
+Usage: goodfetch-collie signing-key [OPTIONS] <COMMAND>
+
+Commands:
+  create     Makes a new Ed25519 key for an `identified` Session's Web Bot Auth signatures, from the OS generator, and keeps it as a private JSON Web Key in the item a `keychain:` or `secretfile:` Secret reference names; answers the reference, the key's ID and its public key, never the private key. An item that holds an Ed25519 key already keeps it and answers it with `created` false; one that holds anything else is refused. Set `identified.signing_key` to the reference, then export the key directory with `signing_key.directory`
+  directory  Exports the Web Bot Auth key directory of the keys the Secret references name, for the user to serve at `/.well-known/http-message-signatures-directory` of the origin `identified.signature_agent` names: the body, a JSON key set of each key's public JSON Web Key named by its RFC 7638 thumbprint, and the `Content-Type`, `Signature-Input` and `Signature` fields its response carries, where each key signs the origin's authority with the tag `http-message-signatures-directory` to prove it holds the key. Valid for `valid_for` milliseconds, seven days by default; export it again before `expires`. A reference that gives no Ed25519 private JSON Web Key is refused
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie signing-key create --help
+Makes a new Ed25519 key for an `identified` Session's Web Bot Auth signatures, from the OS generator, and keeps it as a private JSON Web Key in the item a `keychain:` or `secretfile:` Secret reference names; answers the reference, the key's ID and its public key, never the private key. An item that holds an Ed25519 key already keeps it and answers it with `created` false; one that holds anything else is refused. Set `identified.signing_key` to the reference, then export the key directory with `signing_key.directory`
+
+Usage: goodfetch-collie signing-key create [OPTIONS] --signing-key <SIGNING_KEY>
+
+Options:
+      --signing-key <SIGNING_KEY>  The Secret reference of the item the key is kept in, a `keychain:` or a `secretfile:` one, such as `keychain:goodfetch/signing-key`; the value `identified.signing_key` then takes
+      --json                       Prints the result as JSON
+      --attached                   Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                     Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>               When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                       Print help
+
+$ goodfetch-collie signing-key directory --help
+Exports the Web Bot Auth key directory of the keys the Secret references name, for the user to serve at `/.well-known/http-message-signatures-directory` of the origin `identified.signature_agent` names: the body, a JSON key set of each key's public JSON Web Key named by its RFC 7638 thumbprint, and the `Content-Type`, `Signature-Input` and `Signature` fields its response carries, where each key signs the origin's authority with the tag `http-message-signatures-directory` to prove it holds the key. Valid for `valid_for` milliseconds, seven days by default; export it again before `expires`. A reference that gives no Ed25519 private JSON Web Key is refused
+
+Usage: goodfetch-collie signing-key directory [OPTIONS] --authority <AUTHORITY> --signing-keys <SIGNING_KEYS>
+
+Options:
+      --authority <AUTHORITY>        The authority of the origin that serves the directory, its host and its port when not the scheme's own, such as `bot.example`, which the signatures cover: the origin `identified.signature_agent` names
+      --signing-keys <SIGNING_KEYS>  The Secret references of the keys the directory publishes, each proven by its own signature: the key in use, and while a rotation lasts the one before or after it
+      --valid-for <VALID_FOR>        How long the directory's signatures stay valid, in milliseconds, after which it is exported again; seven days when none is given
+      --json                         Prints the result as JSON
+      --attached                     Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                       Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>                 When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                         Print help
 
 $ goodfetch-collie key-value-store --help
 Calls the catalog's `key_value_store` operations

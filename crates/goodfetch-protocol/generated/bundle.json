@@ -11077,6 +11077,38 @@
         }
       ]
     },
+    "PublicSigningKey": {
+      "description": "A key directory's entry of one key: its public JSON Web Key, named by\nits thumbprint.",
+      "properties": {
+        "crv": {
+          "arrived_in": "0.1",
+          "description": "The curve, `Ed25519`.",
+          "type": "string"
+        },
+        "kid": {
+          "arrived_in": "0.1",
+          "description": "The key's ID, its RFC 7638 thumbprint, which each signature names.",
+          "type": "string"
+        },
+        "kty": {
+          "arrived_in": "0.1",
+          "description": "The key type, `OKP`.",
+          "type": "string"
+        },
+        "x": {
+          "arrived_in": "0.1",
+          "description": "The public key, in unpadded Base64url.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kty",
+        "crv",
+        "x",
+        "kid"
+      ],
+      "type": "object"
+    },
     "PushedRecord": {
       "additionalProperties": false,
       "description": "One Record a handler pushed into a Dataset (ADR 0103).",
@@ -15299,6 +15331,152 @@
       "description": "A SHA-256 digest of 64 lowercase hexadecimal digits.",
       "pattern": "^[0-9a-f]{64}$",
       "type": "string"
+    },
+    "SigningKeyCreateParams": {
+      "additionalProperties": false,
+      "description": "What `signing_key.create` takes: where the key is kept.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "signing_key": {
+          "arrived_in": "0.1",
+          "description": "The Secret reference of the item the key is kept in, a `keychain:`\nor a `secretfile:` one, such as `keychain:goodfetch/signing-key`;\nthe value `identified.signing_key` then takes.",
+          "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "signing_key"
+      ],
+      "type": "object"
+    },
+    "SigningKeyCreated": {
+      "description": "What `signing_key.create` answers: the key's reference and its public\nhalf, never its private key.",
+      "properties": {
+        "created": {
+          "arrived_in": "0.1",
+          "description": "Whether this call made the key; false when the item held a key\nalready, which is kept.",
+          "type": "boolean"
+        },
+        "key_id": {
+          "arrived_in": "0.1",
+          "description": "The key's ID, its RFC 7638 thumbprint.",
+          "type": "string"
+        },
+        "public_key": {
+          "$ref": "#/$defs/PublicSigningKey",
+          "arrived_in": "0.1",
+          "description": "The key's public JSON Web Key."
+        },
+        "signing_key": {
+          "arrived_in": "0.1",
+          "description": "The Secret reference the key is kept at.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "signing_key",
+        "key_id",
+        "public_key",
+        "created"
+      ],
+      "type": "object"
+    },
+    "SigningKeyDirectory": {
+      "description": "What `signing_key.directory` answers: the directory's body and the\nheader fields its response carries, served as they are.",
+      "properties": {
+        "body": {
+          "arrived_in": "0.1",
+          "description": "The response's body, the JSON key set, byte for byte.",
+          "type": "string"
+        },
+        "content_type": {
+          "arrived_in": "0.1",
+          "description": "The response's `Content-Type`.",
+          "type": "string"
+        },
+        "expires": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When its signatures expire, by which it is exported again."
+        },
+        "key_ids": {
+          "arrived_in": "0.1",
+          "description": "The IDs of the keys it publishes, in the order given.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "path": {
+          "arrived_in": "0.1",
+          "description": "Where on the origin the directory is served.",
+          "type": "string"
+        },
+        "signature": {
+          "arrived_in": "0.1",
+          "description": "The response's `Signature` field, one label per key.",
+          "type": "string"
+        },
+        "signature_input": {
+          "arrived_in": "0.1",
+          "description": "The response's `Signature-Input` field, one label per key.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content_type",
+        "body",
+        "signature_input",
+        "signature",
+        "key_ids",
+        "expires"
+      ],
+      "type": "object"
+    },
+    "SigningKeyDirectoryParams": {
+      "additionalProperties": false,
+      "description": "What `signing_key.directory` takes: the keys it publishes and the\norigin that serves it.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "authority": {
+          "arrived_in": "0.1",
+          "description": "The authority of the origin that serves the directory, its host\nand its port when not the scheme's own, such as `bot.example`,\nwhich the signatures cover: the origin `identified.signature_agent`\nnames.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "signing_keys": {
+          "arrived_in": "0.1",
+          "description": "The Secret references of the keys the directory publishes, each\nproven by its own signature: the key in use, and while a rotation\nlasts the one before or after it.",
+          "items": {
+            "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "valid_for": {
+          "arrived_in": "0.1",
+          "description": "How long the directory's signatures stay valid, in milliseconds,\nafter which it is exported again; seven days when none is given.",
+          "format": "uint64",
+          "minimum": 1000,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "signing_keys",
+        "authority"
+      ],
+      "type": "object"
     },
     "SinkReport": {
       "description": "A Sink that applies to a crawl's Run (ADRs 0026 and 0103).",

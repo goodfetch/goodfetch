@@ -95,7 +95,7 @@ use crate::run_state::{
 };
 use crate::staging::Staging;
 use crate::tier_choice::TierChoices;
-use crate::work_items::{self, Changed, Failure, Leased, Unsuccessful};
+use crate::work_items::{self, Again, Changed, Failure, Leased, Unsuccessful};
 
 /// How many pages a case's crawl may be given: few, so that most are
 /// given more than once.
@@ -1384,7 +1384,7 @@ impl Subject {
                             if !settled {
                                 // No job ran: its work item stays leased.
                                 let committed = crawl.stored().commits();
-                                crawl.state.settled(leased, false, committed);
+                                crawl.state.settled(leased, Again::Not, committed);
                             }
                             return false;
                         }
@@ -1422,20 +1422,22 @@ impl Subject {
             .block_on(async { stored.end(outcome).await.await })
             .unwrap();
         crawl.state.changed(written.answer.changed);
-        let (ended, retried) = match written.answer.ended {
+        let (ended, again) = match written.answer.ended {
             Ended::Committed(committed) => {
                 let _clock = self.runtime.enter();
                 let committed = lease.committed(Ok(Some(Ok(committed)))).unwrap();
                 // The model reads every page it leases back from the file.
                 crawl.state.added(committed.keyed, written.commits);
-                (true, false)
+                (true, Again::Not)
             }
-            Ended::LeaseLost => (false, false),
-            Ended::Unsuccessful { ended, retried, .. } => (ended, ended && retried),
+            Ended::LeaseLost => (false, Again::Not),
+            Ended::Unsuccessful { ended, again, .. } => {
+                (ended, if ended { again } else { Again::Not })
+            }
             Ended::SitemapRead(_) => panic!("the model reads no sitemap"),
         };
         if !settled {
-            crawl.state.settled(leased, retried, written.commits);
+            crawl.state.settled(leased, again, written.commits);
         }
         if ended {
             crawl.in_flight -= 1;
@@ -1747,7 +1749,7 @@ fn a_work_item_readmitted_before_its_failed_attempt_settles_stays_pending() {
         written.answer.ended,
         Ended::Unsuccessful {
             ended: true,
-            retried: false,
+            again: Again::Not,
             ..
         }
     ));
@@ -1757,7 +1759,9 @@ fn a_work_item_readmitted_before_its_failed_attempt_settles_stays_pending() {
         .crawl
         .as_mut()
         .expect("invariant: the crawl runs until the case ends");
-    crawl.state.settled(leased.clone(), false, written.commits);
+    crawl
+        .state
+        .settled(leased.clone(), Again::Not, written.commits);
 
     let waiting = subject
         .runtime

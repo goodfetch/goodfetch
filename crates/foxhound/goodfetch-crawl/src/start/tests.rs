@@ -17,6 +17,7 @@
 
 mod admission;
 mod finishing;
+mod given_back;
 mod keep_alive;
 mod limits;
 mod lost_outcome;
@@ -634,6 +635,15 @@ pub(crate) fn work_items(connection: &Connection) -> Vec<(String, String, i64, O
 
 pub(super) fn page_of(params: &Value) -> String {
     params["crawl_request"]["url"].as_str().unwrap().to_owned()
+}
+
+/// Each delivered work item's page and attempt, in order.
+pub(super) fn delivered(client: &Client) -> Vec<(String, u64)> {
+    client
+        .handled
+        .iter()
+        .map(|params| (page_of(params), params["attempt"].as_u64().unwrap()))
+        .collect()
 }
 
 /// Answers each page with one Record naming it.

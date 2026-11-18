@@ -2,8 +2,11 @@
 //! `crawl_request.handle` request to a serving Connection, bounded by its
 //! lease, and what its answer is. When the lease ends first, the request
 //! is cancelled with `$/cancel` and an answer that still comes is a late
-//! commit, refused with `lease_lost`. Its answer also says what the Session
-//! that served it scored: a success, a block or a failed Page check.
+//! commit, refused with `lease_lost`. A request the program gives back,
+//! answering `call_cancelled` by the program with nothing closed under it
+//! (ADR 0102), ends its attempt released, uncounted. Its answer also says
+//! what the Session that served it scored: a success, a block or a failed
+//! Page check.
 //!
 //! Its request runs as the crawl's tier choice planned it (the
 //! `tier_choice` module): alone, on one tier, or as a sample of the sample
@@ -100,6 +103,7 @@ use goodfetch_fetch_tier::{
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::browser_cache::PinnedBy;
+use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
     HANDLER_FAILED, LEASE_LOST, WORK_ITEM_LEASED,
@@ -119,6 +123,7 @@ use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_session_pool::escalation::{self, Action, Met};
 use goodfetch_session_pool::{Effect, PoolKey, PoolSettings, SendsFrom};
+use serde_json::{Map, Value};
 use tokio::sync::{Mutex, oneshot};
 
 use super::failure::{AttemptFailure, Why};
@@ -193,12 +198,22 @@ pub(super) enum Answer {
     LeaseEnded,
     /// The program's Connection ended.
     ClientGone,
+    /// The program gave the request back unhandled, its own stop (ADRs
+    /// 0093 and 0102): its work item waits again, the attempt uncounted.
+    Released,
 }
 
 impl Answer {
     /// The answer of an attempt that failed with `failure`.
     pub(super) fn failed(failure: AttemptFailure) -> Self {
         Self::Failed(Box::new(failure))
+    }
+
+    /// Whether the attempt ended with no answer of its handler to run
+    /// again on another tier: its lease ended, its Connection ended or its
+    /// program gave its request back.
+    pub(super) fn unanswered(&self) -> bool {
+        matches!(self, Self::LeaseEnded | Self::ClientGone | Self::Released)
     }
 }
 
@@ -892,7 +907,7 @@ impl On<'_> {
         };
         match run.escalated {
             // The first answer, whatever it says, is discarded.
-            Some(call) if !matches!(run.answer, Answer::LeaseEnded | Answer::ClientGone) => {
+            Some(call) if !run.answer.unanswered() => {
                 // The browser's run takes a whole lease of its own, and
                 // stages anew: what the first run staged goes with it.
                 self.lease.renew(self.lease.length());
@@ -1039,7 +1054,7 @@ impl On<'_> {
         };
         // A page holding no document has nothing to compare, and the
         // browser would hold none either (ADR 0119): its answer stands.
-        if matches!(run.answer, Answer::LeaseEnded | Answer::ClientGone) || !run.document {
+        if run.answer.unanswered() || !run.document {
             return (run.answer, None);
         }
         // A Challenge its handler named moves the domain to the browser,
@@ -1205,14 +1220,12 @@ impl On<'_> {
             .on_http(tiering, http, (&LIGHT_SAMPLED, None), Chosen::Sample(None))
             .await
         {
-            Ok(light) if matches!(light.answer, Answer::LeaseEnded | Answer::ClientGone) => {
-                Err(light.answer)
-            }
+            Ok(light) if light.answer.unanswered() => Err(light.answer),
             Ok(light) => {
                 self.lease.renew(self.lease.length());
                 Ok(Some((light, self.lease.restage())))
             }
-            Err(ended @ (Answer::LeaseEnded | Answer::ClientGone)) => Err(ended),
+            Err(ended) if ended.unanswered() => Err(ended),
             Err(_) => {
                 self.lease.renew(self.lease.length());
                 drop(self.lease.restage());
@@ -1886,6 +1899,9 @@ async fn handled(
             biased;
             answer = sent.answer() => match answer {
                 Ok(handled) => Answer::Handled(handled),
+                Err(ClientRequestError::Failed { code, details, .. }) if given_back(&code, &details) => {
+                    Answer::Released
+                }
                 Err(ClientRequestError::Failed { code, retryable, message, details }) => {
                     match escaped_refusal(&code, &details) {
                         Some(reason) => Answer::Refused(reason),
@@ -1906,6 +1922,26 @@ async fn handled(
             }
         },
     }
+}
+
+/// Whether a handler's failure `code` with `details` gives its request
+/// back: a `call_cancelled` the program raised by stopping the call itself,
+/// nothing closed under it, as dropping `serve` or one `CrawlCall` answers
+/// (ADR 0102). A `call_cancelled` the browser raised, or one that closed
+/// the page under the handler, is the handler's failure.
+fn given_back(code: &str, details: &Map<String, Value>) -> bool {
+    code == CALL_CANCELLED.name
+        && serde_json::from_value::<CallCancelledDetails>(Value::Object(details.clone())).is_ok_and(
+            |details| {
+                matches!(
+                    details,
+                    CallCancelledDetails {
+                        by: StoppedBy::Program,
+                        closed: None,
+                    }
+                )
+            },
+        )
 }
 
 /// One more attempt in `goodfetch.work_item.leased`, until the answer
@@ -1965,6 +2001,7 @@ pub(super) fn effect(answer: &Answer) -> Effect {
         | Answer::HopsRobotsTxtUnreachable(_)
         | Answer::SitemapRead(_)
         | Answer::LeaseEnded
-        | Answer::ClientGone => Effect::Neutral,
+        | Answer::ClientGone
+        | Answer::Released => Effect::Neutral,
     }
 }

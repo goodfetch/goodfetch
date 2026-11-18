@@ -15,7 +15,7 @@ use goodfetch_frontier::{SharedBudget, hash_table_bytes};
 use rusqlite::Connection;
 use serde_json::Value;
 
-use crate::work_items::{self, Leased};
+use crate::work_items::{self, Again, Leased};
 
 /// A work item, as its lease reads what the crawl kept of it.
 pub(super) enum Leasing {
@@ -127,23 +127,23 @@ impl Kept {
 
     /// Keeps the attempt of `leased` settled once `committed` commits were
     /// acknowledged: its work item pending again as its next lease takes
-    /// it, `retried`, else ended. A retry spills every pending work item
-    /// once they no longer fit within the budget beside the Frontier's
-    /// visits, which hold `beside` bytes.
+    /// it, retried or released as `again` says, else ended. Pending again,
+    /// it spills every pending work item once they no longer fit within
+    /// the budget beside the Frontier's visits, which hold `beside` bytes.
     pub(super) fn settled(
         &mut self,
         leased: Leased,
-        retried: bool,
+        again: Again,
         committed: u64,
         beside: impl FnOnce() -> u64,
     ) {
         let id = leased.crawl_request.id.clone();
-        let known = if retried {
-            let next = leased.next();
-            self.keep_whole(|whole| whole.insert(&next, beside()));
-            Known::Pending(Box::new(next), committed)
-        } else {
-            Known::Gone(committed)
+        let known = match leased.after(again) {
+            Some(next) => {
+                self.keep_whole(|whole| whole.insert(&next, beside()));
+                Known::Pending(Box::new(next), committed)
+            }
+            None => Known::Gone(committed),
         };
         self.known.insert(id, known);
     }

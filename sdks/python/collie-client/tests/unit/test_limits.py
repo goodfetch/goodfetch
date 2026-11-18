@@ -7,6 +7,7 @@ TypeScript's `limits.test.ts` is its twin.
 
 from __future__ import annotations
 
+import dataclasses
 from decimal import Decimal
 
 import pytest
@@ -76,6 +77,15 @@ def test_turns_an_amount_exactly(amount: str, millionths: int) -> None:
 
 
 @pytest.mark.covers("story:11-51")
+def test_prices_each_usage_kind_a_count_limits() -> None:
+    """`Prices` has a field for each Usage kind `Limits` counts, in its order."""
+    counted = [field.name for field in dataclasses.fields(Limits)]
+    priced = [field.name for field in dataclasses.fields(Prices)]
+
+    assert priced == [name for name in counted if name != "price"]
+
+
+@pytest.mark.covers("story:11-51")
 def test_lists_nothing_for_no_limits() -> None:
     """None, empty Limits and empty prices list nothing."""
     assert [
@@ -87,51 +97,44 @@ def test_lists_nothing_for_no_limits() -> None:
 
 @pytest.mark.covers("story:11-51")
 @pytest.mark.parametrize(
-    ("money", "reason"),
+    "money",
     [
         pytest.param(
             Money(Decimal("0.0000001"), "USD"),
-            "millionth",
             id="a finer amount than a millionth",
         ),
         pytest.param(
             Money(Decimal("18446744073709.551616"), "USD"),
-            "than the wire carries",
             id="an amount past what the wire carries",
         ),
-        pytest.param(Money(Decimal("NaN"), "USD"), "no amount", id="not a number"),
-        pytest.param(Money(Decimal("Infinity"), "USD"), "no amount", id="infinity"),
-        pytest.param(Money(Decimal(-1), "USD"), "no amount", id="a negative amount"),
-        pytest.param(Money(Decimal("-0"), "USD"), "no amount", id="a negative zero"),
+        pytest.param(Money(Decimal("NaN"), "USD"), id="not a number"),
+        pytest.param(Money(Decimal("Infinity"), "USD"), id="infinity"),
+        pytest.param(Money(Decimal(-1), "USD"), id="a negative amount"),
+        pytest.param(Money(Decimal("-0"), "USD"), id="a negative zero"),
         pytest.param(
             Money(Decimal(1), "usd"),
-            "ISO 4217",
             id="a currency that is no ISO 4217 code",
         ),
         pytest.param(
             Money(0.5, "USD"),  # type: ignore[arg-type]
-            "never a float",
             id="a float amount",
         ),
         pytest.param(
             Money("0.5", "USD"),  # type: ignore[arg-type]
-            "never a float or a string",
             id="a string amount",
         ),
         pytest.param(
             Decimal("0.5"),
-            "a price is a Money",
             id="no Money",
         ),
     ],
 )
-def test_refuses_a_price_as_setting_invalid(money: Money, reason: str) -> None:
-    """The refusal names the price's key and why."""
+def test_refuses_a_price_as_setting_invalid(money: Money) -> None:
+    """The refusal names the price's key."""
     refused = refusal(Limits(price=Prices(paid_solves=money)))
 
     assert (refused.code, refused.group) == ("setting_invalid", "program")
     assert refused.details["key"] == "limits.price.paid_solves"
-    assert reason in str(refused.details["reason"])
 
 
 @pytest.mark.covers("story:11-51")

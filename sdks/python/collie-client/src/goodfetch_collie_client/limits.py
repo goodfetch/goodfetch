@@ -71,8 +71,7 @@ class Limits:
 
     A count per Usage kind, and a price per Usage kind in `price`, such as
     `Limits(model_calls=100, price=Prices(paid_solves=Money(Decimal("2.50"),
-    "USD")))`. Each only lowers what covers that work. Paid fetches are
-    Foxhound's: a Collie engine refuses them with `not_in_product`.
+    "USD")))`. Each only lowers what covers that work.
     """
 
     model_tokens: int | None = None
@@ -117,7 +116,10 @@ def limit_list(limits: Limits | None) -> list[RunLimit]:
 
 
 def _given(fields: Limits | Prices | None) -> Iterator[tuple[str, object]]:
-    """Each field of `fields` that is set, in its order: its Usage kind and value."""
+    """Each field of `fields` that is set, in its order: its name and value.
+
+    A name is a Usage kind, or `price` on a `Limits`.
+    """
     if fields is None:
         return
     for field in dataclasses.fields(fields):

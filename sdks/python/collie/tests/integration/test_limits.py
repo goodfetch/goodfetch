@@ -277,6 +277,8 @@ async def test_fails_the_call_that_finds_a_limit_used_up_and_the_run_ends_stoppe
             stopped_by.usage_kind,
             stopped_by.currency,
         ) == (LimitScope(kind="run", id="capped"), "proxy_bytes", "USD")
+    with client_case.check("the report holds the work done before the stop"):
+        assert (report.usage.proxy_bytes, report.usage.requests) == (4096, 1)
     with client_case.check(
         "the script played to its end, so its engine wrote no failure"
     ):

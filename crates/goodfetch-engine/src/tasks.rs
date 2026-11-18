@@ -27,8 +27,9 @@
 //! the Simulation and in-process tests, blocking calls run inline and an
 //! actor's loop runs as a task on the host's runtime. A Page analysis runs
 //! in production on a thread of the CPU pool's own (ADR 0138), at most one
-//! a core, never on a blocking thread, whose count the runtime `main`
-//! builds caps at `governor.blocking_threads`.
+//! a core, and on the owner's blocking threads, whose count the runtime
+//! `main` builds caps at `governor.blocking_threads`, only when the pool
+//! cannot start a thread, so that it runs at all.
 
 use std::any::Any;
 use std::future::Future;

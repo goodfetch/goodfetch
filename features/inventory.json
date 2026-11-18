@@ -899,6 +899,28 @@
       ]
     },
     {
+      "id": "command:signing-key.create",
+      "kind": "command",
+      "area": 8,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:signing-key.directory",
+      "kind": "command",
+      "area": 8,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:upgrade-files",
       "kind": "command",
       "area": 3,
@@ -4027,6 +4049,28 @@
       "id": "operation:session.route",
       "kind": "operation",
       "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:signing_key.create",
+      "kind": "operation",
+      "area": 8,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:signing_key.directory",
+      "kind": "operation",
+      "area": 8,
       "milestone": null,
       "status": "active",
       "products": [

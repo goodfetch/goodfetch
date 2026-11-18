@@ -1314,7 +1314,7 @@ status = "active"
 
 [[story]]
 id = 167
-title = "As a developer, I want a start under a Run ID to fail with `run_in_use` while a writer runs that Run, with `run_conflict` listing each difference when it began with other inputs or another caller, and with `run_state_unavailable` when the Run index lists it but its state is missing or unreadable, never starting it afresh, so that a refused start tells me why (ADR 0102)."
+title = "As a developer, I want a start under a Run ID to fail with `run_in_use` while a writer runs that Run, with `run_conflict` listing each difference when it began with other inputs or another caller, with `limit_reached` naming the Limit while a Limit that stopped it stays used up, and with `run_state_unavailable` when the Run index lists it but its state is missing or unreadable, never starting it afresh, so that a refused start tells me why (ADR 0102)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

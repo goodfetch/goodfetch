@@ -84,6 +84,30 @@ class HandlerLostError(UnavailableError):
         super().__init__(message, code="handler_lost", group="unavailable", retryable=True, fix=fix, details=details)
 
 
+class LabelDuplicateError(ProgramError):
+    """The crawl declares a second Label of a name it already declares, or attaches a second handler to one Label, so the declaration failed at once, with no I/O. The details name the Label. Declare each Label once and attach one handler to it."""
+
+    def __init__(self, message: str, *, fix: str | None = None, details: Mapping[str, object] | None = None) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="label_duplicate", group="program", retryable=False, fix=fix, details=details)
+
+
+class LabelUnhandledError(ProgramError):
+    """The crawl declares a Label it attaches no handler to, and no default handler exists, so its Run was not started and nothing was sent. The details name the Label. Attach a handler to it with `crawl.handle`, or stop declaring it."""
+
+    def __init__(self, message: str, *, fix: str | None = None, details: Mapping[str, object] | None = None) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="label_unhandled", group="program", retryable=False, fix=fix, details=details)
+
+
+class LabelUnknownError(ProgramError):
+    """A seed, an enqueue or a handler names a Label the crawl does not declare, such as another crawl's, so nothing was done; or a resume finds pending requests of a Label the crawl no longer declares, so the Run did no work. The details name the Label and those the crawl declares. Declare the Label on this crawl, or use one it declares."""
+
+    def __init__(self, message: str, *, fix: str | None = None, details: Mapping[str, object] | None = None) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="label_unknown", group="program", retryable=False, fix=fix, details=details)
+
+
 class LeaseLostError(UnavailableError):
     """The attempt's lease ended before it committed: its handler answered after the lease's end, or the run file holds a later lease of its work item. Its outputs are discarded, and the commit of the work item's next attempt is the one that counts."""
 
@@ -190,6 +214,9 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "effect_staging_refused": EffectStagingRefusedError,
     "handler_failed": HandlerFailedError,
     "handler_lost": HandlerLostError,
+    "label_duplicate": LabelDuplicateError,
+    "label_unhandled": LabelUnhandledError,
+    "label_unknown": LabelUnknownError,
     "lease_lost": LeaseLostError,
     "payload_invalid": PayloadInvalidError,
     "payload_schema_changed": PayloadSchemaChangedError,

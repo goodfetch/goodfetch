@@ -502,6 +502,36 @@ pub const CLIENT_GONE: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A Label declared twice, or handled twice (ADR 0093).
+pub const LABEL_DUPLICATE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "label_duplicate",
+    description: "The crawl declares a second Label of a name it already declares, or attaches a second handler to one Label, so the declaration failed at once, with no I/O. The details name the Label. Declare each Label once and attach one handler to it.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A Label left without a handler (ADR 0093).
+pub const LABEL_UNHANDLED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "label_unhandled",
+    description: "The crawl declares a Label it attaches no handler to, and no default handler exists, so its Run was not started and nothing was sent. The details name the Label. Attach a handler to it with `crawl.handle`, or stop declaring it.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A Label the crawl does not declare (ADRs 0093 and 0104).
+pub const LABEL_UNKNOWN: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "label_unknown",
+    description: "A seed, an enqueue or a handler names a Label the crawl does not declare, such as another crawl's, so nothing was done; or a resume finds pending requests of a Label the crawl no longer declares, so the Run did no work. The details name the Label and those the crawl declares. Declare the Label on this crawl, or use one it declares.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A call on an attempt that already ended (ADR 0093).
 pub const ATTEMPT_ENDED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "attempt_ended",
@@ -807,6 +837,9 @@ pub const ENTRIES: Entries = Entries {
         CLIENT_GONE,
         LEASE_LOST,
         ATTEMPT_ENDED,
+        LABEL_DUPLICATE,
+        LABEL_UNHANDLED,
+        LABEL_UNKNOWN,
         EFFECT_STAGING_REFUSED,
         STAGING_FULL,
     ],

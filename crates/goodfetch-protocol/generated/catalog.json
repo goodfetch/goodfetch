@@ -452,6 +452,36 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The crawl declares a second Label of a name it already declares, or attaches a second handler to one Label, so the declaration failed at once, with no I/O. The details name the Label. Declare each Label once and attach one handler to it.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "label_duplicate",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The crawl declares a Label it attaches no handler to, and no default handler exists, so its Run was not started and nothing was sent. The details name the Label. Attach a handler to it with `crawl.handle`, or stop declaring it.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "label_unhandled",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A seed, an enqueue or a handler names a Label the crawl does not declare, such as another crawl's, so nothing was done; or a resume finds pending requests of a Label the crawl no longer declares, so the Run did no work. The details name the Label and those the crawl declares. Declare the Label on this crawl, or use one it declares.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "label_unknown",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The attempt's lease ended before it committed: its handler answered after the lease's end, or the run file holds a later lease of its work item. Its outputs are discarded, and the commit of the work item's next attempt is the one that counts.",
       "exit_code": null,
       "group": "unavailable",

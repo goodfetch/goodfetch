@@ -1451,6 +1451,36 @@
       ]
     },
     {
+      "id": "error:label_duplicate",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:label_unhandled",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:label_unknown",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:lease_lost",
       "kind": "error",
       "area": 3,

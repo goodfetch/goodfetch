@@ -461,14 +461,14 @@ fn a_session_cookie_goes_to_a_host_trusted_only_through_its_authority() {
     let opened = reached(&program.goto(&page, &target));
     let set = program.call(
         "page.evaluate",
-        &json!({ "page_id": page, "function": "() => { document.cookie = 'login=tru5t; Path=/'; return document.cookie; }" }),
+        &json!({ "page_id": page, "function": "() => { document.cookie = 'login=trusted-value; Path=/'; return document.cookie; }" }),
     );
     let again = program.goto(&page, &target);
     program.finish("trusted-cookie");
 
     assert_eq!(
         (opened, &set["result"]["value"], reached(&again)),
-        (json!(200), &json!("login=tru5t"), json!(200)),
+        (json!(200), &json!("login=trusted-value"), json!(200)),
         "{again}"
     );
     let carried: Vec<Vec<(String, String)>> = proving_ground
@@ -482,7 +482,10 @@ fn a_session_cookie_goes_to_a_host_trusted_only_through_its_authority() {
         .collect();
     assert_eq!(
         carried,
-        vec![vec![], vec![("login".to_owned(), "tru5t".to_owned())]]
+        vec![
+            vec![],
+            vec![("login".to_owned(), "trusted-value".to_owned())]
+        ]
     );
 }
 

@@ -637,6 +637,15 @@ pub(super) fn page_of(params: &Value) -> String {
     params["crawl_request"]["url"].as_str().unwrap().to_owned()
 }
 
+/// Each delivered work item's page and attempt, in order.
+pub(super) fn delivered(client: &Client) -> Vec<(String, u64)> {
+    client
+        .handled
+        .iter()
+        .map(|params| (page_of(params), params["attempt"].as_u64().unwrap()))
+        .collect()
+}
+
 /// Answers each page with one Record naming it.
 pub(super) fn answer_all(params: &Value) -> Reply {
     Reply::Records(vec![json!({ "page": page_of(params) })])

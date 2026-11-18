@@ -11,22 +11,13 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::{
-    Client, Reply, answer_all, crawl, dependencies, page_of, records, run_file, seeds, work_items,
+    Reply, answer_all, crawl, delivered, dependencies, records, run_file, seeds, work_items,
 };
 
 /// The reply the program gives a Crawl request it drops without handling
 /// it: `call_cancelled` by the program, nothing closed under it.
 fn given_back() -> Reply {
     Reply::FailsWith("call_cancelled", false, json!({ "by": "program" }))
-}
-
-/// Each delivered work item's page and attempt, in order.
-fn delivered(client: &Client) -> Vec<(String, u64)> {
-    client
-        .handled
-        .iter()
-        .map(|params| (page_of(params), params["attempt"].as_u64().unwrap()))
-        .collect()
 }
 
 #[test]
@@ -79,8 +70,9 @@ fn a_crawl_request_the_program_gives_back_is_delivered_again_in_the_same_run_unc
 }
 
 /// The program gives back every Crawl request leased to it, as dropping
-/// `serve` does, and the Run, paused and resumed, delivers each again with
-/// its attempt count unchanged.
+/// `serve` does, until the Run is paused, so each lies given back at the
+/// pause; the Run resumed delivers each again with its attempt count
+/// unchanged.
 ///
 /// Covers: operation:run.resume
 #[test]
@@ -90,15 +82,7 @@ fn every_crawl_request_given_back_then_resumed_keeps_its_attempt_count() {
     let (before, after, finished) = crawl(
         || dependencies(&env, RunStateOptions::default()),
         async |client| {
-            let mut seen = BTreeSet::new();
-            // Gives back each page's first delivery and holds the next.
-            let mut giving_back = |params: &Value| {
-                if seen.insert(page_of(params)) {
-                    given_back()
-                } else {
-                    Reply::Silent
-                }
-            };
+            let mut giving_back = |_: &Value| given_back();
             client
                 .call(
                     "crawl.start",
@@ -106,7 +90,15 @@ fn every_crawl_request_given_back_then_resumed_keeps_its_attempt_count() {
                     &mut giving_back,
                 )
                 .await;
-            while client.handled.len() < 4 {
+            // Until each page was given back and delivered again.
+            while delivered(client).len() < 4
+                || delivered(client)
+                    .iter()
+                    .map(|(page, _)| page)
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    < 2
+            {
                 client
                     .call(
                         "run.progress",
@@ -147,14 +139,12 @@ fn every_crawl_request_given_back_then_resumed_keeps_its_attempt_count() {
     let attempts: BTreeSet<u64> = before.iter().map(|(_, attempt)| *attempt).collect();
     assert_eq!(
         (
-            before.len(),
             attempts,
             after,
             finished["result"]["completeness"].clone(),
             work_items(&run_file(&env, "stopped")),
         ),
         (
-            4,
             BTreeSet::from([1]),
             vec![
                 ("https://shop.test/page/1".to_owned(), 1),
@@ -175,10 +165,9 @@ fn every_crawl_request_given_back_then_resumed_keeps_its_attempt_count() {
 ///
 /// Covers: error:call_cancelled
 #[rstest]
-fn a_call_cancelled_that_is_no_give_back_counts_its_attempt(
-    #[values(json!({ "by": "browser" }), json!({ "by": "program", "closed": "page" }))]
-    details: Value,
-) {
+#[case::by_browser(json!({ "by": "browser" }))]
+#[case::page_closed(json!({ "by": "program", "closed": "page" }))]
+fn a_call_cancelled_that_is_no_give_back_counts_its_attempt(#[case] details: Value) {
     let env = TestEnv::new();
 
     crawl(

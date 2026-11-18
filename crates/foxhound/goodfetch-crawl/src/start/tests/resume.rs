@@ -12,7 +12,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::{
-    Client, POLICY, Reply, answer_all, configure, crawl, default_dependencies, page_of, records,
+    POLICY, Reply, answer_all, configure, crawl, default_dependencies, delivered, page_of, records,
     run_file, seeds, work_items,
 };
 use crate::policy::CrawlPolicy;
@@ -28,15 +28,6 @@ const ONE_AT_A_TIME: CrawlPolicy = CrawlPolicy {
 /// ended.
 fn at(level: &str) -> Value {
     json!({ "run_state": { "durability": level } })
-}
-
-/// Each delivered work item's page and attempt, in order.
-fn delivered(client: &Client) -> Vec<(String, u64)> {
-    client
-        .handled
-        .iter()
-        .map(|params| (page_of(params), params["attempt"].as_u64().unwrap()))
-        .collect()
 }
 
 /// Both machines' folders lie in memory (`TestEnv::in_memory`): on a busy

@@ -461,6 +461,24 @@ impl Workspace {
         self.xtask_with_env(args, &[])
     }
 
+    /// Runs `cargo <args>` in the workspace, offline and into the target
+    /// folder its `xtask` runs build into.
+    pub(crate) fn cargo(&self, args: &[&str]) -> Outcome {
+        let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+        let output = self
+            .command(cargo)
+            .args(args)
+            .env("CARGO_TARGET_DIR", &self.target.folder)
+            .env("CARGO_NET_OFFLINE", "true")
+            .output()
+            .unwrap();
+        Outcome {
+            code: output.status.code().unwrap(),
+            stdout: String::from_utf8(output.stdout).unwrap(),
+            stderr: String::from_utf8(output.stderr).unwrap(),
+        }
+    }
+
     /// Runs `xtask <args>` as `xtask` does, with these variables added.
     pub(crate) fn xtask_with_env(
         &self,

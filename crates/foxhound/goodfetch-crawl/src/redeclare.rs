@@ -20,7 +20,6 @@ use goodfetch_protocol::run::{RunId, RunStarted};
 use tokio::sync::Mutex;
 
 use crate::code_free;
-use crate::invariants::Invariants;
 use crate::serving::Crawls;
 
 /// What a start under the ID of a Run declared: its Datasets, its Labels,
@@ -37,14 +36,14 @@ struct Declared {
 pub(crate) struct Redeclared(Arc<Mutex<BTreeMap<RunId, Declared>>>);
 
 impl Redeclared {
-    /// Keeps `datasets`, the Labels of `invariants` and `extraction` for the
-    /// resume of the Run a start under its ID found, in place of any kept
+    /// Keeps `datasets`, the rules of the Labels `labels` and `extraction`
+    /// for the resume of the Run a start under its ID found, in place of any kept
     /// before, unless a crawl of `crawls` works it; answers how that start
     /// found it.
     pub(crate) async fn keep(
         &self,
         found: RunStarted,
-        (datasets, invariants, extraction): (Datasets, Invariants, Option<CrawlExtraction>),
+        (datasets, labels, extraction): (Datasets, PayloadRules, Option<CrawlExtraction>),
         crawls: &Crawls,
     ) -> RunStarted {
         if crawls.live(&found.run_id).await.is_none() {
@@ -52,7 +51,7 @@ impl Redeclared {
                 found.run_id.clone(),
                 Declared {
                     datasets,
-                    labels: invariants.payloads().clone(),
+                    labels,
                     extraction,
                 },
             );

@@ -12,8 +12,8 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::{
-    POLICY, Reply, answer_all, configure, crawl, default_dependencies, delivered, page_of, records,
-    run_file, seeds, work_items,
+    POLICY, Reply, answer_all, configure, crawl, default_dependencies, delivered, page_of,
+    paused_after_its_first_page, records, run_file, seeds, work_items,
 };
 use crate::policy::CrawlPolicy;
 
@@ -155,31 +155,12 @@ fn a_paused_crawl_resumes_by_its_run_id_and_finishes_with_each_record_once(
             default_dependencies(&env, RunStateOptions::default())
         },
         async |client| {
-            let mut first_only = |params: &Value| {
-                if page_of(params).ends_with("/1") {
-                    answer_all(params)
-                } else {
-                    Reply::Silent
-                }
-            };
-            client
-                .call(
-                    "crawl.start",
-                    json!({ "run_id": "paused", "seeds": seeds(2), "settings": at(level), "labels": { "page": {} } }),
-                    &mut first_only,
-                )
-                .await;
-            let paused = loop {
-                let paused = client
-                    .call("run.pause", json!({ "run_id": "paused" }), &mut first_only)
-                    .await;
-                if records(&run_file(&env, "paused")).len() == 1 {
-                    break paused;
-                }
-                client
-                    .call("run.resume", json!({ "run_id": "paused" }), &mut first_only)
-                    .await;
-            };
+            let paused = paused_after_its_first_page(
+                client,
+                &env,
+                json!({ "run_id": "paused", "seeds": seeds(2), "settings": at(level), "labels": { "page": {} } }),
+            )
+            .await;
             client.handled.clear();
             client
                 .call("run.resume", json!({ "run_id": "paused" }), &mut answer_all)

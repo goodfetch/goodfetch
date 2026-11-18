@@ -141,43 +141,46 @@ fn a_label_the_crawl_does_not_declare_is_refused_naming_those_it_declares(
     );
 }
 
+/// The Labels the pending requests of `pending` name.
+fn pending(pending: &[&str]) -> Vec<String> {
+    pending.iter().map(|label| (*label).to_owned()).collect()
+}
+
 /// A resume whose pending requests name a Label the crawl no longer
 /// declares is refused with `label_unknown`, naming the first such Label
-/// and those the crawl declares; one whose pending requests all name
-/// declared Labels goes on, a new Label among them.
+/// and those the crawl declares.
 ///
 /// Covers: error:label_unknown
 #[test]
 fn a_resume_with_pending_requests_of_a_label_no_longer_declared_is_refused() {
     let resumed = rules(64, &[("book", None), ("review", None)]);
 
-    let answers: Vec<Option<(String, Value)>> = [
-        vec!["book".to_owned()],
-        Vec::new(),
-        vec!["author".to_owned(), "book".to_owned(), "shelf".to_owned()],
-    ]
-    .iter()
-    .map(|pending| {
-        resumed.resumes(pending, "run-1").err().map(|refused| {
-            (
-                refused.code().to_owned(),
-                Value::Object(refused.details().cloned().unwrap()),
-            )
-        })
-    })
-    .collect();
+    let refused = resumed
+        .resumes(&pending(&["author", "book", "shelf"]), "run-1")
+        .unwrap_err();
 
     assert_eq!(
-        answers,
-        [
-            None,
-            None,
-            Some((
-                "label_unknown".to_owned(),
-                json!({ "label": "author", "declared": ["book", "review"] })
-            )),
-        ]
+        (
+            refused.code(),
+            refused.details().cloned().map(Value::Object)
+        ),
+        (
+            "label_unknown",
+            Some(json!({ "label": "author", "declared": ["book", "review"] }))
+        )
     );
+}
+
+/// A resume whose pending requests all name declared Labels goes on, a
+/// new Label among those declared.
+#[rstest]
+#[case::a_declared_label(&["book"])]
+#[case::nothing_pending(&[])]
+fn a_resume_with_pending_requests_of_declared_labels_goes_on(#[case] labels: &[&str]) {
+    let resumed = rules(64, &[("book", None), ("review", None)]);
+    let resumes = resumed.resumes(&pending(labels), "run-1");
+
+    assert_eq!(resumes.map_err(|refused| refused.code().to_owned()), Ok(()));
 }
 
 /// A run file in memory with the payload tables, `recorded`'s Labels

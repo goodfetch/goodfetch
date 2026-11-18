@@ -235,12 +235,9 @@ async fn start(
     } else {
         work_items::check_seeds(&invariants, seeds, &work)?
     };
-    let declared = params.labels;
-    let opening = datasets.clone();
-    let serving = invariants.clone();
+    let (declared, opening, serving) = (params.labels, datasets.clone(), invariants.clone());
     let admitted = code_free::admitted(params.extraction.as_ref(), checked);
     let (recording, extraction) = (params.extraction.clone(), params.extraction);
-    let redeclaring = (datasets.clone(), invariants.clone(), recording.clone());
     let started = context
         .runs()
         .start(Start {
@@ -296,7 +293,10 @@ async fn start(
             ));
             started
         }
-        Started::Existing(existing) => redeclared.keep(existing, redeclaring, &crawls).await,
+        Started::Existing(existing) => {
+            let kept = (opening, serving.payloads().clone(), extraction);
+            redeclared.keep(existing, kept, &crawls).await
+        }
     })
 }
 

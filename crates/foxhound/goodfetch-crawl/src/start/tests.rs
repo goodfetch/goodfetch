@@ -652,6 +652,39 @@ pub(super) fn answer_all(params: &Value) -> Reply {
     Reply::Records(vec![json!({ "page": page_of(params) })])
 }
 
+/// Answers the first seed's page with its Record, leaving every other
+/// page unanswered.
+pub(super) fn first_only(params: &Value) -> Reply {
+    if page_of(params).ends_with("/1") {
+        answer_all(params)
+    } else {
+        Reply::Silent
+    }
+}
+
+/// Starts the crawl of `start`, whose first seed's page alone is answered,
+/// and pauses its Run once that page's Record is committed, resuming it
+/// until then; answers the pause that held.
+pub(super) async fn paused_after_its_first_page(
+    client: &mut Client,
+    env: &TestEnv,
+    start: Value,
+) -> Value {
+    let run_id = start["run_id"].as_str().unwrap().to_owned();
+    client.call("crawl.start", start, &mut first_only).await;
+    loop {
+        let paused = client
+            .call("run.pause", json!({ "run_id": run_id }), &mut first_only)
+            .await;
+        if records(&run_file(env, &run_id)).len() == 1 {
+            return paused;
+        }
+        client
+            .call("run.resume", json!({ "run_id": run_id }), &mut first_only)
+            .await;
+    }
+}
+
 /// Covers: story:3-41, operation:crawl.start, operation:run.finish
 #[test]
 fn a_crawls_seeds_reach_the_handler_and_their_records_commit_once() {

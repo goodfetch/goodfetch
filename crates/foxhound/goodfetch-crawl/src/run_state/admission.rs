@@ -96,8 +96,9 @@ pub(crate) fn enqueue(
 
 /// Admits `seed` within the Run's `invariants` and under its domain policy
 /// `egress`, at its position from `positions`, while `attempt`, when
-/// given, holds its lease, once its Payload fits its Label's schema and
-/// the cap, else `payload_invalid`; `None` once that attempt ended. It
+/// given, holds its lease, once the crawl declares its Label, else
+/// `label_unknown`, and its Payload fits that Label's schema and the cap,
+/// else `payload_invalid`; `None` once that attempt ended. It
 /// runs once: an attempt's commit applies what its staging decided
 /// (#2245).
 pub(crate) fn seed(
@@ -130,8 +131,10 @@ pub(crate) fn seed(
 
 /// Admits each of `seeds` within the Run's `invariants` and under its
 /// domain policy `egress`, at its position from `positions`, and answers
-/// each one's answer in order; none is admitted, with `payload_invalid`,
-/// when one's Payload does not fit its Label's schema or the cap.
+/// each one's answer in order; none is admitted, with `label_unknown`,
+/// when one names a Label the crawl does not declare, or with
+/// `payload_invalid`, when one's Payload does not fit its Label's schema
+/// or the cap.
 pub(crate) fn seeds(
     connection: &Connection,
     positions: &mut Positions,

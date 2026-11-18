@@ -8,10 +8,11 @@
 //! `governor.blocking_threads`) and an hour between the Resource governor's
 //! samples (`governor.sample_interval`). As it starts, the engine hands the
 //! sandbox probe's fork, the governor's first sample and the reads of its
-//! input to blocking threads. On the default two workers and four blocking
-//! threads, how much of that work ran before the end of its input stopped the
-//! engine depended on timing, and Callgrind counts the probe's forked child as
-//! a process of its own, so the count spread 14.78% across 20 runs (#2752).
+//! input to blocking threads. On two workers and four blocking threads, the
+//! defaults when #2752 measured it, how much of that work ran before the end
+//! of its input stopped the engine depended on timing, and Callgrind counts
+//! the probe's forked child as a process of its own, so the count spread
+//! 14.78% across 20 runs (#2752).
 //! On one blocking thread that work runs one piece at a time, and with an
 //! hour between samples a slow run takes no second sample. A home of its own
 //! also keeps the run off the user's Goodfetch home, whose list of installed

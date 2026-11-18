@@ -18,7 +18,7 @@ package = "@goodfetch/collie"
 receiver = "Collie"
 member = "connect"
 entry = "none"
-reason = "The one factory of ADR 0078: it starts the Attached engine and finishes `hello`, the Connection's own message, which no catalog entry carries."
+reason = "The one factory of ADR 0078: it starts the Attached engine and finishes `hello`, the Connection's own message, which no catalog entry carries, then sends each of its `limits` as a `usage.set` on its Client connection (ADR 0080)."
 words = ["connect"]
 form = "opener"
 
@@ -62,7 +62,7 @@ package = "@goodfetch/foxhound"
 receiver = "Foxhound"
 member = "connect"
 entry = "none"
-reason = "The one factory of ADR 0078, as `Collie.connect` is: it starts Foxhound's Attached engine and finishes `hello`, naming Foxhound, which no catalog entry carries."
+reason = "The one factory of ADR 0078, as `Collie.connect` is: it starts Foxhound's Attached engine and finishes `hello`, naming Foxhound, which no catalog entry carries, then sends each of its `limits` as a `usage.set` on its Client connection (ADR 0080)."
 words = ["connect"]
 form = "opener"
 

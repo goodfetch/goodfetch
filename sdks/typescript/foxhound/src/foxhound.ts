@@ -11,6 +11,8 @@ import type {
   ConnectOverOptions,
   Connection,
   EngineInfo,
+  Limits,
+  Money,
   Run,
   StartOptions,
 } from "@goodfetch/collie-client";
@@ -33,6 +35,35 @@ import {
   type RequestSeed,
 } from "./generated/index.ts";
 import { foxhound } from "./product.ts";
+
+/**
+ * Foxhound's Limits (ADR 0080): Collie's, and Paid fetches, which only
+ * Foxhound makes. A Paid fetch Limit set in code only caps them: a Paid
+ * fetch is made only under a Limit a Client could not set (ADRs 0041, 0045).
+ */
+export interface FoxhoundLimits extends Limits {
+  /** Paid fetches. */
+  readonly paidFetches?: number | undefined;
+  /** What each Usage kind may cost, in one currency. */
+  readonly price?:
+    | (NonNullable<Limits["price"]> & { readonly paidFetches?: Money | undefined })
+    | undefined;
+}
+
+/** Options of `connectOver()`, with Foxhound's Limits. */
+export interface FoxhoundConnectOverOptions extends ConnectOverOptions {
+  readonly limits?: FoxhoundLimits | undefined;
+}
+
+/** Options of `connect()`, with Foxhound's Limits. */
+export interface FoxhoundConnectOptions extends ConnectOptions {
+  readonly limits?: FoxhoundLimits | undefined;
+}
+
+/** What starting a Run takes, with Foxhound's Limits. */
+export interface FoxhoundStartOptions extends StartOptions {
+  readonly limits?: FoxhoundLimits | undefined;
+}
 
 /** What starting a crawl takes (ADR 0093). */
 export interface StartCrawlOptions {
@@ -95,7 +126,7 @@ export class Foxhound implements Connection {
    * refused version fails here, before any other call. An aborted `signal`
    * fails it with the signal's reason, leaving no engine behind.
    */
-  static async connect(options: ConnectOptions = {}): Promise<Foxhound> {
+  static async connect(options: FoxhoundConnectOptions = {}): Promise<Foxhound> {
     return open(await openAttached(foxhound, options));
   }
 
@@ -109,7 +140,7 @@ export class Foxhound implements Connection {
    * naming an existing Run returns that Run. `finish()` ends it; closing it
    * unfinished stops it, resumable by its Run ID.
    */
-  start(options?: StartOptions): Promise<Run> {
+  start(options?: FoxhoundStartOptions): Promise<Run> {
     return this.#connection.start(options);
   }
 
@@ -188,7 +219,7 @@ export class Foxhound implements Connection {
  */
 export async function connectOver(
   transport: Transport,
-  options: ConnectOverOptions = {},
+  options: FoxhoundConnectOverOptions = {},
 ): Promise<Foxhound> {
   return open(await openOver(foxhound, transport, options));
 }

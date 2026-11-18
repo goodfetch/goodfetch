@@ -56,6 +56,27 @@ describe("Foxhound.connect() on an Attached engine", () => {
   );
 
   test(
+    "sends Limits on Paid fetches, Foxhound's own Usage kind, at connect() and at a Run's start",
+    { tags: ["story:11-51"] },
+    async ({ testEnv }) => {
+      const env = scriptedEngineEnv(testEnv, "foxhound", "run/foxhound-paid-fetch-limits.json");
+      const { logger, warned } = recordingLogger();
+
+      // oxlint-disable-next-line no-restricted-properties -- `Foxhound.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const foxhound = await Foxhound.connect({ env, logger, limits: { paidFetches: 3 } });
+      const run = await foxhound.start({
+        limits: { price: { paidFetches: { amount: "0.75", currency: "USD" } } },
+      });
+      const report = await run.finish();
+      await foxhound.close();
+
+      expect(report).toMatchObject({ lifecycle: "finished" });
+      // The engine read each Limit as the script expects, so it wrote no failure.
+      expect(warned).toEqual([]);
+    },
+  );
+
+  test(
     "fails with not_in_product when a Collie engine answers, which writes no failure of its own",
     { tags: ["story:11-1005", "error:not_in_product"] },
     async ({ testEnv }) => {

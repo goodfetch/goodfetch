@@ -1,0 +1,1 @@
+{"w2": "", "w4": "governor.worker_threads = 4\n", "w8": "governor.worker_threads = 8\n", "per_core": "governor.worker_threads = \"per_core\"\n"}

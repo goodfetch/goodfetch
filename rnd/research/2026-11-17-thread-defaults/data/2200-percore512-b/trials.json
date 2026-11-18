@@ -1,0 +1,2272 @@
+{
+  "declared": {
+    "trials": 10,
+    "statistic": "median, with the lowest and highest trial",
+    "concurrency": 16,
+    "site": "/sites/1000/1",
+    "spider": "2.53.9",
+    "crawlee": "3.18.2",
+    "scrapy": "2.19.0",
+    "crawlee_rs": "2a3ed90b8391c86005ce6ed8dd3e3248d0d34579",
+    "pagesift": "1.3.0",
+    "openspider": "2d25a7d627df4cedeb5ec657243765c0e09b4239",
+    "fastcrw": "0.44.2",
+    "crawlberg": "1.13.0",
+    "playwright": "1.64.1",
+    "scrapy_playwright": "0.0.48",
+    "browser": "156.0.8078.4",
+    "scenarios": [
+      "raw",
+      "durable",
+      "polite",
+      "extraction",
+      "browser",
+      "realistic",
+      "long",
+      "raw-64",
+      "raw-256",
+      "hostile",
+      "hostile-16",
+      "crawl-like",
+      "auto",
+      "handled"
+    ],
+    "command": "just compare release --machine 'Hetzner Cloud CCX43, 16 dedicated vCPUs' --foxhound-setting 'governor.worker_threads = \"per_core\"' --foxhound-setting 'governor.blocking_threads = 512' --cell 'durable/foxhound full' --cell 'durable/foxhound periodic' --cell polite/foxhound --out target/compare/2200-percore512-b/trials.json"
+  },
+  "machine": {
+    "class": "local-controlled",
+    "name": "Hetzner Cloud CCX43, 16 dedicated vCPUs",
+    "os": "linux 7.0.0-38-generic",
+    "arch": "x86_64",
+    "cpu": "AMD EPYC-Milan Processor",
+    "threads": 16,
+    "memory_bytes": 65828937728,
+    "load": 0.62
+  },
+  "commit": "b715958c3e4df274c7daf3f7d5031a8875df3671",
+  "order_seed": 3004701457845617403,
+  "trials": [
+    {
+      "scenario": "polite",
+      "cell": "foxhound",
+      "tool": "foxhound",
+      "number": 6,
+      "site_pages": 10000,
+      "concurrency": 16,
+      "load": 0.69,
+      "seconds": 76.893805453,
+      "processes": 1,
+      "user_seconds": 19.76663,
+      "system_seconds": 10.551377,
+      "peak_bytes": 98426880,
+      "sampled": {
+        "samples": 1382,
+        "peak_bytes": 99266560,
+        "average_bytes": 73093712,
+        "peak_pss_bytes": 98783232,
+        "peak_private_bytes": 77979648,
+        "peak_executable_bytes": null,
+        "peak_cores": 2.3427242345334394,
+        "peak_threads": 44,
+        "peak_open_files": 1035,
+        "at_pages": [
+          [
+            1000,
+            83918848
+          ],
+          [
+            10000,
+            96591872
+          ]
+        ]
+      },
+      "read_bytes": 28327936,
+      "written_bytes": 572850176,
+      "footprint_bytes": 36843520,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 10000,
+        "missing": [],
+        "extra": [],
+        "requests": 10000,
+        "bytes": 5725786,
+        "first_bytes": 5725786,
+        "other_protocol": 0
+      },
+      "requests_sent": 11000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 7031717,
+      "received_bytes": 5883786,
+      "connections": 1000,
+      "tls_connections": 0,
+      "startup_seconds": 0.623269,
+      "first_page_seconds": 1.629202,
+      "first_record_seconds": null,
+      "curve": [
+        9.753711571193136,
+        16.646334414836286,
+        15.996086976756745,
+        15.215790051061294,
+        16.646334414836286,
+        14.565542612981751,
+        16.646334414836286,
+        16.776383902452196,
+        416.0283108832913,
+        762.2200469168397
+      ],
+      "latency": {
+        "p50": 33.20688500000001,
+        "p95": 54.13429599999999,
+        "p99": 56.16127899999999
+      },
+      "latency_end": "fetch"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound full",
+      "tool": "foxhound",
+      "number": 10,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.51,
+      "seconds": 1.58422033,
+      "processes": 2,
+      "user_seconds": 0.681028,
+      "system_seconds": 0.594585,
+      "peak_bytes": 41041920,
+      "sampled": {
+        "samples": 24,
+        "peak_bytes": 41852928,
+        "average_bytes": 33076638,
+        "peak_pss_bytes": 41844736,
+        "peak_private_bytes": 20307968,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.3528824473770367,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            41656320
+          ]
+        ]
+      },
+      "read_bytes": 28438528,
+      "written_bytes": 17760256,
+      "footprint_bytes": 16932864,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1000,
+        "bytes": 462362,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 420893,
+      "received_bytes": 462362,
+      "connections": 31,
+      "tls_connections": 0,
+      "startup_seconds": 0.568086,
+      "first_page_seconds": 0.568261,
+      "first_record_seconds": 0.584721644,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        271.4268917379693,
+        908.9644746573856,
+        1413.9447383559332,
+        706.9723691779666,
+        201.99210547941902,
+        1514.9407910956427,
+        1294.0119257275283
+      ],
+      "latency": {
+        "p50": 0.3607916440000001,
+        "p95": 0.809107644,
+        "p99": 0.828684644
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "polite",
+      "cell": "foxhound",
+      "tool": "foxhound",
+      "number": 10,
+      "site_pages": 10000,
+      "concurrency": 16,
+      "load": 0.51,
+      "seconds": 77.351369612,
+      "processes": 1,
+      "user_seconds": 19.973377,
+      "system_seconds": 10.265849,
+      "peak_bytes": 96800768,
+      "sampled": {
+        "samples": 1396,
+        "peak_bytes": 97144832,
+        "average_bytes": 68945663,
+        "peak_pss_bytes": 97136640,
+        "peak_private_bytes": 75960320,
+        "peak_executable_bytes": null,
+        "peak_cores": 2.277099054102227,
+        "peak_threads": 43,
+        "peak_open_files": 1034,
+        "at_pages": [
+          [
+            1000,
+            78680064
+          ],
+          [
+            10000,
+            94674944
+          ]
+        ]
+      },
+      "read_bytes": 28188672,
+      "written_bytes": 562106368,
+      "footprint_bytes": 36270080,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 10000,
+        "missing": [],
+        "extra": [],
+        "requests": 10000,
+        "bytes": 5725786,
+        "first_bytes": 5725786,
+        "other_protocol": 0
+      },
+      "requests_sent": 11000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 7031717,
+      "received_bytes": 5883786,
+      "connections": 1000,
+      "tls_connections": 0,
+      "startup_seconds": 0.576927,
+      "first_page_seconds": 1.582779,
+      "first_record_seconds": null,
+      "curve": [
+        9.954574868711116,
+        16.28930433061819,
+        16.54786471681848,
+        14.47938162721617,
+        16.54786471681848,
+        17.323545875419345,
+        14.996502399616748,
+        16.677144909918624,
+        399.9929174518467,
+        769.9928301044599
+      ],
+      "latency": {
+        "p50": 33.627379000000005,
+        "p95": 53.926164,
+        "p99": 56.022514
+      },
+      "latency_end": "fetch"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound periodic",
+      "tool": "foxhound",
+      "number": 1,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.96,
+      "seconds": 1.358367423,
+      "processes": 2,
+      "user_seconds": 0.663088,
+      "system_seconds": 0.520379,
+      "peak_bytes": 41193472,
+      "sampled": {
+        "samples": 20,
+        "peak_bytes": 42856448,
+        "average_bytes": 32199145,
+        "peak_pss_bytes": 42848256,
+        "peak_private_bytes": 20930560,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.8278449056162762,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            42856448
+          ]
+        ]
+      },
+      "read_bytes": 28393472,
+      "written_bytes": 19292160,
+      "footprint_bytes": 18993152,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1010,
+        "bytes": 466458,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1010,
+      "duplicates": 10,
+      "errors": 0,
+      "sent_bytes": 425103,
+      "received_bytes": 466458,
+      "connections": 30,
+      "tls_connections": 0,
+      "startup_seconds": 0.556941,
+      "first_page_seconds": 0.557113,
+      "first_record_seconds": 0.565693878,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        986.4783101471655,
+        2355.7690988589025,
+        353.3653648288354,
+        633.11294531833,
+        2355.7690988589025,
+        677.2836159219345
+      ],
+      "latency": {
+        "p50": 0.43846787799999987,
+        "p95": 0.5834598780000001,
+        "p99": 0.602252878
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "polite",
+      "cell": "foxhound",
+      "tool": "foxhound",
+      "number": 5,
+      "site_pages": 10000,
+      "concurrency": 16,
+      "load": 0.96,
+      "seconds": 77.341061761,
+      "processes": 1,
+      "user_seconds": 19.741867,
+      "system_seconds": 10.497131,
+      "peak_bytes": 96419840,
+      "sampled": {
+        "samples": 1389,
+        "peak_bytes": 96710656,
+        "average_bytes": 68998100,
+        "peak_pss_bytes": 97505280,
+        "peak_private_bytes": 75427840,
+        "peak_executable_bytes": null,
+        "peak_cores": 2.2124639643305204,
+        "peak_threads": 45,
+        "peak_open_files": 1033,
+        "at_pages": [
+          [
+            1000,
+            79187968
+          ],
+          [
+            10000,
+            96145408
+          ]
+        ]
+      },
+      "read_bytes": 28188672,
+      "written_bytes": 556851200,
+      "footprint_bytes": 36278272,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 10000,
+        "missing": [],
+        "extra": [],
+        "requests": 10000,
+        "bytes": 5725786,
+        "first_bytes": 5725786,
+        "other_protocol": 0
+      },
+      "requests_sent": 11000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 7031717,
+      "received_bytes": 5883786,
+      "connections": 1000,
+      "tls_connections": 0,
+      "startup_seconds": 0.881706,
+      "first_page_seconds": 1.888937,
+      "first_record_seconds": null,
+      "curve": [
+        9.697306746546307,
+        16.550070180772366,
+        14.481311408175818,
+        16.550070180772366,
+        16.550070180772366,
+        14.481311408175818,
+        17.843044413645206,
+        15.903583064335944,
+        415.17402617546924,
+        755.7434391141755
+      ],
+      "latency": {
+        "p50": 32.759688,
+        "p95": 53.83145,
+        "p99": 56.212931
+      },
+      "latency_end": "fetch"
+    },
+    {
+      "scenario": "polite",
+      "cell": "foxhound",
+      "tool": "foxhound",
+      "number": 4,
+      "site_pages": 10000,
+      "concurrency": 16,
+      "load": 0.75,
+      "seconds": 77.690486819,
+      "processes": 1,
+      "user_seconds": 19.894708,
+      "system_seconds": 10.417517,
+      "peak_bytes": 97017856,
+      "sampled": {
+        "samples": 1395,
+        "peak_bytes": 97628160,
+        "average_bytes": 68982692,
+        "peak_pss_bytes": 97619968,
+        "peak_private_bytes": 76439552,
+        "peak_executable_bytes": null,
+        "peak_cores": 2.23512949328025,
+        "peak_threads": 46,
+        "peak_open_files": 1034,
+        "at_pages": [
+          [
+            1000,
+            79196160
+          ],
+          [
+            10000,
+            82165760
+          ]
+        ]
+      },
+      "read_bytes": 28192768,
+      "written_bytes": 569053184,
+      "footprint_bytes": 36560896,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 10000,
+        "missing": [],
+        "extra": [],
+        "requests": 10000,
+        "bytes": 5725786,
+        "first_bytes": 5725786,
+        "other_protocol": 0
+      },
+      "requests_sent": 11000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 7031717,
+      "received_bytes": 5883786,
+      "connections": 1000,
+      "tls_connections": 0,
+      "startup_seconds": 0.864579,
+      "first_page_seconds": 1.871637,
+      "first_record_seconds": null,
+      "curve": [
+        9.653691599942194,
+        16.475633663901345,
+        16.475633663901345,
+        14.416179455913674,
+        16.475633663901345,
+        19.04995142388593,
+        16.604349551900572,
+        16.99049721589826,
+        426.178305165448,
+        734.8390045875998
+      ],
+      "latency": {
+        "p50": 32.774078,
+        "p95": 53.726124000000006,
+        "p99": 55.205405999999996
+      },
+      "latency_end": "fetch"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound periodic",
+      "tool": "foxhound",
+      "number": 10,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.93,
+      "seconds": 1.346012273,
+      "processes": 2,
+      "user_seconds": 0.665417,
+      "system_seconds": 0.49413,
+      "peak_bytes": 41795584,
+      "sampled": {
+        "samples": 20,
+        "peak_bytes": 42856448,
+        "average_bytes": 33012263,
+        "peak_pss_bytes": 42848256,
+        "peak_private_bytes": 20819968,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.7654797637364361,
+        "peak_threads": 31,
+        "peak_open_files": 44,
+        "at_pages": [
+          [
+            1000,
+            42856448
+          ]
+        ]
+      },
+      "read_bytes": 28524544,
+      "written_bytes": 19419136,
+      "footprint_bytes": 19120128,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1000,
+        "bytes": 462362,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 420893,
+      "received_bytes": 462362,
+      "connections": 32,
+      "tls_connections": 0,
+      "startup_seconds": 0.521106,
+      "first_page_seconds": 0.521276,
+      "first_record_seconds": 0.530280362,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        7.429352763412731,
+        1500.7292582093717,
+        2139.6535958628665,
+        274.88605224627105,
+        601.7775738364312,
+        2243.6645345506445,
+        661.212395943733
+      ],
+      "latency": {
+        "p50": 0.23141736199999996,
+        "p95": 0.604544362,
+        "p99": 0.610544362
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound full",
+      "tool": "foxhound",
+      "number": 3,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.93,
+      "seconds": 1.5865196099999999,
+      "processes": 2,
+      "user_seconds": 0.688901,
+      "system_seconds": 0.571768,
+      "peak_bytes": 41308160,
+      "sampled": {
+        "samples": 24,
+        "peak_bytes": 42090496,
+        "average_bytes": 33839999,
+        "peak_pss_bytes": 42106880,
+        "peak_private_bytes": 20402176,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.310542917116512,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            41779200
+          ]
+        ]
+      },
+      "read_bytes": 28438528,
+      "written_bytes": 20156416,
+      "footprint_bytes": 19144704,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1012,
+        "bytes": 467292,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1012,
+      "duplicates": 12,
+      "errors": 0,
+      "sent_bytes": 425945,
+      "received_bytes": 467292,
+      "connections": 31,
+      "tls_connections": 0,
+      "startup_seconds": 0.580962,
+      "first_page_seconds": 0.58114,
+      "first_record_seconds": 0.590422105,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        258.42731310456355,
+        1121.9527251856662,
+        1512.7452474413476,
+        403.398732651026,
+        529.4608366044716,
+        1506.4421422436753,
+        970.6782004415314
+      ],
+      "latency": {
+        "p50": 0.32056310500000007,
+        "p95": 0.7940401049999999,
+        "p99": 0.8051261049999999
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound periodic",
+      "tool": "foxhound",
+      "number": 5,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.94,
+      "seconds": 1.662722655,
+      "processes": 2,
+      "user_seconds": 0.66627,
+      "system_seconds": 0.513156,
+      "peak_bytes": 40697856,
+      "sampled": {
+        "samples": 19,
+        "peak_bytes": 41529344,
+        "average_bytes": 31481001,
+        "peak_pss_bytes": 41521152,
+        "peak_private_bytes": 19750912,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.8247400957178186,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            41529344
+          ]
+        ]
+      },
+      "read_bytes": 28524544,
+      "written_bytes": 17256448,
+      "footprint_bytes": 16965632,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1000,
+        "bytes": 462362,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 420893,
+      "received_bytes": 462362,
+      "connections": 31,
+      "tls_connections": 0,
+      "startup_seconds": 0.887164,
+      "first_page_seconds": 0.887377,
+      "first_record_seconds": 0.896777619,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        613.4516763410552,
+        2285.40820597648,
+        120.28464241981473,
+        1539.6434229736285,
+        1455.4441732797584
+      ],
+      "latency": {
+        "p50": 0.23092561899999986,
+        "p95": 0.5959646190000002,
+        "p99": 0.611085619
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound full",
+      "tool": "foxhound",
+      "number": 7,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.94,
+      "seconds": 1.6032886689999999,
+      "processes": 2,
+      "user_seconds": 0.675872,
+      "system_seconds": 0.574592,
+      "peak_bytes": 41345024,
+      "sampled": {
+        "samples": 24,
+        "peak_bytes": 42029056,
+        "average_bytes": 32991047,
+        "peak_pss_bytes": 42020864,
+        "peak_private_bytes": 20307968,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.3268451615861419,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            42029056
+          ]
+        ]
+      },
+      "read_bytes": 28438528,
+      "written_bytes": 20140032,
+      "footprint_bytes": 18681856,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1016,
+        "bytes": 468930,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1016,
+      "duplicates": 16,
+      "errors": 0,
+      "sent_bytes": 427629,
+      "received_bytes": 468930,
+      "connections": 31,
+      "tls_connections": 0,
+      "startup_seconds": 0.555062,
+      "first_page_seconds": 0.555166,
+      "first_record_seconds": 0.566533684,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        455.31413906599505,
+        1210.01291751785,
+        1384.6539571596013,
+        112.2692397696974,
+        692.3269785798007,
+        1397.1283171340121,
+        985.4744379784551
+      ],
+      "latency": {
+        "p50": 0.571469684,
+        "p95": 0.8336556839999999,
+        "p99": 0.8532296839999999
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound periodic",
+      "tool": "foxhound",
+      "number": 9,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.94,
+      "seconds": 1.324227709,
+      "processes": 2,
+      "user_seconds": 0.683834,
+      "system_seconds": 0.501993,
+      "peak_bytes": 41578496,
+      "sampled": {
+        "samples": 20,
+        "peak_bytes": 42725376,
+        "average_bytes": 32769488,
+        "peak_pss_bytes": 42717184,
+        "peak_private_bytes": 20799488,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.7379131767041118,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            42725376
+          ]
+        ]
+      },
+      "read_bytes": 28393472,
+      "written_bytes": 19300352,
+      "footprint_bytes": 19005440,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1000,
+        "bytes": 462362,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 420893,
+      "received_bytes": 462362,
+      "connections": 31,
+      "tls_connections": 0,
+      "startup_seconds": 0.49899,
+      "first_page_seconds": 0.499182,
+      "first_record_seconds": 0.509412167,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        128.37671258848428,
+        1404.5922671445926,
+        2295.6776839352483,
+        120.8251412597499,
+        641.8835629424213,
+        2257.9198272915764,
+        702.2961335722963
+      ],
+      "latency": {
+        "p50": 0.22312416700000004,
+        "p95": 0.5967091670000001,
+        "p99": 0.609042167
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound periodic",
+      "tool": "foxhound",
+      "number": 2,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.94,
+      "seconds": 1.574000466,
+      "processes": 2,
+      "user_seconds": 0.696744,
+      "system_seconds": 0.484249,
+      "peak_bytes": 41828352,
+      "sampled": {
+        "samples": 21,
+        "peak_bytes": 42577920,
+        "average_bytes": 31594988,
+        "peak_pss_bytes": 42569728,
+        "peak_private_bytes": 20750336,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.821820771402638,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            0
+          ]
+        ]
+      },
+      "read_bytes": 28524544,
+      "written_bytes": 17440768,
+      "footprint_bytes": 17149952,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1000,
+        "bytes": 462362,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 420893,
+      "received_bytes": 462362,
+      "connections": 31,
+      "tls_connections": 0,
+      "startup_seconds": 0.787929,
+      "first_page_seconds": 0.788092,
+      "first_record_seconds": 0.796705687,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1277.0008925778804,
+        1931.38443454565,
+        0.0,
+        1728.0808098566342,
+        1416.7721345515788
+      ],
+      "latency": {
+        "p50": 0.24015668699999992,
+        "p95": 0.605170687,
+        "p99": 0.6176126869999999
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound periodic",
+      "tool": "foxhound",
+      "number": 4,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.95,
+      "seconds": 1.268893674,
+      "processes": 2,
+      "user_seconds": 0.664186,
+      "system_seconds": 0.51993,
+      "peak_bytes": 40951808,
+      "sampled": {
+        "samples": 19,
+        "peak_bytes": 42438656,
+        "average_bytes": 32765243,
+        "peak_pss_bytes": 42430464,
+        "peak_private_bytes": 20512768,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.8218689326655135,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            42438656
+          ]
+        ]
+      },
+      "read_bytes": 28393472,
+      "written_bytes": 19169280,
+      "footprint_bytes": 18788352,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1011,
+        "bytes": 466877,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1011,
+      "duplicates": 11,
+      "errors": 0,
+      "sent_bytes": 425524,
+      "received_bytes": 466877,
+      "connections": 31,
+      "tls_connections": 0,
+      "startup_seconds": 0.475165,
+      "first_page_seconds": 0.475333,
+      "first_record_seconds": 0.485903041,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        157.6176192679167,
+        1513.1291449720002,
+        2269.6937174580003,
+        0.0,
+        669.8748818886459,
+        2395.7878128723337,
+        874.7777869369376
+      ],
+      "latency": {
+        "p50": 0.43936504100000007,
+        "p95": 0.587893041,
+        "p99": 0.6056380410000001
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "polite",
+      "cell": "foxhound",
+      "tool": "foxhound",
+      "number": 8,
+      "site_pages": 10000,
+      "concurrency": 16,
+      "load": 0.95,
+      "seconds": 76.945252424,
+      "processes": 1,
+      "user_seconds": 20.039376,
+      "system_seconds": 10.388249,
+      "peak_bytes": 91693056,
+      "sampled": {
+        "samples": 1392,
+        "peak_bytes": 92102656,
+        "average_bytes": 67902996,
+        "peak_pss_bytes": 92110848,
+        "peak_private_bytes": 70922240,
+        "peak_executable_bytes": null,
+        "peak_cores": 2.274969718731169,
+        "peak_threads": 43,
+        "peak_open_files": 1034,
+        "at_pages": [
+          [
+            1000,
+            78368768
+          ],
+          [
+            10000,
+            91525120
+          ]
+        ]
+      },
+      "read_bytes": 28119040,
+      "written_bytes": 574824448,
+      "footprint_bytes": 36851712,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 10000,
+        "missing": [],
+        "extra": [],
+        "requests": 10000,
+        "bytes": 5725786,
+        "first_bytes": 5725786,
+        "other_protocol": 0
+      },
+      "requests_sent": 11000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 7031717,
+      "received_bytes": 5883786,
+      "connections": 1000,
+      "tls_connections": 0,
+      "startup_seconds": 0.628158,
+      "first_page_seconds": 1.634751,
+      "first_record_seconds": null,
+      "curve": [
+        9.747190065310221,
+        16.635204378129444,
+        16.635204378129444,
+        14.555803830863264,
+        16.635204378129444,
+        14.555803830863264,
+        16.635204378129444,
+        15.595504104496353,
+        412.7610086323368,
+        765.869214064975
+      ],
+      "latency": {
+        "p50": 33.22306699999999,
+        "p95": 53.915639,
+        "p99": 56.344385
+      },
+      "latency_end": "fetch"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound periodic",
+      "tool": "foxhound",
+      "number": 3,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.92,
+      "seconds": 1.541156091,
+      "processes": 2,
+      "user_seconds": 0.67562,
+      "system_seconds": 0.506721,
+      "peak_bytes": 41107456,
+      "sampled": {
+        "samples": 20,
+        "peak_bytes": 42029056,
+        "average_bytes": 31955684,
+        "peak_pss_bytes": 42020864,
+        "peak_private_bytes": 20586496,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.8647156184445186,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            42029056
+          ]
+        ]
+      },
+      "read_bytes": 28655616,
+      "written_bytes": 19136512,
+      "footprint_bytes": 18837504,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1000,
+        "bytes": 462362,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 420893,
+      "received_bytes": 462362,
+      "connections": 31,
+      "tls_connections": 0,
+      "startup_seconds": 0.737639,
+      "first_page_seconds": 0.737797,
+      "first_record_seconds": 0.746712425,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        155.7272500829379,
+        1667.57930297146,
+        1466.4316049476652,
+        0.0,
+        2076.363334439172,
+        1122.5339276811774
+      ],
+      "latency": {
+        "p50": 0.229345425,
+        "p95": 0.5921374250000001,
+        "p99": 0.6069284250000001
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "polite",
+      "cell": "foxhound",
+      "tool": "foxhound",
+      "number": 2,
+      "site_pages": 10000,
+      "concurrency": 16,
+      "load": 0.92,
+      "seconds": 77.137603298,
+      "processes": 1,
+      "user_seconds": 20.053915,
+      "system_seconds": 10.43733,
+      "peak_bytes": 97492992,
+      "sampled": {
+        "samples": 1390,
+        "peak_bytes": 98336768,
+        "average_bytes": 71123871,
+        "peak_pss_bytes": 98328576,
+        "peak_private_bytes": 77234176,
+        "peak_executable_bytes": null,
+        "peak_cores": 2.2749439809262118,
+        "peak_threads": 44,
+        "peak_open_files": 1034,
+        "at_pages": [
+          [
+            1000,
+            81010688
+          ],
+          [
+            10000,
+            93585408
+          ]
+        ]
+      },
+      "read_bytes": 27734016,
+      "written_bytes": 573587456,
+      "footprint_bytes": 36315136,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 10000,
+        "missing": [],
+        "extra": [],
+        "requests": 10000,
+        "bytes": 5725786,
+        "first_bytes": 5725786,
+        "other_protocol": 0
+      },
+      "requests_sent": 11000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 7031717,
+      "received_bytes": 5883786,
+      "connections": 1000,
+      "tls_connections": 0,
+      "startup_seconds": 0.461296,
+      "first_page_seconds": 1.468441,
+      "first_record_seconds": null,
+      "curve": [
+        11.797099742449403,
+        14.519507375322341,
+        16.593722714654103,
+        14.519507375322341,
+        16.593722714654103,
+        16.593722714654103,
+        15.815891962404693,
+        16.72336117336234,
+        432.8628136267973,
+        740.3652376827312
+      ],
+      "latency": {
+        "p50": 33.396792,
+        "p95": 54.402119,
+        "p99": 55.981758
+      },
+      "latency_end": "fetch"
+    },
+    {
+      "scenario": "polite",
+      "cell": "foxhound",
+      "tool": "foxhound",
+      "number": 3,
+      "site_pages": 10000,
+      "concurrency": 16,
+      "load": 0.72,
+      "seconds": 76.917296107,
+      "processes": 1,
+      "user_seconds": 19.973947,
+      "system_seconds": 10.223642,
+      "peak_bytes": 97779712,
+      "sampled": {
+        "samples": 1387,
+        "peak_bytes": 98455552,
+        "average_bytes": 68563917,
+        "peak_pss_bytes": 98480128,
+        "peak_private_bytes": 77213696,
+        "peak_executable_bytes": null,
+        "peak_cores": 2.288693329433424,
+        "peak_threads": 45,
+        "peak_open_files": 1033,
+        "at_pages": [
+          [
+            1000,
+            77860864
+          ],
+          [
+            10000,
+            81915904
+          ]
+        ]
+      },
+      "read_bytes": 28065792,
+      "written_bytes": 561840128,
+      "footprint_bytes": 36130816,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 10000,
+        "missing": [],
+        "extra": [],
+        "requests": 10000,
+        "bytes": 5725786,
+        "first_bytes": 5725786,
+        "other_protocol": 0
+      },
+      "requests_sent": 11000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 7031717,
+      "received_bytes": 5883786,
+      "connections": 1000,
+      "tls_connections": 0,
+      "startup_seconds": 0.608777,
+      "first_page_seconds": 1.615728,
+      "first_record_seconds": null,
+      "curve": [
+        9.750732773506126,
+        16.64125060011712,
+        16.251221289176875,
+        14.951123586042726,
+        16.64125060011712,
+        14.561094275102482,
+        16.64125060011712,
+        14.951123586042726,
+        404.4603954450341,
+        775.2482603788937
+      ],
+      "latency": {
+        "p50": 33.142015,
+        "p95": 54.1931,
+        "p99": 56.309461999999996
+      },
+      "latency_end": "fetch"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound periodic",
+      "tool": "foxhound",
+      "number": 8,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.98,
+      "seconds": 1.326755129,
+      "processes": 2,
+      "user_seconds": 0.68015,
+      "system_seconds": 0.477601,
+      "peak_bytes": 41766912,
+      "sampled": {
+        "samples": 21,
+        "peak_bytes": 41979904,
+        "average_bytes": 32214042,
+        "peak_pss_bytes": 42078208,
+        "peak_private_bytes": 20901888,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.8226301233127982,
+        "peak_threads": 30,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            41959424
+          ]
+        ]
+      },
+      "read_bytes": 28528640,
+      "written_bytes": 17227776,
+      "footprint_bytes": 16936960,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1000,
+        "bytes": 462362,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 420893,
+      "received_bytes": 462362,
+      "connections": 30,
+      "tls_connections": 0,
+      "startup_seconds": 0.528797,
+      "first_page_seconds": 0.52896,
+      "first_record_seconds": 0.538589582,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        7.537185861521551,
+        1100.4291357821464,
+        2087.8004836414693,
+        602.974868921724,
+        241.18994756868963,
+        2291.3045019025512,
+        1205.949737843448
+      ],
+      "latency": {
+        "p50": 0.24833458200000003,
+        "p95": 0.6162625820000001,
+        "p99": 0.627981582
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound full",
+      "tool": "foxhound",
+      "number": 5,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.98,
+      "seconds": 1.465510193,
+      "processes": 2,
+      "user_seconds": 0.706198,
+      "system_seconds": 0.550587,
+      "peak_bytes": 41865216,
+      "sampled": {
+        "samples": 22,
+        "peak_bytes": 42917888,
+        "average_bytes": 33630007,
+        "peak_pss_bytes": 42909696,
+        "peak_private_bytes": 21196800,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.3641876900416352,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            42917888
+          ]
+        ]
+      },
+      "read_bytes": 28438528,
+      "written_bytes": 20242432,
+      "footprint_bytes": 18669568,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1000,
+        "bytes": 462362,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 420893,
+      "received_bytes": 462362,
+      "connections": 30,
+      "tls_connections": 0,
+      "startup_seconds": 0.413875,
+      "first_page_seconds": 0.414059,
+      "first_record_seconds": 0.423379494,
+      "curve": [
+        0.0,
+        0.0,
+        75.05918452523517,
+        982.5929610576239,
+        1528.4779394229706,
+        982.5929610576239,
+        0.0,
+        1091.7699567306934,
+        1289.6532613881316,
+        873.4159653845546
+      ],
+      "latency": {
+        "p50": 0.324647494,
+        "p95": 0.8383074939999999,
+        "p99": 0.854225494
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound periodic",
+      "tool": "foxhound",
+      "number": 7,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.98,
+      "seconds": 1.381811674,
+      "processes": 2,
+      "user_seconds": 0.677084,
+      "system_seconds": 0.505283,
+      "peak_bytes": 42467328,
+      "sampled": {
+        "samples": 20,
+        "peak_bytes": 43270144,
+        "average_bytes": 33037915,
+        "peak_pss_bytes": 43261952,
+        "peak_private_bytes": 21331968,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.714170191127984,
+        "peak_threads": 32,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            43270144
+          ]
+        ]
+      },
+      "read_bytes": 28397568,
+      "written_bytes": 19279872,
+      "footprint_bytes": 18984960,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1000,
+        "bytes": 462362,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 420893,
+      "received_bytes": 462362,
+      "connections": 31,
+      "tls_connections": 0,
+      "startup_seconds": 0.547302,
+      "first_page_seconds": 0.547469,
+      "first_record_seconds": 0.557601963,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        7.236876188093342,
+        1230.2689519758683,
+        2200.010361180376,
+        347.3700570284804,
+        463.1600760379739,
+        2315.8003801898694,
+        673.0294854926808
+      ],
+      "latency": {
+        "p50": 0.224064963,
+        "p95": 0.613901963,
+        "p99": 0.6260569629999999
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound periodic",
+      "tool": "foxhound",
+      "number": 6,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.98,
+      "seconds": 1.1645035639999999,
+      "processes": 2,
+      "user_seconds": 0.671446,
+      "system_seconds": 0.524756,
+      "peak_bytes": 41275392,
+      "sampled": {
+        "samples": 17,
+        "peak_bytes": 41979904,
+        "average_bytes": 34189246,
+        "peak_pss_bytes": 41971712,
+        "peak_private_bytes": 20529152,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.7368039746336494,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            41693184
+          ]
+        ]
+      },
+      "read_bytes": 28524544,
+      "written_bytes": 19783680,
+      "footprint_bytes": 19480576,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1000,
+        "bytes": 462362,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 420893,
+      "received_bytes": 462362,
+      "connections": 31,
+      "tls_connections": 0,
+      "startup_seconds": 0.366337,
+      "first_page_seconds": 0.366505,
+      "first_record_seconds": 0.374935499,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        901.6717788250584,
+        2060.9640658858475,
+        1373.9760439238985,
+        0.0,
+        1279.5151909041303,
+        2060.9640658858475,
+        910.2591290995827
+      ],
+      "latency": {
+        "p50": 0.21628449900000002,
+        "p95": 0.5994324990000001,
+        "p99": 0.615054499
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "polite",
+      "cell": "foxhound",
+      "tool": "foxhound",
+      "number": 1,
+      "site_pages": 10000,
+      "concurrency": 16,
+      "load": 0.9,
+      "seconds": 76.79218166,
+      "processes": 1,
+      "user_seconds": 19.760578,
+      "system_seconds": 10.339443,
+      "peak_bytes": 96481280,
+      "sampled": {
+        "samples": 1388,
+        "peak_bytes": 97472512,
+        "average_bytes": 67703534,
+        "peak_pss_bytes": 96993280,
+        "peak_private_bytes": 76492800,
+        "peak_executable_bytes": null,
+        "peak_cores": 2.2394851102300475,
+        "peak_threads": 43,
+        "peak_open_files": 1034,
+        "at_pages": [
+          [
+            1000,
+            78053376
+          ],
+          [
+            10000,
+            95526912
+          ]
+        ]
+      },
+      "read_bytes": 27668480,
+      "written_bytes": 574119936,
+      "footprint_bytes": 36155392,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 10000,
+        "missing": [],
+        "extra": [],
+        "requests": 10000,
+        "bytes": 5725786,
+        "first_bytes": 5725786,
+        "other_protocol": 0
+      },
+      "requests_sent": 11000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 7031717,
+      "received_bytes": 5883786,
+      "connections": 1000,
+      "tls_connections": 0,
+      "startup_seconds": 0.635135,
+      "first_page_seconds": 1.643217,
+      "first_record_seconds": null,
+      "curve": [
+        9.766619254557066,
+        16.66836352777739,
+        16.40792034765587,
+        14.845261266926741,
+        17.71013624826348,
+        14.71503967686598,
+        16.798585117838154,
+        14.71503967686598,
+        405.7704746293309,
+        774.8184608615272
+      ],
+      "latency": {
+        "p50": 32.528581,
+        "p95": 53.727129000000005,
+        "p99": 56.327859
+      },
+      "latency_end": "fetch"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound full",
+      "tool": "foxhound",
+      "number": 2,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.79,
+      "seconds": 1.576251254,
+      "processes": 2,
+      "user_seconds": 0.686818,
+      "system_seconds": 0.549129,
+      "peak_bytes": 40914944,
+      "sampled": {
+        "samples": 24,
+        "peak_bytes": 41619456,
+        "average_bytes": 33359913,
+        "peak_pss_bytes": 41590784,
+        "peak_private_bytes": 19910656,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.3452690988862916,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            41005056
+          ]
+        ]
+      },
+      "read_bytes": 28442624,
+      "written_bytes": 20185088,
+      "footprint_bytes": 19181568,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1000,
+        "bytes": 462362,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 420893,
+      "received_bytes": 462362,
+      "connections": 31,
+      "tls_connections": 0,
+      "startup_seconds": 0.577611,
+      "first_page_seconds": 0.577783,
+      "first_record_seconds": 0.587346575,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        272.799148555031,
+        1084.8524279746584,
+        1452.814070211677,
+        507.5332996372671,
+        406.02663970981365,
+        1522.5998989118011,
+        1097.54076046559
+      ],
+      "latency": {
+        "p50": 0.32812257499999997,
+        "p95": 0.7905715750000001,
+        "p99": 0.8104245750000002
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound full",
+      "tool": "foxhound",
+      "number": 8,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.81,
+      "seconds": 1.5627979,
+      "processes": 2,
+      "user_seconds": 0.717567,
+      "system_seconds": 0.537624,
+      "peak_bytes": 41807872,
+      "sampled": {
+        "samples": 24,
+        "peak_bytes": 42663936,
+        "average_bytes": 33137640,
+        "peak_pss_bytes": 42655744,
+        "peak_private_bytes": 20942848,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.2719739386673012,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            42663936
+          ]
+        ]
+      },
+      "read_bytes": 28438528,
+      "written_bytes": 20115456,
+      "footprint_bytes": 19099648,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1006,
+        "bytes": 464836,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1006,
+      "duplicates": 6,
+      "errors": 0,
+      "sent_bytes": 423419,
+      "received_bytes": 464836,
+      "connections": 31,
+      "tls_connections": 0,
+      "startup_seconds": 0.542013,
+      "first_page_seconds": 0.542191,
+      "first_record_seconds": 0.551596926,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        377.52802201743424,
+        1228.5657665652097,
+        1407.731607522636,
+        371.12924198324043,
+        473.50972253034126,
+        1529.3084281723184,
+        1011.0072454026205
+      ],
+      "latency": {
+        "p50": 0.334179926,
+        "p95": 0.8023999260000001,
+        "p99": 0.8231649259999999
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound full",
+      "tool": "foxhound",
+      "number": 1,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.81,
+      "seconds": 1.752637037,
+      "processes": 2,
+      "user_seconds": 0.674012,
+      "system_seconds": 0.595692,
+      "peak_bytes": 42127360,
+      "sampled": {
+        "samples": 24,
+        "peak_bytes": 42860544,
+        "average_bytes": 32851575,
+        "peak_pss_bytes": 42856448,
+        "peak_private_bytes": 21131264,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.3593411545292229,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            42860544
+          ]
+        ]
+      },
+      "read_bytes": 28577792,
+      "written_bytes": 20094976,
+      "footprint_bytes": 19136512,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1015,
+        "bytes": 468511,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1015,
+      "duplicates": 15,
+      "errors": 0,
+      "sent_bytes": 427208,
+      "received_bytes": 468511,
+      "connections": 31,
+      "tls_connections": 0,
+      "startup_seconds": 0.760396,
+      "first_page_seconds": 0.760649,
+      "first_record_seconds": 0.771015922,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        519.2176022695794,
+        1369.3651048868028,
+        1089.7863959724139,
+        5.705687937028345,
+        1460.6561118792563,
+        1260.957034083264
+      ],
+      "latency": {
+        "p50": 0.3387469219999999,
+        "p95": 0.794551922,
+        "p99": 0.813276922
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound full",
+      "tool": "foxhound",
+      "number": 6,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 0.91,
+      "seconds": 1.601041317,
+      "processes": 2,
+      "user_seconds": 0.692348,
+      "system_seconds": 0.550128,
+      "peak_bytes": 41508864,
+      "sampled": {
+        "samples": 25,
+        "peak_bytes": 42426368,
+        "average_bytes": 33025021,
+        "peak_pss_bytes": 42418176,
+        "peak_private_bytes": 20627456,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.3107317675490795,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            42426368
+          ]
+        ]
+      },
+      "read_bytes": 28446720,
+      "written_bytes": 20025344,
+      "footprint_bytes": 18669568,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1000,
+        "bytes": 462362,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 420893,
+      "received_bytes": 462362,
+      "connections": 31,
+      "tls_connections": 0,
+      "startup_seconds": 0.548576,
+      "first_page_seconds": 0.548763,
+      "first_record_seconds": 0.559762585,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        468.4451250798046,
+        1274.1707402170684,
+        1217.957325207492,
+        206.115855035114,
+        799.4796801361998,
+        1499.0244002553748,
+        780.7418751330076
+      ],
+      "latency": {
+        "p50": 0.358938585,
+        "p95": 0.814477585,
+        "p99": 0.8341325849999999
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "polite",
+      "cell": "foxhound",
+      "tool": "foxhound",
+      "number": 7,
+      "site_pages": 10000,
+      "concurrency": 16,
+      "load": 0.91,
+      "seconds": 77.030215365,
+      "processes": 1,
+      "user_seconds": 20.071528,
+      "system_seconds": 10.234083,
+      "peak_bytes": 96985088,
+      "sampled": {
+        "samples": 1392,
+        "peak_bytes": 97153024,
+        "average_bytes": 68251693,
+        "peak_pss_bytes": 96866304,
+        "peak_private_bytes": 75968512,
+        "peak_executable_bytes": null,
+        "peak_cores": 2.2626696861935036,
+        "peak_threads": 43,
+        "peak_open_files": 1033,
+        "at_pages": [
+          [
+            1000,
+            77099008
+          ],
+          [
+            10000,
+            95006720
+          ]
+        ]
+      },
+      "read_bytes": 28196864,
+      "written_bytes": 573964288,
+      "footprint_bytes": 36483072,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 10000,
+        "missing": [],
+        "extra": [],
+        "requests": 10000,
+        "bytes": 5725786,
+        "first_bytes": 5725786,
+        "other_protocol": 0
+      },
+      "requests_sent": 11000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 7031717,
+      "received_bytes": 5883786,
+      "connections": 1000,
+      "tls_connections": 0,
+      "startup_seconds": 0.589425,
+      "first_page_seconds": 1.596114,
+      "first_record_seconds": null,
+      "curve": [
+        9.736439090118076,
+        16.61685604713485,
+        16.61685604713485,
+        14.539749041242992,
+        16.61685604713485,
+        15.70812173205716,
+        16.74667523500309,
+        16.357217671398367,
+        407.37261153054027,
+        767.8804962406455
+      ],
+      "latency": {
+        "p50": 33.227018,
+        "p95": 54.313598999999996,
+        "p99": 56.17983400000001
+      },
+      "latency_end": "fetch"
+    },
+    {
+      "scenario": "polite",
+      "cell": "foxhound",
+      "tool": "foxhound",
+      "number": 9,
+      "site_pages": 10000,
+      "concurrency": 16,
+      "load": 1.38,
+      "seconds": 77.025238298,
+      "processes": 1,
+      "user_seconds": 20.145909,
+      "system_seconds": 10.340193,
+      "peak_bytes": 94539776,
+      "sampled": {
+        "samples": 1390,
+        "peak_bytes": 95191040,
+        "average_bytes": 68513445,
+        "peak_pss_bytes": 95133696,
+        "peak_private_bytes": 74072064,
+        "peak_executable_bytes": null,
+        "peak_cores": 2.2783049176572425,
+        "peak_threads": 42,
+        "peak_open_files": 1033,
+        "at_pages": [
+          [
+            1000,
+            77328384
+          ],
+          [
+            10000,
+            92127232
+          ]
+        ]
+      },
+      "read_bytes": 27987968,
+      "written_bytes": 562753536,
+      "footprint_bytes": 36241408,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 10000,
+        "missing": [],
+        "extra": [],
+        "requests": 10000,
+        "bytes": 5725786,
+        "first_bytes": 5725786,
+        "other_protocol": 0
+      },
+      "requests_sent": 11000,
+      "duplicates": 0,
+      "errors": 0,
+      "sent_bytes": 7031717,
+      "received_bytes": 5883786,
+      "connections": 1000,
+      "tls_connections": 0,
+      "startup_seconds": 0.672639,
+      "first_page_seconds": 1.680251,
+      "first_record_seconds": null,
+      "curve": [
+        9.737068220397497,
+        16.617929762811727,
+        15.968791881451894,
+        15.189826423820094,
+        16.617929762811727,
+        14.540688542460261,
+        17.916205525531392,
+        15.059998847548128,
+        404.542727663448,
+        772.0845960893855
+      ],
+      "latency": {
+        "p50": 33.347749,
+        "p95": 53.716482,
+        "p99": 56.583132
+      },
+      "latency_end": "fetch"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound full",
+      "tool": "foxhound",
+      "number": 9,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 1.16,
+      "seconds": 1.4827002120000001,
+      "processes": 2,
+      "user_seconds": 0.681375,
+      "system_seconds": 0.591358,
+      "peak_bytes": 41205760,
+      "sampled": {
+        "samples": 23,
+        "peak_bytes": 41652224,
+        "average_bytes": 33921099,
+        "peak_pss_bytes": 41672704,
+        "peak_private_bytes": 19918848,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.3617514392468353,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            41582592
+          ]
+        ]
+      },
+      "read_bytes": 28442624,
+      "written_bytes": 21311488,
+      "footprint_bytes": 18632704,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1005,
+        "bytes": 464423,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1005,
+      "duplicates": 5,
+      "errors": 0,
+      "sent_bytes": 422998,
+      "received_bytes": 464423,
+      "connections": 30,
+      "tls_connections": 0,
+      "startup_seconds": 0.42253,
+      "first_page_seconds": 0.422694,
+      "first_record_seconds": 0.441147609,
+      "curve": [
+        0.0,
+        0.0,
+        6.744451723326521,
+        930.73433781906,
+        1402.8459584519164,
+        1220.7457619221004,
+        0.0,
+        930.73433781906,
+        1369.1236998352838,
+        883.5231757557743
+      ],
+      "latency": {
+        "p50": 0.33107760899999994,
+        "p95": 0.855899609,
+        "p99": 0.876475609
+      },
+      "latency_end": "record"
+    },
+    {
+      "scenario": "durable",
+      "cell": "foxhound full",
+      "tool": "foxhound",
+      "number": 4,
+      "site_pages": 1000,
+      "concurrency": 16,
+      "load": 1.16,
+      "seconds": 1.601608288,
+      "processes": 2,
+      "user_seconds": 0.657229,
+      "system_seconds": 0.622739,
+      "peak_bytes": 41525248,
+      "sampled": {
+        "samples": 25,
+        "peak_bytes": 42770432,
+        "average_bytes": 32798123,
+        "peak_pss_bytes": 42835968,
+        "peak_private_bytes": 20971520,
+        "peak_executable_bytes": null,
+        "peak_cores": 1.361000476894567,
+        "peak_threads": 31,
+        "peak_open_files": 43,
+        "at_pages": [
+          [
+            1000,
+            42770432
+          ]
+        ]
+      },
+      "read_bytes": 28442624,
+      "written_bytes": 19947520,
+      "footprint_bytes": 18997248,
+      "executable_bytes": 108706456,
+      "work": {
+        "pages": 1000,
+        "missing": [],
+        "extra": [],
+        "requests": 1010,
+        "bytes": 466472,
+        "first_bytes": 462362,
+        "other_protocol": 0
+      },
+      "requests_sent": 1010,
+      "duplicates": 10,
+      "errors": 0,
+      "sent_bytes": 425104,
+      "received_bytes": 466472,
+      "connections": 31,
+      "tls_connections": 0,
+      "startup_seconds": 0.567402,
+      "first_page_seconds": 0.56757,
+      "first_record_seconds": 0.577957371,
+      "curve": [
+        0.0,
+        0.0,
+        0.0,
+        312.1861966788224,
+        1155.088927711643,
+        1486.0062961911947,
+        199.79916587444635,
+        736.7594241620209,
+        1398.5941611211244,
+        955.2897618371966
+      ],
+      "latency": {
+        "p50": 0.5556603709999999,
+        "p95": 0.8076553709999998,
+        "p99": 0.8194883709999998
+      },
+      "latency_end": "record"
+    }
+  ],
+  "syscalls": {
+    "status": "not_run",
+    "reason": "strace is not installed on this host"
+  },
+  "growth": {
+    "status": "not_run",
+    "reason": "the growth cell runs with `--growth`: each measured cell crawls the 100000-page site 10 times, hours at `run_state.durability: full`"
+  },
+  "sizes": {
+    "status": "not_run",
+    "reason": "the run asked for no scenario 1 main cell of Foxhound or Spider"
+  },
+  "instructions": {
+    "status": "not_run",
+    "reason": "the run asked for no cell of scenario 1 or of the extraction scenario"
+  },
+  "rules": [],
+  "auto": [],
+  "collie": {
+    "status": "not_run",
+    "reason": "the run asked for no Collie cell"
+  }
+}

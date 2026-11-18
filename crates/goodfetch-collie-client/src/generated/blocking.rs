@@ -5,7 +5,7 @@
 /// A `run` a program holds: the members the catalog gives it (ADR 0099).
 #[derive(Clone, Debug)]
 pub struct Run {
-    pub(crate) inner: super::handles::Run,
+    pub(crate) inner: crate::generated::handles::Run,
 }
 
 impl Run {
@@ -179,7 +179,7 @@ impl Run {
 /// A `session` a program holds: the members the catalog gives it (ADR 0099).
 #[derive(Clone, Debug)]
 pub struct Session {
-    pub(crate) inner: super::handles::Session,
+    pub(crate) inner: crate::generated::handles::Session,
 }
 
 impl Session {
@@ -227,7 +227,7 @@ impl Session {
 /// A `page` a program holds: the members the catalog gives it (ADR 0099).
 #[derive(Clone, Debug)]
 pub struct Page {
-    pub(crate) inner: super::handles::Page,
+    pub(crate) inner: crate::generated::handles::Page,
 }
 
 impl Page {
@@ -446,7 +446,7 @@ impl Page {
 /// A `locator` a program holds: the members the catalog gives it (ADR 0099).
 #[derive(Clone, Debug)]
 pub struct Locator {
-    pub(crate) inner: super::handles::Locator,
+    pub(crate) inner: crate::generated::handles::Locator,
 }
 
 impl Locator {

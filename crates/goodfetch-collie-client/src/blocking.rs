@@ -1,9 +1,10 @@
 //! The API for a program that does not use async (ADR 0081), under the same
 //! names: a call ends in `send()`, and every handle the catalog gives is
-//! the twin of the async one, which `xtask codegen` writes (ADR 0099). Each call is handed to the Connection's
-//! runtime, which the Connection owns, and the calling thread waits for its
-//! end on a channel. It never enters a runtime, so it works inside one too,
-//! where it blocks only the thread that calls it.
+//! the twin of the async one, which `xtask codegen` writes (ADR 0099) into
+//! `generated/blocking.rs`, a submodule of this one. Each call is handed to
+//! the Connection's runtime, which the Connection owns, and the calling
+//! thread waits for its end on a channel. It never enters a runtime, so it
+//! works inside one too, where it blocks only the thread that calls it.
 
 use std::future::IntoFuture;
 use std::time::Duration;
@@ -14,7 +15,11 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::error::Error;
-pub use crate::generated::blocking::{Locator, Page, Run, Session};
+pub use twins::{Locator, Page, Run, Session};
+
+/// The blocking twins of the handles, which `xtask codegen` writes.
+#[path = "generated/blocking.rs"]
+mod twins;
 
 /// A Connection to one engine, whose calls block. Cloning it is cheap and
 /// every clone is the same Connection.

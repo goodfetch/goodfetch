@@ -95,13 +95,13 @@ impl Index {
         };
         let children = lib.parent().map(Path::to_path_buf).unwrap_or_default();
         let file = parse(&lib)?;
-        index.module(Vec::new(), true, &file.items, &children, &lib)?;
+        index.module(&[], true, &file.items, &children, &lib)?;
         Ok(Some(index))
     }
 
     fn module(
         &mut self,
-        path: Vec<String>,
+        path: &[String],
         public: bool,
         items: &[syn::Item],
         children: &Path,
@@ -115,7 +115,7 @@ impl Index {
             })
             .collect();
         let mut module = Module {
-            path: path.clone(),
+            path: path.to_vec(),
             public,
             uses: BTreeMap::new(),
             reexports: BTreeMap::new(),
@@ -128,59 +128,35 @@ impl Index {
                     let mut found = Vec::new();
                     use_tree(&used.tree, &mut Vec::new(), &mut found);
                     for (name, segments) in found {
-                        let target = resolve(&path, &child_modules, segments);
+                        let target = resolve(path, &child_modules, segments);
                         if matches!(used.vis, syn::Visibility::Public(_)) {
                             module.reexports.insert(name.clone(), target.clone());
                         }
                         module.uses.insert(name, target);
                     }
                 }
-                syn::Item::Struct(defined) => {
-                    let fields = match &defined.fields {
-                        syn::Fields::Named(named) => raw_fields(&defined.attrs, named),
-                        _ => Err("it has no named fields".to_owned()),
-                    };
-                    module.items.insert(
-                        defined.ident.to_string(),
-                        Item {
-                            public: matches!(defined.vis, syn::Visibility::Public(_)),
-                            schema_name: schema_name(&defined.attrs, &defined.ident)?,
-                            fields,
-                        },
-                    );
-                }
-                syn::Item::Enum(defined) => {
-                    module.items.insert(
-                        defined.ident.to_string(),
-                        Item {
-                            public: matches!(defined.vis, syn::Visibility::Public(_)),
-                            schema_name: schema_name(&defined.attrs, &defined.ident)?,
-                            fields: Err("it is an enum".to_owned()),
-                        },
-                    );
-                }
-                syn::Item::Type(defined) => {
-                    module.items.insert(
-                        defined.ident.to_string(),
-                        Item {
-                            public: matches!(defined.vis, syn::Visibility::Public(_)),
-                            schema_name: defined.ident.to_string(),
-                            fields: Err("it is a type alias".to_owned()),
-                        },
-                    );
-                }
                 syn::Item::Mod(child) if !is_test(child) => nested.push(child),
-                _ => {}
+                other => {
+                    if let Some((name, defined)) = defined(other)? {
+                        module.items.insert(name, defined);
+                    }
+                }
             }
         }
         self.modules.push(module);
         for child in nested {
             let name = child.ident.to_string();
-            let mut child_path = path.clone();
+            let mut child_path = path.to_vec();
             child_path.push(name.clone());
             let child_public = public && matches!(child.vis, syn::Visibility::Public(_));
             if let Some((_, items)) = &child.content {
-                self.module(child_path, child_public, items, &children.join(&name), file)?;
+                self.module(
+                    &child_path,
+                    child_public,
+                    items,
+                    &children.join(&name),
+                    file,
+                )?;
                 continue;
             }
             let candidates = [
@@ -201,7 +177,7 @@ impl Index {
             };
             let parsed = parse(found)?;
             self.module(
-                child_path,
+                &child_path,
                 child_public,
                 &parsed.items,
                 &grandchildren,
@@ -572,4 +548,41 @@ fn raw_fields(
         });
     }
     Ok(fields)
+}
+
+/// The type `item` defines, by its name, when it defines one: a struct
+/// with its named fields, an enum or a type alias.
+fn defined(item: &syn::Item) -> Result<Option<(String, Item)>> {
+    let (ident, vis, schema_name, fields) = match item {
+        syn::Item::Struct(defined) => (
+            &defined.ident,
+            &defined.vis,
+            schema_name(&defined.attrs, &defined.ident)?,
+            match &defined.fields {
+                syn::Fields::Named(named) => raw_fields(&defined.attrs, named),
+                _ => Err("it has no named fields".to_owned()),
+            },
+        ),
+        syn::Item::Enum(defined) => (
+            &defined.ident,
+            &defined.vis,
+            schema_name(&defined.attrs, &defined.ident)?,
+            Err("it is an enum".to_owned()),
+        ),
+        syn::Item::Type(defined) => (
+            &defined.ident,
+            &defined.vis,
+            defined.ident.to_string(),
+            Err("it is a type alias".to_owned()),
+        ),
+        _ => return Ok(None),
+    };
+    Ok(Some((
+        ident.to_string(),
+        Item {
+            public: matches!(vis, syn::Visibility::Public(_)),
+            schema_name,
+            fields,
+        },
+    )))
 }

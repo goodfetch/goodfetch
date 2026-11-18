@@ -104,6 +104,17 @@ struct Positional {
     declared: String,
 }
 
+/// The parameters `positional` declares, each after a comma, as a
+/// signature lists them after `&self`.
+fn declared(positional: &[Positional]) -> String {
+    positional
+        .iter()
+        .fold(String::new(), |mut declared, positional| {
+            let _ = write!(declared, ", {}: {}", positional.ident, positional.declared);
+            declared
+        })
+}
+
 /// A builder method that sets one named parameter of a params type.
 struct Setter {
     doc: String,
@@ -172,10 +183,7 @@ impl MemberModel {
     }
 
     fn declared(&self) -> String {
-        self.positional
-            .iter()
-            .map(|positional| format!(", {}: {}", positional.ident, positional.declared))
-            .collect()
+        declared(&self.positional)
     }
 
     fn forwarded(&self) -> String {
@@ -566,7 +574,7 @@ impl Module {
     fn open(&mut self, doc: &str, type_name: &str, id: &str) {
         let held = match self.twin {
             Twin::Async => format!("host: crate::host::Host<{id}>"),
-            Twin::Blocking => format!("inner: super::handles::{type_name}"),
+            Twin::Blocking => format!("inner: crate::generated::handles::{type_name}"),
         };
         let _ = write!(
             self.body,
@@ -689,11 +697,7 @@ impl Module {
     }
 
     fn builder(&mut self, built: &BuilderModel) {
-        let declared: String = built
-            .positional
-            .iter()
-            .map(|positional| format!(", {}: {}", positional.ident, positional.declared))
-            .collect();
+        let declared = declared(&built.positional);
         let body = match self.twin {
             Twin::Async => format!(
                 "{} {{ host: self.host.child({}) }}",

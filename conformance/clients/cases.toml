@@ -215,29 +215,29 @@ name = "limits"
 [[capability.case]]
 id = "limits-sent-in-millionths"
 covers = ["story:11-51"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "money-inexact-refused-before-sending"
 covers = ["story:11-51"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "connect-limit-refused-closes"
 covers = ["story:11-51"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "limits-lowered-never-raised"
 covers = ["story:11-51"]
-surfaces = ["sdk-typescript", "sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "limit-reached-stops-the-run"
 covers = ["story:11-52"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]

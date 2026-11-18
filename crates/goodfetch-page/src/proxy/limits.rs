@@ -21,13 +21,14 @@
 //! adds to the per-user Politeness file; the engine's own tables hold the
 //! Permits and their waiters.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::politeness::{
-    Ending, Hold, Holder, KeyState, Permit, PermitRule, Politeness, PolitenessTables, SharedRule,
-    Step, Taken, Verdict, milliseconds, moment,
+    Ending, Hold, Holder, KeyState, MemoryTables, Permit, PermitRule, Politeness, PolitenessTables,
+    SharedRule, Step, Taken, Verdict, milliseconds, moment,
 };
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
@@ -118,7 +119,22 @@ impl KeyState for Limits {
     fn save(&self, connection: &Connection, key: &str, (): &()) -> rusqlite::Result<()> {
         self.write(connection, key)
     }
+
+    fn load_from(tables: &MemoryTables, key: &str, (): ()) -> Self {
+        tables
+            .get::<Proxies>()
+            .and_then(|proxies| proxies.0.get(key).copied())
+            .unwrap_or_default()
+    }
+
+    fn save_to(&self, tables: &mut MemoryTables, key: &str, (): &()) {
+        tables.get_mut::<Proxies>().0.insert(key.to_owned(), *self);
+    }
 }
+
+/// The proxy keys' states a Run's own Politeness keeps in memory, by key.
+#[derive(Default)]
+struct Proxies(HashMap<String, Limits>);
 
 /// A run's rule for its Sessions' proxies, under its own settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

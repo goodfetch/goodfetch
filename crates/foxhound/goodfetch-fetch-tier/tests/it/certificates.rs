@@ -540,11 +540,7 @@ fn concurrent_first_hops_to_an_excepted_host_each_pass(#[case] stack: Stack) {
         })
     };
     // Worker threads run the handshakes in parallel, as the engine's do.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the test builds its own multi-threaded runtime (ADR 0060)"
-    )]
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+    let runtime = goodfetch_runtime::multi_thread()
         .worker_threads(4)
         .enable_all()
         .build()

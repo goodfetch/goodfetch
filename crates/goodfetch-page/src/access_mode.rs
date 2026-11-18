@@ -8,7 +8,10 @@
 //! when set closer than the mode; under `stealth` the items set keep their
 //! values and the rest take `stealth`'s defaults. A stealth item set on the
 //! Session itself is refused where it would do nothing (ADR 0077's G3); one
-//! the Session inherits from its Run yields to the Access mode.
+//! the Session inherits from its Run yields to the Access mode. So do the
+//! `identified.*` items, which an `identified` Session needs both of: the
+//! Secret reference of the key it signs its requests with, and where a site
+//! reads the key directory (ADR 0045; #1551).
 
 #[cfg(test)]
 mod tests;
@@ -19,10 +22,12 @@ use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::page::BROWSER_HEADLESS;
 use goodfetch_protocol::page::access_mode::{
-    BROWSER_ACCESS_MODE, STEALTH_CHROMIUM_BUILD, STEALTH_FINGERPRINT_METHOD,
-    STEALTH_GENERATED_IDENTITY, STEALTH_HUMAN_INPUT, STEALTH_IDENTITY_BRAND,
-    STEALTH_IDENTITY_DEVICE, STEALTH_IDENTITY_OS, STEALTH_ITEMS, masks,
+    BROWSER_ACCESS_MODE, IDENTIFIED_ITEMS, IDENTIFIED_SIGNATURE_AGENT, IDENTIFIED_SIGNING_KEY,
+    STEALTH_CHROMIUM_BUILD, STEALTH_FINGERPRINT_METHOD, STEALTH_GENERATED_IDENTITY,
+    STEALTH_HUMAN_INPUT, STEALTH_IDENTITY_BRAND, STEALTH_IDENTITY_DEVICE, STEALTH_IDENTITY_OS,
+    STEALTH_ITEMS, masks,
 };
+use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::session_source::{BrowserName, SessionSource};
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SettingsLayer,
@@ -228,28 +233,40 @@ impl<'a> SessionSettings<'a> {
     }
 }
 
-/// What a Session opens with: its Access mode, the layer that chose it, and
-/// under `stealth` its Identity profile.
+/// What a Session opens with: its Access mode, the layer that chose it,
+/// under `stealth` its Identity profile, and under `identified` what it
+/// signs its requests with.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SessionIdentityPlan {
     pub(crate) mode: AccessMode,
     pub(crate) layer: SettingsLayer,
     pub(crate) profile: Option<StealthProfile>,
+    pub(crate) signing: Option<SigningPlan>,
 }
 
 impl SessionIdentityPlan {
-    /// The plan, when this engine builds its Access mode's effects: only
-    /// `standard` opens until the tickets that build the others land
-    /// (ADR 0083).
+    /// The plan, when this engine builds its Access mode's effects:
+    /// `standard` and `identified` open, `stealth` not until the tickets
+    /// that build it land (ADR 0083).
     pub(crate) fn built(self) -> Result<Self, Refusal> {
         match self.mode {
-            AccessMode::Standard => Ok(self),
-            mode @ (AccessMode::Identified | AccessMode::Stealth) => Err(Refusal::Unbuilt {
+            AccessMode::Standard | AccessMode::Identified => Ok(self),
+            mode @ AccessMode::Stealth => Err(Refusal::Unbuilt {
                 mode,
                 layer: self.layer,
             }),
         }
     }
+}
+
+/// What an `identified` Session signs its requests with (ADR 0045): the
+/// Secret reference of its key, resolved once when the Session opens, the
+/// layer that set it, and where a site reads the key directory.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SigningPlan {
+    pub(crate) key: SecretReference,
+    pub(crate) layer: SettingsLayer,
+    pub(crate) agent: String,
 }
 
 /// The Identity profile a `stealth` Session runs with (ADR 0035).
@@ -289,6 +306,15 @@ pub(crate) enum Refusal {
     },
     /// A stealth item set on a Session that opens `identified`.
     MaskingOnIdentified { key: &'static str },
+    /// An `identified.*` item set on a Session that opens `mode`, which
+    /// signs nothing.
+    SigningNotIdentified { key: &'static str, mode: AccessMode },
+    /// An `identified` Session, chosen in `layer`, without `key`, which it
+    /// signs its requests with.
+    UnsignedIdentified {
+        key: &'static str,
+        layer: SettingsLayer,
+    },
     /// `stealth`, chosen in `layer`, on Goodfetch's `WebKit` build, which
     /// has no stealth mode.
     StealthOnWebKit { layer: SettingsLayer },
@@ -340,6 +366,22 @@ impl Refusal {
                 layer: Some(SettingsLayer::Run),
                 reason: format!(
                     "the Session opens with `{access_mode}: identified`, which masks nothing: leave `{key}` out, or open it `stealth`"
+                ),
+            },
+            Self::SigningNotIdentified { key, mode } => SettingsError::NotApplicable {
+                key: key.to_owned(),
+                layer: SettingsLayer::Run,
+                fix: format!(
+                    "only an `identified` Session signs its requests, and this one opens `{}`: open it with `{access_mode}: identified`, or leave `{key}` out",
+                    mode.as_str()
+                ),
+            },
+            Self::UnsignedIdentified { key, layer } => SettingsError::Invalid {
+                key: key.to_owned(),
+                layer: Some(layer),
+                reason: format!(
+                    "an `identified` Session signs each request, with `{}` and `{}`: set `{key}`, or open the Session `standard`",
+                    IDENTIFIED_SIGNING_KEY.name, IDENTIFIED_SIGNATURE_AGENT.name
                 ),
             },
             Self::StealthOnWebKit { layer } => {
@@ -410,6 +452,10 @@ pub(crate) fn resolve(
         .iter()
         .find(|item| settings.scoped(item).1 == Scope::Session)
         .map(|item| item.name);
+    let signing_item = IDENTIFIED_ITEMS
+        .iter()
+        .find(|item| settings.scoped(item).1 == Scope::Session)
+        .map(|item| item.name);
     let kind = source.map(SessionSource::kind);
 
     if let Some(source) = kind.filter(|_| borrowed(source)) {
@@ -419,13 +465,14 @@ pub(crate) fn resolve(
                 source,
             });
         }
-        if let Some(key) = explicit {
+        if let Some(key) = explicit.or(signing_item) {
             return Err(Refusal::OnBorrowed { key, source });
         }
         return Ok(SessionIdentityPlan {
             mode: AccessMode::Standard,
             layer: SettingsLayer::Default,
             profile: None,
+            signing: None,
         });
     }
     match (mode, explicit) {
@@ -433,12 +480,16 @@ pub(crate) fn resolve(
         (AccessMode::Identified, Some(key)) => return Err(Refusal::MaskingOnIdentified { key }),
         _ => {}
     }
+    if let Some(key) = signing_item.filter(|_| mode != AccessMode::Identified) {
+        return Err(Refusal::SigningNotIdentified { key, mode });
+    }
     let layer = scope.layer();
     match mode {
         AccessMode::Standard => Ok(SessionIdentityPlan {
             mode,
             layer,
             profile: None,
+            signing: None,
         }),
         AccessMode::Identified => match kind.filter(|_| carries_an_identity(source)) {
             Some(source) => Err(Refusal::IdentifiedAt { layer, source }),
@@ -446,6 +497,7 @@ pub(crate) fn resolve(
                 mode,
                 layer,
                 profile: None,
+                signing: Some(signing_plan(settings, layer)?),
             }),
         },
         AccessMode::Stealth if family == BrowserFamily::WebKit => {
@@ -455,8 +507,31 @@ pub(crate) fn resolve(
             mode,
             layer,
             profile: Some(stealth_profile(settings)),
+            signing: None,
         }),
     }
+}
+
+/// What an `identified` Session, chosen in `layer`, signs with: both
+/// `identified.*` items, or a refusal naming the first one missing.
+fn signing_plan(
+    settings: &SessionSettings<'_>,
+    layer: SettingsLayer,
+) -> Result<SigningPlan, Refusal> {
+    let missing = |key: &'static str| Refusal::UnsignedIdentified { key, layer };
+    let (key, key_scope) = settings.scoped(&IDENTIFIED_SIGNING_KEY);
+    let key: Option<SecretReference> = value_as(&IDENTIFIED_SIGNING_KEY, key);
+    let key = key.ok_or_else(|| missing(IDENTIFIED_SIGNING_KEY.name))?;
+    let agent = settings
+        .scoped(&IDENTIFIED_SIGNATURE_AGENT)
+        .0
+        .as_str()
+        .ok_or_else(|| missing(IDENTIFIED_SIGNATURE_AGENT.name))?;
+    Ok(SigningPlan {
+        key,
+        layer: key_scope.layer(),
+        agent: agent.to_owned(),
+    })
 }
 
 /// A `stealth` Session's Identity profile: the items set keep their values,

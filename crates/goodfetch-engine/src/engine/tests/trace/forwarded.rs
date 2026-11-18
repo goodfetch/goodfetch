@@ -32,7 +32,7 @@ const SERVING: &str = "the request the engine serves";
 /// Forwards `run.progress` to a stand-in owner under a span of its own,
 /// and answers the read's line as the owner received it.
 fn forwarded_read(env: &TestEnv) -> Value {
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .unwrap();

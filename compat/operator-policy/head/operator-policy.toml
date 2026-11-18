@@ -143,6 +143,10 @@ os = ["example"]
 device = ["example"]
 brand = ["example"]
 
+[settings.identified]
+signing_key = "env:EXAMPLE"
+signature_agent = "https://bot.example"
+
 [settings.run_state]
 location = "example"
 durability = "full"
@@ -162,6 +166,9 @@ budget = 4
 
 [settings.checkpoint]
 interval = 30000
+
+[settings.effect.output]
+max_size = 4
 
 [settings.audit]
 retention = 30000
@@ -527,6 +534,10 @@ os = ["example"]
 device = ["example"]
 brand = ["example"]
 
+[lock.identified]
+signing_key = "env:EXAMPLE"
+signature_agent = "https://bot.example"
+
 [lock.run_state]
 location = "example"
 durability = "full"
@@ -546,6 +557,9 @@ budget = 4
 
 [lock.checkpoint]
 interval = 30000
+
+[lock.effect.output]
+max_size = 4
 
 [lock.audit]
 retention = 30000
@@ -844,6 +858,9 @@ budget = 4
 
 [cap.checkpoint]
 interval = 30000
+
+[cap.effect.output]
+max_size = 4
 
 [cap.audit]
 retention = 30000

@@ -259,11 +259,7 @@ pub(crate) fn http2(
     paths: &[&str],
     headers: &[(&str, &str)],
 ) -> Vec<Http2Answer> {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "a test helper builds the runtime its HTTP/2 client runs on (ADR 0060)"
-    )]
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .expect("a runtime");

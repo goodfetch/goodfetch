@@ -165,6 +165,8 @@ lint:
     step --after xtask xtask-os-services 'cargo run --quiet --bin xtask -- os-services workflows'
     step --after xtask xtask-fixture-size 'cargo run --quiet --bin xtask -- fixture-size'
     step --after xtask xtask-image-pins 'cargo run --quiet --bin xtask -- image-pins'
+    # The SDKs' runtime matrix holds ADR 0069's runtimes in each suite's set.
+    step --after xtask xtask-runtimes 'cargo run --quiet --bin xtask -- runtimes'
     step --after xtask xtask-output-scans 'cargo run --quiet --bin xtask -- output-scans'
     step --after xtask xtask-screenshots 'cargo run --quiet --bin xtask -- screenshots check'
     step --after xtask xtask-dependency-direction 'cargo run --quiet --bin xtask -- dependency-direction'

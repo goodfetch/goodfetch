@@ -79,6 +79,7 @@
 
 use std::fmt;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime};
 
 use tokio::time::Instant;
@@ -158,6 +159,10 @@ pub struct HandOver {
     /// The HTTP admission the Resource governor gave the attempt, given
     /// back once its crawl request's own document is fetched.
     pub fetch_admission: FetchAdmission,
+    /// The moment its crawl request's own send was reserved at its
+    /// Permit's grant, on a Politeness held in memory (#2171), until its
+    /// first send takes it.
+    pub reserved_send: ReservedSend,
     /// The Page check its crawl request's Label declares of its own, which
     /// judges the browser pages the attempt opens in place of their
     /// Session's (ADR 0093).
@@ -302,6 +307,41 @@ impl FetchAdmission {
     }
 }
 
+/// The moment an attempt's crawl request is to be sent, which its Permit's
+/// grant reserved on a Politeness held in memory (#2171): the request's
+/// first send waits until then and notes its true instant without waiting;
+/// any later send of the attempt asks the Politeness as on the file. Its
+/// clones share it.
+#[derive(Clone, Debug, Default)]
+pub struct ReservedSend(Arc<ReservedCell>);
+
+#[expect(
+    clippy::disallowed_types,
+    reason = "a reserved send is a value taken once in one step, never across an `.await` or under another lock, so there is no lock order to test under loom (ADR 0060)"
+)]
+type ReservedCell = std::sync::atomic::AtomicU64;
+
+impl ReservedSend {
+    /// The send reserved at `at`, none for `None`.
+    pub fn at(at: Option<SystemTime>) -> Self {
+        let nanos = at
+            .and_then(|at| at.duration_since(SystemTime::UNIX_EPOCH).ok())
+            .map_or(0, |since| {
+                u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)
+            });
+        Self(Arc::new(ReservedCell::new(nanos)))
+    }
+
+    /// The reserved moment, taken once: `None` after the first take, or
+    /// when none was reserved.
+    fn take(&self) -> Option<SystemTime> {
+        match self.0.swap(0, Ordering::AcqRel) {
+            0 => None,
+            nanos => Some(SystemTime::UNIX_EPOCH + Duration::from_nanos(nanos)),
+        }
+    }
+}
+
 impl HandOver {
     /// The attempt's Run.
     pub(crate) fn run(&self) -> &Run {
@@ -351,11 +391,15 @@ impl HandOver {
     /// later of it and the start already recorded is kept. A `lead` send
     /// first waits for its delay after the key's last send and, in a rated
     /// run, for a token of the key's sends, renewing the lease meanwhile.
+    /// On a Politeness held in memory, the attempt's first `lead` send
+    /// instead waits for the moment its grant reserved with both taken, and
+    /// its send is noted without waiting on the store (#2171).
     ///
     /// # Errors
     ///
     /// `response_unavailable`, with no `status`, when the Politeness file's
-    /// transaction failed, whatever its error: the request's caller then
+    /// transaction failed, whatever its error, or the task that holds the
+    /// Politeness stopped: the request's caller then
     /// sends nothing, so no request reaches a site with its start unrecorded
     /// and its delay unchecked (#2321).
     async fn sent(&self, url: &str, lead: bool) -> Result<(), CallError> {
@@ -365,6 +409,20 @@ impl HandOver {
         };
         let run = &of_run.run;
         let key = of_run.keys.key(url);
+        if let Some(send_at) = lead.then(|| self.reserved_send.take()).flatten() {
+            if let Ok(wait) = send_at.duration_since(run.clock().wall())
+                && !wait.is_zero()
+            {
+                let _waiting = self.lease.permit_wait(url);
+                run.clock().sleep(wait).await;
+            }
+            return goodfetch_frontier::settled_at_send(politeness, &key, run.clock(), send_at)
+                .await
+                .map_err(|error| {
+                    tracing::warn!(%error, run_id = %run.id(), "a request's start at its send was not recorded: it is not sent");
+                    unrecorded(url, &error)
+                });
+        }
         let pace = lead.then_some(of_run.pace);
         loop {
             match goodfetch_frontier::started_at_send(politeness, &key, run.clock(), pace).await {
@@ -397,7 +455,7 @@ fn unrecorded(url: &str, error: &PolitenessError) -> CallError {
 }
 
 /// What `response_unavailable` advises for a request held unsent.
-const UNRECORDED_FIX: &str = "Free space on the storage the Politeness file is on, or repair it; `run.retry_failed` then admits the request again.";
+const UNRECORDED_FIX: &str = "On a Politeness file, free space on the storage it is on, or repair it; `run.retry_failed` then admits the request again.";
 
 impl RunHandOver {
     /// Judges `url` by the Run's egress policy as its HTTP tier's

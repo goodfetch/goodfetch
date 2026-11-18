@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
-AuditKind: TypeAlias = Literal["audit_log_anchor", "audit_log_pruned", "certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pin_forgotten", "certificate_pinned", "consent_domain_allowed", "endpoint_authentication_failed", "endpoint_refusals_folded", "exposed_daemon_set_up", "lent_page_attached", "operator_policy_written", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "refetch_domain_removed", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "tls_terminated_upstream", "user_configuration_written", "wall_domain_denied"] | str
+AuditKind: TypeAlias = Literal["audit_log_anchor", "audit_log_pruned", "certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pin_forgotten", "certificate_pinned", "consent_domain_allowed", "effect_reconciled", "endpoint_authentication_failed", "endpoint_refusals_folded", "exposed_daemon_set_up", "lent_page_attached", "operator_policy_written", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "refetch_domain_removed", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "tls_terminated_upstream", "user_configuration_written", "wall_domain_denied"] | str
 """A `audit_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -21,6 +21,7 @@ received (ADR 0079).
 - `certificate_pin_forgotten`: A person removed their pin of a host, and any change waiting for it, so its next connection under trust on first use pins again (ADR 0042).
 - `certificate_pinned`: A host's certificate was pinned on first use under its domain's exception, with the SHA-256 of its public key (ADR 0042).
 - `consent_domain_allowed`: A person added a domain, or `*`, to `consent.domains` in user configuration, so later runs accept its consent walls (ADR 0048), with the warning of what they take on that they were shown (ADR 0052).
+- `effect_reconciled`: A person answered about an uncertain Effect (ADRs 0029 and 0106): "it happened", "it did not happen" or "leave uncertain"; `details` give the Run, the Effect journal `entry`, the `key`, the `crawl_request` and the `answer`.
 - `endpoint_authentication_failed`: A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`, or a Connection whose opening sent no `hello` first, in time or within its size limit. `audit.refusals_per_minute` bounds how many one listener records in a minute.
 - `endpoint_refusals_folded`: A listener refused more attempts in a minute than `audit.refusals_per_minute` records: the count of those not recorded one by one, each still logged.
 - `exposed_daemon_set_up`: An Exposed Daemon's setup completed through its setup link (ADR 0049).

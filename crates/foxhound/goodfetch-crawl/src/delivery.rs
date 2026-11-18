@@ -85,7 +85,7 @@ use goodfetch_engine::runs::{ChargeError, Ending, Run, UnjournaledCharges};
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
     ContentTypes, FetchAdmission, FetchTiers, HandOver, HopChecks, HttpFrom, HttpTier, LocalSource,
-    RunHandOver, SetTier, TierChoice, UntouchedDemand, UntouchedReaders,
+    ReservedSend, RunHandOver, SetTier, TierChoice, UntouchedDemand, UntouchedReaders,
 };
 use goodfetch_frontier::Bounds;
 use goodfetch_protocol::catalog::Setting;
@@ -538,6 +538,7 @@ async fn deliver(
             Some(ask) = arrivals.asked.next() => {
                 answered(run, (&mut admission, &mut state), in_flight, ask).await;
             }
+            () = admission.serve_politeness() => {}
             Some(written) = settling.next(), if settles => {
                 let on = (&mut admission, servers.as_mut_slice());
                 completed(run, on, (&mut state, fetching), written).await;
@@ -817,13 +818,18 @@ impl Fetching<'_> {
     /// `watch`, hands over with its Run's pages, built once as it is
     /// leased: `of_run`, what every attempt of the Run hands over alike,
     /// with its own room beside the Run's requests, `second_copies`, its
-    /// HTTP admission, what its request's Label declares, and the tier of
+    /// HTTP admission, the send its Permit's grant reserved, what its
+    /// request's Label declares, and the tier of
     /// the Session that reads its site files, `site_files`.
     fn hand_over(
         &self,
         of_run: &std::sync::Arc<RunHandOver>,
         (leased, lease, watch): (&Leased, &WorkItemLease, &Watch),
-        (second_copies, fetch_admission): (SecondCopies, FetchAdmission),
+        (second_copies, fetch_admission, reserved_send): (
+            SecondCopies,
+            FetchAdmission,
+            ReservedSend,
+        ),
         site_files: Option<&HttpTier>,
     ) -> std::sync::Arc<HandOver> {
         let label = leased.crawl_request.label.as_str();
@@ -833,6 +839,7 @@ impl Fetching<'_> {
             second_copies,
             lease: handler_lease(of_run, (leased, lease, watch), &self.in_flight),
             fetch_admission,
+            reserved_send,
             page_check: self.labels.settings.page_check(label).cloned(),
             extractor: self.labels.settings.extractor(label),
             encoding: self
@@ -1052,6 +1059,7 @@ async fn lease_to_servers(
             );
             server.in_flight += 1;
             let copies = admission.second_copies();
+            let reserved_send = ReservedSend::at(admission.reserved_send(&leased.crawl_request.id));
             let fetching = &pooled.fetching;
             let (tiering, reader) = fetching.served(
                 pooled.state,
@@ -1069,7 +1077,7 @@ async fn lease_to_servers(
             let hand_over = fetching.hand_over(
                 pooled.handing,
                 (&leased, &lease, &watch),
-                (copies, admission.clone()),
+                (copies, admission.clone(), reserved_send),
                 reader.as_ref(),
             );
             let fetches = tiering.tier().or(leased.sitemap.then_some(FetchTier::Http));
@@ -1205,7 +1213,8 @@ async fn drained(
 /// asked to stop at its next safe point, a Connection joins to serve it, a
 /// seed is added or failures are re-admitted or, `until_finish`,
 /// `run.finish` lets it finish; meanwhile it answers what other tasks ask
-/// of the crawl's Run state, `state`, and shows what a write it waited
+/// of the crawl's Run state, `state`, serves what they send its
+/// admission's Politeness, and shows what a write it waited
 /// for changed of the crawl's requests by state, with the requests
 /// `in_flight`.
 async fn waited(
@@ -1235,6 +1244,7 @@ async fn waited(
                     return Waited::Again;
                 }
             }
+            () = admission.serve_politeness() => {}
         }
     }
 }

@@ -15,8 +15,9 @@
 #   rust        one shard of the archive (`--partition hash:<k>/<n>`, never
 #               by timings), then the doctests;
 #   typescript  Vitest and Playwright, `--shard <k>/<n>`, on each Node line
-#               host-tools recorded; Bun and Deno 2 are on PATH for the SDK
-#               smoke scripts Vitest spawns (ADR 0069);
+#               host-tools recorded; the Bun and Deno 2 of the cell's set of
+#               ci/runtimes.toml are on PATH for the SDK smoke scripts Vitest
+#               spawns (ADR 0069);
 #   python      pytest on each CPython host-tools recorded, split across
 #               processes by pytest-xdist;
 #   lazyfs      on linux-x64-gnu, the LazyFS power cuts (ADR 0060): the

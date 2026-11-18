@@ -1,0 +1,9 @@
+[package]
+name = "goodfetch-runtime"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+goodfetch-workspace-hack = { path = "../goodfetch-workspace-hack" }
+goodfetch-engine = { path = "../goodfetch-engine" }

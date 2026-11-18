@@ -54,7 +54,7 @@ fn run_id() -> RunId {
 
 /// The scenario's runtime, of one thread.
 pub(crate) fn runtime() -> Runtime {
-    tokio::runtime::Builder::new_current_thread()
+    goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .expect("invariant: the OS gives a runtime of one thread")

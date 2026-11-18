@@ -70,6 +70,9 @@ struct Pass<'a> {
     scenarios: &'a [Scenario],
     tools: &'a [Tool],
     rows: &'a [Row],
+    /// The cells the comparison's runs named, measured alone: every
+    /// measured cell of the pass's scenarios when `None` ([`named_cells`]).
+    named: Option<&'a [&'a str]>,
     done: Vec<Done<'a>>,
     /// The cells whose run the comparison stopped: not measured, so not
     /// short of their declared runs.
@@ -79,6 +82,16 @@ struct Pass<'a> {
 impl Pass<'_> {
     fn cell(&self, scenario: Scenario, cell: &str) -> String {
         format!("{} {cell}{}", scenario.name(), self.suffix)
+    }
+
+    /// Whether the comparison's runs measured `cell` of `scenario`: every
+    /// cell, unless they named some.
+    fn measured(&self, scenario: Scenario, cell: &str) -> bool {
+        self.named.is_none_or(|named| {
+            named
+                .iter()
+                .any(|name| name.split_once('/') == Some((scenario.name(), cell)))
+        })
     }
 
     fn subject(&self, done: &Done<'_>) -> String {
@@ -142,6 +155,21 @@ fn of_stopped<'a>(stopped: impl IntoIterator<Item = &'a StoppedRun>) -> Vec<(Sce
         .collect()
 }
 
+/// The cells `trials`' runs named, each `<scenario>/<cell>`, which they
+/// measured alone (#2742): those its run named and those each redo measured
+/// again; `None` when its run named none, so every measured cell counts.
+fn named_cells(trials: &Comparison) -> Option<Vec<&str>> {
+    (!trials.declared.cells.is_empty()).then(|| {
+        trials
+            .declared
+            .cells
+            .iter()
+            .chain(trials.redone.iter().flat_map(|redone| &redone.cells))
+            .map(String::as_str)
+            .collect()
+    })
+}
+
 /// The pages of the site `/sites/<n>/1` declares.
 fn site_pages(first: &str) -> Option<u64> {
     first
@@ -172,6 +200,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         .into_iter()
         .filter(|scenario| ran.contains(scenario))
         .collect();
+    let named = named_cells(trials);
     let mut findings = check_pass(&Pass {
         suffix: String::new(),
         declared,
@@ -179,6 +208,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         scenarios: ran,
         tools: &Tool::ALL,
         rows: EVERY_ROW,
+        named: named.as_deref(),
         done: of_trials(&trials.trials),
         stopped: of_stopped(&trials.stopped),
     });
@@ -214,6 +244,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
                 scenarios,
                 tools,
                 rows,
+                named: named.as_deref(),
                 done: of_runs(runs),
                 stopped: of_stopped(stopped),
             };
@@ -239,6 +270,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             scenarios: &counted,
             tools: &Tool::ALL,
             rows: EVERY_ROW,
+            named: named.as_deref(),
             done: of_trials(trials_run),
             stopped: of_stopped(stopped),
         }));
@@ -248,7 +280,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
     } else {
         &[]
     };
-    findings.extend(check_sizes(&trials.sizes, raw));
+    findings.extend(check_sizes(&trials.sizes, raw, named.as_deref()));
     findings.extend(check_auto(&trials.auto));
     findings
 }
@@ -274,8 +306,9 @@ fn check_auto(runs: &[AutoRun]) -> Vec<Finding> {
 
 /// Each finding of the sizes cell, one pass per size and concurrency, of
 /// the scenario 1 main cells of [`SIZE_TOOLS`] it runs there
-/// ([`size_not_run`]) when `raw` holds scenario 1.
-fn check_sizes(sizes: &SizesCell, raw: &[Scenario]) -> Vec<Finding> {
+/// ([`size_not_run`]) when `raw` holds scenario 1, of those `named` names
+/// when it names some.
+fn check_sizes(sizes: &SizesCell, raw: &[Scenario], named: Option<&[&str]>) -> Vec<Finding> {
     let SizesCell::Measured {
         trials: declared,
         trials_run,
@@ -299,6 +332,7 @@ fn check_sizes(sizes: &SizesCell, raw: &[Scenario]) -> Vec<Finding> {
                 scenarios: raw,
                 tools: &tools,
                 rows: &[Row::Main],
+                named,
                 done: of_trials(
                     trials_run
                         .iter()
@@ -372,13 +406,15 @@ fn other_output(pass: &Pass<'_>) -> Vec<Finding> {
 }
 
 /// Each measured cell of a pass short of or past its declared trials, one
-/// for a cell that runs one ([`matrix::Cell::one_trial`]).
+/// for a cell that runs one ([`matrix::Cell::one_trial`]), of the cells its
+/// runs named when they named some.
 fn short_or_past(pass: &Pass<'_>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (cell, _) in matrix::measured().filter(|(cell, config)| {
         pass.scenarios.contains(&cell.scenario)
             && pass.tools.contains(&config.tool())
             && pass.rows.contains(&cell.row)
+            && pass.measured(cell.scenario, cell.name)
             && !pass.stopped.contains(&(cell.scenario, cell.name))
     }) {
         let count = pass
@@ -549,6 +585,8 @@ pub(crate) fn strace_runs_of_other_work_set_aside(trials: &mut Comparison) {
         scenarios: &trials.declared.scenarios,
         tools: &Tool::ALL,
         rows: EVERY_ROW,
+        // Other work reads the runs done alone, not the cells named.
+        named: None,
         done: of_runs(runs),
         stopped: of_stopped(stopped.iter()),
     };

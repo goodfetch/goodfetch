@@ -4,7 +4,7 @@ use crate::compare::extracted::{Differing, Extracted};
 use crate::compare::matrix::{self, Row, Scenario};
 use crate::compare::trials::{
     AutoRun, Comparison, CountedCell, CountedRun, INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS,
-    Measured, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, Tool, Trial, Work, fixture,
+    Measured, Redone, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, Tool, Trial, Work, fixture,
 };
 
 /// The work of a trial that fetched every page of the site of `pages`
@@ -121,6 +121,70 @@ fn pagesifts_polite_cell_is_held_to_one_trial_of_each_pass() {
     assert_eq!(
         (one, named(&trials)),
         (vec![], vec![("trial_count", "polite pagesift".to_owned())])
+    );
+}
+
+/// The trials of `trials` of the cells `cells` names alone, each
+/// `<scenario>/<cell>`: what a run that named them measured.
+fn of_cells(trials: &mut Comparison, cells: &[&str]) {
+    trials.trials.retain(|trial| {
+        cells.contains(&format!("{}/{}", trial.scenario.name(), trial.cell).as_str())
+    });
+}
+
+/// A run that names cells measures them alone (#2200), so the check counts
+/// the trials of those alone: a cell it did not name ran none and is short
+/// of nothing, while a named cell a trial short is still named (#2742).
+#[test]
+fn a_run_that_names_one_cell_counts_the_trials_of_that_cell_alone() {
+    let mut trials = comparison(|_, _| work(0));
+    trials.declared.cells = vec!["raw/foxhound".to_owned()];
+    of_cells(&mut trials, &["raw/foxhound"]);
+    let whole = named(&trials);
+    trials.trials.pop();
+
+    assert_eq!(
+        (whole, named(&trials)),
+        (vec![], vec![("trial_count", "raw foxhound".to_owned())])
+    );
+}
+
+/// A run that names no cell measures every cell of its scenarios, and the
+/// check counts every one: each cell with no trial is short of its
+/// declared trials.
+#[test]
+fn a_run_that_names_no_cell_counts_every_measured_cell() {
+    let mut trials = comparison(|_, _| work(0));
+    of_cells(&mut trials, &["raw/foxhound"]);
+
+    let findings = named(&trials);
+
+    assert_eq!(
+        (
+            findings.len(),
+            findings.iter().all(|(kind, _)| *kind == "trial_count")
+        ),
+        (matrix::measured().count() - 1, true)
+    );
+}
+
+/// A redo of a run that named cells may measure others too: the check then
+/// counts the cells the run named and those the redo measured again.
+#[test]
+fn a_redo_of_a_run_that_named_cells_counts_the_cells_it_measured_again() {
+    let mut trials = comparison(|_, _| work(0));
+    trials.declared.cells = vec!["raw/foxhound".to_owned()];
+    trials.redone = vec![Redone {
+        cells: vec!["raw/spider".to_owned()],
+        order_seed: 11,
+    }];
+    of_cells(&mut trials, &["raw/foxhound", "raw/spider"]);
+    let whole = named(&trials);
+    trials.trials.pop();
+
+    assert_eq!(
+        (whole, named(&trials)),
+        (vec![], vec![("trial_count", "raw spider".to_owned())])
     );
 }
 

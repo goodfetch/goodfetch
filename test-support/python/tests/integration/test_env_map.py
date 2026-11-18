@@ -2,7 +2,8 @@
 
 from typing import TYPE_CHECKING
 
-from goodfetch_test_support import TestEnv, Tool
+from goodfetch_test_support import Product, TestEnv, Tool, scripted_engine_env
+from goodfetch_test_support.play_script import CORPUS
 
 if TYPE_CHECKING:
     from conftest import SampleRun
@@ -85,3 +86,28 @@ def test_env_map_fails_when_the_manifest_lacks_the_products_executable(
     outcome = sample_run.run(COLLIE_TEST.format(collie="none"), tools=tools)
 
     assert outcome.results == {"test_engine": "error"}, outcome.output
+
+
+def test_scripted_engine_env_installs_the_script_and_names_the_scripted_engine(
+    test_env: TestEnv,
+) -> None:
+    """The map points the Product's variable at the Scripted engine, in that home."""
+    home = test_env.folder / "first"
+
+    env = scripted_engine_env(
+        test_env, Product.COLLIE, "self-test/hello-as-collie.json", home
+    )
+
+    assert {
+        "env": dict(env),
+        "script": (home / "scripted-engine" / "script.json").read_text("utf-8"),
+    } == {
+        "env": {
+            **test_env.env,
+            "GOODFETCH_HOME": str(home),
+            "GOODFETCH_COLLIE_ENGINE_PATH": str(
+                test_env.tools.path(Tool.SCRIPTED_ENGINE)
+            ),
+        },
+        "script": (CORPUS / "self-test" / "hello-as-collie.json").read_text("utf-8"),
+    }

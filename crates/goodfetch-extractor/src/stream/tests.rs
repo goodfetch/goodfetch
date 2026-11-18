@@ -9,6 +9,7 @@
 )]
 
 use std::fmt::Write as _;
+use std::sync::LazyLock;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use proptest::prelude::*;
@@ -190,52 +191,85 @@ fn corpus() -> Vec<(String, bool)> {
     ]
 }
 
-/// What one pass reads of `html` for every selector of `SELECTORS`, the
-/// body written in the chunks that `cuts`, ascending offsets, end.
-fn in_chunks(html: &str, cuts: &[usize]) -> Option<Vec<Vec<Streamed>>> {
-    let work = CountedWork::default();
-    let streaming = Streaming::new(&work);
-    let selectors: Vec<StreamSelector> = SELECTORS
-        .iter()
-        .map(|selector| StreamSelector::of(selector, &work).expect("lol_html reads it"))
-        .collect();
-    let queries: Vec<Query<'_>> = selectors
-        .iter()
-        .enumerate()
-        .map(|(at, selector)| Query {
-            selector,
-            first: at % 2 == 1,
-        })
-        .collect();
-    let mut pass = streaming.start(&queries);
-    let bytes = html.as_bytes();
-    let mut from = 0;
-    for &cut in cuts.iter().chain([&bytes.len()]) {
-        pass.write(&bytes[from..cut]);
-        from = cut;
-    }
-    let read = pass.end();
-    assert_eq!(work.read(Row::PageParses), 0, "a pass parses no tree");
-    read
+/// The passes of the chunk tests: `SELECTORS` parsed once, as a Run
+/// parses its selectors once and starts a pass for each document.
+struct Chunks {
+    work: CountedWork,
+    streaming: Streaming,
+    selectors: Vec<StreamSelector>,
 }
 
-/// A body cut into two chunks at any byte, or written a byte at a time,
-/// reads what the whole body reads, even inside a character, a tag, the
-/// doctype or an end tag.
-#[rstest]
-#[case::cut_at_every_byte(false)]
-#[case::byte_by_byte(true)]
-fn a_pass_reads_a_body_in_chunks_as_it_reads_it_whole(#[case] bytewise: bool) {
-    for (html, _) in corpus() {
-        let whole = in_chunks(&html, &[]);
-        if bytewise {
-            let every: Vec<usize> = (1..html.len()).collect();
-            assert_eq!(in_chunks(&html, &every), whole, "byte by byte: {html}");
-        } else {
-            for cut in 0..=html.len() {
-                assert_eq!(in_chunks(&html, &[cut]), whole, "cut at {cut}: {html}");
-            }
+impl Chunks {
+    fn new() -> Self {
+        let work = CountedWork::default();
+        let streaming = Streaming::new(&work);
+        let selectors = SELECTORS
+            .iter()
+            .map(|selector| StreamSelector::of(selector, &work).expect("lol_html reads it"))
+            .collect();
+        Self {
+            work,
+            streaming,
+            selectors,
         }
+    }
+
+    /// What one pass reads of `html` for every selector of `SELECTORS`,
+    /// the body written in the chunks that `cuts`, ascending offsets, end.
+    fn read(&self, html: &str, cuts: &[usize]) -> Option<Vec<Vec<Streamed>>> {
+        let queries: Vec<Query<'_>> = self
+            .selectors
+            .iter()
+            .enumerate()
+            .map(|(at, selector)| Query {
+                selector,
+                first: at % 2 == 1,
+            })
+            .collect();
+        let mut pass = self.streaming.start(&queries);
+        let bytes = html.as_bytes();
+        let mut from = 0;
+        for &cut in cuts.iter().chain([&bytes.len()]) {
+            pass.write(&bytes[from..cut]);
+            from = cut;
+        }
+        let read = pass.end();
+        assert_eq!(self.work.read(Row::PageParses), 0, "a pass parses no tree");
+        read
+    }
+}
+
+/// The parts the every-cut test runs in: part `p` cuts each document at
+/// the offsets congruent to `p`, so each part makes an eighth of the passes
+/// and stays far under the Quick suite's kill on a loaded host (#2776).
+const CUT_PARTS: usize = 8;
+
+/// A body cut into two chunks at any byte reads what the whole body reads,
+/// even inside a character, a tag, the doctype or an end tag.
+#[rstest]
+fn a_pass_reads_a_body_cut_at_any_byte_as_it_reads_it_whole(
+    #[values(0, 1, 2, 3, 4, 5, 6, 7)] part: usize,
+) {
+    let chunks = Chunks::new();
+    for (html, _) in corpus() {
+        let whole = chunks.read(&html, &[]);
+        for cut in (part..=html.len()).step_by(CUT_PARTS) {
+            assert_eq!(chunks.read(&html, &[cut]), whole, "cut at {cut}: {html}");
+        }
+    }
+}
+
+/// A body written a byte at a time reads what the whole body reads.
+#[test]
+fn a_pass_reads_a_body_written_byte_by_byte_as_it_reads_it_whole() {
+    let chunks = Chunks::new();
+    for (html, _) in corpus() {
+        let every: Vec<usize> = (1..html.len()).collect();
+        assert_eq!(
+            chunks.read(&html, &every),
+            chunks.read(&html, &[]),
+            "byte by byte: {html}"
+        );
     }
 }
 
@@ -256,21 +290,70 @@ fn large_page() -> String {
     )
 }
 
+/// The large page and what one pass reads of it whole, read once for every
+/// case (#2776).
+static LARGE_PAGE: LazyLock<(String, Option<Vec<Vec<Streamed>>>)> = LazyLock::new(|| {
+    let html = large_page();
+    let whole = Chunks::new().read(&html, &[]);
+    (html, whole)
+});
+
+/// The parts the large-page property runs in: each runs this share of the
+/// suite's cases on a seed of its own, so the suite's count is kept and each
+/// part stays far under the Quick suite's kill on a loaded host (#2776).
+const LARGE_PAGE_PARTS: u32 = 4;
+
+/// The suite's proptest configuration, with a part's share of its cases.
+fn large_page_part_config() -> ProptestConfig {
+    let config = goodfetch_test_support::proptest_config();
+    ProptestConfig {
+        cases: config.cases / LARGE_PAGE_PARTS,
+        ..config
+    }
+}
+
+/// Up to 63 offsets into the large page, in any order.
+fn large_page_cuts() -> impl Strategy<Value = Vec<prop::sample::Index>> {
+    proptest::collection::vec(any::<prop::sample::Index>(), 0..64)
+}
+
+/// The large page, written in the chunks that `cuts` end, reads what the
+/// whole page reads.
+fn the_large_page_cut_at(cuts: &[prop::sample::Index]) -> Result<(), TestCaseError> {
+    let (html, whole) = &*LARGE_PAGE;
+    let mut cuts: Vec<usize> = cuts.iter().map(|cut| cut.index(html.len() + 1)).collect();
+    cuts.sort_unstable();
+    prop_assert!(whole.is_some());
+    prop_assert_eq!(&Chunks::new().read(html, &cuts), whole);
+    Ok(())
+}
+
 proptest! {
-    #![proptest_config(goodfetch_test_support::proptest_config())]
+    #![proptest_config(large_page_part_config())]
 
     /// A large page cut anywhere, in any number of chunks, reads what the
-    /// whole page reads.
+    /// whole page reads: the first of the property's parts.
     #[test]
-    fn a_large_page_cut_anywhere_reads_as_it_reads_whole(
-        cuts in proptest::collection::vec(any::<prop::sample::Index>(), 0..64),
-    ) {
-        let html = large_page();
-        let mut cuts: Vec<usize> = cuts.iter().map(|cut| cut.index(html.len() + 1)).collect();
-        cuts.sort_unstable();
-        let whole = in_chunks(&html, &[]);
-        prop_assert!(whole.is_some());
-        prop_assert_eq!(in_chunks(&html, &cuts), whole);
+    fn a_large_page_cut_anywhere_reads_as_it_reads_whole_part_1(cuts in large_page_cuts()) {
+        the_large_page_cut_at(&cuts)?;
+    }
+
+    /// The second part.
+    #[test]
+    fn a_large_page_cut_anywhere_reads_as_it_reads_whole_part_2(cuts in large_page_cuts()) {
+        the_large_page_cut_at(&cuts)?;
+    }
+
+    /// The third part.
+    #[test]
+    fn a_large_page_cut_anywhere_reads_as_it_reads_whole_part_3(cuts in large_page_cuts()) {
+        the_large_page_cut_at(&cuts)?;
+    }
+
+    /// The fourth part.
+    #[test]
+    fn a_large_page_cut_anywhere_reads_as_it_reads_whole_part_4(cuts in large_page_cuts()) {
+        the_large_page_cut_at(&cuts)?;
     }
 }
 

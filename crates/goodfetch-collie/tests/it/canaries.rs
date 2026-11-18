@@ -557,7 +557,7 @@ impl Calls {
 
 /// Every file and folder of `folder`, at any depth, as few as cover them,
 /// but `left_out` and what it holds.
-fn paths_but(folder: &Path, left_out: &Path) -> Vec<PathBuf> {
+pub(crate) fn paths_but(folder: &Path, left_out: &Path) -> Vec<PathBuf> {
     let mut entries: Vec<PathBuf> = std::fs::read_dir(folder)
         .unwrap()
         .map(|entry| entry.unwrap().path())

@@ -73,6 +73,7 @@ mod repeat;
 mod results;
 mod rss;
 mod runners;
+mod runtimes;
 mod scan;
 mod screenshots;
 mod self_hosted;
@@ -346,6 +347,11 @@ enum Command {
         #[command(subcommand)]
         command: screenshots::Command,
     },
+    /// Fails when `ci/runtimes.toml`, the SDKs' runtime matrix, misses a
+    /// runtime ADR 0069 lists or places one in a suite the ADR does not run
+    /// it in, or when a job step names no set of it or installs none of its
+    /// runtimes.
+    Runtimes,
     /// The self-hosted allowlist (ADRs 0108 and 0135).
     SelfHosted {
         #[command(subcommand)]
@@ -593,6 +599,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Compare { command } => compare::run(command, environment),
         Command::Rss { command } => rss::run(command, environment),
         Command::Screenshots { command } => screenshots::run(command, environment),
+        Command::Runtimes => Ok(check::report(&runtimes::check(root)?)),
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
         Command::StaticPie { target, files } => {

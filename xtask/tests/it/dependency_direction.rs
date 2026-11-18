@@ -7,7 +7,9 @@
 //! ground depends on no engine crate, nor on `goodfetch-conformance` or
 //! `goodfetch-protocol`; `goodfetch-conformance` depends only on
 //! `goodfetch-protocol` (ADR 0032, STYLE.md); `xtask` builds no Goodfetch
-//! crate but `goodfetch-protocol` (ADR 0072). The fixture's members all take
+//! crate but `goodfetch-protocol` (ADR 0072); `goodfetch-runtime` depends on
+//! no Goodfetch crate, and the test helpers and the Proving ground take it
+//! (ADR 0081). The fixture's members all take
 //! `goodfetch-workspace-hack`, which no rule counts (ADR 0094).
 //! Covers: story:1-107
 //! Covers: story:1-67
@@ -61,6 +63,26 @@ fn test_support_depending_on_a_goodfetch_crate_fails() {
             "test-support-depends-on-goodfetch",
             "goodfetch-test-support"
         )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// Every crate that builds a runtime takes `goodfetch-runtime`, the test
+/// helpers and the Proving ground included, so it depends on no Goodfetch
+/// crate itself (ADR 0081).
+#[test]
+fn runtime_depending_on_a_goodfetch_crate_fails() {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.add_fixture_file(
+        "dependency-direction-cases/runtime-depends-on-engine.toml",
+        "crates/goodfetch-runtime/Cargo.toml",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("runtime-depends-on-goodfetch", "goodfetch-runtime")]
     );
     assert_eq!(outcome.code, 1);
 }

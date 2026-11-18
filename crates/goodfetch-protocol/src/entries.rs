@@ -4,14 +4,14 @@
 
 use crate::catalog::{Entries, ErrorCodeDefinition, Operation, Product, SharedType, Yielding};
 use crate::{
-    audit, block, browser_cache, checkpoint, connection, daemon, dns, download, egress, engine,
-    events, executables, foxhound, governor, hostile_input, key_value_store, log, needs_you, ops,
-    page, politeness, response_limits, run, sample, secrets, security, settings, site_preferences,
-    storage, tls, usage, versions,
+    audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect, egress,
+    engine, events, executables, foxhound, governor, hostile_input, key_value_store, log,
+    needs_you, ops, page, politeness, response_limits, run, sample, secrets, security, settings,
+    site_preferences, storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 50] = [
+pub const MODULES: [&Entries; 51] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -35,6 +35,7 @@ pub const MODULES: [&Entries; 50] = [
     &run::completeness::ENTRIES,
     &checkpoint::ENTRIES,
     &key_value_store::ENTRIES,
+    &effect::ENTRIES,
     &download::ENTRIES,
     &audit::ENTRIES,
     &secrets::ENTRIES,
@@ -66,7 +67,7 @@ pub const MODULES: [&Entries; 50] = [
 
 /// Every setting value that yields to another setting, which
 /// `config explain` names in its `yields_to` (#2418).
-pub const YIELDING: [&Yielding; 8] = [
+pub const YIELDING: [&Yielding; 10] = [
     &foxhound::fetch::HTTP_FROM_YIELDS_TO_A_LOGIN,
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[0],
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[1],
@@ -75,6 +76,8 @@ pub const YIELDING: [&Yielding; 8] = [
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[4],
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[5],
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[6],
+    &page::access_mode::SIGNING_YIELDS_TO_THE_ACCESS_MODE[0],
+    &page::access_mode::SIGNING_YIELDS_TO_THE_ACCESS_MODE[1],
 ];
 
 /// The operations of `product`'s catalog: Collie's own for Collie, every
@@ -173,7 +176,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 87] = [
+    const COLLIE: [&str; 89] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -250,6 +253,8 @@ mod tests {
         "key_value_store.set_bytes",
         "key_value_store.delete",
         "key_value_store.keys",
+        "effect.open",
+        "effect.close",
         "download.save_as",
         "audit.export",
         "audit.verify",

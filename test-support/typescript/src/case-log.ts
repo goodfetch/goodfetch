@@ -122,6 +122,8 @@ declare module "vitest" {
   interface TaskMeta {
     /** What the test recorded of its Client conformance case (ADR 0069). */
     clientCase?: CaseRecording;
+    /** The runtime the test ran its case on when it is not the host's Node, such as a smoke script's `bun-1`. */
+    runtime?: string;
   }
 }
 
@@ -200,9 +202,10 @@ const TEST_PASSED = "the test passed";
 /**
  * The Vitest reporter that writes the case log: one entry per case a test
  * that ran carries, with the case's capability from the case list, the
- * test's mode tag, this host's platform and runtime, the test's recorded
- * checks followed by whether it passed, and its recorded evidence. A skipped
- * test writes nothing, so its case stays `not_reached`.
+ * test's mode tag, this host's platform, the runtime the test ran on (its
+ * meta's, or the host's Node), the test's recorded checks followed by
+ * whether it passed, and its recorded evidence. A skipped test writes
+ * nothing, so its case stays `not_reached`.
  */
 export class CaseLogReporter implements Reporter {
   readonly #out: string;
@@ -250,7 +253,7 @@ export class CaseLogReporter implements Reporter {
         capability,
         ...(modes.length === 1 ? { mode: modes[0] } : {}),
         platform: hostPlatform(),
-        runtime: hostRuntime(),
+        runtime: testCase.meta().runtime ?? hostRuntime(),
         checks,
         evidence,
       });

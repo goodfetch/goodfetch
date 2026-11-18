@@ -5,8 +5,10 @@
 //! base its hand-written `goodfetch_error` module declares), the base class
 //! of the handlers of each Plugin kind, with the
 //! catalog's descriptions as Google-style docstrings and its Experimental and
-//! deprecated markers. Foxhound's layer imports what Collie's client package
-//! defines.
+//! deprecated markers, and the constants a Connection opens with: the
+//! protocol and Product versions `hello` names, the engine's command and
+//! the variable naming its executable. Foxhound's layer imports what
+//! Collie's client package defines.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -14,6 +16,8 @@ use std::fmt::Write as _;
 use serde_json::Value;
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::cli::ATTACHED_ENGINE;
+use goodfetch_protocol::settings::{COLLIE_ENGINE_PATH_VARIABLE, FOXHOUND_ENGINE_PATH_VARIABLE};
 
 use super::layer::{Deprecation, Layer, Stability};
 use super::naming::{pascal, snake};
@@ -72,6 +76,7 @@ pub(super) fn generate(layer: &Layer) -> Generated {
     allow_unknown_fields(&mut input);
     let mut files = vec![
         ("__init__.py", init(layer)),
+        ("connection.py", connection(layer)),
         ("operations.py", operations(layer)),
         ("events.py", events(layer)),
         ("errors.py", errors(layer)),
@@ -272,6 +277,43 @@ fn init(layer: &Layer) -> String {
     ))
 }
 
+/// What a package's runtime opens a Connection with. Collie's client
+/// package holds what both Products' Connections share: the protocol version
+/// its `hello` names (ADRs 0024 and 0066), the Product version the package
+/// carries (ADRs 0090 and 0095) and the hidden command that serves one
+/// Connection. Each Product's layer holds how its own engine is found: its
+/// executable and its engine-path variable (ADR 0090).
+fn connection(layer: &Layer) -> String {
+    let (shared, name, constant, variable) = match layer.product {
+        Product::Collie => (
+            format!(
+                "\nPROTOCOL_VERSION: Final = {:?}\n\"\"\"The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066).\"\"\"\n\nPRODUCT_VERSION: Final = {:?}\n\"\"\"The Product version this package carries, `hello`'s `product_version` (ADRs 0090 and 0095).\"\"\"\n\nATTACHED_ENGINE_COMMAND: Final = {:?}\n\"\"\"The executable's hidden command that serves one Connection over stdio.\"\"\"\n",
+                layer.protocol_version, layer.product_version, ATTACHED_ENGINE,
+            ),
+            "Collie",
+            "COLLIE",
+            COLLIE_ENGINE_PATH_VARIABLE,
+        ),
+        Product::Foxhound => (
+            String::new(),
+            "Foxhound",
+            "FOXHOUND",
+            FOXHOUND_ENGINE_PATH_VARIABLE,
+        ),
+    };
+    let mut text = header(&format!(
+        "What {name}'s runtime opens a Connection with (ADR 0090)."
+    ));
+    text.push_str("\nfrom typing import Final\n");
+    text.push_str(&shared);
+    let _ = write!(
+        text,
+        "\n{constant}_ENGINE_PATH_VARIABLE: Final = {variable:?}\n\"\"\"The variable naming {name}'s executable (ADR 0090).\"\"\"\n\n{constant}_EXECUTABLE: Final = {:?}\n\"\"\"The name of {name}'s executable (ADR 0090).\"\"\"\n",
+        layer.product.executable_name(),
+    );
+    text
+}
+
 fn operations(layer: &Layer) -> String {
     let product = layer.product.name();
     let types: BTreeSet<String> = layer
@@ -407,12 +449,12 @@ fn errors(layer: &Layer) -> String {
     let mut text = header(&format!(
         "The exception class of each of {product}'s Error codes (ADR 0079)."
     ));
-    text.push_str("\nfrom collections.abc import Callable, Mapping\nfrom typing import Final");
+    text.push_str("\nfrom collections.abc import Mapping\nfrom typing import Final");
     match layer.product {
         Product::Collie => {
             let _ = write!(
                 text,
-                ", Literal\n\nfrom {GOODFETCH_ERROR_MODULE} import GoodfetchError\n\nErrorGroup = Literal["
+                ", Literal\n\nfrom {GOODFETCH_ERROR_MODULE} import ErrorClass, GoodfetchError\n\nErrorGroup = Literal["
             );
             text.push_str(
                 &layer
@@ -448,7 +490,7 @@ fn errors(layer: &Layer) -> String {
             let names: Vec<&String> = imported.iter().collect();
             let _ = writeln!(
                 text,
-                "\n\nfrom {CLIENT_PACKAGE}.errors import {}\nfrom {GOODFETCH_ERROR_MODULE} import GoodfetchError",
+                "\n\nfrom {CLIENT_PACKAGE}.errors import {}\nfrom {GOODFETCH_ERROR_MODULE} import ErrorClass",
                 join(&names)
             );
         }
@@ -472,14 +514,28 @@ fn errors(layer: &Layer) -> String {
         ));
         let _ = write!(
             text,
-            "\n    def __init__(self, message: str) -> None:\n        \"\"\"Takes the message the engine rendered.\"\"\"\n        super().__init__(message, code={:?}, group={:?}, retryable={})\n",
+            "\n    def __init__(self, message: str, *, fix: str | None = None, details: Mapping[str, object] | None = None) -> None:\n        \"\"\"Takes the message the engine rendered, and what it carries.\"\"\"\n        super().__init__(message, code={:?}, group={:?}, retryable={}, fix=fix, details=details)\n",
             code.name,
             code.group,
             if code.retryable { "True" } else { "False" }
         );
         registry.push((code.name.clone(), class));
     }
-    text.push_str("\n\nERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {\n");
+    if layer.product == Product::Collie {
+        text.push_str("\n\nERROR_GROUP_OF_WIRE_CLASS: Final[Mapping[int, ErrorGroup]] = {\n");
+        for group in &layer.error_groups {
+            let _ = writeln!(text, "    {}: {:?},", group.json_rpc_class, group.name);
+        }
+        text.push_str("}\n\"\"\"The group of each JSON-RPC error code the engine answers with, its wire class (ADR 0038).\"\"\"\n");
+        text.push_str(
+            "\nERROR_GROUP_CLASSES: Final[Mapping[ErrorGroup, type[GoodfetchError]]] = {\n",
+        );
+        for group in &layer.error_groups {
+            let _ = writeln!(text, "    {:?}: {},", group.name, group_class(&group.name));
+        }
+        text.push_str("}\n\"\"\"The class of each group, which raises a code the SDK does not know, keeping the code (ADR 0079).\"\"\"\n");
+    }
+    text.push_str("\n\nERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {\n");
     for (code, class) in registry {
         let _ = writeln!(text, "    {code:?}: {class},");
     }

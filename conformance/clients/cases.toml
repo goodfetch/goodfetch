@@ -6,9 +6,10 @@
 # writes the cases; each joins with the ticket whose code satisfies it.
 # Bump the version whenever a case changes.
 #
-# The `sdk-typescript` cases below run in the `attached` mode only: the
-# Daemon transport (#220 and area 11's Daemon ticket) adds `daemon` by
-# removing their `modes` line (agent decision, pending owner review).
+# The `sdk-typescript` and `sdk-python` cases below run in the `attached`
+# mode only: the Daemon transport (#220 and area 11's Daemon ticket) adds
+# `daemon` by removing their `modes` line (agent decision, pending owner
+# review).
 #
 # The `cli` cases below run in the `attached` mode only: the CLI reaches a
 # Daemon with area 11's Daemon ticket (#1183), which adds `daemon` by
@@ -20,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "10"
+version = "11"
 
 [[capability]]
 name = "lifecycle"
@@ -28,25 +29,25 @@ name = "lifecycle"
 [[capability.case]]
 id = "two-connections-at-once"
 covers = ["story:11-15"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 [[capability.case]]
 id = "connect-after-close"
 covers = ["story:11-15"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 [[capability.case]]
 id = "closed-after-close"
 covers = ["story:11-17"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 [[capability.case]]
 id = "nothing-at-import-or-connect"
 covers = ["story:11-15"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 # The catalog's operations reach the engine through the members generated
@@ -135,7 +136,7 @@ name = "product-conformance"
 [[capability.case]]
 id = "collie-accepted-by-foxhound"
 covers = ["story:11-8"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 [[capability]]
@@ -167,10 +168,10 @@ modes = ["attached"]
 
 # A Run's Key-value store outside a handler, on Collie's executable (ADR
 # 0103; #791): in TypeScript `tsc` rejects `set(key, null)`, and in Python
-# and Rust it fails with `value_invalid`. The Python SDK has no Connection
-# yet, so `sdk-python` joins these cases with area 11's Python Connection;
-# `xtask clients check` only notes `sdk-rust` until its runner writes a case
-# log (M2).
+# and Rust it fails with `value_invalid`. The Python SDK's Run has no
+# Key-value store yet, so `sdk-python` joins these cases with the ticket that
+# adds it; `xtask clients check` only notes `sdk-rust` until its runner
+# writes a case log (M2).
 [[capability]]
 name = "key-value-store"
 

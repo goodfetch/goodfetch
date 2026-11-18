@@ -1093,6 +1093,34 @@ fn a_group_with_one_synced_write_syncs_once_at_full(
     assert_eq!(added, syncs);
 }
 
+/// An Effect's sent mark is synced before it is answered at every
+/// Durability level but `off`, where nothing is (ADR 0106, ADR 0138's note
+/// of #1550), and a level that syncs no other write goes back to not
+/// syncing after it.
+///
+/// Covers: story:3-34, setting:run_state.durability
+#[rstest::rstest]
+#[case::full(Durability::FULL, [1, 1])]
+#[case::batch(Durability::BATCH, [1, 1])]
+#[case::fast(Durability::FAST, [1, 0])]
+#[case::periodic(Durability::periodic(Duration::from_secs(3_600)), [1, 0])]
+#[case::off(Durability::OFF, [0, 0])]
+fn an_effects_sent_mark_syncs_at_every_level_but_off(
+    #[case] durability: Durability,
+    #[case] syncs: [u64; 2],
+) {
+    let added = with_counted_writer(durability, async |state, vfs| {
+        let before = vfs.syncs();
+        state.write_with(Syncing::Sent, insert(1)).await.unwrap();
+        let sent = vfs.syncs() - before;
+        let before = vfs.syncs();
+        state.write(insert(2)).await.unwrap();
+        [sent, vfs.syncs() - before]
+    });
+
+    assert_eq!(added, syncs);
+}
+
 /// A deferred write that charges a Limit defers only once a synced commit
 /// declared how much a power cut may take (ADR 0138's note of #1926): the
 /// first one syncs and declares [`DEFERRED_CHARGES`], the next ones commit

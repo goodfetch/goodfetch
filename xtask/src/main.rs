@@ -49,6 +49,7 @@ mod junit_summary;
 mod kennel;
 mod lazyfs;
 mod license_allowlist;
+mod load_proofs;
 mod markdown;
 mod mask_writers;
 mod metadata;
@@ -259,6 +260,13 @@ enum Command {
     Lazyfs {
         #[command(subcommand)]
         command: lazyfs::Command,
+    },
+    /// An issue's acceptance criteria checked for proofs under artificial
+    /// load (`stress-ng`, busy loops, runs in a row), which TESTING.md never
+    /// asks of a flaky or timing fix.
+    LoadProofs {
+        #[command(subcommand)]
+        command: load_proofs::Command,
     },
     /// Fails on a writer in a Product's crates that the Mask's list of writers
     /// does not hold as it is found (spec #564).
@@ -572,6 +580,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
         Command::ExistingCode { command } => existing_code::run(command, environment),
         Command::Features { command } => features::run(command, environment),
+        Command::LoadProofs { command } => load_proofs::run(command, environment),
         Command::Gate { command } => gate::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::ImagePins => Ok(check::report(&image_pins::check(root)?)),

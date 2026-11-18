@@ -62,6 +62,7 @@ mod journeys_report;
 mod junit_summary;
 mod kennel_manifest;
 mod lazyfs_build;
+mod load_proofs;
 mod mask_writers;
 mod merge_cap;
 mod merge_pr;

@@ -7,7 +7,7 @@
 )]
 
 use std::fmt::Write as _;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use goodfetch_protocol::page::FormatsRequest;
@@ -366,30 +366,46 @@ fn chunked_corpus() -> Vec<String> {
         .collect()
 }
 
-/// The pass over a crawl request's own document, read in chunks as they
-/// arrive, reads what the readers read in one pass of the whole text, or
+/// The parts the every-cut test runs in: part `p` cuts each text at the
+/// offsets congruent to `p`, so each part makes an eighth of the passes and
+/// stays far under the Quick suite's kill on a loaded host (#2776).
+const CUT_PARTS: usize = 8;
+
+/// The pass over a crawl request's own document, read in two chunks cut at
+/// any byte, reads what the readers read in one pass of the whole text, or
 /// leaves the document to the tree as they do, a doctype, an end tag or a
 /// signal's name split between two chunks included (issue 2188).
 #[rstest]
-#[case::cut_at_every_byte(false)]
-#[case::byte_by_byte(true)]
-fn a_pass_reads_a_text_in_chunks_as_it_reads_it_whole(#[case] byte_by_byte: bool) {
+fn a_pass_reads_a_text_cut_at_any_byte_as_it_reads_it_whole(
+    #[values(0, 1, 2, 3, 4, 5, 6, 7)] part: usize,
+) {
     let work = CountedWork::default();
     let readers = Arc::new(UntouchedReaders::of(streaming_demand(), &work));
     for html in chunked_corpus() {
         let whole = readers.stream(&html);
-        if byte_by_byte {
-            let cuts: Vec<usize> = (1..html.len()).collect();
-            assert_eq!(passed(&readers, &html, &cuts), whole, "{html}");
-        } else {
-            for cut in 0..=html.len() {
-                assert_eq!(
-                    passed(&readers, &html, &[cut]),
-                    whole,
-                    "cut at {cut} of {html}"
-                );
-            }
+        for cut in (part..=html.len()).step_by(CUT_PARTS) {
+            assert_eq!(
+                passed(&readers, &html, &[cut]),
+                whole,
+                "cut at {cut} of {html}"
+            );
         }
+    }
+    assert_eq!(work.read(Row::PageParses), 0);
+}
+
+/// The same pass, its text written a byte at a time.
+#[test]
+fn a_pass_reads_a_text_written_byte_by_byte_as_it_reads_it_whole() {
+    let work = CountedWork::default();
+    let readers = Arc::new(UntouchedReaders::of(streaming_demand(), &work));
+    for html in chunked_corpus() {
+        let cuts: Vec<usize> = (1..html.len()).collect();
+        assert_eq!(
+            passed(&readers, &html, &cuts),
+            readers.stream(&html),
+            "{html}"
+        );
     }
     assert_eq!(work.read(Row::PageParses), 0);
 }
@@ -438,21 +454,74 @@ fn large_page() -> String {
     html
 }
 
-proptest! {
-    #![proptest_config(goodfetch_test_support::proptest_config())]
+/// The large page and what the readers read of it in one pass of the whole
+/// text, read once for every case (#2776).
+static LARGE_PAGE: LazyLock<(String, Option<StreamRead>)> = LazyLock::new(|| {
+    let html = large_page();
+    let whole = UntouchedReaders::of(streaming_demand(), &CountedWork::default()).stream(&html);
+    (html, whole)
+});
 
-    /// A large page cut anywhere is read in chunks as it is read whole.
+/// The parts the large-page property runs in: each runs this share of the
+/// suite's cases on a seed of its own, so the suite's count is kept and each
+/// part stays far under the Quick suite's kill on a loaded host (#2776).
+const LARGE_PAGE_PARTS: u32 = 4;
+
+/// The suite's proptest configuration, with a part's share of its cases.
+fn large_page_part_config() -> ProptestConfig {
+    let config = goodfetch_test_support::proptest_config();
+    ProptestConfig {
+        cases: config.cases / LARGE_PAGE_PARTS,
+        ..config
+    }
+}
+
+/// Up to 63 offsets into the large page, in any order.
+fn large_page_cuts() -> impl Strategy<Value = Vec<prop::sample::Index>> {
+    prop::collection::vec(any::<prop::sample::Index>(), 0..64)
+}
+
+/// The large page, read in the chunks that `cuts` end, reads as it is read
+/// whole.
+fn the_large_page_cut_at(cuts: &[prop::sample::Index]) -> Result<(), TestCaseError> {
+    let (html, whole) = &*LARGE_PAGE;
+    let readers = Arc::new(UntouchedReaders::of(
+        streaming_demand(),
+        &CountedWork::default(),
+    ));
+    prop_assert!(whole.is_some());
+    let mut cuts: Vec<usize> = cuts.iter().map(|cut| cut.index(html.len() + 1)).collect();
+    cuts.sort_unstable();
+    prop_assert_eq!(&passed(&readers, html, &cuts), whole);
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(large_page_part_config())]
+
+    /// A large page cut anywhere is read in chunks as it is read whole: the
+    /// first of the property's parts.
     #[test]
-    fn a_large_page_cut_anywhere_reads_as_it_reads_whole(
-        cuts in prop::collection::vec(any::<prop::sample::Index>(), 0..64),
-    ) {
-        let html = large_page();
-        let readers = Arc::new(UntouchedReaders::of(streaming_demand(), &CountedWork::default()));
-        let whole = readers.stream(&html);
-        prop_assert!(whole.is_some());
-        let mut cuts: Vec<usize> = cuts.iter().map(|cut| cut.index(html.len() + 1)).collect();
-        cuts.sort_unstable();
-        prop_assert_eq!(passed(&readers, &html, &cuts), whole);
+    fn a_large_page_cut_anywhere_reads_as_it_reads_whole_part_1(cuts in large_page_cuts()) {
+        the_large_page_cut_at(&cuts)?;
+    }
+
+    /// The second part.
+    #[test]
+    fn a_large_page_cut_anywhere_reads_as_it_reads_whole_part_2(cuts in large_page_cuts()) {
+        the_large_page_cut_at(&cuts)?;
+    }
+
+    /// The third part.
+    #[test]
+    fn a_large_page_cut_anywhere_reads_as_it_reads_whole_part_3(cuts in large_page_cuts()) {
+        the_large_page_cut_at(&cuts)?;
+    }
+
+    /// The fourth part.
+    #[test]
+    fn a_large_page_cut_anywhere_reads_as_it_reads_whole_part_4(cuts in large_page_cuts()) {
+        the_large_page_cut_at(&cuts)?;
     }
 }
 

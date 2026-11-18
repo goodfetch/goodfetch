@@ -19,10 +19,10 @@ use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::entries::product_of_value;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::LimitSetter;
-use goodfetch_protocol::run::{LimitScope, Period, RunId};
+use goodfetch_protocol::run::{LimitScope, Period, RunId, RunLimit};
 use goodfetch_protocol::usage::{
     CONNECTION, DAEMON, INSTALL, LIMIT_RAISE_REFUSED, Limit, LimitRaiseRefusedDetails, LimitUsage,
-    PERSON, RUN, RunLimit, USAGE_LIST, USAGE_RAISE, USAGE_SET, UsageListParams, UsageListResult,
+    PERSON, RUN, USAGE_LIST, USAGE_RAISE, USAGE_SET, UsageListParams, UsageListResult,
     UsageRaiseParams, UsageSetParams,
 };
 use jiff::tz::TimeZone;

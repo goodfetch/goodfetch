@@ -574,6 +574,26 @@ impl RunKind {
     }
 }
 
+/// A Limit a program gives a Run at its start (`run.start`'s `limits`):
+/// the Run's own, with no period, set by its Client. A start that names
+/// the Run again lowers it and never raises it (ADR 0102).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunLimit {
+    /// The Usage kind it caps.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub usage_kind: String,
+    /// The currency it caps the price in, an ISO 4217 code; none for a
+    /// count of the Usage kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub currency: Option<String>,
+    /// How much the Run may use: a count of the Usage kind, or millionths
+    /// of the currency.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub amount: u64,
+}
+
 /// What `run.start` takes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -601,7 +621,7 @@ pub struct RunStartParams {
     /// never raises them (ADR 0102).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub limits: Vec<crate::usage::RunLimit>,
+    pub limits: Vec<RunLimit>,
 }
 
 /// Whether a start began its Run or found it.

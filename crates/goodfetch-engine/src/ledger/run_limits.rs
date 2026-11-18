@@ -7,8 +7,8 @@
 //! at or below the Limit as it stands adds a row beside it, the tightest
 //! holding; one above it is refused, and nothing is written.
 
-use goodfetch_protocol::run::{LimitScope, LimitSetter};
-use goodfetch_protocol::usage::{Limit, LimitRaiseRefusedDetails, RUN, RunLimit};
+use goodfetch_protocol::run::{LimitScope, LimitSetter, RunLimit};
+use goodfetch_protocol::usage::{Limit, LimitRaiseRefusedDetails, RUN};
 use jiff::Timestamp;
 use rusqlite::{Connection, OptionalExtension as _};
 

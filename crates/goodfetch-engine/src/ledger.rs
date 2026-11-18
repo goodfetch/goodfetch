@@ -2,13 +2,14 @@
 //! file in Goodfetch home, outside the per-major folders, which every engine
 //! of the user opens, whatever its major or Product. It holds the Limits
 //! across runs as generic rows, the Slices runs take against them, the
-//! Usage charged and the Limits a program gave each Run when it began. A run takes a Slice in one transaction, sized by
-//! [`slice_size`]; it charges what it uses against its Slices and takes
-//! another when they run out; it gives back what is left of them when it
-//! ends. An engine that opens the ledger reclaims each Slice whose run's
-//! writer lock is free or held at a later run epoch, charging the Usage the
-//! run journaled under the Slice's epoch, or the whole Slice, marked for
-//! review, when the run's state cannot be read.
+//! Usage charged and the Limits a program gave each Run when it began. A
+//! run takes a Slice in one transaction, sized by [`slice_size`]; it
+//! charges what it uses against its Slices and takes another when they run
+//! out; it gives back what is left of them when it ends. An engine that
+//! opens the ledger reclaims each Slice whose run's writer lock is free or
+//! held at a later run epoch, charging the Usage the run journaled under
+//! the Slice's epoch, or the whole Slice, marked for review, when the run's
+//! state cannot be read.
 //!
 //! The file opens through a VFS named by a value, none in production, the
 //! crash VFS in tests, and is of the Usage ledger's family: its major never

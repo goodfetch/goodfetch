@@ -278,26 +278,6 @@ pub struct UsageRaiseParams {
     pub amount: u64,
 }
 
-/// A Limit a program gives a Run at its start (`run.start`'s `limits`):
-/// the Run's own, with no period, set by its Client. A start that names
-/// the Run again lowers it and never raises it (ADR 0102).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct RunLimit {
-    /// The Usage kind it caps.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub usage_kind: String,
-    /// The currency it caps the price in, an ISO 4217 code; none for a
-    /// count of the Usage kind.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub currency: Option<String>,
-    /// How much the Run may use: a count of the Usage kind, or millionths
-    /// of the currency.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub amount: u64,
-}
-
 /// What `limit_raise_refused` details: the Limit a start gave above the
 /// Run's Limit as it stands.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

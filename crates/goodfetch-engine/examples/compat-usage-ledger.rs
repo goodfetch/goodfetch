@@ -3,12 +3,13 @@
 //! monthly install Limit a person set, a daily Daemon Limit in Paris that
 //! the operator set, a Client connection's own Limit, Foxhound's
 //! `paid_fetch` Limit in dollars and a weekly install Limit in Tokyo that
-//! major 0.0's managed Operator policy names; then one run gives back what
-//! it did not use, one whose engine died is reclaimed from what it
-//! journaled, one whose state cannot be read is charged in full for review,
-//! and one still holds its Slice. It writes the ledger, as SQL text, into
-//! the folder given as the only argument, as `usage-ledger.sql`. `xtask
-//! compat write` runs it.
+//! major 0.0's managed Operator policy names, and the Limits a program gave
+//! a Run at its start, in requests and in dollars of `paid_fetch`, which
+//! hold its own `run` scope; then one run gives back what it did not use,
+//! one whose engine died is reclaimed from what it journaled, one whose
+//! state cannot be read is charged in full for review, and one still holds
+//! its Slice. It writes the ledger, as SQL text, into the folder given as
+//! the only argument, as `usage-ledger.sql`. `xtask compat write` runs it.
 #![expect(
     clippy::disallowed_methods,
     reason = "a synchronous corpus writer that writes files (ADR 0066)"
@@ -20,7 +21,7 @@ use std::path::PathBuf;
 use goodfetch_engine::ledger::{Charging, Holder, Ledger, Placement, Probed, SliceSizing};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::LimitSetter;
-use goodfetch_protocol::run::{LimitScope, Period, PeriodLength};
+use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, RunLimit};
 use goodfetch_protocol::usage::{Limit, ManagedLimit};
 
 /// ADR 0059's test `Clock` start.
@@ -111,6 +112,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         amount: 50_000,
     };
     ledger.write_managed("0.0", &[managed.limit()], start)?;
+    let given = [
+        RunLimit {
+            usage_kind: "requests".to_owned(),
+            currency: None,
+            amount: 1_000,
+        },
+        RunLimit {
+            usage_kind: "paid_fetch".to_owned(),
+            currency: Some("USD".to_owned()),
+            amount: 2_000_000,
+        },
+    ];
+    ledger
+        .give_run_limits("live-run", &given, true, start)?
+        .map_err(|refused| format!("the Run's Limits were refused: {refused:?}"))?;
     let placement = Placement {
         product: Product::Foxhound,
         scopes: vec![scope("install", ""), scope("daemon", "0.0")],

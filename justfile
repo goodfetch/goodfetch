@@ -180,6 +180,7 @@ lint:
     step --after xtask xtask-modules 'cargo run --quiet --bin xtask -- modules'
     step --after xtask xtask-codegen 'cargo run --quiet --bin xtask -- codegen --check'
     step --after xtask xtask-clients 'cargo run --quiet --bin xtask -- clients check'
+    step --after xtask xtask-sdk-manifests 'cargo run --quiet --bin xtask -- sdk-manifests'
     step --after xtask xtask-compat 'cargo run --quiet --bin xtask -- compat check'
     step --after xtask xtask-containment 'cargo run --quiet --bin xtask -- containment'
     step tool-versions 'ci/tool-versions.sh'

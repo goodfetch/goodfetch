@@ -1,0 +1,139 @@
+{
+  "description": "A Collie Client starts a Run with a price Limit on proxy bytes and opens a page; its navigation finds the Limit used up and is refused with `limit_reached`, which stops the Run at its next safe point (ADR 0041), so its finish answers a report `stopped` and `incomplete` for that Limit; the Client then closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {
+          "run_id": "capped",
+          "limits": [
+            {
+              "usage_kind": "proxy_bytes",
+              "currency": "USD",
+              "amount": 1000000
+            }
+          ]
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "capped",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.new_page",
+        "params": {
+          "run_id": "capped"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "page_id": "page-1",
+          "session_id": "session-1"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.goto",
+        "params": {
+          "page_id": "page-1",
+          "url": "https://shop.test/"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32002,
+          "message": "The run Limit on proxy_bytes has nothing left.",
+          "data": {
+            "code": "limit_reached",
+            "retryable": false,
+            "scope": {
+              "kind": "run",
+              "id": "capped"
+            },
+            "usage_kind": "proxy_bytes",
+            "currency": "USD",
+            "fix": "Ask a person to raise the Limit."
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
+        "params": {
+          "run_id": "capped"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "capped",
+          "lifecycle": "stopped",
+          "verdict": "verified",
+          "completeness": "incomplete",
+          "stop_reason": {
+            "kind": "limit",
+            "scope": {
+              "kind": "run",
+              "id": "capped"
+            },
+            "usage_kind": "proxy_bytes",
+            "currency": "USD"
+          },
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 4096,
+            "requests": 1
+          }
+        }
+      }
+    }
+  ]
+}

@@ -25,10 +25,13 @@ import {
   type HelloResult,
   type KeyValueStoreSetParams,
   type Product,
+  type RunLimit,
   type RunStartParams,
   type RunStarted,
+  type UsageSetParams,
 } from "./generated/index.ts";
 import type { JsonValue } from "./key-value-store.ts";
+import { limitList, type Limits } from "./limits.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
 import {
@@ -64,6 +67,14 @@ export interface StartOptions {
   readonly runId?: string | undefined;
   /** Its tags: at most 16, each at most 64 characters (ADR 0036). */
   readonly tags?: readonly string[] | undefined;
+  /**
+   * The Run's Limits (ADR 0080), which only lower: starting an existing
+   * Run again with the values it began with changes nothing, a lower one
+   * lowers its Limit, and a higher one fails with `limit_raise_refused`.
+   * An amount the SDK cannot turn exactly fails with `setting_invalid`
+   * before anything is sent.
+   */
+  readonly limits?: Limits | undefined;
 }
 
 /** What opening a Connection takes. */
@@ -80,6 +91,8 @@ export interface ClientConnectionOptions {
   readonly bounds?: ChannelBounds | undefined;
   /** Cancels the opening: `open` rejects with its reason once the transport and its engine are ended. */
   readonly signal?: AbortSignal | undefined;
+  /** The Client connection's Limits, in the wire's form, set once `hello` is answered. */
+  readonly limits?: readonly RunLimit[] | undefined;
 }
 
 /** What serves one kind of the engine's requests: it answers the result, or throws the error to answer. */
@@ -160,15 +173,16 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   /**
-   * Opens a Connection over `transport` and finishes `hello` before it
-   * returns: a refused Product or protocol version fails here, as does an
-   * aborted `signal`, with its reason, and the transport and its engine
-   * are ended before it rejects.
+   * Opens a Connection over `transport`, finishes `hello` and sets its
+   * Limits before it returns: a refused Product, protocol version or Limit
+   * fails here, as does an aborted `signal`, with its reason, and the
+   * transport and its engine are ended before it rejects.
    */
   static async open(options: ClientConnectionOptions): Promise<ClientConnection> {
     const connection = new ClientConnection(options);
     try {
       await connection.#hello(options.needs, options.signal);
+      await connection.#setLimits(options.limits ?? [], options.signal);
     } catch (error) {
       await connection.#end();
       throw error;
@@ -186,9 +200,11 @@ export class ClientConnection implements AsyncDisposable {
 
   /** Starts a Run and returns once it is started (ADR 0102). */
   async start(options: StartOptions = {}): Promise<Run> {
+    const limits = limitList(options.limits);
     const params: RunStartParams = {
       ...(options.runId === undefined ? {} : { run_id: options.runId }),
       ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
+      ...(limits.length === 0 ? {} : { limits }),
     };
     return this.startRun(
       "run.start",
@@ -263,6 +279,17 @@ export class ClientConnection implements AsyncDisposable {
       throw new ClosedError(`${operation}: this Connection is closed; connect again`, {
         fix: "Connect again: a closed Connection never reopens.",
       });
+    }
+  }
+
+  /**
+   * Sets each of `limits` on this Client connection's own scope, one
+   * `usage.set` each, in order (ADR 0080's note of issue 2830).
+   */
+  async #setLimits(limits: readonly RunLimit[], signal: AbortSignal | undefined): Promise<void> {
+    for (const limit of limits) {
+      const params: UsageSetParams = { scope: "connection", ...limit };
+      await this.#channel.call("usage.set", params, { signal });
     }
   }
 

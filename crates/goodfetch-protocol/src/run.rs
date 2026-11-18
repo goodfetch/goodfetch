@@ -596,6 +596,12 @@ pub struct RunStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub project: Option<ProjectSettings>,
+    /// The Run's own Limits (ADRs 0041 and 0080): at most one per Usage
+    /// kind and currency. A start that names the Run again lowers them and
+    /// never raises them (ADR 0102).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limits: Vec<crate::usage::RunLimit>,
 }
 
 /// Whether a start began its Run or found it.

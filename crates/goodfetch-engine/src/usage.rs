@@ -7,7 +7,10 @@
 //! the Kennel and the CLI's interactive prompt, sets a Limit in place of
 //! the ones of its scope, Usage kind, currency and period. A value only
 //! Foxhound carries, such as the Usage kind `paid_fetch`, is refused by a
-//! Collie engine with `not_in_product` (ADRs 0087 and 0095).
+//! Collie engine with `not_in_product` (ADRs 0087 and 0095). The Limits a
+//! program gives a Run at its start are checked the same way, then given
+//! to the Run's own scope, lowered and never raised by a later start that
+//! names it (ADR 0102).
 
 use std::sync::Arc;
 
@@ -16,10 +19,11 @@ use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::entries::product_of_value;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::LimitSetter;
-use goodfetch_protocol::run::{LimitScope, Period};
+use goodfetch_protocol::run::{LimitScope, Period, RunId};
 use goodfetch_protocol::usage::{
-    CONNECTION, DAEMON, INSTALL, Limit, LimitUsage, PERSON, USAGE_LIST, USAGE_RAISE, USAGE_SET,
-    UsageListParams, UsageListResult, UsageRaiseParams, UsageSetParams,
+    CONNECTION, DAEMON, INSTALL, LIMIT_RAISE_REFUSED, Limit, LimitRaiseRefusedDetails, LimitUsage,
+    PERSON, RUN, RunLimit, USAGE_LIST, USAGE_RAISE, USAGE_SET, UsageListParams, UsageListResult,
+    UsageRaiseParams, UsageSetParams,
 };
 use jiff::tz::TimeZone;
 
@@ -111,49 +115,115 @@ where
     added.ok_or_else(|| unavailable(&"the Limit written is gone"))
 }
 
+/// The Limits a start gives its Run, each checked as `usage.set` checks a
+/// Client's Limit, at most one per Usage kind and currency.
+pub(crate) fn run_limits(
+    given: Vec<RunLimit>,
+    context: &CallContext,
+) -> Result<Vec<RunLimit>, CallError> {
+    for (index, limit) in given.iter().enumerate() {
+        known(
+            RUN,
+            &limit.usage_kind,
+            limit.currency.as_deref(),
+            None,
+            context,
+        )?;
+        let twice = given[..index].iter().any(|earlier| {
+            earlier.usage_kind == limit.usage_kind && earlier.currency == limit.currency
+        });
+        if twice {
+            return Err(CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                format!(
+                    "`limits` gives `{}`{} twice: give each Usage kind and currency once.",
+                    limit.usage_kind,
+                    limit
+                        .currency
+                        .as_deref()
+                        .map(|currency| format!(" in {currency}"))
+                        .unwrap_or_default()
+                ),
+            ));
+        }
+    }
+    Ok(given)
+}
+
+/// Refuses with `limit_raise_refused` a start whose Limits on the Run
+/// `run_id` raise one as it stands, writing nothing.
+pub(crate) async fn check_run_limits(
+    run_id: &RunId,
+    given: &[RunLimit],
+    context: &CallContext,
+) -> Result<(), CallError> {
+    if given.is_empty() {
+        return Ok(());
+    }
+    let engine = context.engine().clone();
+    let (run_id, given) = (run_id.as_str().to_owned(), given.to_vec());
+    let owner = Arc::clone(engine.owner());
+    owner
+        .blocking(move || engine.ledger().check_run_limits(&run_id, &given))
+        .await
+        .map_err(|error| unavailable(&error))?
+        .map_err(|refused| raise_refused(&refused))
+}
+
+/// Gives the Run `run_id` the Limits `given` at a start that `began` it or
+/// named it again (ADR 0102).
+pub(crate) async fn give_run_limits(
+    run_id: &RunId,
+    given: Vec<RunLimit>,
+    began: bool,
+    context: &CallContext,
+) -> Result<(), CallError> {
+    if given.is_empty() {
+        return Ok(());
+    }
+    let engine = context.engine().clone();
+    let run_id = run_id.as_str().to_owned();
+    let owner = Arc::clone(engine.owner());
+    owner
+        .blocking(move || {
+            engine
+                .ledger()
+                .give_run_limits(&run_id, &given, began, engine.now())
+        })
+        .await
+        .map_err(|error| unavailable(&error))?
+        .map_err(|refused| raise_refused(&refused))
+}
+
+/// `limit_raise_refused`, naming the Limit given and the one standing.
+fn raise_refused(refused: &LimitRaiseRefusedDetails) -> CallError {
+    let currency = refused
+        .currency
+        .as_deref()
+        .map(|currency| format!(" in {currency}"))
+        .unwrap_or_default();
+    CallError::new(
+        &LIMIT_RAISE_REFUSED,
+        format!(
+            "The Run's Limit on {}{currency} stands at {}, below the {} given: a program only lowers a Limit; ask a person to raise it.",
+            refused.usage_kind, refused.standing, refused.given
+        ),
+        refused,
+    )
+}
+
 /// The Limit `named` asks for, set by `set_by` on the caller's own work: a
 /// scope ID other than the caller's own is refused, since a Client sets
 /// Limits only on the work they cover (ADR 0041).
 fn limit_of(named: Named, set_by: LimitSetter, context: &CallContext) -> Result<Limit, CallError> {
+    known(
+        &named.scope,
+        &named.usage_kind,
+        named.currency.as_deref(),
+        named.period.as_ref(),
+        context,
+    )?;
     let identity = context.identity();
-    for (shared_type, name) in [
-        (SharedType::LimitScope, &named.scope),
-        (SharedType::UsageKind, &named.usage_kind),
-    ] {
-        match product_of_value(shared_type, name) {
-            None => {
-                return Err(CallError::protocol(
-                    ProtocolFailure::InvalidParams,
-                    format!("`{name}` is no {} this engine knows.", shared_type.as_str()),
-                ));
-            }
-            Some(needs) if !identity.product.contains(needs) => {
-                let (message, details) =
-                    identity.not_in_product(Requested::Name(name), needs, false);
-                return Err(CallError::new(&NOT_IN_PRODUCT, message, &details));
-            }
-            Some(_) => {}
-        }
-    }
-    if let Some(currency) = &named.currency
-        && !(currency.len() == 3 && currency.bytes().all(|byte| byte.is_ascii_uppercase()))
-    {
-        return Err(CallError::protocol(
-            ProtocolFailure::InvalidParams,
-            format!("`{currency}` is no ISO 4217 currency code."),
-        ));
-    }
-    if let Some(period) = &named.period
-        && TimeZone::get(&period.time_zone).is_err()
-    {
-        return Err(CallError::protocol(
-            ProtocolFailure::InvalidParams,
-            format!(
-                "`{}` is no IANA time zone this engine knows.",
-                period.time_zone
-            ),
-        ));
-    }
     let own = match named.scope.as_str() {
         INSTALL => Some(String::new()),
         PERSON => Some(CALLER.to_owned()),
@@ -196,4 +266,57 @@ fn limit_of(named: Named, set_by: LimitSetter, context: &CallContext) -> Result<
         must_understand: true,
         set_by,
     })
+}
+
+/// Refuses a Limit whose scope kind or Usage kind this engine does not
+/// know (`invalid_params`) or its Product does not carry
+/// (`not_in_product`), whose currency is no ISO 4217 code, or whose
+/// period's time zone is no IANA one this engine knows.
+fn known(
+    scope: &str,
+    usage_kind: &str,
+    currency: Option<&str>,
+    period: Option<&Period>,
+    context: &CallContext,
+) -> Result<(), CallError> {
+    let identity = context.identity();
+    for (shared_type, name) in [
+        (SharedType::LimitScope, scope),
+        (SharedType::UsageKind, usage_kind),
+    ] {
+        match product_of_value(shared_type, name) {
+            None => {
+                return Err(CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    format!("`{name}` is no {} this engine knows.", shared_type.as_str()),
+                ));
+            }
+            Some(needs) if !identity.product.contains(needs) => {
+                let (message, details) =
+                    identity.not_in_product(Requested::Name(name), needs, false);
+                return Err(CallError::new(&NOT_IN_PRODUCT, message, &details));
+            }
+            Some(_) => {}
+        }
+    }
+    if let Some(currency) = currency
+        && !(currency.len() == 3 && currency.bytes().all(|byte| byte.is_ascii_uppercase()))
+    {
+        return Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("`{currency}` is no ISO 4217 currency code."),
+        ));
+    }
+    if let Some(period) = period
+        && TimeZone::get(&period.time_zone).is_err()
+    {
+        return Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!(
+                "`{}` is no IANA time zone this engine knows.",
+                period.time_zone
+            ),
+        ));
+    }
+    Ok(())
 }

@@ -2,8 +2,10 @@
 //! holds on the install, a Daemon, a person, a named token and a Client
 //! connection, each over a period in an explicit IANA time zone or none; the
 //! Usage charged against each, read with `usage.list` and added to with
-//! `usage.set`; the Error codes a start meets, `limit_reached` and
-//! `limit_not_understood`; and the Usage kinds and Limit scopes Collie adds
+//! `usage.set`; the Limits a program gives a Run at its start, on the Run's
+//! own scope (ADRs 0080 and 0102); the Error codes a start meets,
+//! `limit_reached`, `limit_not_understood` and `limit_raise_refused`; and
+//! the Usage kinds and Limit scopes Collie adds
 //! to the types both Products share. Foxhound adds its own, such as
 //! `paid_fetch`, in its `foxhound` module (ADRs 0087 and 0088). Raising a
 //! Limit, `usage.raise`, is a person's answer: the catalog marks it
@@ -32,6 +34,9 @@ pub const PERSON: &str = "person";
 pub const TOKEN: &str = "token";
 /// The scope kind of a Client connection: every run it starts while it lasts.
 pub const CONNECTION: &str = "connection";
+/// The scope kind of a Run: the Run its program gave the Limit at its
+/// start; its ID is the Run's, and its Limits have no period.
+pub const RUN: &str = "run";
 
 /// The Usage kind of the requests a run sends: a crawl's Crawl requests
 /// and, with the browser, a page's navigations.
@@ -273,6 +278,45 @@ pub struct UsageRaiseParams {
     pub amount: u64,
 }
 
+/// A Limit a program gives a Run at its start (`run.start`'s `limits`):
+/// the Run's own, with no period, set by its Client. A start that names
+/// the Run again lowers it and never raises it (ADR 0102).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunLimit {
+    /// The Usage kind it caps.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub usage_kind: String,
+    /// The currency it caps the price in, an ISO 4217 code; none for a
+    /// count of the Usage kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub currency: Option<String>,
+    /// How much the Run may use: a count of the Usage kind, or millionths
+    /// of the currency.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub amount: u64,
+}
+
+/// What `limit_raise_refused` details: the Limit a start gave above the
+/// Run's Limit as it stands.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LimitRaiseRefusedDetails {
+    /// The Usage kind of the Limit.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub usage_kind: String,
+    /// Its currency, an ISO 4217 code; none for a count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub currency: Option<String>,
+    /// The amount the start gave.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub given: u64,
+    /// The amount of the Limit as it stands.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub standing: u64,
+}
+
 /// What `limit_not_understood` details: the Limit this engine cannot
 /// evaluate.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -356,13 +400,23 @@ pub const LIMIT_NOT_UNDERSTOOD: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// `limit_raise_refused`.
+pub const LIMIT_RAISE_REFUSED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "limit_raise_refused",
+    description: "A start that names an existing Run gave a Limit above the Run's Limit as it stands; the details name its Usage kind, its currency, the amount given and the one standing. A program only lowers a Limit: ask a person to raise it.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[USAGE_LIST, USAGE_SET, USAGE_RAISE],
     events: &[],
     handler_requests: &[],
-    error_codes: &[LIMIT_REACHED, LIMIT_NOT_UNDERSTOOD],
+    error_codes: &[LIMIT_REACHED, LIMIT_NOT_UNDERSTOOD, LIMIT_RAISE_REFUSED],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[],
@@ -438,6 +492,12 @@ pub const ENTRIES: Entries = Entries {
             shared_type: SharedType::LimitScope,
             name: CONNECTION,
             description: "Every run a Client connection starts, while it lasts.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::LimitScope,
+            name: RUN,
+            description: "The Run whose program gave the Limit at its start; it has no period.",
             arrived_in: ARRIVED_IN,
         },
     ],

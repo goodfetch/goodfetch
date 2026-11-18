@@ -1,8 +1,8 @@
 //! The Usage ledger (ADRs 0041, 0045, 0060 and 0098): one per-user SQLite
 //! file in Goodfetch home, outside the per-major folders, which every engine
 //! of the user opens, whatever its major or Product. It holds the Limits
-//! across runs as generic rows, the Slices runs take against them and the
-//! Usage charged. A run takes a Slice in one transaction, sized by
+//! across runs as generic rows, the Slices runs take against them, the
+//! Usage charged and the Limits a program gave each Run when it began. A run takes a Slice in one transaction, sized by
 //! [`slice_size`]; it charges what it uses against its Slices and takes
 //! another when they run out; it gives back what is left of them when it
 //! ends. An engine that opens the ledger reclaims each Slice whose run's
@@ -46,6 +46,7 @@ use rusqlite::{Connection, Row};
 use self::changes::Changes;
 pub use self::charging::{Change, Charged, Charging, Counted, Refusal, Reservation, Unmade};
 pub use self::period::{PeriodBounds, bounds};
+pub use self::run_limits::Given;
 pub use self::sizing::{SliceSizing, slice_size};
 pub use self::standing::{Placement, standing};
 pub use self::temporary::{temporary_filesystem, temporary_in};
@@ -94,6 +95,12 @@ const SCHEMA: &[&str] = &[
         charged INTEGER,
         state TEXT NOT NULL,
         taken_at TEXT NOT NULL
+    ) STRICT",
+    "CREATE TABLE IF NOT EXISTS run_limits (
+        run_id TEXT NOT NULL,
+        usage_kind TEXT NOT NULL,
+        currency TEXT,
+        amount INTEGER NOT NULL
     ) STRICT",
     "CREATE INDEX IF NOT EXISTS slices_by_limit ON slices (limit_id, period_start, state)",
     "CREATE INDEX IF NOT EXISTS slices_by_state ON slices (state)",
@@ -1065,6 +1072,7 @@ fn amount(value: u64) -> i64 {
 mod changes;
 mod charging;
 mod period;
+mod run_limits;
 mod sizing;
 mod standing;
 mod temporary;

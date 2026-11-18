@@ -16,7 +16,7 @@ use goodfetch_dataset::Datasets;
 use goodfetch_engine::runs::Run;
 use goodfetch_frontier::payload::PayloadRules;
 use goodfetch_protocol::foxhound::crawl::CrawlExtraction;
-use goodfetch_protocol::run::{RunId, RunStarted};
+use goodfetch_protocol::run::RunId;
 use tokio::sync::Mutex;
 
 use crate::code_free;
@@ -37,18 +37,17 @@ pub(crate) struct Redeclared(Arc<Mutex<BTreeMap<RunId, Declared>>>);
 
 impl Redeclared {
     /// Keeps `datasets`, the rules of the Labels `labels` and `extraction`
-    /// for the resume of the Run a start under its ID found, in place of any kept
-    /// before, unless a crawl of `crawls` works it; answers how that start
-    /// found it.
+    /// for the resume of the Run `run_id` a start under its ID found, in
+    /// place of any kept before, unless a crawl of `crawls` works it.
     pub(crate) async fn keep(
         &self,
-        found: RunStarted,
+        run_id: &RunId,
         (datasets, labels, extraction): (Datasets, PayloadRules, Option<CrawlExtraction>),
         crawls: &Crawls,
-    ) -> RunStarted {
-        if crawls.live(&found.run_id).await.is_none() {
+    ) {
+        if crawls.live(run_id).await.is_none() {
             self.0.lock().await.insert(
-                found.run_id.clone(),
+                run_id.clone(),
                 Declared {
                     datasets,
                     labels,
@@ -56,7 +55,6 @@ impl Redeclared {
                 },
             );
         }
-        found
     }
 
     /// Records the declarations kept for the resuming `run`, if any, in its

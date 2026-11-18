@@ -36,6 +36,9 @@ async fn idle_for(duration: Duration) {
     tokio::time::sleep(duration).await;
 }
 
+/// Once drained and idle, the Run is still live in the engine, so a start
+/// under its Run ID fails with `run_in_use` (ADR 0102's start table).
+///
 /// Covers: story:3-128, setting:crawl.keep_alive
 #[test]
 fn a_keep_alive_crawl_stays_running_once_drained_until_run_finish_lets_it_end() {
@@ -62,7 +65,7 @@ fn a_keep_alive_crawl_stays_running_once_drained_until_run_finish_lets_it_end() 
 
     assert_eq!(
         (
-            &while_idle["result"]["lifecycle"],
+            &while_idle["error"]["data"]["code"],
             (
                 &report["result"]["lifecycle"],
                 &report["result"]["completeness"],
@@ -70,7 +73,7 @@ fn a_keep_alive_crawl_stays_running_once_drained_until_run_finish_lets_it_end() 
             ),
         ),
         (
-            &json!("running"),
+            &json!("run_in_use"),
             (
                 &json!("finished"),
                 &json!("complete"),

@@ -241,7 +241,7 @@ fn work_items(home: &Path) -> Vec<(String, String, Option<String>)> {
 /// read by the new extraction and checked against the schema generated
 /// from it, so it succeeds holding what the new extraction reads.
 ///
-/// Covers: story:6-304, operation:crawl.start, operation:run.resume
+/// Covers: story:6-304, story:3-166, operation:crawl.start
 #[rstest]
 #[case::a_field_added(
     json!({ "formats": {}, "fields": { "title": { "locator": { "kind": "css", "selector": "h1" } } } }),
@@ -282,14 +282,7 @@ fn a_code_free_crawl_started_again_with_another_extraction_resumes_under_it(
         env.home(),
         env.start_time() + Duration::from_secs(3_600),
         env.seed(),
-        &[
-            start(&again),
-            (
-                "run.resume",
-                json!({ "run_id": RUN_ID, "settings": settings() }),
-            ),
-            finish(),
-        ],
+        &[start(&again), finish()],
     );
 
     let last = pages(env.home()).pop().unwrap_or_default();
@@ -308,13 +301,13 @@ fn a_code_free_crawl_started_again_with_another_extraction_resumes_under_it(
         (
             &stopped[1]["result"]["lifecycle"],
             &resumed[0]["result"]["started_as"],
-            &resumed[2]["result"]["lifecycle"],
+            &resumed[1]["result"]["lifecycle"],
             work_items(env.home()),
             Value::Object(read),
         ),
         (
             &json!("stopped"),
-            &json!("existing"),
+            &json!("resumed"),
             &json!("finished"),
             vec![
                 (

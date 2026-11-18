@@ -73,7 +73,7 @@ use crate::runs::{
     StorageExhausted,
 };
 use crate::secrets::SecretError;
-use crate::settings::{Opening, Resolved, SettingsError};
+use crate::settings::{Opening, Resolved, RunSettings, SettingsError};
 
 /// The `run.*` handlers.
 pub(crate) fn handlers() -> [Handler; 14] {
@@ -201,6 +201,7 @@ pub fn start_error(error: StartError) -> CallError {
                 path: Some(folder.display().to_string()),
             },
         ),
+        StartError::Live { run_id, folder } => running_here(run_id, &folder),
         StartError::Unavailable {
             run_id,
             folder,
@@ -772,6 +773,21 @@ async fn report(params: RunParams, context: CallContext) -> Result<RunReport, Ca
         .map_err(|error| run_error(error, &context))
 }
 
+/// `run_in_use`: this engine runs `run_id` already, so a start or resume
+/// under its ID does not take it over (ADR 0102).
+fn running_here(run_id: RunId, folder: &std::path::Path) -> CallError {
+    CallError::new(
+        &RUN_IN_USE,
+        format!(
+            "This engine runs the Run `{run_id}` already; wait for its end, or stop it with `run.stop`, then start it again."
+        ),
+        &RunDetails {
+            run_id,
+            path: Some(folder.display().to_string()),
+        },
+    )
+}
+
 /// `run_live`: this engine still runs `run_id`, so it is not discarded.
 fn live(run_id: RunId) -> CallError {
     CallError::new(
@@ -850,7 +866,8 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             lifecycle: goodfetch_protocol::run::Lifecycle::Running,
             needs: Product::Collie,
         },
-        Started::Existing(existing) => existing,
+        Started::Interrupted(run_id) => resume_run(&context, run_id, None, settings).await?,
+        Started::Ended(ended) => ended,
     };
     let began = started.started_as == StartedAs::New;
     crate::usage::give_run_limits(&started.run_id, limits, began, &context).await?;
@@ -1010,19 +1027,43 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
+    resume_run(
+        &context,
+        params.run_id,
+        params.checkpoint.map(PathBuf::from),
+        settings,
+    )
+    .await
+}
+
+/// Resumes the Run `run_id` from its run file, or the Checkpoint at
+/// `checkpoint`, under `settings`, and starts its kind's driver, as
+/// `run.resume` does and a start under the ID of an interrupted Run does
+/// (ADR 0102): a Run this engine runs already raises `run_in_use`, and a
+/// finished one is answered as it ended.
+///
+/// # Errors
+///
+/// As [`run_error`] maps the resume's failure.
+pub async fn resume_run(
+    context: &CallContext,
+    run_id: RunId,
+    checkpoint: Option<PathBuf>,
+    settings: RunSettings,
+) -> Result<RunStarted, CallError> {
     let resumed = context
         .runs()
         .resume(Resume {
-            run_id: params.run_id,
-            checkpoint: params.checkpoint.map(PathBuf::from),
+            run_id,
+            checkpoint,
             checkpoint_interval: checkpoint_interval(settings.resolved()),
             timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
             retry_failed: false,
         })
         .await
-        .map_err(|error| run_error(error, &context))?;
-    Ok(match resumed {
+        .map_err(|error| run_error(error, context))?;
+    match resumed {
         Resumed::New {
             run, kind, needs, ..
         } => {
@@ -1035,10 +1076,21 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             if let Some(driver) = context.driver(kind) {
                 run.spawn(driver(*run.clone(), context.clone(), settings));
             }
-            started
+            Ok(started)
         }
-        Resumed::Existing(existing) => existing,
-    })
+        Resumed::Live { run_id, folder } => Err(running_here(run_id, &folder)),
+        // A resume leaves only a finished Run unchanged.
+        Resumed::Unchanged {
+            run_id,
+            lifecycle,
+            needs,
+        } => Ok(RunStarted {
+            run_id,
+            started_as: StartedAs::Ended,
+            lifecycle,
+            needs,
+        }),
+    }
 }
 
 async fn abort(params: RunAbortParams, context: CallContext) -> Result<RunReport, CallError> {

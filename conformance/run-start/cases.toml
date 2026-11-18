@@ -1,0 +1,40 @@
+# The start table's case list (#1544, ADR 0102): a start under a Run ID
+# reaches the Run it names and never gets a second one. No such Run begins
+# it, `new`; a Run stopped resumes at the next run epoch, `resumed`; a Run
+# finished is answered as it ended, `ended`; a Run live in the engine fails
+# with `run_in_use`; and a Run the Run index lists whose run file is gone
+# fails with `run_state_unavailable`, never starting afresh. Every Product
+# keeps Runs, so the suite announces Collie and runs on Collie's executable
+# (ADR 0094). `goodfetch-conformance` runs it as it runs the protocol suite
+# (`conformance/protocol/cases.toml`): every case in order over one
+# Connection it opens with `hello`. Bump the version whenever a case
+# changes.
+
+product = "collie"
+
+[suite]
+name = "run-start"
+version = "1"
+
+[[capability]]
+name = "run.start"
+
+[[capability.case]]
+id = "a-start-under-a-new-run-id-begins-it"
+covers = ["story:3-166", "operation:run.start"]
+
+[[capability.case]]
+id = "a-start-under-a-stopped-runs-id-resumes-it"
+covers = ["story:3-166", "operation:run.start", "operation:run.stop"]
+
+[[capability.case]]
+id = "a-start-under-a-finished-runs-id-answers-it-as-it-ended"
+covers = ["story:3-166", "operation:run.start"]
+
+[[capability.case]]
+id = "a-start-under-a-live-runs-id-is-run-in-use"
+covers = ["story:3-167", "error:run_in_use"]
+
+[[capability.case]]
+id = "a-start-under-a-listed-runs-id-whose-state-is-gone-is-run-state-unavailable"
+covers = ["story:3-167", "error:run_state_unavailable"]

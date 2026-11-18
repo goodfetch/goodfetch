@@ -349,9 +349,9 @@ fn a_program_signs_in_with_the_token_its_hello_presents(
     );
 }
 
-/// `run.start` is an idempotent write: two starts of one new Run ID sent at
-/// once reach one engine, which starts the run once and answers the other
-/// with the run it already has.
+/// Two starts of one new Run ID sent at once reach one engine, which
+/// starts the run once and answers the other that it runs it already,
+/// `run_in_use`.
 ///
 /// Covers: story:12-232
 #[test]
@@ -365,15 +365,16 @@ fn two_starts_of_one_new_run_id_at_once_start_one_run() {
         program.send("run.start", &params),
     );
 
-    let mut started_as = program.replies([first, second]).map(|reply| {
+    let mut answers = program.replies([first, second]).map(|reply| {
         reply["result"]["started_as"]
             .as_str()
-            .unwrap_or_else(|| panic!("the start failed: {reply}"))
+            .or_else(|| reply["error"]["data"]["code"].as_str())
+            .unwrap_or_else(|| panic!("the start answered neither: {reply}"))
             .to_owned()
     });
 
-    started_as.sort_unstable();
-    assert_eq!(started_as, ["existing", "new"]);
+    answers.sort_unstable();
+    assert_eq!(answers, ["new", "run_in_use"]);
 }
 
 /// Interrupted, the gateway kills each engine it started and exits only

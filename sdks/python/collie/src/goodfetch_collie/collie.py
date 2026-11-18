@@ -89,8 +89,9 @@ class AsyncCollie:
     ) -> AsyncRun:
         """Starts a Run and returns once it is started (ADR 0102).
 
-        A `run_id` naming an existing Run returns that Run. `finish()` ends
-        it; closing it unfinished stops it, resumable by its Run ID.
+        A `run_id` naming an interrupted Run resumes it, and one naming a
+        finished Run returns it as it ended. `finish()` ends it; closing it
+        unfinished stops it, resumable by its Run ID.
         """
         return await self._connection.start(run_id=run_id, tags=tags)
 
@@ -182,8 +183,9 @@ class Collie:
     ) -> Run:
         """Starts a Run and returns once it is started (ADR 0102).
 
-        A `run_id` naming an existing Run returns that Run. `finish()` ends
-        it; closing it unfinished stops it, resumable by its Run ID.
+        A `run_id` naming an interrupted Run resumes it, and one naming a
+        finished Run returns it as it ended. `finish()` ends it; closing it
+        unfinished stops it, resumable by its Run ID.
         """
         starting = functools.partial(
             self._connection.start,

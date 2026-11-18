@@ -18,10 +18,11 @@
 //! A dash changes nothing. In an ended state it is a late event: an end
 //! racing another (a driver's finish after an abort), a stop of a Run that
 //! already ended, which answers its report, or a start or resume of a
-//! finished Run, which returns it as it is (ADR 0102). A resume of a
-//! `running` Run takes the writer role of a Run whose engine is gone, at the
-//! next run epoch; a Run this engine writes is answered as it is before the
-//! table is asked. `run_in_use` is the program's refusal when another
+//! finished Run, which returns it as it ended (ADR 0102). A start of any
+//! other Run resumes it. A resume of a `running` Run takes the writer role
+//! of a Run whose engine is gone, at the next run epoch; a start or resume
+//! of a Run this engine writes raises `run_in_use` before the table is
+//! asked. `run_in_use` is the program's refusal when another
 //! writer holds the Run's lock. Whether a Limit a stopped Run reached has
 //! something left again is the Usage ledger's to say, not this table's.
 //! Areas 9, 10 and 14 add their events here (ADR 0128).

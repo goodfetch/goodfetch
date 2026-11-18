@@ -891,7 +891,7 @@ fn a_periodic_checkpoint_that_fails_warns_naming_its_folder() {
     );
 }
 
-/// Covers: story:3-156
+/// Covers: story:3-156, story:3-166
 #[test]
 fn a_finish_of_a_run_its_start_found_finished_did_nothing() {
     let env = TestEnv::new();
@@ -914,7 +914,7 @@ fn a_finish_of_a_run_its_start_found_finished_did_nothing() {
         ),
         (
             &Value::Null,
-            &json!("existing"),
+            &json!("ended"),
             &json!({ "reason": "already_ended", "ended_at": replies[1]["result"]["ended_at"] }),
         )
     );

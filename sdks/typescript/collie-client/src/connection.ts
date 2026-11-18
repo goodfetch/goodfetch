@@ -10,8 +10,9 @@ export interface Connection extends AsyncDisposable {
   engine(): EngineInfo;
   /**
    * Starts a Run and returns once it is started (ADR 0102); a `runId`
-   * naming an existing Run returns that Run. Fails with `closed` once the
-   * Connection is closed.
+   * naming an interrupted Run resumes it, and one naming a finished Run
+   * returns it as it ended. Fails with `closed` once the Connection is
+   * closed.
    */
   start(options?: StartOptions): Promise<Run>;
   /**

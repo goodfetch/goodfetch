@@ -1132,9 +1132,14 @@ fn a_crawl_at_off_with_no_threshold_writes_its_records_only_as_it_stops() {
     );
 }
 
-/// Covers: error:run_conflict
+/// A start under the ID of a live crawl with other inputs raises
+/// `run_conflict` listing each difference, and one with the same inputs
+/// `run_in_use`, the crawl being live in this engine (ADR 0102).
+///
+/// Covers: error:run_conflict, error:run_in_use, story:3-167
 #[test]
-fn a_start_under_a_crawls_run_id_with_other_inputs_conflicts_and_one_with_the_same_returns_it() {
+fn a_start_under_a_live_crawls_run_id_with_other_inputs_conflicts_and_one_with_the_same_is_in_use()
+{
     let env = TestEnv::new();
 
     let answers = crawl(
@@ -1179,12 +1184,12 @@ fn a_start_under_a_crawls_run_id_with_other_inputs_conflicts_and_one_with_the_sa
                 &answers.1["error"]["data"]["code"],
                 &answers.1["error"]["data"]["differences"]
             ),
-            &answers.2["result"]["started_as"],
+            &answers.2["error"]["data"]["code"],
         ),
         (
             (&json!("run_conflict"), &json!(["seeds"])),
             (&json!("run_conflict"), &json!(["product", "kind", "seeds"])),
-            &json!("existing"),
+            &json!("run_in_use"),
         )
     );
 }
@@ -1791,8 +1796,8 @@ fn a_label_keeping_fragments_on_a_tier_that_serves_them_starts(#[case] label: Va
 /// A crawl request's identity follows `crawl.keep_url_fragment`, which is
 /// fixed for a Run's life (ADRs 0102 and 0120): a start under the Run's ID
 /// that changes it, for the Run or for a Label, is refused with
-/// `setting_not_applicable` naming the key, while one that keeps it goes
-/// on with the Run.
+/// `setting_not_applicable` naming the key, while one that keeps it passes
+/// that check to find the Run live in this engine, `run_in_use`.
 ///
 /// Covers: story:6-221, setting:crawl.keep_url_fragment, error:setting_not_applicable
 #[test]
@@ -1847,7 +1852,7 @@ fn a_start_under_a_runs_id_that_changes_keep_url_fragment_is_refused() {
             json!("fixed"),
             json!(["setting_not_applicable", "crawl.keep_url_fragment"]),
             json!(["setting_not_applicable", "crawl.keep_url_fragment"]),
-            json!("fixed"),
+            json!(["run_in_use", null]),
         ]
     );
 }

@@ -378,9 +378,12 @@ fn the_end_of_the_connection_stops_its_live_runs_as_aborted_by_their_client() {
     );
 }
 
-/// Covers: operation:run.abort
+/// An aborted Run ends stopped and incomplete, and a start under its Run
+/// ID resumes it (ADR 0102's start table).
+///
+/// Covers: operation:run.abort, story:3-166
 #[test]
-fn an_aborted_run_is_stopped_and_incomplete_and_a_start_under_its_run_id_returns_it() {
+fn an_aborted_run_is_stopped_and_incomplete_and_a_start_under_its_run_id_resumes_it() {
     let env = TestEnv::new();
 
     let (report, again) = attached_on(
@@ -408,8 +411,8 @@ fn an_aborted_run_is_stopped_and_incomplete_and_a_start_under_its_run_id_returns
             &json!("stopped"),
             &json!("incomplete"),
             &json!({ "kind": "abort", "by": "client" }),
-            &json!("existing"),
-            &json!("stopped"),
+            &json!("resumed"),
+            &json!("running"),
         )
     );
 }

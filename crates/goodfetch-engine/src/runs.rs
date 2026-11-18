@@ -387,19 +387,33 @@ pub enum Resumed {
         /// (ADR 0016).
         listed: Vec<WeakenedSetting>,
     },
-    /// The Run is live in this engine, or finished: answered as it is.
-    Existing(RunStarted),
+    /// This engine runs the Run already: it is not resumed.
+    Live {
+        /// The Run ID.
+        run_id: RunId,
+        /// The Run's folder.
+        folder: PathBuf,
+    },
+    /// The Run's table leaves it as it is: a finished Run a resume finds,
+    /// or a running one with no live writer a retry finds.
+    Unchanged {
+        /// The Run ID.
+        run_id: RunId,
+        /// Where it is.
+        lifecycle: Lifecycle,
+        /// The Product it needs.
+        needs: Product,
+    },
 }
 
 impl Resumed {
-    /// The Run `run_id`, answered as it is: at `lifecycle`, needing `needs`.
-    fn existing(run_id: RunId, lifecycle: Lifecycle, needs: Product) -> Self {
-        Self::Existing(RunStarted {
+    /// The Run `run_id` as `held` holds it, left as it is.
+    fn unchanged(run_id: RunId, held: &checkpoint::Held) -> Self {
+        Self::Unchanged {
             run_id,
-            started_as: StartedAs::Existing,
-            lifecycle,
-            needs,
-        })
+            lifecycle: held.lifecycle,
+            needs: held.needs,
+        }
     }
 }
 
@@ -411,8 +425,12 @@ impl Resumed {
 pub enum Started {
     /// It began a new Run, which its driver now drives.
     New(Run),
-    /// Its Run ID names a Run of the same inputs, returned as it is.
-    Existing(RunStarted),
+    /// Its Run ID names an interrupted Run of the same inputs, which the
+    /// caller resumes as `run.resume` does (ADR 0102).
+    Interrupted(RunId),
+    /// Its Run ID names a finished Run of the same inputs, returned as it
+    /// ended.
+    Ended(RunStarted),
 }
 
 /// Why a start failed.
@@ -430,6 +448,14 @@ pub enum StartError {
     /// Another engine holds the Run's writer lock.
     #[error("another engine holds the writer lock of `{run_id}`")]
     InUse {
+        /// The Run ID.
+        run_id: RunId,
+        /// The Run's folder.
+        folder: PathBuf,
+    },
+    /// This engine runs the Run already (ADR 0102).
+    #[error("this engine runs `{run_id}` already")]
+    Live {
         /// The Run ID.
         run_id: RunId,
         /// The Run's folder.
@@ -5179,7 +5205,8 @@ impl Registry {
         start.tags = masked_tags(&self.setup.masks, &start.tags);
         // A run file a crash left at `off` is discarded, never read: the Run
         // starts again (ADR 0138).
-        self.discard_unclean(&run_id, start.settings.as_ref())
+        let discarded = self
+            .discard_unclean(&run_id, start.settings.as_ref())
             .await?;
         if let Some(found) = self.existing(&run_id).await? {
             let mut differences = Vec::new();
@@ -5217,15 +5244,29 @@ impl Registry {
                     },
                 });
             }
-            if found.lifecycle == Lifecycle::Finished {
-                self.found_ended.insert(run_id.clone());
+            // The start table (ADR 0102): a Run this engine runs is in use,
+            // a finished one is answered as it ended, and any other is
+            // interrupted, which its caller resumes.
+            if self.live.contains_key(&run_id) {
+                let folder = self.folder(&run_id);
+                return Err(StartError::Live { run_id, folder });
             }
-            return Ok(Started::Existing(RunStarted {
+            if found.lifecycle != Lifecycle::Finished {
+                return Ok(Started::Interrupted(run_id));
+            }
+            self.found_ended.insert(run_id.clone());
+            return Ok(Started::Ended(RunStarted {
                 run_id,
-                started_as: StartedAs::Existing,
+                started_as: StartedAs::Ended,
                 lifecycle: found.lifecycle,
                 needs: found.needs,
             }));
+        }
+        // A Run the Run index lists whose state is gone is never started
+        // afresh (ADR 0102); one discarded, on purpose or after a crash at
+        // `off`, starts again. A generated Run ID names no listed Run.
+        if !discarded && start.run_id.is_some() {
+            self.listed_present(&run_id).await?;
         }
         let essential = self.engine_folders().essential();
         if let Some((folder, filesystem)) = self.critical_among(essential).await {
@@ -5266,9 +5307,9 @@ impl Registry {
         &mut self,
         run_id: &RunId,
         settings: Option<&RunSettings>,
-    ) -> Result<(), UncleanDiscard> {
+    ) -> Result<bool, UncleanDiscard> {
         if self.live.contains_key(run_id) {
-            return Ok(());
+            return Ok(false);
         }
         let folder = self.folder(run_id);
         let discarding = discard::Discarding {
@@ -5292,11 +5333,36 @@ impl Registry {
         })?;
         if discarded {
             tracing::warn!(run_id = %run_id, "the Run's run file was left by a crash at `run_state.durability = off`: it was discarded, and the Run starts again");
+            // Its Run index row is marked *erased*, as a discard marks it, so
+            // a later start under its Run ID begins it rather than finding a
+            // listed Run whose state is missing (ADR 0102).
+            if let Err(error) = self.setup.engine.run_index().erase(run_id.clone()).await {
+                tracing::warn!(%error, run_id = %run_id, "the discarded Run's Run index row was not marked erased");
+            }
             self.ended.forget(run_id);
             self.found_ended.remove(run_id);
             self.unrecorded.remove(run_id);
         }
-        Ok(())
+        Ok(discarded)
+    }
+
+    /// Refuses with `Unavailable` a start under the ID of a Run the Run
+    /// index lists, not erased, whose state was not found: a start never
+    /// begins afresh a Run whose state is lost (ADR 0102). An index that
+    /// cannot be read lists nothing, as a start's check of it says.
+    async fn listed_present(&self, run_id: &RunId) -> Result<(), StartError> {
+        match self.setup.engine.run_index().read(run_id.clone()).await {
+            Ok(Some(row)) if row.presence != Presence::Erased => Err(StartError::Unavailable {
+                run_id: run_id.clone(),
+                folder: self.folder(run_id),
+                error: "the Run index lists the Run, but its state is missing".to_owned(),
+            }),
+            Ok(_) => Ok(()),
+            Err(error) => {
+                tracing::warn!(%error, run_id = %run_id, "the Run index cannot be read; the Run starts without it");
+                Ok(())
+            }
+        }
     }
 
     /// The Run of `run_id` this engine runs or ran, or whose state its
@@ -6135,9 +6201,10 @@ impl Registry {
             settings,
             retry_failed,
         } = resume;
-        // A Run this engine writes is answered as it is.
-        if let Some(live) = self.live.get(&run_id) {
-            return Ok(Resumed::existing(run_id, live.lifecycle, live.needs));
+        // A Run this engine writes is not resumed.
+        if self.live.contains_key(&run_id) {
+            let folder = self.folder(&run_id);
+            return Ok(Resumed::Live { run_id, folder });
         }
         // A run file a crash left at `off` is discarded, never read: the Run
         // is then not found, and starts again (ADR 0138).
@@ -6149,9 +6216,7 @@ impl Registry {
         self.may_resume(&run_id, &held, &folder).await?;
         let lifecycle = match lifecycle::apply(held.lifecycle, Resume::event(retry_failed)) {
             Ok(Next::To(next)) => next,
-            Ok(Next::Unchanged) => {
-                return Ok(Resumed::existing(run_id, held.lifecycle, held.needs));
-            }
+            Ok(Next::Unchanged) => return Ok(Resumed::unchanged(run_id, &held)),
             Err(refused) => return Err(RunError::refused(&run_id, &folder, refused)),
         };
         let options = self.opened_with(settings.as_ref());
@@ -6338,6 +6403,7 @@ impl Registry {
                     RunError::Discarding { run_id, folder }
                 }
                 StartError::Conflict { .. }
+                | StartError::Live { .. }
                 | StartError::LimitReached(_)
                 | StartError::LimitNotUnderstood(_)
                 | StartError::Draining { .. }

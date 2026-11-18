@@ -33,6 +33,7 @@ from goodfetch_collie_client.framing import (
 )
 from goodfetch_collie_client.generated.errors import (
     ERROR_GROUP_CLASSES,
+    ERROR_GROUP_OF_PROTOCOL_FAILURE,
     ERROR_GROUP_OF_WIRE_CLASS,
 )
 
@@ -369,7 +370,9 @@ def error_of_reply(
     """The exception an engine's error reply stands for.
 
     A known Error code gets its class; an unknown one gets its group's class,
-    named by the reply's wire class, or `internal`'s.
+    named by the reply's wire class or, for a failure of the protocol
+    itself, the code JSON-RPC predefines that it takes (ADR 0079), or
+    `internal`'s.
     """
     message = error.get("message")
     text = message if isinstance(message, str) else "the engine failed the call"
@@ -383,7 +386,9 @@ def error_of_reply(
     wire = error.get("code")
     group: ErrorGroup = "internal"
     if isinstance(wire, int) and not isinstance(wire, bool):
-        group = ERROR_GROUP_OF_WIRE_CLASS.get(wire, "internal")
+        group = ERROR_GROUP_OF_WIRE_CLASS.get(
+            wire, ERROR_GROUP_OF_PROTOCOL_FAILURE.get(wire, "internal")
+        )
     return ERROR_GROUP_CLASSES[group](
         text,
         code=code if isinstance(code, str) else "internal",

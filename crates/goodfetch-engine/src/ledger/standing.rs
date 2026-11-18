@@ -49,8 +49,8 @@ fn period_known(stored: &StoredLimit) -> bool {
 }
 
 /// Where a run stands: its engine's Product and the scopes that cover it
-/// (the install, its person, its Client connection and, on a Daemon, the
-/// Daemon).
+/// (the install, its person, its Client connection, its own `run` scope
+/// and, on a Daemon, the Daemon).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Placement {
     /// The Product of the engine that runs it.

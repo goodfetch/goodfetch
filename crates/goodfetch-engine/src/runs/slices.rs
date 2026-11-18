@@ -14,7 +14,7 @@ use std::sync::Arc;
 use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::{LimitScope, RunId};
-use goodfetch_protocol::usage::{CONNECTION, DAEMON, INSTALL, PERSON};
+use goodfetch_protocol::usage::{CONNECTION, DAEMON, INSTALL, PERSON, RUN};
 use jiff::Timestamp;
 use rusqlite::Connection;
 
@@ -84,9 +84,10 @@ impl Limits {
         }
     }
 
-    /// Where a run started on `connection` stands: the install, its person,
-    /// its Client connection and, on a Daemon, the Daemon.
-    pub(crate) fn placement(&self, connection: Option<ConnectionId>) -> Placement {
+    /// Where the run `run_id` started on `connection` stands: the install,
+    /// its person, its Client connection, its own `run` scope and, on a
+    /// Daemon, the Daemon.
+    pub(crate) fn placement(&self, run_id: &RunId, connection: Option<ConnectionId>) -> Placement {
         let mut scopes = vec![
             LimitScope {
                 kind: INSTALL.to_owned(),
@@ -97,6 +98,10 @@ impl Limits {
                 id: CALLER.to_owned(),
             },
             self.connection(connection),
+            LimitScope {
+                kind: RUN.to_owned(),
+                id: run_id.as_str().to_owned(),
+            },
         ];
         if let Some(major) = &self.daemon {
             scopes.push(LimitScope {

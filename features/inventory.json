@@ -1502,6 +1502,17 @@
       ]
     },
     {
+      "id": "error:limit_raise_refused",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:limit_reached",
       "kind": "error",
       "area": 3,

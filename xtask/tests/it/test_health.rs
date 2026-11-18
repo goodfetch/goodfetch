@@ -4,7 +4,7 @@
 //! lock it holds for a gate started during it to wait on, which `merge_pr` tests.
 //! The post-merge run checks what `main` gained since the commit it last
 //! checked, and only when `main` moved without a full gate, in the merge
-//! gate's worktree, where a gate starts it as it ends.
+//! gate's worktree; it runs by hand, and no gate starts it (`merge_pr`).
 //! `just` is a stand-in that records each call. The
 //! local gate is repository tooling, so the module declares no Feature.
 #![cfg(unix)]
@@ -255,8 +255,8 @@ fn a_run_uses_the_script_of_the_commit_it_tests() {
 }
 
 /// Cron's lines start from `origin/main`'s script, not the checkout's, which on
-/// the day this came in may predate it. The post-merge run has no line: a
-/// `just merge` gate starts it (`merge_pr`).
+/// the day this came in may predate it. The post-merge run has no line: it
+/// runs by hand.
 #[rstest]
 #[case::mutants(0, "mutants")]
 #[case::constrained(1, "constrained")]
@@ -513,8 +513,8 @@ fn checked(workspace: &Workspace) -> String {
         .to_owned()
 }
 
-/// Every gate that held its lock starts the post-merge run: while `main` has
-/// not moved since the commit it checked, it runs nothing and writes no line.
+/// A post-merge run started while `main` has not moved since the commit it
+/// checked runs nothing and writes no line.
 #[test]
 fn a_post_merge_run_does_nothing_while_main_has_not_moved() {
     let workspace = origin_repository();
@@ -836,7 +836,7 @@ fn a_post_merge_run_runs_the_counts_and_the_pre_merge_suite_over_the_range(#[cas
     assert_eq!(checked(&workspace), head);
 }
 
-/// The post-merge run builds where `just merge`'s gate just built `main`'s
+/// The post-merge run builds where `just merge`'s last gate built its head's
 /// tree, in the merge gate's worktree, so no second build folder exists
 /// (#2619: its own, in the backstop's worktree, took 36 GB and kept the disk
 /// under the run's own floor); the other runs keep the backstop's worktree.
@@ -968,8 +968,8 @@ fn runs(pid: &str) -> bool {
 
 /// A gate stops a post-merge run with TERM (ci/merge-pr.sh): the run ends its
 /// suites and every process they started, says in results.txt that a gate
-/// stopped it and leaves the commit it checked where it was, so the run that
-/// gate starts as it ends covers the range. The gate checks its head out in
+/// stopped it and leaves the commit it checked where it was, so the next
+/// post-merge run covers the range. The gate checks its head out in
 /// the worktree the run built in once the run's lock is gone, so the run ends,
 /// and its lock goes, only when no process of its suites is left, one that
 /// takes a moment to stop included, and one in a process group of its own,

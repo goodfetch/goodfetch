@@ -8,8 +8,8 @@
 # worktree busy or the disk short lists itself as skipped in
 # ~/test-health/results.txt and fails. Each starts `origin/main`'s script, not
 # the checkout's, which nothing fast-forwards; the script then runs the scripts
-# of the commit it tests. The post-merge run has no line here: each `just
-# merge` gate starts it as it ends (ci/merge-pr.sh, #2619).
+# of the commit it tests. The post-merge run has no line here, and no gate
+# starts it: it runs by hand (the owner's decision of 2026-11-18, ADR 0135).
 GOODFETCH_CHECKOUT=/Users/jb/Dev/goodfetch
 # ADR 0072's mutation testing, advisory: the Rust `main` changed in the last
 # 24 hours, daily, within 150 minutes.

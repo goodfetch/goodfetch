@@ -6296,8 +6296,8 @@
       "arrived_in": "0.1",
       "authority": "machine",
       "clearable": false,
-      "default": 4,
-      "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: 4, a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
+      "default": "per_core",
+      "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: `per_core` for one a core, or a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
       "name": "governor.blocking_threads",
       "product": "collie",
       "products": [
@@ -6305,9 +6305,17 @@
         "foxhound"
       ],
       "value": {
-        "description": "The most blocking threads.",
-        "minimum": 1,
-        "type": "integer"
+        "oneOf": [
+          {
+            "description": "This many threads.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "const": "per_core",
+            "description": "One thread a core."
+          }
+        ]
       },
       "weakens": false
     },
@@ -6669,13 +6677,13 @@
       "value": {
         "oneOf": [
           {
-            "description": "This many worker threads.",
+            "description": "This many threads.",
             "minimum": 1,
             "type": "integer"
           },
           {
             "const": "per_core",
-            "description": "One worker thread a core."
+            "description": "One thread a core."
           }
         ]
       },

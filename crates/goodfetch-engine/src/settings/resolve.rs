@@ -16,9 +16,7 @@ use std::time::Duration;
 
 use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
 use goodfetch_protocol::entries::YIELDING;
-use goodfetch_protocol::governor::{
-    BLOCKING_THREADS_SHAPE, BlockingThreadCap, WORKER_THREADS_SHAPE, WorkerThreads,
-};
+use goodfetch_protocol::governor::{THREAD_COUNT_SHAPE, ThreadCount};
 use goodfetch_protocol::run::durability::{
     BATCH_THRESHOLD_SHAPE, BatchThreshold, durability_preset,
 };
@@ -537,19 +535,9 @@ impl SettingValue<'_> for BatchThreshold {
     }
 }
 
-impl SettingValue<'_> for WorkerThreads {
+impl SettingValue<'_> for ThreadCount {
     fn reads(kind: &ValueKind) -> bool {
-        matches!(kind, ValueKind::Shape(shape) if **shape == WORKER_THREADS_SHAPE)
-    }
-
-    fn read(value: &Value) -> Option<Self> {
-        Self::read(value).ok()
-    }
-}
-
-impl SettingValue<'_> for BlockingThreadCap {
-    fn reads(kind: &ValueKind) -> bool {
-        matches!(kind, ValueKind::Shape(shape) if **shape == BLOCKING_THREADS_SHAPE)
+        matches!(kind, ValueKind::Shape(shape) if **shape == THREAD_COUNT_SHAPE)
     }
 
     fn read(value: &Value) -> Option<Self> {

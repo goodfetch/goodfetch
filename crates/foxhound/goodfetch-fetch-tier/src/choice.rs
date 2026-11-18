@@ -387,6 +387,8 @@ fn tier_of(label: &str, key: String, value: &Value) -> Result<SetTier, CallError
                 key,
                 layer: Some(SettingsLayer::Run),
                 reason: format!("{value} is none of {}", FETCH_TIERS.join(", ")),
+                limit: None,
+                fix: None,
             },
         )),
     }
@@ -419,6 +421,8 @@ fn invalid(name: &str, key: &str, value: &Value, reason: &str) -> CallError {
             key: key.to_owned(),
             layer: Some(SettingsLayer::Run),
             reason: format!("{value} {reason}"),
+            limit: None,
+            fix: None,
         },
     )
 }
@@ -444,6 +448,8 @@ pub(crate) fn encoding(name: &str, value: &Value) -> Result<Option<String>, Call
                 key: FETCH_ENCODING.name.to_owned(),
                 layer: Some(SettingsLayer::Run),
                 reason: format!("{other} is no WHATWG Encoding label"),
+                limit: None,
+                fix: None,
             },
         )),
     }
@@ -483,6 +489,8 @@ fn page_check_of(name: &str, value: &Value) -> Result<Option<PageCheck>, CallErr
                 reason: format!(
                     "expected a Page check, `login_page` and `expected_page` each a page match of one `kind`: {error}"
                 ),
+                limit: None,
+                fix: None,
             },
         )
     })

@@ -290,6 +290,7 @@ fn an_operator_policy_lock_refuses_every_higher_layers_value(#[case] layer: Sett
                 key: "timeout.navigation".to_owned(),
                 value: json!(10_000),
                 layer: SettingsLayer::OperatorPolicy,
+                origin: None,
             },
             fix: "ask the operator to change the Operator policy's lock on `timeout.navigation`"
                 .to_owned(),
@@ -452,6 +453,7 @@ fn a_value_outside_a_recipes_bounds_names_the_bounds_as_its_limit() {
             key: "timeout.navigation".to_owned(),
             value: json!({ "minimum": 1_000, "maximum": 10_000 }),
             layer: SettingsLayer::Recipe,
+            origin: None,
         }
     );
 }
@@ -835,6 +837,7 @@ fn an_honesty_guarantee_stays_locked_whatever_the_layer(
                 key: key.to_owned(),
                 value: json!(true),
                 layer: SettingsLayer::Default,
+                origin: None,
             },
             fix: format!("`{key}` is an honesty guarantee no layer changes"),
         }

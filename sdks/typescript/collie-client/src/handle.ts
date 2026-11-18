@@ -3,6 +3,9 @@
 // builds. Hand-written, since no catalog entry shapes it; the client
 // package's runtime implements it.
 import type { Caller, OperationTypes } from "./caller.ts";
+// The errors module itself, not the package index, which re-exports the
+// handles that import this module.
+import { SettingInvalidError } from "./generated/errors.ts";
 
 /** What a handle of ID `Id` reaches its engine through. */
 export interface HandleHost<
@@ -40,4 +43,46 @@ export function defined<Params extends object>(params: Params): Defined<Params> 
   );
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the entries are `params`'s own, less those whose value is `undefined`, which is what `Defined` says.
   return kept as Defined<Params>;
+}
+
+/** What a refused call's `timeout` tells its program to give instead (ADR 0080). */
+const TIMEOUT_FIX = "give at least 1 ms, or `timeout: null` for no timeout";
+
+/**
+ * A call's own `timeout`, sent as given once it can be a deadline (ADR
+ * 0080): left out for `setting`, the Duration setting it sets for the call
+ * alone, `null` for none, or a whole number of milliseconds of 1 or more.
+ *
+ * @throws {SettingInvalidError} before anything is sent, when `timeout` is
+ * 0, negative, fractional or not finite: its `limit` names `setting` at the
+ * run layer, given as an argument, and its `fix` the null form, as the
+ * engine's refusal of `0` does.
+ */
+export function timeoutOf<Timeout extends number | null | undefined>(
+  timeout: Timeout,
+  setting: string,
+): Timeout {
+  if (
+    timeout === undefined ||
+    timeout === null ||
+    (Number.isSafeInteger(timeout) && timeout >= 1)
+  ) {
+    return timeout;
+  }
+  const reason =
+    timeout === 0
+      ? "a timeout of 0 ms would end the call at once"
+      : `a timeout of ${String(timeout)} ms is no whole number of milliseconds of 1 or more`;
+  throw new SettingInvalidError(
+    `The call's \`timeout\`, its \`${setting}\`: ${reason}; ${TIMEOUT_FIX}.`,
+    {
+      fix: TIMEOUT_FIX,
+      details: {
+        key: setting,
+        layer: "run",
+        reason,
+        limit: { key: setting, value: timeout, layer: "run", origin: "argument" },
+      },
+    },
+  );
 }

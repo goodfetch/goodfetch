@@ -62,10 +62,10 @@ pub struct WaitForUrlParams {
     /// applies (ADR 0080).
     #[serde(
         default,
-        deserialize_with = "super::present",
+        deserialize_with = "crate::settings::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 
@@ -87,10 +87,10 @@ pub struct WaitForExchangeParams {
     /// applies (ADR 0080).
     #[serde(
         default,
-        deserialize_with = "super::present",
+        deserialize_with = "crate::settings::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 
@@ -110,10 +110,10 @@ pub struct WaitForLoadStateParams {
     /// applies (ADR 0080).
     #[serde(
         default,
-        deserialize_with = "super::present",
+        deserialize_with = "crate::settings::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 
@@ -152,10 +152,10 @@ pub struct WaitForFunctionParams {
     /// applies (ADR 0080).
     #[serde(
         default,
-        deserialize_with = "super::present",
+        deserialize_with = "crate::settings::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 
@@ -190,10 +190,10 @@ pub struct LocatorWaitForFunctionParams {
     /// applies (ADR 0080).
     #[serde(
         default,
-        deserialize_with = "super::present",
+        deserialize_with = "crate::settings::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 
@@ -229,10 +229,10 @@ pub struct LocatorWaitForParams {
     /// applies (ADR 0080).
     #[serde(
         default,
-        deserialize_with = "super::present",
+        deserialize_with = "crate::settings::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 
@@ -267,10 +267,10 @@ pub struct WaitForCountParams {
     /// applies (ADR 0080).
     #[serde(
         default,
-        deserialize_with = "super::present",
+        deserialize_with = "crate::settings::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 

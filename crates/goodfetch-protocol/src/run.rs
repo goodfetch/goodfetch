@@ -674,21 +674,46 @@ pub struct RunDiscarded {
     pub run_id: RunId,
 }
 
-/// What `run.finish` and `run.stop` take: the Run, and how long the call
-/// waits for its end.
+/// What `run.finish` takes: the Run, and how long the call waits for its
+/// end.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct RunWaitParams {
+pub struct RunFinishParams {
     /// The Run's ID.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: RunId,
-    /// How long the call waits for the Run's end, in milliseconds; past it,
-    /// it fails with `deadline_exceeded` and only the wait ends. None by
-    /// default for `run.finish`, which the Run's own `timeout.run` bounds;
-    /// `timeout.close` by default for `run.stop`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// How long the call waits for the Run's end, in milliseconds, at least
+    /// 1, as `timeout.run` for this call alone: absent or `null` for none,
+    /// since the Run's own `timeout.run` bounds it (ADR 0080). Past it, the
+    /// call fails with `deadline_exceeded` and only the wait ends.
+    #[serde(
+        default,
+        deserialize_with = "crate::settings::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.run"))]
+    pub timeout: Option<Option<u64>>,
+}
+
+/// What `run.stop` takes: the Run, and how long the call waits for its
+/// safe point.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunStopParams {
+    /// The Run's ID.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub timeout: Option<u64>,
+    pub run_id: RunId,
+    /// How long the call waits for the Run's safe point, in milliseconds,
+    /// at least 1: absent for the Run's `timeout.close`, `null` for none
+    /// (ADR 0080). Past it, the call fails with `deadline_exceeded` and the
+    /// Run still stops at its next safe point.
+    #[serde(
+        default,
+        deserialize_with = "crate::settings::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.close"))]
+    pub timeout: Option<Option<u64>>,
 }
 
 /// What `run.abort` takes: the Run, and whether the abort was forwarded.
@@ -823,7 +848,7 @@ pub const RUN_FINISH: Operation = Operation {
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
-    params: schema_of::<RunWaitParams>,
+    params: schema_of::<RunFinishParams>,
     result: schema_of::<RunReport>,
     events: &[],
     cancellable: true,
@@ -841,7 +866,7 @@ pub const RUN_STOP: Operation = Operation {
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
-    params: schema_of::<RunWaitParams>,
+    params: schema_of::<RunStopParams>,
     result: schema_of::<RunReport>,
     events: &[],
     cancellable: true,

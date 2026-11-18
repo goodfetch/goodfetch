@@ -763,7 +763,7 @@ fn body_timeout(connection: &mut Connection, site: &Site, checks: &mut Checks) -
             "its limit is `{}` at the call's own value, at the run layer",
             TIMEOUT_WAIT.name
         ),
-        data["limit"] == json!({ "key": TIMEOUT_WAIT.name, "value": BODY_TIMEOUT, "layer": "run" }),
+        data["limit"] == json!({ "key": TIMEOUT_WAIT.name, "value": BODY_TIMEOUT, "layer": "run", "origin": "argument" }),
     );
     exchange.end(run_id)
 }

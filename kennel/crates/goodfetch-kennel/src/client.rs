@@ -78,7 +78,7 @@ use goodfetch_protocol::needs_you::{
 };
 use goodfetch_protocol::run::{
     RUN_ABORT, RUN_STOP, RunAbortParams, RunAxes, RunId, RunIndexRow, RunListParams, RunParams,
-    RunProgress, RunReport, RunUsage, RunWaitParams,
+    RunProgress, RunReport, RunStopParams, RunUsage,
 };
 use goodfetch_protocol::settings::SettingsExplanation;
 use goodfetch_protocol::usage::{USAGE_RAISE, UsageRaiseParams};
@@ -180,7 +180,7 @@ pub enum Call {
     /// `needs_you.dismiss`: hides a Needs you item for every Client.
     Dismiss(NeedsYouDismissParams),
     /// `run.stop`, a Run's control: a Checkpoint, and the Run can resume.
-    Stop(RunWaitParams),
+    Stop(RunStopParams),
     /// `run.abort`, a Run's control: no attempt in flight commits; not
     /// immediate.
     Abort(RunAbortParams),

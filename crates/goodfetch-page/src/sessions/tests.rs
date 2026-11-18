@@ -143,6 +143,7 @@ async fn ended_past_cap(params: Value, context: CallContext) -> Result<Value, Ca
         key: BROWSER_PAGE_MEMORY_CAP.name.to_owned(),
         value: json!(32 << 20),
         layer: SettingsLayer::Run,
+        origin: None,
     };
     life.end(&Ending::MemoryExceeded {
         memory: 64 << 20,

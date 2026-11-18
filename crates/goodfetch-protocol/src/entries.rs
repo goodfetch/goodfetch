@@ -117,8 +117,10 @@ mod tests {
     use std::collections::BTreeSet;
     use std::path::Path;
 
+    use schemars::SchemaGenerator;
+
     use super::{MODULES, operations_of};
-    use crate::catalog::Product;
+    use crate::catalog::{Product, ValueKind};
 
     /// Adds to `found` the path of each module under `folder`, the module
     /// `module`, that defines `pub const ENTRIES`, as `module_path!()`
@@ -173,6 +175,58 @@ mod tests {
                 listed.len()
             ),
             (defining.clone(), defining.len())
+        );
+    }
+
+    /// A call's own `timeout` sets one Duration setting for that call alone,
+    /// which its `setting` keyword names: the setting the engine's refusal
+    /// of `0` and an SDK's refusal before sending name in their `limit`
+    /// (ADR 0080).
+    ///
+    /// Covers: story:11-42
+    #[test]
+    fn each_calls_own_timeout_names_the_duration_setting_it_sets() {
+        let durations: BTreeSet<&str> = MODULES
+            .iter()
+            .flat_map(|entries| entries.settings)
+            .filter(|setting| setting.kind == ValueKind::Duration)
+            .map(|setting| setting.name)
+            .collect();
+        let mut generator = SchemaGenerator::default();
+        let mut named = Vec::new();
+        for operation in MODULES.iter().flat_map(|entries| entries.operations) {
+            let reference = (operation.params)(&mut generator);
+            let params = reference
+                .get("$ref")
+                .and_then(|reference| reference.as_str())
+                .and_then(|reference| reference.rsplit('/').next())
+                .and_then(|name| generator.definitions().get(name))
+                .cloned()
+                .unwrap_or_else(|| reference.to_value());
+            if let Some(timeout) = params.pointer("/properties/timeout") {
+                named.push((
+                    operation.name,
+                    timeout["setting"]
+                        .as_str()
+                        .filter(|setting| durations.contains(setting))
+                        .map(str::to_owned),
+                ));
+            }
+        }
+
+        assert_eq!(
+            named
+                .iter()
+                .find(|(name, _)| *name == "page.goto")
+                .map(|(_, setting)| setting.as_deref()),
+            Some(Some("timeout.navigation"))
+        );
+        assert_eq!(
+            named
+                .iter()
+                .filter(|(_, setting)| setting.is_none())
+                .collect::<Vec<_>>(),
+            Vec::<&(&str, Option<String>)>::new()
         );
     }
 

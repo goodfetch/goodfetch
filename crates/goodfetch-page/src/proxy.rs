@@ -148,6 +148,8 @@ fn invalid(settings: &Resolved, setting: &Setting, reason: String) -> CallError 
             key: key.to_owned(),
             layer: settings.effective(setting).map(|effective| effective.layer),
             reason,
+            limit: None,
+            fix: None,
         },
     )
 }
@@ -347,6 +349,8 @@ fn needs(key: &str, needed: &str) -> CallError {
             key: key.to_owned(),
             layer: None,
             reason: format!("`{key}` needs `{needed}`"),
+            limit: None,
+            fix: None,
         },
     )
 }

@@ -1248,6 +1248,8 @@ fn policy_of(run: &Run) -> Result<Policy, CallError> {
                 key: invalid.setting.to_owned(),
                 layer: None,
                 reason: format!("`{}` is no host", invalid.entry),
+                limit: None,
+                fix: None,
             },
         )
     })

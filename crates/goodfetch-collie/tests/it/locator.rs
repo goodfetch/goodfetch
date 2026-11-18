@@ -369,7 +369,7 @@ fn a_target_never_actionable_raises_deadline_exceeded_naming_the_step(
         (
             &json!("deadline_exceeded"),
             &json!(waited_for),
-            &json!({ "key": "timeout.action", "value": 1_000, "layer": "run" }),
+            &json!({ "key": "timeout.action", "value": 1_000, "layer": "run", "origin": "settings" }),
             &json!("verified"),
         ),
         "{clicked} {verdict}"

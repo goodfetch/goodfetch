@@ -578,6 +578,13 @@ const FIELD_VALUES_MODULE: &str = "../field-values.ts";
 /// The type parameter of a member typed by the fields its caller declares.
 const FIELDS: &str = "Fields";
 
+/// A call's own optional parameter that bounds it (ADR 0080).
+const TIMEOUT: &str = "timeout";
+
+/// The hand-written function of [`HANDLE_MODULE`] that refuses a call's
+/// own `timeout` no deadline can be before it is sent (ADR 0080).
+const TIMEOUT_OF: &str = "timeoutOf";
+
 /// The words TypeScript reserves, which a positional parameter cannot be
 /// named: it takes a trailing `_` in the declaration, which no caller
 /// writes (ADR 0099).
@@ -647,13 +654,17 @@ fn positional_name(name: &str) -> String {
 /// options object, which holds the named ones and, for a call that can be
 /// cancelled, `signal`. Each type is the params type's own,
 /// `types.<Params>["<name>"]`, but the one the fields that type a result
-/// are declared by, `typed`, which is the member's type parameter.
+/// are declared by, `typed`, which is the member's type parameter. A call's
+/// own `timeout` goes through `timeoutOf`, which refuses before sending a
+/// value no deadline can be, naming its setting, `timeout_setting`
+/// (ADR 0080).
 fn signature(
     parameters: &Parameters,
     type_name: &str,
     cancellable: bool,
     id: &str,
     typed: Option<&str>,
+    timeout_setting: Option<&str>,
 ) -> (String, String) {
     let mut declared = Vec::new();
     let mut entries = vec![format!("{id}: this.#host.id")];
@@ -683,7 +694,11 @@ fn signature(
             "readonly {}?: types.{type_name}[{name:?}] | undefined",
             camel(name)
         ));
-        entries.push(format!("{name}: options.{}", camel(name)));
+        let given = format!("options.{}", camel(name));
+        entries.push(match timeout_setting.filter(|_| name == TIMEOUT) {
+            Some(setting) => format!("{name}: {TIMEOUT_OF}({given}, {setting:?})"),
+            None => format!("{name}: {given}"),
+        });
     }
     if cancellable {
         options.push("readonly signal?: AbortSignal | undefined".to_owned());
@@ -718,6 +733,7 @@ fn member(member: &Member<'_>, id: &HandleId) -> String {
         operation.cancellable,
         &id.param,
         typed.map(|typed| typed.param.as_str()),
+        member.timeout_setting.as_deref(),
     );
     let call_options = if operation.cancellable {
         "{ signal: options.signal }"
@@ -788,8 +804,20 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> String {
     } else {
         String::new()
     };
+    let timed = handles.iter().any(|handle| {
+        handle
+            .members
+            .iter()
+            .chain(handle.sub_objects.iter().flat_map(|held| &held.members))
+            .any(|member| member.timeout_setting.is_some())
+    });
+    let timeout_of = if timed {
+        format!(", {TIMEOUT_OF}")
+    } else {
+        String::new()
+    };
     format!(
-        "{HEADER}\n{field_values}import {{ defined, type HandleHost }} from \"{HANDLE_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\nimport type * as types from \"./types.ts\";\n"
+        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost }} from \"{HANDLE_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\nimport type * as types from \"./types.ts\";\n"
     )
 }
 
@@ -865,6 +893,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
                 &builder.type_name,
                 false,
                 &handle.id.param,
+                None,
                 None,
             );
             text.push('\n');

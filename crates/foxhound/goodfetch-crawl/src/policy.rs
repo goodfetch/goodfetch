@@ -82,6 +82,8 @@ pub(crate) fn domain_policy(resolved: &Resolved) -> Result<Policy, CallError> {
                 key: invalid.setting.to_owned(),
                 layer: None,
                 reason: format!("`{}` is no host", invalid.entry),
+                limit: None,
+                fix: None,
             },
         )
     })

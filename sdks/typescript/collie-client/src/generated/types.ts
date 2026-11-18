@@ -3040,8 +3040,9 @@ export interface SettingPreset {
   };
 }
 /**
- * A setting that decided an outcome: its key, its value and the layer that
- * set it (ADRs 0028 and 0079).
+ * A setting that decided an outcome: its key, its value, the layer that
+ * set it and, for the run layer, where the value came from (ADRs 0028,
+ * 0079 and 0083).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "SettingLimit".
@@ -3055,6 +3056,12 @@ export interface SettingLimit {
    * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
    */
   layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  /**
+   * For the run layer, where the value came from, such as `argument`
+   * for a call's own `timeout` (ADR 0083); absent when unknown or for
+   * another layer.
+   */
+  origin?: RunOrigin | null;
   /**
    * Its value.
    */
@@ -4360,8 +4367,9 @@ export interface ModelAllowance {
   value: number;
 }
 /**
- * A setting that decided an outcome: its key, its value and the layer that
- * set it (ADRs 0028 and 0079).
+ * A setting that decided an outcome: its key, its value, the layer that
+ * set it and, for the run layer, where the value came from (ADRs 0028,
+ * 0079 and 0083).
  */
 export interface SettingLimit1 {
   /**
@@ -4372,6 +4380,12 @@ export interface SettingLimit1 {
    * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
    */
   layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  /**
+   * For the run layer, where the value came from, such as `argument`
+   * for a call's own `timeout` (ADR 0083); absent when unknown or for
+   * another layer.
+   */
+  origin?: RunOrigin | null;
   /**
    * Its value.
    */
@@ -6665,6 +6679,26 @@ export interface RunDiscarded {
   run_id: string;
 }
 /**
+ * What `run.finish` takes: the Run, and how long the call waits for its
+ * end.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunFinishParams".
+ */
+export interface RunFinishParams {
+  /**
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   */
+  run_id: string;
+  /**
+   * How long the call waits for the Run's end, in milliseconds, at least
+   * 1, as `timeout.run` for this call alone: absent or `null` for none,
+   * since the Run's own `timeout.run` bounds it (ADR 0080). Past it, the
+   * call fails with `deadline_exceeded` and only the wait ends.
+   */
+  timeout?: number | null;
+}
+/**
  * One row of the Run index (ADR 0031): a Run, where its state is, its three
  * axes and, while it is live, the engine that owns it.
  *
@@ -7404,6 +7438,26 @@ export interface RunStarted {
   started_as: "new" | "existing" | "resumed";
 }
 /**
+ * What `run.stop` takes: the Run, and how long the call waits for its
+ * safe point.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunStopParams".
+ */
+export interface RunStopParams {
+  /**
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   */
+  run_id: string;
+  /**
+   * How long the call waits for the Run's safe point, in milliseconds,
+   * at least 1: absent for the Run's `timeout.close`, `null` for none
+   * (ADR 0080). Past it, the call fails with `deadline_exceeded` and the
+   * Run still stops at its next safe point.
+   */
+  timeout?: number | null;
+}
+/**
  * What `run.stopping` carries.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -7516,26 +7570,6 @@ export interface RunUsage1 {
    * it caps (ADR 0041): *uncapped*.
    */
   uncapped?: boolean;
-}
-/**
- * What `run.finish` and `run.stop` take: the Run, and how long the call
- * waits for its end.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "RunWaitParams".
- */
-export interface RunWaitParams {
-  /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
-   */
-  run_id: string;
-  /**
-   * How long the call waits for the Run's end, in milliseconds; past it,
-   * it fails with `deadline_exceeded` and only the wait ends. None by
-   * default for `run.finish`, which the Run's own `timeout.run` bounds;
-   * `timeout.close` by default for `run.stop`.
-   */
-  timeout?: number | null;
 }
 /**
  * What `sample.echo` repeats.

@@ -701,6 +701,7 @@ impl BrowserCache {
                     key: EGRESS_OFFLINE.name.to_owned(),
                     value: serde_json::Value::Bool(true),
                     layer,
+                    origin: None,
                 },
                 fix: format!(
                     "Run `{}` beforehand where the Browser cache is writable, or lift `{}` where it was set",

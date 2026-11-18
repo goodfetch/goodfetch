@@ -292,6 +292,8 @@ fn redirect_count(max_redirects: Option<u32>, surface: Surface) -> Result<u32, C
             reason: format!(
                 "{count} is above {MAX_REDIRECTS}, the most redirects a request follows"
             ),
+            limit: None,
+            fix: None,
         },
     ))
 }

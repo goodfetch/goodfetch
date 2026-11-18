@@ -8,7 +8,7 @@
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::checkpoint::RunResumeParams;
 use goodfetch_protocol::foxhound::outcomes::RunRetryFailedParams;
-use goodfetch_protocol::run::{RunAbortParams, RunId, RunKind, RunParams, RunWaitParams};
+use goodfetch_protocol::run::{RunAbortParams, RunId, RunKind, RunParams, RunStopParams};
 
 use super::runs::Phase;
 use super::{Daemon, Effect, LINE_MOST, State};
@@ -149,7 +149,7 @@ impl State {
     pub(super) fn act(&self, run: RunId, control: Control) -> Option<Effect> {
         let call = match control {
             Control::Pause => Call::Pause(RunParams { run_id: run }),
-            Control::Stop => Call::Stop(RunWaitParams {
+            Control::Stop => Call::Stop(RunStopParams {
                 run_id: run,
                 timeout: None,
             }),

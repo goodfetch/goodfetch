@@ -52,7 +52,7 @@ class AsyncRun:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
-        params = models.RunWaitParams(run_id=self._host.id)
+        params = models.RunFinishParams(run_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout
         return result_of(models.RunReport, await self._host.call("run.finish", params))
@@ -127,7 +127,7 @@ class AsyncRun:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
-        params = models.RunWaitParams(run_id=self._host.id)
+        params = models.RunStopParams(run_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout
         return result_of(models.RunReport, await self._host.call("run.stop", params))
@@ -484,7 +484,7 @@ class Run:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
-        params = models.RunWaitParams(run_id=self._host.id)
+        params = models.RunFinishParams(run_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout
         return result_of(models.RunReport, self._host.call("run.finish", params))
@@ -559,7 +559,7 @@ class Run:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
-        params = models.RunWaitParams(run_id=self._host.id)
+        params = models.RunStopParams(run_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout
         return result_of(models.RunReport, self._host.call("run.stop", params))

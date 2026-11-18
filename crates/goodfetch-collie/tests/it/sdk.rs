@@ -4,10 +4,17 @@
 //! given as the connection's environment map; and the members generated
 //! from the catalog (ADR 0099), the `catalog-mapping` client conformance
 //! case in `linked` mode.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
+use std::time::Duration;
 
 use goodfetch_collie::{Collie, ConnectOptions, Error, RunId, StartedAs, blocking};
 use goodfetch_protocol::run::{Lifecycle, ProgressMessage};
 use goodfetch_test_support::{TestEnv, real_time_runtime};
+use serde_json::json;
 
 mod public_items;
 
@@ -124,6 +131,56 @@ fn the_members_generated_from_the_catalog_reach_the_engine() {
         );
         let after = run.report().await;
         assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+    });
+}
+
+/// A call's `Duration::ZERO` is refused with `setting_invalid` naming the
+/// setting it would set, given as an argument, and the null form (ADR 0080).
+/// Covers: story:11-42, error:setting_invalid, setting:timeout.close, operation:run.stop
+#[test]
+fn a_zero_duration_is_refused_naming_the_setting_and_the_null_form() {
+    let env = TestEnv::new();
+    real_time_runtime().block_on(async {
+        let collie = Collie::connect(options(&env)).await.unwrap();
+        let run = collie.start().await.unwrap();
+
+        let refused = run.stop().timeout(Duration::ZERO).await;
+        collie.close().await.unwrap();
+
+        let Err(Error::Failed(failure)) = refused else {
+            panic!("{refused:?}");
+        };
+        assert_eq!(
+            (
+                failure.data.code.as_str(),
+                &failure.data.details["limit"],
+                failure.data.details["fix"]
+                    .as_str()
+                    .is_some_and(|fix| fix.contains("`timeout: null`")),
+            ),
+            (
+                "setting_invalid",
+                &json!({ "key": "timeout.close", "value": 0, "layer": "run", "origin": "argument" }),
+                true,
+            )
+        );
+    });
+}
+
+/// `.no_timeout()` sends `null`: the call waits with no deadline of its
+/// own, in place of the Run's `timeout.close` (ADR 0080).
+/// Covers: story:11-40, setting:timeout.close, operation:run.stop
+#[test]
+fn no_timeout_waits_for_the_stop_with_no_deadline() {
+    let env = TestEnv::new();
+    real_time_runtime().block_on(async {
+        let collie = Collie::connect(options(&env)).await.unwrap();
+        let run = collie.start().await.unwrap();
+
+        let stopped = run.stop().no_timeout().await.unwrap();
+        collie.close().await.unwrap();
+
+        assert_eq!(stopped.lifecycle, Lifecycle::Stopped);
     });
 }
 

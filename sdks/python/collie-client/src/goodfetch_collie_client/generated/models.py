@@ -2347,6 +2347,26 @@ class RunSortKey(StrEnum):
     """Its Completeness."""
 
 
+class RunStopParams(BaseModel):
+    """
+    What `run.stop` takes: the Run, and how long the call waits for its
+    safe point.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    run_id: RunId
+    """The Run's ID."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the call waits for the Run's safe point, in milliseconds,
+    at least 1: absent for the Run's `timeout.close`, `null` for none
+    (ADR 0080). Past it, the call fails with `deadline_exceeded` and the
+    Run still stops at its next safe point.
+    """
+
+
 class RunTrigger(StrEnum):
     """
     What fired a Schedule's occurrence (ADR 0036), as its run's reserved
@@ -2361,26 +2381,6 @@ class RunTrigger(StrEnum):
     """The end of another run."""
     run_now = "run_now"
     """A person's or a program's "run now"."""
-
-
-class RunWaitParams(BaseModel):
-    """
-    What `run.finish` and `run.stop` take: the Run, and how long the call
-    waits for its end.
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    run_id: RunId
-    """The Run's ID."""
-    timeout: Annotated[int | None, Field(ge=0)] = None
-    """
-    How long the call waits for the Run's end, in milliseconds; past it,
-    it fails with `deadline_exceeded` and only the wait ends. None by
-    default for `run.finish`, which the Run's own `timeout.run` bounds;
-    `timeout.close` by default for `run.stop`.
-    """
 
 
 class RunWarning(BaseModel):
@@ -5519,6 +5519,26 @@ class RunDiscarded(BaseModel):
     """The Run's ID."""
 
 
+class RunFinishParams(BaseModel):
+    """
+    What `run.finish` takes: the Run, and how long the call waits for its
+    end.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    run_id: RunId
+    """The Run's ID."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the call waits for the Run's end, in milliseconds, at least
+    1, as `timeout.run` for this call alone: absent or `null` for none,
+    since the Run's own `timeout.run` bounds it (ADR 0080). Past it, the
+    call fails with `deadline_exceeded` and only the wait ends.
+    """
+
+
 class RunListParams(BaseModel):
     """
     What `run.list` takes: which rows of the Run index it answers, each
@@ -5724,8 +5744,9 @@ class SessionSource(
 
 class SettingLimit(BaseModel):
     """
-    A setting that decided an outcome: its key, its value and the layer that
-    set it (ADRs 0028 and 0079).
+    A setting that decided an outcome: its key, its value, the layer that
+    set it and, for the run layer, where the value came from (ADRs 0028,
+    0079 and 0083).
     """
 
     model_config = ConfigDict(
@@ -5735,6 +5756,12 @@ class SettingLimit(BaseModel):
     """The setting's key."""
     layer: SettingsLayer
     """The layer that set it."""
+    origin: RunOrigin | None = None
+    """
+    For the run layer, where the value came from, such as `argument`
+    for a call's own `timeout` (ADR 0083); absent when unknown or for
+    another layer.
+    """
     value: Any
     """Its value."""
 

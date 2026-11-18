@@ -35,9 +35,9 @@ use goodfetch_protocol::run::{
     RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_DISCARD, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN,
     RUN_IN_USE, RUN_LIVE, RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_SET_PROGRESS_MESSAGE, RUN_START,
     RUN_STATE_UNAVAILABLE, RUN_STOP, RUN_USAGE, ReachedLimit, RunAbortParams, RunConflictDetails,
-    RunDetails, RunDiscarded, RunId, RunIdInvalidDetails, RunKind, RunParams, RunProgress,
-    RunReport, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams,
-    StartedAs, StopReason,
+    RunDetails, RunDiscarded, RunFinishParams, RunId, RunIdInvalidDetails, RunKind, RunParams,
+    RunProgress, RunReport, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams,
+    RunUsage, StartedAs, StopReason,
 };
 use goodfetch_protocol::run::{
     RUN_INTERRUPTED, RUN_LIST, RUN_PROGRESS_READ, RUN_REPORT, RunInterruptedDetails, RunList,
@@ -401,6 +401,8 @@ fn translated(error: &SettingsError, identity: &Identity, behind_gateway: bool) 
                 key: key.clone(),
                 layer: *layer,
                 reason: reason.clone(),
+                limit: None,
+                fix: None,
             },
         ),
         SettingsError::NotApplicable { key, layer, fix } => CallError::new(
@@ -855,11 +857,17 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
     Ok(started)
 }
 
-async fn finish(params: RunWaitParams, context: CallContext) -> Result<RunReport, CallError> {
+async fn finish(params: RunFinishParams, context: CallContext) -> Result<RunReport, CallError> {
+    // A `timeout` of 0 is refused before the Run is let finish.
+    let deadline = params
+        .timeout
+        .flatten()
+        .map(|millis| Deadline::argument(&TIMEOUT_RUN, millis))
+        .transpose()?;
     let finishing = context.runs().finish(params.run_id);
-    let report = match params.timeout {
-        Some(millis) => {
-            Deadline::given(&TIMEOUT_RUN, millis, SettingsLayer::Run)
+    let report = match deadline {
+        Some(deadline) => {
+            deadline
                 .within(&context.engine().clock(), WaitedFor::RUN_END, finishing)
                 .await?
         }
@@ -870,24 +878,36 @@ async fn finish(params: RunWaitParams, context: CallContext) -> Result<RunReport
 
 /// `run.stop`: the Run stops at its next safe point as an abort by its
 /// program; the wait is bounded by `timeout.close`, or the call's own
-/// `timeout`, and only the wait ends past it (ADR 0102).
-async fn stop(params: RunWaitParams, context: CallContext) -> Result<RunReport, CallError> {
+/// `timeout`, none when it is `null`, and only the wait ends past it
+/// (ADRs 0080 and 0102).
+async fn stop(params: RunStopParams, context: CallContext) -> Result<RunReport, CallError> {
+    // A `timeout` of 0 is refused before the stop is asked.
+    let given = match params.timeout {
+        Some(Some(millis)) => Some(Some(Deadline::argument(&TIMEOUT_CLOSE, millis)?)),
+        Some(None) => Some(None),
+        None => None,
+    };
     // The stop is asked before the call's first await, so a call its Client
     // cancels still stops the Run; only the wait ends with it (#1743).
     let stopping = context
         .runs()
         .stop_at_safe_point(params.run_id.clone(), StoppedBy::Program);
-    let deadline = match params.timeout {
-        Some(millis) => Deadline::given(&TIMEOUT_CLOSE, millis, SettingsLayer::Run),
-        None => close_deadline(&context, &params.run_id).await,
+    let deadline = match given {
+        Some(given) => given,
+        None => Some(close_deadline(&context, &params.run_id).await),
     };
-    let report = deadline
-        .within(
-            &context.engine().clock(),
-            WaitedFor::RUN_SAFE_POINT,
-            stopping,
-        )
-        .await?;
+    let report = match deadline {
+        Some(deadline) => {
+            deadline
+                .within(
+                    &context.engine().clock(),
+                    WaitedFor::RUN_SAFE_POINT,
+                    stopping,
+                )
+                .await?
+        }
+        None => stopping.await,
+    };
     ending(report.map_err(|error| run_error(error, &context))?)
 }
 

@@ -199,7 +199,7 @@ describe("a Collie Connection", () => {
 
   test(
     "gives up waiting for a Run's abort once timeout.close passes, failing the close with deadline_exceeded",
-    { tags: ["story:11-2", "error:deadline_exceeded"] },
+    { tags: ["story:11-2", "story:11-43", "error:deadline_exceeded"] },
     async () => {
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
       try {

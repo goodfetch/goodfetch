@@ -3,14 +3,15 @@
 # runs the gate host starts while ADR 0135 keeps GitHub Actions to the
 # Release suite (TESTING.md, After merge), on `main`'s head by default: its
 # cron the constrained and the mutation run (the entries in
-# ci/test-health.crontab), and each `just merge` gate, as it ends, the
-# post-merge run (ci/merge-pr.sh). They take the lock of the backstop's gate
-# worktree (ci/gate-worktree.sh's `gate-backstop`), so they never run beside
-# the backstop or each other. The constrained and the mutation run build in
-# that worktree and reuse its build; the post-merge run builds in `just
-# merge`'s (`merge-gate`), where the gate just built `main`'s tree. None
-# starts while `just merge`'s gate runs, and a gate started during a run
-# waits for it, but for a post-merge run, which it stops.
+# ci/test-health.crontab); the post-merge run only by hand, since no gate or
+# cron line starts it (the owner's decision of 2026-11-18, ADR 0135). They
+# take the lock of the backstop's gate worktree (ci/gate-worktree.sh's
+# `gate-backstop`), so they never run beside the backstop or each other. The
+# constrained and the mutation run build in that worktree and reuse its
+# build; the post-merge run builds in `just merge`'s (`merge-gate`), where
+# the last gate built its head's tree. None starts while `just merge`'s gate
+# runs, and a gate started during a run waits for it, but for a post-merge
+# run, which it stops.
 #   constrained  the constrained test-health run (ADR 0064): the Pre-merge
 #                suite on half the host's CPU and memory, with a fresh order
 #                seed and Vitest's `detectAsyncLeaks` (ci/test-health/
@@ -25,10 +26,10 @@
 #                and the Pre-merge suite over what `main` gained since the
 #                commit it last checked (`<log>/post-merge-checked`; on its
 #                first run, `main`'s commit before its head), both run even
-#                when the first fails, within 90 minutes. A gate that held
-#                its lock starts it as it ends, merged or not: it does nothing
-#                while `main` has not moved, and records a head whose merge
-#                passed the full gate as checked without running anything.
+#                when the first fails, within 90 minutes. Run by hand; it
+#                does nothing while `main` has not moved, and records a head
+#                whose merge passed the full gate as checked without running
+#                anything.
 # Each run appends one line to `<log>/results.txt`, `<UTC day> <commit>
 # <run>=<pass|fail>`, or `<run>=skipped (…)` when `just merge`'s gate runs,
 # the disk lacks room or the worktree is busy; a run that ends on its setup,
@@ -36,7 +37,7 @@
 # <checked>`, and once its suites have started it then moves
 # `post-merge-checked` to the commit, pass or fail: a red range is reported,
 # not run again. One that ends on its setup, that cannot run now or that a
-# gate stopped moves nothing, so the run the next gate starts covers the
+# gate stopped moves nothing, so the next post-merge run covers the
 # range; one that cannot run now or was stopped writes `post-merge=skipped
 # (…)`, once for a commit and a reason. Its log is `<log>/<day>-<run>.log`,
 # with `<log>` GOODFETCH_TEST_HEALTH_LOG or ~/test-health. It fails when the
@@ -85,8 +86,7 @@ result() {
 # fails. A post-merge run exits green instead and moves nothing, leaving its
 # range for the next one, and writes its line once for a commit and a reason
 # (#2619: it said so in its log alone, where no watch reads), whatever the
-# day and whatever came between: the run after each gate would otherwise
-# repeat it.
+# day and whatever came between: each later run would otherwise repeat it.
 skip() {
   local line
   echo "== skipped: $1"

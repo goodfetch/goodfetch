@@ -4,26 +4,43 @@
 //! Its handles are cheap clones, `Send + Sync + 'static`; closing it closes
 //! its Runs first (ADR 0078), and dropping its last handle shuts a runtime
 //! it owns down in the background, never on the async worker that drops
-//! it.
+//! it. It saves a file to the program's path (ADR 0116): it hands the
+//! engine the path, or writes the bytes the engine streams.
 
 use std::fmt::Debug;
-use std::future::Future;
+use std::future::{Future, IntoFuture};
+use std::marker::PhantomData;
 use std::panic;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, PoisonError, Weak};
+use std::time::Duration;
 
-use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult};
+use data_encoding::BASE64;
+use goodfetch_protocol::connection::{CANCEL, CancelParams, HELLO, HelloParams, HelloResult};
+use goodfetch_protocol::events::{CREDIT, CreditParams};
+use goodfetch_protocol::jsonrpc::RequestId;
+use goodfetch_protocol::page::{CHUNK, Chunk};
 use serde::Serialize;
+use serde::de::{DeserializeOwned, Error as _};
+use serde_json::Value;
 use tokio::runtime::{Handle, Runtime};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinError;
 use tokio_util::task::TaskTracker;
 
-use crate::call::{Call, Query};
+use crate::call::{Call, Query, Reply};
 use crate::error::Error;
-use crate::rpc::{self, Outgoing, Sender};
+use crate::file_saving::{self, FileSaving};
+use crate::handler::{HandlerRequests, Streams};
+use crate::rpc::{self, Heard, Outgoing, Sender};
 use crate::sync::{Mutex, MutexGuard};
 use crate::transport::{self, Endpoint, Network};
+
+/// How many `$/chunk` notifications a save takes ahead of those it has
+/// written: the credits it grants when its call is sent, then one more for
+/// each chunk written.
+const CHUNKS_AHEAD: u32 = 16;
 
 /// The runtime a Connection's tasks run on.
 #[derive(Debug)]
@@ -85,6 +102,8 @@ pub struct Connection(Arc<Inner>);
 #[derive(Debug)]
 struct Inner {
     sender: Sender,
+    /// The streams of the engine's requests the program serves.
+    streams: Streams,
     /// The runtime its tasks run on.
     handle: Handle,
     tasks: TaskTracker,
@@ -123,9 +142,11 @@ impl Connection {
         if let Some(process) = opened.process {
             tasks.spawn_on(process.watch(), &handle);
         }
-        let sender = rpc::start(opened.link, &handle, &tasks);
+        let streams = Streams::new();
+        let sender = rpc::start(opened.link, &handle, &tasks, streams.clone());
         let connection = Self(Arc::new(Inner {
             sender,
+            streams,
             handle,
             tasks,
             handed: TaskTracker::new(),
@@ -160,6 +181,166 @@ impl Connection {
     /// The query of `method` with `params`, whose answer reads as `T`.
     pub fn query<T>(&self, method: &str, params: &impl Serialize) -> Query<T> {
         Query::new(self.0.sender.clone(), method, to_value(params))
+    }
+
+    /// The save of a file to the program's `path` through the call of
+    /// `method` with `params`, whose reply reads as `T`, which awaiting it
+    /// sends; `call` names the call the program made, which a failure's fix
+    /// names. A relative path resolves against the working directory. Every
+    /// engine a Connection reaches is on the program's machine, linked,
+    /// Attached or a Daemon on a local socket, so the call carries the
+    /// absolute path and the engine writes it under ADR 0116's rule; an
+    /// engine that cannot reach the path streams the file in `$/chunk`
+    /// notifications under `$/credit`, and answers `written: false`, and
+    /// the Connection writes the chunks to the path, whole or not at all,
+    /// on its tracker.
+    pub fn save_file<T>(
+        &self,
+        method: &str,
+        params: &impl Serialize,
+        path: &Path,
+        call: &str,
+    ) -> SaveFile<T> {
+        SaveFile {
+            connection: self.clone(),
+            method: method.to_owned(),
+            params: to_value(params),
+            path: path.to_owned(),
+            call: call.to_owned(),
+            timeout: None,
+            reply: PhantomData,
+        }
+    }
+
+    /// Sends the save's call of `method` with `params` and writes what it
+    /// streams to `saving`'s path, until its reply.
+    async fn saved(
+        &self,
+        method: String,
+        params: Value,
+        timeout: Option<Duration>,
+        mut saving: Saving,
+    ) -> Result<Value, Error> {
+        // The call's id, then at most a chunk for each credit granted.
+        let (notified, mut heard) = mpsc::channel(CHUNKS_AHEAD as usize + 1);
+        let (reply, mut replied) = oneshot::channel();
+        self.0.sender.call(Outgoing {
+            method,
+            params,
+            timeout,
+            reply,
+            notified: Some(notified),
+        });
+        let result = loop {
+            tokio::select! {
+                biased;
+                Some(heard) = heard.recv() => self.hear(heard, &mut saving).await?,
+                result = &mut replied => break result.map_err(|_| Error::Closed),
+            }
+        };
+        // A call the engine answered is over; one the Connection failed, as
+        // timed out, is not, and the dropped save stops it.
+        saving.answered = matches!(result, Ok(Ok(_) | Err(Error::Failed(_))));
+        let result = result??;
+        while let Ok(heard) = heard.try_recv() {
+            self.hear(heard, &mut saving).await?;
+        }
+        if result.get("written").and_then(Value::as_bool) != Some(true) {
+            self.finish(saving).await?;
+        }
+        Ok(result)
+    }
+
+    /// Acts on what a save's call heard: grants it its first credits once
+    /// it is sent, and writes each chunk, then grants one more.
+    async fn hear(&self, heard: Heard, saving: &mut Saving) -> Result<(), Error> {
+        match heard {
+            Heard::Sent(id) => {
+                saving.id = Some(id);
+                self.credit(id, CHUNKS_AHEAD)
+            }
+            Heard::Notified { method, params } if method == CHUNK => {
+                let chunk: Chunk = serde_json::from_value(params).map_err(Error::Shape)?;
+                let bytes = BASE64.decode(chunk.data.as_bytes()).map_err(|error| {
+                    Error::Shape(serde_json::Error::custom(format!(
+                        "a chunk's data is no Base64: {error}"
+                    )))
+                })?;
+                let (given, path, call, file) = (
+                    saving.given.clone(),
+                    saving.path.clone(),
+                    saving.call.clone(),
+                    saving.file.take(),
+                );
+                let file = self
+                    .blocking(move || {
+                        let mut file = match file {
+                            Some(file) => file,
+                            None => FileSaving::create_at(&given, path, &call)?,
+                        };
+                        file.write(&bytes)?;
+                        Ok(file)
+                    })
+                    .await?;
+                saving.file = Some(file);
+                if let Some(id) = saving.id {
+                    self.credit(id, 1)?;
+                }
+                Ok(())
+            }
+            Heard::Notified { .. } => Ok(()),
+        }
+    }
+
+    /// Writes the rest of a save that streamed its bytes: an empty file
+    /// when none came, then renamed over its path.
+    async fn finish(&self, mut saving: Saving) -> Result<(), Error> {
+        let (given, path, call, file) = (
+            saving.given.clone(),
+            saving.path.clone(),
+            saving.call.clone(),
+            saving.file.take(),
+        );
+        self.blocking(move || {
+            let file = match file {
+                Some(file) => file,
+                None => FileSaving::create_at(&given, path, &call)?,
+            };
+            file.finish()
+        })
+        .await
+    }
+
+    /// Grants the streaming call `id` `credits` more chunks.
+    fn credit(&self, id: i64, credits: u32) -> Result<(), Error> {
+        let params = to_value(&CreditParams {
+            id: RequestId::Number(id),
+            credits,
+        })?;
+        self.0.sender.notify(CREDIT, params);
+        Ok(())
+    }
+
+    /// Runs the blocking `work` on the Connection's tracker. Dropping the
+    /// future lets it end, and drops what it returns.
+    async fn blocking<T: Send + 'static>(
+        &self,
+        work: impl FnOnce() -> Result<T, Error> + Send + 'static,
+    ) -> Result<T, Error> {
+        joined(self.0.tasks.spawn_blocking_on(work, &self.0.handle).await)?
+    }
+
+    /// The engine's requests of `method`, such as the Crawl requests a
+    /// crawl's handlers answer (ADR 0093), from now until the Connection
+    /// ends or the stream is dropped. The engine's requests of a method no
+    /// stream serves are answered with the protocol's method error.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::AlreadyServed`] while another stream serves `method`, and
+    /// [`Error::Closed`] once the Connection has ended.
+    pub fn handler_requests(&self, method: &str) -> Result<HandlerRequests, Error> {
+        self.0.streams.open(method)
     }
 
     /// Closes the Connection: first every Run it started that is still
@@ -213,6 +394,7 @@ impl Connection {
             params,
             timeout: None,
             reply,
+            notified: None,
         });
     }
 
@@ -239,6 +421,109 @@ impl Connection {
     /// The Runs it started, which a panic elsewhere leaves as they were.
     fn runs(&self) -> MutexGuard<'_, Vec<Weak<dyn Closes>>> {
         self.0.runs.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// The save of a file to the program's path, whose reply reads as `T`.
+/// Nothing is sent until it is awaited.
+///
+/// Awaiting it fails with [`Error::PathNotWritable`] or
+/// [`Error::FileWriteFailed`] when the Connection cannot write the path,
+/// and with whatever the call fails with; none leaves a file beside the
+/// path or changes it.
+///
+/// # Cancel safety
+///
+/// Dropping the future removes the file it was writing and stops the
+/// engine's call with `$/cancel`; the path holds what it held before.
+#[must_use = "a save is sent only when it is awaited"]
+pub struct SaveFile<T> {
+    connection: Connection,
+    method: String,
+    params: Result<Value, Error>,
+    path: PathBuf,
+    call: String,
+    timeout: Option<Duration>,
+    reply: PhantomData<fn() -> T>,
+}
+
+impl<T> SaveFile<T> {
+    /// Fails the save with [`Error::TimedOut`] if its reply has not come
+    /// within `timeout`, the file it was writing removed.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    /// Waits for the reply as long as the Connection lasts.
+    pub fn no_timeout(mut self) -> Self {
+        self.timeout = None;
+        self
+    }
+}
+
+impl<T: DeserializeOwned + Send + 'static> IntoFuture for SaveFile<T> {
+    type Output = Result<T, Error>;
+    type IntoFuture = Reply<T>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        let Self {
+            connection,
+            method,
+            params,
+            path: given,
+            call,
+            timeout,
+            reply: _,
+        } = self;
+        Box::pin(async move {
+            let path = file_saving::absolute(&given, &call)?;
+            let mut params = params?;
+            let Value::Object(fields) = &mut params else {
+                return Err(Error::Shape(serde_json::Error::custom(
+                    "a save's params are an object",
+                )));
+            };
+            fields.insert("path".to_owned(), to_value(&path)?);
+            let saving = Saving {
+                given,
+                path,
+                call,
+                id: None,
+                file: None,
+                answered: false,
+                sender: connection.0.sender.clone(),
+            };
+            let result = connection.saved(method, params, timeout, saving).await?;
+            serde_json::from_value(result).map_err(Error::Shape)
+        })
+    }
+}
+
+/// A save under way: the path as given and resolved, the call that writes
+/// it, its call's id once sent, the file it has started, if any chunk
+/// came, and whether its reply came. Dropped before its reply, it stops
+/// the engine's call.
+struct Saving {
+    given: PathBuf,
+    path: PathBuf,
+    call: String,
+    id: Option<i64>,
+    file: Option<FileSaving>,
+    answered: bool,
+    sender: Sender,
+}
+
+impl Drop for Saving {
+    fn drop(&mut self) {
+        let Some(id) = self.id.filter(|_| !self.answered) else {
+            return;
+        };
+        if let Ok(params) = serde_json::to_value(CancelParams {
+            id: RequestId::Number(id),
+        }) {
+            self.sender.notify(CANCEL, params);
+        }
     }
 }
 

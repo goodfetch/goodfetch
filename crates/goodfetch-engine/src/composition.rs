@@ -15,7 +15,7 @@ mod call_streams;
 pub(crate) mod params;
 
 use std::any::Any;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
@@ -356,6 +356,18 @@ impl<'read> ReadParams<'read> {
 type Call = dyn for<'params> Fn(Params<'params>, CallContext, &[Guard]) -> Result<Answer, CallError>
     + Send
     + Sync;
+
+/// Each operation's one handler, found by its name on every message.
+///
+/// A hash finds a name in one probe however many operations the
+/// contributions add, where an ordered map compared it with a key on each
+/// level of its tree, and foldhash hashes a short name in a few
+/// multiplications where std's `SipHash` takes rounds (issue 2790). Its seed
+/// is fixed: a random one would change a lookup's work from one process to
+/// the next (randomness outside the Entropy handle, ADR 0059). Only the
+/// composition inserts, so a Client's method name lengthens no probe.
+/// Nothing iterates it.
+pub(crate) type Handlers = HashMap<&'static str, Handler, foldhash::fast::FixedState>;
 
 /// The handler of one operation of the catalog.
 #[derive(Clone)]
@@ -824,24 +836,22 @@ impl Composition {
     }
 
     /// Each operation's one handler.
-    pub(crate) fn handlers(&self) -> Result<BTreeMap<&'static str, Handler>, CompositionError> {
-        let mut handlers: BTreeMap<&'static str, (&'static str, Handler)> = BTreeMap::new();
+    pub(crate) fn handlers(&self) -> Result<Handlers, CompositionError> {
+        let mut handlers = Handlers::default();
+        let mut owners: BTreeMap<&'static str, &'static str> = BTreeMap::new();
         for contribution in &self.contributions {
             for handler in &contribution.handlers {
                 let operation = handler.operation.name;
-                if let Some((first, _)) = handlers.get(operation) {
+                if let Some(first) = owners.insert(operation, contribution.name) {
                     return Err(CompositionError::DuplicateHandler {
                         operation,
                         first,
                         second: contribution.name,
                     });
                 }
-                handlers.insert(operation, (contribution.name, handler.clone()));
+                handlers.insert(operation, handler.clone());
             }
         }
-        Ok(handlers
-            .into_iter()
-            .map(|(operation, (_, handler))| (operation, handler))
-            .collect())
+        Ok(handlers)
     }
 }

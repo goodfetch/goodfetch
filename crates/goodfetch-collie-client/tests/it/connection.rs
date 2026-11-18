@@ -31,7 +31,7 @@ fn version() -> ProductVersion {
 }
 
 /// A Rust program's `hello`, needing Collie.
-fn hello() -> HelloParams {
+pub(crate) fn hello() -> HelloParams {
     HelloParams {
         needs: Some(Product::Collie),
         ..HelloParams::new(Surface::Rust, version())
@@ -174,7 +174,7 @@ impl Dial for Scripted {
 
 /// A network whose one Connection reaches the lines the test reads and
 /// writes.
-fn scripted() -> (
+pub(crate) fn scripted() -> (
     Network,
     tokio::io::Lines<tokio::io::BufReader<tokio::io::ReadHalf<tokio::io::DuplexStream>>>,
     tokio::io::WriteHalf<tokio::io::DuplexStream>,
@@ -195,7 +195,7 @@ fn scripted() -> (
 }
 
 /// The reply to the request `line` with `result`.
-fn reply(line: &str, result: &serde_json::Value) -> Vec<u8> {
+pub(crate) fn reply(line: &str, result: &serde_json::Value) -> Vec<u8> {
     let request: serde_json::Value = serde_json::from_str(line).unwrap();
     let mut reply = serde_json::to_vec(
         &serde_json::json!({"jsonrpc": "2.0", "id": request["id"], "result": result}),

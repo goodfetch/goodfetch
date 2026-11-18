@@ -18,7 +18,11 @@
 //! `$/cancel`, and an answer that still comes is a late commit, refused
 //! with `lease_lost`. An attempt whose Connection ended is `client_gone`,
 //! never the handler's own `handler_failed`, and is retried on a Connection
-//! still serving. Each admission also takes a Permit of its domain key from
+//! still serving. A request the program gives back, answering
+//! `call_cancelled` by the program with nothing closed under it, is its own
+//! stop (ADR 0102): its work item returns to pending with no attempt
+//! counted, no retry spent and no outcome, and is delivered again. Each
+//! admission also takes a Permit of its domain key from
 //! the Politeness the Run shares with the other runs of its user, given
 //! back once its attempt ended, with what the attempt met: a site that did
 //! not answer in time backs the domain off, and a handler failing with
@@ -136,7 +140,7 @@ use crate::run_state::{
 use crate::serving::{Crawls, Opened, Server};
 use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices, Unit};
 use crate::tier_race::Raced;
-use crate::work_items::{self, Changed, Failure, Leased, Unsuccessful};
+use crate::work_items::{self, Again, Changed, Failure, Leased, Unsuccessful};
 use goodfetch_protocol::foxhound::progress::{HELD_DOMAINS, InFlightPhase, InFlightRequest};
 
 mod attempt;
@@ -1365,20 +1369,20 @@ async fn completed(
     (state, fetching): (&mut RunState, &Fetching<'_>),
     (settlings, finished): (Vec<Settling>, Vec<Finished>),
 ) {
-    let mut retried = Vec::with_capacity(finished.len());
+    let mut again = Vec::with_capacity(finished.len());
     let mut keyed = Vec::new();
     for (outcome, settling) in finished.into_iter().zip(&settlings) {
         servers[settling.server].in_flight -= 1;
-        state.settled(outcome.leased, outcome.retried, outcome.commits);
+        state.settled(outcome.leased, outcome.again, outcome.commits);
         keyed.extend(state.added(outcome.keyed, outcome.commits));
-        retried.push(outcome.retried);
+        again.push(outcome.again);
         state.changed(outcome.changed);
     }
     let ended = settlings
         .iter()
         .map(|settling| settling.waiting.id.as_str());
     show_counted(run, state, &fetching.in_flight, ended).await;
-    returned(run, admission, settlings.into_iter().zip(retried)).await;
+    returned(run, admission, settlings.into_iter().zip(again)).await;
     for waiting in keyed {
         admission.enqueue(waiting);
     }
@@ -1496,13 +1500,13 @@ fn scored(
 /// Returns, in their order, each settled attempt's domain turn to
 /// `admission`, holding its domain first until the time its response asked
 /// past the Run's longest wait, and puts its work item back in its queue
-/// when it was `retried`.
+/// when it waits again, counting a retry but not a release.
 async fn returned(
     run: &Run,
     admission: &mut Admission,
-    settled: impl Iterator<Item = (Settling, bool)>,
+    settled: impl Iterator<Item = (Settling, Again)>,
 ) {
-    for (settling, retried) in settled {
+    for (settling, again) in settled {
         let Settling {
             waiting,
             domain,
@@ -1518,8 +1522,10 @@ async fn returned(
         admission
             .ended(&waiting.id, &waiting.key, run.clock().now(), domain)
             .await;
-        if retried {
+        if again == Again::Retried {
             count_retry(run);
+        }
+        if again.waits() {
             admission.enqueue(waiting);
         }
     }
@@ -1885,13 +1891,14 @@ struct QueuedOutcome {
 
 /// What an attempt's outcome left the delivery to do once it was written:
 /// its work item as its lease took it, each work item it added keyed, in
-/// order, as its first lease takes it, whether its work item waits again
-/// for a retry, and what its job changed of the crawl's requests by state,
-/// with the commits the writer had acknowledged when that job ran (#2679).
+/// order, as its first lease takes it, whether its work item waits again,
+/// for a retry or released, and what its job changed of the crawl's
+/// requests by state, with the commits the writer had acknowledged when
+/// that job ran (#2679).
 struct Finished {
     leased: Leased,
     keyed: Vec<Leased>,
-    retried: bool,
+    again: Again,
     changed: Changed,
     commits: u64,
 }
@@ -1976,6 +1983,7 @@ async fn queue_outcome(
             &Why::Other,
             HANDLER_LOST.retryable,
         ),
+        Answer::Released => Unsuccessful::Released,
         Answer::Failed(failed) => {
             let failed = *failed;
             let (why, retryable) = (failed.why().clone(), failed.retryable);
@@ -2058,12 +2066,12 @@ impl QueuedOutcome {
                 }
                 let lost = outcome_lost((&run, stored), policy, &leased, &cause).await;
                 lease.release();
-                let ((retried, changed), keyed) = (lost.answer, Vec::new());
+                let ((again, changed), keyed) = (lost.answer, Vec::new());
                 let commits = lost.commits;
                 return Finished {
                     leased,
                     keyed,
-                    retried,
+                    again,
                     changed,
                     commits,
                 };
@@ -2072,7 +2080,7 @@ impl QueuedOutcome {
         let mut finished = Finished {
             leased: leased.clone(),
             keyed: Vec::new(),
-            retried: false,
+            again: Again::Not,
             changed: written.answer.changed,
             commits: written.commits,
         };
@@ -2098,14 +2106,14 @@ impl QueuedOutcome {
             attempt_outcome::Ended::Unsuccessful {
                 ended,
                 recorded,
-                retried,
+                again,
             } => {
                 lease.release();
                 if ended {
                     if let Some(code) = recorded {
                         run.record_outcome(&code);
                     }
-                    finished.retried = retried;
+                    finished.again = again;
                 } else {
                     tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt past its lease commits nothing");
                 }
@@ -2127,7 +2135,7 @@ impl QueuedOutcome {
 /// Ends the attempt of `leased` whose outcome's job failed for `cause`,
 /// in a job of its own: retried while `policy` leaves it retries, failed
 /// with that cause otherwise, as any attempt that failed. Answers whether
-/// it waits again for a retry, and what the job changed of the crawl's
+/// it waits again, for a retry, and what the job changed of the crawl's
 /// requests by state. When this job fails too, its work item stays leased
 /// until the crawl's finish, which gives it back ([`drained`]).
 async fn outcome_lost(
@@ -2135,7 +2143,7 @@ async fn outcome_lost(
     policy: CrawlPolicy,
     leased: &Leased,
     cause: &str,
-) -> Ran<(bool, Changed)> {
+) -> Ran<(Again, Changed)> {
     let lost = AttemptFailure::outcome_not_written(cause);
     let (why, retryable) = (lost.why().clone(), lost.retryable);
     let masks = run.secrets().mask().masks().clone();
@@ -2153,24 +2161,24 @@ async fn outcome_lost(
         Err(error) => {
             tracing::warn!(%error, run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt whose outcome was not committed was not ended: its work item stays leased until the crawl's finish");
             // No job ran: its work item stays leased, out of every read.
-            let (answer, commits) = ((false, Changed::default()), stored.commits());
+            let (answer, commits) = ((Again::Not, Changed::default()), stored.commits());
             return Ran { answer, commits };
         }
     };
-    let retried = match ended {
+    let again = match ended {
         attempt_outcome::Ended::Unsuccessful {
             ended: true,
             recorded,
-            retried,
+            again,
         } => {
             if let Some(code) = recorded {
                 run.record_outcome(&code);
             }
-            retried
+            again
         }
-        _ => false,
+        _ => Again::Not,
     };
-    let answer = (retried, changed);
+    let answer = (again, changed);
     Ran { answer, commits }
 }
 

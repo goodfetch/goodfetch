@@ -1707,7 +1707,7 @@
     {
       "arrived_in": "0.1",
       "deprecated": null,
-      "description": "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds, or the handler's skip, which ends the request `skipped`; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy, while a failure with the Error code `blocked` ends it `blocked` with the Block cause its details name. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
+      "description": "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds, or the handler's skip, which ends the request `skipped`; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy, while a failure with the Error code `blocked` ends it `blocked` with the Block cause its details name. A failure with the Error code `call_cancelled` by the program with nothing closed (details `{\"by\": \"program\"}`) gives the request back, the program's own stop (ADR 0093): it returns to pending with no attempt counted and is delivered again. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
       "name": "crawl_request.handle",
       "params": {
         "$ref": "#/$defs/CrawlRequestHandleParams"

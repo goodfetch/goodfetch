@@ -2390,6 +2390,7 @@ dependencies = [
 name = "goodfetch-collie-client"
 version = "0.0.0"
 dependencies = [
+ "data-encoding",
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-runtime",
@@ -2402,6 +2403,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2522,6 +2524,7 @@ dependencies = [
  "data-encoding",
  "ed25519-dalek",
  "flate2",
+ "foldhash 0.2.0",
  "futures-util",
  "getrandom 0.3.4",
  "goodfetch-counted-work",

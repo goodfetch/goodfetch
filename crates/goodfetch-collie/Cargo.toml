@@ -7,23 +7,26 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
+readme = "README.md"
 
 [features]
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:dirs", "dep:goodfetch-runtime", "dep:jiff", "dep:mimalloc", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:libc", "dep:tokio-util", "dep:tracing", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
+executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:libc", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
 
 [dependencies]
 # The command line both executables carry (ADR 0090): owned names and help,
 # which the catalog gives at run time.
 clap = { workspace = true, optional = true, features = ["string"] }
 # Goodfetch home in the OS's data folder when `GOODFETCH_HOME` is unset.
-dirs = { workspace = true, optional = true }
+dirs.workspace = true
+# The Rust SDK's connection to its linked engine (ADRs 0078 and 0081).
+goodfetch-collie-client.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-page.workspace = true
-# The runtimes the executables build (ADR 0081).
-goodfetch-runtime = { workspace = true, optional = true }
+# The runtimes the executables and a linked engine build (ADR 0081).
+goodfetch-runtime.workspace = true
 goodfetch-protocol.workspace = true
 # The built-in external Secret providers (spec #564).
 goodfetch-secret-providers.workspace = true
@@ -43,9 +46,9 @@ serde_json.workspace = true
 tempfile = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt"] }
-# The foreground Daemon's drain (ADR 0049).
-tokio-util = { workspace = true, optional = true }
-tracing = { workspace = true, optional = true }
+# A linked engine's task, and the foreground Daemon's drain (ADR 0049).
+tokio-util = { workspace = true, features = ["rt"] }
+tracing.workspace = true
 tracing-subscriber = { workspace = true, optional = true, features = ["env-filter", "json"] }
 # The opt-in OTLP export of the engine's spans (RT-18, ADR 0132), and the
 # foreground Daemon's metrics (ADR 0050): the SDK whose meter the engine
@@ -87,9 +90,6 @@ goodfetch-collie = { path = ".", features = ["executable"] }
 # default (tests/it/clean_up_rules.rs).
 goodfetch-clean-up-rules.workspace = true
 goodfetch-test-client.workspace = true
-# The Rust client crate's Connection to its executable (tests/it/rust_client.rs).
-goodfetch-collie-client.workspace = true
-goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
 # The Clean-up rules sources' HTTPS stand-in, its authority and its
@@ -117,6 +117,8 @@ serde_json.workspace = true
 tempfile.workspace = true
 # `block_detection`'s check of its rules' sources against its `third-party.toml`.
 toml.workspace = true
+# The SDK's public-items check reads its sources (tests/it/sdk/public_items.rs).
+syn.workspace = true
 # The tests' HTTP Client, and the pins' lever's download.
 ureq.workspace = true
 # The SSRF table runners' URLs as the WHATWG parser writes them
@@ -136,6 +138,13 @@ zip = { workspace = true, features = ["deflate-flate2"] }
 # engine's own keychain, whose values are `SecretString`s.
 age = { workspace = true, features = ["armor"] }
 secrecy.workspace = true
+
+# `cargo binstall goodfetch-collie` installs the executable from its
+# archive on the GitHub Release of the same version (ADRs 0090 and 0094).
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.xz"
+pkg-fmt = "txz"
+bin-dir = "{ bin }{ binary-ext }"
 
 [package.metadata.cargo-shear]
 # The dev-dependency on itself only turns its executable on for its tests.

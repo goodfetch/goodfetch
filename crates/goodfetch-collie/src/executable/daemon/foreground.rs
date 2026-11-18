@@ -56,10 +56,10 @@ use goodfetch_protocol::settings::{
 };
 use tokio_util::sync::CancellationToken;
 
-use super::super::runtime;
 use super::{Failure, Machine, Reach};
 use crate::executable::metrics::Export;
 use crate::executable::otlp::ToCollector;
+use crate::runtime;
 
 /// What the foreground Daemon runs with, from the machine's settings and
 /// its environment.

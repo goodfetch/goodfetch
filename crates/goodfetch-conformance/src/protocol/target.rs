@@ -379,6 +379,19 @@ impl Started {
         let _ = child.wait();
     }
 
+    /// Kills the target's process at once, as a crash would, leaving its
+    /// Connection unclosed so it stops nothing cleanly first; false when
+    /// the Connection has no process of its own to kill, a Daemon's further
+    /// Connection or a gateway's.
+    pub(crate) fn kill(mut self) -> bool {
+        let Some(mut child) = self.child.take() else {
+            return false;
+        };
+        let killed = child.kill().is_ok();
+        let _ = child.wait();
+        killed
+    }
+
     fn close_link(&mut self) {
         // A target that already went leaves nothing to shut down.
         match &mut self.link {

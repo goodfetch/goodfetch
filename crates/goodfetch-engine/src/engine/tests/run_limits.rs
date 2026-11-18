@@ -181,6 +181,52 @@ fn a_start_naming_the_run_again_above_its_limit_is_refused_with_limit_raise_refu
     );
 }
 
+/// A start under the ID of a Run its Limit stopped is refused with
+/// `limit_reached` naming that Limit while it stays used up, and resumes
+/// the Run once a person raised it (ADR 0102's start table).
+///
+/// Covers: error:limit_reached, story:3-166
+#[test]
+fn a_start_naming_a_run_its_limit_stopped_is_refused_until_a_person_raises_the_limit() {
+    let env = TestEnv::new();
+
+    let replies = replies_from(
+        &env,
+        Product::Collie,
+        "cli",
+        &[
+            start_with("used", 2),
+            ("test.charge_live", json!({ "run_id": "used", "amount": 3 })),
+            ("run.finish", json!({ "run_id": "used" })),
+            start_with("used", 2),
+            (
+                "usage.raise",
+                json!({ "scope": "run", "scope_id": "used", "usage_kind": "requests", "amount": 10 }),
+            ),
+            start_with("used", 2),
+        ],
+    );
+
+    let refused = &replies[3]["error"]["data"];
+    assert_eq!(
+        (
+            &replies[2]["result"]["stop_reason"]["kind"],
+            &refused["code"],
+            &refused["scope"],
+            &refused["usage_kind"],
+            &replies[5]["result"]["started_as"],
+        ),
+        (
+            &json!("limit"),
+            &json!("limit_reached"),
+            &json!({ "kind": "run", "id": "used" }),
+            &json!("requests"),
+            &json!("resumed"),
+        ),
+        "{replies:#?}"
+    );
+}
+
 /// The Error code and JSON-RPC code of the reply to a start of a new Run
 /// given `limits`.
 fn start_refusal(limits: &Value) -> (Value, Value) {

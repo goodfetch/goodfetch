@@ -5,9 +5,12 @@
 //! in-memory one an engine in the same process serves (ADR 0060). The
 //! Connection takes its runtime as a value, and [`Call`] and [`Query`] are
 //! the builders every call goes through (ADR 0081). A [`Run`] is what a
-//! Connection starts, and [`blocking`] repeats the API for a program that
-//! does not use async. The SDK crates build on it; it depends on neither of
-//! them nor on any Foxhound crate.
+//! Connection starts; it and the handles it opens, [`Session`], [`Page`]
+//! and [`Locator`], have the members the catalog gives them, one form per
+//! declared kind (ADR 0099), and [`blocking`] repeats the API for a
+//! program that does not use async. [`file_saving`] writes a file to the
+//! program's path whole or not at all (ADR 0116). The SDK crates build on
+//! it; it depends on neither of them nor on any Foxhound crate.
 
 #![warn(missing_docs)]
 
@@ -15,12 +18,19 @@ pub mod blocking;
 mod call;
 mod connection;
 mod error;
+pub mod file_saving;
+mod generated;
+mod handler;
+mod host;
+mod line;
 mod rpc;
 mod run;
 mod sync;
 pub mod transport;
 
 pub use call::{Call, Query, Reply};
-pub use connection::{Connection, ConnectionRuntime};
-pub use error::Error;
-pub use run::{Run, Start};
+pub use connection::{Connection, ConnectionRuntime, SaveFile};
+pub use error::{Error, FileFailure};
+pub use generated::handles::{Locator, Page, Run, Session};
+pub use handler::{HandlerCall, HandlerRequests};
+pub use run::Start;

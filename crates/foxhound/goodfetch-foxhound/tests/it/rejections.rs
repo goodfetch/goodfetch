@@ -130,6 +130,7 @@ fn a_record_the_engine_rejects_enters_its_datasets_rejection_table_numbered_with
     let report = crawl_from(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "rejecting",
             "seeds": [
                 { "url": site.page("/book"), "label": "page" },
@@ -221,6 +222,7 @@ fn the_rejection_table_is_read_after_a_number_and_holds_only_the_committing_atte
     let report = crawl_from(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "resumed",
             "seeds": [
                 { "url": site.page("/a"), "label": "page" },

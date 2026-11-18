@@ -61,6 +61,7 @@ syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-trai
 tar = { version = "0.4" }
 thiserror = { version = "2" }
 tinystr = { version = "0.8", features = ["zerovec"] }
+toml = { version = "1", default-features = false, features = ["parse", "serde", "std"] }
 toml_datetime = { version = "1", default-features = false, features = ["serde", "std"] }
 toml_parser = { version = "1", default-features = false, features = ["std"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }

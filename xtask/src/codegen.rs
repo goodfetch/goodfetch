@@ -52,6 +52,7 @@ mod naming;
 mod projection;
 mod python;
 mod refused;
+mod rust;
 mod special_purpose;
 mod test_support;
 mod typescript;
@@ -297,6 +298,7 @@ impl Plan {
             special_purpose::OUTPUT_FOLDER,
             executables::COLLIE_FOLDER,
             cdp::FOLDER,
+            rust::FOLDER,
             test_support::FOLDER,
             facts::TEST_SUPPORT_FOLDER,
             facts::XTASK_FOLDER,
@@ -406,6 +408,8 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     files.extend(cdp::generate(root)?);
 
     let version = product_version(root)?;
+    let collie_layer = Layer::new(&bundle, &collie, &foxhound, Product::Collie, &version)?;
+    files.extend(rust::generate(root, &collie_layer)?);
     let mut externals = Vec::new();
     for package in &PACKAGES {
         let layer = Layer::new(&bundle, &collie, &foxhound, package.product, &version)?;

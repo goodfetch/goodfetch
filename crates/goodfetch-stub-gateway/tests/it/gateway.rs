@@ -187,7 +187,10 @@ impl Connection {
 /// A crawl's start whose one seed the Frontier does not add, so the crawl
 /// fetches nothing and runs no handler.
 fn crawl_of_nothing() -> Value {
-    json!({"seeds": [{"url": "ftp://example.invalid/", "label": "start"}]})
+    json!({
+        "seeds": [{ "url": "ftp://example.invalid/", "label": "start" }],
+        "labels": { "start": {} },
+    })
 }
 
 /// The JSON the gateway writes at `ready` once it serves.

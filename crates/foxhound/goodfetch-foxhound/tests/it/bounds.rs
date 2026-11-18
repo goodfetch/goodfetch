@@ -17,7 +17,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::attached;
-use crate::frontier::{Inside, attributes, crawl_under};
+use crate::frontier::{Inside, attributes, crawl_declaring, crawl_under};
 
 /// The Proving ground's seed.
 const SEED: u64 = 843;
@@ -250,11 +250,12 @@ fn the_url_caps_refuse_a_long_url_a_deep_path_and_a_repeated_segment(
     let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut given = Vec::new();
-    let report = crawl_under(
+    let report = crawl_declaring(
         &mut engine,
         "caps",
         &seeds,
-        &settings,
+        &json!({ "seed": {}, "page": {} }),
+        &json!({ "crawl": settings }),
         &mut |inside: &mut Inside<'_>, handle: &Value| {
             if handle["crawl_request"]["label"] == "seed" {
                 for link in &links {

@@ -28,6 +28,9 @@ brotli-decompressor.workspace = true
 # gzip and deflate bodies (SC-05), and the inflate backend (miniz_oxide) for
 # zip's DEFLATE.
 flate2.workspace = true
+# Each operation's handler found by its name, with the same seed in every
+# process (issue 2790, ADR 0059).
+foldhash.workspace = true
 # Drives the WebSocket's stream of messages and its sink (ADR 0049).
 futures-util.workspace = true
 getrandom.workspace = true

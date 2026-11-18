@@ -89,7 +89,7 @@ fn closing_a_collie_from_a_clone_stops_its_running_run_and_closes_every_clone() 
     runtime.block_on(async {
         let again = open(&home).await;
         let report: RunReport = again
-            .connection
+            .as_ref()
             .call(RUN_REPORT.name, &RunParams { run_id: left })
             .await
             .unwrap();

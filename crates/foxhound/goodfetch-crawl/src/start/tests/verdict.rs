@@ -23,7 +23,7 @@ fn finished_with(run_id: &str, settings: &Value) -> Value {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": run_id, "seeds": seeds(2), "settings": settings }),
+                    json!({ "run_id": run_id, "seeds": seeds(2), "settings": settings, "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -133,7 +133,7 @@ fn a_retried_crawl_is_given_its_verdict_anew_when_it_ends_again() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "again", "seeds": seeds(1) }),
+                    json!({ "run_id": "again", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;

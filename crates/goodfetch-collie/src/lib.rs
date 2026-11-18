@@ -29,8 +29,9 @@
 //! ```
 //!
 //! Its library also exposes Collie's composition of the engine, which
-//! Foxhound's starts from, and, under the `executable` feature, the
-//! executable's entry, which both Products' `main` call.
+//! Foxhound's starts from, the [`linked`] connection both Products' SDKs
+//! open, and, under the `executable` feature, the executable's entry,
+//! which both Products' `main` call.
 #![warn(missing_docs)]
 
 #[cfg_attr(
@@ -46,13 +47,16 @@ mod collie;
 mod composition;
 #[cfg(feature = "executable")]
 pub mod executable;
-mod linked;
+pub mod linked;
 mod pins;
 mod runtime;
 mod sample;
 
-pub use collie::{Collie, ConnectOptions};
+pub use collie::Collie;
 pub use composition::{composition, composition_with};
-pub use goodfetch_collie_client::{Call, Error, Run, Start};
+pub use goodfetch_collie_client::{
+    Call, Connection, Error, Locator, Page, Query, Run, Session, Start,
+};
 pub use goodfetch_protocol::run::{RunId, RunReport, StartedAs};
+pub use linked::ConnectOptions;
 pub use pins::pinned_artifacts;

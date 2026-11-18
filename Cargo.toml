@@ -299,6 +299,10 @@ indexmap = { version = "2.14.2", default-features = false }
 # found by its identity's hash (#2169): `HashTable` keeps 4 bytes a
 # bucket where std's `HashMap` would keep the key and value.
 hashbrown = { version = "0.17.1", default-features = false }
+# The engine's operations, found by their name on every message (issue
+# 2790): a fixed seed, so a lookup does the same work in every process
+# (ADR 0059).
+foldhash = { version = "0.2.0", default-features = false }
 insta = { version = "1.49.0", default-features = false }
 # The engine's own DNS resolver (ADRs 0024, 0044): the static musl
 # executables have no libc resolver to call, and Sessions with a local
@@ -390,6 +394,9 @@ tungstenite = { version = "0.30.0", default-features = false, features = ["hands
 # value it writes (ADRs 0028, 0098).
 toml_edit = { version = "0.25.17", default-features = false, features = ["parse", "display"] }
 toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "serde"] }
+# The compile-fail tests of what a generated member refuses to take
+# (ADR 0099): a boolean as a positional argument, a timeout on a query.
+trybuild = { version = "1.0.125", default-features = false }
 tracing = { version = "0.1.44", default-features = false, features = ["std", "attributes"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt"] }
 # The executables' opt-in OTLP export of the engine's spans (RT-18, ADR

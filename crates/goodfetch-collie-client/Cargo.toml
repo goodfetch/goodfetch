@@ -11,14 +11,22 @@ publish.workspace = true
 # No SDK crate and no Foxhound crate (ADR 0095): `goodfetch-collie` and
 # `goodfetch-foxhound` take this one.
 [dependencies]
+# The Base64 of the `$/chunk` notifications a Daemon streams a file in.
+data-encoding.workspace = true
 goodfetch-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The hidden temporary file a saved file is written to (ADR 0116).
+tempfile.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
 tokio-util = { workspace = true, features = ["rt", "time"] }
 tracing.workspace = true
 goodfetch-workspace-hack.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# The hidden attribute of a saved file's temporary file (ADR 0116).
+windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 # A Collie engine with only the engine's own operations, over area 3's
@@ -28,6 +36,7 @@ goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+trybuild.workspace = true
 
 [lints]
 workspace = true

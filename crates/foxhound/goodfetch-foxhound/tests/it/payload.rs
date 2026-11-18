@@ -251,6 +251,7 @@ fn a_payload_longer_than_crawl_payload_max_size_is_refused_at_enqueue_naming_the
     let report = crawl_from(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "capped",
             "settings": { "crawl": { "payload": { "max_size": 64 } } },
             "seeds": [{ "url": site.page("/"), "label": "page", "payload": of_size(64) }],
@@ -296,6 +297,7 @@ fn a_seed_past_the_default_64_kib_is_refused_before_its_run_begins() {
         "start",
         "crawl.start",
         &json!({
+            "labels": { "page": {} },
             "run_id": "large",
             "seeds": [
                 { "url": site.page("/a"), "label": "page", "payload": of_size(65_536) },

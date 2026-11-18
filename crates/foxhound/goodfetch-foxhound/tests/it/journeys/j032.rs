@@ -54,6 +54,7 @@ fn crawl(engine: &mut Attached, proving_ground: &ProvingGround, run_id: &str) ->
     let finished = crawl_from(
         engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": run_id,
             "seeds": [{ "url": site(proving_ground), "label": "page" }],
             "settings": settings(proving_ground, &json!({

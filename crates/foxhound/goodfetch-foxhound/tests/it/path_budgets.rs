@@ -242,6 +242,7 @@ fn a_path_budget_pattern_the_engine_cannot_match_fails_the_start() {
         "start",
         "crawl.start",
         &json!({
+            "labels": { "page": {} },
             "run_id": "unmatched",
             "seeds": [{ "url": "https://shop.test/", "label": "page" }],
             "settings": { "crawl": { "path_budgets": [

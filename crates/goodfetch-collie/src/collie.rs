@@ -3,42 +3,9 @@
 //! it around a body. Each connection starts its own linked engine, the
 //! engine this crate composes, in the program's own process (ADR 0087).
 
-use std::collections::BTreeMap;
-use std::ffi::OsString;
-use std::sync::Arc;
+use goodfetch_collie_client::{Connection, Error, Start};
 
-use goodfetch_collie_client::{Connection, ConnectionRuntime, Error, Start};
-use goodfetch_engine::Dependencies;
-use tokio::runtime::Handle;
-
-use crate::linked::{self, LinkedEngine};
-
-/// What [`Collie::connect`] opens a connection with.
-#[derive(Clone, Debug, Default)]
-pub struct ConnectOptions {
-    environment: Option<BTreeMap<OsString, OsString>>,
-}
-
-impl ConnectOptions {
-    /// The environment variables the linked engine reads, such as
-    /// `GOODFETCH_HOME`, in place of the process's own.
-    #[must_use]
-    pub fn environment(mut self, environment: BTreeMap<OsString, OsString>) -> Self {
-        self.environment = Some(environment);
-        self
-    }
-
-    /// The environment the linked engine reads: the one set, or the
-    /// process's.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the SDK's connect(), given no environment map, reads the process environment once, the one reader besides main (ADR 0083)"
-    )]
-    pub(crate) fn into_environment(self) -> BTreeMap<OsString, OsString> {
-        self.environment
-            .unwrap_or_else(|| std::env::vars_os().collect())
-    }
-}
+use crate::linked::{Composed, ConnectOptions, LinkedConnection};
 
 /// A connection to Collie, which is the Product: `collie.start()` starts a
 /// Run. Cloning it is cheap and every clone is the same connection;
@@ -64,8 +31,7 @@ impl ConnectOptions {
 /// ```
 #[derive(Clone, Debug)]
 pub struct Collie {
-    pub(crate) connection: Connection,
-    engine: Arc<LinkedEngine>,
+    linked: LinkedConnection,
 }
 
 impl Collie {
@@ -84,9 +50,8 @@ impl Collie {
     /// Dropping the future before it completes stops the linked engine it
     /// started.
     pub async fn connect(options: ConnectOptions) -> Result<Self, Error> {
-        let (runtime, dependencies) = linked::production(options.into_environment())?;
-        let handle = runtime.handle().clone();
-        Self::linked(ConnectionRuntime::owned(runtime), &handle, dependencies).await
+        let linked = LinkedConnection::connect(Composed::COLLIE, options).await?;
+        Ok(Self { linked })
     }
 
     /// Opens a connection with `options`, lends it to `body`, and closes it
@@ -166,7 +131,7 @@ impl Collie {
     /// The start of a Run the program drives (`run.start`), which awaiting
     /// sends.
     pub fn start(&self) -> Start {
-        self.connection.start()
+        self.linked.connection().start()
     }
 
     /// Closes the connection for every clone: first every Run it started
@@ -184,37 +149,34 @@ impl Collie {
     /// Dropping the future before it completes leaves the engine stopping
     /// on its own.
     pub async fn close(&self) -> Result<(), Error> {
-        let closed = self.connection.close().await;
-        let stopped = self.engine.stopped().await;
-        closed.and(stopped)
+        self.linked.close().await
     }
 
     /// A connection to a linked engine that runs on `handle`'s runtime,
     /// which the program drives, with `dependencies`.
     #[cfg(test)]
-    pub(crate) async fn open(handle: Handle, dependencies: Dependencies) -> Result<Self, Error> {
-        Self::linked(
-            ConnectionRuntime::driven(handle.clone()),
-            &handle,
+    pub(crate) async fn open(
+        handle: tokio::runtime::Handle,
+        dependencies: goodfetch_engine::Dependencies,
+    ) -> Result<Self, Error> {
+        let linked = LinkedConnection::open(
+            goodfetch_collie_client::ConnectionRuntime::driven(handle.clone()),
+            handle,
+            Composed::COLLIE,
+            Composed::COLLIE.product,
             dependencies,
         )
-        .await
+        .await?;
+        Ok(Self { linked })
     }
+}
 
-    /// A connection on `runtime` to a linked engine that runs on `handle`,
-    /// that runtime's handle, with `dependencies`. When `hello` fails, the
-    /// engine is left to stop at the end of its input, unwaited.
-    pub(crate) async fn linked(
-        runtime: ConnectionRuntime,
-        handle: &Handle,
-        dependencies: Dependencies,
-    ) -> Result<Self, Error> {
-        let (engine, network) = LinkedEngine::start(handle, dependencies)?;
-        let connection = linked::open(runtime, &network).await?;
-        Ok(Self {
-            connection,
-            engine: Arc::new(engine),
-        })
+/// The Connection, the type a helper written for either Product takes
+/// (ADR 0095): `helper(collie.as_ref())`, until
+/// ADR 0099's `Connection` trait lands (#1257).
+impl AsRef<Connection> for Collie {
+    fn as_ref(&self) -> &Connection {
+        self.linked.connection()
     }
 }
 
@@ -223,7 +185,6 @@ impl Collie {
 const _: () = {
     const fn send_sync_static<T: Send + Sync + 'static>() {}
     send_sync_static::<Collie>();
-    send_sync_static::<ConnectOptions>();
 };
 
 #[cfg(test)]

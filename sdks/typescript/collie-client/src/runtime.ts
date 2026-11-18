@@ -13,6 +13,13 @@
 // which hold their Product's Connection type.
 export type { ClientConnection, Served, Stream } from "./client-connection.ts";
 export type { ErrorClasses } from "./errors.ts";
+export {
+  FileSaving,
+  saveFile,
+  writeFileWhole,
+  type FileWriteOptions,
+  type Saved,
+} from "./file-saving.ts";
 export type { Transport } from "./rpc.ts";
 export { holdInRealm } from "./realm.ts";
 export { ensureRunOpen, pageOf, type RunHost } from "./run.ts";

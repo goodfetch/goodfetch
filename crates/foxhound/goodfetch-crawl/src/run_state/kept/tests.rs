@@ -13,7 +13,7 @@ use rstest::rstest;
 use rusqlite::Connection;
 
 use super::{Kept, Whole};
-use crate::work_items::{self, Leased};
+use crate::work_items::{self, Again, Leased};
 
 // The unit tests' count of the live heap, around the system's allocator,
 // which `heap::live` reads; every other test allocates as before.
@@ -108,7 +108,7 @@ fn add(kept: &mut Kept, leased: Leased, beside: u64) {
 /// Settles the attempt of `leased` for a retry, beside Frontier's visits
 /// holding `beside` bytes.
 fn retry(kept: &mut Kept, leased: Leased, beside: u64) {
-    kept.settled(leased, true, 0, || beside);
+    kept.settled(leased, Again::Retried, 0, || beside);
 }
 
 /// A work item made pending while the Frontier's visits hold all of the

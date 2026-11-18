@@ -27,6 +27,7 @@ async fn failed_and_idle(client: &mut Client, run_id: &str) {
         .call(
             "crawl.start",
             json!({
+                "labels": { "page": {} },
                 "run_id": run_id,
                 "seeds": seeds(1),
                 "settings": { "crawl": { "keep_alive": true } },

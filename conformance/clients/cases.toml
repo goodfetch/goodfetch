@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "12"
+version = "13"
 
 [[capability]]
 name = "lifecycle"
@@ -51,16 +51,16 @@ surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 # The catalog's operations reach the engine through the members generated
-# from them (ADR 0099; issues 2399 and 1233). The Rust SDK joins with
-# issue 2793.
+# from them (ADR 0099; issues 2399, 1233 and 2793): attached in TypeScript
+# and Python, linked in Rust, each surface taking the modes it has.
 [[capability]]
 name = "catalog-mapping"
 
 [[capability.case]]
 id = "catalog-mapping"
 covers = ["story:11-178"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 # A program's first pages (issue 2400): opened, navigated, acted on through
 # locators, read and closed, on the Proving ground through Collie's

@@ -57,6 +57,7 @@ fn a_reader_that_stalls_does_not_hold_back_a_crawl_of_the_proving_ground() {
                 &proving_ground,
                 &json!({ "fetch": { "tier": "http" } }),
             ),
+            "labels": { "item": {} },
         }),
         &mut handler,
     );

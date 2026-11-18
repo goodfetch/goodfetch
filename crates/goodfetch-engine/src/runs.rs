@@ -406,6 +406,17 @@ pub enum Resumed {
     },
 }
 
+impl Resumed {
+    /// The Run `run_id` as `held` holds it, left as it is.
+    fn unchanged(run_id: RunId, held: &checkpoint::Held) -> Self {
+        Self::Unchanged {
+            run_id,
+            lifecycle: held.lifecycle,
+            needs: held.needs,
+        }
+    }
+}
+
 /// What a start found.
 #[expect(
     clippy::large_enum_variant,
@@ -6205,13 +6216,7 @@ impl Registry {
         self.may_resume(&run_id, &held, &folder).await?;
         let lifecycle = match lifecycle::apply(held.lifecycle, Resume::event(retry_failed)) {
             Ok(Next::To(next)) => next,
-            Ok(Next::Unchanged) => {
-                return Ok(Resumed::Unchanged {
-                    run_id,
-                    lifecycle: held.lifecycle,
-                    needs: held.needs,
-                });
-            }
+            Ok(Next::Unchanged) => return Ok(Resumed::unchanged(run_id, &held)),
             Err(refused) => return Err(RunError::refused(&run_id, &folder, refused)),
         };
         let options = self.opened_with(settings.as_ref());

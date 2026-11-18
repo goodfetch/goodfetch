@@ -13,6 +13,7 @@
     "./playwright": "./src/playwright.ts",
     "./protocol-contract": "./src/protocol-contract.ts",
     "./screenshot": "./src/screenshot.ts",
+    "./smoke": "./src/smoke.ts",
     "./visual-config": "./src/visual-config.ts",
     "./vitest-browser": "./src/vitest-browser.ts",
     "./vitest-browser/setup": "./src/vitest-browser-setup.ts",

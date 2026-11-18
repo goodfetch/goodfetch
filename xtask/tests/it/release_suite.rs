@@ -237,13 +237,13 @@ fn first_run_on_main_starts_every_cell_on_the_commit() {
     assert_eq!(
         json(&outputs["linux-x64"]),
         json(
-            r#"[{"cell":"linux-x64-gnu","target":"x86_64-unknown-linux-gnu","runtimes":"all"},{"cell":"linux-x64-musl","target":"x86_64-unknown-linux-musl","runtimes":"ends"}]"#
+            r#"[{"cell":"linux-x64-gnu","target":"x86_64-unknown-linux-gnu","runtimes":"release-linux-x64-gnu"},{"cell":"linux-x64-musl","target":"x86_64-unknown-linux-musl","runtimes":"release-linux"}]"#
         )
     );
     assert_eq!(
         json(&outputs["linux-arm64"]),
         json(
-            r#"[{"cell":"linux-arm64-gnu","target":"aarch64-unknown-linux-gnu","runtimes":"ends"},{"cell":"linux-arm64-musl","target":"aarch64-unknown-linux-musl","runtimes":"ends"}]"#
+            r#"[{"cell":"linux-arm64-gnu","target":"aarch64-unknown-linux-gnu","runtimes":"release-linux"},{"cell":"linux-arm64-musl","target":"aarch64-unknown-linux-musl","runtimes":"release-linux"}]"#
         )
     );
     assert_eq!(outputs["held"], "false");

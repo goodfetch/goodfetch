@@ -95,6 +95,7 @@ mod register_coverage;
 mod release_suite;
 mod repeat;
 mod rss;
+mod runtimes;
 mod scan;
 mod screenshots;
 mod self_hosted;

@@ -63,6 +63,12 @@ export type TestSupportErrorCode =
   | "client_case_unknown"
   /** A test took `clientCase` without carrying a `client_case/` tag (ADR 0069). */
   | "client_case_untagged"
+  /** A smoke script declares no Client conformance case on a `// cases:` line (ADR 0069). */
+  | "smoke_cases_missing"
+  /** `GOODFETCH_RUNTIME_SET` names no set of `ci/runtimes.toml`, or the file cannot be read (ADR 0069). */
+  | "runtime_set_unknown"
+  /** A runtime of the smoke scripts' set is not on `PATH` (ADR 0069). */
+  | "runtime_missing"
   /** A Playwright test's `covers` annotation names a Feature the inventory does not list (ADR 0072). */
   | "covers_unknown"
   /** axe found a violation of WCAG 2.2 AA or a best practice on a served test's page (ADR 0073). */

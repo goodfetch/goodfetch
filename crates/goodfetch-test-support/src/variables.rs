@@ -3,7 +3,8 @@
 //! override, the suite `just test` names in `GOODFETCH_TEST_SUITE`, the tool
 //! manifest's path, the folder Journey variants write their result documents
 //! into, the exercise records' folder with the test's ID as nextest gives
-//! it, the way a runner declares `DnsNamespace` comes up on it, what a
+//! it, the way a runner declares `DnsNamespace` comes up on it, the cap on
+//! the Callgrind children a counts benchmark runs at once, what a
 //! Cargo a test starts needs to find its toolchain, and on Windows the
 //! variables a child needs to start.
 #![expect(
@@ -12,6 +13,7 @@
 )]
 
 use std::collections::BTreeMap;
+use std::num::NonZeroUsize;
 
 /// Overrides every test's seed (ADR 0060).
 pub const SEED_VARIABLE: &str = "GOODFETCH_TEST_SEED";
@@ -48,6 +50,11 @@ pub const RECORDS_VARIABLE: &str = "GOODFETCH_TEST_RECORDS";
 /// or `sudo`, so a silent fallback to the other fails (ADR 0067); unset, it
 /// tries the first, then the second.
 pub const DNS_NAMESPACE_VARIABLE: &str = "GOODFETCH_TEST_DNS_NAMESPACE";
+
+/// The most Callgrind children a counts benchmark runs at once, below its
+/// own bound of half the cores, at most eight: `xtask counts
+/// --callgrind-at-once` sets it, or the host's environment does (#2520).
+pub const CALLGRIND_AT_ONCE_VARIABLE: &str = "GOODFETCH_COUNTS_CALLGRIND_AT_ONCE";
 
 /// Where Playwright keeps its browsers when it is not its default folder
 /// (the CI image sets it), from which the tests' Browser cache takes the
@@ -111,6 +118,7 @@ impl Variables {
             TEST_NAME_VARIABLE,
             COVERAGE_VARIABLE,
             DNS_NAMESPACE_VARIABLE,
+            CALLGRIND_AT_ONCE_VARIABLE,
             PLAYWRIGHT_BROWSERS_VARIABLE,
         ]
         .into_iter()
@@ -151,6 +159,18 @@ impl Variables {
                 value: other.to_owned(),
             }),
         }
+    }
+
+    /// The cap on the Callgrind children a counts benchmark runs at once:
+    /// `GOODFETCH_COUNTS_CALLGRIND_AT_ONCE`, or none when it is absent.
+    pub fn callgrind_at_once(&self) -> Result<Option<NonZeroUsize>, CallgrindAtOnceError> {
+        self.get(CALLGRIND_AT_ONCE_VARIABLE)
+            .map(|value| {
+                value.parse().map_err(|_| CallgrindAtOnceError {
+                    value: value.to_owned(),
+                })
+            })
+            .transpose()
     }
 }
 
@@ -221,6 +241,15 @@ pub enum SeedError {
 #[error("{SUITE_VARIABLE} is `{value}`, not quick, pre-merge or release")]
 #[non_exhaustive]
 pub struct SuiteError {
+    /// The value it holds.
+    pub value: String,
+}
+
+/// `GOODFETCH_COUNTS_CALLGRIND_AT_ONCE` is no whole number of 1 or more.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{CALLGRIND_AT_ONCE_VARIABLE} is `{value}`, not a whole number of 1 or more")]
+#[non_exhaustive]
+pub struct CallgrindAtOnceError {
     /// The value it holds.
     pub value: String,
 }

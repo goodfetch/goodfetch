@@ -1,6 +1,8 @@
 use rstest::rstest;
 
-use super::{SeedError, Suite, SuiteError, Variables};
+use std::num::NonZeroUsize;
+
+use super::{CallgrindAtOnceError, SeedError, Suite, SuiteError, Variables};
 
 #[test]
 fn goodfetch_test_seed_overrides_the_seed() {
@@ -73,6 +75,45 @@ fn an_unknown_suite_is_refused() {
         suite,
         Err(SuiteError {
             value: "nightly".to_owned()
+        })
+    );
+}
+
+#[rstest]
+#[case::one("1", 1)]
+#[case::two("2", 2)]
+fn the_callgrind_cap_follows_its_variable(#[case] value: &str, #[case] expected: usize) {
+    let variables = Variables::from_iter([("GOODFETCH_COUNTS_CALLGRIND_AT_ONCE", value)]);
+
+    let cap = variables.callgrind_at_once();
+
+    assert_eq!(cap, Ok(NonZeroUsize::new(expected)));
+}
+
+#[test]
+fn there_is_no_callgrind_cap_when_its_variable_is_absent() {
+    let variables = Variables::default();
+
+    let cap = variables.callgrind_at_once();
+
+    assert_eq!(cap, Ok(None));
+}
+
+#[rstest]
+#[case::zero("0")]
+#[case::negative("-1")]
+#[case::a_word("two")]
+#[case::a_fraction("1.5")]
+#[case::empty("")]
+fn a_callgrind_cap_that_is_no_whole_number_of_one_or_more_is_refused(#[case] value: &str) {
+    let variables = Variables::from_iter([("GOODFETCH_COUNTS_CALLGRIND_AT_ONCE", value)]);
+
+    let cap = variables.callgrind_at_once();
+
+    assert_eq!(
+        cap,
+        Err(CallgrindAtOnceError {
+            value: value.to_owned()
         })
     );
 }

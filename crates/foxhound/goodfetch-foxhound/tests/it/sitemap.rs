@@ -23,7 +23,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::before_their_turn;
-use crate::frontier::{added, crawl_with};
+use crate::frontier::{added, crawl_declaring, crawl_with};
 
 /// The Proving ground's seed.
 const SEED: u64 = 903;
@@ -661,10 +661,11 @@ fn a_sitemap_seed_added_to_a_running_crawl_is_committed_at_once_and_read() {
     let mut answers = Vec::new();
     let mut handled = Vec::new();
 
-    let report = crawl_with(
+    let report = crawl_declaring(
         &mut engine,
         "adding",
         &[json!({ "url": url(ADDING), "label": "page" })],
+        &json!({ "page": {}, "book": {} }),
         &settings(&proving_ground, &json!({})),
         &mut |inside, handle| {
             let request = &handle["crawl_request"];
@@ -723,10 +724,11 @@ fn a_sitemap_seed_staged_by_a_failed_attempt_is_discarded_and_its_retry_commits_
     let mut answers = Vec::new();
     let mut handled = Vec::new();
 
-    let report = crawl_with(
+    let report = crawl_declaring(
         &mut engine,
         "staged",
         &[json!({ "url": url(ADDING), "label": "page" })],
+        &json!({ "page": {}, "book": {} }),
         &settings(
             &proving_ground,
             &json!({ "crawl": { "retry": { "max": 2 } } }),

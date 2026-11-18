@@ -119,7 +119,10 @@ pub(crate) fn crawl_under(
 }
 
 /// [`crawl`] under the Run's settings `settings`, every key and not only
-/// `crawl`'s, beside the handler's concurrency of 1.
+/// `crawl`'s, beside the handler's concurrency of 1. The crawl declares
+/// the Labels its seeds name, each seed's and each sitemap rule's, with no
+/// settings: a test whose handler enqueues another Label declares it with
+/// [`crawl_declaring`].
 pub(crate) fn crawl_with(
     engine: &mut Attached,
     run_id: &str,
@@ -127,11 +130,30 @@ pub(crate) fn crawl_with(
     settings: &Value,
     handler: &mut impl FnMut(&mut Inside<'_>, &Value) -> Value,
 ) -> Value {
-    crawl_from(
+    crawl_declaring(
         engine,
-        &json!({ "run_id": run_id, "seeds": seeds, "settings": settings }),
+        run_id,
+        seeds,
+        &seed_labels(seeds),
+        settings,
         handler,
     )
+}
+
+/// The Labels `seeds` name, each seed's and each sitemap rule's, each
+/// declared with no settings, as `crawl.start`'s `labels` takes them.
+pub(crate) fn seed_labels(seeds: &[Value]) -> Value {
+    let rules = seeds
+        .iter()
+        .filter_map(|seed| seed["rules"].as_array())
+        .flatten();
+    seeds
+        .iter()
+        .chain(rules)
+        .filter_map(|named| named["label"].as_str())
+        .map(|label| (label.to_owned(), json!({})))
+        .collect::<serde_json::Map<_, _>>()
+        .into()
 }
 
 /// [`crawl_with`] for a crawl that declares the Labels `labels`, each with
@@ -402,25 +424,32 @@ fn an_enqueue_resolves_against_its_documents_base_href_and_the_url_it_was_redire
     let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut enqueued = Vec::new();
-    let report = crawl(&mut engine, "links", &seeds, &mut |inside, handle| {
-        let page = fetch(
-            &proving_ground,
-            handle["crawl_request"]["url"].as_str().unwrap(),
-        );
-        if handle["crawl_request"]["label"] == "book" {
-            let id = attributes(&page.body, "data-id");
-            return json!({ "result": { "records": [{ "dataset": "books", "data": { "id": id, "status": page.status } }] } });
-        }
-        let document = json!({
-            "url": page.url,
-            "base_href": attributes(&page.body, "base href").first(),
-        });
-        for href in attributes(&page.body, "a href") {
-            let answer = inside.enqueue(handle, &href, "book", Some(document.clone()));
-            enqueued.push(answer["url"].as_str().unwrap().to_owned());
-        }
-        json!({ "result": { "records": [] } })
-    });
+    let report = crawl_declaring(
+        &mut engine,
+        "links",
+        &seeds,
+        &json!({ "shelf": {}, "book": {} }),
+        &json!({}),
+        &mut |inside, handle| {
+            let page = fetch(
+                &proving_ground,
+                handle["crawl_request"]["url"].as_str().unwrap(),
+            );
+            if handle["crawl_request"]["label"] == "book" {
+                let id = attributes(&page.body, "data-id");
+                return json!({ "result": { "records": [{ "dataset": "books", "data": { "id": id, "status": page.status } }] } });
+            }
+            let document = json!({
+                "url": page.url,
+                "base_href": attributes(&page.body, "base href").first(),
+            });
+            for href in attributes(&page.body, "a href") {
+                let answer = inside.enqueue(handle, &href, "book", Some(document.clone()));
+                enqueued.push(answer["url"].as_str().unwrap().to_owned());
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
     let observations = proving_ground.observations().unwrap();
     assert!(engine.finished());
 

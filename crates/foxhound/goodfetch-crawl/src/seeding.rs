@@ -17,10 +17,12 @@
 //! as it is written, an idle `crawl.keep_alive` crawl included, and its
 //! call is answered then. Once the crawl closed its intake to end its Run, a seed
 //! added is refused with `run_not_found`, as on an ended crawl, so it is
-//! never answered added and then left pending (#914). A seed whose Payload does not fit its Label's JSON
-//! Schema or `crawl.payload.max_size` fails `run.add_seed`, and a batch of
+//! never answered added and then left pending (#914). A seed naming a
+//! Label the crawl does not declare fails `run.add_seed`, and a batch of
 //! `run.add_seeds` holding one fails the call, none of the batch admitted,
-//! with `payload_invalid` (ADR 0082).
+//! with `label_unknown` (ADR 0093); one whose Payload does not fit its
+//! Label's JSON Schema or `crawl.payload.max_size` does so with
+//! `payload_invalid` (ADR 0082).
 
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_protocol::events::{CREDIT, CreditParams};

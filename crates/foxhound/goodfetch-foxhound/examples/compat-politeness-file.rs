@@ -261,6 +261,7 @@ fn crawl(run_id: &str, host: &str, domain: &Value) -> Value {
             { "url": format!("https://{host}/1"), "label": "page" },
             { "url": format!("https://{host}/2"), "label": "page" },
         ],
+        "labels": { "page": {} },
         "settings": {
             "fetch": fetch,
             "network": network,

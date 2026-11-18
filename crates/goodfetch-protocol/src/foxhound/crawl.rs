@@ -268,8 +268,11 @@ pub struct CrawlStartParams {
     /// The crawl's Labels, by name, each with its Payload's JSON Schema or
     /// none, and its own settings (ADRs 0082 and 0093): a scope between the
     /// Run and its requests. A Payload of a declared schema is checked
-    /// against it at every enqueue; a Label the crawl does not declare
-    /// takes any Payload.
+    /// against it at every enqueue. A seed, a sitemap rule or an enqueue
+    /// naming a Label the crawl does not declare fails with
+    /// `label_unknown`, and so does a start under the ID of a Run with
+    /// pending requests of a Label no longer declared, before any work; a
+    /// code-free crawl declares its own Label.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub labels: BTreeMap<String, LabelDeclaration>,
@@ -531,6 +534,17 @@ pub const LABEL_UNKNOWN: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// What `label_unknown` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct LabelUnknownDetails {
+    /// The Label's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub label: String,
+    /// The names of the Labels the crawl declares, in order.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub declared: Vec<String>,
+}
 
 /// A call on an attempt that already ended (ADR 0093).
 pub const ATTEMPT_ENDED: ErrorCodeDefinition = ErrorCodeDefinition {

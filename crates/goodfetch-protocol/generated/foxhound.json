@@ -2140,7 +2140,7 @@
             "$ref": "#/$defs/LabelDeclaration"
           },
           "arrived_in": "0.1",
-          "description": "The crawl's Labels, by name, each with its Payload's JSON Schema or\nnone, and its own settings (ADRs 0082 and 0093): a scope between the\nRun and its requests. A Payload of a declared schema is checked\nagainst it at every enqueue; a Label the crawl does not declare\ntakes any Payload.",
+          "description": "The crawl's Labels, by name, each with its Payload's JSON Schema or\nnone, and its own settings (ADRs 0082 and 0093): a scope between the\nRun and its requests. A Payload of a declared schema is checked\nagainst it at every enqueue. A seed, a sitemap rule or an enqueue\nnaming a Label the crawl does not declare fails with\n`label_unknown`, and so does a start under the ID of a Run with\npending requests of a Label no longer declared, before any work; a\ncode-free crawl declares its own Label.",
           "type": "object"
         },
         "project": {

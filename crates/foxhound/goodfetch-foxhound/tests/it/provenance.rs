@@ -114,6 +114,7 @@ fn every_record_names_its_request_tier_encoding_and_clean_up_rules_in_its_proven
             "seeds": seeds,
             "settings": settings,
             "datasets": [{ "name": "pages" }],
+            "labels": { "page": {} },
         }),
         &mut |inside, handle| {
             let url = handle["crawl_request"]["url"].clone();
@@ -283,6 +284,7 @@ fn a_record_holding_a_resolved_secret_value_is_kept_with_its_placeholder() {
     let finished = crawl_from(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "reflected",
             "seeds": [{ "url": site.page("/"), "label": "page" }],
             "datasets": [{

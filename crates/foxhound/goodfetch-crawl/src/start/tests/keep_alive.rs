@@ -20,7 +20,7 @@ async fn started_and_drained(client: &mut Client, run_id: &str, mut settings: Va
     client
         .call(
             "crawl.start",
-            json!({ "run_id": run_id, "seeds": seeds(1), "settings": settings }),
+            json!({ "run_id": run_id, "seeds": seeds(1), "settings": settings, "labels": { "page": {} } }),
             &mut |_| Reply::Silent,
         )
         .await;
@@ -49,7 +49,7 @@ fn a_keep_alive_crawl_stays_running_once_drained_until_run_finish_lets_it_end() 
             let while_idle = client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "served", "seeds": seeds(1) }),
+                    json!({ "run_id": "served", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;

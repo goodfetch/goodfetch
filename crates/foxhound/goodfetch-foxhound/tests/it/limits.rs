@@ -67,6 +67,7 @@ fn crawl_of(site: &Site, run_id: &str, host: &str, count: u64) -> Value {
         "seeds": seeds,
         "datasets": [{ "name": "pages" }],
         "settings": site.settings(),
+        "labels": { "page": {} },
     })
 }
 

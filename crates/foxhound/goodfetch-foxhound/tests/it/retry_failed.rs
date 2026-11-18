@@ -378,6 +378,7 @@ fn retry_failed_re_admits_a_failure_into_a_crawl_still_running() {
         }
     };
     let start = json!({
+        "labels": { "page": {} },
         "run_id": "live",
         "datasets": [{ "name": "pages" }],
         "seeds": [{ "url": site.page("/once"), "label": "page" }],

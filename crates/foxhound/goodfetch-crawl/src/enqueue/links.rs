@@ -236,7 +236,8 @@ pub(crate) async fn defer_links(
 
 /// How the live crawl of `params`'s Run is asked, its staging, and the
 /// batch of links its locator matches on the served page, owned for the
-/// job that admits it, its Payloads fitted and checked, its patterns
+/// job that admits it, once the crawl declares its Label (`label_unknown`
+/// before the page is read), its Payloads fitted and checked, its patterns
 /// compiled and each link keyed, on the task that serves the call, with no
 /// run file (#2244).
 async fn prepared(
@@ -266,6 +267,9 @@ async fn prepared(
     else {
         return Err(attempt.ended());
     };
+    // A Label the crawl does not declare adds no link, even from a page
+    // with none (ADR 0093).
+    invariants.payloads().declares(&params.label)?;
     let work = run.metrics().counted_work().clone();
     // Each glob compiles once for the engine, from its cache (#1896).
     let include = Patterns::cached(&work, Row::BatchCompilations, &params.include)

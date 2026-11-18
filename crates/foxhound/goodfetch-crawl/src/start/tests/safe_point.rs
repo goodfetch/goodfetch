@@ -30,6 +30,7 @@ fn a_crawl_past_its_run_timeout_admits_nothing_new_and_stops_with_the_stop_reaso
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "timed",
                         "seeds": seeds(&["https://a.test/1", "https://b.test/1", "https://c.test/1"]),
                         "settings": {
@@ -87,6 +88,7 @@ fn an_attempt_in_flight_at_the_run_timeout_ends_under_its_lease_before_the_run_s
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "held",
                         "seeds": seeds(&["https://a.test/1", "https://a.test/2"]),
                         "settings": { "timeout": { "run": 5_000 } },

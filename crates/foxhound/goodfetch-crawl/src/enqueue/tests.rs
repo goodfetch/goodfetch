@@ -41,6 +41,7 @@ fn leased() -> (Connection, u64) {
         .chain(BOUNDS_TABLES.statements)
         .chain(goodfetch_frontier::RULES_TABLES.statements)
         .chain(goodfetch_frontier::payload::TABLES.statements)
+        .chain(crate::invariants::fixture::PAGE_DECLARED.statements)
         .chain(goodfetch_frontier::sitemap::TABLES.statements)
         .chain(goodfetch_frontier::trap_links::TABLES.statements)
     {
@@ -143,7 +144,7 @@ fn a_staged_enqueue_is_checked_once_and_its_commit_adds_it_with_its_payload() {
     let (connection, lease_epoch) = leased();
     connection
         .execute(
-            "INSERT INTO payload_labels (label, schema, hash) VALUES ('page', ?1, 'h')",
+            "UPDATE payload_labels SET schema = ?1, hash = 'h' WHERE label = 'page'",
             [json!({ "type": "object", "required": ["sku"] }).to_string()],
         )
         .unwrap();

@@ -92,7 +92,7 @@ link = "https://github.com/goodfetch/goodfetch/issues/321"
 feature = "story:2-41"
 evidence = "manual"
 reason = "A review rule no test reaches: the pull request that adds a feature also adds the Proving ground page or task its test needs, which the review checklist's item 20 asks of every pull request (ADR 0032)."
-link = "TESTING.md#review-checklist"
+link = "docs/testing/review-checklist.md"
 
 [[exception]]
 feature = "error:browser_host_outdated"

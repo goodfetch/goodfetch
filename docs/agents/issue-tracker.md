@@ -58,7 +58,7 @@ V1 is delivered in four GitHub milestones (ADR 0058): `M1 Core`, `M2 Client surf
 
 ## Implementation loop
 
-Each `/implement-spec` run is one whole spec, every open ticket of that spec whatever its milestone (ADR 0136). The run follows the skill as written but for who builds its tickets (below), with the checks and the implementer limit of `TESTING.md`'s [Checks by role](../../TESTING.md#checks-by-role).
+Each `/implement-spec` run is one whole spec, every open ticket of that spec whatever its milestone (ADR 0136). The run follows the skill as written but for who builds its tickets (below), with the checks and the implementer limit of `TESTING.md`'s [Checks by role](../testing/checks-by-role.md).
 
 - **To start** a run: `/implement-spec #<spec>`. Its integration branch is `spec/<n>`, where `<n>` is the spec's issue number, created by the skill's step 3.
 - **Once the first ticket is pushed** to that branch, its draft pull request opens, marked as closing the spec and its tickets (`Closes #<n>` and one `Closes #<ticket>` line per ticket). It merges into `main` through `just merge` (`AGENTS.md`, Merging).
@@ -75,6 +75,6 @@ A recorded lot (owner, 2026-11-11, « Oui, envoie », ADR 0133's first note of t
 
 Three labels, applied by CI's automation (ADRs 0064 and 0035), never by triage. While the flaky-test scan (`TESTING.md`, After merge) and every workflow but the Release suite (`AGENTS.md`, Merging) are off, none opens on its own. Until #1719, `xtask issues` files a new one in the earliest open milestone with no parent: attach it to the spec that owns its test before that spec's run.
 
-- **`flaky-test`**: one issue per flaky test, with the runs that differed; the test's quarantine-list entry links it. Its handling is `TESTING.md`'s [A flaky test found after merge](../../TESTING.md#a-flaky-test-found-after-merge): the test is quarantined the same day, and the fix waits its turn behind Features' work ([the rollout order](rollout-order.md)).
+- **`flaky-test`**: one issue per flaky test, with the runs that differed; the test's quarantine-list entry links it. Its handling is `TESTING.md`'s [A flaky test found after merge](../testing/flaky-tests-and-live-checks.md#a-flaky-test-found-after-merge): the test is quarantined the same day, and the fix waits its turn behind Features' work ([the rollout order](rollout-order.md)).
 - **`watchlist`**: one issue per bot-protection, challenge or CAPTCHA vendor webappanalyzer or Scrapfly's Antibot-Detector lists that no block-detection rule covers, opened by the weekly watchlist job (`.github/workflows/watchlist.yml`, story 61, which is disabled with every workflow but the Release suite) with `needs-triage` and no milestone. Keep the `watchlist` label on it: the job finds its issues, open or closed, by it. Close it once a rule covers the vendor, or as `wontfix` when the vendor refuses no automated client; the job never opens it again.
-- **`live-check`**: one issue per Live check whose last run failed, or was inconclusive three times in a row. Its handling is `TESTING.md`'s [Flaky tests and Live checks](../../TESTING.md#flaky-tests-and-live-checks).
+- **`live-check`**: one issue per Live check whose last run failed, or was inconclusive three times in a row. Its handling is `TESTING.md`'s [Flaky tests and Live checks](../testing/flaky-tests-and-live-checks.md).

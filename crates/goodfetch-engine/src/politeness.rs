@@ -1425,7 +1425,9 @@ impl Politeness {
                 Ok(()) => {}
                 // A holder whose endpoint is gone and whose Run is gone has
                 // its Delegation reclaimed by the recaller's next take: it
-                // is woken at once rather than at its own deadline.
+                // is woken at once rather than at its own deadline. One
+                // whose Run is still live keeps its Delegation: taking it
+                // would break its hold, so the waiter waits for its deadline.
                 Err(error) if transport::is_gone(&error) => {
                     let key = turn.wake.key.clone();
                     let gone = self

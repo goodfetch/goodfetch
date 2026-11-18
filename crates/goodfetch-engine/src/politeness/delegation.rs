@@ -629,31 +629,57 @@ impl FileBackend {
 
     /// Whether the Delegation of `key` is no longer held by another
     /// engine's live Run, so a recall that found its holder's endpoint
-    /// gone lets the recaller retake the key at once.
+    /// gone lets the recaller retake the key at once. A read outside a
+    /// transaction: it changes nothing, and the retake reclaims.
     pub(super) fn holder_gone(
         &self,
         context: &Context,
         key: &str,
     ) -> Result<bool, PolitenessError> {
-        transaction(
-            &self.connection,
-            &self.commits,
-            Row::PolitenessOtherTransactions,
-            |transaction| {
-                let held: Option<(i64, String, String)> = transaction
-                    .prepare_cached(DELEGATION)?
-                    .query_row([key], |row| Ok((row.get(1)?, row.get(2)?, row.get(3)?)))
-                    .optional()?;
-                Ok(held.is_none_or(|(epoch, folder, engine)| {
-                    engine != context.engine
-                        && (context.holder_gone)(
-                            Path::new(&folder),
-                            u64::try_from(epoch).unwrap_or_default(),
-                        )
-                }))
-            },
-        )
-        .map_err(|error| sqlite_error(&context.path, &error))
+        delegation_holder(&self.connection, context, key)
+            .map(|holder| !matches!(holder, DelegationHolder::Live(_)))
+            .map_err(|error| sqlite_error(&context.path, &error))
+    }
+}
+
+/// Who holds the Delegation of `key`, as one engine sees it.
+enum DelegationHolder {
+    /// No other engine's Run holds it.
+    Free,
+    /// Another engine's live Run holds it, woken at this endpoint.
+    Live(String),
+    /// Another engine's Run that is gone holds it, until it is reclaimed.
+    Gone { run_id: String, epoch: i64 },
+}
+
+/// Who holds the Delegation of `key`, read on `connection`.
+fn delegation_holder(
+    connection: &Connection,
+    context: &Context,
+    key: &str,
+) -> rusqlite::Result<DelegationHolder> {
+    let held: Option<(String, i64, String, String, String)> = connection
+        .prepare_cached(DELEGATION)?
+        .query_row([key], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })
+        .optional()?;
+    let Some((run_id, epoch, folder, engine, endpoint)) = held else {
+        return Ok(DelegationHolder::Free);
+    };
+    if engine == context.engine {
+        return Ok(DelegationHolder::Free);
+    }
+    if (context.holder_gone)(Path::new(&folder), u64::try_from(epoch).unwrap_or_default()) {
+        Ok(DelegationHolder::Gone { run_id, epoch })
+    } else {
+        Ok(DelegationHolder::Live(endpoint))
     }
 }
 
@@ -672,27 +698,11 @@ pub(super) fn held_elsewhere(
     rule: &dyn Erased,
     now: SystemTime,
 ) -> rusqlite::Result<Option<String>> {
-    let held: Option<(String, i64, String, String, String)> = transaction
-        .prepare_cached(DELEGATION)?
-        .query_row([key], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-            ))
-        })
-        .optional()?;
-    let Some((run_id, epoch, folder, engine, endpoint)) = held else {
-        return Ok(None);
+    let (run_id, epoch) = match delegation_holder(transaction, context, key)? {
+        DelegationHolder::Free => return Ok(None),
+        DelegationHolder::Live(endpoint) => return Ok(Some(endpoint)),
+        DelegationHolder::Gone { run_id, epoch } => (run_id, epoch),
     };
-    if engine == context.engine {
-        return Ok(None);
-    }
-    if !(context.holder_gone)(Path::new(&folder), u64::try_from(epoch).unwrap_or_default()) {
-        return Ok(Some(endpoint));
-    }
     tracing::debug!(%run_id, epoch, key, "the Delegation of a gone Run is reclaimed");
     transaction.prepare_cached(UNDELEGATE)?.execute([key])?;
     rule.restarted(transaction, key, now)?;

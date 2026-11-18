@@ -109,11 +109,13 @@ fn page_memory_cap(run: &Run) -> SettingLimit {
                 key: BROWSER_PAGE_MEMORY_CAP.name.to_owned(),
                 value: catalog_value(&BROWSER_PAGE_MEMORY_CAP).clone(),
                 layer: SettingsLayer::Default,
+                origin: None,
             },
             |effective| SettingLimit {
                 key: BROWSER_PAGE_MEMORY_CAP.name.to_owned(),
                 value: effective.value.clone(),
                 layer: effective.layer,
+                origin: effective.origin,
             },
         )
 }

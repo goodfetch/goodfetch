@@ -66,7 +66,7 @@ describe("a Collie Connection on an Attached engine", () => {
   );
 
   test(
-    "stops a Run its program closes unfinished, as an abort by its Client",
+    "stops a Run its program closes unfinished, so a start under its Run ID resumes it",
     { tags: ["story:11-17"] },
     async ({ env }) => {
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
@@ -78,12 +78,8 @@ describe("a Collie Connection on an Attached engine", () => {
       const report = await again.finish();
       await collie.close();
 
-      expect(again.startedAs()).toBe("existing");
-      expect(report).toMatchObject({
-        lifecycle: "stopped",
-        completeness: "incomplete",
-        stop_reason: { kind: "abort", by: "client" },
-      });
+      expect(again.startedAs()).toBe("resumed");
+      expect(report).toMatchObject({ lifecycle: "finished" });
     },
   );
 

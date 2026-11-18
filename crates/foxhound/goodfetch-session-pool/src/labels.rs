@@ -91,6 +91,8 @@ impl LabelPools {
                                 key: SESSION_SOURCE.name.to_owned(),
                                 layer: Some(SettingsLayer::Run),
                                 reason: error.to_string(),
+                                limit: None,
+                                fix: None,
                             },
                         )
                     })?,
@@ -105,6 +107,7 @@ impl LabelPools {
                 key: key.to_owned(),
                 value: value.clone(),
                 layer: SettingsLayer::Run,
+                origin: None,
             });
             pools.insert(name.clone(), OwnPool { source, login });
         }

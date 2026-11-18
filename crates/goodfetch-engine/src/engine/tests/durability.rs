@@ -317,6 +317,7 @@ fn a_run_file_a_crash_left_at_off_is_discarded_and_the_run_starts_again() {
             &resumed["error"]["data"]["code"],
             &started["result"]["started_as"],
         ),
-        (&json!("run_not_found"), &json!("new"))
+        (&json!("run_not_found"), &json!("new")),
+        "{started}"
     );
 }

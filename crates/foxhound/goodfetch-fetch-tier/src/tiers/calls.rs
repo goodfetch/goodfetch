@@ -557,6 +557,8 @@ async fn sent(page: &ServedPage, params: &PageRequestParams) -> Result<Fetched, 
                 key: "max_redirects".to_owned(),
                 layer: Some(SettingsLayer::Run),
                 reason: format!("{max_redirects} is above {MAX_REDIRECTS}"),
+                limit: None,
+                fix: None,
             },
         ));
     }

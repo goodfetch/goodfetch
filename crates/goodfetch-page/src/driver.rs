@@ -1387,7 +1387,8 @@ impl PageDriver {
     ///
     /// # Errors
     ///
-    /// `invalid_params` for a `timeout` of 0.
+    /// `setting_invalid` for a `timeout` of 0, naming `timeout.navigation`
+    /// at the run layer from the call's argument.
     #[expect(
         clippy::option_option,
         reason = "the param's three states as the protocol carries them (ADR 0080): absent, `null` or a duration"

@@ -1702,6 +1702,7 @@ dependencies = [
 name = "goodfetch-fetch-tier"
 version = "0.0.0"
 dependencies = [
+ "aho-corasick",
  "btls",
  "bytes",
  "bytestring",

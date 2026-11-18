@@ -11,6 +11,12 @@ navigation = 30000
 launch = 30000
 wait = 30000
 first_byte = 30000
+hook = 30000
+sink_write = 30000
+agent = 30000
+ai = 30000
+model = 30000
+human_pause = 30000
 handler = 30000
 dataset_query = 30000
 

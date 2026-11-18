@@ -1303,3 +1303,19 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 166
+title = "As a developer starting a Run under an ID I used before, I want the start to begin it when no such Run exists (`new`), resume an interrupted one from its committed state (`resumed`) and answer a finished one as it ended with no handler called (`ended`), so that a retried script never gets a second Run nor restarts one by accident (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 167
+title = "As a developer, I want a start under a Run ID to fail with `run_in_use` while a writer runs that Run, with `run_conflict` listing each difference when it began with other inputs or another caller, and with `run_state_unavailable` when the Run index lists it but its state is missing or unreadable, never starting it afresh, so that a refused start tells me why (ADR 0102)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

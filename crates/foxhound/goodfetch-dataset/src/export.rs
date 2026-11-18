@@ -275,6 +275,8 @@ fn checked<T>(
                 key: setting.name.to_owned(),
                 layer: Some(layer),
                 reason: format!("{given} {reason}"),
+                limit: None,
+                fix: None,
             },
         )
     })

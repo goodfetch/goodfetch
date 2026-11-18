@@ -154,7 +154,7 @@ impl HeldRun {
         }
     }
 
-    /// Whether the start began the Run, found it, or went on with it.
+    /// Whether the start began the Run, went on with it, or found it ended.
     pub(crate) fn started_as(&self) -> StartedAs {
         self.started_as
     }

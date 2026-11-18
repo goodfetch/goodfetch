@@ -404,7 +404,7 @@ fn stop_stops_a_run_with_a_checkpoint_as_an_abort_by_its_program() {
 /// Covers: story:3-153, setting:timeout.close, error:deadline_exceeded
 #[rstest]
 #[case::by_default(json!({ "run_id": "slow" }), json!({ "key": "timeout.close", "value": 30_000, "layer": "default" }))]
-#[case::by_the_calls_timeout(json!({ "run_id": "slow", "timeout": 1_000 }), json!({ "key": "timeout.close", "value": 1_000, "layer": "run" }))]
+#[case::by_the_calls_timeout(json!({ "run_id": "slow", "timeout": 1_000 }), json!({ "key": "timeout.close", "value": 1_000, "layer": "run", "origin": "argument" }))]
 fn a_stop_past_its_wait_fails_the_wait_and_the_run_still_stops(
     #[case] stop: Value,
     #[case] limit: Value,
@@ -891,7 +891,7 @@ fn a_periodic_checkpoint_that_fails_warns_naming_its_folder() {
     );
 }
 
-/// Covers: story:3-156
+/// Covers: story:3-156, story:3-166
 #[test]
 fn a_finish_of_a_run_its_start_found_finished_did_nothing() {
     let env = TestEnv::new();
@@ -914,7 +914,7 @@ fn a_finish_of_a_run_its_start_found_finished_did_nothing() {
         ),
         (
             &Value::Null,
-            &json!("existing"),
+            &json!("ended"),
             &json!({ "reason": "already_ended", "ended_at": replies[1]["result"]["ended_at"] }),
         )
     );

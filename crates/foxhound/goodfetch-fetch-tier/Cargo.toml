@@ -11,6 +11,7 @@ publish.workspace = true
 autobenches = false
 
 [dependencies]
+aho-corasick.workspace = true
 btls.workspace = true
 bytes.workspace = true
 bytestring.workspace = true

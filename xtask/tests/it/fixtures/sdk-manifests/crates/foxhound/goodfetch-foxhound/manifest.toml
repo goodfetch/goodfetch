@@ -1,0 +1,7 @@
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"

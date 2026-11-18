@@ -8,7 +8,13 @@ import { dirname, join } from "node:path";
 import { AttachedEngine } from "./attached-engine.ts";
 import { ClientConnection } from "./client-connection.ts";
 import type { ErrorClasses } from "./errors.ts";
-import { EngineNotFoundError, SettingInvalidError, type Product } from "./generated/index.ts";
+import {
+  EngineNotFoundError,
+  SettingInvalidError,
+  type Product,
+  type RunLimit,
+} from "./generated/index.ts";
+import { limitList, type Limits } from "./limits.ts";
 import type { Logger } from "./logger.ts";
 import { boundsOf, type ChannelBounds, type Transport } from "./rpc.ts";
 
@@ -32,6 +38,15 @@ export interface ConnectOverOptions {
    * message larger than this is still taken while nothing waits.
    */
   readonly maxQueuedWriteBytes?: ChannelBounds["maxQueuedWriteBytes"];
+  /**
+   * The Limits of this Client connection (ADR 0080), set once `hello` is
+   * answered and before the opening returns: each only lowers what covers
+   * the connection's work. An amount the SDK cannot turn exactly fails the
+   * opening with `setting_invalid` before the engine starts, and a Limit
+   * the engine refuses closes the connection and fails the opening with
+   * its error.
+   */
+  readonly limits?: Limits | undefined;
 }
 
 /** Options of `connect()`. */
@@ -171,14 +186,20 @@ export function openOver(
 /**
  * The common Connection's part of `options`.
  *
- * @throws {SettingInvalidError} when a bound is no whole number of 1 or more.
+ * @throws {SettingInvalidError} when a bound is no whole number of 1 or more,
+ * or a Limit's amount does not turn exactly into the wire's.
  */
 function opening(options: ConnectOverOptions): {
   readonly bounds: ChannelBounds;
   readonly signal: AbortSignal | undefined;
+  readonly limits: readonly RunLimit[];
 } {
   const { signal, maxPendingCalls, maxQueuedWriteBytes } = options;
-  return { bounds: boundsOf({ maxPendingCalls, maxQueuedWriteBytes }), signal };
+  return {
+    bounds: boundsOf({ maxPendingCalls, maxQueuedWriteBytes }),
+    signal,
+    limits: limitList(options.limits),
+  };
 }
 
 /** The process's own environment, its unset entries left out. */

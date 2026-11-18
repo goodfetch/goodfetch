@@ -599,8 +599,9 @@ pub struct RunLimit {
 #[serde(deny_unknown_fields)]
 pub struct RunStartParams {
     /// The Run's ID; the engine generates a lowercase ULID when it is
-    /// absent. An existing ID returns that Run when the caller and the
-    /// inputs match, and fails with `run_conflict` otherwise.
+    /// absent. An existing ID reaches that Run when the caller and the
+    /// inputs match, as `run.start` says, and fails with `run_conflict`
+    /// otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1", "pattern" = RUN_ID_PATTERN))]
     pub run_id: Option<String>,
@@ -624,19 +625,20 @@ pub struct RunStartParams {
     pub limits: Vec<RunLimit>,
 }
 
-/// Whether a start began its Run or found it.
+/// What a start did with its Run: began it, resumed it, or found it ended
+/// (ADR 0102).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StartedAs {
     /// The start began it.
     New,
-    /// Its Run ID named a Run started before with the same inputs, which is
-    /// returned as it is.
-    Existing,
     /// It was interrupted and goes on from its committed state, its run
     /// file or a Checkpoint, at the next run epoch (ADRs 0002, 0003 and
     /// 0102).
     Resumed,
+    /// Its Run ID named a Run that finished, returned as it ended with no
+    /// handler called.
+    Ended,
 }
 
 /// What a start answers once its Run is started, never at its end.
@@ -674,21 +676,46 @@ pub struct RunDiscarded {
     pub run_id: RunId,
 }
 
-/// What `run.finish` and `run.stop` take: the Run, and how long the call
-/// waits for its end.
+/// What `run.finish` takes: the Run, and how long the call waits for its
+/// end.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct RunWaitParams {
+pub struct RunFinishParams {
     /// The Run's ID.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_id: RunId,
-    /// How long the call waits for the Run's end, in milliseconds; past it,
-    /// it fails with `deadline_exceeded` and only the wait ends. None by
-    /// default for `run.finish`, which the Run's own `timeout.run` bounds;
-    /// `timeout.close` by default for `run.stop`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// How long the call waits for the Run's end, in milliseconds, at least
+    /// 1, as `timeout.run` for this call alone: absent or `null` for none,
+    /// since the Run's own `timeout.run` bounds it (ADR 0080). Past it, the
+    /// call fails with `deadline_exceeded` and only the wait ends.
+    #[serde(
+        default,
+        deserialize_with = "crate::settings::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.run"))]
+    pub timeout: Option<Option<u64>>,
+}
+
+/// What `run.stop` takes: the Run, and how long the call waits for its
+/// safe point.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunStopParams {
+    /// The Run's ID.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub timeout: Option<u64>,
+    pub run_id: RunId,
+    /// How long the call waits for the Run's safe point, in milliseconds,
+    /// at least 1: absent for the Run's `timeout.close`, `null` for none
+    /// (ADR 0080). Past it, the call fails with `deadline_exceeded` and the
+    /// Run still stops at its next safe point.
+    #[serde(
+        default,
+        deserialize_with = "crate::settings::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.close"))]
+    pub timeout: Option<Option<u64>>,
 }
 
 /// What `run.abort` takes: the Run, and whether the abort was forwarded.
@@ -801,7 +828,7 @@ pub const RUN_SET_PROGRESS_MESSAGE: Operation = Operation {
 /// `run.start`.
 pub const RUN_START: Operation = Operation {
     name: "run.start",
-    description: "Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.",
+    description: "Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good, and a start under one acts on what the Run index holds (ADR 0102): no such Run begins it, `new`; an interrupted Run, stopped, failed, or running with no live writer, resumes from its committed state at the next run epoch, `resumed`, as `run.resume` does; a finished Run is answered as it ended with no handler called, `ended`. A Run live with a writer, in this engine or another, fails with `run_in_use`; a Run started with other inputs or by another caller with `run_conflict` listing each difference; a Run the Run index lists whose state is missing or unreadable with `run_state_unavailable`, never starting afresh.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::Opener,
     reach: Reach::AllSurfaces,
@@ -823,7 +850,7 @@ pub const RUN_FINISH: Operation = Operation {
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
-    params: schema_of::<RunWaitParams>,
+    params: schema_of::<RunFinishParams>,
     result: schema_of::<RunReport>,
     events: &[],
     cancellable: true,
@@ -841,7 +868,7 @@ pub const RUN_STOP: Operation = Operation {
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
-    params: schema_of::<RunWaitParams>,
+    params: schema_of::<RunStopParams>,
     result: schema_of::<RunReport>,
     events: &[],
     cancellable: true,

@@ -19,7 +19,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::settings::{
-    SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION,
+    RunOrigin, SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION,
 };
 use serde_json::{Value, json};
 
@@ -39,7 +39,7 @@ fn settings(user_configuration: Value) -> crate::settings::Resolved {
     resolve(&layers, Product::Collie, Product::Collie).unwrap()
 }
 
-/// Covers: story:3-52, error:deadline_exceeded, setting:timeout.first_byte
+/// Covers: story:3-52, story:11-43, error:deadline_exceeded, setting:timeout.first_byte
 #[test]
 fn a_wait_past_its_first_byte_timeout_ends_with_deadline_exceeded_naming_the_setting() {
     let settings = settings(json!({ "timeout": { "first_byte": 5_000 } }));
@@ -106,6 +106,7 @@ fn a_timeout_no_layer_set_takes_its_declared_default() {
                 key: "timeout.action".to_owned(),
                 value: json!(30_000),
                 layer: SettingsLayer::Default,
+                origin: None,
             }
         )
     );
@@ -113,14 +114,17 @@ fn a_timeout_no_layer_set_takes_its_declared_default() {
 
 /// A call's own `timeout` (ADR 0080): absent, the scope's deadline; `null`,
 /// none; a count of milliseconds, that setting at the run layer.
-/// Covers: setting:timeout.navigation
+/// Covers: story:11-40, setting:timeout.navigation
 #[rstest::rstest]
-#[case::absent(None, Some((60_000, SettingsLayer::UserConfiguration)))]
+#[case::absent(None, Some((60_000, SettingsLayer::UserConfiguration, None)))]
 #[case::null(Some(None), None)]
-#[case::given(Some(Some(500)), Some((500, SettingsLayer::Run)))]
+#[case::given(
+    Some(Some(500)),
+    Some((500, SettingsLayer::Run, Some(RunOrigin::Argument)))
+)]
 fn a_calls_own_timeout_replaces_its_scopes_deadline(
     #[case] timeout: Option<Option<u64>>,
-    #[case] expected: Option<(u64, SettingsLayer)>,
+    #[case] expected: Option<(u64, SettingsLayer, Option<RunOrigin>)>,
 ) {
     let settings = settings(json!({ "timeout": { "navigation": 60_000 } }));
     let scope = Deadline::of(&settings, &TIMEOUT_NAVIGATION).unwrap();
@@ -129,21 +133,39 @@ fn a_calls_own_timeout_replaces_its_scopes_deadline(
 
     assert_eq!(
         deadline.map(|deadline| deadline.limit().clone()),
-        expected.map(|(value, layer)| SettingLimit {
+        expected.map(|(value, layer, origin)| SettingLimit {
             key: "timeout.navigation".to_owned(),
             value: json!(value),
             layer,
+            origin,
         })
     );
 }
 
-/// A `timeout` of 0 would end the call at once: it is refused.
-/// Covers: setting:timeout.navigation
+/// A `timeout` of 0 would end the call at once: it is refused as the
+/// setting it would have set, at the run layer from the call's argument,
+/// and the fix names the null form that sets none (ADR 0080).
+/// Covers: story:11-42, error:setting_invalid, setting:timeout.navigation
 #[test]
-fn a_calls_own_timeout_of_zero_is_invalid_params() {
+fn a_calls_own_timeout_of_zero_is_setting_invalid_naming_the_null_form() {
     let scope = Deadline::declared(&TIMEOUT_NAVIGATION);
 
     let refused = Deadline::of_call(&scope, &TIMEOUT_NAVIGATION, Some(Some(0))).unwrap_err();
 
-    assert_eq!(refused.wire_parts().0, -32602);
+    let (class, retryable, details) = refused.wire_parts();
+    assert_eq!(
+        (refused.code(), class, retryable, Value::Object(details)),
+        (
+            "setting_invalid",
+            -32001,
+            false,
+            json!({
+                "key": "timeout.navigation",
+                "layer": "run",
+                "reason": "a timeout of 0 ms would end the call at once",
+                "limit": { "key": "timeout.navigation", "value": 0, "layer": "run", "origin": "argument" },
+                "fix": "give at least 1 ms, or `timeout: null` for no timeout",
+            })
+        )
+    );
 }

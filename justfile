@@ -180,6 +180,7 @@ lint:
     step --after xtask xtask-modules 'cargo run --quiet --bin xtask -- modules'
     step --after xtask xtask-codegen 'cargo run --quiet --bin xtask -- codegen --check'
     step --after xtask xtask-clients 'cargo run --quiet --bin xtask -- clients check'
+    step --after xtask xtask-sdk-manifests 'cargo run --quiet --bin xtask -- sdk-manifests'
     step --after xtask xtask-compat 'cargo run --quiet --bin xtask -- compat check'
     step --after xtask xtask-containment 'cargo run --quiet --bin xtask -- containment'
     step tool-versions 'ci/tool-versions.sh'
@@ -2010,12 +2011,12 @@ existing-code-sweep *arguments:
 # (TESTING.md, After merge), on `main`'s head: from its cron
 # (ci/test-health.crontab), in the backstop's gate worktree, `constrained`,
 # the constrained test-health run, and `mutants`, the advisory mutation run
-# over the last day's Rust changes; and from each `just merge` gate as it
-# ends, in that gate's worktree, `post-merge`, `just counts` and the
-# Pre-merge suite over what `main` gained since the commit it last checked
-# (ci/test-health/scheduled.sh). Each skips while `just merge`'s gate runs,
-# and a gate started during one waits for it, but for a post-merge run, which
-# it stops.
+# over the last day's Rust changes; and by hand only, in the merge gate's
+# worktree, `post-merge`, `just counts` and the Pre-merge suite over what
+# `main` gained since the commit it last checked (ci/test-health/scheduled.sh;
+# no gate starts it since the owner's decision of 2026-11-18, ADR 0135). Each
+# skips while `just merge`'s gate runs, and a gate started during one waits
+# for it, but for a post-merge run, which it stops.
 # Logs and results go to ~/test-health/ (GOODFETCH_TEST_HEALTH_LOG). Run from
 # the main checkout.
 test-health run ref="origin/main":

@@ -86,20 +86,6 @@ use self::waits::{
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
-/// A field that is present, `null` included, as `Some`; one left out stays
-/// `None` through `#[serde(default)]`.
-#[expect(
-    clippy::option_option,
-    reason = "three states (ADRs 0080 and 0083): left out inherits, `null` clears, a value sets"
-)]
-fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer).map(Some)
-}
-
 /// The notification that carries one chunk of a body `page.body` reads.
 pub const CHUNK: &str = "$/chunk";
 
@@ -265,10 +251,10 @@ pub struct GotoParams {
     /// count against it no more than against the setting.
     #[serde(
         default,
-        deserialize_with = "present",
+        deserialize_with = "crate::settings::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.navigation"))]
     pub timeout: Option<Option<u64>>,
 }
 

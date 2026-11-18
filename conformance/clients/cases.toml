@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "13"
+version = "14"
 
 [[capability]]
 name = "lifecycle"
@@ -200,3 +200,40 @@ id = "key-value-store-read-of-the-other-type-refused"
 covers = ["story:6-30"]
 surfaces = ["sdk-typescript", "sdk-rust"]
 modes = ["attached", "linked"]
+
+# Limits in code (ADR 0080; issue 2830): `connect()` and a Run's start take
+# typed Limits, a price as an exact `Money`, which only lower. TypeScript
+# implements them first; Python (#2834) and Rust (#2835) join by adding
+# their surface.
+[[capability]]
+name = "limits"
+
+[[capability.case]]
+id = "limits-sent-in-millionths"
+covers = ["story:11-51"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "money-inexact-refused-before-sending"
+covers = ["story:11-51"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "connect-limit-refused-closes"
+covers = ["story:11-51"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "limits-lowered-never-raised"
+covers = ["story:11-51"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "limit-reached-stops-the-run"
+covers = ["story:11-52"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]

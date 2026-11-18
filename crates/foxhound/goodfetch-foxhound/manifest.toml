@@ -3,7 +3,8 @@
 # or `entry = "none"` with its reason, and the canonical words and form it is
 # spelled from, in the forms of `sdks/typescript/manifest.toml`. The values a
 # connection hands out are the Collie client crate's, re-exported, and listed
-# with it. No check reads this file yet: ADR 0099's completeness tests join
+# with it. `xtask sdk-manifests` refuses an entry that is no catalog
+# operation or one only a person may call. ADR 0099's completeness tests join
 # with area 11's catalog mapping ticket; until then a member added by hand
 # gets its line here.
 

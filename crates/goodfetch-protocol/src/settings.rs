@@ -36,6 +36,20 @@ pub use deployment::{
     TOKEN_VARIABLE, URL_VARIABLE,
 };
 
+/// A field that is present, `null` included, as `Some`; one left out stays
+/// `None` through `#[serde(default)]`.
+#[expect(
+    clippy::option_option,
+    reason = "three states (ADRs 0080 and 0083): left out inherits, `null` clears, a value sets"
+)]
+pub(crate) fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
 /// The layers settings resolve through, lowest first (ADRs 0028 and 0083).
@@ -109,8 +123,9 @@ impl RunOrigin {
     }
 }
 
-/// A setting that decided an outcome: its key, its value and the layer that
-/// set it (ADRs 0028 and 0079).
+/// A setting that decided an outcome: its key, its value, the layer that
+/// set it and, for the run layer, where the value came from (ADRs 0028,
+/// 0079 and 0083).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SettingLimit {
     /// The setting's key.
@@ -122,6 +137,12 @@ pub struct SettingLimit {
     /// The layer that set it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub layer: SettingsLayer,
+    /// For the run layer, where the value came from, such as `argument`
+    /// for a call's own `timeout` (ADR 0083); absent when unknown or for
+    /// another layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub origin: Option<RunOrigin>,
 }
 
 /// A setting that weakened a safeguard for a Run (ADR 0028): its key, its
@@ -212,6 +233,16 @@ pub struct SettingInvalidDetails {
     /// What is wrong with it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub reason: String,
+    /// The value refused, as the setting it would have set: a call's own
+    /// `timeout` of 0 names its timeout setting at the run layer, origin
+    /// `argument` (ADR 0080); absent where no value was read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: Option<SettingLimit>,
+    /// What to give instead, such as the null form that sets no timeout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: Option<String>,
 }
 
 /// A value set where it cannot take effect (ADR 0083).
@@ -561,6 +592,26 @@ fn yes() -> Value {
 
 fn thirty_seconds() -> Value {
     json!(30_000)
+}
+
+fn ten_seconds() -> Value {
+    json!(10_000)
+}
+
+fn one_minute() -> Value {
+    json!(60_000)
+}
+
+fn two_minutes() -> Value {
+    json!(120_000)
+}
+
+fn ten_minutes() -> Value {
+    json!(600_000)
+}
+
+fn a_day() -> Value {
+    json!(86_400_000)
 }
 
 /// `network.resolve` (ADR 0059).
@@ -1044,6 +1095,96 @@ pub const TIMEOUT_FIRST_BYTE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `timeout.hook` (ADRs 0080 and 0083), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_HOOK: Setting = Setting {
+    name: "timeout.hook",
+    description: "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+    kind: ValueKind::Duration,
+    default: ten_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("hooks"),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.sink_write` (ADRs 0080 and 0083), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_SINK_WRITE: Setting = Setting {
+    name: "timeout.sink_write",
+    description: "How long one write to a Sink may take before it fails with `deadline_exceeded`: 30 s.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("sinks"),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.agent` (ADRs 0080 and 0100), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_AGENT: Setting = Setting {
+    name: "timeout.agent",
+    description: "How long an Agent's task may run, its actions and model calls nested inside, before it stops with `ended: stopped` and the reason `timeout`: 10 min.",
+    kind: ValueKind::Duration,
+    default: ten_minutes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("agent"),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.ai` (ADRs 0080 and 0091), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_AI: Setting = Setting {
+    name: "timeout.ai",
+    description: "How long an AI verb may take from its call to its return, its model calls and a Repair included, before it fails with `deadline_exceeded`: 120 s.",
+    kind: ValueKind::Duration,
+    default: two_minutes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("ai_verbs"),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.model` (ADRs 0080 and 0101), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_MODEL: Setting = Setting {
+    name: "timeout.model",
+    description: "How long one attempt of one model request may take before it is retried within the call that made it: 60 s.",
+    kind: ValueKind::Duration,
+    default: one_minute,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("model_calls"),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.human_pause` (ADRs 0080 and 0092), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_HUMAN_PAUSE: Setting = Setting {
+    name: "timeout.human_pause",
+    description: "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
+    kind: ValueKind::Duration,
+    default: a_day,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("human_pause"),
+    arrived_in: ARRIVED_IN,
+};
+
 /// `admission.max_requests_per_minute` (RT-02, ADR 0004).
 pub const ADMISSION_MAX_REQUESTS_PER_MINUTE: Setting = Setting {
     name: "admission.max_requests_per_minute",
@@ -1104,6 +1245,12 @@ pub const ENTRIES: Entries = Entries {
         TIMEOUT_LAUNCH,
         TIMEOUT_WAIT,
         TIMEOUT_FIRST_BYTE,
+        TIMEOUT_HOOK,
+        TIMEOUT_SINK_WRITE,
+        TIMEOUT_AGENT,
+        TIMEOUT_AI,
+        TIMEOUT_MODEL,
+        TIMEOUT_HUMAN_PAUSE,
         ADMISSION_MAX_REQUESTS_PER_MINUTE,
     ],
     hook_stages: &[],

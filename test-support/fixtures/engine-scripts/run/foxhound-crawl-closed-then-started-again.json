@@ -111,7 +111,7 @@
           "run_id": "nightly",
           "lifecycle": "running",
           "needs": "foxhound",
-          "started_as": "existing"
+          "started_as": "resumed"
         }
       }
     },

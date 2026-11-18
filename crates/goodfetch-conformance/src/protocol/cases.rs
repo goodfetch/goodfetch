@@ -7,8 +7,8 @@
 //! cases `page_request`'s, its dialog cases `dialogs`', its popup cases
 //! `popups`', its page function cases `page_functions`', its Page check
 //! cases `page_check`'s, its robots.txt reading cases `robots_txt`'s, its
-//! hostile-input cases `hostile_input`'s, its `page.read` cases `read`'s
-//! and the reset gate's cases `reset`'s.
+//! hostile-input cases `hostile_input`'s, its `page.read` cases `read`'s,
+//! the reset gate's cases `reset`'s and the start table's `run_start`'s.
 //!
 //! Size: one concern, the table of every case the suites name: each ID to
 //! its case, each case to the module that runs it, and the Site and checks
@@ -40,6 +40,7 @@ mod read;
 mod reset;
 mod robots_txt;
 mod routes;
+mod run_start;
 mod run_trace;
 mod service_workers;
 mod sessions;
@@ -135,6 +136,8 @@ pub(crate) enum Case {
     Events(events::Case),
     /// A reset gate case.
     Reset(reset::Case),
+    /// A start table case.
+    RunStart(run_start::Case),
     /// A service worker case.
     ServiceWorker(service_workers::Case),
     /// A `page.request` case, the hostile-input cases among them.
@@ -571,6 +574,7 @@ impl Case {
                     .or_else(|| events::Case::from_id(id).map(Self::Events))
                     .or_else(|| consent::Case::from_id(id).map(Self::Consent))
                     .or_else(|| reset::Case::from_id(id).map(Self::Reset))
+                    .or_else(|| run_start::Case::from_id(id).map(Self::RunStart))
                     .or_else(|| service_workers::Case::from_id(id).map(Self::ServiceWorker))
                     .or_else(|| page_request::Case::from_id(id).map(Self::PageRequest))
                     .or_else(|| fetch_tiers::Case::from_id(id).map(Self::FetchTier))
@@ -730,6 +734,7 @@ impl Case {
             Self::CleanUp(case) => case.run(connection, target, site, checks),
             Self::Events(case) => case.run(connection, site, checks),
             Self::Reset(case) => case.run(connection, target, site, checks),
+            Self::RunStart(case) => case.run(connection, target, checks),
             Self::Consent(case) => case.run(
                 connection,
                 target.environment.get("GOODFETCH_HOME").map(String::as_str),

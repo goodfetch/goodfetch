@@ -2770,6 +2770,16 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "agent": {
+                "description": "How long an Agent's task may run, its actions and model calls nested inside, before it stops with `ended: stopped` and the reason `timeout`: 10 min.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "ai": {
+                "description": "How long an AI verb may take from its call to its return, its model calls and a Repair included, before it fails with `deadline_exceeded`: 120 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "close": {
                 "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
                 "minimum": 0,
@@ -2795,8 +2805,23 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "hook": {
+                "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "human_pause": {
+                "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "launch": {
                 "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "model": {
+                "description": "How long one attempt of one model request may take before it is retried within the call that made it: 60 s.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -2820,6 +2845,11 @@
               },
               "secret": {
                 "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "sink_write": {
+                "description": "How long one write to a Sink may take before it fails with `deadline_exceeded`: 30 s.",
                 "minimum": 0,
                 "type": "integer"
               },

@@ -246,7 +246,7 @@ class AsyncRun(AsyncRunMembers):
 
     @property
     def started_as(self) -> StartedAs:
-        """Whether its start began it, found it or resumed it."""
+        """Whether its start began it, resumed it or found it ended."""
         return self._started_as
 
     async def close(self) -> None:
@@ -301,7 +301,7 @@ class Run(RunMembers):
 
     @property
     def started_as(self) -> StartedAs:
-        """Whether its start began it, found it or resumed it."""
+        """Whether its start began it, resumed it or found it ended."""
         return self._run.started_as
 
     def close(self) -> None:

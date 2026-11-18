@@ -226,7 +226,7 @@ export class Run extends RunMembers implements AsyncDisposable {
     return this.#scope.id;
   }
 
-  /** Whether the start began the Run (`new`) or found it (`existing`). Read without a round trip. */
+  /** Whether the start began the Run (`new`), resumed it (`resumed`) or found it finished (`ended`). Read without a round trip. */
   startedAs(): StartedAs {
     return this.#startedAs;
   }

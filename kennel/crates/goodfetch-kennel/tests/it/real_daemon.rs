@@ -23,7 +23,7 @@ use goodfetch_kennel::home::Home;
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_protocol::connection::DaemonEndpoint;
 use goodfetch_protocol::daemon::DaemonRuntimeFile;
-use goodfetch_protocol::run::{RunAbortParams, RunId, RunParams, RunWaitParams};
+use goodfetch_protocol::run::{RunAbortParams, RunId, RunParams, RunStopParams};
 use serde_json::{Value, json};
 
 use crate::client::{Following, NEVER};
@@ -206,7 +206,7 @@ fn the_kennel_pauses_stops_and_aborts_runs_another_connection_started() {
         Call::Pause(RunParams {
             run_id: run_id(runs[0]),
         }),
-        Call::Stop(RunWaitParams {
+        Call::Stop(RunStopParams {
             run_id: run_id(runs[1]),
             timeout: None,
         }),

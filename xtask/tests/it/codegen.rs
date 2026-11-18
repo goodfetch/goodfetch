@@ -1158,10 +1158,11 @@ fn workspace_with_the_forms_catalog() -> Workspace {
     workspace
 }
 
-/// A prefix keeps its one meaning and a query never waits (ADR 0099), and a
-/// result is typed by fields a call declares (ADR 0147): `xtask codegen`
-/// refuses a catalog that says otherwise, naming the operation, in place of
-/// writing a member whose name, options or result lie.
+/// A prefix keeps its one meaning and a query never waits (ADR 0099), a
+/// result is typed by fields a call declares (ADR 0147), and a call's own
+/// `timeout` names the setting it sets (ADR 0080): `xtask codegen` refuses
+/// a catalog that says otherwise, naming the operation, in place of writing
+/// a member whose name, options or result lie.
 ///
 /// Covers: story:11-178
 #[rstest]
@@ -1217,6 +1218,11 @@ fn workspace_with_the_forms_catalog() -> Workspace {
     "pub page_id: String,\n    /// The URL to navigate to.",
     "operation `page.goto`"
 )]
+#[case::a_timeout_naming_no_setting(
+    "#[schemars(extend(\"setting\" = \"timeout.navigation\"))]\n",
+    "",
+    "operation `page.goto`"
+)]
 fn codegen_refuses_a_member_whose_form_its_kind_does_not_give(
     #[case] from: &str,
     #[case] to: &str,
@@ -1244,7 +1250,12 @@ fn each_declared_kind_generates_its_typescript_form_which_type_checks() {
     let workspace = workspace_with_the_forms_catalog();
     codegen(&workspace);
     let repository = repository();
-    for module in ["caller.ts", "field-values.ts", "handle.ts"] {
+    for module in [
+        "caller.ts",
+        "field-values.ts",
+        "goodfetch-error.ts",
+        "handle.ts",
+    ] {
         let contents =
             std::fs::read(repository.join(COLLIE_CLIENT).join("src").join(module)).unwrap();
         workspace.write(&format!("{COLLIE_CLIENT}/src/{module}"), &contents);

@@ -1,0 +1,16 @@
+[[member]]
+package = "@goodfetch/collie"
+receiver = "Collie"
+member = "connect"
+entry = "none"
+reason = "The one factory."
+words = ["connect"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/collie"
+receiver = "Collie"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"

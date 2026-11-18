@@ -1362,6 +1362,7 @@ fn not_locked(
             key: key.to_owned(),
             value: effective.value.clone(),
             layer,
+            origin: None,
         })
     });
     match locked {

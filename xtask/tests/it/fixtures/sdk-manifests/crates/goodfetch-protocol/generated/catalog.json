@@ -1,0 +1,7 @@
+{
+  "operations": [
+    { "name": "run.start", "reach": "all_surfaces" },
+    { "name": "usage.set", "reach": "sdk_only" },
+    { "name": "usage.raise", "reach": "person_only" }
+  ]
+}

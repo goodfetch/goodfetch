@@ -1,10 +1,10 @@
 //! The Limits a program gives at a Run's start (ADRs 0041, 0080 and
 //! 0102), through the engine's public interface over the in-memory network:
 //! each holds the Run on its own `run` scope, set by the Client; a start
-//! that names the Run again lowers a Limit and never raises one, a value
-//! equal to the one given when the Run began changing nothing, so a
-//! person's raise stands; and a Usage kind or currency `usage.set` refuses
-//! is refused the same way.
+//! that names the Run again, resuming it once stopped, lowers a Limit and
+//! never raises one, a value equal to the one given when the Run began
+//! changing nothing, so a person's raise stands; and a Usage kind or
+//! currency `usage.set` refuses is refused the same way.
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::TestEnv;
@@ -104,14 +104,15 @@ fn a_start_naming_the_run_again_with_the_value_it_began_with_keeps_a_persons_rai
                 "usage.raise",
                 json!({ "scope": "run", "scope_id": "raised", "usage_kind": "requests", "amount": 10 }),
             ),
+            ("run.stop", json!({ "run_id": "raised" })),
             start_with("raised", 5),
             ("usage.list", json!({})),
         ],
     );
 
     assert_eq!(
-        (&replies[2]["result"]["started_as"], run_limits(&replies[3])),
-        (&json!("existing"), vec![(json!("person"), json!(10))])
+        (&replies[3]["result"]["started_as"], run_limits(&replies[4])),
+        (&json!("resumed"), vec![(json!("person"), json!(10))])
     );
 }
 
@@ -124,7 +125,9 @@ fn a_start_naming_the_run_again_with_a_lower_value_lowers_its_limit() {
         Product::Collie,
         &[
             start_with("lowered", 5),
+            ("run.stop", json!({ "run_id": "lowered" })),
             start_with("lowered", 3),
+            ("run.stop", json!({ "run_id": "lowered" })),
             start_with("lowered", 5),
             ("usage.list", json!({})),
         ],
@@ -132,13 +135,13 @@ fn a_start_naming_the_run_again_with_a_lower_value_lowers_its_limit() {
 
     assert_eq!(
         (
-            &replies[1]["result"]["started_as"],
             &replies[2]["result"]["started_as"],
-            run_limits(&replies[3]),
+            &replies[4]["result"]["started_as"],
+            run_limits(&replies[5]),
         ),
         (
-            &json!("existing"),
-            &json!("existing"),
+            &json!("resumed"),
+            &json!("resumed"),
             vec![(json!("client"), json!(5)), (json!("client"), json!(3))]
         )
     );

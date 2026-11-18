@@ -534,6 +534,53 @@ fn the_reset_gate_is_proved_against_collie_in_either_layout(
     );
 }
 
+/// The start table's suite proves `run.start` on Collie's Attached engine:
+/// a start under a new Run ID begins it, one under a stopped Run's ID
+/// resumes it, one under a finished Run's ID answers it as it ended, one
+/// under a live Run's ID is `run_in_use`, and one under a listed Run's ID
+/// whose run file is gone is `run_state_unavailable`.
+///
+/// Covers: story:3-166, story:3-167
+#[test]
+fn the_start_table_is_proved_against_collie() {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let target = target(&env, Tool::Collie, EngineMode::Attached);
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::run_start(), &target, &proving_ground).unwrap();
+    crate::keep(&document, "run-start-collie");
+
+    assert_eq!(
+        (outcomes(&document), case_outcomes(&document)),
+        (
+            vec![("run.start", Outcome::Proved)],
+            vec![
+                ("a-start-under-a-new-run-id-begins-it", CaseOutcome::Passed),
+                (
+                    "a-start-under-a-stopped-runs-id-resumes-it",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-start-under-a-finished-runs-id-answers-it-as-it-ended",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-start-under-a-live-runs-id-is-run-in-use",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-start-under-a-listed-runs-id-whose-state-is-gone-is-run-state-unavailable",
+                    CaseOutcome::Passed
+                ),
+            ]
+        ),
+        "{}",
+        serde_json::to_string_pretty(&document).unwrap()
+    );
+}
+
 /// The protocol suite's `engine.info` case with Foxhound as its Product, as
 /// a suite whose contract needs Foxhound declares it.
 fn foxhound_suite() -> ProtocolSuite {

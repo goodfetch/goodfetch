@@ -28,7 +28,7 @@ pub struct NewSessionParams {
     /// and 0092).
     #[serde(
         default,
-        deserialize_with = "super::present",
+        deserialize_with = "crate::settings::present",
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(extend("arrived_in" = "0.1"))]

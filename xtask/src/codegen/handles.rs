@@ -78,6 +78,10 @@ pub(super) enum Form {
 /// The schema keyword that marks a result property typed by a parameter.
 const TYPED_BY: &str = "typed_by";
 
+/// The schema keyword that names the Duration setting a call's own
+/// `timeout` sets for that call alone (ADR 0080).
+const SETTING: &str = "setting";
+
 /// A result property whose names and types follow the fields a parameter
 /// declares (ADR 0147).
 pub(super) struct TypedBy {
@@ -96,6 +100,9 @@ pub(super) struct Member<'a> {
     pub(super) parameters: Parameters,
     /// The result property its declared fields type, if any.
     pub(super) typed_by: Option<TypedBy>,
+    /// The Duration setting its own `timeout` sets for the call alone, such
+    /// as `timeout.wait`; none when it takes no `timeout`.
+    pub(super) timeout_setting: Option<String>,
 }
 
 /// A value a handle builds without a call.
@@ -267,6 +274,21 @@ fn typed_by(
     }))
 }
 
+/// The Duration setting `operation`'s own `timeout` sets, which its params
+/// type, `schema`, names with `setting`; none when it takes no `timeout`.
+fn timeout_setting(operation: &Operation, schema: &Value) -> Result<Option<String>> {
+    let Some(timeout) = schema["properties"].get("timeout") else {
+        return Ok(None);
+    };
+    let Some(setting) = timeout.get(SETTING).and_then(Value::as_str) else {
+        bail!(
+            "operation `{}`: its `timeout` names no `{SETTING}`, the Duration setting it sets for the call alone, which a refusal of `0` names (ADR 0080)",
+            operation.name
+        );
+    };
+    Ok(Some(setting.to_owned()))
+}
+
 /// The form `operation` takes as the member `name`, or `None` for a kind
 /// that has no form yet.
 fn form(operation: &Operation, name: &str, schema: &Value) -> Result<Option<Form>> {
@@ -319,6 +341,7 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
             };
             let parameters = parameters(schema, &id.param);
             let typed_by = typed_by(layer, operation, &form, &parameters)?;
+            let timeout_setting = timeout_setting(operation, schema)?;
             // A handle's own `close` that takes nothing a caller must pass
             // and cannot be cancelled is how its program closes it.
             let closes = sub_object.is_none()
@@ -333,6 +356,7 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
                 form: if closes { Form::Closes } else { form },
                 parameters,
                 typed_by,
+                timeout_setting,
             };
             let handle = found.get_or_insert_with(|| Handle {
                 namespace,

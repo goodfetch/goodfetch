@@ -3,12 +3,15 @@
 //! layout as LLD's link map places it (`-Map`, with `--no-demangle`, which
 //! ci/musl/link-cc passes whenever it links with an order file).
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+#[cfg(any(target_os = "linux", test))]
+use std::collections::BTreeMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// The functions the training ran, hottest first: from `llvm-profdata show
 /// --all-functions --counts`, each function's largest block count, those
 /// above 0, by symbol (a local function's profile name is
 /// `<file>;<symbol>`), each once.
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn hot_functions(shown: &str) -> Vec<String> {
     let mut entries: Vec<(u64, &str)> = Vec::new();
     let mut name: Option<&str> = None;
@@ -46,6 +49,13 @@ pub(crate) fn hot_functions(shown: &str) -> Vec<String> {
 
 /// An input section as the link map places it.
 #[derive(Debug)]
+#[cfg_attr(
+    not(any(target_os = "linux", test)),
+    expect(
+        dead_code,
+        reason = "the Linux refresh alone reads them; the check reads the output section and symbols"
+    )
+)]
 pub(crate) struct Placed {
     /// The output section it is in: `.text`, `.rodata`, `.data.rel.ro`.
     pub(crate) output: String,
@@ -65,6 +75,7 @@ impl Placed {
     /// Whether ci/musl/link-cc can name the section, which has no symbol
     /// of its own, for the order file: a constant's section in a Rust
     /// object.
+    #[cfg(any(target_os = "linux", test))]
     fn named_by_link_cc(&self) -> bool {
         self.file.ends_with(".rcgu.o")
             && (self.section.starts_with(".rodata.") || self.section.starts_with(".data.rel.ro."))
@@ -147,6 +158,7 @@ pub(crate) fn text_functions(placed: &[Placed]) -> Vec<(u64, String)> {
 /// touched them: `touched` maps each touched page (the image's address over
 /// `page`) to the sample it was first seen in; sections first seen in one
 /// sample keep the image's order.
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn touched_sections<'a>(
     placed: &'a [Placed],
     touched: &BTreeMap<u64, u32>,
@@ -175,6 +187,7 @@ pub(crate) fn touched_sections<'a>(
 /// lists its symbols, or, with none, its own name when ci/musl/link-cc can
 /// name it (a Rust object's constant); one LLD made (merged strings) or
 /// another file's cannot be ordered. Each entry once.
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn order_file(hot: &[String], touched: &[&Placed]) -> Vec<String> {
     let mut functions = Vec::new();
     let mut data = Vec::new();

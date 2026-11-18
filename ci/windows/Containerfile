@@ -1,0 +1,28 @@
+# Windows under Wine (issue 2767): builds the workspace for
+# x86_64-pc-windows-msvc with cargo-xwin and runs its tests under Wine, on a
+# Linux host, while GitHub's hosted runners are refused. A container, so the
+# gate host's packages, which its reuse fingerprint hashes, stay as they are.
+# ci/windows.sh builds and runs it.
+FROM docker.io/library/rust:1.99.0-slim-trixie@sha256:458b145eb2406e832adc9c9536d487c5d264401a4ce63adbeced3fe91292616c
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+# Wine, at a pinned Debian version, and what cargo-xwin and the C and C++
+# dependencies' builds call: clang-cl, lld-link and llvm-lib (LLVM), CMake
+# and Ninja, and NASM for BoringSSL's assembly.
+ARG WINE_VERSION=10.0~repack-6
+ARG LLVM_VERSION=1:19.0-63
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl git make xz-utils jq \
+      "wine=${WINE_VERSION}" "wine64=${WINE_VERSION}" \
+      "clang=${LLVM_VERSION}" "lld=${LLVM_VERSION}" "llvm=${LLVM_VERSION}" \
+      cmake ninja-build nasm \
+ && rm -rf /var/lib/apt/lists/*
+
+ARG CARGO_XWIN_VERSION=0.23.1
+ARG NEXTEST_VERSION=0.9.149
+RUN cargo install --locked --root /usr/local "cargo-xwin@${CARGO_XWIN_VERSION}" "cargo-nextest@${NEXTEST_VERSION}" \
+ && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git"
+
+RUN rustup component add clippy rustfmt \
+ && rustup target add x86_64-pc-windows-msvc

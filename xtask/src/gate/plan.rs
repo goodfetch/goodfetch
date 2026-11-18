@@ -28,6 +28,7 @@ pub(crate) enum Step {
     Tlc,
     Miri,
     Loom,
+    Windows,
     Lint,
     FeatureCombinations,
     FuzzCheck,
@@ -63,7 +64,7 @@ enum Reach {
 
 impl Step {
     /// Every step, in the order `ci/pre-merge.sh` starts them.
-    pub(crate) const ALL: [Self; 23] = [
+    pub(crate) const ALL: [Self; 24] = [
         Self::Dco,
         Self::CommitMessages,
         Self::FloorGuard,
@@ -76,6 +77,7 @@ impl Step {
         Self::Tlc,
         Self::Miri,
         Self::Loom,
+        Self::Windows,
         Self::Lint,
         Self::FeatureCombinations,
         Self::FuzzCheck,
@@ -114,6 +116,7 @@ impl Step {
             Self::Msrv => "msrv",
             Self::Miri => "miri",
             Self::Loom => "loom",
+            Self::Windows => "windows",
             Self::Kennel => "kennel",
         }
     }
@@ -140,7 +143,7 @@ impl Step {
             Self::Visual => Reach::Job(Job::Visual),
             Self::Tlc => Reach::Job(Job::Tlc),
             Self::Kennel => Reach::Job(Job::Kennel),
-            Self::Msrv | Self::Miri | Self::Loom => Reach::Crates,
+            Self::Msrv | Self::Miri | Self::Loom | Self::Windows => Reach::Crates,
             Self::Quick | Self::PreMerge | Self::Stress => Reach::Members,
         }
     }
@@ -162,10 +165,11 @@ impl Step {
     }
 
     /// Whether the step runs beside the host's: those that need Linux, in
-    /// a container of their own where the host is not Linux, and TLC, Miri
-    /// (#2090's F7) and loom (#2200). Each builds and writes in folders of
-    /// its own (`target/tlc/`, `target/miri/`, `target/loom/`), and its
-    /// verdict follows from the
+    /// a container of their own where the host is not Linux, TLC, Miri
+    /// (#2090's F7) and loom (#2200), and the Windows build under Wine
+    /// (#2767), in a container of its own. Each builds and writes in
+    /// folders of its own (`target/tlc/`, `target/miri/`, `target/loom/`,
+    /// `target/windows/`), and its verdict follows from the
     /// tree and its pinned tools, whatever runs beside it; what it shares
     /// with the host's steps, it only reads or waits for (ADR 0135's note
     /// of 2026-11-13). The Kennel's
@@ -176,7 +180,13 @@ impl Step {
     pub(crate) const fn beside(self) -> bool {
         matches!(
             self,
-            Self::Perf | Self::Linux | Self::Visual | Self::Tlc | Self::Miri | Self::Loom
+            Self::Perf
+                | Self::Linux
+                | Self::Visual
+                | Self::Tlc
+                | Self::Miri
+                | Self::Loom
+                | Self::Windows
         )
     }
 
@@ -266,7 +276,7 @@ const fn read_by(path: &'static str, steps: &'static [Step]) -> Narrowed {
 /// recipe or script names such a file with a root-relative path. A step that
 /// reads one any other way, by a sibling's relative path or from xtask's code,
 /// is out of the guard's sight, so naming a folder here rests on what it holds.
-const NARROWED: [Narrowed; 44] = [
+const NARROWED: [Narrowed; 46] = [
     // xtask's own tests, with their fixtures. `just linux` runs some of them
     // on a host that is not Linux (ci/linux.sh).
     Narrowed {
@@ -285,10 +295,15 @@ const NARROWED: [Narrowed; 44] = [
     ),
     read_by("ci/visual", &[Step::Visual]),
     read_by("ci/vm/visual.sh", &[Step::Visual]),
-    read_by("ci/container.sh", &[Step::Perf, Step::Linux, Step::Visual]),
+    read_by(
+        "ci/container.sh",
+        &[Step::Perf, Step::Linux, Step::Visual, Step::Windows],
+    ),
     read_by("ci/msrv.sh", &[Step::Msrv]),
     read_by("ci/miri.toml", &[Step::Miri]),
     read_by("ci/loom.toml", &[Step::Loom]),
+    read_by("ci/windows.sh", &[Step::Windows]),
+    read_by("ci/windows", &[Step::Windows]),
     // What only the checks every run on another tree reruns read.
     read_by("ci/gitleaks.toml", &[]),
     read_by("ci/commit-leaks.sh", &[]),

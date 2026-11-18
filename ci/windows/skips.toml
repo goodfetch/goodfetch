@@ -1,0 +1,12 @@
+# The tests `just windows` skips under Wine (issue 2767): each runs on real
+# Windows alone, in the Release suite's windows-x64 cell, because Wine is not
+# Windows. A test that fails under Wine because of Goodfetch's code is fixed,
+# or filed as a bug, never listed here. Each entry names the tests as a
+# nextest filterset, why Wine cannot decide them, and the open issue that
+# proves them on Windows; ci/windows.sh prints every entry and the tests it
+# selects before the run.
+#
+#   [[skip]]
+#   filter = "test(/^browser::/)"   # a nextest filterset
+#   reason = "…"                    # what Wine does differently
+#   issue = 2293                    # the issue that proves them on Windows

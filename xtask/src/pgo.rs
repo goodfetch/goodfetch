@@ -298,6 +298,10 @@ fn link_map(executable: &Path) -> Result<Option<PathBuf>> {
 
 /// Elsewhere no build is ordered, and no map is read.
 #[cfg(not(unix))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the same signature as the Unix reading, which can fail"
+)]
 fn link_map(_executable: &Path) -> Result<Option<PathBuf>> {
     Ok(None)
 }

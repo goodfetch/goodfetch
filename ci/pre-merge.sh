@@ -14,9 +14,11 @@
 # figures (ci/perf.sh); `just linux`, the tests only Linux decides
 # (ci/linux.sh), which on a Linux host run among the host's tests, after the
 # OS-service setup below; `just visual`, the visual projects in the pinned Playwright
-# image (ci/visual/container.sh). TLC, Miri (issue 2090's F7) and loom
-# (issue 2200) run beside them too, on the host: each builds and writes in
-# folders of its own (`target/tlc/`, `target/miri/`, `target/loom/`), which
+# image (ci/visual/container.sh); `just windows`, the workspace built for
+# Windows and its tests under Wine (ci/windows.sh, issue 2767). TLC, Miri
+# (issue 2090's F7) and loom (issue 2200) run beside them too, on the host:
+# each builds and writes in folders of its own (`target/tlc/`,
+# `target/miri/`, `target/loom/`; `target/windows/` for Windows), which
 # no other step reads, and its verdict
 # follows from the tree and its pinned tools; what it shares with the host's
 # steps it only reads or waits for (ADR 0135's note of 2026-11-13). The
@@ -161,7 +163,7 @@ if [[ $form == docs || $form == quick ]]; then
     echo "The docs gate: the change is documents alone, so only the checks that read its commits, the bar and documents run; the code lints and every suite do not (xtask affected's gate=docs, ADR 0135)."
   else
     os_services
-    echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build, Miri and loom do not run (xtask affected's gate=quick, ADR 0135)."
+    echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build, Miri, loom and the Windows build under Wine do not run (xtask affected's gate=quick, ADR 0135)."
   fi
   for step in "${steps[@]}"; do
     arguments=$(output_value "$step.just" "$listing")

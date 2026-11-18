@@ -123,10 +123,11 @@ async fn reopened(
             }
             readmitted.map(|readmitted| RetriedFailed { readmitted })
         }
-        Resumed::Live { .. } => Err(interrupted(&run_id)),
-        Resumed::Unchanged { lifecycle, .. } if lifecycle == Lifecycle::Running => {
-            Err(interrupted(&run_id))
-        }
+        Resumed::Live { .. }
+        | Resumed::Unchanged {
+            lifecycle: Lifecycle::Running,
+            ..
+        } => Err(interrupted(&run_id)),
         // Never, as the Run's table reopens every ended Run: nothing to
         // retry in a Run that stays as it is.
         Resumed::Unchanged { .. } => Ok(RetriedFailed { readmitted: 0 }),

@@ -34,15 +34,19 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_dataset::{Began, Datasets};
+use goodfetch_engine::admission::Keys;
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run::{
     checkpoint_interval, resume_run, run_error, run_id, settings_error, start_error,
 };
-use goodfetch_engine::runs::{Driving, EndedBy, RunError, Start, Started};
+use goodfetch_engine::runs::{Driving, EndedBy, Initialize, RunError, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::foxhound::crawl::{CRAWL_SERVE, CRAWL_START, CrawlStartParams, Seed};
+use goodfetch_protocol::foxhound::crawl::{
+    CRAWL_SERVE, CRAWL_START, CrawlExtraction, CrawlStartParams, LabelDeclaration, Seed,
+};
 use goodfetch_protocol::foxhound::frontier::PAYLOAD_SCHEMA_CHANGED;
 use goodfetch_protocol::foxhound::settings::{
     FEATURE_SWITCHED_OFF, PROVENANCE_LOG, SWITCHED_OFF_FEATURES,
@@ -68,7 +72,7 @@ use crate::seeding;
 use crate::servable;
 use crate::serving::Crawls;
 use crate::tier_choice::{self, TierChoices};
-use crate::work_items;
+use crate::work_items::{self, CheckedSeed};
 
 /// What Foxhound's crawl adds to the engine: `crawl.start`, `crawl.serve`,
 /// a handler's enqueue and push, the seeds added to a running crawl, the reads of
@@ -249,23 +253,13 @@ async fn start(
             needs: Product::Foxhound,
             inputs,
             ended_by: DRIVING.ended_by,
-            initialize: Some(Box::new(move |connection| {
-                invariants.record(connection)?;
-                labels::record(connection, &declared)?;
-                datasets.record(connection)?;
-                code_free::record(connection, recording.as_ref())?;
-                let mut positions = match keys {
-                    Some(keys) => work_items::Positions::keying(connection, keys)?,
-                    None => work_items::Positions::of(connection)?,
-                };
-                let answers = run_state::admission::admit_seeds(
-                    connection,
-                    &mut positions,
-                    (&seeding, &invariants),
-                    &admitted,
-                )?;
-                goodfetch_frontier::seeds::answered(connection, &answers)
-            })),
+            initialize: Some(initialize(
+                invariants,
+                (declared, datasets, recording),
+                keys,
+                seeding,
+                admitted,
+            )),
             policy_version: settings.resolved().policy_version().map(str::to_owned),
             weakened: settings.resolved().weakened(),
             binding: None,
@@ -308,6 +302,39 @@ async fn start(
             Ok(ended)
         }
     }
+}
+
+/// A new crawl's first rows: its `invariants`, declared Labels, Datasets
+/// and code-free extraction, then its `admitted` seeds, keyed with `keys`
+/// when its gates key work items and under the `seeding` egress policy.
+fn initialize(
+    invariants: Invariants,
+    (declared, datasets, recording): (
+        BTreeMap<String, LabelDeclaration>,
+        Datasets,
+        Option<CrawlExtraction>,
+    ),
+    keys: Option<Keys>,
+    seeding: Policy,
+    admitted: Vec<CheckedSeed>,
+) -> Initialize {
+    Box::new(move |connection| {
+        invariants.record(connection)?;
+        labels::record(connection, &declared)?;
+        datasets.record(connection)?;
+        code_free::record(connection, recording.as_ref())?;
+        let mut positions = match keys {
+            Some(keys) => work_items::Positions::keying(connection, keys)?,
+            None => work_items::Positions::of(connection)?,
+        };
+        let answers = run_state::admission::admit_seeds(
+            connection,
+            &mut positions,
+            (&seeding, &invariants),
+            &admitted,
+        )?;
+        goodfetch_frontier::seeds::answered(connection, &answers)
+    })
 }
 
 /// Whether a Run `run_id` exists (never when the start names none), which

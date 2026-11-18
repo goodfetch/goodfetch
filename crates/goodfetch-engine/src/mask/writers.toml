@@ -143,6 +143,11 @@ count = 1
 how = "holds no value: the Daemon's serving and start locks, opened empty and only locked; its runtime file, tokens and service record, written through `durable::replace`, hold no Run's value either"
 
 [[writer]]
+path = "crates/goodfetch-engine/src/effect/journal.rs"
+count = 2
+how = "masked: a body's output is masked as `Scope::Kept` before the journal keeps it (in `effect.rs`); keys, namespaces, states, the first command's name, the person who answered and points in time are the program's or the engine's own, and the Run's secret is random bytes the engine made"
+
+[[writer]]
 path = "crates/goodfetch-engine/src/governor/system/linux.rs"
 count = 1
 how = "holds no value: it writes nothing, its one `OpenOptions` opening the `/proc` files a governor sample counts for reading only"

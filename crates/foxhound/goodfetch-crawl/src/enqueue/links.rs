@@ -38,6 +38,7 @@ use std::sync::Arc;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
+use goodfetch_engine::staging::AttemptWrites as _;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_fetch_tier::{FetchTiers, LinksUnread, ServedLinks};
 use goodfetch_frontier::payload::Payload;

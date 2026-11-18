@@ -109,6 +109,25 @@ impl Client {
         (Self { requests, next_id }, outgoing)
     }
 
+    /// Whether its Connection ended.
+    pub(crate) fn is_gone(&self) -> bool {
+        self.requests.is_closed()
+    }
+
+    /// Whether `other` is the Client of the same Connection.
+    pub(crate) fn same_connection(&self, other: &Self) -> bool {
+        self.requests.same_channel(&other.requests)
+    }
+
+    /// Waits until its Connection ends.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future only stops waiting.
+    pub(crate) async fn gone(&self) {
+        self.requests.closed().await;
+    }
+
     /// Sends the handler request `request` with `params`, and answers once
     /// it is on its way, its answer to be read as `R`.
     ///

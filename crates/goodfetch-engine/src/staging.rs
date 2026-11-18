@@ -134,4 +134,19 @@ pub trait AttemptWrites: Send + Sync {
         lease_epoch: u64,
         key: &str,
     ) -> Result<StagedKey, Unstaged>;
+
+    /// Notes that a declared Effect's body begins in the attempt, which
+    /// stages nothing, neither a write nor an enqueue nor a record, until
+    /// it ends (ADR 0106).
+    ///
+    /// # Errors
+    ///
+    /// The attempt ended.
+    fn begin_effect(&self, crawl_request_id: &str, lease_epoch: u64) -> Result<(), Unstaged>;
+
+    /// Notes that a declared Effect's body ended in the attempt.
+    fn end_effect(&self, crawl_request_id: &str, lease_epoch: u64);
+
+    /// Whether the attempt still stages: it has not ended.
+    fn holds(&self, crawl_request_id: &str, lease_epoch: u64) -> bool;
 }

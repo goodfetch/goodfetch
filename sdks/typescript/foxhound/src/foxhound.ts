@@ -22,7 +22,7 @@ import {
   type ClientConnection,
   type Transport,
 } from "@goodfetch/collie-client/runtime";
-import { crawlDeclaration, type Crawl } from "./crawl.ts";
+import { checkCrawlStartable, crawlDeclaration, type Crawl } from "./crawl.ts";
 import { CrawlRun, handleRequest, type CrawlHost } from "./crawl-run.ts";
 import {
   FoxhoundOperations,
@@ -118,8 +118,12 @@ export class Foxhound implements Connection {
    * 0093). The engine then leases each work item to the handler of its
    * Label, on this process's event loop, and the Run finishes once every
    * work item is done. A `runId` naming an existing Run returns that Run.
+   * Before anything is sent, a Label without a handler fails with
+   * `label_unhandled`, and a seed of a Label `crawl` does not declare with
+   * `label_unknown`.
    */
   async startCrawl(crawl: Crawl, options: StartCrawlOptions): Promise<CrawlRun> {
+    checkCrawlStartable(crawl, options.seeds);
     const params: CrawlStartParams = {
       ...crawlDeclaration(crawl),
       seeds: [...options.seeds],

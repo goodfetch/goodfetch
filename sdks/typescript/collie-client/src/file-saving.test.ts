@@ -424,4 +424,28 @@ describe("saveFile", () => {
     expect(await namesIn(folder)).toEqual(["data.csv"]);
     await connection.close();
   });
+
+  test("fails with its own write's error and cancels the call when a streamed chunk cannot be written", async () => {
+    const engine = playedEngine();
+    const connection = await connected(engine);
+    await writeFile(join(folder, "a-file"), "a file");
+    const path = join(folder, "a-file", "data.csv");
+
+    const saving = saveFile(connection, "download.save_as", { download_id: "d1" }, path, saveAs);
+    const call = await engine.next();
+    engine.send({
+      jsonrpc: "2.0",
+      method: "$/chunk",
+      params: { id: call.id, offset: 0, data: Buffer.from("half").toString("base64") },
+    });
+
+    const error = await failure(saving);
+
+    expect(error).toMatchObject({ code: "path_not_writable" });
+    expect(engine.written).toContainEqual(
+      expect.objectContaining({ method: "$/cancel", params: { id: call.id } }),
+    );
+    expect(await namesIn(folder)).toEqual(["a-file"]);
+    await connection.close();
+  });
 });

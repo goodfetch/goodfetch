@@ -68,6 +68,20 @@ fn a_relative_path_resolves_against_the_working_directory() {
 }
 
 #[test]
+fn a_failure_names_the_path_as_the_program_gave_it() {
+    let folder = tempfile::tempdir().unwrap();
+    std::env::set_current_dir(folder.path()).unwrap();
+    std::fs::write(folder.path().join("out"), b"a file").unwrap();
+
+    let error = FileSaving::create(Path::new("out/report.csv"), CALL).unwrap_err();
+
+    let (failure, path_side) = failure(&error);
+    assert!(path_side, "{error:?}");
+    assert_eq!(failure.reason(), "not_a_directory");
+    assert_eq!(failure.path(), Path::new("out/report.csv"));
+}
+
+#[test]
 fn a_repeat_write_replaces_the_file_whole() {
     let folder = tempfile::tempdir().unwrap();
     let path = folder.path().join("report.csv");
@@ -267,6 +281,7 @@ impl Drop for SmallFilesystem {
 #[cfg(unix)]
 mod saver {
     use std::path::Path;
+    use std::time::Duration;
 
     use goodfetch_collie_client::transport::{Endpoint, Network};
     use goodfetch_collie_client::{Connection, ConnectionRuntime, Error};
@@ -525,14 +540,16 @@ mod saver {
         let path = folder.path().join("report.csv");
         let (written, chunk_written) = tokio::sync::oneshot::channel::<()>();
         let mut written = Some(written);
-        let ((), left): ((), Vec<String>) = with_daemon(
+        let ((call_id, cancel), left): ((Value, Value), Vec<String>) = with_daemon(
             |mut daemon| async move {
                 let call = daemon.read().await;
                 let _granted = daemon.read().await;
                 daemon.chunk(&call, 0, "YSxiCg==").await;
                 let _granted = daemon.read().await;
                 written.take().unwrap().send(()).unwrap();
+                let cancel = daemon.read().await;
                 daemon.closed().await;
+                (call["id"].clone(), cancel)
             },
             |connection| {
                 let path = path.clone();
@@ -551,5 +568,42 @@ mod saver {
 
         assert_eq!(left, Vec::<String>::new());
         assert!(!Path::new(&path).exists());
+        assert_eq!(
+            cancel,
+            json!({"jsonrpc": "2.0", "method": "$/cancel", "params": {"id": call_id}})
+        );
+    }
+
+    #[test]
+    fn a_save_timed_out_mid_stream_removes_its_partial_file_and_stops_the_call() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("report.csv");
+        let ((call_id, cancel), saved): ((Value, Value), Result<Value, Error>) = with_daemon(
+            |mut daemon| async move {
+                let call = daemon.read().await;
+                let _granted = daemon.read().await;
+                daemon.chunk(&call, 0, "YSxiCg==").await;
+                let _granted = daemon.read().await;
+                let cancel = daemon.read().await;
+                daemon.closed().await;
+                (call["id"].clone(), cancel)
+            },
+            |connection| {
+                let path = path.clone();
+                async move {
+                    connection
+                        .save_file("download.save_as", &json!({}), &path, CALL)
+                        .timeout(Duration::from_millis(200))
+                        .await
+                }
+            },
+        );
+
+        assert!(matches!(saved, Err(Error::TimedOut)), "{saved:?}");
+        assert_eq!(names(folder.path()), Vec::<String>::new());
+        assert_eq!(
+            cancel,
+            json!({"jsonrpc": "2.0", "method": "$/cancel", "params": {"id": call_id}})
+        );
     }
 }

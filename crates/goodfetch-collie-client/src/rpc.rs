@@ -36,9 +36,10 @@ pub(crate) struct Outgoing {
     pub(crate) timeout: Option<Duration>,
     /// Where the reply goes.
     pub(crate) reply: oneshot::Sender<Result<Value, Error>>,
-    /// Where a streaming call hears its id and its notifications; none for
-    /// a call that streams nothing.
-    pub(crate) notified: Option<mpsc::UnboundedSender<Heard>>,
+    /// Where a streaming call hears its id and its notifications, as many
+    /// at once as the credits it grants allow; none for a call that streams
+    /// nothing.
+    pub(crate) notified: Option<mpsc::Sender<Heard>>,
 }
 
 /// What a streaming call hears before its reply.
@@ -130,7 +131,7 @@ async fn write(
 struct Pending {
     reply: oneshot::Sender<Result<Value, Error>>,
     deadline: Option<Key>,
-    notified: Option<mpsc::UnboundedSender<Heard>>,
+    notified: Option<mpsc::Sender<Heard>>,
 }
 
 /// Sends calls, matches replies and deadlines to them, and fails what is
@@ -171,7 +172,7 @@ async fn correlate(
                     }
                     let deadline = call.timeout.map(|timeout| deadlines.insert(id, timeout));
                     if let Some(notified) = &call.notified {
-                        let _gone = notified.send(Heard::Sent(id));
+                        let _gone = notified.try_send(Heard::Sent(id));
                     }
                     pending.insert(id, Pending { reply: call.reply, deadline, notified: call.notified });
                 }
@@ -223,7 +224,7 @@ fn answer(line: &str, pending: &mut BTreeMap<i64, Pending>, deadlines: &mut Dela
         Ok(Message::Response(response)) => (Some(response.id), Ok(response.result)),
         Ok(Message::Error(failure)) => (failure.id, Err(Error::Failed(Box::new(failure.error)))),
         Ok(Message::Notification(notification)) => {
-            hand_over(notification, pending);
+            hand_over(notification, pending, deadlines);
             return;
         }
         Ok(Message::Request(request)) => {
@@ -250,21 +251,38 @@ fn answer(line: &str, pending: &mut BTreeMap<i64, Pending>, deadlines: &mut Dela
 }
 
 /// Hands `notification` to the streaming call in flight whose id its
-/// params name; one that names no such call changes nothing.
-fn hand_over(notification: Notification, pending: &BTreeMap<i64, Pending>) {
+/// params name; one that names no such call changes nothing. A call that
+/// has not taken what it was handed fails: its engine sent past the
+/// credits the call granted.
+fn hand_over(
+    notification: Notification,
+    pending: &mut BTreeMap<i64, Pending>,
+    deadlines: &mut DelayQueue<i64>,
+) {
     let Notification { method, params, .. } = notification;
-    let call = params
+    let id = params
         .as_ref()
         .and_then(|params| params.get("id"))
-        .and_then(Value::as_i64)
-        .and_then(|id| pending.get(&id))
-        .and_then(|call| call.notified.as_ref());
-    let Some(notified) = call else {
+        .and_then(Value::as_i64);
+    let call = id.and_then(|id| Some((id, pending.get(&id)?.notified.as_ref()?)));
+    let Some((id, notified)) = call else {
         tracing::trace!(target: "goodfetch::client", %method, "a notification no one awaits");
         return;
     };
-    let _gone = notified.send(Heard::Notified {
+    let heard = Heard::Notified {
         method,
         params: params.unwrap_or(Value::Null),
-    });
+    };
+    if let Err(mpsc::error::TrySendError::Full(_)) = notified.try_send(heard) {
+        let Some(call) = pending.remove(&id) else {
+            return;
+        };
+        if let Some(key) = call.deadline {
+            deadlines.remove(&key);
+        }
+        tracing::debug!(target: "goodfetch::client", id, "a streaming call's engine sent past its credits");
+        let _gone = call.reply.send(Err(Error::Shape(serde::de::Error::custom(
+            "the engine streamed past the credits the call granted",
+        ))));
+    }
 }

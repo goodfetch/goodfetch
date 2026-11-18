@@ -42,21 +42,19 @@ impl Connection {
         Start(self.0.start(), self.0.clone())
     }
 
-    /// Saves a file to the program's `path` as
-    /// [`crate::Connection::save_file`] does, and blocks the calling thread
-    /// until it is saved.
-    ///
-    /// # Errors
-    ///
-    /// As [`crate::Connection::save_file`].
-    pub fn save_file<T: DeserializeOwned + Send + 'static>(
+    /// The save of a file to the program's `path`, as
+    /// [`crate::Connection::save_file`]'s, which `send()` sends.
+    pub fn save_file<T>(
         &self,
         method: &str,
         params: &impl Serialize,
         path: &Path,
         call: &str,
-    ) -> Result<T, Error> {
-        self.0.wait(self.0.save_file(method, params, path, call))
+    ) -> SaveFile<T> {
+        SaveFile {
+            save: self.0.save_file(method, params, path, call),
+            connection: self.0.clone(),
+        }
     }
 
     /// Closes the Connection as [`crate::Connection::close`] does, and
@@ -104,6 +102,43 @@ impl<T: DeserializeOwned + Send + 'static> Call<T> {
     /// What the call fails with.
     pub fn send(self) -> Result<T, Error> {
         self.connection.wait(self.call.into_future())
+    }
+}
+
+/// The save of a file to the program's path, whose reply reads as `T`.
+/// Nothing is sent until [`SaveFile::send`].
+#[must_use = "a save is sent only by send()"]
+pub struct SaveFile<T> {
+    save: crate::SaveFile<T>,
+    connection: crate::Connection,
+}
+
+impl<T: DeserializeOwned + Send + 'static> SaveFile<T> {
+    /// Fails the save with [`Error::TimedOut`] if its reply has not come
+    /// within `timeout`, the file it was writing removed.
+    pub fn timeout(self, timeout: Duration) -> Self {
+        Self {
+            save: self.save.timeout(timeout),
+            ..self
+        }
+    }
+
+    /// Waits for the reply as long as the Connection lasts.
+    pub fn no_timeout(self) -> Self {
+        Self {
+            save: self.save.no_timeout(),
+            ..self
+        }
+    }
+
+    /// Sends the save and blocks the calling thread until the file is
+    /// saved.
+    ///
+    /// # Errors
+    ///
+    /// As awaiting [`crate::SaveFile`].
+    pub fn send(self) -> Result<T, Error> {
+        self.connection.wait(self.save.into_future())
     }
 }
 
@@ -176,5 +211,5 @@ const _: () = {
     send_sync_static::<Run>();
     send_static::<Call<RunReport>>();
     send_static::<Start>();
-    send_static::<crate::Reply<serde_json::Value>>();
+    send_static::<SaveFile<serde_json::Value>>();
 };

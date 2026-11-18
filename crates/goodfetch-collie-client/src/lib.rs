@@ -23,6 +23,6 @@ mod sync;
 pub mod transport;
 
 pub use call::{Call, Query, Reply};
-pub use connection::{Connection, ConnectionRuntime};
+pub use connection::{Connection, ConnectionRuntime, SaveFile};
 pub use error::{Error, FileFailure};
 pub use run::{Run, Start};

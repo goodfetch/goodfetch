@@ -76,7 +76,7 @@ impl FileFailure {
         self.side
     }
 
-    /// The absolute path that was to be written.
+    /// The path that was to be written, as the program gave it.
     pub fn path(&self) -> &Path {
         &self.path
     }

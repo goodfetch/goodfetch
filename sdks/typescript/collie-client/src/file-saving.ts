@@ -354,7 +354,7 @@ function chunkOf(params: unknown): Uint8Array | undefined {
  * it; otherwise, or when the engine answers it did not, the engine streams
  * the bytes in `$/chunk` notifications, `CHUNKS_AHEAD` credits ahead, and
  * this writes them. A failure or an aborted `signal` leaves the path as it
- * was.
+ * was; a chunk this cannot write cancels the call.
  *
  * @throws {PathNotWritableError} or {FileWriteFailedError} from the engine's write or this one's.
  */
@@ -371,6 +371,8 @@ export async function saveFile<Result extends Saved>(
   let failed: unknown;
   let saving: FileSaving | undefined;
   let draining: Promise<void> | undefined;
+  // A failed write stops the call, which the engine would otherwise wait on for credits.
+  const stop = new AbortController();
   // Writes the chunks in order, one after the other; each written lets the engine send one more.
   const drain = async (): Promise<void> => {
     for (let next = parts.shift(); next !== undefined; next = parts.shift()) {
@@ -383,12 +385,14 @@ export async function saveFile<Result extends Saved>(
         stream.grant(1);
       } catch (error) {
         failed = error;
+        stop.abort(error);
       }
     }
     draining = undefined;
   };
   const stream = connection.stream(method, local ? { ...params, path: resolve(path) } : params, {
-    signal: options.signal,
+    signal:
+      options.signal === undefined ? stop.signal : AbortSignal.any([options.signal, stop.signal]),
     notified: (notification, chunk) => {
       const bytes = notification === "$/chunk" ? chunkOf(chunk) : undefined;
       if (bytes !== undefined) {

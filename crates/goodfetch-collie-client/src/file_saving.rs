@@ -40,6 +40,7 @@ const PATH_REASONS: [&str; 7] = [
 #[derive(Debug)]
 pub struct FileSaving {
     partial: tempfile::NamedTempFile,
+    given: PathBuf,
     path: PathBuf,
     folder: PathBuf,
     call: String,
@@ -55,20 +56,25 @@ impl FileSaving {
     ///
     /// [`Error::PathNotWritable`] when the path cannot hold a file, such
     /// as a folder or a path through a file, and [`Error::FileWriteFailed`]
-    /// when its storage fails.
+    /// when its storage fails. Either names the path as given.
     pub fn create(path: &Path, call: &str) -> Result<Self, Error> {
-        let named_folder = path
+        Self::create_at(path, absolute(path, call)?, call)
+    }
+
+    /// Starts the file for `given`, which resolves to the absolute `path`,
+    /// as [`FileSaving::create`] does.
+    pub(crate) fn create_at(given: &Path, path: PathBuf, call: &str) -> Result<Self, Error> {
+        let named_folder = given
             .as_os_str()
             .to_string_lossy()
             .ends_with(std::path::is_separator);
-        let path = absolute(path, call)?;
         let name = match path.file_name() {
             Some(name) if !named_folder => name.to_owned(),
             _ => {
                 return Err(failure(
                     "invalid_filename",
                     None,
-                    &path,
+                    given,
                     call,
                     "it names no file",
                     None,
@@ -79,7 +85,7 @@ impl FileSaving {
             return Err(failure(
                 "is_a_directory",
                 unix_code("EISDIR"),
-                &path,
+                given,
                 call,
                 "it is a folder",
                 None,
@@ -91,7 +97,7 @@ impl FileSaving {
                 failure(
                     "not_a_directory",
                     unix_code("ENOTDIR"),
-                    &path,
+                    given,
                     call,
                     &format!(
                         "a file is where the folder `{}` should be",
@@ -100,7 +106,7 @@ impl FileSaving {
                     Some(error),
                 )
             } else {
-                classify(error, &path, call, "make its folder")
+                classify(error, given, call, "make its folder")
             }
         })?;
         let mut prefix = std::ffi::OsString::from(".");
@@ -110,9 +116,10 @@ impl FileSaving {
             .prefix(&prefix)
             .suffix(".partial")
             .make_in(&folder, create_hidden)
-            .map_err(|error| classify(error, &path, call, "create the temporary file"))?;
+            .map_err(|error| classify(error, given, call, "create the temporary file"))?;
         Ok(Self {
             partial,
+            given: given.to_owned(),
             path,
             folder,
             call: call.to_owned(),
@@ -129,7 +136,7 @@ impl FileSaving {
         self.partial
             .as_file_mut()
             .write_all(bytes)
-            .map_err(|error| classify(error, &self.path, &self.call, "write the file"))
+            .map_err(|error| classify(error, &self.given, &self.call, "write the file"))
     }
 
     /// Syncs the file, then renames it over the path, and syncs its folder.
@@ -140,6 +147,7 @@ impl FileSaving {
     pub fn finish(self) -> Result<(), Error> {
         let Self {
             partial,
+            given,
             path,
             folder,
             call,
@@ -147,11 +155,11 @@ impl FileSaving {
         partial
             .as_file()
             .sync_all()
-            .map_err(|error| classify(error, &path, &call, "sync the file"))?;
-        unhide(partial.path()).map_err(|error| classify(error, &path, &call, "show the file"))?;
+            .map_err(|error| classify(error, &given, &call, "sync the file"))?;
+        unhide(partial.path()).map_err(|error| classify(error, &given, &call, "show the file"))?;
         partial
             .persist(&path)
-            .map_err(|error| classify(error.error, &path, &call, "rename it over the path"))?;
+            .map_err(|error| classify(error.error, &given, &call, "rename it over the path"))?;
         sync_folder(&folder);
         Ok(())
     }

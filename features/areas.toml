@@ -199,6 +199,12 @@ number = 3
 kind = "error"
 prefix = "handler_"
 
+# A crawl's wiring mistakes (ADR 0093, ADR 0104, issue 2800).
+[[area]]
+number = 3
+kind = "error"
+prefix = "label_"
+
 [[area]]
 number = 3
 kind = "operation"

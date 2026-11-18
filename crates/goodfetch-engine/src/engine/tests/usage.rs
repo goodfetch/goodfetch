@@ -11,7 +11,8 @@
 //! any it journals only in one write once they are all charged, as a
 //! crawl's claim does; another,
 //! `test.reserve`, one that reserves a paid solve's worst case and settles
-//! it, as area 8's solvers will.
+//! it, as area 8's solvers will; and `test.charge_live`, which charges a
+//! Run already started, failing with `limit_reached` as a call does.
 
 use std::collections::BTreeMap;
 
@@ -33,7 +34,7 @@ use super::{Client, attached_on, dependencies, engine_with, hello};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Dependencies;
-use crate::ledger::Ledger;
+use crate::ledger::{Ledger, Refusal};
 use crate::runs::{ChargeError, EndedBy, Start, Started, UnjournaledCharges};
 use crate::tasks::BlockingPolicy;
 use crate::transport::{self, Network};
@@ -56,6 +57,14 @@ const CHARGE: Operation = Operation {
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+};
+
+/// Charges the live Run `run_id` requests one at a time, `amount` of them,
+/// failing as a call does once a Limit refuses one.
+const CHARGE_LIVE: Operation = Operation {
+    name: "test.charge_live",
+    description: "Charges a live Run requests one at a time.",
+    ..CHARGE
 };
 
 /// Starts a Run of its own that reserves a paid solve's worst case in USD,
@@ -176,6 +185,7 @@ pub(super) fn charging() -> Contribution {
                 Ok::<Value, CallError>(json!({ "charged": charged, "refused": refused }))
             },
         ))
+        .with_handler(Handler::new(&CHARGE_LIVE, charge_live))
         .with_handler(Handler::new(&COVERED, covered))
         .with_handler(Handler::new(&CHARGE_FROM_TASKS, charge_from_tasks))
         .with_handler(Handler::new(
@@ -198,6 +208,22 @@ pub(super) fn charging() -> Contribution {
                 Ok(json!({ "refused": false }))
             },
         ))
+}
+
+/// [`CHARGE_LIVE`]'s handler.
+async fn charge_live(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+    let run = context.runs().live(run_id).await.unwrap();
+    for _ in 0..params["amount"].as_u64().unwrap() {
+        match run.charge("requests", 1).await {
+            Ok(()) => {}
+            Err(ChargeError::Refused(Refusal::Reached(reached))) => {
+                return Err(crate::run::limit_reached(&reached));
+            }
+            Err(error) => panic!("the charge failed: {error}"),
+        }
+    }
+    Ok(json!({}))
 }
 
 /// Holds one of the runtime's blocking threads until its sender is used,
@@ -407,12 +433,12 @@ pub(super) fn install_month() -> Value {
 
 /// Runs a Collie engine with `test.charge` in `env` while the Client makes
 /// `calls`, after its `hello`, and answers each reply.
-fn replies(env: &TestEnv, product: Product, calls: &[(&str, Value)]) -> Vec<Value> {
+pub(super) fn replies(env: &TestEnv, product: Product, calls: &[(&str, Value)]) -> Vec<Value> {
     replies_from(env, product, "sdk_typescript", calls)
 }
 
 /// As [`replies`], from a Client whose `hello` names `surface`.
-fn replies_from(
+pub(super) fn replies_from(
     env: &TestEnv,
     product: Product,
     surface: &str,

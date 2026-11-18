@@ -502,6 +502,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A start that names an existing Run gave a Limit above the Run's Limit as it stands; the details name its Usage kind, its currency, the amount given and the one standing. A program only lowers a Limit: ask a person to raise it.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "limit_raise_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.",
       "exit_code": 16,
       "group": "refused",
@@ -10267,6 +10277,13 @@
       "name": "response_unavailable",
       "product": "foxhound",
       "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run whose program gave the Limit at its start; it has no period.",
+      "name": "run",
+      "product": "collie",
+      "type": "limit_scope"
     },
     {
       "arrived_in": "0.1",

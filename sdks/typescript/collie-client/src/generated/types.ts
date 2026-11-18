@@ -6789,6 +6789,30 @@ export interface NotUnderstoodLimit1 {
   kind: "limit_not_understood";
 }
 /**
+ * A Limit a program gives a Run at its start (`run.start`'s `limits`):
+ * the Run's own, with no period, set by its Client. A start that names
+ * the Run again lowers it and never raises it (ADR 0102).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunLimit".
+ */
+export interface RunLimit {
+  /**
+   * How much the Run may use: a count of the Usage kind, or millionths
+   * of the currency.
+   */
+  amount: number;
+  /**
+   * The currency it caps the price in, an ISO 4217 code; none for a
+   * count of the Usage kind.
+   */
+  currency?: string | null;
+  /**
+   * The Usage kind it caps.
+   */
+  usage_kind: string;
+}
+/**
  * What `run.list` answers: the rows of its filter, in its order.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -7364,6 +7388,12 @@ export interface RunSetProgressMessageParams {
  * via the `definition` "RunStartParams".
  */
 export interface RunStartParams {
+  /**
+   * The Run's own Limits (ADRs 0041 and 0080): at most one per Usage
+   * kind and currency. A start that names the Run again lowers them and
+   * never raises them (ADR 0102).
+   */
+  limits?: RunLimit[];
   /**
    * The project configuration the Client found, layer 3 (ADR 0083).
    */

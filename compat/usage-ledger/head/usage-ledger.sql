@@ -21,6 +21,16 @@ INSERT INTO "limits" VALUES(2,'daemon','0.0','requests',NULL,'day','Europe/Paris
 INSERT INTO "limits" VALUES(3,'connection','corpus-connection','requests',NULL,NULL,NULL,500,1,'client','2026-01-05T09:00:00Z',NULL);
 INSERT INTO "limits" VALUES(4,'install','','paid_fetch','USD','month','America/New_York',25000000,1,'person','2026-01-05T09:00:00Z',NULL);
 INSERT INTO "limits" VALUES(5,'install','','requests',NULL,'week','Asia/Tokyo',50000,1,'managed_policy','2026-01-05T09:00:00Z','0.0');
+INSERT INTO "limits" VALUES(6,'run','live-run','requests',NULL,NULL,NULL,1000,1,'client','2026-01-05T09:00:00Z',NULL);
+INSERT INTO "limits" VALUES(7,'run','live-run','paid_fetch','USD',NULL,NULL,2000000,1,'client','2026-01-05T09:00:00Z',NULL);
+CREATE TABLE run_limits (
+        run_id TEXT NOT NULL,
+        usage_kind TEXT NOT NULL,
+        currency TEXT,
+        amount INTEGER NOT NULL
+    ) STRICT;
+INSERT INTO "run_limits" VALUES('live-run','requests',NULL,1000);
+INSERT INTO "run_limits" VALUES('live-run','paid_fetch','USD',2000000);
 CREATE TABLE slices (
         slice_id INTEGER PRIMARY KEY,
         limit_id INTEGER NOT NULL,

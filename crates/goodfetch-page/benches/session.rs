@@ -78,7 +78,9 @@ use goodfetch_engine::{
 };
 use goodfetch_page::Launcher;
 use goodfetch_page::blocks::{Block, BlockClassifier};
-use goodfetch_page::page_value::{BrowserPages, HandlerPages, Observer, PageValue, PooledSession};
+use goodfetch_page::page_value::{
+    BrowserPages, HandlerPages, Observer, OwnFetch, PageValue, PooledSession,
+};
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, PROTOCOL_VERSION, Product, Reach, Stability,
     schema_of,
@@ -1395,7 +1397,12 @@ fn pool_pages(pages: &PoolPages) -> Contribution {
                     let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default())
                         .expect("invariant: the program names its Run");
                     let url = params["url"].as_str().unwrap_or_default();
-                    let (page_id, _) = pages.open(&run_id, &pooled(), url, &context).await?;
+                    let own = OwnFetch {
+                        url,
+                        method: "GET",
+                        body: None,
+                    };
+                    let (page_id, _) = pages.open(&run_id, &pooled(), own, &context).await?;
                     Ok::<_, CallError>(json!({ "page_id": page_id }))
                 }
             },

@@ -43,6 +43,7 @@ fn state_of(
         pending,
         navigating: None,
         files: Mutex::new(None),
+        own: Mutex::new(None),
         lists_on: false,
         retrying: AtomicBool::new(false),
         lists_blocked: std::sync::atomic::AtomicU64::new(0),

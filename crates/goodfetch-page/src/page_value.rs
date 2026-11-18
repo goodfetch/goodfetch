@@ -67,6 +67,19 @@ use crate::url_pattern::UrlPattern;
 /// A boxed future of [`BrowserPages`]'s.
 pub type Opening<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+/// A crawl request's own document fetch, which the first navigation of
+/// its browser page sends (ADR 0093): its URL, and the method and body its
+/// main-frame request carries in place of the browser's bodiless `GET`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OwnFetch<'a> {
+    /// Its URL.
+    pub url: &'a str,
+    /// Its method, upper-case as the Frontier admitted it.
+    pub method: &'a str,
+    /// Its body, if it has one.
+    pub body: Option<&'a [u8]>,
+}
+
 /// The browser pages a Product opens for its handlers itself (ADR 0093's
 /// browser tier), which [`HandlerPages::opened`] hands it once.
 pub trait BrowserPages: Send + Sync {
@@ -75,9 +88,14 @@ pub trait BrowserPages: Send + Sync {
     /// opened at its first page from `pooled.source` (ADRs 0088 and 0093),
     /// for the call `context`, whose Connection's Client then reaches it,
     /// taking the value [`HandlerPages::value`] gives as it opens, and
-    /// navigates it to `url` as `page.goto` does, through its navigation
-    /// gate; answers its ID and the navigation's answer. A page whose
-    /// navigation failed is closed again.
+    /// navigates it to `own`'s URL as `page.goto` does, through its
+    /// navigation gate; answers its ID and the navigation's answer. A page
+    /// whose navigation failed is closed again.
+    ///
+    /// Each main-frame request for that URL the navigation sends, the
+    /// load once more with blocking off included, carries `own`'s method
+    /// and body, which every route then sees; a redirect's hop is sent as
+    /// the browser sends it, as HTTP says.
     ///
     /// # Errors
     ///
@@ -92,7 +110,7 @@ pub trait BrowserPages: Send + Sync {
         &'a self,
         run_id: &'a RunId,
         pooled: &'a PooledSession,
-        url: &'a str,
+        own: OwnFetch<'a>,
         context: &'a CallContext,
     ) -> Opening<'a, Result<(PageId, Navigated), CallError>>;
 

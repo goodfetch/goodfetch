@@ -41,8 +41,8 @@ use goodfetch_fetch_tier::{
 use goodfetch_page::blocks::Block;
 use goodfetch_page::document_request::{DocumentRequest, Unread};
 use goodfetch_page::page_value::{
-    BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages as _, Opening, PageValue,
-    ServedFormatsAhead,
+    BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages as _, Opening, OwnFetch,
+    PageValue, ServedFormatsAhead,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -135,9 +135,10 @@ impl BrowserPages for Scripted {
         &'a self,
         _run_id: &'a RunId,
         pooled: &'a PooledSession,
-        url: &'a str,
+        own: OwnFetch<'a>,
         _context: &'a CallContext,
     ) -> Opening<'a, Result<(PageId, Navigated), CallError>> {
+        let url = own.url;
         Box::pin(async move {
             self.ask(|asked| {
                 asked.opened.push(path_of(url));

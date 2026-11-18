@@ -496,7 +496,16 @@ impl PageContext {
             navigation,
         };
         // Step 1: a crawl request's own document fetch has its Hooks
-        // applied already (ADR 0104); nothing here runs a Hook.
+        // applied already (ADR 0104); nothing here runs a Hook. Its method
+        // and body replace the browser's `GET` on the main frame's request
+        // for its URL, unless a redirect sent it, so the routes see the
+        // request it is (issue 2471).
+        if held.navigation
+            && held.paused.redirected_request_id.is_none()
+            && let Some(own) = self.state.own(&held.paused.request.url)
+        {
+            held.apply(own);
+        }
         // Step 2: page routes, the latest first, then Session routes.
         let routes = self
             .state

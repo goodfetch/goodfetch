@@ -94,8 +94,8 @@ use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
     Capture, Chosen, FetchFailure, FetchTiers, HandOver, HopChecks, HttpTier, Judged,
     PAGE_CHECK_CALL, PageFacts, PooledSession, Redirected, ReplayPlan, Request, Requester,
-    RunHandOver, SitePreferences, Stop, TierChoice, Unfollowed, infer_plan, tier_provenance,
-    tier_serves,
+    RunHandOver, SitePreferences, Stop, TierChoice, Unfollowed, infer_plan, light_browser_unsent,
+    tier_provenance, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -875,6 +875,14 @@ impl On<'_> {
         choice: &TierChoice,
         plan: Option<&ReplayPlan>,
     ) -> Answer {
+        // Lightpanda sends a bodiless `GET` alone: under `auto` any other
+        // request goes to the browser before it is sent (issue 2471).
+        if choice.tier == FetchTier::LightBrowser
+            && choice.forced.is_none()
+            && let Some(call) = light_browser_unsent(&self.leased.crawl_request)
+        {
+            return self.escalate(tiering, choice, call).await;
+        }
         let run = match self
             .on_http(tiering, http, (choice, plan), Chosen::AsChosen)
             .await
@@ -1182,14 +1190,15 @@ impl On<'_> {
 
     /// Where the Run allows it, the sample's run on `light_browser`, before
     /// the browser, whose run stages what commits; `None` where it is not
-    /// allowed or failed, and the answer that ends the attempt where its
-    /// lease ended or its client left.
+    /// allowed, cannot send the request or failed, and the answer that
+    /// ends the attempt where its lease ended or its client left.
     async fn light_sampled(
         &self,
         tiering: &Tiering,
         http: &HttpTier,
     ) -> Result<Option<(HttpRun, SoFar)>, Answer> {
-        if !tiering.light {
+        // Lightpanda sends a bodiless `GET` alone (issue 2471).
+        if !tiering.light || light_browser_unsent(&self.leased.crawl_request).is_some() {
             return Ok(None);
         }
         match self
@@ -1588,7 +1597,7 @@ impl On<'_> {
         let handed_over = tiers.hand_over(Arc::clone(&hand_over));
         let opened = tokio::select! {
             biased;
-            opened = tiers.browser(&hand_over, self.in_browser, &leased.crawl_request.url, self.context) => {
+            opened = tiers.browser(&hand_over, self.in_browser, &leased.crawl_request, self.context) => {
                 opened.map_err(|error| failed(&error))
             }
             _ = lease.ended() => Err(Answer::LeaseEnded),

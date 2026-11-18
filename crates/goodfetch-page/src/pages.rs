@@ -112,8 +112,8 @@ use crate::launch::Launcher;
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Matches, Pending, Registered};
 use crate::page_value::{
-    BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages, Opening, PageValue,
-    PooledSession, ProgramPages, ServedFormatsAhead,
+    BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages, Opening, OwnFetch,
+    PageValue, PooledSession, ProgramPages, ServedFormatsAhead,
 };
 use crate::proxy;
 use crate::recovery;
@@ -848,7 +848,7 @@ impl BrowserPages for Opener {
         &'a self,
         run_id: &'a RunId,
         pooled: &'a PooledSession,
-        url: &'a str,
+        own: OwnFetch<'a>,
         context: &'a CallContext,
     ) -> Opening<'a, Result<(PageId, Navigated), CallError>> {
         Box::pin(async move {
@@ -870,16 +870,20 @@ impl BrowserPages for Opener {
                 run: page.run,
                 page_id: Some(page_id.clone()),
             };
+            // Its document is fetched with the crawl request's method and
+            // body for as long as the navigation goes on.
+            let sent = self.pages.interception.send_own(&page_id, own);
             let navigated = self
                 .pages
                 .navigate(
                     &page_id,
-                    Destination::Url(url),
+                    Destination::Url(own.url),
                     WaitUntil::Load,
                     None,
                     context,
                 )
                 .await;
+            drop(sent);
             closing.disarm();
             match navigated {
                 Ok(navigated) => Ok((page_id, navigated)),

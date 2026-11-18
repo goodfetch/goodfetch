@@ -94,6 +94,23 @@ async def test_starts_a_run_finishes_it_and_answers_its_run_report(way: Way) -> 
     assert played.done() == Finished()
 
 
+@three_ways
+async def test_sends_none_as_null_and_leaves_out_a_parameter_not_given(
+    way: Way,
+) -> None:
+    """`None` is a value, no timeout; a parameter left out is not sent (ADR 0080).
+
+    `run/started-and-finished.json` expects `run.finish` with no `timeout`.
+    """
+    collie, played = await collie_on(way, "run/finished-with-no-timeout.json")
+    run = await collie.start()
+
+    await run.finish(timeout=None)
+    await collie.close()
+
+    assert played.done() == Finished()
+
+
 async def failure(call: Awaitable[object]) -> GoodfetchError:
     """The Goodfetch error `call` raises."""
     with pytest.raises(GoodfetchError) as raised:

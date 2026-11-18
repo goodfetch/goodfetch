@@ -1243,9 +1243,7 @@ fn codegen_refuses_a_member_whose_form_its_kind_does_not_give(
 fn each_declared_kind_generates_its_typescript_form_which_type_checks() {
     let workspace = workspace_with_the_forms_catalog();
     codegen(&workspace);
-    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap();
+    let repository = repository();
     for module in ["caller.ts", "field-values.ts", "handle.ts"] {
         let contents =
             std::fs::read(repository.join(COLLIE_CLIENT).join("src").join(module)).unwrap();
@@ -1281,24 +1279,30 @@ fn each_declared_kind_generates_its_typescript_form_which_type_checks() {
 
 const PYTHON_CLIENT: &str = "sdks/python/collie-client";
 
+/// The repository the tests run from, whose installed checkers and
+/// hand-written client modules the type-checking tests use.
+fn repository() -> &'static std::path::Path {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+}
+
 /// Runs `checker`, one of the repository's installed Python type checkers,
 /// in Collie's Python client package of `workspace`, and fails with what it
 /// printed.
 fn python_type_check(workspace: &Workspace, checker: &str, args: &[&str]) {
-    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap();
-    let checked = workspace
+    let repository = repository();
+    let ran = workspace
         .command(repository.join(".venv/bin").join(checker))
         .current_dir(workspace.path().join(PYTHON_CLIENT))
         .args(args)
         .output()
         .unwrap();
     assert!(
-        checked.status.success(),
+        ran.status.success(),
         "{checker}: {}{}",
-        String::from_utf8_lossy(&checked.stdout),
-        String::from_utf8_lossy(&checked.stderr)
+        String::from_utf8_lossy(&ran.stdout),
+        String::from_utf8_lossy(&ran.stderr)
     );
 }
 
@@ -1313,9 +1317,7 @@ fn python_type_check(workspace: &Workspace, checker: &str, args: &[&str]) {
 fn each_declared_kind_generates_its_python_form_which_type_checks() {
     let workspace = workspace_with_the_forms_catalog();
     codegen(&workspace);
-    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap();
+    let repository = repository();
     let package = format!("{PYTHON_CLIENT}/src/goodfetch_collie_client");
     for module in ["caller.py", "handle.py"] {
         let contents = std::fs::read(repository.join(&package).join(module)).unwrap();

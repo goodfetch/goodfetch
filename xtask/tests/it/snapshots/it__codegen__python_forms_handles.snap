@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any, Literal, Self
 
 from goodfetch_collie_client.caller import result_of
-from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost
+from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost, NotGiven, not_given
 
 from . import models
 
@@ -24,10 +24,10 @@ class AsyncRun:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
 
-    async def new_page(self, *, viewport: str | None = None) -> AsyncPage:
+    async def new_page(self, *, viewport: str | None | NotGiven = not_given) -> AsyncPage:
         """Opens a page in the Run."""
         params = models.NewPageParams(run_id=self._host.id)
-        if viewport is not None:
+        if not isinstance(viewport, NotGiven):
             params.viewport = viewport
         opened = result_of(models.PageOpened, await self._host.call("run.new_page", params))
         return AsyncPage(self._host.child(opened.page_id))
@@ -62,10 +62,10 @@ class AsyncPage:
         """Closes the page."""
         await self._host.close("page.close", models.PageParams(page_id=self._host.id))
 
-    async def goto(self, url: str, referrer: str, *, fresh: bool, timeout: int | None = None) -> models.Navigated:
+    async def goto(self, url: str, referrer: str, *, fresh: bool, timeout: int | None | NotGiven = not_given) -> models.Navigated:
         """Navigates the page to a URL."""
         params = models.GotoParams(page_id=self._host.id, url=url, referrer=referrer, fresh=fresh)
-        if timeout is not None:
+        if not isinstance(timeout, NotGiven):
             params.timeout = timeout
         return result_of(models.Navigated, await self._host.call("page.goto", params))
 
@@ -77,14 +77,14 @@ class AsyncPage:
         """Reads the named fields from the page."""
         return result_of(models.Read, await self._host.call("page.read", models.ReadParams(page_id=self._host.id, fields=fields)))
 
-    async def wait_for_ready(self, *, expected: Any | None = None, state: Literal["interactive", "complete"] | None = None, timeout: int | None = None) -> models.Acted:
+    async def wait_for_ready(self, *, expected: Any | NotGiven = not_given, state: Literal["interactive", "complete"] | None | NotGiven = not_given, timeout: int | None | NotGiven = not_given) -> models.Acted:
         """Waits until the page's document has loaded."""
         params = models.WaitForReadyParams(page_id=self._host.id)
-        if expected is not None:
+        if not isinstance(expected, NotGiven):
             params.expected = expected
-        if state is not None:
-            params.state = models.ReadyState(state)
-        if timeout is not None:
+        if not isinstance(state, NotGiven):
+            params.state = None if state is None else models.ReadyState(state)
+        if not isinstance(timeout, NotGiven):
             params.timeout = timeout
         return result_of(models.Acted, await self._host.call("page.wait_for_ready", params))
 
@@ -122,10 +122,10 @@ class Run:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
 
-    def new_page(self, *, viewport: str | None = None) -> Page:
+    def new_page(self, *, viewport: str | None | NotGiven = not_given) -> Page:
         """Opens a page in the Run."""
         params = models.NewPageParams(run_id=self._host.id)
-        if viewport is not None:
+        if not isinstance(viewport, NotGiven):
             params.viewport = viewport
         opened = result_of(models.PageOpened, self._host.call("run.new_page", params))
         return Page(self._host.child(opened.page_id))
@@ -160,10 +160,10 @@ class Page:
         """Closes the page."""
         self._host.close("page.close", models.PageParams(page_id=self._host.id))
 
-    def goto(self, url: str, referrer: str, *, fresh: bool, timeout: int | None = None) -> models.Navigated:
+    def goto(self, url: str, referrer: str, *, fresh: bool, timeout: int | None | NotGiven = not_given) -> models.Navigated:
         """Navigates the page to a URL."""
         params = models.GotoParams(page_id=self._host.id, url=url, referrer=referrer, fresh=fresh)
-        if timeout is not None:
+        if not isinstance(timeout, NotGiven):
             params.timeout = timeout
         return result_of(models.Navigated, self._host.call("page.goto", params))
 
@@ -175,14 +175,14 @@ class Page:
         """Reads the named fields from the page."""
         return result_of(models.Read, self._host.call("page.read", models.ReadParams(page_id=self._host.id, fields=fields)))
 
-    def wait_for_ready(self, *, expected: Any | None = None, state: Literal["interactive", "complete"] | None = None, timeout: int | None = None) -> models.Acted:
+    def wait_for_ready(self, *, expected: Any | NotGiven = not_given, state: Literal["interactive", "complete"] | None | NotGiven = not_given, timeout: int | None | NotGiven = not_given) -> models.Acted:
         """Waits until the page's document has loaded."""
         params = models.WaitForReadyParams(page_id=self._host.id)
-        if expected is not None:
+        if not isinstance(expected, NotGiven):
             params.expected = expected
-        if state is not None:
-            params.state = models.ReadyState(state)
-        if timeout is not None:
+        if not isinstance(state, NotGiven):
+            params.state = None if state is None else models.ReadyState(state)
+        if not isinstance(timeout, NotGiven):
             params.timeout = timeout
         return result_of(models.Acted, self._host.call("page.wait_for_ready", params))
 

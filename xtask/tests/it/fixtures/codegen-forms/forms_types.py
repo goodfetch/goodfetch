@@ -45,6 +45,11 @@ async def async_forms(
     assert_type(await page.goto(URL, REFERRER, fresh=True), Navigated)
     assert_type(await page.goto(URL, REFERRER, fresh=False, timeout=1), Navigated)
     assert_type(await page.goto(url=URL, referrer=REFERRER, fresh=True), Navigated)
+    # `None` is a value, no timeout; leaving it out takes the setting's
+    # default (ADR 0080).
+    assert_type(
+        await page.goto(URL, REFERRER, fresh=True, timeout=None), Navigated
+    )
     # A boolean is never positional.
     await page.goto(URL, REFERRER, True)  # type: ignore[call-arg]
     # A required boolean has no default.
@@ -63,6 +68,8 @@ async def async_forms(
     assert_type(await page.wait_for_ready(expected={"ready": [1, "a"]}), Acted)
     assert_type(await page.wait_for_ready(state="complete"), Acted)
     await page.wait_for_ready(state="loaded")  # type: ignore[arg-type]
+    # A wrapped choice that admits null takes `None` unwrapped.
+    assert_type(await page.wait_for_ready(state=None), Acted)
 
     # A `new` member returns the value it opens, which an `async with`
     # block closes.

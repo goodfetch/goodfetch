@@ -1,20 +1,42 @@
 """What a generated handle reaches its engine through (ADR 0099).
 
 The raw call, the ID its calls carry, and the host of each handle it opens
-or builds, for the async handles and their sync twins. Hand-written, since
-no catalog entry shapes it; the client package's runtime implements it.
-TypeScript's `handle.ts` is its twin.
+or builds, for the async handles and their sync twins, and `not_given`, what
+an optional parameter left out holds. Hand-written, since no catalog entry
+shapes it; the client package's runtime implements it. TypeScript's
+`handle.ts` is its twin.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING, Final, Literal, Protocol, TypeVar, final
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
 _Id = TypeVar("_Id", covariant=True)
 _ChildId = TypeVar("_ChildId")
+
+
+@final
+class NotGiven:
+    """What an optional parameter left out holds (ADR 0080's three states).
+
+    The call sends nothing for it, so the engine applies its default, such
+    as a timeout's setting, where `None` sends null, such as no timeout.
+    """
+
+    def __bool__(self) -> Literal[False]:
+        """False, as a parameter left out sets nothing."""
+        return False
+
+    def __repr__(self) -> str:
+        """`not_given`, the one value of its type."""
+        return "not_given"
+
+
+not_given: Final = NotGiven()
+"""The default of each optional parameter of a generated handle."""
 
 
 class AsyncHandleHost(Protocol[_Id]):

@@ -6,8 +6,10 @@
 //!
 //! - A round trip, a query and a waiter are `async def` methods, plain in
 //!   the twin. A required parameter is positional in the catalog's order,
-//!   but a boolean, which is keyword-only like every optional one; an
-//!   optional one left out (`None`) is left out of the call.
+//!   but a boolean, which is keyword-only like every optional one. An
+//!   optional one defaults to the `not_given` sentinel and is sent only when
+//!   passed, so `None` sends null where its type admits it: no timeout,
+//!   where leaving it out takes the setting's default (ADR 0080).
 //! - A `new_<value>` member returns the handle it opens, and a handle the
 //!   program closes is an async context manager, a context manager in the
 //!   twin.
@@ -25,9 +27,10 @@
 //! repository's type checkers check each against the model's own, which
 //! the handle constructs the params with.
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
 
 use super::super::handles::{Builder, Form, Handle, HandleId, Member, Parameters};
@@ -50,6 +53,11 @@ struct Mode {
     asynchronous: &'static str,
     /// `await ` or nothing, before a call.
     awaits: &'static str,
+    /// The methods that make a handle the program closes a context
+    /// manager, and the block that holds it.
+    enter: &'static str,
+    exit: &'static str,
+    block: &'static str,
 }
 
 const ASYNC: Mode = Mode {
@@ -57,6 +65,9 @@ const ASYNC: Mode = Mode {
     host: "AsyncHandleHost",
     asynchronous: "async ",
     awaits: "await ",
+    enter: "__aenter__",
+    exit: "__aexit__",
+    block: "an `async with` block",
 };
 
 const SYNC: Mode = Mode {
@@ -64,15 +75,21 @@ const SYNC: Mode = Mode {
     host: "HandleHost",
     asynchronous: "",
     awaits: "",
+    enter: "__enter__",
+    exit: "__exit__",
+    block: "a `with` block",
 };
 
 /// What the module imports besides its fixed lines.
 #[derive(Default)]
 struct Imports {
+    /// The names it imports from `typing`, besides `Self`.
+    typing: BTreeSet<&'static str>,
     models: bool,
-    any: bool,
-    literal: bool,
     deprecated: bool,
+    /// Whether a member takes an optional parameter, which defaults to the
+    /// `not_given` sentinel.
+    not_given: bool,
 }
 
 impl Imports {
@@ -94,18 +111,33 @@ struct Wrapped {
     annotation: String,
     /// The model that wraps it.
     model: String,
+    /// Whether the parameter also admits null, which is passed unwrapped.
+    nullable: bool,
+}
+
+/// The Python type of a JSON Schema primitive `type`, or `None` for
+/// another.
+fn primitive(kind: &str) -> Option<&'static str> {
+    match kind {
+        "string" => Some("str"),
+        "integer" => Some("int"),
+        "number" => Some("float"),
+        "boolean" => Some("bool"),
+        _ => None,
+    }
 }
 
 /// `schema`'s wrapped value, when it is a reference, alone or beside
 /// `null`, to a definition that wraps one wire value.
 fn wrapped(schema: &Value, layer: &Layer, imports: &mut Imports) -> Option<Wrapped> {
-    let reference = match schema["anyOf"].as_array() {
+    let (reference, nullable) = match schema["anyOf"].as_array() {
         Some(variants) => {
             let mut values = variants.iter().filter(|variant| variant["type"] != "null");
             let only = values.next()?;
-            values.next().is_none().then_some(only)?
+            let only = values.next().is_none().then_some(only)?;
+            (only, variants.len() > 1)
         }
-        None => schema,
+        None => (schema, false),
     };
     let model = reference["$ref"].as_str()?.strip_prefix("#/$defs/")?;
     let definition = layer.definitions.get(model)?;
@@ -125,22 +157,19 @@ fn wrapped(schema: &Value, layer: &Layer, imports: &mut Imports) -> Option<Wrapp
                 .as_array()
                 .map(|values| values.iter().map(Value::as_str).collect())
         });
-    let annotation = match (choices, definition["type"].as_str()) {
-        (Some(Some(choices)), _) if !choices.is_empty() => {
-            imports.literal = true;
+    let annotation = match choices {
+        Some(Some(choices)) if !choices.is_empty() => {
+            imports.typing.insert("Literal");
             let choices: Vec<String> = choices.iter().map(|choice| format!("{choice:?}")).collect();
             format!("Literal[{}]", choices.join(", "))
         }
-        (Some(_), _) => return None,
-        (None, Some("string")) => "str".to_owned(),
-        (None, Some("integer")) => "int".to_owned(),
-        (None, Some("number")) => "float".to_owned(),
-        (None, Some("boolean")) => "bool".to_owned(),
-        (None, _) => return None,
+        Some(_) => return None,
+        None => primitive(definition["type"].as_str()?)?.to_owned(),
     };
     Some(Wrapped {
         annotation,
         model: imports.model(model),
+        nullable,
     })
 }
 
@@ -160,16 +189,14 @@ const ANNOTATIONS: [&str; 7] = [
 /// A parameter's annotation, read from its schema, or `None` for a schema
 /// it cannot spell.
 fn annotation(schema: &Value, imports: &mut Imports) -> Option<String> {
-    let Some(object) = schema.as_object() else {
-        return None;
-    };
+    let object = schema.as_object()?;
     // A schema that only describes its value, such as a JSON argument's,
     // admits any JSON.
     if object
         .keys()
         .all(|keyword| ANNOTATIONS.contains(&keyword.as_str()))
     {
-        imports.any = true;
+        imports.typing.insert("Any");
         return Some("Any".to_owned());
     }
     if let Some(name) = schema["$ref"].as_str() {
@@ -189,15 +216,14 @@ fn annotation(schema: &Value, imports: &mut Imports) -> Option<String> {
             if schema.get("enum").is_some() || schema.get("const").is_some() {
                 return None;
             }
+            if let Some(spelled) = primitive(kind) {
+                return Some(spelled.to_owned());
+            }
             match kind.as_str() {
-                "string" => Some("str".to_owned()),
-                "integer" => Some("int".to_owned()),
-                "number" => Some("float".to_owned()),
-                "boolean" => Some("bool".to_owned()),
                 "null" => Some("None".to_owned()),
                 "array" => match schema.get("items") {
                     None => {
-                        imports.any = true;
+                        imports.typing.insert("Any");
                         Some("list[Any]".to_owned())
                     }
                     Some(items) => Some(format!("list[{}]", annotation(items, imports)?)),
@@ -205,7 +231,7 @@ fn annotation(schema: &Value, imports: &mut Imports) -> Option<String> {
                 "object" if schema.get("properties").is_none() => {
                     match schema.get("additionalProperties") {
                         None | Some(Value::Bool(true)) => {
-                            imports.any = true;
+                            imports.typing.insert("Any");
                             Some("dict[str, Any]".to_owned())
                         }
                         Some(values @ Value::Object(_)) => {
@@ -239,8 +265,9 @@ fn union(variants: impl Iterator<Item = Option<String>>) -> Option<String> {
 
 /// A method's parameter list after `self`, and the lines that build its
 /// params as `model`: the handle's ID first, then the positional ones, then
-/// the keyword-only ones. An optional parameter left out is left out of the
-/// call: it is set on the model, which then sends it, only when passed.
+/// the keyword-only ones. An optional parameter defaults to `not_given` and
+/// is set on the model, which then sends it, only when passed: `None` is a
+/// value, null on the wire, where its type admits it (ADR 0080).
 struct Signature {
     declared: String,
     /// The constructor call, with every parameter but the optional ones.
@@ -258,7 +285,10 @@ fn signature(
     id: &HandleId,
     imports: &mut Imports,
 ) -> Result<Signature> {
-    let schema = &layer.definitions[model];
+    let schema = layer
+        .definitions
+        .get(model)
+        .with_context(|| format!("operation `{owner}`: the bundle has no type `{model}`"))?;
     // Each parameter's annotation, and the expression that passes it to
     // the model.
     let spell = |name: &str, imports: &mut Imports| -> Result<(String, String)> {
@@ -268,8 +298,20 @@ fn signature(
             );
         }
         let property = &schema["properties"][name];
-        if let Some(Wrapped { annotation, model }) = wrapped(property, layer, imports) {
-            return Ok((annotation, format!("{model}({name})")));
+        if let Some(Wrapped {
+            annotation,
+            model,
+            nullable,
+        }) = wrapped(property, layer, imports)
+        {
+            return Ok(if nullable {
+                (
+                    format!("{annotation} | None"),
+                    format!("None if {name} is None else {model}({name})"),
+                )
+            } else {
+                (annotation, format!("{model}({name})"))
+            });
         }
         let Some(spelled) = annotation(property, imports) else {
             bail!(
@@ -296,20 +338,16 @@ fn signature(
     let mut optional = Vec::new();
     for name in &parameters.optional {
         let (spelled, passed) = spell(name, imports)?;
-        let spelled = if spelled.ends_with("| None") {
-            spelled
-        } else {
-            format!("{spelled} | None")
-        };
-        declared.push(format!("{name}: {spelled} = None"));
+        imports.not_given = true;
+        declared.push(format!("{name}: {spelled} | NotGiven = not_given"));
         optional.push((name.clone(), passed));
     }
     let model = imports.model(model);
     Ok(Signature {
-        declared: declared
-            .iter()
-            .map(|parameter| format!(", {parameter}"))
-            .collect(),
+        declared: declared.iter().fold(String::new(), |mut text, parameter| {
+            let _ = write!(text, ", {parameter}");
+            text
+        }),
         construct: format!("{model}({})", entries.join(", ")),
         optional,
     })
@@ -326,7 +364,7 @@ fn build(signature: &Signature, local: &str, text: &mut String) -> String {
     for (name, passed) in &signature.optional {
         let _ = writeln!(
             text,
-            "        if {name} is not None:\n            {local}.{name} = {passed}"
+            "        if not isinstance({name}, NotGiven):\n            {local}.{name} = {passed}"
         );
     }
     local.to_owned()
@@ -508,13 +546,11 @@ fn classes(
         let Mode {
             asynchronous,
             awaits,
+            enter,
+            exit,
+            block,
             ..
         } = mode;
-        let (enter, exit, block) = if asynchronous.is_empty() {
-            ("__enter__", "__exit__", "a `with` block")
-        } else {
-            ("__aenter__", "__aexit__", "an `async with` block")
-        };
         let _ = write!(
             text,
             "\n    {asynchronous}def {enter}(self) -> Self:\n        \"\"\"Holds it for {block}, which closes it.\"\"\"\n        return self\n\n    {asynchronous}def {exit}(self, *_: object) -> None:\n        \"\"\"Closes it.\"\"\"\n        {awaits}self.close()\n"
@@ -537,21 +573,20 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
         layer.product.name()
     ));
     text.push('\n');
-    let typing: Vec<&str> = [
-        imports.any.then_some("Any"),
-        imports.literal.then_some("Literal"),
-        Some("Self"),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
+    imports.typing.insert("Self");
+    let typing: Vec<&str> = imports.typing.into_iter().collect();
     let _ = writeln!(text, "from typing import {}", typing.join(", "));
     if imports.deprecated {
         text.push_str("\nfrom typing_extensions import deprecated\n");
     }
+    let not_given = if imports.not_given {
+        ", NotGiven, not_given"
+    } else {
+        ""
+    };
     let _ = writeln!(
         text,
-        "\nfrom {CALLER_MODULE} import result_of\nfrom {HANDLE_MODULE} import AsyncHandleHost, HandleHost"
+        "\nfrom {CALLER_MODULE} import result_of\nfrom {HANDLE_MODULE} import AsyncHandleHost, HandleHost{not_given}"
     );
     if imports.models {
         text.push_str("\nfrom . import models\n");

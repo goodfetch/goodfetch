@@ -7,8 +7,9 @@
 //! catalog's descriptions as Google-style docstrings and its Experimental and
 //! deprecated markers, and the constants a Connection opens with: the
 //! protocol and Product versions `hello` names, the engine's command and
-//! the variable naming its executable. Foxhound's layer imports what
-//! Collie's client package defines.
+//! the variable naming its executable, and Collie's handles in their ADR
+//! 0099 forms (`handle_classes`). Foxhound's layer imports what Collie's
+//! client package defines.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;

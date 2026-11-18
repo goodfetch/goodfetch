@@ -56,8 +56,9 @@ export class Collie implements Connection {
 
   /**
    * Starts a Run and returns once it is started (ADR 0102); a `runId`
-   * naming an existing Run returns that Run. `finish()` ends it; closing it
-   * unfinished stops it, resumable by its Run ID.
+   * naming an interrupted Run resumes it, and one naming a finished Run
+   * returns it as it ended. `finish()` ends it; closing it unfinished stops
+   * it, resumable by its Run ID.
    */
   start(options?: StartOptions): Promise<Run> {
     return this.#connection.start(options);

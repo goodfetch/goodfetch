@@ -60,7 +60,7 @@ export interface EngineInfo {
 
 /** What starting a Run takes (ADR 0102). */
 export interface StartOptions {
-  /** The Run's ID; the engine generates one when it is left out. An existing ID returns that Run. */
+  /** The Run's ID; the engine generates one when it is left out. An interrupted Run's ID resumes it; a finished one's returns it as it ended. */
   readonly runId?: string | undefined;
   /** Its tags: at most 16, each at most 64 characters (ADR 0036). */
   readonly tags?: readonly string[] | undefined;

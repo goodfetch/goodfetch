@@ -34,7 +34,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_dataset::{Began, Datasets};
-use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_error, start_error};
+use goodfetch_engine::run::{
+    checkpoint_interval, resume_run, run_error, run_id, settings_error, start_error,
+};
 use goodfetch_engine::runs::{Driving, EndedBy, RunError, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
@@ -274,7 +276,7 @@ async fn start(
         })
         .await
         .map_err(start_error)?;
-    Ok(match started {
+    match started {
         Started::New(run) => {
             let started = RunStarted {
                 run_id: run.id().clone(),
@@ -291,13 +293,21 @@ async fn start(
                 settings,
                 (tiers, labels, TierChoices::default(), code_free),
             ));
-            started
+            Ok(started)
         }
-        Started::Existing(existing) => {
+        // An interrupted Run resumes under the declarations this start
+        // checked (ADR 0102), its driver recording them.
+        Started::Interrupted(run_id) => {
             let kept = (opening, serving.payloads().clone(), extraction);
-            redeclared.keep(existing, kept, &crawls).await
+            redeclared.keep(&run_id, kept, &crawls).await;
+            resume_run(&context, run_id, None, settings).await
         }
-    })
+        Started::Ended(ended) => {
+            let kept = (opening, serving.payloads().clone(), extraction);
+            redeclared.keep(&ended.run_id, kept, &crawls).await;
+            Ok(ended)
+        }
+    }
 }
 
 /// Whether a Run `run_id` exists (never when the start names none), which

@@ -13947,7 +13947,7 @@
         },
         "run_id": {
           "arrived_in": "0.1",
-          "description": "The Run's ID; the engine generates a lowercase ULID when it is\nabsent. An existing ID returns that Run when the caller and the\ninputs match, and fails with `run_conflict` otherwise.",
+          "description": "The Run's ID; the engine generates a lowercase ULID when it is\nabsent. An existing ID reaches that Run when the caller and the\ninputs match, as `run.start` says, and fails with `run_conflict`\notherwise.",
           "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
           "type": [
             "string",
@@ -15862,7 +15862,7 @@
       ]
     },
     "StartedAs": {
-      "description": "Whether a start began its Run or found it.",
+      "description": "What a start did with its Run: began it, resumed it, or found it ended\n(ADR 0102).",
       "oneOf": [
         {
           "const": "new",
@@ -15870,13 +15870,13 @@
           "type": "string"
         },
         {
-          "const": "existing",
-          "description": "Its Run ID named a Run started before with the same inputs, which is\nreturned as it is.",
+          "const": "resumed",
+          "description": "It was interrupted and goes on from its committed state, its run\nfile or a Checkpoint, at the next run epoch (ADRs 0002, 0003 and\n0102).",
           "type": "string"
         },
         {
-          "const": "resumed",
-          "description": "It was interrupted and goes on from its committed state, its run\nfile or a Checkpoint, at the next run epoch (ADRs 0002, 0003 and\n0102).",
+          "const": "ended",
+          "description": "Its Run ID named a Run that finished, returned as it ended with no\nhandler called.",
           "type": "string"
         }
       ]

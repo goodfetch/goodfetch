@@ -1106,12 +1106,13 @@ export type SessionId = string;
  */
 export type SocialNetwork = "x" | "linkedin" | "facebook" | "instagram" | "youtube" | "tiktok" | "github" | "mastodon";
 /**
- * Whether a start began its Run or found it.
+ * What a start did with its Run: began it, resumed it, or found it ended
+ * (ADR 0102).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "StartedAs".
  */
-export type StartedAs = "new" | "existing" | "resumed";
+export type StartedAs = "new" | "resumed" | "ended";
 /**
  * Who stopped a call (ADR 0113).
  *
@@ -7336,8 +7337,9 @@ export interface RunStartParams {
   project?: ProjectSettings | null;
   /**
    * The Run's ID; the engine generates a lowercase ULID when it is
-   * absent. An existing ID returns that Run when the caller and the
-   * inputs match, and fails with `run_conflict` otherwise.
+   * absent. An existing ID reaches that Run when the caller and the
+   * inputs match, as `run.start` says, and fails with `run_conflict`
+   * otherwise.
    */
   run_id?: string | null;
   /**
@@ -7371,7 +7373,7 @@ export interface RunStarted {
   /**
    * Whether the start began it.
    */
-  started_as: "new" | "existing" | "resumed";
+  started_as: "new" | "resumed" | "ended";
 }
 /**
  * What `run.stopping` carries.

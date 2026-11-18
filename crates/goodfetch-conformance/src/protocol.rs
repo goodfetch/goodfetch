@@ -63,6 +63,9 @@ const FETCH_CASES: &str = include_str!("../../../conformance/fetch/cases.toml");
 /// The reset gate's case list, embedded the same way.
 const RESET_CASES: &str = include_str!("../../../conformance/reset/cases.toml");
 
+/// The start table's case list, embedded the same way.
+const RUN_START_CASES: &str = include_str!("../../../conformance/run-start/cases.toml");
+
 /// A protocol suite: its declared case list, and the Product whose
 /// executable it runs on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -108,6 +111,12 @@ impl ProtocolSuite {
     /// Run leaving none of its state or secrets behind.
     pub fn reset() -> Self {
         Self::read(RESET_CASES).expect("invariant: the embedded case list is valid")
+    }
+
+    /// `conformance/run-start/cases.toml`: ADR 0102's start table, a start
+    /// under a Run ID reaching the Run it names.
+    pub fn run_start() -> Self {
+        Self::read(RUN_START_CASES).expect("invariant: the embedded case list is valid")
     }
 
     /// Reads a protocol suite's case list.

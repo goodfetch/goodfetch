@@ -38,7 +38,7 @@ import { foxhound } from "./product.ts";
 export interface StartCrawlOptions {
   /** The requests the crawl starts from: at least one. */
   readonly seeds: readonly [RequestSeed, ...RequestSeed[]];
-  /** The Run's ID; the engine generates one when it is left out. An existing ID returns that Run. */
+  /** The Run's ID; the engine generates one when it is left out. An interrupted Run's ID resumes it; a finished one's returns it as it ended. */
   readonly runId?: string | undefined;
   /** Its tags: at most 16, each at most 64 characters (ADR 0036). */
   readonly tags?: readonly string[] | undefined;
@@ -106,8 +106,9 @@ export class Foxhound implements Connection {
 
   /**
    * Starts a Run and returns once it is started (ADR 0102); a `runId`
-   * naming an existing Run returns that Run. `finish()` ends it; closing it
-   * unfinished stops it, resumable by its Run ID.
+   * naming an interrupted Run resumes it, and one naming a finished Run
+   * returns it as it ended. `finish()` ends it; closing it unfinished stops
+   * it, resumable by its Run ID.
    */
   start(options?: StartOptions): Promise<Run> {
     return this.#connection.start(options);
@@ -117,7 +118,8 @@ export class Foxhound implements Connection {
    * Starts `crawl` from its seeds and returns once its Run is started (ADR
    * 0093). The engine then leases each work item to the handler of its
    * Label, on this process's event loop, and the Run finishes once every
-   * work item is done. A `runId` naming an existing Run returns that Run.
+   * work item is done. A `runId` naming an interrupted Run resumes it, and
+   * one naming a finished Run returns it as it ended.
    * Before anything is sent, a Label without a handler fails with
    * `label_unhandled`, and a seed whose Label's name `crawl` does not
    * declare with `label_unknown` (a seed carries its Label's name only).

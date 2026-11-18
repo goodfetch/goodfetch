@@ -35,8 +35,8 @@ impl Start {
     }
 
     /// Names the Run `run_id`: a start with the ID of a Run started before
-    /// with the same inputs returns that Run, and goes on with one that was
-    /// interrupted (ADR 0102).
+    /// with the same inputs goes on with it when it was interrupted, and
+    /// returns it as it ended when it finished (ADR 0102).
     pub fn run_id(mut self, run_id: &RunId) -> Self {
         self.params.run_id = Some(run_id.as_str().to_owned());
         self
@@ -68,7 +68,7 @@ impl IntoFuture for Start {
 }
 
 impl Run {
-    /// Whether the start began the Run, found it, or went on with it.
+    /// Whether the start began the Run, went on with it, or found it ended.
     pub fn started_as(&self) -> StartedAs {
         self.host.held_run().started_as()
     }

@@ -693,7 +693,7 @@ export class CollieOperations {
   }
 
   /**
-   * Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A live Run is answered as it is, `existing`; a finished one as it is. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.
+   * Resumes an interrupted Run from its committed state, its run file on this machine or the Checkpoint `checkpoint` names: it takes the Run's writer lock and the next run epoch, so every write of an earlier writer is refused, and redoes the work since that state; its recorded Clean-up rules digest is kept. A Run this engine runs already fails with `run_in_use`, as one another engine writes does; a finished one is answered as it ended, `ended`. A Run bound to another machine fails with `session_bound_to_machine`, and a Checkpoint of a format version this engine cannot read with `format_version_unsupported`.
    *
    * @experimental
    */
@@ -711,7 +711,7 @@ export class CollieOperations {
   }
 
   /**
-   * Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good: a start with an existing Run ID returns that Run as it is when the caller and the inputs match, and fails with `run_conflict` otherwise.
+   * Starts a Run its program drives, and answers once it is started. A Run ID names the Run for good, and a start under one acts on what the Run index holds (ADR 0102): no such Run begins it, `new`; an interrupted Run, stopped, failed, or running with no live writer, resumes from its committed state at the next run epoch, `resumed`, as `run.resume` does; a finished Run is answered as it ended with no handler called, `ended`. A Run live with a writer, in this engine or another, fails with `run_in_use`; a Run started with other inputs or by another caller with `run_conflict` listing each difference; a Run the Run index lists whose state is missing or unreadable with `run_state_unavailable`, never starting afresh.
    *
    * @experimental
    */

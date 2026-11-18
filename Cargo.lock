@@ -2990,6 +2990,7 @@ dependencies = [
  "expectrl",
  "flate2",
  "goodfetch-workspace-hack",
+ "httparse",
  "insta",
  "jiff",
  "jsonschema",

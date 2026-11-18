@@ -262,6 +262,107 @@ fn a_client_reaches_the_tcp_mode_at_the_address_it_prints() {
     assert!(status.success(), "{stderr}");
 }
 
+/// A Client of a Daemon's HTTP listener as small as a test can write: it
+/// posts one JSON-RPC message per request, with the token as a bearer
+/// token when it has one.
+struct TinyHttpClient {
+    agent: ureq::Agent,
+    url: String,
+}
+
+impl TinyHttpClient {
+    /// A Client of the listener at the address the engine printed.
+    fn at(reported: &Reported) -> Self {
+        Self {
+            agent: ureq::Agent::config_builder()
+                .http_status_as_error(false)
+                .timeout_global(Some(DEADLINE))
+                .build()
+                .into(),
+            url: format!("http://{}/", reported.address),
+        }
+    }
+
+    /// Posts the CLI of Collie's `hello` at protocol version `0.2`, whose
+    /// `hello` token is the script's, behind `bearer`.
+    fn hello(&self, bearer: Option<&str>) -> ureq::http::Response<ureq::Body> {
+        let mut request = self.agent.post(&self.url);
+        if let Some(token) = bearer {
+            request = request.header("Authorization", format!("Bearer {token}"));
+        }
+        request
+            .send_json(json!({
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "hello",
+                "params": {
+                    "protocol_version": "0.2",
+                    "surface": "cli",
+                    "token": TOKEN,
+                    "needs": "collie",
+                    "product_version": "0.1.0",
+                },
+            }))
+            .unwrap()
+    }
+}
+
+#[test]
+fn a_client_reaches_the_http_mode_at_the_address_and_with_the_token_it_prints() {
+    let env = TestEnv::new();
+    let (process, reported) = start(
+        &env,
+        "http",
+        "daemon/hello-refused-protocol-version-unsupported.json",
+        &[],
+    );
+    let token = reported.line["token"].as_str().unwrap();
+    let client = TinyHttpClient::at(&reported);
+
+    let mut answer = client.hello(Some(token));
+
+    assert_eq!(answer.status(), 200);
+    let reply: Value = answer.body_mut().read_json().unwrap();
+    assert_eq!(reply["id"], 0);
+    assert_eq!(
+        reply["error"]["data"]["code"],
+        "protocol_version_unsupported"
+    );
+    let (status, stderr) = finish(&process);
+    assert!(status.success(), "{stderr}");
+}
+
+#[test]
+fn the_http_mode_refuses_a_request_without_its_token_and_never_plays_it() {
+    let env = TestEnv::new();
+    let (process, reported) = start(
+        &env,
+        "http",
+        "daemon/hello-refused-protocol-version-unsupported.json",
+        &["--token", "launch-7"],
+    );
+    assert_eq!(reported.line["token"], "launch-7");
+    let client = TinyHttpClient::at(&reported);
+
+    let missing = client.hello(None);
+    let wrong = client.hello(Some(TOKEN));
+    let mut taken = client.hello(Some("launch-7"));
+
+    for refused in [&missing, &wrong] {
+        assert_eq!(refused.status(), 401);
+        assert_eq!(refused.headers()["www-authenticate"], "Bearer");
+    }
+    // A refused `hello` played would have taken the script's one `expect`.
+    assert_eq!(taken.status(), 200);
+    let reply: Value = taken.body_mut().read_json().unwrap();
+    assert_eq!(
+        reply["error"]["data"]["code"],
+        "protocol_version_unsupported"
+    );
+    let (status, stderr) = finish(&process);
+    assert!(status.success(), "{stderr}");
+}
+
 #[test]
 fn the_runtime_file_names_the_endpoint_token_version_and_pid() {
     let env = TestEnv::new();

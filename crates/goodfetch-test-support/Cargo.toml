@@ -17,6 +17,8 @@ data-encoding.workspace = true
 expectrl.workspace = true
 # The crates.io side of the install harness unpacks a `.crate` file, a gzipped tar.
 flate2.workspace = true
+# `goodfetch-scripted-engine --mode http` reads each request head with it.
+httparse.workspace = true
 insta = { workspace = true, features = ["filters"] }
 jiff.workspace = true
 # Protocol fuzzing checks each generated call and each answer against the

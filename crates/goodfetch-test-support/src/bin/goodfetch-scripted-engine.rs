@@ -18,10 +18,20 @@
 //!   `{"address": …, "runtime_file": …}` once a Client can find it, and
 //!   removes the file and the socket when the play ends, unless the script
 //!   ends with `exit`, which leaves them as a crashed Daemon does;
-//! - `tcp`: on loopback TCP on port 0, printing `{"address": …}`.
+//! - `tcp`: on loopback TCP on port 0, printing `{"address": …}`;
+//! - `http`: as a Daemon's HTTP listener (ADRs 0027 and 0070), on loopback
+//!   TCP on port 0, printing `{"address": …, "token": …}`. Each request
+//!   posts one JSON-RPC message, played only behind `--token` as its bearer
+//!   token: any other request is answered `401` and never played. A request
+//!   is answered once the play reads its next message or ends, with every
+//!   line the play wrote since it, or `202` when it wrote none for a
+//!   notification; a request the play wrote nothing for when it ends gets no
+//!   answer, as from a Daemon that dropped it, and one it reads on past is
+//!   held until the Client gives up. The Client keeps one connection for the
+//!   play, and closing it is the Client closing its end.
 //!
-//! The token check is the script's own `expect` of a `hello` carrying the
-//! token, never a built-in.
+//! The `hello` token check is the script's own `expect` of a `hello`
+//! carrying the token, never a built-in.
 //!
 //! An SDK reaches it as an Attached engine instead: its Product's
 //! engine-path variable (`GOODFETCH_COLLIE_ENGINE_PATH` or
@@ -42,9 +52,9 @@
     reason = "the test-only Scripted engine opens its own sockets, outside `transport` (ADRs 0060 and 0069)"
 )]
 
-use std::cell::OnceCell;
+use std::cell::{OnceCell, RefCell};
 use std::fs::File;
-use std::io::{self, BufReader, Read, Write};
+use std::io::{self, BufRead as _, BufReader, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -75,7 +85,8 @@ struct Arguments {
     /// Where to write the record of every message, one JSON line each.
     #[arg(long)]
     record: Option<PathBuf>,
-    /// The per-launch token the runtime file holds, in `--mode socket`.
+    /// The per-launch token the runtime file holds, in `--mode socket`, and
+    /// the bearer token a request takes, in `--mode http`.
     #[arg(long, default_value = SCRIPTED_DAEMON_TOKEN)]
     token: String,
     /// The Product version the runtime file holds, whose major names its
@@ -95,6 +106,9 @@ enum Mode {
     Socket,
     /// On loopback TCP, at the address it prints.
     Tcp,
+    /// As a Daemon's HTTP listener, at the address and behind the token it
+    /// prints.
+    Http,
 }
 
 #[derive(Subcommand)]
@@ -188,6 +202,15 @@ fn run(arguments: &Arguments) -> Result<Ending, Failure> {
             );
             announce(&json!({ "address": listener.endpoint()?.to_string() }))?;
             listener.play(&script, record)
+        }
+        Mode::Http => {
+            let listener = TcpListener::bind("127.0.0.1:0")
+                .map_err(|error| format!("listen_failed: {error}"))?;
+            announce(&json!({
+                "address": listener.local_addr()?.to_string(),
+                "token": arguments.token,
+            }))?;
+            HttpListener::new(&listener, &arguments.token).play(&script, record)
         }
         Mode::Socket => {
             let daemon = Daemon::publish(&home()?, arguments, ready)
@@ -412,6 +435,262 @@ impl Write for &Connection<'_> {
             #[cfg(unix)]
             Stream::Unix(stream) => (&*stream).flush(),
         }
+    }
+}
+
+/// The Scripted engine as a Daemon's HTTP listener: one JSON-RPC message
+/// per request, behind a bearer token (ADRs 0027 and 0070).
+struct HttpListener<'a> {
+    listener: &'a TcpListener,
+    token: &'a str,
+    exchange: RefCell<Exchange>,
+}
+
+impl<'a> HttpListener<'a> {
+    fn new(listener: &'a TcpListener, token: &'a str) -> Self {
+        Self {
+            listener,
+            token,
+            exchange: RefCell::new(Exchange::default()),
+        }
+    }
+
+    /// Plays `script` to the first Client to connect, accepting it only
+    /// when the play first reads, so a script that exits at once never
+    /// waits for one.
+    fn play(&self, script: &Script, record: impl Write) -> Result<Ending, Failure> {
+        let ending = play(script, BufReader::new(self), self, record);
+        let ended = self.exchange.borrow_mut().end();
+        // The play's own failure comes first: a test matches on its code.
+        let ending = ending?;
+        ended.map_err(|error| format!("client_gone: {error}"))?;
+        Ok(ending)
+    }
+}
+
+/// The one Client's connection, and the request waiting on the play.
+#[derive(Default)]
+struct Exchange {
+    connection: Option<BufReader<TcpStream>>,
+    /// The last message posted, as one line, until the play reads it all.
+    posted: io::Cursor<Vec<u8>>,
+    waiting: Option<Waiting>,
+    /// Every line the play wrote since the request waiting.
+    answer: Vec<u8>,
+}
+
+/// What a request waits on.
+#[derive(Clone, Copy)]
+enum Waiting {
+    /// A JSON-RPC request, which carries an ID: its answer.
+    Answer,
+    /// A notification, or what is no JSON-RPC message: its acceptance.
+    Acceptance,
+}
+
+/// A request's head and body, as the listener takes them.
+struct Request {
+    bearer: Option<String>,
+    body: Vec<u8>,
+}
+
+impl Exchange {
+    /// Answers the request waiting with every line the play wrote since it.
+    /// Returns `false` when it waits on an answer the play did not write:
+    /// that request is held until the Client gives up and closes the
+    /// connection.
+    fn answered(&mut self) -> io::Result<bool> {
+        match self.waiting.take() {
+            None => Ok(true),
+            Some(_) if !self.answer.is_empty() => {
+                let answer = std::mem::take(&mut self.answer);
+                self.respond("200 OK", &[], &answer).map(|()| true)
+            }
+            Some(Waiting::Acceptance) => self.respond("202 Accepted", &[], &[]).map(|()| true),
+            Some(Waiting::Answer) => {
+                io::copy(self.connection()?, &mut io::sink())?;
+                Ok(false)
+            }
+        }
+    }
+
+    /// The next message the Client posts behind `token`, as one line, or
+    /// `None` once the Client closed its connection. A request without
+    /// the token is answered `401` and never played.
+    fn next_message(&mut self, listener: &TcpListener, token: &str) -> io::Result<Option<Vec<u8>>> {
+        if self.connection.is_none() {
+            self.connection = Some(BufReader::new(listener.accept()?.0));
+        }
+        loop {
+            let Some(request) = self.request()? else {
+                return Ok(None);
+            };
+            if request.bearer.as_deref() != Some(token) {
+                self.respond("401 Unauthorized", &[("WWW-Authenticate", "Bearer")], &[])?;
+                continue;
+            }
+            let carries_id = serde_json::from_slice::<Value>(&request.body)
+                .is_ok_and(|message| message.get("id").is_some());
+            self.waiting = Some(if carries_id {
+                Waiting::Answer
+            } else {
+                Waiting::Acceptance
+            });
+            // JSON allows no line break inside a string, so the message
+            // stays one message on one line.
+            let mut line: Vec<u8> = request
+                .body
+                .into_iter()
+                .map(|byte| {
+                    if byte == b'\n' || byte == b'\r' {
+                        b' '
+                    } else {
+                        byte
+                    }
+                })
+                .collect();
+            line.push(b'\n');
+            return Ok(Some(line));
+        }
+    }
+
+    /// The connection's next request, or `None` once the Client closed it.
+    fn request(&mut self) -> io::Result<Option<Request>> {
+        let connection = self.connection()?;
+        let mut head = Vec::new();
+        loop {
+            let start = head.len();
+            if connection.read_until(b'\n', &mut head)? == 0 {
+                return if head.is_empty() {
+                    Ok(None)
+                } else {
+                    Err(io::ErrorKind::UnexpectedEof.into())
+                };
+            }
+            if head[start..]
+                .iter()
+                .all(|byte| matches!(byte, b'\r' | b'\n'))
+            {
+                // An empty line before the request line is skipped (RFC 9112).
+                if start == 0 {
+                    head.clear();
+                    continue;
+                }
+                break;
+            }
+        }
+        let mut headers = [httparse::EMPTY_HEADER; 64];
+        let mut parsed = httparse::Request::new(&mut headers);
+        match parsed.parse(&head) {
+            Ok(httparse::Status::Complete(_)) => {}
+            Ok(httparse::Status::Partial) => return Err(invalid("a request head cut short")),
+            Err(error) => return Err(invalid(&format!("no HTTP request head: {error}"))),
+        }
+        let header = |name: &str| {
+            parsed
+                .headers
+                .iter()
+                .find(|header| header.name.eq_ignore_ascii_case(name))
+                .map(|header| String::from_utf8_lossy(header.value).into_owned())
+        };
+        if header("transfer-encoding").is_some() {
+            return Err(invalid("a body sent without its length"));
+        }
+        let length = match header("content-length") {
+            None => 0,
+            Some(value) => value
+                .trim()
+                .parse()
+                .map_err(|_| invalid("a Content-Length that is no length"))?,
+        };
+        let bearer = header("authorization").and_then(|value| {
+            let (scheme, token) = value.split_once(' ')?;
+            scheme
+                .eq_ignore_ascii_case("bearer")
+                .then(|| token.trim().to_owned())
+        });
+        let mut body = vec![0; length];
+        connection.read_exact(&mut body)?;
+        Ok(Some(Request { bearer, body }))
+    }
+
+    /// Answers the request waiting with `status`, `headers` and `body`.
+    fn respond(&mut self, status: &str, headers: &[(&str, &str)], body: &[u8]) -> io::Result<()> {
+        use std::fmt::Write as _;
+        let mut head = format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nCache-Control: no-store\r\n",
+            body.len()
+        );
+        if !body.is_empty() {
+            head.push_str("Content-Type: application/json\r\n");
+        }
+        for (name, value) in headers {
+            write!(head, "{name}: {value}\r\n").expect("invariant: a String takes every write");
+        }
+        head.push_str("\r\n");
+        let stream = self.connection()?.get_mut();
+        stream.write_all(head.as_bytes())?;
+        stream.write_all(body)?;
+        stream.flush()
+    }
+
+    /// Answers the request still waiting with every line the play wrote
+    /// since it, then closes the connection both ways; a request the play
+    /// wrote nothing for gets no answer, as from a Daemon that dropped it.
+    fn end(&mut self) -> io::Result<()> {
+        let answered = match self.waiting.take() {
+            Some(_) if !self.answer.is_empty() => {
+                let answer = std::mem::take(&mut self.answer);
+                self.respond("200 OK", &[], &answer)
+            }
+            _ => Ok(()),
+        };
+        if let Some(connection) = self.connection.take() {
+            // A Client that already went leaves nothing to shut down.
+            let _ = connection.get_ref().shutdown(Shutdown::Both);
+        }
+        answered
+    }
+
+    fn connection(&mut self) -> io::Result<&mut BufReader<TcpStream>> {
+        self.connection
+            .as_mut()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no Client connected"))
+    }
+}
+
+fn invalid(what: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, what.to_owned())
+}
+
+impl Read for &HttpListener<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let mut exchange = self.exchange.borrow_mut();
+        loop {
+            let read = exchange.posted.read(buffer)?;
+            if read > 0 || buffer.is_empty() {
+                return Ok(read);
+            }
+            // The play reads its next message: the last one is answered.
+            if !exchange.answered()? {
+                return Ok(0);
+            }
+            let Some(line) = exchange.next_message(self.listener, self.token)? else {
+                return Ok(0);
+            };
+            exchange.posted = io::Cursor::new(line);
+        }
+    }
+}
+
+impl Write for &HttpListener<'_> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.exchange.borrow_mut().answer.extend_from_slice(buffer);
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 

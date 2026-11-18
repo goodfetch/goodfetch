@@ -41,3 +41,23 @@ fn a_level_a_test_asks_for_stays() {
 
     assert_eq!(level_of(&env), r#"log.level = "warn""#);
 }
+
+/// An engine a test drops while it runs ends at the end of its input, and
+/// the drop waits for it to exit: the test's teardown, which fails a test
+/// whose process is still alive (ADR 0069), finds it gone, where under load
+/// it once found an engine that took a moment to close (issue 2805).
+#[cfg(unix)]
+#[test]
+fn the_teardown_finds_an_engine_dropped_while_it_runs_gone() {
+    let env = TestEnv::new();
+    // An engine that closes a moment after its input ends.
+    let mut command = env.process_command("sh");
+    command.args(["-c", "cat > /dev/null; exec /bin/sleep 0.5"]);
+    let engine = Attached::spawned(&env, MESSAGE_DEADLINE, &mut command);
+
+    drop(engine);
+
+    // The teardown panics, failing the test, while a process it recorded
+    // still runs.
+    drop(env);
+}

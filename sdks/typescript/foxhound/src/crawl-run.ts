@@ -21,6 +21,7 @@ import {
   type RunHost,
 } from "@goodfetch/collie-client/runtime";
 import {
+  declaredLabel,
   enqueueLinksOptions,
   handlerOf,
   payloadOf,
@@ -212,6 +213,7 @@ export class CrawlRun extends Run {
       lease_epoch: request.lease_epoch,
     };
     const calls = this.#crawlHost.calls;
+    const crawl = this.#crawl;
     const options: CallOptions = { signal };
     const pageId = request.page_id ?? undefined;
     const page = pageId === undefined ? undefined : pageOf(this, pageId, signal);
@@ -232,7 +234,7 @@ export class CrawlRun extends Run {
           {
             ...attempt,
             url,
-            label: label.name,
+            label: declaredLabel(crawl, label),
             ...payloadOf(payload),
             ...requestOptions(requestOptionsGiven),
           },
@@ -246,7 +248,7 @@ export class CrawlRun extends Run {
           {
             ...attempt,
             locator: idOfLocator(locator),
-            label: label.name,
+            label: declaredLabel(crawl, label),
             ...payloadOf(payload),
             ...enqueueLinksOptions(optionsGiven),
           },

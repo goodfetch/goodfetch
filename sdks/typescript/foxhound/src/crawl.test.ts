@@ -9,8 +9,11 @@ import { crawl, listing, products } from "../tests/programs/two-page-types.ts";
 import {
   ClosedError,
   Crawl,
+  LabelDuplicateError,
+  LabelUnknownError,
   RecordInvalidError,
   seed,
+  type CrawlRun,
   type DatasetRecord,
   type EnqueuedLinks,
 } from "./index.ts";
@@ -245,13 +248,15 @@ describe("a Crawl", () => {
       const pages = new Crawl();
       const page = pages.label("page");
       const options = { seeds: [seed("https://shop.test/a", page)] as const, runId: "nightly" };
-      const first = await foxhound.startCrawl(pages, options);
+      let first: CrawlRun | undefined;
       // The first handler call closes the first Run value again before the
-      // engine sends the second.
+      // engine sends the second; the engine leases nothing before the Run
+      // is started again.
       pages.handle(page, async (context) => {
-        await first.close();
+        await first?.close();
         return context.enqueue("/next", page);
       });
+      first = await foxhound.startCrawl(pages, options);
 
       await first.close();
       await foxhound.startCrawl(pages, options);
@@ -411,4 +416,136 @@ describe("a Crawl", () => {
     // Compiles only while a handler may return its context's promise.
     pages.handle(page, (context) => context.enqueue("/next", page));
   });
+});
+
+// Wiring mistakes fail at once (ADRs 0093 and 0104): a Label declared or
+// handled twice at declaration, a Label left without a handler when the
+// Run starts, and a Label the crawl does not declare where it is named,
+// each before anything is sent.
+describe("a Crawl's wiring mistakes", () => {
+  test(
+    "refuses a second Label of one name and a second handler for one Label with label_duplicate, with no connection",
+    { tags: ["error:label_duplicate"] },
+    () => {
+      const pages = new Crawl();
+      const page = pages.label("page");
+      pages.handle(page, () => undefined);
+
+      expect(() => pages.label("page")).toThrow(
+        expect.objectContaining({ code: "label_duplicate", details: { label: "page" } }),
+      );
+      expect(() => {
+        pages.handle(page, () => undefined);
+      }).toThrow(LabelDuplicateError);
+    },
+  );
+
+  test(
+    "refuses a handler for another crawl's Label of the same name with label_unknown",
+    { tags: ["error:label_unknown"] },
+    () => {
+      const pages = new Crawl();
+      pages.label("page");
+      const otherPage = new Crawl().label("page");
+
+      expect(() => {
+        pages.handle(otherPage, () => undefined);
+      }).toThrow(
+        expect.objectContaining({
+          code: "label_unknown",
+          details: { label: "page", declared: ["page"] },
+        }),
+      );
+    },
+  );
+
+  test(
+    "refuses to start a crawl with a Label left without a handler with label_unhandled, sending nothing",
+    { tags: ["error:label_unhandled"] },
+    async () => {
+      const played = playScript("connect/foxhound-accepted.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label("page");
+      pages.label("detail");
+      pages.handle(page, () => undefined);
+
+      const starting = foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", page)],
+      });
+
+      await expect(starting).rejects.toThrow(
+        expect.objectContaining({ code: "label_unhandled", details: { label: "detail" } }),
+      );
+      await foxhound.close();
+      expect(protocolCounts(played.messages).requests).toEqual(["hello"]);
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "refuses to start a crawl from a seed of a Label it does not declare with label_unknown, sending nothing",
+    { tags: ["error:label_unknown"] },
+    async () => {
+      const played = playScript("connect/foxhound-accepted.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      pages.handle(pages.label("page"), () => undefined);
+      const otherDetail = new Crawl().label("detail");
+
+      const starting = foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", otherDetail)],
+      });
+
+      await expect(starting).rejects.toThrow(
+        expect.objectContaining({
+          code: "label_unknown",
+          details: { label: "detail", declared: ["page"] },
+        }),
+      );
+      await foxhound.close();
+      expect(protocolCounts(played.messages).requests).toEqual(["hello"]);
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "refuses enqueue and enqueueLinks to another crawl's Label with label_unknown, sending nothing",
+    {
+      tags: [
+        "error:label_unknown",
+        "operation:crawl_request.enqueue",
+        "operation:crawl_request.enqueue_links",
+      ],
+    },
+    async () => {
+      const played = playScript("run/foxhound-crawl-push-empty-list.json");
+      const foxhound = await connectOver(played.transport);
+      const pages = new Crawl();
+      const page = pages.label("page");
+      const ids = pages.dataset<{ readonly id: string }>("products", { key: ["id"] });
+      const otherPage = new Crawl().label("page");
+      const refused: unknown[] = [];
+      pages.handle(page, async (context) => {
+        await context.enqueue("/next", otherPage).catch((error: unknown) => refused.push(error));
+        await context
+          .enqueueLinks(context.page.locator("a"), otherPage)
+          .catch((error: unknown) => refused.push(error));
+        await context.push(ids, []);
+      });
+
+      await foxhound.startCrawl(pages, {
+        seeds: [seed("https://shop.test/a", page)],
+        runId: "nightly",
+      });
+      await vi.waitFor(() => {
+        expect(protocolCounts(played.messages).replies).toBe(1);
+      });
+      await foxhound.close();
+
+      expect(refused).toEqual([expect.any(LabelUnknownError), expect.any(LabelUnknownError)]);
+      expect(refused[0]).toMatchObject({ details: { label: "page", declared: ["page"] } });
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
 });

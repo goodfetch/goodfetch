@@ -174,8 +174,8 @@ async fn hints_of(
         ));
     }
     if let Some(loader) = navigated.loader_id {
-        // The secure page loads within a navigation's deadline.
-        let loaded = tokio::time::timeout(browser.deadlines.navigation.duration(), async {
+        // The secure page loads within the launch's deadline.
+        let loaded = tokio::time::timeout(browser.deadlines.of_call(&opening).duration(), async {
             while let Some(event) = events.next().await {
                 if let Some(lifecycle) = event.read::<page::LifecycleEventEvent>()
                     && lifecycle.loader_id == loader

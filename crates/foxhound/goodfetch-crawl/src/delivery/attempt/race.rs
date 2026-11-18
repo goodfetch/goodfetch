@@ -21,6 +21,7 @@ use goodfetch_fetch_tier::{
     Chosen, FetchTiers, HandOver, HttpTier, Judged, PageFacts, PooledSession, Race, RaceEnd,
     TierChoice, record_race, room_taken, tier_provenance,
 };
+use goodfetch_protocol::foxhound::crawl::CrawlRequest;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::page::{PageId, PageResponse};
 use goodfetch_protocol::usage::REQUESTS;
@@ -77,7 +78,7 @@ impl On<'_> {
                         tiers: tiers.clone(),
                         hand_over: Arc::clone(hand_over),
                         pooled: self.in_browser.clone(),
-                        url: leased.crawl_request.url.clone(),
+                        crawl_request: leased.crawl_request.clone(),
                         context: self.context.clone(),
                         second_copies: tiering.second_copies.clone(),
                         domain_key: leased.waiting.key.clone(),
@@ -379,7 +380,8 @@ struct Navigation {
     /// The attempt's hand-over, whose value its page takes.
     hand_over: Arc<HandOver>,
     pooled: PooledSession,
-    url: String,
+    /// The crawl request it fetches, with its method and body.
+    crawl_request: CrawlRequest,
     context: CallContext,
     second_copies: SecondCopies,
     domain_key: String,
@@ -430,7 +432,7 @@ impl Navigation {
             biased;
             // Dropped, the navigation's page closes, its load with it.
             _ = &mut cancelled => None,
-            opened = self.tiers.browser(&self.hand_over, &self.pooled, &self.url, &self.context) => Some(opened),
+            opened = self.tiers.browser(&self.hand_over, &self.pooled, &self.crawl_request, &self.context) => Some(opened),
         };
         self.second_copies.give_back(copy).await;
         let Some(opened) = opened else {

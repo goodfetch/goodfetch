@@ -55,7 +55,7 @@ use goodfetch_extractor::fields::Found;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::document_request::{DocumentRequest, Unread};
 use goodfetch_page::page_value::{
-    BrowserPages, HandlerPages, KeptFrom, KeptTree, Observer, PageValue, PooledSession,
+    BrowserPages, HandlerPages, KeptFrom, KeptTree, Observer, OwnFetch, PageValue, PooledSession,
     ProgramPages, Reader, ServedDocument, ServedFormatsAhead,
 };
 use goodfetch_protocol::browser_cache::PinnedBy;
@@ -66,7 +66,7 @@ use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_HEDGE_ENABLED, FETCH_LIGHT_BROWSER, FETCH_REDIRECT_MAX, FETCH_TIER,
     FETCH_TIER_RACE, FetchTier, REDIRECT_MAX_LIMIT,
 };
-use goodfetch_protocol::foxhound::frontier::CRAWL_REQUEST_LINKS;
+use goodfetch_protocol::foxhound::frontier::{CRAWL_REQUEST_LINKS, HttpBody};
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::provenance::{
     CertificateExceptionKind, CertificateExceptionMark,
@@ -99,7 +99,7 @@ use crate::chain::{
 };
 use crate::charset::{Kind, Read, Text};
 use crate::choice::{
-    ENCODING_CALL, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved,
+    ENCODING_CALL, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unsendable, unserved,
 };
 use crate::content_types::{Accepts, ContentTypes, is_document, typed};
 use crate::cookies::{Jars, WithJar};
@@ -1442,7 +1442,11 @@ impl FetchTiers {
     ///
     /// [`Stop::Failed`] with the Browser cache's Error codes or
     /// `navigation_failed`; [`Stop::Skipped`] with `content_type` for a
-    /// type its Label does not take.
+    /// type its Label does not take. [`Stop::Failed`], before anything is
+    /// sent, for a request Lightpanda cannot send (no `GET`, or a body):
+    /// with `browser_required` where `fetch.tier` forces the tier, else
+    /// with `attempt_ended`, which the attempt never meets, since it sends
+    /// such a request to the browser first (issue 2471).
     ///
     /// # Cancel safety
     ///
@@ -1456,6 +1460,17 @@ impl FetchTiers {
         hand_over: &Arc<HandOver>,
         (home, pinned_by): (&Home, &PinnedBy),
     ) -> Result<PageId, Stop> {
+        // Lightpanda sends a bodiless `GET` alone; under `auto` the attempt
+        // sends any other request to the browser before it comes here.
+        if let Some(call) = crate::light_browser::unsent(request) {
+            let error = match &choice.forced {
+                Some(forced) => unsendable(choice.tier, forced, call),
+                None => match unserved(choice, call, false) {
+                    Unserved::Escalated(error) | Unserved::Refused(error) => error,
+                },
+            };
+            return Err(Stop::failed(error));
+        }
         let prepared = self
             .served
             .light
@@ -2006,8 +2021,9 @@ impl FetchTiers {
     /// Run `run_id`, in the Session of the crawl's Session pool that
     /// serves the handler, `pooled`, its own browser context, for the call
     /// `context`, whose
-    /// Connection's Client then reaches it, and navigates it to `url`
-    /// through its navigation gate: the attempt hands its Run's pages over
+    /// Connection's Client then reaches it, and navigates it to
+    /// `request`'s URL through its navigation gate, its document fetched
+    /// with `request`'s method and body: the attempt hands its Run's pages over
     /// first, as `hand_over`, and the page takes that hand-over's value,
     /// reader and observer, however many of the Run's attempts handed its
     /// pages over since. Answers its ID and the navigation's answer.
@@ -2024,7 +2040,7 @@ impl FetchTiers {
         &self,
         hand_over: &Arc<HandOver>,
         pooled: &PooledSession,
-        url: &str,
+        request: &CrawlRequest,
         context: &CallContext,
     ) -> Result<(PageId, Navigated), CallError> {
         let Some(pages) = self.served.browser.get() else {
@@ -2034,10 +2050,15 @@ impl FetchTiers {
             ));
         };
         let run_id = hand_over.run().id();
+        let own = OwnFetch {
+            url: &request.url,
+            method: request.method.as_str(),
+            body: request.body.as_ref().map(HttpBody::bytes),
+        };
         OPENING
             .scope(
                 Arc::clone(hand_over),
-                pages.open(run_id, pooled, url, context),
+                pages.open(run_id, pooled, own, context),
             )
             .await
     }

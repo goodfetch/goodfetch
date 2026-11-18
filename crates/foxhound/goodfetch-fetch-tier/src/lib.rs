@@ -81,7 +81,7 @@ pub use goodfetch_page::page_value::PooledSession;
 pub use http_profile::HttpProfile;
 pub use light_browser::{
     LIGHTPANDA, Prepared as LightBrowserBuild, pins as light_browser_pins,
-    prepare as prepare_light_browser,
+    prepare as prepare_light_browser, unsent as light_browser_unsent,
 };
 pub use redundant::Requester;
 pub use refresh::fuzz_refresh;

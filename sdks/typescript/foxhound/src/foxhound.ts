@@ -119,8 +119,8 @@ export class Foxhound implements Connection {
    * Label, on this process's event loop, and the Run finishes once every
    * work item is done. A `runId` naming an existing Run returns that Run.
    * Before anything is sent, a Label without a handler fails with
-   * `label_unhandled`, and a seed of a Label `crawl` does not declare with
-   * `label_unknown`.
+   * `label_unhandled`, and a seed whose Label's name `crawl` does not
+   * declare with `label_unknown` (a seed carries its Label's name only).
    */
   async startCrawl(crawl: Crawl, options: StartCrawlOptions): Promise<CrawlRun> {
     checkCrawlStartable(crawl, options.seeds);

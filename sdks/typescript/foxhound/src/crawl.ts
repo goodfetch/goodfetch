@@ -230,7 +230,10 @@ export class Crawl {
     return declared;
   }
 
-  /** Fails when a Label has no handler, or a seed names a Label this crawl does not declare. */
+  /**
+   * Fails when a Label has no handler, or a seed names a Label this crawl
+   * does not declare: by name, since a seed carries its Label's name only.
+   */
   #checkStartable(seeds: readonly RequestSeed[]): void {
     for (const [name, { handler }] of this.#labels) {
       if (handler === undefined) {
@@ -268,7 +271,7 @@ export function crawlDeclaration(crawl: Crawl): Pick<CrawlStartParams, "labels" 
 
 /**
  * Fails, before anything is sent, when `crawl` declares a Label without a
- * handler (`label_unhandled`) or a seed names a Label it does not declare
+ * handler (`label_unhandled`) or a seed names a Label it does not declare by name
  * (`label_unknown`).
  */
 export function checkCrawlStartable(crawl: Crawl, seeds: readonly RequestSeed[]): void {

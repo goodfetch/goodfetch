@@ -359,11 +359,12 @@ fn literal(
                 ident: field.ident.clone(),
                 declared,
             });
+        } else if field.ty.starts_with("Option<") {
+            entries.push(format!("{}: None", field.ident));
+        } else if field.ty == "bool" {
+            entries.push(format!("{}: false", field.ident));
         } else {
-            entries.push(format!(
-                "{}: ::core::default::Default::default()",
-                field.ident
-            ));
+            entries.push(format!("{}: <{}>::default()", field.ident, field.ty));
         }
     }
     let path = index.type_path(params)?;

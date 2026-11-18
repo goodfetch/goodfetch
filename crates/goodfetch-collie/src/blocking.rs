@@ -11,7 +11,7 @@ use goodfetch_collie_client::{ConnectionRuntime, blocking};
 use tokio::runtime::Handle;
 use tokio_util::task::TaskTracker;
 
-pub use goodfetch_collie_client::blocking::{Call, Run, Start};
+pub use goodfetch_collie_client::blocking::{Call, Locator, Page, Query, Run, Session, Start};
 
 use crate::{ConnectOptions, Error, linked};
 

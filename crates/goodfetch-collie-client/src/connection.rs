@@ -14,6 +14,7 @@ use std::sync::{Arc, PoisonError, Weak};
 
 use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult};
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use tokio::runtime::{Handle, Runtime};
 use tokio::sync::oneshot;
 use tokio::task::JoinError;
@@ -142,24 +143,18 @@ impl Connection {
     }
 
     /// The call of `method` with `params`, whose reply reads as `T`.
-    pub fn call<T>(&self, method: &str, params: &impl Serialize) -> Call<T> {
-        Call::new(self.0.sender.clone(), method, to_value(params))
-    }
-
-    /// The call of `method` with `params`, or one that fails with their
-    /// error when it is awaited.
-    pub(crate) fn call_or_fail<T>(
-        &self,
-        method: &str,
-        params: Result<impl Serialize, Error>,
-    ) -> Call<T> {
-        let params = params.and_then(|params| to_value(&params));
-        Call::new(self.0.sender.clone(), method, params)
+    pub fn call<T: DeserializeOwned>(&self, method: &str, params: &impl Serialize) -> Call<T> {
+        Call::new(self.sender(), method, to_value(params))
     }
 
     /// The query of `method` with `params`, whose answer reads as `T`.
-    pub fn query<T>(&self, method: &str, params: &impl Serialize) -> Query<T> {
-        Query::new(self.0.sender.clone(), method, to_value(params))
+    pub fn query<T: DeserializeOwned>(&self, method: &str, params: &impl Serialize) -> Query<T> {
+        Query::new(self.sender(), method, to_value(params))
+    }
+
+    /// The handle the calls of the Connection's handles go through.
+    pub(crate) fn sender(&self) -> Sender {
+        self.0.sender.clone()
     }
 
     /// Closes the Connection: first every Run it started that is still
@@ -242,7 +237,7 @@ impl Connection {
     }
 }
 
-/// What a Connection closes before itself: a Run it started. The `run`
+/// What a Connection closes before itself: a Run it started. The `host`
 /// module, above the Connection, implements it (ADR 0126).
 pub(crate) trait Closes: Debug + Send + Sync {
     /// Closes it, as [`crate::Run::close`] does.

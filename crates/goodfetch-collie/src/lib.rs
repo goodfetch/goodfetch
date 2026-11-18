@@ -53,6 +53,6 @@ mod sample;
 
 pub use collie::{Collie, ConnectOptions};
 pub use composition::{composition, composition_with};
-pub use goodfetch_collie_client::{Call, Error, Run, Start};
+pub use goodfetch_collie_client::{Call, Error, Locator, Page, Query, Run, Session, Start};
 pub use goodfetch_protocol::run::{RunId, RunReport, StartedAs};
 pub use pins::pinned_artifacts;

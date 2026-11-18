@@ -29,7 +29,7 @@ impl Run {
             "run.new_page",
             ::goodfetch_protocol::forms::NewPageParams {
                 run_id: self.host.id().clone(),
-                viewport: ::core::default::Default::default(),
+                viewport: None,
             },
         );
         call.map(move |opened| Page {
@@ -108,8 +108,8 @@ impl Page {
                     page_id: self.host.id().clone(),
                     url: url.into(),
                     referrer: referrer.into(),
-                    fresh: ::core::default::Default::default(),
-                    timeout: ::core::default::Default::default(),
+                    fresh: false,
+                    timeout: None,
                 },
             )
             .wire_timeout()
@@ -155,9 +155,9 @@ impl Page {
                 "page.wait_for_ready",
                 ::goodfetch_protocol::forms::WaitForReadyParams {
                     page_id: self.host.id().clone(),
-                    timeout: ::core::default::Default::default(),
-                    expected: ::core::default::Default::default(),
-                    state: ::core::default::Default::default(),
+                    timeout: None,
+                    expected: None,
+                    state: None,
                 },
             )
             .wire_timeout()

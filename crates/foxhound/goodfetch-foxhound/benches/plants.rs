@@ -17,7 +17,9 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
-use goodfetch_engine::politeness::{KeyState, Politeness, PolitenessOptions, PolitenessTables};
+use goodfetch_engine::politeness::{
+    KeyState, MemoryTables, Politeness, PolitenessOptions, PolitenessTables,
+};
 use goodfetch_engine::robots_txt::{Answer, Copies as _};
 use goodfetch_engine::run_state::{RunState, RunStateOptions, RunStateTables};
 use goodfetch_engine::settings::{HostDefaults, HostSearch, Settings, SettingsFiles};
@@ -195,10 +197,11 @@ const PLANTED_POLITENESS: PolitenessTables = PolitenessTables {
     prepared: &[],
 };
 
-/// A Politeness file of its own, in memory, counting on `work`, opened before
-/// the crawl so its opening is no page's.
+/// A Politeness file of its own, in its plant's folder, counting on
+/// `work`, opened before the crawl so its opening is no page's. A Run's own
+/// Politeness keeps no file (#2171), so a file's work is what a plant adds.
 fn politeness(work: &CountedWork) -> (&'static Runtime, Politeness) {
-    let (runtime, _) = beside_the_crawl();
+    let (runtime, folder) = beside_the_crawl();
     let options = PolitenessOptions {
         work: work.clone(),
         ..PolitenessOptions::default()
@@ -206,14 +209,19 @@ fn politeness(work: &CountedWork) -> (&'static Runtime, Politeness) {
     let file = beside(runtime, async {
         let owner: &'static TaskOwner =
             Box::leak(Box::new(TaskOwner::root(BlockingPolicy::Inline)));
-        Politeness::in_memory(
+        Politeness::open(
+            folder.path().join("politeness.sqlite"),
             &options,
             vec![PLANTED_POLITENESS, goodfetch_frontier::ROBOTS_TXT_TABLES],
+            |_, _| false,
+            "planted".to_owned(),
             owner,
         )
         .await
-        .expect("invariant: SQLite opens a Politeness file in memory")
+        .expect("invariant: SQLite opens a Politeness file in a temporary folder")
     });
+    // The folder lasts as long as the process, as the runtime does.
+    std::mem::forget(folder);
     (runtime, file)
 }
 
@@ -247,14 +255,20 @@ impl KeyState for Planted {
         }
         Ok(())
     }
+
+    fn load_from(_: &MemoryTables, _: &str, _: bool) -> Self {
+        Self
+    }
+
+    fn save_to(&self, _: &mut MemoryTables, _: &str, _: &bool) {}
 }
 
 /// The plant of the row named `name`, one of the Politeness permit's (E6).
 pub(crate) fn politeness_plant(name: &str, work: &CountedWork) -> Plant {
     match name {
         // One transaction more on a Politeness file, which Politeness off
-        // must not do either.
-        "E6.transactions" | "E6.off_work" => {
+        // and a Run's own Politeness must not do either.
+        "E6.transactions" | "E6.off_work" | "E6.private_transactions" => {
             let (runtime, file) = politeness(work);
             Arc::new(move |_: &str| {
                 let insert = file.change("planted", false, |_: &mut Planted| ((), true));

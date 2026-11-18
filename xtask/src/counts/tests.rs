@@ -10,15 +10,17 @@ use super::{NOT_RUN_YET, ROWS, UnderValgrind};
 /// call counts of SQLite's prepare and of `CountedWork`'s constructor, its
 /// instructions beneath the clean-up's removal, beneath a selector's
 /// compilation and beneath the generic set's build, a counting VFS's syncs,
-/// E6's sum over its off cell, the evidence rows' sum over the cell with
-/// learning off, the page waits at `full`, which `F2.page_waits`' counter
-/// counts in the cells at that level, and the lease reads past the memory
-/// budget, which `F3.lease_reads`' counter counts in the cell at budget 0.
-const READ_ELSEWHERE: [&str; 16] = [
+/// E6's sums over its off cell and over its cell of a Run's own Politeness,
+/// the evidence rows' sum over the cell with learning off, the page waits at
+/// `full`, which `F2.page_waits`' counter counts in the cells at that level,
+/// and the lease reads past the memory budget, which `F3.lease_reads`'
+/// counter counts in the cell at budget 0.
+const READ_ELSEWHERE: [&str; 17] = [
     "E2.log_prepares",
     "E2.prepares",
     "E3.prepares",
     "E6.off_work",
+    "E6.private_transactions",
     "F1.clean_up_instructions",
     "F1.generic_set_instructions",
     "F1.selector_compilation_instructions",

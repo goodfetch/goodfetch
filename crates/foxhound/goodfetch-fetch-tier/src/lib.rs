@@ -73,8 +73,8 @@ pub use driver::{
     TransportFailure, fetch, met,
 };
 pub use gate::{
-    ChainHop, FetchAdmission, HandOver, HopAnswer, HopChecks, RobotsTxtFetch, RunHandOver,
-    room_taken,
+    ChainHop, FetchAdmission, HandOver, HopAnswer, HopChecks, ReservedSend, RobotsTxtFetch,
+    RunHandOver, room_taken,
 };
 pub use goodfetch_extractor::BuiltIn;
 pub use goodfetch_page::page_value::PooledSession;

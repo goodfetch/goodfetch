@@ -201,7 +201,7 @@ impl On<'_> {
                 // An escalation runs again in the browser, in the attempt's
                 // Session, whatever sent the first request.
                 let (answer, by_first) = match escalated {
-                    Some(call) if !matches!(answer, Answer::LeaseEnded | Answer::ClientGone) => {
+                    Some(call) if !answer.unanswered() => {
                         // The browser's run takes a whole lease of its own, and
                         // stages anew: what the first run staged goes with it.
                         self.lease.renew(self.lease.length());

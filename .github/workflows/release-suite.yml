@@ -28,9 +28,11 @@
 # would spend setup minutes under the ceiling and pass the archive through
 # the account's Actions storage. A cell that breaches its 45-minute budget
 # is split into a build job and shard jobs named `<cell> shard <k>/<n>`.
-# Runtimes (ADR 0069): every Node line, Bun, Deno 2 and every CPython on
-# linux-x64-gnu; the oldest and newest elsewhere; free-threaded CPython on
-# every Linux cell. The suites of other areas (every Sink's suite on
+# Runtimes (ADR 0069): each job installs a set of ci/runtimes.toml, every
+# runtime on linux-x64-gnu (release-linux-x64-gnu), the oldest and newest
+# lines with Bun, Deno 2 and free-threaded CPython on the other Linux cells
+# (release-linux), and the same without free-threaded CPython on Windows and
+# macOS (release-other). The suites of other areas (every Sink's suite on
 # Foxhound's executable, browser conformance on Collie's, skew and upgrades
 # from released artifacts, the security suites, the resident-memory
 # ceilings) join each cell as steps, or through
@@ -210,6 +212,10 @@ jobs:
         run: ci/host/lazyfs.sh
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
+      # The pinned Alpine image the wheels install into on Linux
+      # (goodfetch_test_support.install), pulled by its digest before the deny.
+      - name: Pull the install harness's Alpine image
+        run: ci/alpine/fetch.sh
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -352,6 +358,10 @@ jobs:
         run: ci/release/perf.sh pull-request
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
+      # The pinned Alpine image the wheels install into on Linux
+      # (goodfetch_test_support.install), pulled by its digest before the deny.
+      - name: Pull the install harness's Alpine image
+        run: ci/alpine/fetch.sh
       - name: Deny outbound traffic
         run: ci/egress/egress.sh deny
       - name: Refuse the Egress canary
@@ -435,7 +445,7 @@ jobs:
         uses: ./.github/actions/host-tools
         with:
           target: x86_64-pc-windows-msvc
-          runtimes: ends
+          runtimes: release-other
       - name: Restore the build cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -529,7 +539,7 @@ jobs:
         uses: ./.github/actions/host-tools
         with:
           target: aarch64-apple-darwin
-          runtimes: ends
+          runtimes: release-other
       - name: Restore the build cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -618,7 +628,7 @@ jobs:
         uses: ./.github/actions/host-tools
         with:
           target: x86_64-apple-darwin
-          runtimes: ends
+          runtimes: release-other
           architecture: x64
       - name: Restore the build cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2

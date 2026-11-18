@@ -9,6 +9,7 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "goodfetch-collie",
     "goodfetch-collie-client",
     "goodfetch-foxhound",
     "goodfetch-test-support",
@@ -605,16 +606,29 @@ wheels = [
 ]
 
 [[package]]
+name = "goodfetch-collie"
+version = "0.0.0"
+source = { editable = "sdks/python/collie" }
+dependencies = [
+    { name = "goodfetch-collie-client" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "goodfetch-collie-client", editable = "sdks/python/collie-client" }]
+
+[[package]]
 name = "goodfetch-collie-client"
 version = "0.0.0"
 source = { editable = "sdks/python/collie-client" }
 dependencies = [
+    { name = "anyio" },
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", specifier = ">=4.15.1,<5" },
     { name = "pydantic", specifier = ">=2.14.1,<3" },
     { name = "typing-extensions", specifier = ">=4.16.0" },
 ]
@@ -637,6 +651,7 @@ source = { editable = "test-support/python" }
 dependencies = [
     { name = "anyio" },
     { name = "jsonschema" },
+    { name = "packaging" },
     { name = "pydantic" },
     { name = "pytest" },
     { name = "pytest-run-parallel" },
@@ -647,6 +662,7 @@ dependencies = [
 requires-dist = [
     { name = "anyio", specifier = ">=4.15.1" },
     { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "packaging", specifier = ">=26.3" },
     { name = "pydantic", specifier = ">=2.14.1,<3" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-run-parallel", specifier = ">=0.10.0" },
@@ -662,6 +678,7 @@ source = { virtual = "." }
 dev = [
     { name = "anyio" },
     { name = "datamodel-code-generator" },
+    { name = "goodfetch-collie" },
     { name = "goodfetch-collie-client" },
     { name = "goodfetch-foxhound" },
     { name = "goodfetch-test-support" },
@@ -686,6 +703,7 @@ dev = [
 dev = [
     { name = "anyio", specifier = ">=4.15.1" },
     { name = "datamodel-code-generator", specifier = "==0.86.0" },
+    { name = "goodfetch-collie", editable = "sdks/python/collie" },
     { name = "goodfetch-collie-client", editable = "sdks/python/collie-client" },
     { name = "goodfetch-foxhound", editable = "sdks/python/foxhound" },
     { name = "goodfetch-test-support", editable = "test-support/python" },

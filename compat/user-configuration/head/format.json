@@ -507,6 +507,23 @@
             },
             "type": "object"
           },
+          "effect": {
+            "additionalProperties": false,
+            "properties": {
+              "output": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_size": {
+                    "description": "The most bytes of JSON an Effect's body may return for the Effect journal to keep (ADR 0106), 64 KiB by default as `crawl.payload.max_size`. A larger value is `effect_output_invalid` when nothing was sent, and leaves the Effect uncertain after a send.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
           "egress": {
             "additionalProperties": false,
             "properties": {

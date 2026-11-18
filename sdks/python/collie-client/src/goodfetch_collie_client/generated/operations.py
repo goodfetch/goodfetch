@@ -9,7 +9,7 @@ from typing_extensions import deprecated
 
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunList, RunListParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunList, RunListParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 
 
 class AsyncCollieOperations:
@@ -83,6 +83,20 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return result_of(DownloadSaved, await self._caller.call("download.save_as", params))
+
+    async def effect_close(self, params: EffectCloseParams) -> EffectClosed:
+        """Records how an Effect's body ended (ADR 0106), judged by whether the engine sent anything for it: a body that returned a value the Effect journal keeps is `done` and never runs again; one that did not, with nothing sent or repeatable, is `dropped`, and runs at its next declaration; one that sent something and is not repeatable is `uncertain` until a person reconciles it. A returned value larger than `effect.output.max_size` with nothing sent raises `effect_output_invalid`. Called by the SDKs' `run.effect` only.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return result_of(EffectClosed, await self._caller.call("effect.close", params))
+
+    async def effect_open(self, params: EffectOpenParams) -> EffectOpened:
+        """Declares an Effect (ADR 0106): writes its entry in the Run's Effect journal before its body starts and answers `perform` with the entry and an `idempotency_key`, or the journal's answer, `journal` with the output an earlier attempt or start returned or `reconciled` after a person's "it happened", when the body must not run. An uncertain Effect raises `effect_uncertain`; a key declared again in one attempt while its body runs or after its answer raises `effect_key_reused`; across attempts of one namespace, the call waits until a body still running under its key is judged. Called by the SDKs' `run.effect` only.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return result_of(EffectOpened, await self._caller.call("effect.open", params))
 
     async def engine_info(self, params: EngineInfoParams) -> EngineInfo:
         """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""
@@ -639,6 +653,20 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return result_of(DownloadSaved, self._caller.call("download.save_as", params))
+
+    def effect_close(self, params: EffectCloseParams) -> EffectClosed:
+        """Records how an Effect's body ended (ADR 0106), judged by whether the engine sent anything for it: a body that returned a value the Effect journal keeps is `done` and never runs again; one that did not, with nothing sent or repeatable, is `dropped`, and runs at its next declaration; one that sent something and is not repeatable is `uncertain` until a person reconciles it. A returned value larger than `effect.output.max_size` with nothing sent raises `effect_output_invalid`. Called by the SDKs' `run.effect` only.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return result_of(EffectClosed, self._caller.call("effect.close", params))
+
+    def effect_open(self, params: EffectOpenParams) -> EffectOpened:
+        """Declares an Effect (ADR 0106): writes its entry in the Run's Effect journal before its body starts and answers `perform` with the entry and an `idempotency_key`, or the journal's answer, `journal` with the output an earlier attempt or start returned or `reconciled` after a person's "it happened", when the body must not run. An uncertain Effect raises `effect_uncertain`; a key declared again in one attempt while its body runs or after its answer raises `effect_key_reused`; across attempts of one namespace, the call waits until a body still running under its key is judged. Called by the SDKs' `run.effect` only.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return result_of(EffectOpened, self._caller.call("effect.open", params))
 
     def engine_info(self, params: EngineInfoParams) -> EngineInfo:
         """Says which Product the engine runs as, its Product version and major, and the protocol version it speaks."""

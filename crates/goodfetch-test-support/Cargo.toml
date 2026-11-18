@@ -8,13 +8,18 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
-# Values only: no Goodfetch crate, not even in its own tests (ADR 0062).
+# Values only: no Goodfetch crate but `goodfetch-runtime`, which builds its
+# runtimes, not even in its own tests (ADR 0062).
 [dependencies]
 assert_cmd.workspace = true
 chacha20.workspace = true
 clap.workspace = true
 data-encoding.workspace = true
 expectrl.workspace = true
+# The crates.io side of the install harness unpacks a `.crate` file, a gzipped tar.
+flate2.workspace = true
+# `goodfetch-scripted-engine --mode http` reads each request head with it.
+httparse.workspace = true
 insta = { workspace = true, features = ["filters"] }
 jiff.workspace = true
 # Protocol fuzzing checks each generated call and each answer against the
@@ -33,6 +38,7 @@ sqlite-plugin.workspace = true
 # `refused_matches` reads a transition table's source to show it matches
 # with no wildcard (ADR 0128).
 syn = { workspace = true, features = ["visit"] }
+tar.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 toml.workspace = true
@@ -46,6 +52,8 @@ tungstenite.workspace = true
 # `JourneyRun` submits a tool's result to the Proving ground's oracle, and
 # `Canaries` plants and reads Secret canaries through it.
 ureq.workspace = true
+# Builds its runtimes (ADR 0081).
+goodfetch-runtime.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 # `NoExec`'s seccomp filter and its child's start (ADR 0067), and the

@@ -10,6 +10,7 @@ recorded process is still alive (ADR 0069).
 
 import json
 import os
+import shutil
 import subprocess
 from collections.abc import Mapping, Sequence
 from datetime import datetime
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Self, cast
 
 from goodfetch_test_support.daemon import Daemon
+from goodfetch_test_support.play_script import CORPUS
 from goodfetch_test_support.proving_ground import ProvingGround
 from goodfetch_test_support.schemas import validate
 from goodfetch_test_support.tools import Tool, Tools, read_tools
@@ -205,6 +207,37 @@ class TestEnv:
         if status != 0:
             message = f"goodfetch-test-env exited with {status} at teardown"
             raise TestEnvError(message)
+
+
+def scripted_engine_env(
+    test_env: TestEnv, product: Product, script: str, home: Path | None = None
+) -> Mapping[str, str]:
+    """The map under which `product`'s SDK starts the Scripted engine playing `script`.
+
+    The corpus's script `script`, such as `"sdk-python/run/started-and-finished.json"`,
+    is installed as `scripted-engine/script.json` under `home`, which the
+    map's `GOODFETCH_HOME` names, and `goodfetch-scripted-engine` writes its
+    record beside it. Each Connection a test opens at once takes a home of
+    its own. TypeScript's `scriptedEngineEnv` is its twin.
+
+    Args:
+        test_env: The test's setup, whose map and tools it starts from.
+        product: The Product whose engine-path variable names the Scripted engine.
+        script: The script's path in the corpus.
+        home: The home to install it in, the test's own unless given.
+
+    Raises:
+        ToolsError: The manifest lists no Scripted engine.
+    """
+    engine = test_env.tools.path(Tool.SCRIPTED_ENGINE)
+    home = test_env.home if home is None else home
+    (home / "scripted-engine").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(CORPUS / script, home / "scripted-engine" / "script.json")
+    return {
+        **test_env.env,
+        "GOODFETCH_HOME": str(home),
+        product.engine_path_variable: str(engine),
+    }
 
 
 def _stop(process: subprocess.Popen[bytes]) -> None:

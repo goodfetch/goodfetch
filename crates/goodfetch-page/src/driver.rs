@@ -17,7 +17,9 @@
 //! browser's pages show the identity it shows with a window (`identity`).
 //! Each browser attaches the engine to its service workers before they run
 //! (`service_workers`; ADR 0121), and each page to its out-of-process
-//! frames and dedicated workers (`children`; ADR 0014). A page carries what Foxhound sets on it
+//! frames and dedicated workers (`children`; ADR 0014). Each browser the
+//! engine launches is graded against the shipped release table before a
+//! Session uses it (`version_check`; ADR 0035). A page carries what Foxhound sets on it
 //! (`page_value`): its lease check is asked before each command it sends,
 //! and its waits for its navigation gate's permits count against none of
 //! its deadlines (`permit_waits`).
@@ -661,6 +663,7 @@ impl Connect for LocalBrowser {
                 if launched.headless {
                     browser.identity = Some(identity::read(&browser, &version.user_agent).await?);
                 }
+                crate::version_check::check(&self.run, &version.product).await;
                 service_workers::start(&browser, &self.run).await?;
                 coming_up.up();
                 Ok(browser)

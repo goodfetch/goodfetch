@@ -31,7 +31,9 @@ use std::time::Duration;
 use ::url::Url;
 use goodfetch_counted_work::Row;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::politeness::{KeyState, Politeness, PolitenessTables, milliseconds};
+use goodfetch_engine::politeness::{
+    KeyState, MemoryTables, Politeness, PolitenessTables, milliseconds,
+};
 use goodfetch_engine::robots_txt::{Answer, Copied, Copies, Fetch, Fetched, MAX_SIZE};
 use rusqlite::{Connection, OptionalExtension as _};
 use tokio::sync::OnceCell;
@@ -148,6 +150,18 @@ pub(crate) fn store(connection: &Connection, location: &str, copy: &Copy) -> rus
     Ok(())
 }
 
+/// The robots.txt copies a Run's own Politeness keeps in memory, by
+/// location.
+#[derive(Default)]
+struct KeptCopies(HashMap<String, Copy>);
+
+/// The copy a Run's own Politeness keeps in `tables` for `location`.
+pub(crate) fn kept_in<'a>(tables: &'a MemoryTables, location: &str) -> Option<&'a Copy> {
+    tables
+        .get::<KeptCopies>()
+        .and_then(|copies| copies.0.get(location))
+}
+
 /// The robots.txt copy kept for a location, as a plain value the
 /// Politeness file loads and saves.
 struct RobotsCopy(Option<Copy>);
@@ -172,6 +186,21 @@ impl KeyState for RobotsCopy {
         match &self.0 {
             Some(copy) if *wrote => store(connection, location, copy),
             _ => Ok(()),
+        }
+    }
+
+    fn load_from(tables: &MemoryTables, location: &str, reads: bool) -> Self {
+        Self(reads.then(|| kept_in(tables, location).cloned()).flatten())
+    }
+
+    fn save_to(&self, tables: &mut MemoryTables, location: &str, wrote: &bool) {
+        if let Some(copy) = &self.0
+            && *wrote
+        {
+            tables
+                .get_mut::<KeptCopies>()
+                .0
+                .insert(location.to_owned(), copy.clone());
         }
     }
 }
@@ -328,7 +357,7 @@ impl SharedRobotsTxt {
         self.politeness.work().count(Row::RobotsReads);
         let copy = self
             .politeness
-            .change(key, true, |copy: &mut RobotsCopy| (copy.0.take(), false))
+            .change_counted_apart(key, true, |copy: &mut RobotsCopy| (copy.0.take(), false))
             .await
             .unwrap_or_else(|error| {
                 tracing::warn!(%error, "the shared robots.txt copy could not be read; it is fetched");
@@ -354,11 +383,13 @@ impl SharedRobotsTxt {
         {
             let key = location.as_str().to_owned();
             let (fetched_at, bytes) = (kept.fetched_at, kept.body.len());
+            // On a Run's own Politeness the copy is kept by a one-way
+            // message, so the read stays its origin's one round trip (#2171).
             match self
                 .politeness
-                .change(key, false, move |copy: &mut RobotsCopy| {
+                .note(key, false, move |copy: &mut RobotsCopy| {
                     copy.0 = Some(kept);
-                    ((), true)
+                    true
                 })
                 .await
             {

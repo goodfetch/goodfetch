@@ -11,10 +11,6 @@
     clippy::disallowed_types,
     reason = "the test dials its own browser's debugging socket (ADR 0060)"
 )]
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the test builds its own runtime with real time, since the browser answers over a real socket, and starts that browser and reads its port (ADR 0060)"
-)]
 
 use std::time::Duration;
 
@@ -263,7 +259,7 @@ impl Cdp {
 
 /// A runtime for one test, on real time, as the browser answers.
 fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
+    goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .expect("invariant: the runtime starts")

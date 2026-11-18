@@ -30,11 +30,7 @@ pub fn runtime_with_one_blocking_thread() -> tokio::runtime::Runtime {
 
 /// A current-thread runtime's builder, its clock paused.
 fn paused_current_thread() -> tokio::runtime::Builder {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "test helpers build the tests' runtime (ADR 0060)"
-    )]
-    let mut builder = tokio::runtime::Builder::new_current_thread();
+    let mut builder = goodfetch_runtime::current_thread();
     builder.enable_all().start_paused(true);
     builder
 }

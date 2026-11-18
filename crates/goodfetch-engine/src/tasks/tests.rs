@@ -249,11 +249,7 @@ const STARTED: Duration = Duration::from_secs(10);
 /// analyses as the pool has threads all start.
 #[test]
 fn analyses_never_wait_behind_the_runtimes_blocking_threads() {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "test helpers build the tests' runtime (ADR 0060)"
-    )]
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_all()
         .max_blocking_threads(1)
         .build()

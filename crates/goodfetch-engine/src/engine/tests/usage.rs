@@ -658,11 +658,7 @@ fn killed_after(env: &TestEnv, calls: &[(&str, Value)]) {
 /// A paused runtime with two blocking threads, which a test can hold: no
 /// blocking call is then made until it lets one go.
 fn runtime_with_two_blocking_threads() -> tokio::runtime::Runtime {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the test bounds the runtime's blocking threads, which the shared test runtime does not (ADR 0060)"
-    )]
-    tokio::runtime::Builder::new_current_thread()
+    goodfetch_runtime::current_thread()
         .enable_all()
         .start_paused(true)
         .max_blocking_threads(2)
@@ -761,11 +757,7 @@ fn a_change_the_runs_slices_cover_makes_no_blocking_call_and_one_that_needs_a_sl
 /// Several worker threads, as a Product's runtime has: a Run's tasks then
 /// change its charging at the same instant.
 fn runtime_of_several_threads() -> tokio::runtime::Runtime {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the test needs tasks that run at once, which the shared test runtime's one thread does not give (ADR 0060)"
-    )]
-    tokio::runtime::Builder::new_multi_thread()
+    goodfetch_runtime::multi_thread()
         .worker_threads(4)
         .enable_all()
         .build()

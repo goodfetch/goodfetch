@@ -16,6 +16,8 @@ fn counted(limited: bool, planted: Option<&str>) -> Counted {
 /// Covered charges and Slices taken are told apart: a covered charge runs
 /// no statement, a Slice is one transaction and one sync, and no charge
 /// opens the ledger, which the run opened as it started (#1886, #1888).
+/// Each of the 40 rounds charges `requests` and reserves proxy bytes ahead,
+/// each kind taking a Slice of its own Limit every tenth round (#2392).
 #[test]
 fn a_covered_charge_and_a_slice_taken_each_count_their_own_work() {
     let default = counted(true, None);
@@ -23,11 +25,11 @@ fn a_covered_charge_and_a_slice_taken_each_count_their_own_work() {
     assert_eq!(
         default,
         Counted {
-            covered: 36,
-            slices: 4,
+            covered: 72,
+            slices: 8,
             statements: 0,
-            transactions: 4,
-            syncs: 4,
+            transactions: 8,
+            syncs: 8,
             opens: 0,
         }
     );
@@ -63,7 +65,7 @@ fn no_limit_takes_the_slices_work_away() {
     assert_eq!(
         off,
         Counted {
-            covered: 40,
+            covered: 80,
             slices: 0,
             statements: 0,
             transactions: 0,

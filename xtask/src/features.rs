@@ -10,7 +10,6 @@
 )]
 
 mod audit;
-mod block_cause;
 mod check;
 mod command;
 mod contract;
@@ -25,6 +24,8 @@ mod report;
 mod row;
 mod rstest_names;
 mod scan;
+mod shared_type;
+mod skill;
 mod story;
 
 use std::ffi::OsStr;

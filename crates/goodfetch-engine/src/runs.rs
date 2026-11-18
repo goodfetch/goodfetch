@@ -134,7 +134,9 @@ use crate::ledger::{
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
-use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
+use crate::politeness::{
+    Holder, OwnPoliteness, Politeness, PolitenessError, PolitenessOptions, PolitenessTables,
+};
 use crate::robots_txt::{Answer, Copies, Fetched, NotRead, OwnCopies, RunCopies};
 use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport};
 use crate::run_index::{self, RunIndex};
@@ -283,6 +285,11 @@ pub struct Driving {
     /// The setting that says whether its Run trace keeps a Provenance log
     /// (ADR 0138); none when it always does.
     pub provenance_log: Option<&'static Setting>,
+    /// Whether its driver opens its Run's admission ([`Run::admission`])
+    /// before any of its tasks waits on the Run's Politeness, and serves
+    /// that admission's jobs while the Run goes: a Politeness of the Run's
+    /// own is then held by its admission rather than by an actor (#2171).
+    pub admits: bool,
 }
 
 impl Default for Driving {
@@ -291,6 +298,7 @@ impl Default for Driving {
             ended_by: EndedBy::Finish,
             defers_charges: false,
             provenance_log: None,
+            admits: false,
         }
     }
 }
@@ -1321,6 +1329,8 @@ struct Shared {
     /// The Politeness its own code shares outside admission, once it asked
     /// for it.
     politeness: tokio::sync::OnceCell<Politeness>,
+    /// The Politeness of its own that its admission comes to hold.
+    own_politeness: tokio::sync::Mutex<OwnHolding>,
     /// Its own copies of the robots.txt files its program's navigation
     /// read, one per origin (ADRs 0086 and 0098).
     robots_txt: RunCopies,
@@ -1888,13 +1898,25 @@ impl Run {
             .await?;
         let admission = Admission::new(gate, settings);
         if !admission.shares(settings) {
+            // A Politeness of its own that its other code opened, for its
+            // robots.txt copy, is served by an actor instead.
+            if let OwnHolding::Waiting(own) = self.own_politeness_held().await {
+                own.serve_on(&self.admitting.politeness.owner)?;
+            }
             return Ok(Some(admission));
         }
         // The one Politeness the Run shares, its proxies' limits included.
         let (politeness, holder) = self.politeness(settings).await?;
-        Ok(Some(
-            admission.sharing(politeness, holder, self.clock, settings),
-        ))
+        let own = match self.own_politeness_held().await {
+            OwnHolding::Waiting(own) => Some(*own),
+            OwnHolding::Before | OwnHolding::After => None,
+        };
+        Ok(Some(admission.sharing(
+            (politeness, own),
+            holder,
+            self.clock,
+            settings,
+        )))
     }
 
     /// The Politeness its own code shares for keys outside admission, such
@@ -1920,15 +1942,21 @@ impl Run {
             .politeness
             .get_or_try_init(|| async {
                 if own {
+                    let mut holding = self.shared.own_politeness.lock().await;
+                    if let OwnHolding::Before = *holding {
+                        // Its admission holds it once it opens, which its
+                        // driver does before any of its tasks waits on it.
+                        let (politeness, own) = Politeness::own(&self.admitting.politeness.options);
+                        *holding = OwnHolding::Waiting(Box::new(own));
+                        return Ok(politeness);
+                    }
                     // The engine's owner, not the Run's: the Run keeps this
                     // handle while it ends, and its owner waits for its
                     // tasks, the file's actor among them.
                     return Politeness::in_memory(
                         &self.admitting.politeness.options,
-                        self.admitting.politeness.tables.clone(),
                         &self.admitting.politeness.owner,
-                    )
-                    .await;
+                    );
                 }
                 let file = self.admitting.politeness.file().await?;
                 self.stop_on_failures(
@@ -1945,6 +1973,15 @@ impl Run {
             run_folder: self.folder.clone(),
         };
         Ok((politeness, holder))
+    }
+
+    /// The Politeness of its own its admission comes to hold, as it opens:
+    /// from then on one opened is served by an actor.
+    async fn own_politeness_held(&self) -> OwnHolding {
+        std::mem::replace(
+            &mut *self.shared.own_politeness.lock().await,
+            OwnHolding::After,
+        )
     }
 
     /// Stops the Run at its next safe point, as at `critical`, once
@@ -5712,6 +5749,11 @@ impl Registry {
                 progress,
                 system_info: self.setup.governor.system_info(),
                 politeness: tokio::sync::OnceCell::new(),
+                own_politeness: tokio::sync::Mutex::new(if self.driving(kind).admits {
+                    OwnHolding::Before
+                } else {
+                    OwnHolding::After
+                }),
                 robots_txt: RunCopies::default(),
                 crawls_robots_txt: std::sync::OnceLock::new(),
                 attempt_writes: std::sync::OnceLock::new(),
@@ -6931,6 +6973,18 @@ pub enum AdmissionError {
     /// The Politeness it shares could not be opened.
     #[error(transparent)]
     Politeness(#[from] PolitenessError),
+}
+
+/// A Run's Politeness of its own (`politeness.sharing = run`), as its
+/// admission comes to hold it (#2171).
+enum OwnHolding {
+    /// Its admission has not opened: one opened now waits for it.
+    Before,
+    /// Opened, waiting for its admission to hold it.
+    Waiting(Box<OwnPoliteness>),
+    /// Its admission opened, or its driver opens none
+    /// ([`Driving::admits`]): one opened now is served by an actor.
+    After,
 }
 
 /// What a Run's admission opens from: the gate in admission the

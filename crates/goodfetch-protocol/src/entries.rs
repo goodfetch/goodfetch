@@ -4,14 +4,14 @@
 
 use crate::catalog::{Entries, ErrorCodeDefinition, Operation, Product, SharedType, Yielding};
 use crate::{
-    audit, block, browser_cache, checkpoint, connection, daemon, dns, download, egress, engine,
-    events, executables, foxhound, governor, hostile_input, key_value_store, log, needs_you, ops,
-    page, politeness, response_limits, run, sample, secrets, security, settings, site_preferences,
-    storage, tls, usage, versions,
+    audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect, egress,
+    engine, events, executables, foxhound, governor, hostile_input, key_value_store, log,
+    needs_you, ops, page, politeness, response_limits, run, sample, secrets, security, settings,
+    site_preferences, storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 51] = [
+pub const MODULES: [&Entries; 52] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -36,6 +36,7 @@ pub const MODULES: [&Entries; 51] = [
     &run::completeness::ENTRIES,
     &checkpoint::ENTRIES,
     &key_value_store::ENTRIES,
+    &effect::ENTRIES,
     &download::ENTRIES,
     &audit::ENTRIES,
     &secrets::ENTRIES,
@@ -176,7 +177,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 89] = [
+    const COLLIE: [&str; 91] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -255,6 +256,8 @@ mod tests {
         "key_value_store.set_bytes",
         "key_value_store.delete",
         "key_value_store.keys",
+        "effect.open",
+        "effect.close",
         "download.save_as",
         "audit.export",
         "audit.verify",

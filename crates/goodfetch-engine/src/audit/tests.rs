@@ -778,9 +778,7 @@ fn a_log_whose_writers_runtime_ended_records_from_the_next() {
     let env = TestEnv::in_memory();
     let log = log(&env);
     let record = || {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
+        let runtime = goodfetch_runtime::current_thread().build().unwrap();
         runtime
             .block_on(log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now()))
             .map(|entry| entry.sequence)

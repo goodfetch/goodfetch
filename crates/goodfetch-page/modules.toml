@@ -8,7 +8,7 @@ clean_up_versions = ["trace"]
 consent = ["driver", "guard", "hiding", "interception", "trace"]
 dialogs = ["driver"]
 document_request = []
-driver = ["borrowed", "egress_relay", "errors", "launch", "page_value", "proxy", "trace"]
+driver = ["borrowed", "egress_relay", "errors", "launch", "page_value", "proxy", "trace", "version_check"]
 egress_relay = []
 extractor = []
 errors = ["page_value"]
@@ -33,6 +33,7 @@ sessions = ["access_mode", "borrowed", "browser_fetch", "consent", "dialogs", "d
 robots_txt = []
 trace = []
 url_pattern = []
+version_check = []
 
 # Which of `driver`'s own modules may import which.
 [submodules.driver]

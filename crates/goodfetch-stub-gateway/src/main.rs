@@ -69,10 +69,7 @@ fn main() -> ExitCode {
         .init();
     let arguments = Arguments::parse();
     let environment: Vec<(OsString, OsString)> = std::env::vars_os().collect();
-    let runtime = match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-    {
+    let runtime = match goodfetch_runtime::multi_thread().enable_all().build() {
         Ok(runtime) => runtime,
         Err(error) => {
             tracing::error!(%error, "the gateway cannot build its runtime");

@@ -704,6 +704,10 @@ pub enum SharedType {
     CompletenessReasonCode,
     /// What waits for a person in "Needs you" (ADR 0031).
     NeedsYouKind,
+    /// The tool set an MCP server offers, chosen by `--profile` or
+    /// `mcp.profile`; a Collie profile offers the same tools in both
+    /// Products' servers (ADR 0095).
+    McpProfile,
 }
 
 impl SharedType {
@@ -718,6 +722,7 @@ impl SharedType {
             Self::RunWarningCode => "run_warning_code",
             Self::CompletenessReasonCode => "completeness_reason_code",
             Self::NeedsYouKind => "needs_you_kind",
+            Self::McpProfile => "mcp_profile",
         }
     }
 }

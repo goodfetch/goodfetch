@@ -54,9 +54,7 @@ fn reap(
     if unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) } != 0 {
         return Err(io::Error::last_os_error());
     }
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
+    let runtime = goodfetch_runtime::current_thread().enable_all().build()?;
     runtime.block_on(async {
         // Listening comes before the Daemon starts, so neither its end nor a
         // signal sent at once is missed.

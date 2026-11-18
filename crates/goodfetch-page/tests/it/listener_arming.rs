@@ -362,7 +362,7 @@ async fn behind_a_relay<T>(
 
 /// A runtime for one test, on real time, as the browser answers.
 fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
+    goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .expect("invariant: the runtime starts")

@@ -1,0 +1,35 @@
+# Each job installs a set of ci/runtimes.toml.
+name: release
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - cell: linux-x64-gnu
+            runtimes: release-linux-x64-gnu
+    steps:
+      - name: Install the runtimes
+        uses: ./.github/actions/host-tools
+        with:
+          runtimes: ${{ matrix.runtimes }}
+
+  windows:
+    runs-on: windows-2025
+    steps:
+      - name: Install the runtimes
+        uses: ./.github/actions/host-tools
+        with:
+          runtimes: release-other
+
+  test-health:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install the runtimes
+        uses: ./.github/actions/host-tools

@@ -498,6 +498,99 @@ class DownloadSaved(BaseModel):
     """
 
 
+class EffectAttempt(BaseModel):
+    """
+    The crawl attempt an Effect is declared through: a handler's `ctx.run`,
+    which is bound to its attempt (ADR 0093).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt declares the Effect."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+
+
+class EffectClosed2(BaseModel):
+    """
+    The body did not return, and nothing was sent or the Effect is
+    repeatable: the entry is dropped, the SDK propagates the body's
+    error, and the next declaration runs the body.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    judged: Literal["dropped"]
+    sent: bool
+    """Whether something was sent for it."""
+
+
+class EffectOpened1(BaseModel):
+    """
+    The Effect journal holds no answer: run the body, then
+    `effect.close` the entry.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    answer: Literal["perform"]
+    entry: str
+    """The Effect journal entry, which `effect.close` names."""
+    idempotency_key: str
+    """
+    An opaque key, the same on every attempt and resume of this
+    Effect on any machine and different in every Run and install,
+    for the body to send as a site's `Idempotency-Key`.
+    """
+
+
+class EffectOutcome1(BaseModel):
+    """It returned a value, or nothing."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    ended: Literal["returned"]
+    output: Any | None = None
+    """
+    What it returned: JSON up to `effect.output.max_size` bytes, or
+    absent when it returned nothing.
+    """
+
+
+class EffectOutcome2(BaseModel):
+    """
+    It raised an error, which the SDK propagates, or wraps in
+    `effect_uncertain` when the Effect is left uncertain.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    ended: Literal["threw"]
+
+
+class EffectOutcome3(BaseModel):
+    """
+    It was cut short: a cancellation or its attempt's end, whose error
+    the SDK propagates unchanged (ADRs 0080 and 0093).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    ended: Literal["cut_short"]
+
+
+class EffectOutcome(RootModel[EffectOutcome1 | EffectOutcome2 | EffectOutcome3]):
+    root: EffectOutcome1 | EffectOutcome2 | EffectOutcome3
+    """How an Effect's body ended."""
+
+
 class ElementState(StrEnum):
     """A state of the element a locator matches (Playwright's `waitFor`)."""
 
@@ -3955,6 +4048,136 @@ class DownloadProgress(BaseModel):
     """The bytes received so far."""
     total_bytes: Annotated[int | None, Field(ge=0)] = None
     """The bytes the answer announced, when it did."""
+
+
+class EffectCloseParams(BaseModel):
+    """
+    What `effect.close` takes: the entry `effect.open` answered and how its
+    body ended.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    entry: str
+    """The entry `effect.open` answered with `perform`."""
+    outcome: EffectOutcome
+    """How the body ended."""
+    run_id: RunId
+    """The Run whose Effect journal keeps the Effect."""
+
+
+class EffectClosed1(BaseModel):
+    """
+    The body returned a value the Effect journal keeps: it never runs
+    again under its key, and the SDK answers `performed`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    judged: Literal["done"]
+    performed_at: PointInTime
+    """When it was performed."""
+
+
+class EffectClosed3(BaseModel):
+    """
+    The body did not return a value the Effect journal keeps after
+    something was sent, and the Effect is not repeatable: it never runs
+    again until a person reconciles it, and every later declaration of
+    its key raises `effect_uncertain`. The SDK raises `effect_uncertain`
+    with the body's error as its cause, or propagates a cut-short
+    body's error unchanged.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cause: str | None = None
+    """
+    The Error code the body's value met, `effect_output_invalid`,
+    when it returned one the Effect journal does not keep.
+    """
+    effect: UncertainEffect
+    """The Effect left uncertain, as the Run report lists it."""
+    judged: Literal["uncertain"]
+
+
+class EffectClosed(RootModel[EffectClosed1 | EffectClosed2 | EffectClosed3]):
+    root: EffectClosed1 | EffectClosed2 | EffectClosed3
+    """
+    What `effect.close` answers: how the engine judged the body by what it
+    sent for it.
+    """
+
+
+class EffectOpenParams(BaseModel):
+    """
+    What `effect.open` takes: the Run, the Effect key and whether its body
+    is safe to run again.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    attempt: EffectAttempt | None = None
+    """
+    The crawl attempt whose handler's `ctx.run` declares the Effect
+    (ADR 0093), whose crawl request is the key's namespace. Absent, the
+    key's namespace is the Run.
+    """
+    key: str
+    """
+    The Effect key, chosen by the program: 1 to 255 Unicode code
+    points. Its namespace is the crawl request in a handler and the Run
+    elsewhere.
+    """
+    repeatable: bool | None = False
+    """
+    Whether the body is safe to run again: a body that sent something
+    and did not return then runs again at its next declaration instead
+    of leaving its Effect uncertain. `false` by default.
+    """
+    run_id: RunId
+    """The Run whose Effect journal keeps the Effect."""
+
+
+class EffectOpened2(BaseModel):
+    """
+    An earlier attempt or start performed the Effect: the body does not
+    run, and the output it returned then is the answer.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    answer: Literal["journal"]
+    output: Any | None = None
+    """What the body returned, or absent when it returned nothing."""
+    performed_at: PointInTime
+    """When it was performed."""
+
+
+class EffectOpened3(BaseModel):
+    """
+    A person answered "it happened" (ADR 0029): the body does not run,
+    and no output is known.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    answer: Literal["reconciled"]
+    reconciled_at: PointInTime
+    """When they answered."""
+    reconciled_by: str
+    """Who answered."""
+
+
+class EffectOpened(RootModel[EffectOpened1 | EffectOpened2 | EffectOpened3]):
+    root: EffectOpened1 | EffectOpened2 | EffectOpened3
+    """What `effect.open` answers."""
 
 
 class EncodingProvenance(BaseModel):

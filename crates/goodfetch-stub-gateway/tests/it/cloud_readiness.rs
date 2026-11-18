@@ -151,7 +151,7 @@ fn every_gateway_case_passes_on_the_stub_gateway_reached_by_its_address(#[case] 
     let local = LocalProvingGround::start(&env, env.seed()).unwrap();
     let proving_ground = ProvingGround::local(&local.address().to_string());
     let gateway = Gateway::start(&env);
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+    let runtime = goodfetch_runtime::multi_thread()
         .worker_threads(1)
         .enable_all()
         .build()

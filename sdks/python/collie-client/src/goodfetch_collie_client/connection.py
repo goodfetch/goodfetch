@@ -43,7 +43,7 @@ from goodfetch_collie_client.rpc import Channel, InvalidLine, ReadFailed, WriteF
 from goodfetch_collie_client.run import AsyncRun
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Callable, Iterable, Mapping
 
     from anyio.abc import ByteStream
     from pydantic import BaseModel
@@ -145,6 +145,27 @@ class ClientConnection:
             mode="json", by_alias=True, exclude_unset=True, warnings=False
         )
         return await self._channel.call(operation, wire)
+
+    async def stream(
+        self,
+        method: str,
+        params: Mapping[str, object],
+        notified: Callable[[str, object], None],
+        *,
+        sent: Callable[[int], None] | None = None,
+    ) -> object:
+        """Sends `method`, answered once the engine streamed what the Client granted.
+
+        `notified` hears each notification naming the call's id, such as
+        `$/chunk`, on the reading task, so it must not block; `sent` is told
+        that id once the call is written, for the credits `notify` grants.
+        """
+        self.ensure_open(method)
+        return await self._channel.stream(method, params, notified, sent=sent)
+
+    async def notify(self, method: str, params: Mapping[str, object]) -> None:
+        """Sends the engine the notification `method`, such as `$/credit`."""
+        await self._channel.notify(method, params)
 
     async def start(
         self, *, run_id: str | None = None, tags: Iterable[str] | None = None

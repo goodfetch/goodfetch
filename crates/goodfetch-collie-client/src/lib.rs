@@ -6,7 +6,8 @@
 //! Connection takes its runtime as a value, and [`Call`] and [`Query`] are
 //! the builders every call goes through (ADR 0081). A [`Run`] is what a
 //! Connection starts, and [`blocking`] repeats the API for a program that
-//! does not use async. The SDK crates build on it; it depends on neither of
+//! does not use async, and [`file_saving`] writes a file to the program's
+//! path whole or not at all (ADR 0116). The SDK crates build on it; it depends on neither of
 //! them nor on any Foxhound crate.
 
 #![warn(missing_docs)]
@@ -15,12 +16,16 @@ pub mod blocking;
 mod call;
 mod connection;
 mod error;
+pub mod file_saving;
+mod handler;
+mod line;
 mod rpc;
 mod run;
 mod sync;
 pub mod transport;
 
 pub use call::{Call, Query, Reply};
-pub use connection::{Connection, ConnectionRuntime};
-pub use error::Error;
+pub use connection::{Connection, ConnectionRuntime, SaveFile};
+pub use error::{Error, FileFailure};
+pub use handler::{HandlerCall, HandlerRequests};
 pub use run::{Run, Start};

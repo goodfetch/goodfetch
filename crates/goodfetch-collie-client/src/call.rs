@@ -140,6 +140,7 @@ impl Request {
             params,
             timeout,
             reply,
+            notified: None,
         });
         let result = replied.await.map_err(|_| Error::Closed)??;
         serde_json::from_value(result).map_err(Error::Shape)

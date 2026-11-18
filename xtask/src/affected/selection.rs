@@ -288,8 +288,9 @@ struct Changed<'a> {
     jobs: BTreeSet<Job>,
     crates: BTreeSet<String>,
     /// The crates whose tests alone change: a path of their `tests/`
-    /// folder, which no build reads, so it reaches no dependant, no
-    /// executable and no bench target.
+    /// folder, which no build reads, or an executable their tests run
+    /// (`runs`), so it reaches no dependant, no executable and no bench
+    /// target.
     tested: BTreeSet<String>,
     packages: Vec<&'a Package>,
 }
@@ -357,6 +358,10 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
     // A crate's executable changes with it and with what its build depends
     // on, not with its dev-dependencies; a crate or package whose tests run
     // a changed executable through the test tool manifest is reached by it.
+    // Such a crate's tests alone are reached: no build reads the executable,
+    // so its bench targets and its dependants stay out unless they name it
+    // in `runs` themselves (the owner's « Oui » of 2026-11-04, issue 2090's
+    // F9).
     let members: Vec<&Crate> = workspace.crates.iter().collect();
     let built = names(&with_dependants(
         &members,
@@ -377,7 +382,7 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
     {
         changed.jobs.insert(Job::Kennel);
     }
-    changed.crates.extend(
+    changed.tested.extend(
         workspace
             .crates
             .iter()

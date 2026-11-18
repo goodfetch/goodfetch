@@ -15,6 +15,11 @@
 root=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
 worktree="$root/.claude/worktrees/${gate_worktree_name:-merge-gate}"
 lock="$worktree.lock"
+# The lock is only ever made, judged and removed under its guard, a flock(2)
+# on this file, which the kernel lets go when its holder ends; `$aside` is
+# where the lock is made, or put before it goes, under the guard.
+guard="$lock-guard"
+aside="$lock.aside"
 
 # Prints when process `$1` started, in a form two shells print alike for one
 # process and no later process of that number shares: on Linux its start in
@@ -89,27 +94,54 @@ run_in_the_backstops_worktree() {
   fi
 }
 
+# Holds the lock's guard until guard_release, waiting while another run
+# holds it, which it does for milliseconds. The guard is file descriptor 9 of
+# this shell: Perl locks it, since stock macOS has no flock(1), and the lock,
+# which belongs to the open file and not to Perl, stays with the shell.
+guard_take() {
+  exec 9>>"$guard"
+  perl -MFcntl=:flock -e 'open(my $guard, ">>&=", 9) or die "error: the gate lock'"'"'s guard: $!\n";
+    flock($guard, LOCK_EX) or die "error: the gate lock'"'"'s guard: $!\n";'
+}
+
+guard_release() {
+  exec 9>&-
+}
+
 # Takes the worktree's lock for this process, or fails while another run's
-# process holds it. The caller releases it (`rm -rf "$lock"`).
+# process holds it; gate_worktree_unlock lets it go. One run at a time judges
+# the lock, under its guard, so two runs never both find it free; and it
+# appears with its owner inside, made aside and renamed into place, so a
+# reader, under the guard or not, never sees it without one. A lock whose
+# holder ended holds nothing, nor does one with no owner recorded, as a run
+# killed while it removed a dead owner's lock leaves it: the run removes it
+# and takes its own.
 gate_worktree_lock() {
   local holder
   mkdir -p "${lock%/*}"
-  until mkdir "$lock" 2>/dev/null; do
-    holder=$(gate_worktree_holder "$lock")
-    if [[ -n "$holder" ]]; then
-      echo "error: another gate (process $holder) is running in $worktree; run the command again when it ends" >&2
-      exit 1
-    elif [[ -d $lock ]]; then
-      # The run that held it ended without releasing it.
-      rm -rf "$lock"
-    else
-      echo "error: the gate's lock $lock cannot be made" >&2
-      exit 1
-    fi
-  done
-  # When it started first: a lock is read from the moment it names a process.
-  process_started "$$" >"$lock/started"
-  echo "$$" >"$lock/pid"
+  guard_take
+  holder=$(gate_worktree_holder "$lock")
+  if [[ -n "$holder" ]]; then
+    guard_release
+    echo "error: another gate (process $holder) is running in $worktree; run the command again when it ends" >&2
+    exit 1
+  fi
+  rm -rf "$lock" "$aside"
+  mkdir "$aside"
+  process_started "$$" >"$aside/started"
+  echo "$$" >"$aside/pid"
+  mv "$aside" "$lock"
+  guard_release
+}
+
+# Lets the lock this process holds go, at once for every reader: it is moved
+# aside, under the guard, and removed there.
+gate_worktree_unlock() {
+  guard_take
+  rm -rf "$aside"
+  [[ ! -e $lock ]] || mv "$lock" "$aside"
+  rm -rf "$aside"
+  guard_release
 }
 
 # Resets the worktree to `commit` and nothing else: tracked files as

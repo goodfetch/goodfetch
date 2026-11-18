@@ -117,7 +117,7 @@ on_exit() {
     (cd "$worktree" && cargo run --quiet --locked --bin xtask -- sweep-target --read-since "$started") ||
       echo "warning: the gate's target/ was not swept" >&2
   fi
-  [[ -z $locked ]] || rm -rf "$lock"
+  [[ -z $locked ]] || gate_worktree_unlock
   echo "$status" >"$run.status"
 }
 trap on_exit EXIT

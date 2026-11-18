@@ -85,6 +85,34 @@ lint-documents:
     step repository-files 'ci/repository-files.sh'
     steps_end
 
+# The checks of `just lint` that a combination of changes can fail though
+# each change passed them alone: the lockfiles and the workspace-hack match
+# the manifests, and the files generated from the workspace match it (the
+# module list, the protocol's generated code, the clients, the SDK
+# manifests, the compatibility tables). `just batch-check` runs them on a
+# batch's combined tree. Every check runs even after one failed; the `xtask`
+# checks come after xtask's build, and are skipped, named so, when it fails.
+lint-drift:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source ci/keep-going.sh
+    steps_begin lint-drift
+    step fuzz-lock 'ci/fuzz-check.sh locked'
+    step pnpm-lock 'pnpm install --lockfile-only --frozen-lockfile'
+    # Offline: a lock that matches the manifests reads no index, and one that
+    # does not is resolved again, which must not ask the index what it holds
+    # today (ADR 0135: lint's verdict follows from the tree).
+    step uv-lock 'uv lock --check --offline'
+    # The workspace-hack is current and every member takes it (ADR 0094).
+    step workspace-hack 'ci/tool.sh cargo-hakari ci/workspace-hack.sh check'
+    step xtask 'cargo build --quiet --bin xtask'
+    step --after xtask xtask-modules 'cargo run --quiet --bin xtask -- modules'
+    step --after xtask xtask-codegen 'cargo run --quiet --bin xtask -- codegen --check'
+    step --after xtask xtask-clients 'cargo run --quiet --bin xtask -- clients check'
+    step --after xtask xtask-sdk-manifests 'cargo run --quiet --bin xtask -- sdk-manifests'
+    step --after xtask xtask-compat 'cargo run --quiet --bin xtask -- compat check'
+    steps_end
+
 # Formatting checks and the checks that read documents, then every linter and
 # the repository's own static checks. Every check runs even after one failed,
 # and the run ends with the list of those that failed, each with its log
@@ -105,12 +133,7 @@ lint:
     step ignored-sources 'ci/ignored-sources.sh'
     step cargo-lock 'cargo metadata --locked --format-version 1 > /dev/null'
     step kennel-lock 'cd kennel && cargo metadata --locked --offline --format-version 1 > /dev/null'
-    step fuzz-lock 'ci/fuzz-check.sh locked'
-    step pnpm-lock 'pnpm install --lockfile-only --frozen-lockfile'
-    # Offline: a lock that matches the manifests reads no index, and one that
-    # does not is resolved again, which must not ask the index what it holds
-    # today (ADR 0135: lint's verdict follows from the tree).
-    step uv-lock 'uv lock --check --offline'
+    step lint-drift '{{ just_executable() }} lint-drift'
     step xtask 'cargo build --quiet --bin xtask'
     step --after cargo-lock clippy 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
     step tsc 'pnpm exec tsc -p tsconfig.json'
@@ -158,8 +181,6 @@ lint:
     step cargo-deny-kennel 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources'
     step --after xtask xtask-kennel-manifest 'cargo run --quiet --bin xtask -- kennel-manifest'
     step cargo-shear 'ci/tool.sh cargo-shear cargo shear'
-    # The workspace-hack is current and every member takes it (ADR 0094).
-    step workspace-hack 'ci/tool.sh cargo-hakari ci/workspace-hack.sh check'
     step --after xtask xtask-self-hosted 'cargo run --quiet --bin xtask -- self-hosted check'
     step --after xtask xtask-egress 'cargo run --quiet --bin xtask -- egress check'
     step --after xtask xtask-os-services 'cargo run --quiet --bin xtask -- os-services workflows'
@@ -177,11 +198,6 @@ lint:
     step --after xtask xtask-received-requests 'cargo run --quiet --bin xtask -- received-requests'
     step --after xtask xtask-mask-writers 'cargo run --quiet --bin xtask -- mask-writers'
     step --after xtask xtask-quarantine 'GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" cargo run --quiet --bin xtask -- quarantine check --cargo-profile {{ test_profile }}'
-    step --after xtask xtask-modules 'cargo run --quiet --bin xtask -- modules'
-    step --after xtask xtask-codegen 'cargo run --quiet --bin xtask -- codegen --check'
-    step --after xtask xtask-clients 'cargo run --quiet --bin xtask -- clients check'
-    step --after xtask xtask-sdk-manifests 'cargo run --quiet --bin xtask -- sdk-manifests'
-    step --after xtask xtask-compat 'cargo run --quiet --bin xtask -- compat check'
     step --after xtask xtask-containment 'cargo run --quiet --bin xtask -- containment'
     step tool-versions 'ci/tool-versions.sh'
     steps_end
@@ -938,13 +954,14 @@ test-affected suite *change:
 # Each suite lists the parts it could not run on this host, with the reason,
 # even when a part fails: the list is printed when the suite stops.
 
-# The pre-push tier (T1): the floor guard and the scan of the change's
-# commits for secrets, which take seconds, then the checks the change's own
-# gate runs at merge (ci/quick.sh): for a change of documents alone
-# (`xtask affected`'s `gate=docs`) the checks that read documents, else
-# lints and in-process tests of what changed against the change's base
-# (`all`: every lint and the whole workspace). The pre-push hook runs it,
-# and not on a tree it already passed on.
+# The pre-push tier (T1): the checks of the change's commits (sign-offs,
+# subjects, the floor guard, the scan for secrets), which take seconds, then
+# the checks the change's own gate runs at merge (ci/quick.sh): for a change
+# of documents alone (`xtask affected`'s `gate=docs`) the checks that read
+# documents, else the licence allowlist, lints and in-process tests of what
+# changed against the change's base (`all`: the allowlist, every lint and
+# the whole workspace). The pre-push hook runs it, and not on a tree it
+# already passed on.
 quick *all:
     PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/quick.sh {{ all }}
 
@@ -959,18 +976,31 @@ quick-steps:
     echo "# <base>: GOODFETCH_QUICK_BASE, else the branch's upstream off main when it is another branch (never its own remote copy), else origin/main."
     echo "# First, always:"
     echo "just compiler-cache"
+    echo "just dco <base>"
+    echo "just commit-messages <base>"
     echo "just floor-guard <base>"
     echo "just commit-leaks <base>"
     echo "# The change's gate, its gate= line:"
     echo "cargo run --quiet --locked --bin xtask -- affected --local --since <base>"
     echo "# gate=docs: just lint-documents, and nothing after it."
-    echo "# Any other gate: just lint, then the Quick suite, which runs after a red lint too."
-    for recipe in fmt-check lint-documents lint; do
+    echo "# Any other gate: just notices, just lint, then the Quick suite, which runs after a red lint too."
+    echo "just notices"
+    for recipe in fmt-check lint-documents lint-drift lint; do
       echo "# just $recipe:"
       GOODFETCH_STEPS_LIST=1 "$just" "$recipe"
     done
     echo "# The Quick suite over what changed:"
     echo "just test-affected quick --local --since <base>"
+
+# Before `just merge` of a batch branch (AGENTS.md, Merging), in its
+# worktree: what the batch's combined tree can break that each pull
+# request's own `just quick` did not read (ci/batch-check.sh). The checks of
+# the whole change's commits against `base`, the licence allowlist, the
+# checks that read documents and the drift checks (`just lint-drift`), then
+# the Quick suite over the members two or more of the batch's branches
+# reach. Every step runs even after one failed.
+batch-check base="origin/main":
+    PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/batch-check.sh {{ quote(base) }}
 
 # The Pre-merge suite on this host: the Quick suite, then the tests of what
 # changed, the stress run of new and changed tests and the static checks'
@@ -1834,7 +1864,11 @@ merge number *override:
 # `--unused-hours` (48 by default, at least 25) or since the day before the
 # Unix time `--read-since` gives (`just merge` passes its gate's start), and
 # keeps whole each unit a build read:
-# `just sweep-target --target <folder> [--dry-run]`.
+# `just sweep-target --target <folder> [--dry-run]`. With `--free-gb <N>`
+# and one `--target` per folder, it does nothing while their file systems
+# have N GB free and otherwise removes the units least recently read first,
+# none read in the last `--keep-hours` (2 by default), until they do; the
+# disk monitor runs it every few minutes.
 sweep-target *args:
     cargo run --quiet --bin xtask -- sweep-target {{ args }}
 
@@ -1990,12 +2024,29 @@ gate-backstop ref="origin/main":
 # Checks issue <issue>'s `Existing code` list against `origin/main`, fetched
 # first (ADR 0144): each citation's path, symbol and lines, or a spec that
 # lacks its list. A cited line that only moved passes and prints where it
-# went; one that changed names the merge that changed it. Reads the tracker
-# with GITHUB_TOKEN or the GitHub CLI's token, and changes nothing there.
-existing-code issue:
+# went; one that changed names the merge that changed it. It first runs
+# `just load-proofs <issue>`, the other check before `ready-for-agent`.
+# Reads the tracker with GITHUB_TOKEN or the GitHub CLI's token, and changes
+# nothing there.
+existing-code issue: (load-proofs issue)
     git fetch --quiet origin
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
       cargo run --quiet --bin xtask -- existing-code check {{ issue }}
+
+# Fails when issue <issue>'s acceptance criteria or task-list items ask for a
+# proof under artificial load: `stress-ng`, busy loops, or a count of runs in
+# a row (TESTING.md, A flaky test found after merge). Run before the issue
+# takes `ready-for-agent` and before a run or relay takes it. Reads the
+# tracker with GITHUB_TOKEN or the GitHub CLI's token, and changes nothing
+# there.
+load-proofs issue:
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet --bin xtask -- load-proofs check {{ issue }}
+
+# The same check over every open issue; it changes nothing in the tracker.
+load-proofs-sweep:
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet --bin xtask -- load-proofs sweep
 
 # The same check over every open `ready-for-agent` issue (ADR 0144), but
 # those of a spec whose run has started (`spec/<n>`). A dry run by default,

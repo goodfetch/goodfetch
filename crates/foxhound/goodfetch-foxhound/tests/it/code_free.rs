@@ -1437,9 +1437,10 @@ fn config_explain_lists_where_a_labels_http_leaves_from(
 
 /// `config explain` says why a Run whose Sessions hold a login sends its
 /// HTTP from the browser: its `fetch.http_from` away from `browser` yields
-/// to the Run's `session.source`, named with its value and its layer; a
-/// Run with no `session.source`, or that sends from the browser, yields to
-/// nothing (#2418).
+/// to the Run's `session.source`, named with its value, its layer and its
+/// run-layer origin, here the CLI's flag (ADR 0083); a Run with no
+/// `session.source`, or that sends from the browser, yields to nothing
+/// (#2418).
 ///
 /// Covers: setting:fetch.http_from, setting:session.source, command:config.explain
 #[expect(
@@ -1449,7 +1450,7 @@ fn config_explain_lists_where_a_labels_http_leaves_from(
 #[rstest]
 #[case::learned_with_a_login(
     &["fetch.http_from=learned", SAVED_IDENTITY],
-    json!({"key": "session.source", "value": {"kind": "saved_identity", "name": "shop"}, "layer": "run"}),
+    json!({"key": "session.source", "value": {"kind": "saved_identity", "name": "shop"}, "layer": "run", "origin": "flag"}),
 )]
 #[case::browser_with_a_login(&["fetch.http_from=browser", SAVED_IDENTITY], Value::Null)]
 #[case::learned_without_a_login(&["fetch.http_from=learned"], Value::Null)]

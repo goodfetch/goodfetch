@@ -68,7 +68,8 @@ pub(crate) struct Crate {
     pub(crate) executable: bool,
     /// The crates whose executables its tests run through the test tool
     /// manifest, from `[package.metadata.goodfetch] runs`: a change to one
-    /// reaches it as a dependency's would.
+    /// reaches its tests, not its bench targets or its dependants (issue
+    /// 2090's F9).
     pub(crate) runs: BTreeSet<String>,
 }
 

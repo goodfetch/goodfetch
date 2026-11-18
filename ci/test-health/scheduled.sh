@@ -58,7 +58,7 @@ skip() {
   exit 1
 }
 # `set -e` ends the run on a setup that fails: its line still says so.
-trap '[[ -n $said ]] || result fail; [[ -z $locked ]] || rm -rf "$lock"; rm -rf "$scripts"' EXIT
+trap '[[ -n $said ]] || result fail; [[ -z $locked ]] || gate_worktree_unlock; rm -rf "$scripts"' EXIT
 
 git fetch --quiet origin
 commit=$(git rev-parse --verify "$ref^{commit}")

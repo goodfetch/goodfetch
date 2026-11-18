@@ -49,6 +49,7 @@ mod junit_summary;
 mod kennel;
 mod lazyfs;
 mod license_allowlist;
+mod load_proofs;
 mod markdown;
 mod mask_writers;
 mod metadata;
@@ -260,6 +261,13 @@ enum Command {
         #[command(subcommand)]
         command: lazyfs::Command,
     },
+    /// An issue's acceptance criteria checked for proofs under artificial
+    /// load (`stress-ng`, busy loops, runs in a row), which TESTING.md never
+    /// asks of a flaky or timing fix.
+    LoadProofs {
+        #[command(subcommand)]
+        command: load_proofs::Command,
+    },
     /// Fails on a writer in a Product's crates that the Mask's list of writers
     /// does not hold as it is found (spec #564).
     MaskWriters,
@@ -390,7 +398,9 @@ enum Command {
     /// Removes the dead build units of a Cargo target folder, those whose
     /// fingerprint no build has read for `--unused-hours` or since the day
     /// before `--read-since`, and keeps whole every unit a build read, which
-    /// the next build reuses.
+    /// the next build reuses. With `--free-gb`, it removes the least recently
+    /// read units of the folders given, none read in the last `--keep-hours`,
+    /// only while their file systems have less free space than that line.
     SweepTarget(sweep_target::Arguments),
     /// The Performance targets report (ADR 0134): each target's figure on
     /// this machine, met or missed, never published and gating nothing.
@@ -572,6 +582,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
         Command::ExistingCode { command } => existing_code::run(command, environment),
         Command::Features { command } => features::run(command, environment),
+        Command::LoadProofs { command } => load_proofs::run(command, environment),
         Command::Gate { command } => gate::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),
         Command::ImagePins => Ok(check::report(&image_pins::check(root)?)),

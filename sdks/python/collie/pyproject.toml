@@ -1,0 +1,17 @@
+[project]
+name = "goodfetch-collie"
+version = "0.0.0"
+description = "Collie's Python SDK: its Connection, and its engine in each platform wheel (ADRs 0090 and 0095)."
+requires-python = ">=3.11"
+# One Product version: the platform wheel takes the client package of its own
+# version (ADR 0090).
+dependencies = ["goodfetch-collie-client==0.0.0"]
+# Nothing is published before the first release (AGENTS.md, Release status).
+classifiers = ["Private :: Do Not Upload"]
+
+[tool.uv.sources]
+goodfetch-collie-client = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10"]
+build-backend = "uv_build"

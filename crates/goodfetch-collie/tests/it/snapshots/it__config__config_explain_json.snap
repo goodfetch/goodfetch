@@ -98,6 +98,18 @@ expression: "serde_json::to_string_pretty(&output).unwrap()"
     },
     {
       "applied": true,
+      "key": "timeout.launch",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": 30000,
+      "weakens": false
+    },
+    {
+      "applied": true,
       "key": "timeout.navigation",
       "layer": "project_configuration",
       "products": [

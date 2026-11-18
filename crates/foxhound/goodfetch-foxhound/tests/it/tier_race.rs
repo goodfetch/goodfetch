@@ -213,12 +213,16 @@ fn browser_fetch_that_passes_first_wins_and_its_navigation_is_cancelled_both_cou
 /// `http`, and the race of the held listing its handler enqueues sends its
 /// document from a Session's own transport, as the sample's `http` run
 /// was, and its navigation 500 ms later from another Session, whose client
-/// is its browser, as the sample's `browser` run was: the site meets the
-/// sample's two TLS fingerprints, in that order. The Proving ground holds
-/// both 3 s, so the first, sent first, wins: the handler is given its page
-/// once, on `http`, and the navigation is cancelled. Both reach the site
-/// and count in Usage, and Provenance's race entry and the winner's tier
-/// entry name `http`, the tier that sent it.
+/// is its browser, as the sample's `browser` run was. The Proving ground
+/// holds both 3 s, so the first, sent first, wins: the handler is given its
+/// page once, on `http`, and the navigation is cancelled. The site meets
+/// the sample's transport fingerprint first, then its browser fingerprint
+/// only if the browser sent the navigation's request before the first was
+/// answered: the navigation opens a page before it sends, which a loaded
+/// machine delays past the 3 s hold, and its page then closes unsent
+/// (#2814). Both count in Usage either way, since the navigation is charged
+/// as it starts (ADR 0020's note of #2421), and Provenance's race entry and
+/// the winner's tier entry name `http`, the tier that sent it.
 ///
 /// Covers: story:6-263, setting:fetch.tier_race, setting:fetch.http_from
 #[test]
@@ -279,6 +283,7 @@ fn under_learned_a_race_of_a_label_on_http_sends_its_first_request_from_the_tran
             .collect()
     };
     let sampled = fingerprints(LEARN);
+    let held_by = fingerprints("/products/1?hold=3000");
     let raced: Vec<Value> = provenance(&env, "raced-from-transport", "tier_race")
         .iter()
         .map(|entry| {
@@ -302,7 +307,9 @@ fn under_learned_a_race_of_a_label_on_http_sends_its_first_request_from_the_tran
                 .map(|ended| ended.1.clone())
                 .collect::<Vec<_>>(),
             sampled.len() == 2 && sampled[0] != sampled[1],
-            fingerprints("/products/1?hold=3000") == sampled,
+            // The transport's request first, then the navigation's if it
+            // left in time: never the browser's first.
+            !held_by.is_empty() && sampled.starts_with(&held_by),
             raced,
             chosen,
             &report["result"]["usage"]["requests"],
@@ -327,7 +334,7 @@ fn under_learned_a_race_of_a_label_on_http_sends_its_first_request_from_the_tran
             // browser run counts none.
             &json!(3),
         ),
-        "{sampled:?}"
+        "sampled {sampled:?}, held listing reached by {held_by:?}"
     );
 }
 

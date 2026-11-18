@@ -398,7 +398,9 @@ enum Command {
     /// Removes the dead build units of a Cargo target folder, those whose
     /// fingerprint no build has read for `--unused-hours` or since the day
     /// before `--read-since`, and keeps whole every unit a build read, which
-    /// the next build reuses.
+    /// the next build reuses. With `--free-gb`, it removes the least recently
+    /// read units of the folders given, none read in the last `--keep-hours`,
+    /// only while their file systems have less free space than that line.
     SweepTarget(sweep_target::Arguments),
     /// The Performance targets report (ADR 0134): each target's figure on
     /// this machine, met or missed, never published and gating nothing.

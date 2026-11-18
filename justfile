@@ -1864,7 +1864,11 @@ merge number *override:
 # `--unused-hours` (48 by default, at least 25) or since the day before the
 # Unix time `--read-since` gives (`just merge` passes its gate's start), and
 # keeps whole each unit a build read:
-# `just sweep-target --target <folder> [--dry-run]`.
+# `just sweep-target --target <folder> [--dry-run]`. With `--free-gb <N>`
+# and one `--target` per folder, it does nothing while their file systems
+# have N GB free and otherwise removes the units least recently read first,
+# none read in the last `--keep-hours` (2 by default), until they do; the
+# disk monitor runs it every few minutes.
 sweep-target *args:
     cargo run --quiet --bin xtask -- sweep-target {{ args }}
 

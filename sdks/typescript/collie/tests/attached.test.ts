@@ -206,6 +206,63 @@ describe("a Collie Connection on the Scripted engine as its Attached engine", ()
   );
 
   test(
+    "sends a call's timeout in its three states, and refuses one of 0 or less or not finite",
+    {
+      tags: [
+        "client_case/call-timeout-three-states",
+        "attached",
+        "story:11-40",
+        "story:11-42",
+        "error:setting_invalid",
+      ],
+    },
+    async ({ testEnv, clientCase }) => {
+      // The script expects each Run's `run.finish` with no `timeout`, with
+      // null and with 2 ms (ADR 0080); a refused `timeout` sent would fail it.
+      const env = scriptedEngineEnv(testEnv, "collie", "run/call-timeout-three-states.json");
+      const { logger, warned } = recordingLogger();
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env, logger });
+
+      const omitted = await (await collie.start()).finish();
+      const none = await (await collie.start()).finish({ timeout: null });
+      const run = await collie.start();
+      const refused: unknown[] = [];
+      for (const timeout of [0, -1, Number.POSITIVE_INFINITY]) {
+        refused.push(await failure(run.finish({ timeout })));
+      }
+      const given = await run.finish({ timeout: 2 });
+      await collie.close();
+
+      await clientCase.check("each state of the timeout reached the engine as sent", () =>
+        expect([omitted, none, given].map(({ lifecycle }) => lifecycle)).toEqual([
+          "finished",
+          "finished",
+          "finished",
+        ]),
+      );
+      await clientCase.check(
+        "a timeout of 0 or less, or not finite, is refused before it is sent, naming its setting and the null form",
+        () =>
+          expect(refused).toEqual(
+            [0, -1, Number.POSITIVE_INFINITY].map((value) =>
+              expect.objectContaining({
+                code: "setting_invalid",
+                fix: expect.stringContaining("`timeout: null`"),
+                details: expect.objectContaining({
+                  limit: { key: "timeout.run", value, layer: "run", origin: "argument" },
+                }),
+              }),
+            ),
+          ),
+      );
+      await clientCase.check("the script played to its end, so its engine wrote no failure", () =>
+        expect(warned).toEqual([]),
+      );
+    },
+  );
+
+  test(
     "runs beside another Connection in the same process",
     { tags: ["client_case/two-connections-at-once", "attached"] },
     async ({ testEnv, clientCase }) => {

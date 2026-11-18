@@ -134,8 +134,38 @@ fn the_members_generated_from_the_catalog_reach_the_engine() {
     });
 }
 
-/// A call's `Duration::ZERO` is refused with `setting_invalid` naming the
-/// setting it would set, given as an argument, and the null form (ADR 0080).
+/// The `call-timeout-three-states` client conformance case, linked, with
+/// the two tests below, which refuse `Duration::ZERO` and send no timeout:
+/// a call's `timeout` left out takes the setting's default, and one given
+/// as a duration bounds the call (ADR 0080). A `Duration` is never negative
+/// nor infinite, so zero is the one value to refuse.
+/// Covers: story:11-40, setting:timeout.run, operation:run.finish
+#[test]
+fn a_timeout_left_out_or_given_as_a_duration_reaches_the_engine() {
+    let env = TestEnv::new();
+    real_time_runtime().block_on(async {
+        let collie = Collie::connect(options(&env)).await.unwrap();
+        let omitted = collie.start().await.unwrap().finish().await.unwrap();
+        let given = collie
+            .start()
+            .await
+            .unwrap()
+            .finish()
+            .timeout(Duration::from_secs(30))
+            .await
+            .unwrap();
+        collie.close().await.unwrap();
+
+        assert_eq!(
+            (omitted.lifecycle, given.lifecycle),
+            (Lifecycle::Finished, Lifecycle::Finished)
+        );
+    });
+}
+
+/// The case's refusal: a call's `Duration::ZERO` is refused with
+/// `setting_invalid` naming the setting it would set, given as an argument,
+/// and the null form (ADR 0080).
 /// Covers: story:11-42, error:setting_invalid, setting:timeout.close, operation:run.stop
 #[test]
 fn a_zero_duration_is_refused_naming_the_setting_and_the_null_form() {
@@ -167,8 +197,9 @@ fn a_zero_duration_is_refused_naming_the_setting_and_the_null_form() {
     });
 }
 
-/// `.no_timeout()` sends `null`: the call waits with no deadline of its
-/// own, in place of the Run's `timeout.close` (ADR 0080).
+/// The case's null form: `.no_timeout()` sends `null`, so the call waits
+/// with no deadline of its own, in place of the Run's `timeout.close` (ADR
+/// 0080).
 /// Covers: story:11-40, setting:timeout.close, operation:run.stop
 #[test]
 fn no_timeout_waits_for_the_stop_with_no_deadline() {

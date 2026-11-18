@@ -209,13 +209,18 @@ fn docstring(
     // description follows, indented, then each marker's paragraph.
     let mut description = paragraphs[0].lines();
     let mut text = format!("{indent}\"\"\"{}\n", description.next().unwrap_or_default());
-    for line in description {
+    // A blank line takes no indent, which would be trailing whitespace.
+    let line = |text: &mut String, line: &str| {
+        let indent = if line.is_empty() { "" } else { indent };
         let _ = writeln!(text, "{indent}{line}");
+    };
+    for each in description {
+        line(&mut text, each);
     }
     for paragraph in &paragraphs[1..] {
         let _ = writeln!(text);
-        for line in paragraph.lines() {
-            let _ = writeln!(text, "{indent}{line}");
+        for each in paragraph.lines() {
+            line(&mut text, each);
         }
     }
     let _ = writeln!(text, "{indent}\"\"\"");

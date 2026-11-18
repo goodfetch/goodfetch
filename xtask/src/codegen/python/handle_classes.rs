@@ -21,6 +21,11 @@
 //! - A parameter whose model wraps one wire value, a string, number or
 //!   boolean of a type of its own or a choice of strings, takes that value,
 //!   a choice as its `Literal` strings, and the member wraps it.
+//! - A call's own `timeout` takes a `timedelta`, never a number of
+//!   milliseconds, which `timeout_of` sends in whole milliseconds, rounded
+//!   up, refusing one of zero or less before it is sent; the docstring
+//!   gives the default of the setting it sets for the call alone, as a
+//!   `timedelta` (ADR 0080).
 //!
 //! Each parameter's annotation is read from its schema; one the generator
 //! cannot spell fails `xtask codegen` with the operation named, and the
@@ -41,6 +46,13 @@ use super::{CALLER_MODULE, deprecation_message, docstring, header};
 /// The hand-written module of Collie's client package that declares what a
 /// generated handle reaches its engine through.
 const HANDLE_MODULE: &str = "goodfetch_collie_client.handle";
+
+/// A call's own optional parameter that bounds it (ADR 0080).
+const TIMEOUT: &str = "timeout";
+
+/// The hand-written function of [`HANDLE_MODULE`] that sends a call's own
+/// `timeout`, refusing one no deadline can be before it is sent (ADR 0080).
+const TIMEOUT_OF: &str = "timeout_of";
 
 /// One of the two forms of each handle: the async class or its sync twin.
 #[derive(Clone, Copy)]
@@ -90,6 +102,9 @@ struct Imports {
     /// Whether a member takes an optional parameter, which defaults to the
     /// `not_given` sentinel.
     not_given: bool,
+    /// Whether a member takes its own `timeout`, a `timedelta` sent through
+    /// [`TIMEOUT_OF`].
+    timeout: bool,
 }
 
 impl Imports {
@@ -282,6 +297,7 @@ fn signature(
     owner: &str,
     model: &str,
     parameters: &Parameters,
+    timeout_setting: Option<&str>,
     id: &HandleId,
     imports: &mut Imports,
 ) -> Result<Signature> {
@@ -337,7 +353,16 @@ fn signature(
     }
     let mut optional = Vec::new();
     for name in &parameters.optional {
-        let (spelled, passed) = spell(name, imports)?;
+        let (spelled, passed) = match timeout_setting.filter(|_| name == TIMEOUT) {
+            Some(setting) => {
+                imports.timeout = true;
+                (
+                    "timedelta | None".to_owned(),
+                    format!("{TIMEOUT_OF}({name}, {setting:?})"),
+                )
+            }
+            None => spell(name, imports)?,
+        };
         imports.not_given = true;
         declared.push(format!("{name}: {spelled} | NotGiven = not_given"));
         optional.push((name.clone(), passed));
@@ -385,6 +410,7 @@ fn member(
         &operation.name,
         params,
         &member.parameters,
+        member.timeout_setting.as_deref(),
         id,
         imports,
     )?;
@@ -414,9 +440,17 @@ fn member(
         "    {asynchronous}def {}(self{}) -> {returns}:",
         member.name, signature.declared
     );
+    let description = match &member.timeout_setting {
+        Some(setting) => format!(
+            "{}\n\n{}",
+            operation.description,
+            timeout_default(layer, &operation.name, setting)?
+        ),
+        None => operation.description.clone(),
+    };
     text.push_str(&docstring(
         "        ",
-        &operation.description,
+        &description,
         operation.stability,
         operation.deprecated.as_ref(),
     ));
@@ -443,6 +477,37 @@ fn member(
     Ok(text)
 }
 
+/// The sentence that gives the default of `setting`, the Duration setting
+/// a call's own `timeout` sets for the call alone, as a `timedelta`, in
+/// the largest unit that keeps it whole, or as none.
+fn timeout_default(layer: &Layer, owner: &str, setting: &str) -> Result<String> {
+    let default = match layer
+        .setting_defaults
+        .get(setting)
+        .map(|default| (default, default.as_u64()))
+    {
+        Some((Value::Null, _)) => "none".to_owned(),
+        Some((_, Some(millis))) => {
+            let (unit, size) = [
+                ("days", 86_400_000),
+                ("hours", 3_600_000),
+                ("minutes", 60_000),
+                ("seconds", 1_000),
+            ]
+            .into_iter()
+            .find(|(_, size)| millis > 0 && millis % size == 0)
+            .unwrap_or(("milliseconds", 1));
+            format!("`timedelta({unit}={})`", millis / size)
+        }
+        _ => bail!(
+            "operation `{owner}`: its `timeout` sets `{setting}`, which the catalog gives no default of whole milliseconds or null"
+        ),
+    };
+    Ok(format!(
+        "Left out, `timeout` takes the Run's `{setting}`, by default {default}."
+    ))
+}
+
 /// A value `handle` builds without a call: a sync method, or a property
 /// when it takes nothing.
 fn builder(
@@ -458,6 +523,7 @@ fn builder(
         &builder.builds,
         &builder.type_name,
         &builder.parameters,
+        None,
         id,
         imports,
     )?;
@@ -573,6 +639,9 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
         layer.product.name()
     ));
     text.push('\n');
+    if imports.timeout {
+        text.push_str("from datetime import timedelta\n");
+    }
     imports.typing.insert("Self");
     let typing: Vec<&str> = imports.typing.into_iter().collect();
     let _ = writeln!(text, "from typing import {}", typing.join(", "));
@@ -584,9 +653,14 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
     } else {
         ""
     };
+    let timeout_of = if imports.timeout {
+        format!(", {TIMEOUT_OF}")
+    } else {
+        String::new()
+    };
     let _ = writeln!(
         text,
-        "\nfrom {CALLER_MODULE} import result_of\nfrom {HANDLE_MODULE} import AsyncHandleHost, HandleHost{not_given}"
+        "\nfrom {CALLER_MODULE} import result_of\nfrom {HANDLE_MODULE} import AsyncHandleHost, HandleHost{not_given}{timeout_of}"
     );
     if imports.models {
         text.push_str("\nfrom . import models\n");

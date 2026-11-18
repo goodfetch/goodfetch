@@ -225,8 +225,29 @@ struct Projection {
     /// Absent from a catalog that defines no shared type.
     #[serde(default)]
     shared_type_values: Vec<SharedTypeValue>,
+    /// Absent from a catalog that defines no setting.
+    #[serde(default)]
+    settings: Vec<Setting>,
     #[serde(rename = "$defs")]
     definitions: Map<String, Value>,
+}
+
+/// A setting of the projection's settings section, of which the SDK layers
+/// read the default.
+#[derive(Deserialize)]
+struct Setting {
+    name: String,
+    /// Its value when no layer sets it, `null` for a setting with none.
+    #[serde(default)]
+    default: Value,
+}
+
+/// Each setting's default, by name.
+fn setting_defaults(settings: Vec<Setting>) -> BTreeMap<String, Value> {
+    settings
+        .into_iter()
+        .map(|setting| (setting.name, setting.default))
+        .collect()
 }
 
 /// A row of ADR 0069's exit-code table: an outcome's, a group's or an Error
@@ -257,6 +278,9 @@ pub(super) struct Layer {
     pub(super) definitions: Map<String, Value>,
     /// The types this layer's entries take from Collie's client package.
     pub(super) collie_types: BTreeSet<String>,
+    /// Each setting's default, by name, which the Python handles document
+    /// a call's own `timeout` with (ADR 0080).
+    pub(super) setting_defaults: BTreeMap<String, Value>,
 }
 
 impl Layer {
@@ -313,6 +337,7 @@ impl Layer {
                     shared_types,
                     definitions,
                     collie_types: BTreeSet::new(),
+                    setting_defaults: setting_defaults(collie.settings),
                 })
             }
             Product::Foxhound => Self::foxhound(&collie, foxhound, product_version),
@@ -379,6 +404,7 @@ impl Layer {
                 .filter(|(name, _)| own_types.contains(name))
                 .collect(),
             collie_types,
+            setting_defaults: setting_defaults(all.settings),
         })
     }
 

@@ -213,33 +213,33 @@ class DialogAlreadyHandledError(ProgramError):
 class EffectKeyInvalidError(ProgramError):
     """An Effect key is empty or longer than 255 Unicode code points (ADR 0106). The details name the key."""
 
-    def __init__(self, message: str) -> None:
-        """Takes the message the engine rendered."""
-        super().__init__(message, code="effect_key_invalid", group="program", retryable=False)
+    def __init__(self, message: str, *, fix: str | None = None, details: Mapping[str, object] | None = None) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="effect_key_invalid", group="program", retryable=False, fix=fix, details=details)
 
 
 class EffectKeyReusedError(ProgramError):
     """An Effect key was declared again in one attempt while its body runs, or after this attempt got its answer (ADR 0106): a loop that left its varying part out of the key would otherwise perform one Effect for many. Put what varies in the key. The details name the key."""
 
-    def __init__(self, message: str) -> None:
-        """Takes the message the engine rendered."""
-        super().__init__(message, code="effect_key_reused", group="program", retryable=False)
+    def __init__(self, message: str, *, fix: str | None = None, details: Mapping[str, object] | None = None) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="effect_key_reused", group="program", retryable=False, fix=fix, details=details)
 
 
 class EffectOutputInvalidError(ProgramError):
     """An Effect's body returned a value that is not JSON or is larger than `effect.output.max_size`, when nothing was sent for it (ADR 0106); the entry is dropped. After a send it is the cause of `effect_uncertain`. The details name the key, the value's size and the limit."""
 
-    def __init__(self, message: str) -> None:
-        """Takes the message the engine rendered."""
-        super().__init__(message, code="effect_output_invalid", group="program", retryable=False)
+    def __init__(self, message: str, *, fix: str | None = None, details: Mapping[str, object] | None = None) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="effect_output_invalid", group="program", retryable=False, fix=fix, details=details)
 
 
 class EffectUncertainError(PageError):
     """An Effect may or may not have happened (ADRs 0091 and 0106): its body sent something and did not return a value the Effect journal keeps, so the engine never runs it again until a person reconciles it ("it happened", "it did not happen" or "leave uncertain"). The details name the Effect journal `entry`, the `key`, the `crawl_request`, the `reason` (`failed_after_send`, `interrupted` or `journal_incomplete`), the `first_command` sent and `since` when."""
 
-    def __init__(self, message: str) -> None:
-        """Takes the message the engine rendered."""
-        super().__init__(message, code="effect_uncertain", group="page", retryable=False)
+    def __init__(self, message: str, *, fix: str | None = None, details: Mapping[str, object] | None = None) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="effect_uncertain", group="page", retryable=False, fix=fix, details=details)
 
 
 class EgressRefusedError(RefusedError):

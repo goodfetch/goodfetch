@@ -83,7 +83,7 @@ use crate::clock::Clock;
 use crate::composition::params::Arrived;
 use crate::composition::{
     Answered, CallChannels, CallContext, CallInput, CallNotifier, CallStream, ConnectionContext,
-    DaemonSide, Driver, Handler, InputSender,
+    DaemonSide, Driver, Handler, Handlers, InputSender,
 };
 use crate::crash_report;
 use crate::endpoint::{Authorities, same_token};
@@ -125,7 +125,7 @@ const UNKNOWN_METHOD: &str = "(unknown)";
 #[derive(Clone)]
 pub(crate) struct Dispatch {
     pub(crate) identity: Arc<Identity>,
-    pub(crate) handlers: BTreeMap<&'static str, Handler>,
+    pub(crate) handlers: Handlers,
     /// The driver of each kind of Run that has one, which a resume starts
     /// again.
     pub(crate) drivers: Arc<BTreeMap<RunKind, Driver>>,

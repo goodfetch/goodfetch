@@ -4505,6 +4505,50 @@
       "stability": "experimental"
     }
   ],
+  "protocol_failures": [
+    {
+      "group": "internal",
+      "json_rpc_code": -32603,
+      "name": "internal_error",
+      "product": "collie"
+    },
+    {
+      "group": "program",
+      "json_rpc_code": -32602,
+      "name": "invalid_params",
+      "product": "collie"
+    },
+    {
+      "group": "internal",
+      "json_rpc_code": -32600,
+      "name": "invalid_request",
+      "product": "collie"
+    },
+    {
+      "group": "internal",
+      "json_rpc_code": -32600,
+      "name": "message_too_deep",
+      "product": "collie"
+    },
+    {
+      "group": "internal",
+      "json_rpc_code": -32600,
+      "name": "message_too_large",
+      "product": "collie"
+    },
+    {
+      "group": "program",
+      "json_rpc_code": -32601,
+      "name": "method_not_found",
+      "product": "collie"
+    },
+    {
+      "group": "internal",
+      "json_rpc_code": -32700,
+      "name": "parse_error",
+      "product": "collie"
+    }
+  ],
   "protocol_version": "0.1",
   "settings": [
     {

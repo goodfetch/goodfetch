@@ -41,6 +41,7 @@ const CATALOG: &str = "catalog/1";
 const MARKDOWN_TASK: &str = "extraction/7";
 
 /// The size of the filesystem a full-filesystem case fills.
+#[cfg(target_os = "linux")]
 const SIZE: u64 = 64 * 1024;
 
 /// `crawl start` with `--format`, `--field`, `--fields`, `--links` and a
@@ -285,6 +286,7 @@ fn a_second_interrupt_ends_the_command_while_the_first_ones_stop_waits() {
 /// How long a command may take to exit after a second interrupt: far
 /// less than it would wait for the unanswered `run.stop`, which is for
 /// ever.
+#[cfg(unix)]
 const SECOND_INTERRUPT_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Without `--follow`, `run records` prints each Record as it arrives,

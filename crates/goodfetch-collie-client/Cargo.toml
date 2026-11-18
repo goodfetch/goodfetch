@@ -34,6 +34,8 @@ windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem"] }
 goodfetch-engine.workspace = true
 goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
+proptest.workspace = true
+rstest.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 trybuild.workspace = true

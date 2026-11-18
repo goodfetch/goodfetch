@@ -175,6 +175,13 @@ struct Configured {
 impl Provider {
     /// Plants `key`, canary `id` of `canaries`, where the provider reads
     /// it, the stand-in server at `server` answering the HTTP ones.
+    #[cfg_attr(
+        not(unix),
+        expect(
+            unused_variables,
+            reason = "only the vendor CLIs' stand-ins, which run on Unix, plant a canary"
+        )
+    )]
     fn configure(
         self,
         env: &TestEnv,

@@ -13,7 +13,7 @@ crate = "goodfetch-foxhound"
 receiver = "Foxhound"
 member = "connect"
 entry = "none"
-reason = "The one factory of ADR 0078, as `Collie::connect` is: it starts the linked Foxhound engine the crate composes (ADR 0087) and finishes `hello`, naming Foxhound, which no catalog entry carries."
+reason = "The one factory of ADR 0078, as `Collie::connect` is: it starts the linked Foxhound engine the crate composes (ADR 0087) and finishes `hello`, naming Foxhound, which no catalog entry carries, then sends each of its options' `limits` as a `usage.set` on its Client connection (ADR 0080)."
 words = ["connect"]
 form = "opener"
 
@@ -48,7 +48,7 @@ crate = "goodfetch-foxhound"
 receiver = "blocking::Foxhound"
 member = "connect"
 entry = "none"
-reason = "`Foxhound::connect` without async (ADR 0081), blocking the calling thread until `hello` is finished."
+reason = "`Foxhound::connect` without async (ADR 0081), blocking the calling thread until `hello` is finished and its options' `limits` are set."
 words = ["connect"]
 form = "opener"
 
@@ -68,3 +68,15 @@ entry = "none"
 reason = "`Foxhound::close` without async (ADR 0081)."
 words = ["close"]
 form = "closer"
+
+# Limits in code (ADR 0080): `ConnectOptions::limits` and `Start::limits`
+# are Collie's, re-exported with `Limits`, `Money` and `UsageKind`; Foxhound
+# adds the Usage kind only it counts.
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "PAID_FETCHES"
+entry = "none"
+reason = "The `paid_fetch` Usage kind a Limit caps, which only Foxhound counts (ADR 0087), for `Limits::count` and `Limits::price`; a value, no catalog entry, which a Collie engine refuses with `not_in_product`."
+words = ["paid", "fetches"]
+form = "read"

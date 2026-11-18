@@ -14,6 +14,7 @@ use crate::connection::Connection;
 use crate::error::Error;
 use crate::generated::handles::Run;
 use crate::host::{HeldRun, Host};
+use crate::limits::Limits;
 
 /// The start of a Run (`run.start`), which awaiting sends. Nothing is sent
 /// until it is awaited.
@@ -39,6 +40,14 @@ impl Start {
     /// returns it as it ended when it finished (ADR 0102).
     pub fn run_id(mut self, run_id: &RunId) -> Self {
         self.params.run_id = Some(run_id.as_str().to_owned());
+        self
+    }
+
+    /// Sets the Run's own `limits`, in place of any given before: each only
+    /// lowers what covers the Run, and a start that names the Run again
+    /// lowers its Limits and never raises them (ADRs 0080 and 0102).
+    pub fn limits(mut self, limits: Limits) -> Self {
+        self.params.limits = limits.into();
         self
     }
 }

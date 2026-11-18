@@ -2,7 +2,8 @@
 
 `AsyncCollie.connect()` and the sync `Collie.connect()` find Collie's
 executable, start it as an Attached engine with exactly the program's
-environment map, and finish `hello`, naming Collie, before they return.
+environment map, finish `hello`, naming Collie, and set the Connection's
+Limits before they return.
 Everything else is the client package's common Connection. The sync
 `Collie` runs it on a private thread of its own, which `close()` joins.
 TypeScript's `collie.ts` is its twin.
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
 
     from anyio.abc import ByteStream
     from goodfetch_collie_client.connection import EngineInfo
+    from goodfetch_collie_client.limits import Limits
 
 COLLIE = ProductPackage(
     needs=Product.collie,
@@ -65,16 +67,23 @@ class AsyncCollie:
         self._connection = connection
 
     @staticmethod
-    def connect(*, env: Mapping[str, str] | None = None) -> Connecting:
+    def connect(
+        *, env: Mapping[str, str] | None = None, limits: Limits | None = None
+    ) -> Connecting:
         """Starts Collie's engine as an Attached engine and finishes `hello`.
 
         Await it, or open it with `async with`, which closes it. `env` is
         the environment map, read here and never at import: the process's
-        own when left out. A missing executable (`engine_not_found`) or a
-        refused Product (`not_in_product`) or version raises here, with a
-        `fix`, leaving no engine behind; so does a cancelled opening.
+        own when left out. `limits` caps the Connection (ADR 0080); it only
+        lowers what covers its work. An amount the SDK cannot turn exactly
+        (`setting_invalid`), a missing executable (`engine_not_found`), a
+        refused Product (`not_in_product`) or version, or a refused Limit
+        raises here, with a `fix`, leaving no engine behind; so does a
+        cancelled opening.
         """
-        return Connecting(functools.partial(open_attached, COLLIE, env=env))
+        return Connecting(
+            functools.partial(open_attached, COLLIE, env=env, limits=limits)
+        )
 
     @property
     def engine(self) -> EngineInfo:
@@ -85,15 +94,21 @@ class AsyncCollie:
         return self._connection.engine
 
     async def start(
-        self, *, run_id: str | None = None, tags: Iterable[str] | None = None
+        self,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
     ) -> AsyncRun:
         """Starts a Run and returns once it is started (ADR 0102).
 
         A `run_id` naming an interrupted Run resumes it, and one naming a
         finished Run returns it as it ended. `finish()` ends it; closing it
-        unfinished stops it, resumable by its Run ID.
+        unfinished stops it, resumable by its Run ID. `limits` caps the Run:
+        a start that names it again lowers its Limits, never raises them
+        (`limit_raise_refused`).
         """
-        return await self._connection.start(run_id=run_id, tags=tags)
+        return await self._connection.start(run_id=run_id, tags=tags, limits=limits)
 
     async def close(self) -> None:
         """Closes the Connection; idempotent.
@@ -159,16 +174,22 @@ class Collie:
         self._close_failure: Exception | None = None
 
     @staticmethod
-    def connect(*, env: Mapping[str, str] | None = None) -> Collie:
+    def connect(
+        *, env: Mapping[str, str] | None = None, limits: Limits | None = None
+    ) -> Collie:
         """Starts Collie's engine as an Attached engine and finishes `hello`.
 
         Open it with `with`, which closes it. `env` is the environment map,
-        read here and never at import: the process's own when left out. A
-        missing executable (`engine_not_found`) or a refused Product
-        (`not_in_product`) or version raises here, with a `fix`, leaving
-        neither engine nor thread behind.
+        read here and never at import: the process's own when left out.
+        `limits` caps the Connection (ADR 0080); it only lowers what covers
+        its work. An amount the SDK cannot turn exactly (`setting_invalid`),
+        a missing executable (`engine_not_found`), a refused Product
+        (`not_in_product`) or version, or a refused Limit raises here, with a
+        `fix`, leaving neither engine nor thread behind.
         """
-        return _open_sync(functools.partial(open_attached, COLLIE, env=env))
+        return _open_sync(
+            functools.partial(open_attached, COLLIE, env=env, limits=limits)
+        )
 
     @property
     def engine(self) -> EngineInfo:
@@ -179,18 +200,25 @@ class Collie:
         return self._connection.engine
 
     def start(
-        self, *, run_id: str | None = None, tags: Iterable[str] | None = None
+        self,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
     ) -> Run:
         """Starts a Run and returns once it is started (ADR 0102).
 
         A `run_id` naming an interrupted Run resumes it, and one naming a
         finished Run returns it as it ended. `finish()` ends it; closing it
-        unfinished stops it, resumable by its Run ID.
+        unfinished stops it, resumable by its Run ID. `limits` caps the Run:
+        a start that names it again lowers its Limits, never raises them
+        (`limit_raise_refused`).
         """
         starting = functools.partial(
             self._connection.start,
             run_id=run_id,
             tags=None if tags is None else list(tags),
+            limits=limits,
         )
         try:
             run = self._loop.call(starting)

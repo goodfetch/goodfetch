@@ -11,6 +11,7 @@ use goodfetch_protocol::run::{Lifecycle, RUN_REPORT, RunParams};
 use goodfetch_protocol::settings::{COLLIE_ENGINE_PATH_VARIABLE, FOXHOUND_ENGINE_PATH_VARIABLE};
 use goodfetch_test_support::{TestEnv, real_time_runtime};
 
+mod limits;
 mod public_items;
 
 /// What a connection opens with: the test's environment, which names its

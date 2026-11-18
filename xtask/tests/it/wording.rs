@@ -2,7 +2,7 @@
 //! either Product (ADR 0097). Each term of `wording.toml` ("bypass" in any
 //! form, "undetectable", "undetected", "solve any CAPTCHA") fails in the
 //! prose of each kind of text, whatever its case; code passes, and
-//! `docs/adr/`, `docs/agents/` and `rnd/` are not read.
+//! `docs/adr/`, `docs/agents/`, `docs/testing/` and `rnd/` are not read.
 //! Covers: story:1-122
 
 use rstest::rstest;
@@ -126,6 +126,7 @@ fn term_in_code_passes(#[case] fixture: &str) {
 #[case::decision_records("docs/adr/0035-stealth.md")]
 #[case::agent_configuration("docs/agents/domain.md")]
 #[case::frozen_archive("rnd/README.md")]
+#[case::testing_sections("docs/testing/security.md")]
 fn unread_folders_pass(#[case] relative: &str) {
     let workspace = Workspace::from_fixture("wording");
     workspace.add_fixture_file("wording-cases/terms.md", relative);

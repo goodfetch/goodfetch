@@ -854,7 +854,7 @@ fn the_auto_cell_maps_foxhound_spider_smart_and_crawlees_adaptive_crawler() {
 /// page's twenty fields, pushes one Record and enqueues the page's links:
 /// Foxhound as a TypeScript program on its SDK, at the default tier choice,
 /// against Spider, Crawlee, Scrapy and crawlee-rs doing the same work, each
-/// with its mapping. Foxhound's Rust arm waits on #1469 and its getters arm
+/// with its mapping. Foxhound's Rust arm waits on #2804 and its getters arm
 /// on #724 and #1296; every page's Record is held to the Proving ground's
 /// answers, and the cell carries no bar.
 #[test]

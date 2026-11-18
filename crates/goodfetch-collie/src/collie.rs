@@ -39,11 +39,15 @@ impl Collie {
     /// runtime the connection owns, so the connection works from any
     /// executor. The engine reads `options`' environment, or the process's,
     /// for its Goodfetch home and the machine's settings.
+    /// It sets `options`' Limits on the connection before it returns
+    /// ([`ConnectOptions::limits`]).
     ///
     /// # Errors
     ///
     /// [`Error::Engine`] when the linked engine cannot start, with no
-    /// Goodfetch home among others, and what `hello` fails with.
+    /// Goodfetch home among others, what `hello` fails with, and what
+    /// `usage.set` fails with for a Limit the engine refuses, the
+    /// connection closed then.
     ///
     /// # Cancel safety
     ///
@@ -165,6 +169,7 @@ impl Collie {
             Composed::COLLIE,
             Composed::COLLIE.product,
             dependencies,
+            goodfetch_collie_client::Limits::new(),
         )
         .await?;
         Ok(Self { linked })

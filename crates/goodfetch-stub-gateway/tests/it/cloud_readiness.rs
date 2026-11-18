@@ -201,14 +201,16 @@ fn every_gateway_case_passes_on_the_stub_gateway_reached_by_its_address(#[case] 
 /// Covers: story:14-13, story:14-75
 #[test]
 fn testing_md_lists_every_cloud_readiness_case_with_its_covers() {
-    let testing =
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../TESTING.md"))
-            .unwrap();
+    // TESTING.md's "Levels and layout" section, in its own file.
+    let testing = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/testing/levels-and-layout.md"),
+    )
+    .unwrap();
     // Found by its heading line, the part `xtask affected` reads it as.
     let mut section = testing.lines();
     assert!(
         section.any(|line| line.trim_end() == "### The Cloud-readiness conformance suite"),
-        "TESTING.md has the subsection"
+        "TESTING.md's Levels and layout has the subsection"
     );
     let lines: Vec<&str> = section
         .take_while(|line| !line.starts_with("## ") && !line.starts_with("### "))

@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "14"
+version = "15"
 
 [[capability]]
 name = "lifecycle"
@@ -102,7 +102,7 @@ modes = ["attached"]
 # A program's crawl (issue 1467): declared on a `Crawl` value, started on
 # Foxhound's executable, its handler served on the event loop, and its
 # Records judged by the Proving ground's oracle. TypeScript leads; the
-# Python and Rust SDKs join with issue 1469.
+# Python SDK joins with issue 1468 and the Rust SDK with issue 2804.
 [[capability]]
 name = "crawl"
 
@@ -203,37 +203,41 @@ modes = ["attached", "linked"]
 
 # Limits in code (ADR 0080; issue 2830): `connect()` and a Run's start take
 # typed Limits, a price as an exact `Money`, which only lower. TypeScript
-# implements them first; Python (#2834) and Rust (#2835) join by adding
-# their surface.
+# implements them first; Rust (issue 2835) joins in `linked`, the one mode of
+# both lists, and Python (#2834) by adding its surface. Rust's `daemon` mode
+# joins with the TypeScript and Python Daemon transport, which takes their
+# `modes` line away; so does `limit-reached-stops-the-run` for Rust, whose
+# Run stops only on a Limit charged mid-run, which a linked engine without a
+# browser never charges: the client crate plays its script as a Daemon.
 [[capability]]
 name = "limits"
 
 [[capability.case]]
 id = "limits-sent-in-millionths"
 covers = ["story:11-51"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "money-inexact-refused-before-sending"
 covers = ["story:11-51"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "connect-limit-refused-closes"
 covers = ["story:11-51"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "limits-lowered-never-raised"
 covers = ["story:11-51"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "limit-reached-stops-the-run"
 covers = ["story:11-52"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]

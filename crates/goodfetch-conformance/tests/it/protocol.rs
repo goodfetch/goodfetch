@@ -563,6 +563,10 @@ fn the_start_table_is_proved_against_collie() {
                     CaseOutcome::Passed
                 ),
                 (
+                    "a-start-under-the-id-of-a-run-whose-engine-was-killed-resumes-it",
+                    CaseOutcome::Passed
+                ),
+                (
                     "a-start-under-a-finished-runs-id-answers-it-as-it-ended",
                     CaseOutcome::Passed
                 ),
@@ -572,6 +576,52 @@ fn the_start_table_is_proved_against_collie() {
                 ),
                 (
                     "a-start-under-a-listed-runs-id-whose-state-is-gone-is-run-state-unavailable",
+                    CaseOutcome::Passed
+                ),
+            ]
+        ),
+        "{}",
+        serde_json::to_string_pretty(&document).unwrap()
+    );
+}
+
+/// ADR 0102's start table rows a crawl reaches pass against Foxhound's
+/// executable as an Attached engine: a start under a finished crawl's ID
+/// answers it calling no handler, a start that differs from the crawl
+/// it names fails with `run_conflict` listing what differs, and a start
+/// under a crawl its Limit stopped fails with `limit_reached`.
+///
+/// Covers: story:3-166, story:3-167
+#[test]
+fn the_start_table_of_a_crawl_is_proved_against_foxhound() {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let target = target(&env, Tool::Foxhound, EngineMode::Attached);
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::run_start_crawl(), &target, &proving_ground).unwrap();
+    crate::keep(&document, "run-start-crawl-foxhound");
+
+    assert_eq!(
+        (outcomes(&document), case_outcomes(&document)),
+        (
+            vec![("crawl.start", Outcome::Proved)],
+            vec![
+                (
+                    "a-crawl-start-under-a-finished-crawls-id-answers-it-calling-no-handler",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-crawl-start-under-a-crawls-id-with-other-seeds-is-run-conflict-naming-seeds",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-collie-start-under-a-crawls-id-is-run-conflict-naming-product-kind-and-seeds",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-start-under-the-id-of-a-crawl-its-limit-stopped-is-limit-reached",
                     CaseOutcome::Passed
                 ),
             ]

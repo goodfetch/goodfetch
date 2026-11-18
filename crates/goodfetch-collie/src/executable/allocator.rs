@@ -80,4 +80,5 @@ pub(super) fn purge_at_once() {
 }
 
 #[cfg(test)]
+#[cfg(target_os = "linux")]
 mod tests;

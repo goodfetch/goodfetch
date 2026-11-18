@@ -228,6 +228,11 @@ impl Start {
         Self(self.0.run_id(run_id), self.1)
     }
 
+    /// Sets the Run's own Limits, as [`crate::Start::limits`] does.
+    pub fn limits(self, limits: crate::Limits) -> Self {
+        Self(self.0.limits(limits), self.1)
+    }
+
     /// Starts the Run and blocks the calling thread until it is started.
     ///
     /// # Errors

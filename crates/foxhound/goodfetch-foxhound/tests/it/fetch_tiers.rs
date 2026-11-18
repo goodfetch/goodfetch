@@ -751,19 +751,28 @@ fn a_post_crawl_request_with_a_body_reaches_the_site_as_that_post_on_a_forced_br
 }
 
 /// Under `auto`, the same crawl request, a sample, is sent as that `POST`
-/// on `http`, where the handler's script call escalates it, and again as
-/// that `POST` by the browser it escalates to, where the page names the
-/// ordered product; Provenance records the browser run with the call that
-/// escalated it (issue 2471).
+/// on `http`, from the browser by default or from the Run's transport
+/// under `fetch.http_from: transport`, where the handler's script call
+/// escalates it, and again as that `POST` by the browser it escalates to,
+/// where the page names the ordered product; Provenance records the
+/// browser run with the call that escalated it (issue 2471).
 ///
-/// Covers: story:6-212, story:6-257, story:6-259, operation:page.evaluate, error:attempt_ended
-#[test]
-fn a_post_crawl_request_auto_escalates_to_the_browser_reaches_the_site_as_that_post_on_both_tiers()
-{
+/// Covers: story:6-212, story:6-257, story:6-259, setting:fetch.http_from, operation:page.evaluate, error:attempt_ended
+#[rstest::rstest]
+#[case::from_the_browser(None, "browser_fetch")]
+#[case::from_the_transport(Some("transport"), "http")]
+fn a_post_crawl_request_auto_escalates_to_the_browser_reaches_the_site_as_that_post_on_both_tiers(
+    #[case] http_from: Option<&str>,
+    #[case] first_tier: &str,
+) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
 
+    let mut fetch = json!({ "tier": "auto" });
+    if let Some(http_from) = http_from {
+        fetch["http_from"] = json!(http_from);
+    }
     let mut seen = Vec::new();
     crawl_declaring(
         &mut engine,
@@ -773,7 +782,7 @@ fn a_post_crawl_request_auto_escalates_to_the_browser_reaches_the_site_as_that_p
         &settings(
             &proving_ground,
             &json!({
-                "fetch": { "tier": "auto" },
+                "fetch": fetch,
                 "site_preferences": { "respect_robots_txt": false },
             }),
         ),
@@ -801,7 +810,7 @@ fn a_post_crawl_request_auto_escalates_to_the_browser_reaches_the_site_as_that_p
                 Value::Null
             )],
             vec![
-                json!(["order", "browser_fetch", "sample", null, null]),
+                json!(["order", first_tier, "sample", null, null]),
                 json!(["order", "browser", "sample", null, "page.evaluate"]),
             ],
         )

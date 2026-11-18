@@ -74,10 +74,20 @@ pub type Opening<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub struct OwnFetch<'a> {
     /// Its URL.
     pub url: &'a str,
-    /// Its method, upper-case as the Frontier admitted it.
+    /// Its method, as the Frontier admitted it: one of the six standard
+    /// methods upper-case, any other as written.
     pub method: &'a str,
     /// Its body, if it has one.
     pub body: Option<&'a [u8]>,
+}
+
+impl OwnFetch<'_> {
+    /// Whether it is a `GET` with no body, or an empty one, as the
+    /// browser's own navigation sends it.
+    #[must_use]
+    pub fn is_bodiless_get(&self) -> bool {
+        self.method == "GET" && self.body.is_none_or(<[u8]>::is_empty)
+    }
 }
 
 /// The browser pages a Product opens for its handlers itself (ADR 0093's

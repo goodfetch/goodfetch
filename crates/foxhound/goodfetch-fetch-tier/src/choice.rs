@@ -504,6 +504,17 @@ pub struct Forced {
     pub label: Option<String>,
 }
 
+impl Forced {
+    /// Who set it, as an error's message names it: "the Run" or "the
+    /// Label `<label>`".
+    fn setter(&self) -> String {
+        self.label.as_ref().map_or_else(
+            || "the Run".to_owned(),
+            |label| format!("the Label `{label}`"),
+        )
+    }
+}
+
 /// What a call its page's tier cannot serve exactly leads to.
 #[derive(Debug)]
 pub(crate) enum Unserved {
@@ -528,10 +539,7 @@ pub(crate) fn unserved(choice: &TierChoice, call: &str, waits: bool) -> Unserved
             &json!({ "reason": "escalated", "call": call, "tier": tier }),
         )),
         Some(forced) => {
-            let set = forced.label.as_ref().map_or_else(
-                || "the Run".to_owned(),
-                |label| format!("the Label `{label}`"),
-            );
+            let set = forced.setter();
             let lacks = if waits {
                 ", or the page may simply lack what it waits for"
             } else {
@@ -559,10 +567,7 @@ pub(crate) fn unserved(choice: &TierChoice, call: &str, waits: bool) -> Unserved
 /// sends a bodiless `GET` alone (issue 2471).
 pub(crate) fn unsendable(tier: FetchTier, forced: &Forced, call: &str) -> CallError {
     let name = tier.as_str();
-    let set = forced.label.as_ref().map_or_else(
-        || "the Run".to_owned(),
-        |label| format!("the Label `{label}`"),
-    );
+    let set = forced.setter();
     CallError::new(
         &BROWSER_REQUIRED,
         format!(
@@ -588,10 +593,7 @@ pub(crate) const ENCODING_CALL: &str = "fetch.encoding";
 /// forced: its fix names `fetch.encoding` and `fetch.tier` (G6).
 pub(crate) fn undeclared(tier: FetchTier, forced: &Forced, url: &str) -> CallError {
     let name = tier.as_str();
-    let set = forced.label.as_ref().map_or_else(
-        || "the Run".to_owned(),
-        |label| format!("the Label `{label}`"),
-    );
+    let set = forced.setter();
     CallError::new(
         &BROWSER_REQUIRED,
         format!(

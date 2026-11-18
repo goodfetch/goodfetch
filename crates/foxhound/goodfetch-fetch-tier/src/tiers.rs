@@ -1442,7 +1442,11 @@ impl FetchTiers {
     ///
     /// [`Stop::Failed`] with the Browser cache's Error codes or
     /// `navigation_failed`; [`Stop::Skipped`] with `content_type` for a
-    /// type its Label does not take.
+    /// type its Label does not take. [`Stop::Failed`], before anything is
+    /// sent, for a request Lightpanda cannot send (no `GET`, or a body):
+    /// with `browser_required` where `fetch.tier` forces the tier, else
+    /// with `attempt_ended`, which the attempt never meets, since it sends
+    /// such a request to the browser first (issue 2471).
     ///
     /// # Cancel safety
     ///
@@ -1459,9 +1463,11 @@ impl FetchTiers {
         // Lightpanda sends a bodiless `GET` alone; under `auto` the attempt
         // sends any other request to the browser before it comes here.
         if let Some(call) = crate::light_browser::unsent(request) {
-            let error = match (&choice.forced, unserved(choice, call, false)) {
-                (Some(forced), _) => unsendable(choice.tier, forced, call),
-                (None, Unserved::Escalated(error) | Unserved::Refused(error)) => error,
+            let error = match &choice.forced {
+                Some(forced) => unsendable(choice.tier, forced, call),
+                None => match unserved(choice, call, false) {
+                    Unserved::Escalated(error) | Unserved::Refused(error) => error,
+                },
             };
             return Err(Stop::failed(error));
         }

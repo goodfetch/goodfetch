@@ -1075,7 +1075,7 @@ impl Interception {
     /// each request for its URL that no redirect sent, the load once more
     /// with blocking off included. A bodiless `GET` changes nothing.
     pub(crate) fn send_own(&self, page_id: &PageId, own: OwnFetch<'_>) -> OwnFetchSent {
-        if own.method == "GET" && own.body.is_none() {
+        if own.is_bodiless_get() {
             return OwnFetchSent(None);
         }
         let Ok(mut url) = url::Url::parse(own.url) else {

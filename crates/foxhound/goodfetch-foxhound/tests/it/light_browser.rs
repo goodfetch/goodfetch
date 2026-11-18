@@ -324,24 +324,32 @@ fn a_call_the_light_browser_cannot_serve_escalates_under_auto_and_fails_when_for
     );
 }
 
-/// A crawl request `POST /orders` with a body, on a forced
-/// `light_browser` tier: Lightpanda's run loads a URL with a `GET` and no
-/// body, so the tier refuses the request before anything is sent, and it
-/// ends `failed` with `browser_required` naming the tier and the crawl
-/// request's method, never as a `GET` (issue 2471).
+/// A crawl request `POST /orders` with a body, or a `GET` with that body,
+/// on a forced `light_browser` tier: Lightpanda's run loads a URL with a
+/// `GET` and no body, so the tier refuses the request before anything is
+/// sent, and it ends `failed` with `browser_required` naming the tier and
+/// what of the crawl request it cannot send, never as a bodiless `GET`
+/// (issue 2471).
 ///
 /// Covers: story:6-212, story:5-120, setting:fetch.light_browser, error:browser_required
-#[test]
-fn a_post_crawl_request_on_a_forced_light_browser_fails_with_browser_required_and_sends_nothing() {
+#[rstest::rstest]
+#[case::a_post("POST", "crawl_request.method")]
+#[case::a_get_with_a_body("GET", "crawl_request.body")]
+fn a_crawl_request_with_a_method_or_body_on_a_forced_light_browser_fails_with_browser_required_and_sends_nothing(
+    #[case] method: &str,
+    #[case] unsendable: &str,
+) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
+    let mut request = order(&proving_ground);
+    request["method"] = json!(method);
 
     let mut seen = Vec::new();
     crawl_declaring(
         &mut engine,
         "light-post-forced",
-        &[order(&proving_ground)],
+        &[request],
         &json!({ "order": {} }),
         &settings(
             &proving_ground,
@@ -385,7 +393,7 @@ fn a_post_crawl_request_on_a_forced_light_browser_fails_with_browser_required_an
                 "browser_required",
                 "fetch.tier",
                 "light_browser",
-                "crawl_request.method"
+                unsendable
             ])],
         )
     );

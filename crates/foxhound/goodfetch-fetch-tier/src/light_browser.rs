@@ -57,12 +57,17 @@ const BODY_CALL: &str = "crawl_request.body";
 /// What of `request` the tier cannot send, by the name Provenance and
 /// `browser_required` give it: its method when it is no `GET`, else its
 /// body; none for a bodiless `GET`, the only request `lightpanda fetch`
-/// sends (issue 2471).
+/// sends (issue 2471). An empty body is no body, as the Frontier reads
+/// it.
 #[must_use]
 pub fn unsent(request: &CrawlRequest) -> Option<&'static str> {
     if !request.method.is_get() {
         Some(METHOD_CALL)
-    } else if request.body.is_some() {
+    } else if request
+        .body
+        .as_ref()
+        .is_some_and(|body| !body.bytes().is_empty())
+    {
         Some(BODY_CALL)
     } else {
         None

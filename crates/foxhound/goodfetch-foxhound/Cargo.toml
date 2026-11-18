@@ -23,6 +23,9 @@ clap = { workspace = true, optional = true }
 # The bytes of the `$/chunk` notifications `run export --out` writes.
 data-encoding = { workspace = true, optional = true }
 goodfetch-collie.workspace = true
+# The values a connection hands out and their blocking twins (ADRs 0095
+# and 0117), which the SDK re-exports.
+goodfetch-collie-client.workspace = true
 goodfetch-crawl.workspace = true
 goodfetch-frontier.workspace = true
 goodfetch-dataset.workspace = true

@@ -89,6 +89,7 @@ mod resolver;
 mod runtime;
 mod runtime_file;
 mod script;
+mod sdk_items;
 mod seeded;
 mod snapshot;
 mod special_purpose;
@@ -202,8 +203,8 @@ pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
 pub use resident::{peak_resident_bytes, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{
-    proptest_config, proptest_config_for, runtime, runtime_with_one_blocking_thread,
-    with_the_blocking_pool_held,
+    proptest_config, proptest_config_for, real_time_runtime, runtime,
+    runtime_with_one_blocking_thread, with_the_blocking_pool_held,
 };
 pub use runtime_file::{
     DAEMON_SERVING_LOCK, DAEMON_SOCKET, DaemonEndpoint, RUNTIME_FILE, RuntimeFile,
@@ -213,6 +214,7 @@ pub use script::{
     Call, ENGINE_SCRIPTS, Exit, Expectation, Raw, Reply, Script, ScriptError, Sent, Step,
     engine_script,
 };
+pub use sdk_items::{public_methods, public_types_with_lifetimes, re_exports, sdk_sources};
 pub use snapshot::{SnapshotValues, redact, snapshot_settings};
 pub use special_purpose::{
     Cidr, Reachability, RegistryError, SpecialPurposeBlock, SpecialPurposeRegistries,

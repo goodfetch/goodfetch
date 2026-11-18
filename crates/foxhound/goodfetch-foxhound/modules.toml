@@ -1,5 +1,7 @@
 # Which of goodfetch-foxhound's top-level modules may import which (ADR 0126).
 [modules]
+blocking = ["foxhound"]
 composition = ["sample"]
 executable = []
+foxhound = ["composition"]
 sample = []

@@ -1656,15 +1656,16 @@ fn shop() -> Value {
 /// Run's pool and a Label's own for its requests, conflicts with the
 /// identity `session.source` fixed: the start is refused with
 /// `setting_locked`, whose `limit` names `session.source`, its value and
-/// the layer that set it, and the Run's `settings` as its origin when the
-/// Run set it (ADR 0083).
+/// the layer that set it, and `settings` as its origin: the Run's
+/// `settings` or the Label's, a scope's `settings` option (ADRs 0083 and
+/// 0093).
 ///
 /// Covers: setting:fetch.http_from, setting:session.source, error:setting_locked
 #[rstest::rstest]
 #[case::a_labels_own_login_pool(
     json!({}),
     json!({ "account": { "settings": { "session": { "source": shop() }, "fetch": { "http_from": "transport" } } } }),
-    json!({ "key": "session.source", "value": shop(), "layer": "run" })
+    json!({ "key": "session.source", "value": shop(), "layer": "run", "origin": "settings" })
 )]
 #[case::the_runs_login_pool(
     json!({ "session": { "source": shop() }, "fetch": { "http_from": "transport" } }),

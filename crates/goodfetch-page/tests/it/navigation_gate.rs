@@ -45,8 +45,8 @@ const PAST_THE_GOTO_TIMEOUT: Duration = Duration::from_millis(GOTO_TIMEOUT_MS + 
 /// How long the gate holds the permit of a call that takes no timeout of
 /// its own (`page.request`, `page.reload`): past `timeout.navigation`'s
 /// default, which bounds it. The Run keeps that default rather than a
-/// shorter one, which would bound its browser's launch and page openings
-/// below what every other browser test gives them.
+/// shorter one, which would bound its Session's browser context and page
+/// openings below what every other browser test gives them.
 fn past_the_navigation_timeout() -> Duration {
     let default = (TIMEOUT_NAVIGATION.default)()
         .as_u64()

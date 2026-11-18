@@ -282,8 +282,7 @@ fn under_learned_a_race_of_a_label_on_http_sends_its_first_request_from_the_tran
             })
             .collect()
     };
-    let sampled = fingerprints(LEARN);
-    let held_by = fingerprints("/products/1?hold=3000");
+    let (sampled, held_by) = (fingerprints(LEARN), fingerprints("/products/1?hold=3000"));
     let raced: Vec<Value> = provenance(&env, "raced-from-transport", "tier_race")
         .iter()
         .map(|entry| {

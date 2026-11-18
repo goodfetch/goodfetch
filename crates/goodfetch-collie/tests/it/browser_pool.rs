@@ -597,9 +597,10 @@ fn a_session_closed_while_its_robots_txt_read_waits_leaves_its_browser_idle() {
 /// `timeout.navigation` broke off: Provenance records the file
 /// unreachable, never the start that arrived as the whole file. The
 /// stalled-robots host sends its robots.txt's head and the start of its
-/// body, then nothing. The short timeout bounds that read, not the
-/// browser's launch, which `timeout.launch` bounds (issue 2813), nor the
-/// program's own navigation, which takes its own `timeout`.
+/// body, then nothing. The short timeout bounds that read, and each
+/// command of opening the Session's browser context and its page, but not
+/// the browser's launch, which `timeout.launch` bounds (issue 2813), nor
+/// the program's own navigation, which takes its own `timeout`.
 /// Covers: setting:timeout.navigation
 #[cfg(unix)]
 #[test]

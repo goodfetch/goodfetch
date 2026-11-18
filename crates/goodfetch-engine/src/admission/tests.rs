@@ -28,8 +28,8 @@ use super::{
 };
 use crate::clock::Clock;
 use crate::politeness::{
-    Ending, Hold, Holder, KeyState, PermitRule, Politeness, PolitenessOptions, SharedRule, Step,
-    Taken, Verdict,
+    Ending, Hold, Holder, KeyState, MemoryTables, PermitRule, Politeness, PolitenessOptions,
+    SharedRule, Step, Taken, Verdict,
 };
 use crate::settings::{Layers, Resolved, resolve};
 use crate::tasks::{BlockingPolicy, TaskOwner};
@@ -138,6 +138,12 @@ impl KeyState for Stateless {
     fn save(&self, _: &Connection, _: &str, (): &()) -> rusqlite::Result<()> {
         Ok(())
     }
+
+    fn load_from(_: &MemoryTables, _: &str, (): ()) -> Self {
+        Self
+    }
+
+    fn save_to(&self, _: &mut MemoryTables, _: &str, (): &()) {}
 }
 
 impl PermitRule for Rule {
@@ -180,9 +186,7 @@ fn named(room: &Room, now: Instant) -> String {
 /// whose first request of `shop.test` already holds its Permit, taken
 /// before the delay began, under the rate cap `rate`.
 async fn beside_a_first(owner: &TaskOwner, rule: Rule, rate: Option<RateCap>) -> SecondCopies {
-    let politeness = Politeness::in_memory(&PolitenessOptions::default(), Vec::new(), owner)
-        .await
-        .unwrap();
+    let politeness = Politeness::in_memory(&PolitenessOptions::default(), owner).unwrap();
     let holder = Holder {
         run_id: "crawl".to_owned(),
         epoch: 1,
@@ -323,6 +327,12 @@ impl KeyState for UnreadableState {
     fn save(&self, _: &Connection, _: &str, (): &()) -> rusqlite::Result<()> {
         Ok(())
     }
+
+    fn load_from(_: &MemoryTables, _: &str, (): ()) -> Self {
+        Self
+    }
+
+    fn save_to(&self, _: &mut MemoryTables, _: &str, (): &()) {}
 }
 
 impl PermitRule for Unreadable {
@@ -413,17 +423,30 @@ fn a_key_the_politeness_file_refuses_is_held_for_the_refusal() {
         let gate = OneKey::default();
         let holds = Arc::clone(&gate.holds);
         let settings = resolve(&Layers::default(), Product::Foxhound, Product::Foxhound).unwrap();
-        let politeness = Politeness::in_memory(&PolitenessOptions::default(), Vec::new(), owner)
-            .await
-            .unwrap();
+        // A file, not a Run's own store: only a file's reads can fail.
+        let folder = tempfile::tempdir().unwrap();
+        let politeness = Politeness::open(
+            folder.path().join("politeness.sqlite"),
+            &PolitenessOptions::default(),
+            Vec::new(),
+            |_, _| false,
+            "engine".to_owned(),
+            owner,
+        )
+        .await
+        .unwrap();
         let holder = Holder {
             run_id: "crawl".to_owned(),
             epoch: 1,
             run_folder: "crawl".into(),
         };
         let clock = Clock::paused(SystemTime::UNIX_EPOCH + Duration::from_hours(500_000));
-        let mut admission =
-            Admission::new(Box::new(gate), &settings).sharing(politeness, holder, clock, &settings);
+        let mut admission = Admission::new(Box::new(gate), &settings).sharing(
+            (politeness, None),
+            holder,
+            clock,
+            &settings,
+        );
         let now = Instant::now();
         let admitted = admission.admit(now).await;
         let held: Vec<(Duration, Held)> = holds
@@ -549,17 +572,19 @@ fn a_key_its_run_refuses_ends_its_requests_unsent_until_the_moment_however_late(
             holds: Arc::clone(&holds),
         };
         let settings = resolve(&Layers::default(), Product::Foxhound, Product::Foxhound).unwrap();
-        let politeness = Politeness::in_memory(&PolitenessOptions::default(), Vec::new(), owner)
-            .await
-            .unwrap();
+        let politeness = Politeness::in_memory(&PolitenessOptions::default(), owner).unwrap();
         let holder = Holder {
             run_id: "crawl".to_owned(),
             epoch: 1,
             run_folder: "crawl".into(),
         };
         let clock = Clock::paused(start);
-        let mut admission =
-            Admission::new(Box::new(gate), &settings).sharing(politeness, holder, clock, &settings);
+        let mut admission = Admission::new(Box::new(gate), &settings).sharing(
+            (politeness, None),
+            holder,
+            clock,
+            &settings,
+        );
         let now = Instant::now();
         let first = admission.admit(now).await.unwrap();
         let mut admitted = vec![(first.id.clone(), first.refused_until)];

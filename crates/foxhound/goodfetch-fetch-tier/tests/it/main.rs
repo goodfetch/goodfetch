@@ -33,11 +33,7 @@ use url::Url;
 /// A runtime whose clock runs: the transport waits on real sockets, which
 /// a paused clock would race with every deadline.
 fn running_clock_runtime() -> tokio::runtime::Runtime {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "test helpers build the tests' runtime (ADR 0060)"
-    )]
-    tokio::runtime::Builder::new_current_thread()
+    goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .unwrap()

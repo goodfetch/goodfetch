@@ -20,6 +20,7 @@ mod daemon;
 mod discard;
 mod disk_view;
 mod durability;
+mod effect;
 mod events;
 mod following;
 mod governor;

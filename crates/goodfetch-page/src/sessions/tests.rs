@@ -181,7 +181,8 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
             .is_some_and(|runs| runs.last > 0)
     };
     let opened = {
-        let mut open = std::pin::pin!(sessions.open_held(&run, None, Opener::Default, &context));
+        let mut open =
+            std::pin::pin!(sessions.open_held(&run, None, None, Opener::Default, &context));
         loop {
             let polled = std::future::poll_fn(|waker| Poll::Ready(open.as_mut().poll(waker))).await;
             assert!(polled.is_pending(), "the open ended before the Run stopped");
@@ -223,7 +224,9 @@ async fn session_ended(params: Value, context: CallContext) -> Result<Value, Cal
             address_ordinal: None,
         },
     };
-    let position = sessions.open_held(&run, None, opener, &context).await?;
+    let position = sessions
+        .open_held(&run, None, None, opener, &context)
+        .await?;
     let session = super::session_id(run.id(), position);
     let open = Arc::clone(&sessions.state.lock().await.sessions[&session]);
     let commits = run.state().commits();

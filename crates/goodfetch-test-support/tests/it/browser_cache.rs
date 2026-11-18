@@ -7,16 +7,27 @@
 //! `lightpanda-x86_64-linux`.
 //!
 //! And a failed test's folder, which its teardown keeps, holding no bytes of
-//! the build of its own (#2664).
+//! the build of its own (#2664). Where Playwright's build cannot be linked
+//! into the tests' temporary folder, every cache links one copy of it, laid
+//! out once, whole, and again once removed; where it can, no copy is made
+//! (#2306). Those cases run `probe::lays_out_a_browser_cache` as a child, with
+//! `PLAYWRIGHT_BROWSERS_PATH` naming a stand-in build, since test support
+//! reads Playwright's folder from the process's variables.
 
+use std::collections::BTreeMap;
 use std::os::unix::fs::MetadataExt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
 
 use goodfetch_test_support::{
     CHROME_FOR_TESTING_BUILD, LIGHTPANDA_BUILD, TestEnv, browser_cache,
     browser_cache_with_lightpanda, chrome_for_testing,
 };
+use serde_json::Value;
+
+use crate::probe;
+use crate::probe::CACHE_FILE;
 
 /// The bytes of the files in `folder` that no other folder links: what
 /// deleting it gives back.
@@ -122,4 +133,202 @@ fn a_second_lightpanda_cache_while_lightpanda_runs_leaves_its_executable_in_plac
 
     browser.close_stdin_and_wait().unwrap();
     assert_eq!(second.unwrap(), first);
+}
+
+/// A stand-in for Playwright's folder of browsers at `browsers`, holding a
+/// few small files where Playwright's revision of the pinned build
+/// (`chromium-1248`) would be: the build's files, by their path in it.
+fn stand_in_playwright(browsers: &Path) -> BTreeMap<String, String> {
+    let build = browsers.join("chromium-1248").join("chrome-linux64");
+    let files: BTreeMap<String, String> = std::iter::once("chrome".to_owned())
+        .chain((0..24).map(|n| format!("locales/{n}.pak")))
+        .map(|path| (path.clone(), format!("the bytes of {path}\n").repeat(64)))
+        .collect();
+    for (path, bytes) in &files {
+        let file = build.join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, bytes).unwrap();
+    }
+    files
+}
+
+/// A probe that takes a Browser cache as a test does, its Playwright folder
+/// `browsers` and its temporary folder `temporary`.
+fn cache_probe(env: &TestEnv, browsers: &Path, temporary: &Path) -> Command {
+    let mut command = probe(env, "probe::lays_out_a_browser_cache");
+    command
+        .env("PLAYWRIGHT_BROWSERS_PATH", browsers)
+        .env("TMPDIR", temporary)
+        .env("TMP", temporary)
+        .env("TEMP", temporary)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    command
+}
+
+/// The files of the cache a probe took, by their path in the build: each
+/// one's inode, links and bytes as the probe saw them.
+fn cache_files(output: &Output) -> BTreeMap<String, Value> {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "the probe failed: {stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix(CACHE_FILE))
+        .map(|line| {
+            let file: Value = serde_json::from_str(line).unwrap();
+            (file["path"].as_str().unwrap().to_owned(), file)
+        })
+        .collect()
+}
+
+/// Asserts that a probe's cache holds every file of `source`, each with its
+/// bytes, and nothing else.
+fn assert_whole(cache: &BTreeMap<String, Value>, source: &BTreeMap<String, String>) {
+    assert_eq!(
+        cache.keys().collect::<Vec<_>>(),
+        source.keys().collect::<Vec<_>>()
+    );
+    for (path, bytes) in source {
+        assert_eq!(cache[path]["bytes"], bytes.as_str(), "{path}");
+    }
+}
+
+/// The entries of `temporary` named as the build's copy is, or as its parts
+/// laid out are.
+fn copies_in(temporary: &Path) -> Vec<String> {
+    let copy = format!("goodfetch-chrome-for-testing-{CHROME_FOR_TESTING_BUILD}-chrome-linux64");
+    let mut names: Vec<String> = std::fs::read_dir(temporary)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name.trim_start_matches('.').starts_with(&copy))
+        .collect();
+    names.sort();
+    names
+}
+
+/// The copy of the build in `temporary`.
+fn copy_in(temporary: &Path) -> PathBuf {
+    temporary.join(format!(
+        "goodfetch-chrome-for-testing-{CHROME_FOR_TESTING_BUILD}-chrome-linux64"
+    ))
+}
+
+/// A stand-in Playwright folder on `/dev/shm`, a file system of its own, and
+/// an empty temporary folder in `env`'s, on another: a hard link from the
+/// one to the other fails, as the link from root's `/ms-playwright` fails
+/// on the gate host (#2306).
+fn unlinkable_build(env: &TestEnv) -> (tempfile::TempDir, BTreeMap<String, String>, PathBuf) {
+    let browsers = tempfile::Builder::new()
+        .prefix("goodfetch-playwright-")
+        .tempdir_in("/dev/shm")
+        .unwrap();
+    let source = stand_in_playwright(browsers.path());
+    let temporary = env.folder().join("tmp");
+    std::fs::create_dir(&temporary).unwrap();
+    assert_ne!(
+        browsers.path().metadata().unwrap().dev(),
+        temporary.metadata().unwrap().dev(),
+        "the stand-in build and the temporary folder share a file system"
+    );
+    (browsers, source, temporary)
+}
+
+#[test]
+fn two_caches_of_a_build_they_cannot_link_link_one_copy_of_it() {
+    let env = TestEnv::new();
+    let (browsers, source, temporary) = unlinkable_build(&env);
+
+    let first = cache_files(
+        &cache_probe(&env, browsers.path(), &temporary)
+            .output()
+            .unwrap(),
+    );
+    let second = cache_files(
+        &cache_probe(&env, browsers.path(), &temporary)
+            .output()
+            .unwrap(),
+    );
+
+    assert_whole(&first, &source);
+    assert_whole(&second, &source);
+    let copy = copy_in(&temporary);
+    for path in source.keys() {
+        assert_eq!(first[path]["inode"], second[path]["inode"], "{path}");
+        assert!(first[path]["links"].as_u64().unwrap() >= 2, "{path}");
+        let copied = copy.join(path).metadata().unwrap().ino();
+        assert_eq!(first[path]["inode"], copied, "{path}");
+    }
+}
+
+#[test]
+fn eight_tests_starting_together_on_an_empty_temporary_folder_each_take_a_whole_cache() {
+    let env = TestEnv::new();
+    let (browsers, source, temporary) = unlinkable_build(&env);
+
+    let probes: Vec<_> = (0..8)
+        .map(|_| {
+            cache_probe(&env, browsers.path(), &temporary)
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    let caches: Vec<_> = probes
+        .into_iter()
+        .map(|probe| cache_files(&probe.wait_with_output().unwrap()))
+        .collect();
+
+    for cache in &caches {
+        assert_whole(cache, &source);
+    }
+    let copy = copy_in(&temporary);
+    let name = copy.file_name().unwrap().to_string_lossy().into_owned();
+    assert_eq!(
+        copies_in(&temporary),
+        [name.clone(), format!("{name}.lock")]
+    );
+}
+
+#[test]
+fn a_cache_taken_after_the_builds_copy_is_removed_is_whole() {
+    let env = TestEnv::new();
+    let (browsers, source, temporary) = unlinkable_build(&env);
+    let first = cache_files(
+        &cache_probe(&env, browsers.path(), &temporary)
+            .output()
+            .unwrap(),
+    );
+    std::fs::remove_dir_all(copy_in(&temporary)).unwrap();
+
+    let second = cache_files(
+        &cache_probe(&env, browsers.path(), &temporary)
+            .output()
+            .unwrap(),
+    );
+
+    assert_whole(&first, &source);
+    assert_whole(&second, &source);
+    assert!(copy_in(&temporary).is_dir());
+}
+
+#[test]
+fn a_build_the_tests_can_link_is_linked_with_no_copy() {
+    let env = TestEnv::new();
+    let browsers = env.folder().join("playwright");
+    let source = stand_in_playwright(&browsers);
+    let temporary = env.folder().join("tmp");
+    std::fs::create_dir(&temporary).unwrap();
+
+    let cache = cache_files(&cache_probe(&env, &browsers, &temporary).output().unwrap());
+
+    assert_whole(&cache, &source);
+    let build = browsers.join("chromium-1248").join("chrome-linux64");
+    for path in source.keys() {
+        let linked = build.join(path).metadata().unwrap().ino();
+        assert_eq!(cache[path]["inode"], linked, "{path}");
+    }
+    assert_eq!(copies_in(&temporary), Vec::<String>::new());
 }

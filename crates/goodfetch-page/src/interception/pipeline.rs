@@ -830,6 +830,7 @@ impl PageContext {
             url: held.url(),
             method: held.method(),
             overrides: &held.overrides,
+            headers: &held.paused.request.headers,
             kind: steps::kind(held.paused.resource_type, held.navigation),
             source_url: source,
             egress: self.egress_kind(held),
@@ -844,7 +845,8 @@ impl PageContext {
         } else {
             &self.blocking
         };
-        let stepped = match steps::send_on(&paused, &self.policy, blocking, fetch) {
+        let signing = self.state.engine_requests.signing.as_deref();
+        let stepped = match steps::send_on(&paused, &self.policy, blocking, signing, fetch) {
             Ok(steps::Sent::Continue(command)) => {
                 match self.judged_addresses(held.url(), paused.egress).await {
                     Ok(()) => Ok(steps::Sent::Continue(command)),

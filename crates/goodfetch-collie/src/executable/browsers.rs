@@ -42,11 +42,7 @@ fn now(clock: Clock) -> jiff::Timestamp {
 }
 
 fn runtime() -> tokio::runtime::Runtime {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "main builds the runtime (ADR 0060)"
-    )]
-    tokio::runtime::Builder::new_current_thread()
+    goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .expect("invariant: the OS gives the runtime its thread")

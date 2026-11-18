@@ -392,7 +392,7 @@ fn handler_page(
         channel: Channel::CratesIo,
     };
     let engine = Engine::new(identity, &composition).expect("invariant: one handler each");
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .expect("invariant: the runtime starts");

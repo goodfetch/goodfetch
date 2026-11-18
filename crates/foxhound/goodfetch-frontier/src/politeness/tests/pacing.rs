@@ -25,8 +25,12 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::on_file::OnFile as _;
-use super::{KEY, at, file, latency_noted, milliseconds, pace, rule, send_taken, start_moved};
-use crate::politeness::{DomainState, TABLES, Wrote, started_at_send};
+use super::{
+    KEY, at, changed, file, latency_noted, milliseconds, pace, rule, send_taken, start_moved,
+};
+use crate::politeness::{
+    DomainRule, DomainState, Pace, Parts, TABLES, Wrote, settled_at_send, started_at_send,
+};
 
 fn adaptive(delay: u64, max: u64) -> Value {
     json!({
@@ -696,5 +700,221 @@ async fn a_send_asked_again_once_the_file_answers_goes_and_its_delay_is_kept() {
     assert_eq!(
         (again.unwrap(), next.unwrap()),
         (None, Some(at(12) + milliseconds(500)))
+    );
+}
+
+/// A crawl request's own send on a Politeness held in memory (#2171), each
+/// in milliseconds after 10 s.
+#[derive(Clone, Copy, Debug)]
+enum OwnSend {
+    /// Granted at the first, its send reserved for the second.
+    Reserved(u64, u64),
+    /// The send reserved for the first went at the second.
+    Settled(u64, u64),
+}
+
+/// A grant on a Politeness held in memory reserves its send for the moment
+/// its delay after the key's last send and its rate's token allow, taken
+/// as if it went then; the true send, settled after the wait, keeps the
+/// later of the two, so the next reservation counts from a send that came
+/// late and never from an earlier one settled after it (#2171).
+///
+/// Covers: story:6-247, setting:politeness.domain.delay, setting:politeness.sharing
+#[rstest]
+#[case::the_delay(delayed(100), &[
+    OwnSend::Reserved(0, 0),
+    OwnSend::Reserved(28, 100),
+    OwnSend::Settled(100, 130),
+    OwnSend::Reserved(150, 230),
+    OwnSend::Settled(0, 5),
+    OwnSend::Reserved(240, 330),
+])]
+/// Covers: story:6-248, setting:politeness.domain.rate
+#[case::the_rate(rated(60, 1), &[
+    OwnSend::Reserved(0, 0),
+    OwnSend::Reserved(200, 1_000),
+    OwnSend::Settled(1_000, 1_300),
+    OwnSend::Reserved(1_500, 2_300),
+])]
+fn a_reserved_send_goes_when_its_pace_allows_and_a_late_one_holds_the_next(
+    #[case] run: Value,
+    #[case] sends: &[OwnSend],
+) {
+    let file = file();
+    let pace = rule(run).pace;
+    let ms = |after: u64| at(10) + milliseconds(after);
+
+    let reserved: Vec<(u64, SystemTime)> = sends
+        .iter()
+        .filter_map(|send| match *send {
+            OwnSend::Reserved(granted, goes) => {
+                let at = send_reserved(&file, KEY, ms(granted), pace).unwrap();
+                Some((goes, at))
+            }
+            OwnSend::Settled(reserved, sent) => {
+                send_settled(&file, KEY, ms(sent), ms(reserved)).unwrap();
+                None
+            }
+        })
+        .collect();
+
+    let expected: Vec<(u64, SystemTime)> = reserved
+        .iter()
+        .map(|(goes, _)| (*goes, ms(*goes)))
+        .collect();
+    assert_eq!(reserved, expected);
+}
+
+/// Reserves in `file` the send of a request of `key` granted at `now` to a
+/// run of `pace` ([`DomainState::send_reserved`]).
+fn send_reserved(
+    file: &rusqlite::Connection,
+    key: &str,
+    now: SystemTime,
+    pace: Pace,
+) -> rusqlite::Result<SystemTime> {
+    changed(file, key, Parts::ALL, |state: &mut DomainState| {
+        state.send_reserved(now, pace)
+    })
+}
+
+/// Settles in `file` the send of `key` reserved for `reserved` and sent at
+/// `now` ([`DomainState::send_settled`]).
+fn send_settled(
+    file: &rusqlite::Connection,
+    key: &str,
+    now: SystemTime,
+    reserved: SystemTime,
+) -> rusqlite::Result<()> {
+    changed(file, key, Parts::PACED, |state: &mut DomainState| {
+        ((), state.send_settled(now, reserved))
+    })
+}
+
+/// A Run's own Politeness, held in memory, reserves a crawl request's send
+/// at its grant, and the send settled later than that holds the next
+/// grant's reservation the delay after it, without the send waiting on the
+/// store (#2171); a take beside a sent request, such as a hedge's second
+/// copy on another key, reserves nothing.
+///
+/// Covers: story:6-247, setting:politeness.domain.delay, setting:politeness.sharing
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test runs on Tokio's paused clock and the test Clock (ADR 0059)"
+)]
+#[tokio::test(start_paused = true)]
+async fn a_runs_own_politeness_reserves_a_send_at_its_grant_and_a_late_send_holds_the_next() {
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let clock = Clock::paused(at(10));
+    let politeness = Politeness::in_memory(&PolitenessOptions::default(), &owner).unwrap();
+    let delayed: DomainRule =
+        rule(json!({ "politeness": { "domain": { "delay": 100, "concurrency": 4 } } }));
+    let delayed = SharedRule::new(delayed);
+    let holder = Holder {
+        run_id: "own".to_owned(),
+        epoch: 1,
+        run_folder: PathBuf::from("own"),
+    };
+    let granted = |taken: Taken| match taken {
+        Taken::Granted(permit) => permit,
+        other => panic!("not granted: {other:?}"),
+    };
+
+    let first = granted(
+        politeness
+            .take(KEY, &holder, delayed.clone(), at(10))
+            .await
+            .unwrap(),
+    );
+    let beside = granted(
+        politeness
+            .take_beside("beside.test", &holder, delayed.clone(), at(10))
+            .await
+            .unwrap(),
+    );
+    tokio::time::advance(milliseconds(30)).await;
+    settled_at_send(&politeness, KEY, clock, first.send_at().unwrap())
+        .await
+        .unwrap();
+    let held = politeness
+        .take(KEY, &holder, delayed.clone(), at(10) + milliseconds(100))
+        .await
+        .unwrap();
+    let second = granted(
+        politeness
+            .take(KEY, &holder, delayed, at(10) + milliseconds(130))
+            .await
+            .unwrap(),
+    );
+
+    assert_eq!(
+        (first.send_at(), beside.send_at(), second.send_at()),
+        (Some(at(10)), None, Some(at(10) + milliseconds(130)))
+    );
+    assert!(
+        matches!(held, Taken::Wait(Some((until, Hold::Delay))) if until == at(10) + milliseconds(130)),
+        "{held:?}"
+    );
+}
+
+/// What a page sends on a Run's own Politeness.
+#[derive(Clone, Copy, Debug)]
+enum PageSend {
+    /// The crawl request's own send, at the moment its grant reserved.
+    Settled,
+    /// A redirect hop's, which waits for nothing.
+    Hop,
+}
+
+/// A send on a Run's own Politeness held in memory goes without waiting
+/// for the task that holds it, which may run its note only later, and
+/// that note keeps the instant the page sent, not the one it ran: the
+/// next grant on the key is held the delay after the send (#2171).
+///
+/// Covers: story:6-247, setting:politeness.domain.delay, setting:politeness.sharing
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test runs on Tokio's paused clock and the test Clock (ADR 0059)"
+)]
+#[rstest]
+#[case::the_requests_own(PageSend::Settled)]
+#[case::a_hop(PageSend::Hop)]
+#[tokio::test(start_paused = true)]
+async fn a_send_on_a_runs_own_politeness_waits_for_no_one_and_keeps_its_own_instant(
+    #[case] send: PageSend,
+) {
+    let clock = Clock::paused(at(10));
+    let (politeness, mut own) = Politeness::own(&PolitenessOptions::default());
+    let delayed: DomainRule =
+        rule(json!({ "politeness": { "domain": { "delay": 100, "concurrency": 4 } } }));
+    let delayed = SharedRule::new(delayed);
+    let holder = Holder {
+        run_id: "own".to_owned(),
+        epoch: 1,
+        run_folder: PathBuf::from("own"),
+    };
+    let Taken::Granted(first) = own.take(KEY, &holder, &delayed, at(10)) else {
+        panic!("the first take is not granted");
+    };
+
+    tokio::time::advance(milliseconds(30)).await;
+    let sent = async {
+        match send {
+            PageSend::Settled => {
+                settled_at_send(&politeness, KEY, clock, first.send_at().unwrap()).await
+            }
+            PageSend::Hop => started_at_send(&politeness, KEY, clock, None)
+                .await
+                .map(drop),
+        }
+    };
+    let sent = tokio::time::timeout(Duration::from_secs(1), sent).await;
+    tokio::time::advance(milliseconds(50)).await;
+    let held = own.take(KEY, &holder, &delayed, at(10) + milliseconds(100));
+
+    assert!(matches!(sent, Ok(Ok(()))), "{sent:?}");
+    assert!(
+        matches!(held, Taken::Wait(Some((until, Hold::Delay))) if until == at(10) + milliseconds(130)),
+        "{held:?}"
     );
 }

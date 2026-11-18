@@ -3827,6 +3827,299 @@
       ],
       "type": "object"
     },
+    "EffectAttempt": {
+      "additionalProperties": false,
+      "description": "The crawl attempt an Effect is declared through: a handler's `ctx.run`,\nwhich is bound to its attempt (ADR 0093).",
+      "properties": {
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt declares the Effect.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The attempt's lease epoch, as `crawl_request.handle` gave it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "crawl_request_id",
+        "lease_epoch"
+      ],
+      "type": "object"
+    },
+    "EffectCloseParams": {
+      "additionalProperties": false,
+      "description": "What `effect.close` takes: the entry `effect.open` answered and how its\nbody ended.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "entry": {
+          "arrived_in": "0.1",
+          "description": "The entry `effect.open` answered with `perform`.",
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/EffectOutcome",
+          "arrived_in": "0.1",
+          "description": "How the body ended."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose Effect journal keeps the Effect."
+        }
+      },
+      "required": [
+        "run_id",
+        "entry",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "EffectClosed": {
+      "description": "What `effect.close` answers: how the engine judged the body by what it\nsent for it.",
+      "oneOf": [
+        {
+          "description": "The body returned a value the Effect journal keeps: it never runs\nagain under its key, and the SDK answers `performed`.",
+          "properties": {
+            "judged": {
+              "const": "done",
+              "type": "string"
+            },
+            "performed_at": {
+              "$ref": "#/$defs/PointInTime",
+              "arrived_in": "0.1",
+              "description": "When it was performed."
+            }
+          },
+          "required": [
+            "judged",
+            "performed_at"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The body did not return, and nothing was sent or the Effect is\nrepeatable: the entry is dropped, the SDK propagates the body's\nerror, and the next declaration runs the body.",
+          "properties": {
+            "judged": {
+              "const": "dropped",
+              "type": "string"
+            },
+            "sent": {
+              "arrived_in": "0.1",
+              "description": "Whether something was sent for it.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "judged",
+            "sent"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The body did not return a value the Effect journal keeps after\nsomething was sent, and the Effect is not repeatable: it never runs\nagain until a person reconciles it, and every later declaration of\nits key raises `effect_uncertain`. The SDK raises `effect_uncertain`\nwith the body's error as its cause, or propagates a cut-short\nbody's error unchanged.",
+          "properties": {
+            "cause": {
+              "arrived_in": "0.1",
+              "description": "The Error code the body's value met, `effect_output_invalid`,\nwhen it returned one the Effect journal does not keep.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "effect": {
+              "$ref": "#/$defs/UncertainEffect",
+              "arrived_in": "0.1",
+              "description": "The Effect left uncertain, as the Run report lists it."
+            },
+            "judged": {
+              "const": "uncertain",
+              "type": "string"
+            }
+          },
+          "required": [
+            "judged",
+            "effect"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EffectOpenParams": {
+      "additionalProperties": false,
+      "description": "What `effect.open` takes: the Run, the Effect key and whether its body\nis safe to run again.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "attempt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EffectAttempt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The crawl attempt whose handler's `ctx.run` declares the Effect\n(ADR 0093), whose crawl request is the key's namespace. Absent, the\nkey's namespace is the Run."
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The Effect key, chosen by the program: 1 to 255 Unicode code\npoints. Its namespace is the crawl request in a handler and the Run\nelsewhere.",
+          "type": "string"
+        },
+        "repeatable": {
+          "arrived_in": "0.1",
+          "default": false,
+          "description": "Whether the body is safe to run again: a body that sent something\nand did not return then runs again at its next declaration instead\nof leaving its Effect uncertain. `false` by default.",
+          "type": "boolean"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose Effect journal keeps the Effect."
+        }
+      },
+      "required": [
+        "run_id",
+        "key"
+      ],
+      "type": "object"
+    },
+    "EffectOpened": {
+      "description": "What `effect.open` answers.",
+      "oneOf": [
+        {
+          "description": "The Effect journal holds no answer: run the body, then\n`effect.close` the entry.",
+          "properties": {
+            "answer": {
+              "const": "perform",
+              "type": "string"
+            },
+            "entry": {
+              "arrived_in": "0.1",
+              "description": "The Effect journal entry, which `effect.close` names.",
+              "type": "string"
+            },
+            "idempotency_key": {
+              "arrived_in": "0.1",
+              "description": "An opaque key, the same on every attempt and resume of this\nEffect on any machine and different in every Run and install,\nfor the body to send as a site's `Idempotency-Key`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "answer",
+            "entry",
+            "idempotency_key"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An earlier attempt or start performed the Effect: the body does not\nrun, and the output it returned then is the answer.",
+          "properties": {
+            "answer": {
+              "const": "journal",
+              "type": "string"
+            },
+            "output": {
+              "arrived_in": "0.1",
+              "description": "What the body returned, or absent when it returned nothing."
+            },
+            "performed_at": {
+              "$ref": "#/$defs/PointInTime",
+              "arrived_in": "0.1",
+              "description": "When it was performed."
+            }
+          },
+          "required": [
+            "answer",
+            "performed_at"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A person answered \"it happened\" (ADR 0029): the body does not run,\nand no output is known.",
+          "properties": {
+            "answer": {
+              "const": "reconciled",
+              "type": "string"
+            },
+            "reconciled_at": {
+              "$ref": "#/$defs/PointInTime",
+              "arrived_in": "0.1",
+              "description": "When they answered."
+            },
+            "reconciled_by": {
+              "arrived_in": "0.1",
+              "description": "Who answered.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "answer",
+            "reconciled_by",
+            "reconciled_at"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "EffectOutcome": {
+      "description": "How an Effect's body ended.",
+      "oneOf": [
+        {
+          "description": "It returned a value, or nothing.",
+          "properties": {
+            "ended": {
+              "const": "returned",
+              "type": "string"
+            },
+            "output": {
+              "arrived_in": "0.1",
+              "description": "What it returned: JSON up to `effect.output.max_size` bytes, or\nabsent when it returned nothing."
+            }
+          },
+          "required": [
+            "ended"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "It raised an error, which the SDK propagates, or wraps in\n`effect_uncertain` when the Effect is left uncertain.",
+          "properties": {
+            "ended": {
+              "const": "threw",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ended"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "It was cut short: a cancellation or its attempt's end, whose error\nthe SDK propagates unchanged (ADRs 0080 and 0093).",
+          "properties": {
+            "ended": {
+              "const": "cut_short",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ended"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "ElementState": {
       "description": "A state of the element a locator matches (Playwright's `waitFor`).",
       "oneOf": [
@@ -17746,6 +18039,23 @@
                 },
                 "type": "object"
               },
+              "effect": {
+                "additionalProperties": false,
+                "properties": {
+                  "output": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The most bytes of JSON an Effect's body may return for the Effect journal to keep (ADR 0106), 64 KiB by default as `crawl.payload.max_size`. A larger value is `effect_output_invalid` when nothing was sent, and leaves the Effect uncertain after a send.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
               "export": {
                 "additionalProperties": false,
                 "properties": {
@@ -18385,7 +18695,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "access_mode": {
-                    "description": "The Access mode a Session opens in and keeps for its life: `standard` (the default), the browser's own identity; `identified`, which declares who the program is and masks nothing; or `stealth`, which turns on the whole stealth catalog, each `stealth.*` item of which can be switched off. A non-`none` `stealth.fingerprint_method` makes the Session `stealth`; an explicit `standard` or `identified` beside one at the same scope is `setting_invalid` naming both keys. A stealth item set explicitly where a `standard` Session opens is `setting_not_applicable`, and one set explicitly on an `identified` Session is `setting_invalid` naming both keys; an inherited one yields, which `config explain` names in the item's `yields_to`. `stealth` on WebKit is `capability_unavailable`; a Borrowed browser stays `standard` with its own identity, and `stealth` set where one opens is `setting_not_applicable`, as is `identified` at an import or on a Profile directory used in place. Changing the mode, the Identity profile or the proxy means opening a new Session. A Label refuses it with `setting_not_applicable`.",
+                    "description": "The Access mode a Session opens in and keeps for its life: `standard` (the default), the browser's own identity; `identified`, which declares who the program is, signing each request it sends with `identified.signing_key` (Web Bot Auth), and masks nothing; or `stealth`, which turns on the whole stealth catalog, each `stealth.*` item of which can be switched off. A non-`none` `stealth.fingerprint_method` makes the Session `stealth`; an explicit `standard` or `identified` beside one at the same scope is `setting_invalid` naming both keys. A stealth item set explicitly where a `standard` Session opens is `setting_not_applicable`, and one set explicitly on an `identified` Session is `setting_invalid` naming both keys; an inherited one yields, which `config explain` names in the item's `yields_to`. `stealth` on WebKit is `capability_unavailable`; a Borrowed browser stays `standard` with its own identity, and `stealth` set where one opens is `setting_not_applicable`, as is `identified` at an import or on a Profile directory used in place. Changing the mode, the Identity profile or the proxy means opening a new Session. A Label refuses it with `setting_not_applicable`.",
                     "enum": [
                       "standard",
                       "identified",
@@ -18816,6 +19126,23 @@
                   "write_ids_and_epochs": {
                     "description": "Every write a Sink makes carries its delivery ID and run epoch, an honesty guarantee that stays locked whatever the layer.",
                     "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "effect": {
+                "additionalProperties": false,
+                "properties": {
+                  "output": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The most bytes of JSON an Effect's body may return for the Effect journal to keep (ADR 0106), 64 KiB by default as `crawl.payload.max_size`. A larger value is `effect_output_invalid` when nothing was sent, and leaves the Effect uncertain after a send.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -19370,6 +19697,39 @@
                         "description": "One worker thread a core."
                       }
                     ]
+                  }
+                },
+                "type": "object"
+              },
+              "identified": {
+                "additionalProperties": false,
+                "properties": {
+                  "signature_agent": {
+                    "anyOf": [
+                      {
+                        "description": "Where a site reads the key directory: an `https://` or `http://` URL of the origin that serves it at `/.well-known/http-message-signatures-directory`, or an inline `data:application/http-message-signatures-directory;base64,` directory.",
+                        "maxLength": 4096,
+                        "pattern": "^(https?://|data:application/http-message-signatures-directory)[ !#-\\[\\]-~]+$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Where a site reads the key directory of an `identified` Session's key, sent with each signed request as `Signature-Agent`, in the string form Cloudflare accepts: the `https://` origin that serves `goodfetch signing-key directory`'s output at `/.well-known/http-message-signatures-directory`, such as `https://bot.example`, or an inline `data:application/http-message-signatures-directory;base64,` directory. None by default; an `identified` Session needs it, with `identified.signing_key`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. A Label refuses it with `setting_not_applicable`."
+                  },
+                  "signing_key": {
+                    "anyOf": [
+                      {
+                        "description": "A Secret reference, such as `env:NAME`.",
+                        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The Secret reference of the Ed25519 key an `identified` Session signs each of its requests with (Web Bot Auth), such as `env:BOT_KEY`: never a value. It resolves to the key as a private JSON Web Key (`kty` `OKP`, `crv` `Ed25519`, with `d` and `x`), resolved once when the Session opens and never written to a log, a trace, a process's arguments or a file; a rotated key is read by the next Session. None by default; an `identified` Session needs it, with `identified.signature_agent`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. Set only by the program's own code, configuration and an Operator policy: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`. A Label refuses it with `setting_not_applicable`."
                   }
                 },
                 "type": "object"
@@ -21254,7 +21614,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "access_mode": {
-                    "description": "The Access mode a Session opens in and keeps for its life: `standard` (the default), the browser's own identity; `identified`, which declares who the program is and masks nothing; or `stealth`, which turns on the whole stealth catalog, each `stealth.*` item of which can be switched off. A non-`none` `stealth.fingerprint_method` makes the Session `stealth`; an explicit `standard` or `identified` beside one at the same scope is `setting_invalid` naming both keys. A stealth item set explicitly where a `standard` Session opens is `setting_not_applicable`, and one set explicitly on an `identified` Session is `setting_invalid` naming both keys; an inherited one yields, which `config explain` names in the item's `yields_to`. `stealth` on WebKit is `capability_unavailable`; a Borrowed browser stays `standard` with its own identity, and `stealth` set where one opens is `setting_not_applicable`, as is `identified` at an import or on a Profile directory used in place. Changing the mode, the Identity profile or the proxy means opening a new Session. A Label refuses it with `setting_not_applicable`.",
+                    "description": "The Access mode a Session opens in and keeps for its life: `standard` (the default), the browser's own identity; `identified`, which declares who the program is, signing each request it sends with `identified.signing_key` (Web Bot Auth), and masks nothing; or `stealth`, which turns on the whole stealth catalog, each `stealth.*` item of which can be switched off. A non-`none` `stealth.fingerprint_method` makes the Session `stealth`; an explicit `standard` or `identified` beside one at the same scope is `setting_invalid` naming both keys. A stealth item set explicitly where a `standard` Session opens is `setting_not_applicable`, and one set explicitly on an `identified` Session is `setting_invalid` naming both keys; an inherited one yields, which `config explain` names in the item's `yields_to`. `stealth` on WebKit is `capability_unavailable`; a Borrowed browser stays `standard` with its own identity, and `stealth` set where one opens is `setting_not_applicable`, as is `identified` at an import or on a Profile directory used in place. Changing the mode, the Identity profile or the proxy means opening a new Session. A Label refuses it with `setting_not_applicable`.",
                     "enum": [
                       "standard",
                       "identified",
@@ -21685,6 +22045,23 @@
                   "write_ids_and_epochs": {
                     "description": "Every write a Sink makes carries its delivery ID and run epoch, an honesty guarantee that stays locked whatever the layer.",
                     "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "effect": {
+                "additionalProperties": false,
+                "properties": {
+                  "output": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The most bytes of JSON an Effect's body may return for the Effect journal to keep (ADR 0106), 64 KiB by default as `crawl.payload.max_size`. A larger value is `effect_output_invalid` when nothing was sent, and leaves the Effect uncertain after a send.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -22239,6 +22616,39 @@
                         "description": "One worker thread a core."
                       }
                     ]
+                  }
+                },
+                "type": "object"
+              },
+              "identified": {
+                "additionalProperties": false,
+                "properties": {
+                  "signature_agent": {
+                    "anyOf": [
+                      {
+                        "description": "Where a site reads the key directory: an `https://` or `http://` URL of the origin that serves it at `/.well-known/http-message-signatures-directory`, or an inline `data:application/http-message-signatures-directory;base64,` directory.",
+                        "maxLength": 4096,
+                        "pattern": "^(https?://|data:application/http-message-signatures-directory)[ !#-\\[\\]-~]+$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Where a site reads the key directory of an `identified` Session's key, sent with each signed request as `Signature-Agent`, in the string form Cloudflare accepts: the `https://` origin that serves `goodfetch signing-key directory`'s output at `/.well-known/http-message-signatures-directory`, such as `https://bot.example`, or an inline `data:application/http-message-signatures-directory;base64,` directory. None by default; an `identified` Session needs it, with `identified.signing_key`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. A Label refuses it with `setting_not_applicable`."
+                  },
+                  "signing_key": {
+                    "anyOf": [
+                      {
+                        "description": "A Secret reference, such as `env:NAME`.",
+                        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The Secret reference of the Ed25519 key an `identified` Session signs each of its requests with (Web Bot Auth), such as `env:BOT_KEY`: never a value. It resolves to the key as a private JSON Web Key (`kty` `OKP`, `crv` `Ed25519`, with `d` and `x`), resolved once when the Session opens and never written to a log, a trace, a process's arguments or a file; a rotated key is read by the next Session. None by default; an `identified` Session needs it, with `identified.signature_agent`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. Set only by the program's own code, configuration and an Operator policy: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`. A Label refuses it with `setting_not_applicable`."
                   }
                 },
                 "type": "object"
@@ -24139,7 +24549,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "access_mode": {
-                    "description": "The Access mode a Session opens in and keeps for its life: `standard` (the default), the browser's own identity; `identified`, which declares who the program is and masks nothing; or `stealth`, which turns on the whole stealth catalog, each `stealth.*` item of which can be switched off. A non-`none` `stealth.fingerprint_method` makes the Session `stealth`; an explicit `standard` or `identified` beside one at the same scope is `setting_invalid` naming both keys. A stealth item set explicitly where a `standard` Session opens is `setting_not_applicable`, and one set explicitly on an `identified` Session is `setting_invalid` naming both keys; an inherited one yields, which `config explain` names in the item's `yields_to`. `stealth` on WebKit is `capability_unavailable`; a Borrowed browser stays `standard` with its own identity, and `stealth` set where one opens is `setting_not_applicable`, as is `identified` at an import or on a Profile directory used in place. Changing the mode, the Identity profile or the proxy means opening a new Session. A Label refuses it with `setting_not_applicable`.",
+                    "description": "The Access mode a Session opens in and keeps for its life: `standard` (the default), the browser's own identity; `identified`, which declares who the program is, signing each request it sends with `identified.signing_key` (Web Bot Auth), and masks nothing; or `stealth`, which turns on the whole stealth catalog, each `stealth.*` item of which can be switched off. A non-`none` `stealth.fingerprint_method` makes the Session `stealth`; an explicit `standard` or `identified` beside one at the same scope is `setting_invalid` naming both keys. A stealth item set explicitly where a `standard` Session opens is `setting_not_applicable`, and one set explicitly on an `identified` Session is `setting_invalid` naming both keys; an inherited one yields, which `config explain` names in the item's `yields_to`. `stealth` on WebKit is `capability_unavailable`; a Borrowed browser stays `standard` with its own identity, and `stealth` set where one opens is `setting_not_applicable`, as is `identified` at an import or on a Profile directory used in place. Changing the mode, the Identity profile or the proxy means opening a new Session. A Label refuses it with `setting_not_applicable`.",
                     "enum": [
                       "standard",
                       "identified",
@@ -24570,6 +24980,23 @@
                   "write_ids_and_epochs": {
                     "description": "Every write a Sink makes carries its delivery ID and run epoch, an honesty guarantee that stays locked whatever the layer.",
                     "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "effect": {
+                "additionalProperties": false,
+                "properties": {
+                  "output": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "max_size": {
+                        "description": "The most bytes of JSON an Effect's body may return for the Effect journal to keep (ADR 0106), 64 KiB by default as `crawl.payload.max_size`. A larger value is `effect_output_invalid` when nothing was sent, and leaves the Effect uncertain after a send.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -25124,6 +25551,39 @@
                         "description": "One worker thread a core."
                       }
                     ]
+                  }
+                },
+                "type": "object"
+              },
+              "identified": {
+                "additionalProperties": false,
+                "properties": {
+                  "signature_agent": {
+                    "anyOf": [
+                      {
+                        "description": "Where a site reads the key directory: an `https://` or `http://` URL of the origin that serves it at `/.well-known/http-message-signatures-directory`, or an inline `data:application/http-message-signatures-directory;base64,` directory.",
+                        "maxLength": 4096,
+                        "pattern": "^(https?://|data:application/http-message-signatures-directory)[ !#-\\[\\]-~]+$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Where a site reads the key directory of an `identified` Session's key, sent with each signed request as `Signature-Agent`, in the string form Cloudflare accepts: the `https://` origin that serves `goodfetch signing-key directory`'s output at `/.well-known/http-message-signatures-directory`, such as `https://bot.example`, or an inline `data:application/http-message-signatures-directory;base64,` directory. None by default; an `identified` Session needs it, with `identified.signing_key`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. A Label refuses it with `setting_not_applicable`."
+                  },
+                  "signing_key": {
+                    "anyOf": [
+                      {
+                        "description": "A Secret reference, such as `env:NAME`.",
+                        "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The Secret reference of the Ed25519 key an `identified` Session signs each of its requests with (Web Bot Auth), such as `env:BOT_KEY`: never a value. It resolves to the key as a private JSON Web Key (`kty` `OKP`, `crv` `Ed25519`, with `d` and `x`), resolved once when the Session opens and never written to a log, a trace, a process's arguments or a file; a rotated key is read by the next Session. None by default; an `identified` Session needs it, with `identified.signature_agent`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. Set only by the program's own code, configuration and an Operator policy: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`. A Label refuses it with `setting_not_applicable`."
                   }
                 },
                 "type": "object"

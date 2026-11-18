@@ -68,6 +68,8 @@ mod help;
 ))]
 mod huge_pages;
 mod human_output;
+#[cfg(unix)]
+mod identified;
 mod invalid_calls;
 mod journeys;
 #[cfg(unix)]
@@ -99,6 +101,7 @@ mod proxy_limits;
 mod relay_fingerprint;
 mod request_kinds;
 mod run;
+mod rust_client;
 mod secrets;
 mod security_controls;
 mod service_manager;

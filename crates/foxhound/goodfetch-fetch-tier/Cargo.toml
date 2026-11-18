@@ -62,6 +62,7 @@ netdev.workspace = true
 
 [dev-dependencies]
 flate2.workspace = true
+goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
 hyper = { workspace = true, features = ["http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }

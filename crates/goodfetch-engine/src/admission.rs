@@ -41,6 +41,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime};
 
+use goodfetch_counted_work::Row;
 use goodfetch_protocol::settings::ADMISSION_MAX_REQUESTS_PER_MINUTE;
 use rusqlite::Connection;
 use tokio::sync::broadcast;
@@ -48,7 +49,10 @@ use tokio::time::Instant;
 
 use crate::clock::Clock;
 use crate::entropy::Entropy;
-use crate::politeness::{Ending, Hold, Holder, Permit, Politeness, SharedRule, Taken, Wake};
+use crate::politeness::{
+    Ending, Hold, Holder, OwnPoliteness, Permit, Politeness, PolitenessError, SharedRule, Taken,
+    Wake,
+};
 use crate::run_state::SealedBatch;
 use crate::settings::Resolved;
 
@@ -300,6 +304,11 @@ fn lock(rate: &SharedRate) -> MutexGuard<'_, Option<RateCap>> {
 /// hold.
 struct Shared {
     politeness: Politeness,
+    /// The Politeness of the Run's own it holds, which `politeness` is the
+    /// handle of: its takes and give backs then wait on nothing, and its
+    /// Run's driver serves what the Run's other tasks send it
+    /// ([`Admission::serve_politeness`], #2171).
+    own: Option<OwnPoliteness>,
     holder: Holder,
     rule: SharedRule,
     clock: Clock,
@@ -307,6 +316,50 @@ struct Shared {
     /// The keys held until a wake.
     waiting: BTreeSet<String>,
     wakes: Option<broadcast::Receiver<Wake>>,
+}
+
+impl Shared {
+    /// Takes a Permit of `key` at `wall`, from the Politeness of its Run's
+    /// own it holds when it holds one.
+    async fn take(&mut self, key: &str, wall: SystemTime) -> Result<Taken, PolitenessError> {
+        match &mut self.own {
+            Some(own) => Ok(own.take(key, &self.holder, &self.rule, wall)),
+            None => {
+                self.politeness
+                    .take(key, &self.holder, self.rule.clone(), wall)
+                    .await
+            }
+        }
+    }
+
+    /// Gives `permit` back now, as its request ended as `ending`; answers
+    /// when its key may go again.
+    async fn give_back(
+        &mut self,
+        permit: Permit,
+        ending: Ending,
+    ) -> Result<Option<SystemTime>, PolitenessError> {
+        let wall = self.clock.wall();
+        match &mut self.own {
+            Some(own) => Ok(own.give_back(&permit, &self.rule, ending, wall)),
+            None => {
+                self.politeness
+                    .give_back(permit, self.rule.clone(), ending, wall)
+                    .await
+            }
+        }
+    }
+
+    /// Withdraws its holder as a waiter of every key.
+    async fn stop_waiting(&mut self) -> Result<(), PolitenessError> {
+        match &mut self.own {
+            Some(own) => {
+                own.stop_waiting(&self.holder);
+                Ok(())
+            }
+            None => self.politeness.stop_waiting(&self.holder).await,
+        }
+    }
 }
 
 impl fmt::Debug for Admission {
@@ -358,11 +411,13 @@ impl Admission {
     }
 
     /// The same, sharing `politeness` as `holder` under the rule its gate
-    /// names for `settings`, reading the wall time from `clock`; unchanged
-    /// when the gate names none, or one that paces nothing.
+    /// names for `settings`, reading the wall time from `clock`, holding
+    /// `own` when it is a Politeness of the Run's own that `politeness` is
+    /// the handle of; unchanged when the gate names none, or one that
+    /// paces nothing.
     pub(crate) fn sharing(
         mut self,
-        politeness: Politeness,
+        (politeness, own): (Politeness, Option<OwnPoliteness>),
         holder: Holder,
         clock: Clock,
         settings: &Resolved,
@@ -371,6 +426,7 @@ impl Admission {
             let wakes = Some(politeness.wakes());
             self.shared = Some(Shared {
                 politeness,
+                own,
                 holder,
                 rule,
                 clock,
@@ -490,10 +546,7 @@ impl Admission {
             };
             let key = self.gate.next_key(now)?;
             let wall = shared.clock.wall();
-            let taken = shared
-                .politeness
-                .take(&key, &shared.holder, shared.rule.clone(), wall)
-                .await;
+            let taken = shared.take(&key, wall).await;
             match taken {
                 Ok(Taken::Granted(permit)) => {
                     let Some(admitted) = self.admit_from_gate(now) else {
@@ -559,6 +612,16 @@ impl Admission {
         }
     }
 
+    /// The moment the request it admitted, `id`, is to be sent, which its
+    /// Permit's grant reserved on a Politeness held in memory
+    /// ([`Permit::send_at`]); `None` when it holds no such Permit.
+    pub fn reserved_send(&self, id: &str) -> Option<SystemTime> {
+        self.shared
+            .as_ref()
+            .and_then(|shared| shared.permits.get(id))
+            .and_then(Permit::send_at)
+    }
+
     /// A request it admitted, `id` of `key`, ended at `now`, as `ended`
     /// says: its Permit goes back to the Politeness it shares, whose rule
     /// says when its key may go again, for this Run and every other
@@ -610,13 +673,29 @@ impl Admission {
             return;
         };
         let permits = std::mem::take(&mut shared.permits);
-        let politeness = shared.politeness.clone();
-        let holder = shared.holder.clone();
         for permit in permits.into_values() {
             self.give_back(permit, Ending::Done).await;
         }
-        if let Err(error) = politeness.stop_waiting(&holder).await {
-            tracing::warn!(%error, run_id = %holder.run_id, "a stopped Run's waiters were not withdrawn");
+        let Some(shared) = &mut self.shared else {
+            return;
+        };
+        if let Err(error) = shared.stop_waiting().await {
+            tracing::warn!(%error, run_id = %shared.holder.run_id, "a stopped Run's waiters were not withdrawn");
+        }
+    }
+
+    /// Runs the jobs the Run's other tasks send the Politeness of its own
+    /// it holds, as [`OwnPoliteness::serve`] does: its Run's driver waits
+    /// on it beside its other events while the Run goes. Pending for ever
+    /// when it holds none.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no job.
+    pub async fn serve_politeness(&mut self) {
+        match self.shared.as_mut().and_then(|shared| shared.own.as_mut()) {
+            Some(own) => own.serve().await,
+            None => std::future::pending().await,
         }
     }
 
@@ -628,13 +707,8 @@ impl Admission {
 
     /// Gives `permit` back; answers when its key may go again.
     async fn give_back(&mut self, permit: Permit, ending: Ending) -> Option<SystemTime> {
-        let shared = self.shared.as_ref()?;
-        let wall = shared.clock.wall();
-        match shared
-            .politeness
-            .give_back(permit, shared.rule.clone(), ending, wall)
-            .await
-        {
+        let shared = self.shared.as_mut()?;
+        match shared.give_back(permit, ending).await {
             Ok(ready_at) => ready_at,
             Err(error) => {
                 tracing::warn!(%error, run_id = %shared.holder.run_id, "a Permit was not given back; another engine reclaims it once its Run is gone");
@@ -736,6 +810,7 @@ impl SecondCopies {
             None => None,
             Some(shared) => {
                 let wall = shared.clock.wall();
+                shared.politeness.work().count(Row::SecondCopyRoundTrips);
                 let taken = shared
                     .politeness
                     .take_beside(key, &shared.holder, shared.rule.clone(), wall)
@@ -782,7 +857,7 @@ impl SecondCopies {
         let wall = shared.clock.wall();
         if let Err(error) = shared
             .politeness
-            .give_back(permit, shared.rule.clone(), Ending::Done, wall)
+            .note_given_back(permit, shared.rule.clone(), Ending::Done, wall)
             .await
         {
             tracing::warn!(%error, run_id = %shared.holder.run_id, "a second copy's Permit was not given back; another engine reclaims it once its Run is gone");

@@ -59,6 +59,10 @@ pub(crate) enum Kind {
     Command,
     /// A Block cause.
     BlockCause,
+    /// An MCP profile.
+    McpProfile,
+    /// An agent skill.
+    Skill,
 }
 
 impl Kind {
@@ -80,6 +84,8 @@ impl Kind {
             Self::Format => "format",
             Self::Command => "command",
             Self::BlockCause => "block-cause",
+            Self::McpProfile => "mcp-profile",
+            Self::Skill => "skill",
         }
     }
 }

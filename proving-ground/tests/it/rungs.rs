@@ -80,11 +80,7 @@ pub(crate) fn reqwest_gets_on(
         .no_proxy()
         .build()
         .expect("a client");
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "a test helper builds the runtime its reqwest client runs on (ADR 0060)"
-    )]
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .expect("a runtime");

@@ -110,7 +110,7 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_fetch_tier::{Body, Hop, Reuse, Sending, Sent, Transport};
 use goodfetch_test_support::callgrind;
-use scenarios::{AfterStart, Driven, Plant, drive};
+use scenarios::{AfterStart, Driven, Navigation, Plant, drive};
 use serde_json::{Map, Value, json};
 
 /// The article site of 16 pages, its documents in page order.
@@ -439,6 +439,7 @@ fn crawl_on(cell: &Cell, planted: Option<&str>, metrics: Metrics) -> CountedWork
             metrics,
             run_state_vfs: None,
             handler: None,
+            navigation: Navigation::Stays,
             credits: u64::try_from(cell.pages()).expect("invariant: a few thousand pages"),
             after_start: AfterStart::Finish,
         },

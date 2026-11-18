@@ -74,9 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         channel: Channel::CratesIo,
     };
     let engine = Engine::new(identity, &goodfetch_collie::composition())?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
+    let runtime = goodfetch_runtime::current_thread().enable_all().build()?;
     let sent = scenario();
     let home = tempfile::tempdir()?;
     let answered = runtime.block_on(async {

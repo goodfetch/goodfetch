@@ -360,6 +360,12 @@ impl BlockingThreadCap {
     }
 }
 
+impl From<BlockingThreadCap> for NonZeroUsize {
+    fn from(cap: BlockingThreadCap) -> Self {
+        cap.0
+    }
+}
+
 /// A value of `governor.blocking_threads`.
 pub const BLOCKING_THREADS_SHAPE: ValueShape = ValueShape {
     name: "BlockingThreadCap",

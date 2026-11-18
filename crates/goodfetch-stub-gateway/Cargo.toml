@@ -25,6 +25,8 @@ tokio = { workspace = true, features = ["rt-multi-thread", "io-util", "sync", "m
 tokio-tungstenite.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+# Builds its runtimes (ADR 0081).
+goodfetch-runtime.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]

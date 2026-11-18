@@ -20,6 +20,7 @@ pub mod connection;
 pub mod daemon;
 pub mod dns;
 pub mod download;
+pub mod effect;
 pub mod egress;
 pub mod engine;
 pub mod entries;

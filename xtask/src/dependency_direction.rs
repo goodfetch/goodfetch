@@ -20,13 +20,17 @@
 //!   it builds no engine, and `xtask codegen` reads the Products'
 //!   executables through what they print (ADR 0072). Its tests may take
 //!   any crate as a dev-dependency.
+//! - `goodfetch-runtime` depends on no Goodfetch crate: every crate that
+//!   builds a Tokio runtime takes it, the test helpers and the Proving ground
+//!   included (ADR 0081).
 //!
 //! Beside them, a rule the manifests cannot hold: outside `crates/foxhound/`,
 //! only `goodfetch-protocol` and `xtask` name the protocol's `foxhound`
 //! module in their source (ADR 0099, [`crate::foxhound_module`]).
 //!
 //! `goodfetch-workspace-hack`, which every member takes (ADR 0094), holds no
-//! code, so no rule counts it as a Goodfetch crate.
+//! code, and `goodfetch-runtime` builds a runtime and nothing else, so no
+//! other rule counts either as a Goodfetch crate.
 //!
 //! The workspace-wide direction of ADR 0087 is cargo-deny's (`deny.toml`).
 
@@ -44,6 +48,7 @@ const TEST_CLIENT: &str = "goodfetch-test-client";
 const CONFORMANCE: &str = "goodfetch-conformance";
 const PROTOCOL: &str = "goodfetch-protocol";
 const WORKSPACE_HACK: &str = "goodfetch-workspace-hack";
+const RUNTIME: &str = "goodfetch-runtime";
 const XTASK: &str = "xtask";
 /// The Proving ground's manifest, from the workspace's root (ADR 0032).
 const PROVING_GROUND_MANIFEST: &str = "proving-ground/Cargo.toml";
@@ -55,6 +60,7 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
         .with_context(|| format!("resolving {}", root.display()))?;
     let is_member = |dependency: &Dependency| {
         dependency.name != WORKSPACE_HACK
+            && dependency.name != RUNTIME
             && packages
                 .iter()
                 .any(|package| package.name == dependency.name)
@@ -62,15 +68,11 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
     for package in &packages {
         let members = || package.dependencies.iter().filter(|d| is_member(d));
-        if package.name == TEST_SUPPORT {
-            if let Some(dependency) = members().next() {
-                findings.push(Finding::new(
-                    "test-support-depends-on-goodfetch",
-                    &package.name,
-                    format!("it depends on the workspace crate `{}`", dependency.name),
-                ));
-            }
-        } else if package.name != TEST_CLIENT && takes_outside_dev(package, TEST_SUPPORT) {
+        takes_none(package, members().next(), &mut findings);
+        if package.name != TEST_SUPPORT
+            && package.name != TEST_CLIENT
+            && takes_outside_dev(package, TEST_SUPPORT)
+        {
             findings.push(Finding::new(
                 "test-support-not-dev-only",
                 &package.name,
@@ -149,6 +151,23 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
         }
     }
     Ok(findings)
+}
+
+/// The crates that take no Goodfetch crate, `goodfetch-runtime` and
+/// `goodfetch-test-support`: `member` is the first one `package` takes.
+fn takes_none(package: &Package, member: Option<&Dependency>, findings: &mut Vec<Finding>) {
+    let code = match package.name.as_str() {
+        RUNTIME => "runtime-depends-on-goodfetch",
+        TEST_SUPPORT => "test-support-depends-on-goodfetch",
+        _ => return,
+    };
+    if let Some(dependency) = member {
+        findings.push(Finding::new(
+            code,
+            &package.name,
+            format!("it depends on the workspace crate `{}`", dependency.name),
+        ));
+    }
 }
 
 /// Whether `package` takes the workspace crate `name` as a normal or build

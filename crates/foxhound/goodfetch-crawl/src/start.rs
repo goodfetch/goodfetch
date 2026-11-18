@@ -139,12 +139,15 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
 
 /// How a crawl goes, which the engine learns with its driver (ADR 0099):
 /// its driver ends it once its work is done, its claims defer their charges
-/// (ADR 0138's note of #1926), so its start declares their bound (#2117), and
-/// `provenance.log` says whether it keeps a Provenance log.
+/// (ADR 0138's note of #1926), so its start declares their bound (#2117),
+/// `provenance.log` says whether it keeps a Provenance log, and its delivery
+/// opens and serves its admission, which holds a Politeness of the Run's own
+/// (#2171).
 const DRIVING: Driving = Driving {
     ended_by: EndedBy::Driver,
     defers_charges: true,
     provenance_log: Some(&PROVENANCE_LOG),
+    admits: true,
 };
 
 /// Joins the calling Connection's handler to the live crawl the params

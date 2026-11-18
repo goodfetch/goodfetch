@@ -7,9 +7,11 @@ reads until its own reply has come, resolving the others' replies on the
 way, then hands reading over to a call still waiting. A call cancelled
 while it waits sends `$/cancel` with its id. When the engine's side ends,
 the owner says which error every call still waiting fails with, and every
-later call fails with it too. TypeScript's `rpc.ts` is its twin; streams,
-served requests and the channel's bounds come with the tickets that use
-them.
+later call fails with it too. A stream is a call whose notifications, such
+as `$/chunk`, name its id: the reader hands each to the stream's listener,
+and the caller grants credits with `notify`. TypeScript's `rpc.ts` is its
+twin; served requests and the channel's bounds come with the tickets that
+use them.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from goodfetch_collie_client.framing import (
     Failure,
     Invalid,
     LineReader,
+    Notification,
     Request,
     Result,
     encode_message,
@@ -34,7 +37,7 @@ from goodfetch_collie_client.generated.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from anyio.abc import ByteStream
 
@@ -125,6 +128,7 @@ class Channel:
         self._lines = LineReader()
         self._next_id = 0
         self._waiting: dict[int, _Waiter] = {}
+        self._listeners: dict[int, Callable[[str, object], None]] = {}
         self._drainers: list[_Waiter] = []
         self._reading = False
         self._reader_scope: anyio.CancelScope | None = None
@@ -140,14 +144,38 @@ class Channel:
             GoodfetchError: The engine answered with an error, or the
                 channel ended or was cancelled before the reply.
         """
+        return await self.stream(method, params, None)
+
+    async def stream(
+        self,
+        method: str,
+        params: object,
+        notified: Callable[[str, object], None] | None,
+        *,
+        sent: Callable[[int], None] | None = None,
+    ) -> object:
+        """Sends `method` as `call` does; `notified` hears each notification naming it.
+
+        `sent` is told the call's id once it is written, so the caller can
+        grant credits with `notify`; `notified` runs on the reading task
+        and must not block.
+
+        Raises:
+            GoodfetchError: The engine answered with an error, or the
+                channel ended or was cancelled before the reply.
+        """
         if self._failure is not None:
             raise self._failure
         message_id = self._next_id
         self._next_id += 1
         waiter = _Waiter()
         self._waiting[message_id] = waiter
+        if notified is not None:
+            self._listeners[message_id] = notified
         try:
             await self._write({"id": message_id, "method": method, "params": params})
+            if sent is not None:
+                sent(message_id)
             outcome = await self._wait_for(waiter)
         except BaseException:
             if waiter.outcome is None:
@@ -156,9 +184,17 @@ class Channel:
                     await self._notify_cancel(message_id)
                 self._wake_all()
             raise
+        finally:
+            self._listeners.pop(message_id, None)
         if isinstance(outcome, _Raised):
             raise outcome.error
         return outcome.result
+
+    async def notify(self, method: str, params: object) -> None:
+        """Sends the notification `method`, such as `$/credit`, unless it ended."""
+        if self._ending:
+            return
+        await self._write({"method": method, "params": params})
 
     def cancel_all(self, error: GoodfetchError) -> list[int]:
         """Fails every call still waiting with `error`, and stops the reader.
@@ -259,7 +295,9 @@ class Channel:
                 self._settle(line)
             elif isinstance(line, Request):
                 unserved.append(line)
-        # A notification has no stream to go to yet; `$/cancel` needs no answer.
+            else:
+                self._hand_over(line)
+        # A notification no stream listens to, such as `$/cancel`, needs no answer.
         for request in unserved:
             with anyio.CancelScope(shield=True):
                 await self._write(
@@ -271,6 +309,15 @@ class Channel:
                         },
                     }
                 )
+
+    def _hand_over(self, notification: Notification) -> None:
+        members = object_members(notification.params)
+        stream_id = None if members is None else members.get("id")
+        if not isinstance(stream_id, int) or isinstance(stream_id, bool):
+            return
+        listener = self._listeners.get(stream_id)
+        if listener is not None:
+            listener(notification.method, notification.params)
 
     def _settle(self, reply: Result | Failure) -> None:
         if not isinstance(reply.id, int) or isinstance(reply.id, bool):

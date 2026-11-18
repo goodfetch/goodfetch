@@ -44,6 +44,7 @@ disallowed-methods = [
   { path = "jiff::Zoned::now", reason = "read time through the Clock handle (ADR 0059)", allow-invalid = true },
   { path = "rustls::pki_types::UnixTime::now", reason = "read time through the Clock handle; build a UnixTime from Clock::wall (ADR 0059)", allow-invalid = true },
   { path = "rustls_pki_types::UnixTime::now", reason = "read time through the Clock handle; build a UnixTime from Clock::wall (ADR 0059)", allow-invalid = true },
+  { path = "web_bot_auth::message_signatures::MessageSigner::generate_signature_headers_content", reason = "it dates the signature by the wall clock itself: only an `identified` Session's signer calls it (ADRs 0045 and 0059)", allow-invalid = true },
   { path = "ulid::Ulid::new", reason = "make IDs through the Clock and Entropy handles (ADR 0059)", allow-invalid = true },
   { path = "goodfetch_engine::clock::Clock::paused", reason = "the Clock's test version is for tests and bench targets (ADR 0059)", allow-invalid = true },
   { path = "goodfetch_engine::entropy::Entropy::seeded", reason = "the Entropy's test version is for tests and bench targets (ADR 0059)", allow-invalid = true },

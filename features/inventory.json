@@ -9051,6 +9051,28 @@
       ]
     },
     {
+      "id": "setting:identified.signature_agent",
+      "kind": "setting",
+      "area": 8,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:identified.signing_key",
+      "kind": "setting",
+      "area": 8,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:live_view.hiding",
       "kind": "setting",
       "area": 5,

@@ -56,6 +56,7 @@ pinned_download = ["clock", "dns", "happy_eyeballs", "http_client", "settings", 
 rule_sources = ["clock", "egress", "http_client", "pinned_download", "settings", "tasks", "tls"]
 politeness = ["sqlite_store", "tasks", "transport"]
 product = []
+request_signing = ["entropy", "sync"]
 response_limits = ["call_error", "settings"]
 retry_after = []
 robots_txt = ["run_state"]

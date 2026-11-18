@@ -199,9 +199,11 @@ def _millionths(amount: Decimal) -> int | None:
         return None
     coefficient = int("".join(map(str, digits)) or "0")
     shift = exponent + DECIMALS
+    # An int: a power of ten by a whole number of 0 or more.
+    scale: int = 10 ** abs(shift)
     if shift >= 0:
-        return coefficient * 10**shift
-    whole, past = divmod(coefficient, 10**-shift)
+        return coefficient * scale
+    whole, past = divmod(coefficient, scale)
     return None if past else whole
 
 

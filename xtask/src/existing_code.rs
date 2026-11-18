@@ -20,7 +20,7 @@ use serde::de::IgnoredAny;
 use crate::check::{self, Finding};
 use crate::environment::Environment;
 use crate::git;
-use crate::github::{self, Api};
+use crate::github;
 use evidence::{Broken, Holds, Repository};
 use list::Citation;
 
@@ -54,7 +54,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
     let root = environment.root.as_path();
     match command {
         Command::Check { issue, github } => {
-            let api = api(&github, environment)?;
+            let api = github.authenticated(environment.token())?;
             let issue: Issue = api.get(&format!("/repos/{}/issues/{issue}", github.repository))?;
             if issue.pull_request.is_some() {
                 bail!("#{} is a pull request, not an issue", issue.number);
@@ -72,23 +72,11 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             Ok(check::report(&findings(failed)))
         }
         Command::Sweep { apply, github } => {
-            let api = api(&github, environment)?;
+            let api = github.authenticated(environment.token())?;
             sweep::sweep(&Checker::new(root)?, &api, &github.repository, apply)?;
             Ok(ExitCode::SUCCESS)
         }
     }
-}
-
-/// The API, with the token the issues are read with: without one, a private
-/// repository answers 404 for every issue.
-fn api<'a>(github: &'a github::Arguments, environment: &'a Environment) -> Result<Api<'a>> {
-    if environment.token().is_none() {
-        bail!(
-            "no GitHub token to read the issues of {} with: set GITHUB_TOKEN, or log the GitHub CLI in (`gh auth login`)",
-            github.repository
-        );
-    }
-    Ok(github.api(environment.token()))
 }
 
 /// An issue as GitHub's REST interface answers it.

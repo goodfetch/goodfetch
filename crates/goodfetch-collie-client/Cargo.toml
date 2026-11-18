@@ -36,6 +36,7 @@ goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+trybuild.workspace = true
 
 [lints]
 workspace = true

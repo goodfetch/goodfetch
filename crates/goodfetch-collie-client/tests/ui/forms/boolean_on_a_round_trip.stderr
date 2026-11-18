@@ -1,0 +1,16 @@
+error[E0061]: this method takes 0 arguments but 1 argument was supplied
+ --> tests/ui/forms/boolean_on_a_round_trip.rs:4:22
+  |
+4 |     let _abort = run.abort(true);
+  |                      ^^^^^ ---- unexpected argument of type `bool`
+  |
+note: method defined here
+ --> src/generated/handles.rs
+  |
+  |     pub fn abort(
+  |            ^^^^^
+help: remove the extra argument
+  |
+4 -     let _abort = run.abort(true);
+4 +     let _abort = run.abort();
+  |

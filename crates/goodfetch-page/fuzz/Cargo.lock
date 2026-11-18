@@ -1671,6 +1671,7 @@ dependencies = [
  "tar",
  "thiserror 2.0.21",
  "tinystr",
+ "toml 1.1.8+spec-1.1.0",
  "toml_datetime",
  "toml_parser",
  "typenum",

@@ -1407,6 +1407,90 @@ fn every_async_python_handle_has_a_sync_twin_with_the_same_members() {
     );
 }
 
+const RUST_CLIENT: &str = "crates/goodfetch-collie-client";
+
+/// The `codegen` workspace with the forms catalog and a stand-in for
+/// Collie's Rust client crate, with the real crate's call builders and
+/// handle host, after `xtask codegen` wrote its handles.
+fn workspace_with_the_rust_forms() -> Workspace {
+    let workspace = workspace_with_the_forms_catalog();
+    workspace.add_fixture_file(
+        "codegen-forms/rust-client/Cargo.toml",
+        &format!("{RUST_CLIENT}/Cargo.toml"),
+    );
+    workspace.add_fixture_file(
+        "codegen-forms/rust-client/lib.rs",
+        &format!("{RUST_CLIENT}/src/lib.rs"),
+    );
+    codegen(&workspace);
+    workspace
+}
+
+/// Each declared kind has one Rust form (ADR 0099), on an async handle and
+/// its `blocking` twin: a round trip is a `Call`, a query a `Query`, a
+/// builder a method that makes no call, a sub-object a method, and a
+/// `new_<value>` member a `Call` of the handle it opens; the generated
+/// handles compile against the client crate's builders.
+///
+/// Covers: story:11-178
+#[test]
+fn each_declared_kind_generates_its_rust_form_which_compiles() {
+    let workspace = workspace_with_the_rust_forms();
+
+    let checked = workspace.cargo(&["check", "--offline", "-p", "goodfetch-collie-client"]);
+
+    assert_eq!(checked.code, 0, "{}", checked.stderr);
+    insta::assert_snapshot!(
+        "rust_forms_handles",
+        workspace.read_text(&format!("{RUST_CLIENT}/src/generated/handles.rs"))
+    );
+}
+
+/// The `pub` items of `text`, a generated handles module: each type it
+/// declares or adds methods to, with its methods, one `blocking::` prefix
+/// left out of the type's path.
+fn public_items(text: &str) -> std::collections::BTreeMap<String, Vec<String>> {
+    let mut items: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    let mut owner = String::new();
+    for line in text.lines() {
+        if let Some(name) = line.strip_prefix("pub struct ") {
+            items
+                .entry(name.split([' ', '{']).next().unwrap().to_owned())
+                .or_default();
+        } else if let Some(header) = line.strip_prefix("impl") {
+            owner = header
+                .trim_end_matches(" {")
+                .trim_start_matches("<T>")
+                .trim()
+                .replace("crate::blocking::", "crate::");
+            items.entry(owner.clone()).or_default();
+        } else if let Some(method) = line.strip_prefix("    pub fn ") {
+            let name = method.split(['(', '<']).next().unwrap().to_owned();
+            items.get_mut(&owner).unwrap().push(name);
+        }
+    }
+    items
+}
+
+/// The `blocking` twin repeats the async API under the same type names:
+/// each handle, sub-object and builder option of the async module, with
+/// the same methods (ADR 0099).
+///
+/// Covers: story:11-178
+#[test]
+fn the_blocking_rust_handles_repeat_the_async_api_under_the_same_names() {
+    let workspace = workspace_with_the_rust_forms();
+
+    let asynchronous =
+        public_items(&workspace.read_text(&format!("{RUST_CLIENT}/src/generated/handles.rs")));
+    let blocking =
+        public_items(&workspace.read_text(&format!("{RUST_CLIENT}/src/generated/blocking.rs")));
+
+    assert!(asynchronous.contains_key("Page"), "{asynchronous:?}");
+    assert_eq!(asynchronous, blocking);
+}
+
 /// An Experimental or deprecated entry's docstring adds paragraphs after
 /// its description, which keeps every line it has.
 /// Covers: story:1-57

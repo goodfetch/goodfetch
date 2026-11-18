@@ -293,7 +293,8 @@ pub(crate) fn politeness_plant(name: &str, work: &CountedWork) -> Plant {
         "E6.transactions"
         | "E6.off_work"
         | "E6.private_transactions"
-        | "E6.undelegated_transactions" => {
+        | "E6.undelegated_transactions"
+        | "E6.shared_transactions" => {
             let (runtime, file) = politeness(work);
             Arc::new(move |_: &str| {
                 let insert = file.change("planted", false, |_: &mut Planted| ((), true));

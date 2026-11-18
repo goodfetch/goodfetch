@@ -401,6 +401,8 @@ fn translated(error: &SettingsError, identity: &Identity, behind_gateway: bool) 
                 key: key.clone(),
                 layer: *layer,
                 reason: reason.clone(),
+                limit: None,
+                fix: None,
             },
         ),
         SettingsError::NotApplicable { key, layer, fix } => CallError::new(

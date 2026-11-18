@@ -468,6 +468,7 @@ impl Resolved {
                     key: rule.to.name.to_owned(),
                     value: to.value.clone(),
                     layer: to.layer,
+                    origin: to.origin,
                 })
             })
     }
@@ -1040,6 +1041,7 @@ fn limit(key: &str, value: &Value, layer: SettingsLayer) -> SettingLimit {
         key: key.to_owned(),
         value: value.clone(),
         layer,
+        origin: None,
     }
 }
 

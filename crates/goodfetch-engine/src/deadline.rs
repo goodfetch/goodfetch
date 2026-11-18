@@ -35,6 +35,7 @@ impl Deadline {
                 key: setting.name.to_owned(),
                 value: effective.value.clone(),
                 layer: effective.layer,
+                origin: effective.origin,
             },
             duration,
         })
@@ -49,6 +50,7 @@ impl Deadline {
                 key: setting.name.to_owned(),
                 value: millis.into(),
                 layer,
+                origin: None,
             },
             duration: Duration::from_millis(millis),
         }

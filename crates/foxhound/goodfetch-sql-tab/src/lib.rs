@@ -120,11 +120,13 @@ fn limit_of(resolved: &Resolved, setting: &goodfetch_protocol::catalog::Setting)
             key: setting.name.to_owned(),
             value: effective.value.clone(),
             layer: effective.layer,
+            origin: effective.origin,
         },
         None => SettingLimit {
             key: setting.name.to_owned(),
             value: catalog_value(setting).clone(),
             layer: SettingsLayer::Default,
+            origin: None,
         },
     }
 }

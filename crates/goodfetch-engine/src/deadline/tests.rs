@@ -19,7 +19,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::settings::{
-    SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION,
+    RunOrigin, SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION,
 };
 use serde_json::{Value, json};
 
@@ -106,6 +106,7 @@ fn a_timeout_no_layer_set_takes_its_declared_default() {
                 key: "timeout.action".to_owned(),
                 value: json!(30_000),
                 layer: SettingsLayer::Default,
+                origin: None,
             }
         )
     );
@@ -133,17 +134,35 @@ fn a_calls_own_timeout_replaces_its_scopes_deadline(
             key: "timeout.navigation".to_owned(),
             value: json!(value),
             layer,
+            origin: (layer == SettingsLayer::Run).then_some(RunOrigin::Argument),
         })
     );
 }
 
-/// A `timeout` of 0 would end the call at once: it is refused.
-/// Covers: setting:timeout.navigation
+/// A `timeout` of 0 would end the call at once: it is refused as the
+/// setting it would have set, at the run layer from the call's argument,
+/// and the fix names the null form that sets none (ADR 0080).
+/// Covers: story:11-42, error:setting_invalid, setting:timeout.navigation
 #[test]
-fn a_calls_own_timeout_of_zero_is_invalid_params() {
+fn a_calls_own_timeout_of_zero_is_setting_invalid_naming_the_null_form() {
     let scope = Deadline::declared(&TIMEOUT_NAVIGATION);
 
     let refused = Deadline::of_call(&scope, &TIMEOUT_NAVIGATION, Some(Some(0))).unwrap_err();
 
-    assert_eq!(refused.wire_parts().0, -32602);
+    let (class, retryable, details) = refused.wire_parts();
+    assert_eq!(
+        (refused.code(), class, retryable, Value::Object(details)),
+        (
+            "setting_invalid",
+            -32001,
+            false,
+            json!({
+                "key": "timeout.navigation",
+                "layer": "run",
+                "reason": "a timeout of 0 ms would end the call at once",
+                "limit": { "key": "timeout.navigation", "value": 0, "layer": "run", "origin": "argument" },
+                "fix": "give at least 1 ms, or `timeout: null` for no timeout",
+            })
+        )
+    );
 }

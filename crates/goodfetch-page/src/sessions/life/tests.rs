@@ -685,6 +685,7 @@ fn past_cap() -> Ending {
             key: BROWSER_PAGE_MEMORY_CAP.name.to_owned(),
             value: json!(32 << 20),
             layer: SettingsLayer::Run,
+            origin: None,
         },
     }
 }

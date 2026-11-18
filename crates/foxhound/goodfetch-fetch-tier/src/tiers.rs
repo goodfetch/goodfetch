@@ -995,6 +995,8 @@ impl FetchTiers {
                         key: CRAWL_CONTENT_TYPES.name.to_owned(),
                         layer: Some(effective.layer),
                         reason: format!("{} {reason}", effective.value),
+                        limit: None,
+                        fix: None,
                     },
                 )
             })?;
@@ -2833,6 +2835,8 @@ fn refuse_redirect_max(settings: &Resolved) -> Result<(), CallError> {
             key: FETCH_REDIRECT_MAX.name.to_owned(),
             layer: Some(effective.layer),
             reason: format!("expected a count from 1 to {REDIRECT_MAX_LIMIT}, found `{max}`"),
+            limit: None,
+            fix: None,
         },
     ))
 }

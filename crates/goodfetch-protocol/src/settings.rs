@@ -109,8 +109,9 @@ impl RunOrigin {
     }
 }
 
-/// A setting that decided an outcome: its key, its value and the layer that
-/// set it (ADRs 0028 and 0079).
+/// A setting that decided an outcome: its key, its value, the layer that
+/// set it and, for the run layer, where the value came from (ADRs 0028,
+/// 0079 and 0083).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SettingLimit {
     /// The setting's key.
@@ -122,6 +123,12 @@ pub struct SettingLimit {
     /// The layer that set it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub layer: SettingsLayer,
+    /// For the run layer, where the value came from, such as `argument`
+    /// for a call's own `timeout` (ADR 0083); absent when unknown or for
+    /// another layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub origin: Option<RunOrigin>,
 }
 
 /// A setting that weakened a safeguard for a Run (ADR 0028): its key, its
@@ -212,6 +219,16 @@ pub struct SettingInvalidDetails {
     /// What is wrong with it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub reason: String,
+    /// The value refused, as the setting it would have set: a call's own
+    /// `timeout` of 0 names its timeout setting at the run layer, origin
+    /// `argument` (ADR 0080); absent where no value was read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: Option<SettingLimit>,
+    /// What to give instead, such as the null form that sets no timeout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: Option<String>,
 }
 
 /// A value set where it cannot take effect (ADR 0083).

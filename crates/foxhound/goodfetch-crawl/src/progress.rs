@@ -175,6 +175,7 @@ fn setting(resolved: &Resolved, setting: &Setting) -> Option<SettingLimit> {
         key: setting.name.to_owned(),
         value: effective.value.clone(),
         layer: effective.layer,
+        origin: effective.origin,
     })
 }
 

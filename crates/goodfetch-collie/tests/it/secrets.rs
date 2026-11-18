@@ -547,7 +547,7 @@ mod keychain {
 
     /// Runs `work` against this OS's keychain, on a runtime of real time.
     fn in_keychain<T>(work: impl AsyncFnOnce(&Keychain, &TaskOwner) -> T) -> T {
-        let runtime = tokio::runtime::Builder::new_current_thread()
+        let runtime = goodfetch_runtime::current_thread()
             .enable_all()
             .build()
             .unwrap();

@@ -8,4 +8,5 @@ publish = false
 goodfetch-test-support = { path = "../crates/goodfetch-test-support" }
 
 [dependencies]
+goodfetch-runtime = { path = "../crates/goodfetch-runtime" }
 goodfetch-workspace-hack = { path = "../crates/goodfetch-workspace-hack" }

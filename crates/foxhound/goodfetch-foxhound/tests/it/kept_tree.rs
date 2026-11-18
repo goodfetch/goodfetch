@@ -199,7 +199,7 @@ fn crawled(env: &TestEnv, metrics: Metrics, blocking: BlockingPolicy) -> Handled
     // while the analysis threads work.
     let runtime = match blocking {
         BlockingPolicy::Inline => goodfetch_test_support::runtime(),
-        BlockingPolicy::Threads => tokio::runtime::Builder::new_current_thread()
+        BlockingPolicy::Threads => goodfetch_runtime::current_thread()
             .enable_all()
             .build()
             .unwrap(),

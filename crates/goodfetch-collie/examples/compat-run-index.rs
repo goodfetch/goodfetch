@@ -290,7 +290,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     )?;
     let home = tempfile::tempdir()?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_all()
         .start_paused(true)
         .build()?;
@@ -309,7 +309,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         talked
     })?;
     // The Daemon is killed with its Run live: its runtime is dropped.
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_all()
         .start_paused(true)
         .build()?;

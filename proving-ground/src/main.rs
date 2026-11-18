@@ -91,11 +91,7 @@ fn main() -> Result<()> {
 
 /// Builds the runtime `serve` runs on, then serves until stopped.
 fn run(serve: &Serve) -> Result<()> {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "`serve` builds the Proving ground's one runtime here (ADR 0060)"
-    )]
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+    let runtime = goodfetch_runtime::multi_thread()
         .enable_all()
         .build()
         .context("building the Tokio runtime")?;

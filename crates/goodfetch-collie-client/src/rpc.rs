@@ -1,0 +1,205 @@
+//! Framing and correlation: one JSON-RPC message per line each way, each
+//! reply matched to its call by id (ADR 0038). One task on the Connection's
+//! runtime owns the calls in flight, their deadlines and the input; a
+//! second writes the output, so a slow reader never holds the input up.
+//! Callers only exchange messages with them, so a call's future runs on any
+//! executor (ADR 0081).
+
+use std::collections::BTreeMap;
+use std::future::poll_fn;
+use std::time::Duration;
+
+use goodfetch_protocol::jsonrpc::{Message, Request, RequestId, Version};
+use serde_json::Value;
+use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncWrite, AsyncWriteExt as _, BufReader};
+use tokio::runtime::Handle;
+use tokio::sync::{mpsc, oneshot};
+use tokio_util::task::TaskTracker;
+use tokio_util::time::DelayQueue;
+use tokio_util::time::delay_queue::Key;
+
+use crate::error::Error;
+use crate::transport::Link;
+
+/// What a call's caller hands the Connection's tasks.
+pub(crate) struct Outgoing {
+    /// The operation.
+    pub(crate) method: String,
+    /// Its params.
+    pub(crate) params: Value,
+    /// How long the reply may take, or `None` to wait for it as long as
+    /// the Connection lasts.
+    pub(crate) timeout: Option<Duration>,
+    /// Where the reply goes.
+    pub(crate) reply: oneshot::Sender<Result<Value, Error>>,
+}
+
+/// What the Connection's correlating task acts on.
+enum Command {
+    /// Sends a call.
+    Call(Outgoing),
+    /// Ends the Connection: no more calls, the output closed, every call
+    /// in flight failed as closed.
+    Close,
+}
+
+/// The handle every call goes through: cheap to clone, `Send + Sync`.
+#[derive(Clone, Debug)]
+pub(crate) struct Sender(mpsc::UnboundedSender<Command>);
+
+impl Sender {
+    /// Sends `call`; its reply fails as closed when the Connection is.
+    pub(crate) fn call(&self, call: Outgoing) {
+        if let Err(mpsc::error::SendError(Command::Call(call))) = self.0.send(Command::Call(call)) {
+            let _closed = call.reply.send(Err(Error::Closed));
+        }
+    }
+
+    /// Ends the Connection without waiting.
+    pub(crate) fn close(&self) {
+        let _already_closed = self.0.send(Command::Close);
+    }
+}
+
+/// Starts the Connection's tasks over `link` on `runtime`, tracked by
+/// `tracker`.
+pub(crate) fn start(link: Link, runtime: &Handle, tracker: &TaskTracker) -> Sender {
+    let (reader, writer) = link.split();
+    let (commands, commands_in) = mpsc::unbounded_channel();
+    let (lines, lines_in) = mpsc::unbounded_channel();
+    tracker.spawn_on(write(writer, lines_in), runtime);
+    tracker.spawn_on(correlate(reader, commands_in, lines), runtime);
+    Sender(commands)
+}
+
+/// Writes each line until every sender is gone, then closes the output,
+/// which tells the engine the Connection is over.
+async fn write(
+    mut writer: Box<dyn AsyncWrite + Send + Unpin>,
+    mut lines: mpsc::UnboundedReceiver<Vec<u8>>,
+) {
+    while let Some(line) = lines.recv().await {
+        if let Err(error) = writer.write_all(&line).await {
+            tracing::debug!(target: "goodfetch::client", %error, "the Connection's output closed");
+            return;
+        }
+        if let Err(error) = writer.flush().await {
+            tracing::debug!(target: "goodfetch::client", %error, "the Connection's output closed");
+            return;
+        }
+    }
+    if let Err(error) = writer.shutdown().await {
+        tracing::debug!(target: "goodfetch::client", %error, "the Connection's output was already closed");
+    }
+}
+
+/// A call in flight.
+struct Pending {
+    reply: oneshot::Sender<Result<Value, Error>>,
+    deadline: Option<Key>,
+}
+
+/// Sends calls, matches replies and deadlines to them, and fails what is
+/// left as closed when the Connection ends, by `close()`, by every handle
+/// dropped or by the engine closing its output.
+async fn correlate(
+    reader: Box<dyn AsyncRead + Send + Unpin>,
+    mut commands: mpsc::UnboundedReceiver<Command>,
+    lines: mpsc::UnboundedSender<Vec<u8>>,
+) {
+    let mut input = BufReader::new(reader).lines();
+    let mut pending: BTreeMap<i64, Pending> = BTreeMap::new();
+    let mut deadlines: DelayQueue<i64> = DelayQueue::new();
+    let mut next_id: i64 = 0;
+    loop {
+        tokio::select! {
+            command = commands.recv() => match command {
+                Some(Command::Call(call)) => {
+                    next_id += 1;
+                    let id = next_id;
+                    let request = Request {
+                        jsonrpc: Version,
+                        id: RequestId::Number(id),
+                        method: call.method,
+                        params: Some(call.params),
+                    };
+                    let mut line = match serde_json::to_vec(&request) {
+                        Ok(line) => line,
+                        Err(error) => {
+                            let _gone = call.reply.send(Err(Error::Shape(error)));
+                            continue;
+                        }
+                    };
+                    line.push(b'\n');
+                    if lines.send(line).is_err() {
+                        let _gone = call.reply.send(Err(Error::Closed));
+                        continue;
+                    }
+                    let deadline = call.timeout.map(|timeout| deadlines.insert(id, timeout));
+                    pending.insert(id, Pending { reply: call.reply, deadline });
+                }
+                Some(Command::Close) | None => break,
+            },
+            Some(expired) = poll_fn(|context| deadlines.poll_expired(context)) => {
+                let id = expired.into_inner();
+                if let Some(call) = pending.remove(&id) {
+                    tracing::debug!(target: "goodfetch::client", id, "a call timed out");
+                    let _gone = call.reply.send(Err(Error::TimedOut));
+                }
+            }
+            line = input.next_line() => match line {
+                Ok(Some(line)) => answer(&line, &mut pending, &mut deadlines),
+                Ok(None) => {
+                    tracing::debug!(target: "goodfetch::client", "the engine closed the Connection");
+                    break;
+                }
+                Err(error) => {
+                    tracing::debug!(target: "goodfetch::client", %error, "the Connection's input failed");
+                    break;
+                }
+            },
+        }
+    }
+    commands.close();
+    while let Ok(command) = commands.try_recv() {
+        if let Command::Call(call) = command {
+            let _gone = call.reply.send(Err(Error::Closed));
+        }
+    }
+    for call in std::mem::take(&mut pending).into_values() {
+        let _gone = call.reply.send(Err(Error::Closed));
+    }
+}
+
+/// Resolves the call `line` answers; a reply to no call in flight, late
+/// past its timeout or never asked, changes nothing.
+fn answer(line: &str, pending: &mut BTreeMap<i64, Pending>, deadlines: &mut DelayQueue<i64>) {
+    let (id, outcome) = match serde_json::from_str::<Message>(line) {
+        Ok(Message::Response(response)) => (Some(response.id), Ok(response.result)),
+        Ok(Message::Error(failure)) => (failure.id, Err(Error::Failed(Box::new(failure.error)))),
+        Ok(Message::Notification(notification)) => {
+            tracing::trace!(target: "goodfetch::client", method = %notification.method, "a notification no one awaits");
+            return;
+        }
+        Ok(Message::Request(request)) => {
+            tracing::debug!(target: "goodfetch::client", method = %request.method, "the engine sent a request, which a Client never takes");
+            return;
+        }
+        Err(error) => {
+            tracing::warn!(target: "goodfetch::client", %error, "the engine sent a line that is no message");
+            return;
+        }
+    };
+    let Some(RequestId::Number(id)) = id else {
+        tracing::debug!(target: "goodfetch::client", "a reply to no call of this Connection");
+        return;
+    };
+    let Some(call) = pending.remove(&id) else {
+        tracing::debug!(target: "goodfetch::client", id, "a reply to a call no longer in flight");
+        return;
+    };
+    if let Some(key) = call.deadline {
+        deadlines.remove(&key);
+    }
+    let _gone = call.reply.send(outcome);
+}

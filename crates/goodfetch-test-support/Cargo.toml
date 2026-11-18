@@ -8,7 +8,8 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
-# Values only: no Goodfetch crate, not even in its own tests (ADR 0062).
+# Values only: no Goodfetch crate but `goodfetch-runtime`, which builds its
+# runtimes, not even in its own tests (ADR 0062).
 [dependencies]
 assert_cmd.workspace = true
 chacha20.workspace = true
@@ -51,6 +52,8 @@ tungstenite.workspace = true
 # `JourneyRun` submits a tool's result to the Proving ground's oracle, and
 # `Canaries` plants and reads Secret canaries through it.
 ureq.workspace = true
+# Builds its runtimes (ADR 0081).
+goodfetch-runtime.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 # `NoExec`'s seccomp filter and its child's start (ADR 0067), and the

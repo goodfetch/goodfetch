@@ -1,0 +1,33 @@
+[package]
+name = "goodfetch-collie-client"
+description = "Collie's client crate (spec #606, ADR 0095): the Connection to an engine, its transport and the call builders, with no engine; the SDK crates build on it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# No SDK crate and no Foxhound crate (ADR 0095): `goodfetch-collie` and
+# `goodfetch-foxhound` take this one.
+[dependencies]
+goodfetch-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
+tokio-util = { workspace = true, features = ["rt", "time"] }
+tracing.workspace = true
+goodfetch-workspace-hack.workspace = true
+
+[dev-dependencies]
+# A Collie engine with only the engine's own operations, over area 3's
+# in-memory network (ADR 0060).
+goodfetch-engine.workspace = true
+goodfetch-runtime.workspace = true
+goodfetch-test-support.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+[lints]
+workspace = true

@@ -130,7 +130,7 @@ describe("Limits in code on the Scripted engine as the Attached engine", () => {
       await collie.close();
 
       await clientCase.check("each start below or at the Limit resumed the Run", () =>
-        expect(startedAs).toEqual(["new", "existing", "existing"]),
+        expect(startedAs).toEqual(["new", "resumed", "resumed"]),
       );
       await clientCase.check("a start above it fails with limit_raise_refused", () => {
         expect(raised).toBeInstanceOf(LimitRaiseRefusedError);
@@ -216,7 +216,7 @@ describe("Limits in code on an Attached engine", () => {
       const raised = await failure(collie.start({ runId: "resumed", limits: { requests: 8 } }));
 
       expect({ startedAs, raised }).toMatchObject({
-        startedAs: ["new", "existing", "existing"],
+        startedAs: ["new", "resumed", "resumed"],
         raised: { code: "limit_raise_refused", details: { usage_kind: "requests", given: 8 } },
       });
     },

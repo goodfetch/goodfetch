@@ -105,7 +105,7 @@
           "run_id": "nightly",
           "lifecycle": "running",
           "needs": "collie",
-          "started_as": "existing"
+          "started_as": "resumed"
         }
       }
     },
@@ -168,7 +168,7 @@
           "run_id": "nightly",
           "lifecycle": "running",
           "needs": "collie",
-          "started_as": "existing"
+          "started_as": "resumed"
         }
       }
     },

@@ -23,6 +23,8 @@ use tokio_util::time::DelayQueue;
 use tokio_util::time::delay_queue::Key;
 
 use crate::error::Error;
+use crate::handler::Streams;
+use crate::line;
 use crate::transport::Link;
 
 /// What a call's caller hands the Connection's tasks.
@@ -96,13 +98,18 @@ impl Sender {
 }
 
 /// Starts the Connection's tasks over `link` on `runtime`, tracked by
-/// `tracker`.
-pub(crate) fn start(link: Link, runtime: &Handle, tracker: &TaskTracker) -> Sender {
+/// `tracker`; the engine's requests go to `streams`.
+pub(crate) fn start(
+    link: Link,
+    runtime: &Handle,
+    tracker: &TaskTracker,
+    streams: Streams,
+) -> Sender {
     let (reader, writer) = link.split();
     let (commands, commands_in) = mpsc::unbounded_channel();
     let (lines, lines_in) = mpsc::unbounded_channel();
     tracker.spawn_on(write(writer, lines_in), runtime);
-    tracker.spawn_on(correlate(reader, commands_in, lines), runtime);
+    tracker.spawn_on(correlate(reader, commands_in, lines, streams), runtime);
     Sender(commands)
 }
 
@@ -134,13 +141,15 @@ struct Pending {
     notified: Option<mpsc::Sender<Heard>>,
 }
 
-/// Sends calls, matches replies and deadlines to them, and fails what is
-/// left as closed when the Connection ends, by `close()`, by every handle
-/// dropped or by the engine closing its output.
+/// Sends calls, matches replies and deadlines to them, hands the engine's
+/// requests to `streams`, and fails what is left as closed when the
+/// Connection ends, by `close()`, by every handle dropped or by the engine
+/// closing its output, which also ends the streams.
 async fn correlate(
     reader: Box<dyn AsyncRead + Send + Unpin>,
     mut commands: mpsc::UnboundedReceiver<Command>,
     lines: mpsc::UnboundedSender<Vec<u8>>,
+    streams: Streams,
 ) {
     let mut input = BufReader::new(reader).lines();
     let mut pending: BTreeMap<i64, Pending> = BTreeMap::new();
@@ -158,14 +167,13 @@ async fn correlate(
                         method: call.method,
                         params: Some(call.params),
                     };
-                    let mut line = match serde_json::to_vec(&request) {
+                    let line = match line::encode(&request) {
                         Ok(line) => line,
                         Err(error) => {
                             let _gone = call.reply.send(Err(Error::Shape(error)));
                             continue;
                         }
                     };
-                    line.push(b'\n');
                     if lines.send(line).is_err() {
                         let _gone = call.reply.send(Err(Error::Closed));
                         continue;
@@ -194,7 +202,7 @@ async fn correlate(
                 }
             }
             line = input.next_line() => match line {
-                Ok(Some(line)) => answer(&line, &mut pending, &mut deadlines),
+                Ok(Some(line)) => answer(&line, &mut pending, &mut deadlines, &streams, &lines),
                 Ok(None) => {
                     tracing::debug!(target: "goodfetch::client", "the engine closed the Connection");
                     break;
@@ -206,6 +214,7 @@ async fn correlate(
             },
         }
     }
+    streams.end();
     commands.close();
     while let Ok(command) = commands.try_recv() {
         if let Command::Call(call) = command {
@@ -217,9 +226,16 @@ async fn correlate(
     }
 }
 
-/// Resolves the call `line` answers; a reply to no call in flight, late
-/// past its timeout or never asked, changes nothing.
-fn answer(line: &str, pending: &mut BTreeMap<i64, Pending>, deadlines: &mut DelayQueue<i64>) {
+/// Resolves the call `line` answers, or hands the engine's request `line`
+/// is to `streams`, whose answers go out through `lines`; a reply to no
+/// call in flight, late past its timeout or never asked, changes nothing.
+fn answer(
+    line: &str,
+    pending: &mut BTreeMap<i64, Pending>,
+    deadlines: &mut DelayQueue<i64>,
+    streams: &Streams,
+    lines: &mpsc::UnboundedSender<Vec<u8>>,
+) {
     let (id, outcome) = match serde_json::from_str::<Message>(line) {
         Ok(Message::Response(response)) => (Some(response.id), Ok(response.result)),
         Ok(Message::Error(failure)) => (failure.id, Err(Error::Failed(Box::new(failure.error)))),
@@ -228,7 +244,7 @@ fn answer(line: &str, pending: &mut BTreeMap<i64, Pending>, deadlines: &mut Dela
             return;
         }
         Ok(Message::Request(request)) => {
-            tracing::debug!(target: "goodfetch::client", method = %request.method, "the engine sent a request, which a Client never takes");
+            streams.hand(request, lines);
             return;
         }
         Err(error) => {

@@ -10,3 +10,4 @@ mod connection;
 #[cfg(unix)]
 mod daemon;
 mod file_saving;
+mod handler_requests;

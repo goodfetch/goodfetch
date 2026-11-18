@@ -895,9 +895,10 @@ fn each_sdk_layer_is_generated_as_its_snapshot(#[case] folder: &str) {
 
 /// A name no SDK can spell by its one rule is refused, so the catalog
 /// renames the entry for every surface and no language needs an alias
-/// (ADRs 0079 and 0099): a member TypeScript gives meaning on every value,
-/// `call`, which is every handle's raw call, and an error class that would
-/// shadow a built-in one.
+/// (ADRs 0079 and 0099): a member TypeScript, Python or every Rust handle
+/// gives meaning on every value, `call`, which is every handle's raw call, a
+/// name Rust cannot make raw, and an error class that would shadow a
+/// built-in one.
 ///
 /// Covers: story:11-176
 #[rstest]
@@ -912,6 +913,24 @@ fn each_sdk_layer_is_generated_as_its_snapshot(#[case] folder: &str) {
     "name: \"put\"",
     "name: \"then\"",
     "Plugin kind method `sample_store.then`"
+)]
+#[case::python_dunder(
+    "\"sample.echo\"",
+    "\"sample.__init__\"",
+    "operation `sample.__init__`"
+)]
+#[case::rust_self("\"sample.echo\"", "\"sample.self\"", "operation `sample.self`")]
+#[case::rust_super("\"sample.echo\"", "\"sample.super\"", "operation `sample.super`")]
+#[case::rust_crate("\"sample.echo\"", "\"sample.crate\"", "operation `sample.crate`")]
+#[case::rust_self_type("\"sample.echoed\"", "\"sample.self\"", "event `sample.self`")]
+#[case::rust_clone("\"sample.echo\"", "\"sample.clone\"", "operation `sample.clone`")]
+#[case::rust_eq("\"sample.echo\"", "\"sample.eq\"", "operation `sample.eq`")]
+#[case::rust_fmt("\"sample.echo\"", "\"sample.fmt\"", "operation `sample.fmt`")]
+#[case::rust_hash("\"sample.echo\"", "\"sample.hash\"", "operation `sample.hash`")]
+#[case::plugin_method_clone(
+    "name: \"put\"",
+    "name: \"clone\"",
+    "Plugin kind method `sample_store.clone`"
 )]
 #[case::timeout_error("\"sample_refused\"", "\"timeout\"", "Error code `timeout`")]
 #[case::connection_error("\"sample_refused\"", "\"connection\"", "Error code `connection`")]
@@ -1004,6 +1023,109 @@ fn the_typescript_layer_holds_no_alias(
         .collect();
 
     assert_eq!((senders, renamed), (vec![], vec![]));
+}
+
+/// No entry has a second name in Python (ADR 0099): each operation is sent
+/// by one member of each class of its layer, the async one and its sync
+/// twin, and a module imports another Product's entry
+/// under a second name only to widen its own entry of the first name.
+///
+/// Covers: story:11-176
+#[rstest]
+#[case::collie_client(
+    "sdks/python/collie-client/src/goodfetch_collie_client/generated",
+    "crates/goodfetch-protocol/generated/collie.json",
+    "collie"
+)]
+#[case::foxhound(
+    "sdks/python/foxhound/src/goodfetch_foxhound/generated",
+    "crates/goodfetch-protocol/generated/foxhound.json",
+    "foxhound"
+)]
+fn the_python_layer_holds_no_alias(
+    #[case] folder: &str,
+    #[case] projection: &str,
+    #[case] product: &str,
+) {
+    let workspace = Workspace::from_fixture("codegen");
+    codegen(&workspace);
+    let projection: Value = serde_json::from_str(&workspace.read_text(projection)).unwrap();
+    let operations = workspace.read_text(&format!("{folder}/operations.py"));
+    let classes: Vec<&str> = operations
+        .split("\nclass ")
+        .filter(|class| class.contains("self._caller.call("))
+        .collect();
+
+    let senders: Vec<(String, Vec<usize>)> = names_and_products(&projection, "operations")
+        .into_iter()
+        .filter(|(_, entry_product)| entry_product == product)
+        .map(|(name, _)| {
+            let sent = classes
+                .iter()
+                .map(|class| {
+                    class
+                        .matches(&format!("self._caller.call({name:?},"))
+                        .count()
+                })
+                .collect();
+            (name, sent)
+        })
+        .filter(|(_, sent): &(String, Vec<usize>)| sent.iter().any(|count| *count != 1))
+        .collect();
+    let renamed: Vec<(String, String)> = generated_files(&workspace)
+        .into_iter()
+        .filter(|(path, _)| path.starts_with(folder))
+        .flat_map(|(path, contents)| {
+            let imported: Vec<(String, String)> = contents
+                .lines()
+                .filter_map(|line| line.strip_prefix("from ")?.split_once(" import "))
+                .flat_map(|(_, names)| names.split(", "))
+                .filter_map(|name| name.split_once(" as "))
+                .map(|(first, second)| (first.to_owned(), second.to_owned()))
+                .collect();
+            imported
+                .into_iter()
+                .filter(|(first, second)| {
+                    first != second
+                        && !contents.contains(&format!("\n{first}: TypeAlias = {second} | "))
+                })
+                .map(|(first, second)| (path.clone(), format!("{first} as {second}")))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    assert_eq!((senders, renamed), (vec![], vec![]));
+}
+
+/// No generated Rust file gives an item a second name (ADR 0099).
+///
+/// Covers: story:11-176
+#[test]
+fn the_generated_rust_holds_no_alias() {
+    let workspace = Workspace::from_fixture("codegen");
+    codegen(&workspace);
+
+    let renamed: Vec<(String, String)> = generated_files(&workspace)
+        .into_iter()
+        .filter(|(path, _)| {
+            std::path::Path::new(path)
+                .extension()
+                .is_some_and(|extension| extension == "rs")
+        })
+        .flat_map(|(path, contents)| {
+            contents
+                .lines()
+                .map(str::trim_start)
+                .filter(|line| {
+                    (line.starts_with("pub use ") && line.contains(" as "))
+                        || line.starts_with("pub type ")
+                })
+                .map(|line| (path.clone(), line.to_owned()))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    assert_eq!(renamed, vec![]);
 }
 
 const EMIT: &str = "crates/goodfetch-protocol/src/emit.rs";

@@ -985,7 +985,7 @@ impl PageContext {
         let relay = self.driver.relay()?;
         let parsed = url::Url::parse(url).ok()?;
         let host = parsed.host_str()?.to_ascii_lowercase();
-        if !matches!(parsed.scheme(), "https" | "wss") || !relay.terminates(&host) {
+        if !matches!(parsed.scheme(), "https" | "wss") || !relay.excepts(&host) {
             return None;
         }
         let cookies = match self
@@ -999,7 +999,7 @@ impl PageContext {
             Err(failure) => {
                 tracing::debug!(
                     ?failure,
-                    "the browser named no cookies, so the request to a terminated host is failed"
+                    "the browser named no cookies, so the request to an exception host is failed"
                 );
                 return Some(gone(url));
             }

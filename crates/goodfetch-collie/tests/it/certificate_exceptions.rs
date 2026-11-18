@@ -436,6 +436,59 @@ fn the_exception_hosts_own_host_only_cookie_is_withheld_too() {
     assert_eq!(over_tls, Vec::<String>::new());
 }
 
+/// A Session cookie goes to a host the Run trusts an authority for and
+/// lists no exception for (#2653): the engine verifies the host's chain
+/// under the user's own authority, so the host is the site the user named,
+/// and only an invalid-certificate exception withholds cookies (ADR 0042),
+/// as the relay and a `browser_fetch` hop already send them. The host's
+/// own cookie, set on its first page, rides the next navigation to it.
+///
+/// Covers: story:4-39, setting:tls.trusted_cas, operation:page.goto
+#[test]
+fn a_session_cookie_goes_to_a_host_trusted_only_through_its_authority() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let host = "fetch-edge.test";
+    let ca = proving_ground.description().ca.display().to_string();
+    env.user_configuration(&format!(
+        "tls.trusted_cas = {{ \"{host}\" = [{}] }}\n",
+        json!(ca)
+    ));
+    let mut program = started(&env, &proving_ground, "trusted-cookie", &json!({}), &[]);
+    let page = program.new_page("trusted-cookie");
+    let target = secure(&proving_ground, host, "/target");
+
+    let opened = reached(&program.goto(&page, &target));
+    let set = program.call(
+        "page.evaluate",
+        &json!({ "page_id": page, "function": "() => { document.cookie = 'login=trusted-value; Path=/'; return document.cookie; }" }),
+    );
+    let again = program.goto(&page, &target);
+    program.finish("trusted-cookie");
+
+    assert_eq!(
+        (opened, &set["result"]["value"], reached(&again)),
+        (json!(200), &json!("login=trusted-value"), json!(200)),
+        "{again}"
+    );
+    let carried: Vec<Vec<(String, String)>> = proving_ground
+        .received_requests()
+        .unwrap()
+        .every()
+        .filter(|request| {
+            request.host.starts_with(host) && request.tls.is_some() && request.target == "/target"
+        })
+        .map(|request| request.cookies.clone())
+        .collect();
+    assert_eq!(
+        carried,
+        vec![
+            vec![],
+            vec![("login".to_owned(), "trusted-value".to_owned())]
+        ]
+    );
+}
+
 /// A host the relay only tunnels, its certificate refused by Chromium
 /// itself, is `certificate_invalid` too, and the site sees one TLS
 /// fingerprint, the browser's (ADR 0042): the relay's own look at the

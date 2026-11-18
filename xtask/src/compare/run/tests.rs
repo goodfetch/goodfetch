@@ -539,6 +539,22 @@ fn a_run_of_named_cells_runs_every_part_of_a_whole_run() {
     );
 }
 
+/// A fresh run limited to the cells `--cell` names records them in its
+/// trials file, so its report counts those cells' trials alone (#2742).
+#[test]
+fn a_run_of_named_cells_records_them_in_its_trials_file() {
+    let (named, _) = handed_over(Vec::new(), &["raw/foxhound", "raw/spider"]);
+    let (whole, _) = handed_over(Vec::new(), &[]);
+
+    assert_eq!(
+        (named.unwrap().declared.cells, whole.unwrap().declared.cells),
+        (
+            vec!["raw/foxhound".to_owned(), "raw/spider".to_owned()],
+            Vec::new()
+        )
+    );
+}
+
 /// A run whose tool cannot start fails in the pre-flight, before its first
 /// timed trial and before it hands over any trials (#2521: a Callgrind run
 /// failed hours in, after 220 timed trials and 207 strace runs).

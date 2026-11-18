@@ -1453,7 +1453,7 @@
     {
       "id": "error:label_duplicate",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1463,7 +1463,7 @@
     {
       "id": "error:label_unhandled",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1473,7 +1473,7 @@
     {
       "id": "error:label_unknown",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

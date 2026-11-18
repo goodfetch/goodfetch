@@ -930,6 +930,11 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "launch": {
+                "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "navigation": {
                 "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
                 "minimum": 0,
@@ -1873,9 +1878,18 @@
             "additionalProperties": false,
             "properties": {
               "blocking_threads": {
-                "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: 4, a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
-                "minimum": 1,
-                "type": "integer"
+                "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: `per_core` for one a core, or a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
+                "oneOf": [
+                  {
+                    "description": "This many threads.",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "const": "per_core",
+                    "description": "One thread a core."
+                  }
+                ]
               },
               "browser": {
                 "additionalProperties": false,
@@ -2012,13 +2026,13 @@
                 "description": "How many worker threads run the engine's async tasks: 2, a whole number of at least 1, or `per_core` for one a core. A crawl's parsing runs on threads of its own, one a core at most, so few workers keep its memory low without slowing it. Read once, when the engine starts.",
                 "oneOf": [
                   {
-                    "description": "This many worker threads.",
+                    "description": "This many threads.",
                     "minimum": 1,
                     "type": "integer"
                   },
                   {
                     "const": "per_core",
-                    "description": "One worker thread a core."
+                    "description": "One thread a core."
                   }
                 ]
               }
@@ -3730,6 +3744,11 @@
               },
               "hello": {
                 "description": "How long a Connection to a listener that takes a token, a Daemon's or an Attached engine's private endpoint, may take to send its complete `hello`, from its accept: 5 s. One that has not by then is closed unanswered, and the refusal logged and recorded as `hello_timed_out`. An Attached engine's stdio takes no token and has no such deadline. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "launch": {
+                "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -4792,9 +4811,18 @@
             "additionalProperties": false,
             "properties": {
               "blocking_threads": {
-                "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: 4, a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
-                "minimum": 1,
-                "type": "integer"
+                "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: `per_core` for one a core, or a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
+                "oneOf": [
+                  {
+                    "description": "This many threads.",
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "const": "per_core",
+                    "description": "One thread a core."
+                  }
+                ]
               },
               "browser": {
                 "additionalProperties": false,
@@ -4931,13 +4959,13 @@
                 "description": "How many worker threads run the engine's async tasks: 2, a whole number of at least 1, or `per_core` for one a core. A crawl's parsing runs on threads of its own, one a core at most, so few workers keep its memory low without slowing it. Read once, when the engine starts.",
                 "oneOf": [
                   {
-                    "description": "This many worker threads.",
+                    "description": "This many threads.",
                     "minimum": 1,
                     "type": "integer"
                   },
                   {
                     "const": "per_core",
-                    "description": "One worker thread a core."
+                    "description": "One thread a core."
                   }
                 ]
               }
@@ -6649,6 +6677,11 @@
               },
               "hello": {
                 "description": "How long a Connection to a listener that takes a token, a Daemon's or an Attached engine's private endpoint, may take to send its complete `hello`, from its accept: 5 s. One that has not by then is closed unanswered, and the refusal logged and recorded as `hello_timed_out`. An Attached engine's stdio takes no token and has no such deadline. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "launch": {
+                "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
                 "minimum": 0,
                 "type": "integer"
               },

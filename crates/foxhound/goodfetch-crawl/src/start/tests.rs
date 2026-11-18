@@ -1701,7 +1701,7 @@ fn transport_on_a_pool_that_holds_a_login_is_refused_at_the_runs_start(
         ),
         (
             json!(["setting_locked", "fetch.http_from", "run"]),
-            &json!({ "key": "session.source", "value": shop(), "layer": "run" }),
+            &json!({ "key": "session.source", "value": shop(), "layer": "run", "origin": "settings" }),
             true,
         ),
         "{refused}"

@@ -458,7 +458,7 @@ fn a_domain_at_its_concurrency_holds_its_due_requests_under_domain_concurrency()
             "reason": "domain_concurrency",
             "count": 1,
             "domains": [{ "domain": "shop.test" }],
-            "setting": { "key": "politeness.domain.concurrency", "value": 1, "layer": "run" },
+            "setting": { "key": "politeness.domain.concurrency", "value": 1, "layer": "run", "origin": "settings" },
         })
     );
 }
@@ -509,7 +509,7 @@ fn a_domain_within_its_delay_holds_its_next_request_under_domain_delay_until_it_
             "reason": "domain_delay",
             "count": 1,
             "domains": [{ "domain": "shop.test", "next_admitted_at": "2026-01-05T10:00:00Z" }],
-            "setting": { "key": "politeness.domain.delay", "value": 3_600_000, "layer": "run" },
+            "setting": { "key": "politeness.domain.delay", "value": 3_600_000, "layer": "run", "origin": "settings" },
         })
     );
 }
@@ -580,7 +580,7 @@ fn a_due_request_waits_under_handler_concurrency_while_the_handlers_are_busy() {
             "reason": "handler_concurrency",
             "count": 1,
             "domains": [{ "domain": "b.test" }],
-            "setting": { "key": "crawl.handler.concurrency", "value": 1, "layer": "run" },
+            "setting": { "key": "crawl.handler.concurrency", "value": 1, "layer": "run", "origin": "settings" },
         })
     );
 }

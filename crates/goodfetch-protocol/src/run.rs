@@ -662,7 +662,7 @@ pub struct RunFinishParams {
     /// call fails with `deadline_exceeded` and only the wait ends.
     #[serde(
         default,
-        deserialize_with = "crate::page::present",
+        deserialize_with = "crate::settings::present",
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.run"))]
@@ -683,7 +683,7 @@ pub struct RunStopParams {
     /// Run still stops at its next safe point.
     #[serde(
         default,
-        deserialize_with = "crate::page::present",
+        deserialize_with = "crate::settings::present",
         skip_serializing_if = "Option::is_none"
     )]
     #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.close"))]

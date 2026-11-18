@@ -82,7 +82,6 @@ export function timeoutOf<Timeout extends number | null | undefined>(
         layer: "run",
         reason,
         limit: { key: setting, value: timeout, layer: "run", origin: "argument" },
-        fix: TIMEOUT_FIX,
       },
     },
   );

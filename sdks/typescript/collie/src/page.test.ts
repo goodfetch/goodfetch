@@ -107,11 +107,11 @@ describe("a Run's page", () => {
       expect(navigation).toMatchObject({
         code: "setting_invalid",
         group: "program",
+        fix: expect.stringContaining("`timeout: null`"),
         details: {
           key: "timeout.navigation",
           layer: "run",
           limit: { key: "timeout.navigation", layer: "run", origin: "argument" },
-          fix: expect.stringContaining("`timeout: null`"),
         },
       });
       await page.close();

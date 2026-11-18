@@ -114,14 +114,17 @@ fn a_timeout_no_layer_set_takes_its_declared_default() {
 
 /// A call's own `timeout` (ADR 0080): absent, the scope's deadline; `null`,
 /// none; a count of milliseconds, that setting at the run layer.
-/// Covers: setting:timeout.navigation
+/// Covers: story:11-40, setting:timeout.navigation
 #[rstest::rstest]
-#[case::absent(None, Some((60_000, SettingsLayer::UserConfiguration)))]
+#[case::absent(None, Some((60_000, SettingsLayer::UserConfiguration, None)))]
 #[case::null(Some(None), None)]
-#[case::given(Some(Some(500)), Some((500, SettingsLayer::Run)))]
+#[case::given(
+    Some(Some(500)),
+    Some((500, SettingsLayer::Run, Some(RunOrigin::Argument)))
+)]
 fn a_calls_own_timeout_replaces_its_scopes_deadline(
     #[case] timeout: Option<Option<u64>>,
-    #[case] expected: Option<(u64, SettingsLayer)>,
+    #[case] expected: Option<(u64, SettingsLayer, Option<RunOrigin>)>,
 ) {
     let settings = settings(json!({ "timeout": { "navigation": 60_000 } }));
     let scope = Deadline::of(&settings, &TIMEOUT_NAVIGATION).unwrap();
@@ -130,11 +133,11 @@ fn a_calls_own_timeout_replaces_its_scopes_deadline(
 
     assert_eq!(
         deadline.map(|deadline| deadline.limit().clone()),
-        expected.map(|(value, layer)| SettingLimit {
+        expected.map(|(value, layer, origin)| SettingLimit {
             key: "timeout.navigation".to_owned(),
             value: json!(value),
             layer,
-            origin: (layer == SettingsLayer::Run).then_some(RunOrigin::Argument),
+            origin,
         })
     );
 }

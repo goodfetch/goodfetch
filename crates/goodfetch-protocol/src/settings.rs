@@ -36,6 +36,20 @@ pub use deployment::{
     TOKEN_VARIABLE, URL_VARIABLE,
 };
 
+/// A field that is present, `null` included, as `Some`; one left out stays
+/// `None` through `#[serde(default)]`.
+#[expect(
+    clippy::option_option,
+    reason = "three states (ADRs 0080 and 0083): left out inherits, `null` clears, a value sets"
+)]
+pub(crate) fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
 /// The layers settings resolve through, lowest first (ADRs 0028 and 0083).

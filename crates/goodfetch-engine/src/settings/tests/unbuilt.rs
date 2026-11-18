@@ -192,55 +192,51 @@ fn a_scope_beneath_a_run_that_sets_an_unbuilt_setting_is_refused() {
 /// Covers: story:11-41, setting:timeout.hook, setting:timeout.sink_write,
 /// setting:timeout.agent, setting:timeout.ai, setting:timeout.model,
 /// setting:timeout.human_pause
-#[test]
-fn each_unbuilt_phase_timeout_shows_its_default_and_is_refused_away_from_it() {
-    let phases = [
-        ("hook", 10_000, "hooks"),
-        ("sink_write", 30_000, "sinks"),
-        ("agent", 600_000, "agent"),
-        ("ai", 120_000, "ai_verbs"),
-        ("model", 60_000, "model_calls"),
-        ("human_pause", 86_400_000, "human_pause"),
-    ];
+#[rstest::rstest]
+#[case::hook("hook", "timeout.hook", 10_000, "hooks")]
+#[case::sink_write("sink_write", "timeout.sink_write", 30_000, "sinks")]
+#[case::agent("agent", "timeout.agent", 600_000, "agent")]
+#[case::ai("ai", "timeout.ai", 120_000, "ai_verbs")]
+#[case::model("model", "timeout.model", 60_000, "model_calls")]
+#[case::human_pause("human_pause", "timeout.human_pause", 86_400_000, "human_pause")]
+fn each_unbuilt_phase_timeout_shows_its_default_and_is_refused_away_from_it(
+    #[case] phase: &str,
+    #[case] key: &str,
+    #[case] default_millis: u64,
+    #[case] feature: &str,
+) {
     let defaults = resolve(&Layers::default(), Product::Collie, Product::Collie).unwrap();
     let explained = defaults.explain(&["timeout".to_owned()], Vec::new());
-    let shown = |key: &str| {
-        explained
-            .settings
-            .iter()
-            .find(|setting| setting.key == key)
-            .map(|setting| (setting.value.clone(), setting.layer))
+    let shown = explained
+        .settings
+        .iter()
+        .find(|setting| setting.key == key)
+        .map(|setting| (setting.value.clone(), setting.layer));
+    let serde_json::Value::Object(set) = json!({ "timeout": { phase: default_millis + 1 } }) else {
+        unreachable!("a table")
     };
-    let set_away = |phase: &str, millis: u64| {
-        let serde_json::Value::Object(set) = json!({ "timeout": { phase: millis + 1 } }) else {
-            unreachable!("a table")
-        };
-        let layers = Layers {
-            run: Values::read(SettingsLayer::Run, &set, Product::Collie).unwrap(),
-            ..Layers::default()
-        };
-        match resolve(&layers, Product::Collie, Product::Collie)
-            .and_then(|resolved| resolved.refuse_unbuilt())
-        {
-            Err(SettingsError::Unavailable {
-                key,
-                layer,
-                feature,
-                ..
-            }) => Some((key, layer, feature)),
-            _ => None,
-        }
+    let layers = Layers {
+        run: Values::read(SettingsLayer::Run, &set, Product::Collie).unwrap(),
+        ..Layers::default()
     };
 
-    for (phase, millis, feature) in phases {
-        let key = format!("timeout.{phase}");
-        assert_eq!(
-            (shown(&key), set_away(phase, millis)),
-            (
-                Some((json!(millis), SettingsLayer::Default)),
-                Some((key.clone(), SettingsLayer::Run, feature.to_owned()))
-            ),
-            "{key}"
-        );
-    }
+    let set_away = match resolve(&layers, Product::Collie, Product::Collie)
+        .and_then(|resolved| resolved.refuse_unbuilt())
+    {
+        Err(SettingsError::Unavailable {
+            key,
+            layer,
+            feature,
+            ..
+        }) => Some((key, layer, feature)),
+        _ => None,
+    };
+
+    assert_eq!(
+        (shown, set_away),
+        (
+            Some((json!(default_millis), SettingsLayer::Default)),
+            Some((key.to_owned(), SettingsLayer::Run, feature.to_owned()))
+        )
+    );
 }

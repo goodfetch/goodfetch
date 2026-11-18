@@ -135,18 +135,16 @@ fn the_members_generated_from_the_catalog_reach_the_engine() {
 }
 
 /// A call's `Duration::ZERO` is refused with `setting_invalid` naming the
-/// setting it would set, given as an argument, and the null form, and the
-/// Run goes on; `.no_timeout()` then waits with none (ADR 0080).
-/// Covers: story:11-40, story:11-42, error:setting_invalid, setting:timeout.close, operation:run.stop
+/// setting it would set, given as an argument, and the null form (ADR 0080).
+/// Covers: story:11-42, error:setting_invalid, setting:timeout.close, operation:run.stop
 #[test]
-fn a_zero_duration_is_refused_naming_the_null_form_and_no_timeout_waits_with_none() {
+fn a_zero_duration_is_refused_naming_the_setting_and_the_null_form() {
     let env = TestEnv::new();
     real_time_runtime().block_on(async {
         let collie = Collie::connect(options(&env)).await.unwrap();
         let run = collie.start().await.unwrap();
 
         let refused = run.stop().timeout(Duration::ZERO).await;
-        let stopped = run.stop().no_timeout().await.unwrap();
         collie.close().await.unwrap();
 
         let Err(Error::Failed(failure)) = refused else {
@@ -166,6 +164,22 @@ fn a_zero_duration_is_refused_naming_the_null_form_and_no_timeout_waits_with_non
                 true,
             )
         );
+    });
+}
+
+/// `.no_timeout()` sends `null`: the call waits with no deadline of its
+/// own, in place of the Run's `timeout.close` (ADR 0080).
+/// Covers: story:11-40, setting:timeout.close, operation:run.stop
+#[test]
+fn no_timeout_waits_for_the_stop_with_no_deadline() {
+    let env = TestEnv::new();
+    real_time_runtime().block_on(async {
+        let collie = Collie::connect(options(&env)).await.unwrap();
+        let run = collie.start().await.unwrap();
+
+        let stopped = run.stop().no_timeout().await.unwrap();
+        collie.close().await.unwrap();
+
         assert_eq!(stopped.lifecycle, Lifecycle::Stopped);
     });
 }

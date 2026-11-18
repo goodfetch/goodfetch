@@ -315,7 +315,7 @@ fn signal(signal: &str, target: &str) {
     assert!(sent.success(), "kill {signal} {target}");
 }
 
-fn gate_lock(workspace: &Workspace) -> PathBuf {
+pub(crate) fn gate_lock(workspace: &Workspace) -> PathBuf {
     workspace.path().join(".claude/worktrees/merge-gate.lock")
 }
 

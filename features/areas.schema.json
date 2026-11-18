@@ -78,6 +78,16 @@
           "const": "block-cause",
           "description": "A Block cause.",
           "type": "string"
+        },
+        {
+          "const": "mcp-profile",
+          "description": "An MCP profile.",
+          "type": "string"
+        },
+        {
+          "const": "skill",
+          "description": "An agent skill.",
+          "type": "string"
         }
       ]
     }

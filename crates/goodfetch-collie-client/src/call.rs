@@ -19,12 +19,17 @@ use crate::rpc::{Outgoing, Sender};
 /// A call's reply, as `.await` gives it.
 pub type Reply<T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'static>>;
 
+/// What a handle does with a call's reply once it has come, before the
+/// caller reads it: a Run notes that it ended.
+type OnReply<T> = Box<dyn FnOnce(&T) + Send + Sync + 'static>;
+
 /// A call that waits for its reply, `T`. Nothing is sent until it is
 /// awaited.
 #[must_use = "a call is sent only when it is awaited"]
 pub struct Call<T> {
     request: Request,
     timeout: Option<Duration>,
+    on_reply: Option<OnReply<T>>,
     reply: PhantomData<fn() -> T>,
 }
 
@@ -40,8 +45,15 @@ impl<T> Call<T> {
                 params,
             },
             timeout: None,
+            on_reply: None,
             reply: PhantomData,
         }
+    }
+
+    /// Runs `on_reply` with the call's reply once it has come.
+    pub(crate) fn on_reply(mut self, on_reply: impl FnOnce(&T) + Send + Sync + 'static) -> Self {
+        self.on_reply = Some(Box::new(on_reply));
+        self
     }
 
     /// Fails the call with [`Error::TimedOut`] if its reply has not come
@@ -63,7 +75,19 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for Call<T> {
     type IntoFuture = Reply<T>;
 
     fn into_future(self) -> Self::IntoFuture {
-        Box::pin(self.request.send(self.timeout))
+        let Self {
+            request,
+            timeout,
+            on_reply,
+            reply: _,
+        } = self;
+        Box::pin(async move {
+            let reply = request.send(timeout).await;
+            if let (Ok(value), Some(on_reply)) = (&reply, on_reply) {
+                on_reply(value);
+            }
+            reply
+        })
     }
 }
 

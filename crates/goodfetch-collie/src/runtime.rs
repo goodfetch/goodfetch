@@ -1,5 +1,5 @@
-//! The multi-thread runtimes the executable builds, the Attached engine's,
-//! the Daemon's and a command's Connection's, sized by
+//! The multi-thread runtimes the crate builds, the Attached engine's, the
+//! Daemon's, a command's Connection's and a linked engine's, sized by
 //! `governor.worker_threads` and `governor.blocking_threads`, which `main`
 //! reads once, before any of them is built (#2200). Their two kinds of
 //! threads carry names of their own, so `/proc/<pid>/task` tells Tokio's
@@ -12,7 +12,7 @@ use goodfetch_protocol::governor::{
 
 /// How many threads of each kind a runtime has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Threads {
+pub(crate) struct Threads {
     workers: WorkerThreads,
     blocking: BlockingThreadCap,
 }
@@ -20,7 +20,7 @@ pub(super) struct Threads {
 impl Threads {
     /// What the machine's `settings` set, or the catalog's defaults where
     /// they could not be read.
-    pub(super) fn of(settings: Option<&Resolved>) -> Self {
+    pub(crate) fn of(settings: Option<&Resolved>) -> Self {
         Self {
             workers: get_or_default(settings, &WORKER_THREADS),
             blocking: get_or_default(settings, &BLOCKING_THREADS),
@@ -34,7 +34,7 @@ impl Threads {
 /// # Panics
 ///
 /// If the OS refuses the runtime its threads.
-pub(super) fn multi_thread(threads: Threads) -> tokio::runtime::Runtime {
+pub(crate) fn multi_thread(threads: Threads) -> tokio::runtime::Runtime {
     let workers = match threads.workers {
         WorkerThreads::Count(count) => Some(count),
         WorkerThreads::PerCore => None,

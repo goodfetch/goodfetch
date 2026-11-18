@@ -39,9 +39,9 @@ use goodfetch_protocol::daemon::{
     DRAIN_GRACE, DaemonEndpoint, DaemonRuntimeFile, DaemonToken, IDLE_TIMEOUT,
 };
 
-use super::super::runtime;
 use super::{Failure, Machine, now_of, per_install, unavailable};
 use crate::executable::output;
+use crate::runtime;
 
 /// Starts the Daemon's process from `executable`, the versioned copy of
 /// build `build`, and waits for the runtime file it prints once ready.

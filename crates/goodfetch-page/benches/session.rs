@@ -1441,10 +1441,6 @@ fn engine(metrics: Metrics, launcher: Launcher) -> Engine {
 /// counted.
 ///
 /// `metrics` is the engine's, whose [`CountedWork`] counts it all.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a benchmark builds its own runtime, with real time as the browser's socket needs (ADR 0060); its SQL statements are its own, on no Shared path (ADR 0140)"
-)]
 pub(crate) fn counted(
     browsers: Browsers,
     home: &Path,
@@ -1463,7 +1459,7 @@ pub(crate) fn counted(
     let heard = Heard::default();
     let mut during_reads = BTreeMap::new();
     let mut by_fields = ByFields::new();
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .expect("invariant: the runtime starts");

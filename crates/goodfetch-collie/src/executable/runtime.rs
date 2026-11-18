@@ -5,18 +5,10 @@
 //! threads carry names of their own, so `/proc/<pid>/task` tells Tokio's
 //! workers from its blocking threads.
 
-use std::sync::{Arc, OnceLock};
-
 use goodfetch_engine::settings::{Resolved, get_or_default};
 use goodfetch_protocol::governor::{
     BLOCKING_THREADS, BlockingThreadCap, WORKER_THREADS, WorkerThreads,
 };
-
-/// The name of a Tokio worker thread.
-pub(super) const WORKER_THREAD: &str = "gf-worker";
-
-/// The name of a thread of Tokio's blocking pool.
-pub(super) const BLOCKING_THREAD: &str = "gf-blocking";
 
 /// How many threads of each kind a runtime has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,40 +28,20 @@ impl Threads {
     }
 }
 
-/// A multi-thread runtime with `threads`, its workers named
-/// [`WORKER_THREAD`] and its blocking threads [`BLOCKING_THREAD`].
+/// A multi-thread runtime with `threads`, its workers and its blocking
+/// threads named apart (`goodfetch-runtime`).
 ///
 /// # Panics
 ///
 /// If the OS refuses the runtime its threads.
 pub(super) fn multi_thread(threads: Threads) -> tokio::runtime::Runtime {
-    // Tokio starts each worker on a thread of its blocking pool while it
-    // builds the runtime, and names a thread when it starts it: every
-    // thread started before the runtime is built is a worker.
-    let built = Arc::new(OnceLock::new());
-    let named = Arc::clone(&built);
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "main builds the runtime (ADR 0060)"
-    )]
-    let mut builder = tokio::runtime::Builder::new_multi_thread();
-    builder
-        .enable_all()
-        .thread_name_fn(move || {
-            if named.get().is_some() {
-                BLOCKING_THREAD
-            } else {
-                WORKER_THREAD
-            }
-            .to_owned()
-        })
-        .max_blocking_threads(threads.blocking.get());
-    if let WorkerThreads::Count(count) = threads.workers {
-        builder.worker_threads(count.get());
-    }
-    let runtime = builder
-        .build()
-        .expect("invariant: the OS gives the runtime its threads");
-    let _ = built.set(());
-    runtime
+    let workers = match threads.workers {
+        WorkerThreads::Count(count) => Some(count),
+        WorkerThreads::PerCore => None,
+    };
+    goodfetch_runtime::named(goodfetch_runtime::Threads {
+        workers,
+        blocking: threads.blocking.into(),
+    })
+    .expect("invariant: the OS gives the runtime its threads")
 }

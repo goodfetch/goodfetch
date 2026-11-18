@@ -898,7 +898,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         engine_folder.join(OPERATOR_POLICY_FILE),
         "version = \"0.1\"\n",
     )?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_all()
         .start_paused(true)
         .build()?;

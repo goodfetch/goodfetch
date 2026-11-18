@@ -1,0 +1,19 @@
+[package]
+name = "goodfetch-runtime"
+description = "The one place a Goodfetch Tokio runtime is built (ADRs 0060 and 0081): each executable's main, each SDK crate's Connection and the test helpers build theirs here."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# No Goodfetch crate (`xtask dependency-direction`): every crate that builds a
+# runtime takes this one, `goodfetch-test-support` and the Proving ground
+# included.
+[dependencies]
+tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
+goodfetch-workspace-hack.workspace = true
+
+[lints]
+workspace = true

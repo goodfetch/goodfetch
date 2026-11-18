@@ -29,7 +29,7 @@ fn a_value_stored_in_the_os_keychain_resolves_through_keychain_and_once_removed_
     let owner = TaskOwner::root(BlockingPolicy::Inline);
     let service = format!("goodfetch-test-{:016x}", env.seed());
     let planted = reference(&format!("keychain:{service}/portal"));
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_all()
         .build()
         .unwrap();

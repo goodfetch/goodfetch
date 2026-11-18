@@ -99,9 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// The ALPS payload, in lowercase hex by ALPN protocol, that the browser
 /// at `executable` sends a local TLS server it is told to trust.
 fn captured(executable: &Path) -> Result<Value, Box<dyn std::error::Error>> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
+    let runtime = goodfetch_runtime::current_thread().enable_all().build()?;
     let profile = tempfile::tempdir()?;
     let settings = runtime.block_on(async {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;

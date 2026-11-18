@@ -136,6 +136,7 @@ bindgen.workspace = true
 [dev-dependencies]
 # Brotli bodies the response limits' tests decode.
 brotli.workspace = true
+goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
 # The pinned downloads' HTTPS stand-in (tests/it/downloads.rs).

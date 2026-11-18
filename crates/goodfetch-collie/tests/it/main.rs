@@ -99,6 +99,7 @@ mod proxy_limits;
 mod relay_fingerprint;
 mod request_kinds;
 mod run;
+mod rust_client;
 mod secrets;
 mod security_controls;
 mod service_manager;

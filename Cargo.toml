@@ -162,6 +162,10 @@ glob = { version = "0.3.4", default-features = false }
 goodfetch-cdp = { path = "crates/goodfetch-cdp" }
 # The Clean-up rules and their matching (spec #577, ADR 0047).
 goodfetch-clean-up-rules = { path = "crates/goodfetch-clean-up-rules" }
+# Collie's client crate, no engine (spec #606, ADR 0095): the Connection,
+# its transports and `Call<T>`; it depends on neither SDK crate nor any
+# Foxhound crate.
+goodfetch-collie-client = { path = "crates/goodfetch-collie-client" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
 # Counted work (ADR 0140): the counts, and each primitive's counted function.
 goodfetch-counted-work = { path = "crates/goodfetch-counted-work" }
@@ -183,6 +187,9 @@ goodfetch-protocol = { path = "crates/goodfetch-protocol" }
 # The page's recording navigation gate, lease check and response observer, a
 # test adapter: only ever a dev-dependency (ADR 0125).
 goodfetch-recording-gate = { path = "crates/goodfetch-recording-gate" }
+# The one place a Tokio runtime is built (ADR 0081, spec #606): `main`, the
+# SDK crates' Connections, test helpers and bench targets take it.
+goodfetch-runtime = { path = "crates/goodfetch-runtime" }
 # The built-in external Secret providers, which each Product's composition registers (spec #564).
 goodfetch-secret-providers = { path = "crates/goodfetch-secret-providers" }
 # Foxhound's Session pool; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).

@@ -73,7 +73,7 @@ fn main() {
         offline: Some(SettingsLayer::Run),
         ..Fetching::new(Clock::system())
     };
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .build()
         .expect("invariant: the OS gives the runtime its thread");
     let prepared = runtime

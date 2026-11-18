@@ -287,7 +287,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine = Engine::new(identity, &goodfetch_foxhound::composition_with(tiers))?;
     let home = tempfile::tempdir()?;
     let copy = home.path().join("copy.sqlite");
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_all()
         .start_paused(true)
         .build()?;

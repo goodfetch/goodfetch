@@ -62,7 +62,7 @@ result() {
 }
 # `set -e` ends the night on a setup that fails: its line still says so. The
 # lock goes last, after the line.
-trap '[[ -n $said ]] || result fail; [[ -z $locked ]] || rm -rf "$lock"; [[ -z $scripts ]] || rm -rf "$scripts"' EXIT
+trap '[[ -n $said ]] || result fail; [[ -z $locked ]] || gate_worktree_unlock; [[ -z $scripts ]] || rm -rf "$scripts"' EXIT
 
 git fetch --quiet origin
 commit=$(git rev-parse --verify "$ref^{commit}")

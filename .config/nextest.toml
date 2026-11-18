@@ -158,6 +158,6 @@ filter = """
 | (binary_id(goodfetch-page::it) & test(/^(listener_arming|navigation_gate)::/))
 | (binary_id(goodfetch-test-client) & test(/^attached::tests::/))
 | (binary_id(goodfetch-test-support::it) & test(/^seeded_kill::/))
-| (binary_id(xtask::it) & test(/^(merge_pr|pre_merge)::/))
+| (binary_id(xtask::it) & test(/^(gate_worktree|merge_pr|pre_merge)::/))
 """
 test-group = "timing-sensitive"

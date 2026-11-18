@@ -81,7 +81,7 @@ result() {
 ended() {
   local status=$?
   [[ -n $said ]] || result "fail (ended before its result: status $status)"
-  [[ -z $locked ]] || rm -rf "$lock"
+  [[ -z $locked ]] || gate_worktree_unlock
   rm -rf "$scripts"
 }
 trap ended EXIT

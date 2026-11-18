@@ -7,6 +7,7 @@
 //! works inside one too, where it blocks only the thread that calls it.
 
 use std::future::IntoFuture;
+use std::path::Path;
 use std::time::Duration;
 
 use goodfetch_protocol::run::{RunId, RunReport, StartedAs};
@@ -47,6 +48,21 @@ impl Connection {
     /// `send()` sends.
     pub fn start(&self) -> Start {
         Start(self.0.start(), self.0.clone())
+    }
+
+    /// The save of a file to the program's `path`, as
+    /// [`crate::Connection::save_file`]'s, which `send()` sends.
+    pub fn save_file<T>(
+        &self,
+        method: &str,
+        params: &impl Serialize,
+        path: &Path,
+        call: &str,
+    ) -> SaveFile<T> {
+        SaveFile {
+            save: self.0.save_file(method, params, path, call),
+            connection: self.0.clone(),
+        }
     }
 
     /// Closes the Connection as [`crate::Connection::close`] does, and
@@ -163,6 +179,43 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> Query<T, P> {
     }
 }
 
+/// The save of a file to the program's path, whose reply reads as `T`.
+/// Nothing is sent until [`SaveFile::send`].
+#[must_use = "a save is sent only by send()"]
+pub struct SaveFile<T> {
+    save: crate::SaveFile<T>,
+    connection: crate::Connection,
+}
+
+impl<T: DeserializeOwned + Send + 'static> SaveFile<T> {
+    /// Fails the save with [`Error::TimedOut`] if its reply has not come
+    /// within `timeout`, the file it was writing removed.
+    pub fn timeout(self, timeout: Duration) -> Self {
+        Self {
+            save: self.save.timeout(timeout),
+            ..self
+        }
+    }
+
+    /// Waits for the reply as long as the Connection lasts.
+    pub fn no_timeout(self) -> Self {
+        Self {
+            save: self.save.no_timeout(),
+            ..self
+        }
+    }
+
+    /// Sends the save and blocks the calling thread until the file is
+    /// saved.
+    ///
+    /// # Errors
+    ///
+    /// As awaiting [`crate::SaveFile`].
+    pub fn send(self) -> Result<T, Error> {
+        self.connection.wait(self.save.into_future())
+    }
+}
+
 /// The start of a Run (`run.start`). Nothing is sent until
 /// [`Start::send`].
 #[must_use = "a start is sent only by send()"]
@@ -219,4 +272,5 @@ const _: () = {
     send_static::<Call<RunReport>>();
     send_static::<Query<Value>>();
     send_static::<Start>();
+    send_static::<SaveFile<serde_json::Value>>();
 };

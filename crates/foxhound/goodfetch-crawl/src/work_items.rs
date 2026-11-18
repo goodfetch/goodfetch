@@ -179,6 +179,46 @@ impl Leased {
             ..self
         }
     }
+
+    /// The same work item as its next lease takes it, once this attempt
+    /// left it pending uncounted, released: the same attempt and try,
+    /// under the next lease epoch.
+    pub(crate) fn released(self) -> Self {
+        Self {
+            lease_epoch: self.lease_epoch.saturating_add(1),
+            ..self
+        }
+    }
+
+    /// The same work item as its next lease takes it, once this attempt
+    /// left it as `again` says, if pending.
+    pub(crate) fn after(self, again: Again) -> Option<Self> {
+        match again {
+            Again::Not => None,
+            Again::Retried => Some(self.next()),
+            Again::Released => Some(self.released()),
+        }
+    }
+}
+
+/// Whether an attempt that committed nothing left its work item pending
+/// for another lease.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Again {
+    /// It ended, or a later lease holds it.
+    Not,
+    /// Pending for a retry, its attempt counted.
+    Retried,
+    /// Pending, its attempt uncounted: the program gave its request back
+    /// (ADR 0102).
+    Released,
+}
+
+impl Again {
+    /// Whether its work item waits in its queue again.
+    pub(crate) fn waits(self) -> bool {
+        !matches!(self, Self::Not)
+    }
 }
 
 /// What an attempt that committed no Record failed with.
@@ -229,6 +269,9 @@ pub(crate) enum Unsuccessful {
     },
     /// Blocked by its site.
     Blocked(BlockCause),
+    /// Back to pending with its attempt uncounted, its error as it was:
+    /// the program gave its request back (ADR 0102).
+    Released,
 }
 
 fn integer(value: u64) -> i64 {
@@ -1415,7 +1458,8 @@ fn commit_records(
 /// Ends an attempt that committed nothing as `unsuccessful` says, ended at
 /// `ended_at`, when its lease is the one the run file holds; answers
 /// whether it did. Its ending counts in `changed`; a retry leaves it
-/// pending and counts nothing.
+/// pending and counts nothing, and a release leaves it pending as it was
+/// before its lease, as [`release_leases`] does.
 pub(crate) fn end(
     connection: &Connection,
     id: &str,
@@ -1427,25 +1471,39 @@ pub(crate) fn end(
     if !still_leased(connection, id, lease_epoch)? {
         return Ok(false);
     }
-    let (status, error_code) = match &unsuccessful {
-        Unsuccessful::Retried(failure) => (PENDING, Some(failure.code.as_str())),
-        Unsuccessful::Failed(failure) => (FAILED, Some(failure.code.as_str())),
-        Unsuccessful::Skipped { .. } => (SKIPPED, None),
-        Unsuccessful::Blocked(_) => (BLOCKED, None),
+    let set = |status: &str, error_code: Option<&str>| {
+        connection
+            .prepare_cached("UPDATE work_items SET status = ?1, error_code = ?2 WHERE id = ?3")
+            .and_then(|mut cached| cached.execute((status, error_code, id)))
     };
-    connection
-        .prepare_cached("UPDATE work_items SET status = ?1, error_code = ?2 WHERE id = ?3")
-        .and_then(|mut cached| cached.execute((status, error_code, id)))?;
     let ending = match unsuccessful {
         Unsuccessful::Retried(failure) => {
+            set(PENDING, Some(&failure.code))?;
             keep_error(connection, id, &failure)?;
             return Ok(true);
         }
-        Unsuccessful::Failed(failure) => Ending::Failed {
-            error: keep_error(connection, id, &failure)?,
-        },
-        Unsuccessful::Skipped { reason, message } => Ending::Skipped { reason, message },
-        Unsuccessful::Blocked(cause) => Ending::Blocked { cause },
+        Unsuccessful::Failed(failure) => {
+            set(FAILED, Some(&failure.code))?;
+            Ending::Failed {
+                error: keep_error(connection, id, &failure)?,
+            }
+        }
+        Unsuccessful::Skipped { reason, message } => {
+            set(SKIPPED, None)?;
+            Ending::Skipped { reason, message }
+        }
+        Unsuccessful::Blocked(cause) => {
+            set(BLOCKED, None)?;
+            Ending::Blocked { cause }
+        }
+        Unsuccessful::Released => {
+            connection
+                .prepare_cached(
+                    "UPDATE work_items SET status = ?1, attempts = attempts - 1 WHERE id = ?2",
+                )
+                .and_then(|mut cached| cached.execute((PENDING, id)))?;
+            return Ok(true);
+        }
     };
     write_outcome(connection, id, ended_at, ending, changed)?;
     Ok(true)

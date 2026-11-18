@@ -71,7 +71,7 @@ use goodfetch_test_support::TestEnv;
 use super::{Dependencies, Engine};
 use crate::call_error::CallError;
 use crate::clock::Clock;
-use crate::composition::{CallContext, Composition, Contribution, Handler};
+use crate::composition::{CallContext, Composition, CompositionError, Contribution, Handler};
 use crate::entropy::Entropy;
 use crate::home::{Home, RunStateLocation};
 use crate::product::{Channel, Identity};
@@ -183,6 +183,31 @@ fn engine_with(product: Product, more: Option<Contribution>) -> Engine {
         composition = composition.with(more);
     }
     Engine::new(identity, &composition).unwrap()
+}
+
+#[test]
+fn a_second_handler_for_one_operation_is_refused_naming_both_contributions() {
+    let again = Contribution::new("again")
+        .with_handler(Handler::new(&WAIT, |_: Value, _: CallContext| async {
+            Ok::<Value, CallError>(json!({}))
+        }));
+    let composition = Composition::default().with(test_operations()).with(again);
+    let identity = Identity {
+        product: Product::Collie,
+        product_version: version(),
+        channel: Channel::CratesIo,
+    };
+
+    let refused = Engine::new(identity, &composition).err();
+
+    assert_eq!(
+        refused,
+        Some(CompositionError::DuplicateHandler {
+            operation: WAIT.name,
+            first: "test",
+            second: "again",
+        })
+    );
 }
 
 fn hello(product: &str, protocol_version: &str) -> Value {

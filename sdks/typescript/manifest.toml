@@ -370,6 +370,60 @@ words = ["serve"]
 form = "runtime"
 
 [[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "saveFile"
+entry = "none"
+reason = "Makes a Product's save call, such as `download.save_as`, and leaves its file at the program's path whole or not at all, the engine writing it or streaming its bytes (ADR 0116)."
+words = ["save", "file"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "writeFileWhole"
+entry = "none"
+reason = "Writes bytes a Product's SDK holds to the program's path whole or not at all, as ADR 0116's writer, with its typed failures."
+words = ["write", "file", "whole"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "FileSaving"
+member = "create"
+entry = "none"
+reason = "Starts ADR 0116's writer for one path: its missing folders made, its hidden temporary file created beside it."
+words = ["create"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "FileSaving"
+member = "write"
+entry = "none"
+reason = "Writes the next bytes of ADR 0116's temporary file."
+words = ["write"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "FileSaving"
+member = "finish"
+entry = "none"
+reason = "Syncs ADR 0116's temporary file and renames it over the path."
+words = ["finish"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "FileSaving"
+member = "abort"
+entry = "none"
+reason = "Removes ADR 0116's temporary file, the path left as it was."
+words = ["abort"]
+form = "runtime"
+
+[[member]]
 package = "@goodfetch/collie/testing"
 receiver = "(module)"
 member = "connectOver"

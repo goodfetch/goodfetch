@@ -233,6 +233,7 @@ impl<P: Serialize> Request<P> {
             params,
             timeout,
             reply,
+            notified: None,
         });
         let result = replied.await.map_err(|_| Error::Closed)??;
         if let Some(note) = self.note {

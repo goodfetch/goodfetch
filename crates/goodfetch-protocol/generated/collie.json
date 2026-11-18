@@ -6771,6 +6771,37 @@
         }
       ]
     },
+    "RunLimit": {
+      "additionalProperties": false,
+      "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
+      "properties": {
+        "amount": {
+          "arrived_in": "0.1",
+          "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "currency": {
+          "arrived_in": "0.1",
+          "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage_kind": {
+          "arrived_in": "0.1",
+          "description": "The Usage kind it caps.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "usage_kind",
+        "amount"
+      ],
+      "type": "object"
+    },
     "RunList": {
       "description": "What `run.list` answers: the rows of its filter, in its order.",
       "properties": {
@@ -7515,6 +7546,14 @@
         "_meta": {
           "$ref": "#/$defs/TraceContext",
           "arrived_in": "0.1"
+        },
+        "limits": {
+          "arrived_in": "0.1",
+          "description": "The Run's own Limits (ADRs 0041 and 0080): at most one per Usage\nkind and currency. A start that names the Run again lowers them and\nnever raises them (ADR 0102).",
+          "items": {
+            "$ref": "#/$defs/RunLimit"
+          },
+          "type": "array"
         },
         "project": {
           "anyOf": [
@@ -10519,6 +10558,16 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "limit_not_understood",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A start that names an existing Run gave a Limit above the Run's Limit as it stands; the details name its Usage kind, its currency, the amount given and the one standing. A program only lowers a Limit: ask a person to raise it.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "limit_raise_refused",
       "product": "collie",
       "retryable": false
     },
@@ -17982,6 +18031,13 @@
       "name": "requests",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run whose program gave the Limit at its start; it has no period.",
+      "name": "run",
+      "product": "collie",
+      "type": "limit_scope"
     },
     {
       "arrived_in": "0.1",

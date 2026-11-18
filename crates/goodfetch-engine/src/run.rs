@@ -820,6 +820,10 @@ fn key_mismatch(run_id: RunId, reference: &SecretReference, wrapped_by: String) 
 
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
+    let limits = crate::usage::run_limits(params.limits, &context)?;
+    if let Some(run_id) = &run_id {
+        crate::usage::check_run_limits(run_id, &limits, &context).await?;
+    }
     let (settings, _) = context
         .engine()
         .settings()
@@ -853,16 +857,19 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         })
         .await
         .map_err(start_error)?;
-    match started {
-        Started::New(run) => Ok(RunStarted {
+    let started = match started {
+        Started::New(run) => RunStarted {
             run_id: run.id().clone(),
             started_as: StartedAs::New,
             lifecycle: goodfetch_protocol::run::Lifecycle::Running,
             needs: Product::Collie,
-        }),
-        Started::Interrupted(run_id) => resume_run(&context, run_id, None, settings).await,
-        Started::Ended(ended) => Ok(ended),
-    }
+        },
+        Started::Interrupted(run_id) => resume_run(&context, run_id, None, settings).await?,
+        Started::Ended(ended) => ended,
+    };
+    let began = started.started_as == StartedAs::New;
+    crate::usage::give_run_limits(&started.run_id, limits, began, &context).await?;
+    Ok(started)
 }
 
 async fn finish(params: RunWaitParams, context: CallContext) -> Result<RunReport, CallError> {

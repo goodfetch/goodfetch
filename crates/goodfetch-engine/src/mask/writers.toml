@@ -164,8 +164,8 @@ how = "holds no value: hosts and key hashes"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/ledger.rs"
-count = 2
-how = "holds no value: Usage counts"
+count = 3
+how = "holds no value: Usage counts, and in `run_limits` the Limits a program gave each Run when it began, a Run ID, a Usage kind, a currency code and an amount, none a resolved value"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/lowest_minor.rs"

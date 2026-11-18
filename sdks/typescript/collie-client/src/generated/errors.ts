@@ -402,6 +402,15 @@ export class LimitNotUnderstoodError extends RefusedError {
 }
 
 /**
+ * A start that names an existing Run gave a Limit above the Run's Limit as it stands; the details name its Usage kind, its currency, the amount given and the one standing. A program only lowers a Limit: ask a person to raise it.
+ */
+export class LimitRaiseRefusedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "limit_raise_refused", group: "refused", retryable: false });
+  }
+}
+
+/**
  * A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it.
  */
 export class LimitReachedError extends RefusedError {
@@ -951,6 +960,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   format_version_unsupported: FormatVersionUnsupportedError,
   header_value_invalid: HeaderValueInvalidError,
   limit_not_understood: LimitNotUnderstoodError,
+  limit_raise_refused: LimitRaiseRefusedError,
   limit_reached: LimitReachedError,
   local_address_unavailable: LocalAddressUnavailableError,
   logged_out: LoggedOutError,

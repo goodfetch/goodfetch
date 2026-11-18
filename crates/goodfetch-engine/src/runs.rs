@@ -5431,7 +5431,7 @@ impl Registry {
         let now = self.limits.now();
         let mut charging =
             self.limits
-                .charging(run_id, folder, 1, self.limits.placement(connection));
+                .charging(run_id, folder, 1, self.limits.placement(run_id, connection));
         let may_start = self
             .owner
             .blocking(move || charging.may_start(now).map(|()| charging))
@@ -5803,7 +5803,7 @@ impl Registry {
                     run_id,
                     folder,
                     epoch,
-                    self.limits.placement(connection),
+                    self.limits.placement(run_id, connection),
                 ))),
                 metrics: self.setup.metrics.clone(),
                 span: tracing::info_span!(parent: None, "run", run_id = %run_id),

@@ -617,7 +617,7 @@ fn the_start_table_of_a_crawl_is_proved_against_foxhound() {
                     CaseOutcome::Passed
                 ),
                 (
-                    "a-collie-start-under-a-crawls-id-is-run-conflict-naming-product-and-kind",
+                    "a-collie-start-under-a-crawls-id-is-run-conflict-naming-product-kind-and-seeds",
                     CaseOutcome::Passed
                 ),
                 (

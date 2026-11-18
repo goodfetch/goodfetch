@@ -32,9 +32,9 @@ id = "a-crawl-start-under-a-crawls-id-with-other-seeds-is-run-conflict-naming-se
 covers = ["story:3-167", "error:run_conflict"]
 
 [[capability.case]]
-id = "a-collie-start-under-a-crawls-id-is-run-conflict-naming-product-and-kind"
+id = "a-collie-start-under-a-crawls-id-is-run-conflict-naming-product-kind-and-seeds"
 covers = ["story:3-167", "error:run_conflict"]
 
 [[capability.case]]
 id = "a-start-under-the-id-of-a-crawl-its-limit-stopped-is-limit-reached"
-covers = ["story:3-166", "error:limit_reached"]
+covers = ["story:3-167", "error:limit_reached"]

@@ -172,7 +172,8 @@ fn commit_order(connection: &mut Connection, run_id: &str) -> Result<Vec<Value>,
     }
 }
 
-fn is(message: &Value, method: &str) -> bool {
+/// Whether `message` is the engine's request `method`.
+pub(super) fn is(message: &Value, method: &str) -> bool {
     message["method"] == json!(method)
 }
 

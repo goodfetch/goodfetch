@@ -18,7 +18,7 @@ use goodfetch_protocol::usage::USAGE_SET;
 use serde_json::{Value, json};
 
 use super::consent::walls::major_of;
-use super::delivery::PLAIN_HOST;
+use super::delivery::{PLAIN_HOST, is};
 use super::{Checks, Site};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::foxhound::{CRAWL_REQUEST_HANDLE, CRAWL_START};
@@ -58,7 +58,7 @@ impl Case {
             "a-crawl-start-under-a-crawls-id-with-other-seeds-is-run-conflict-naming-seeds" => {
                 Self::OtherSeeds
             }
-            "a-collie-start-under-a-crawls-id-is-run-conflict-naming-product-and-kind" => {
+            "a-collie-start-under-a-crawls-id-is-run-conflict-naming-product-kind-and-seeds" => {
                 Self::OtherKind
             }
             "a-start-under-the-id-of-a-crawl-its-limit-stopped-is-limit-reached" => {
@@ -101,16 +101,20 @@ impl Case {
     }
 }
 
+/// The answer of `operation` with `params`.
+fn answer_of(connection: &mut Connection, operation: &str, params: &Value) -> Result<Value, Gone> {
+    let id = connection.request(operation, params)?;
+    Ok(connection.answer(id)?.message)
+}
+
 /// The answer of `run.start` under `run_id`.
 fn start(connection: &mut Connection, run_id: &str) -> Result<Value, Gone> {
-    let id = connection.request(RUN_START.name, &json!({ "run_id": run_id }))?;
-    Ok(connection.answer(id)?.message)
+    answer_of(connection, RUN_START.name, &json!({ "run_id": run_id }))
 }
 
 /// The answer of `operation` on the Run `run_id`.
 fn end(connection: &mut Connection, operation: &str, run_id: &str) -> Result<Value, Gone> {
-    let id = connection.request(operation, &json!({ "run_id": run_id }))?;
-    Ok(connection.answer(id)?.message)
+    answer_of(connection, operation, &json!({ "run_id": run_id }))
 }
 
 /// Checks that `answer` is `run.start`'s, started as `started_as`.
@@ -310,11 +314,6 @@ fn remove_run_file(folder: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Whether `message` is the engine's request `method`.
-fn is(message: &Value, method: &str) -> bool {
-    message["method"] == json!(method)
-}
-
 /// The response to the request `id`, the harness answering meanwhile each
 /// handler request of a crawl with no Record, so the crawl's work items
 /// commit and nothing the engine asks goes unanswered.
@@ -489,7 +488,7 @@ fn limit_reached(
 ) -> Result<(), Gone> {
     let run_id = "conformance-start-limit";
     let scope = json!({ "kind": "run", "id": run_id });
-    let set = end_with(
+    let set = answer_of(
         connection,
         USAGE_SET.name,
         &json!({ "scope": "run", "scope_id": run_id, "usage_kind": "requests", "amount": 1 }),
@@ -530,10 +529,4 @@ fn limit_reached(
         );
     }
     Ok(())
-}
-
-/// The answer of `operation` with `params`.
-fn end_with(connection: &mut Connection, operation: &str, params: &Value) -> Result<Value, Gone> {
-    let id = connection.request(operation, params)?;
-    Ok(connection.answer(id)?.message)
 }

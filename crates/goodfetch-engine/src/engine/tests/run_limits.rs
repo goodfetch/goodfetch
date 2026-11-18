@@ -185,7 +185,7 @@ fn a_start_naming_the_run_again_above_its_limit_is_refused_with_limit_raise_refu
 /// `limit_reached` naming that Limit while it stays used up, and resumes
 /// the Run once a person raised it (ADR 0102's start table).
 ///
-/// Covers: error:limit_reached, story:3-166
+/// Covers: error:limit_reached, story:3-166, story:3-167
 #[test]
 fn a_start_naming_a_run_its_limit_stopped_is_refused_until_a_person_raises_the_limit() {
     let env = TestEnv::new();

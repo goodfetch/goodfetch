@@ -1417,14 +1417,40 @@ impl Politeness {
     async fn wake_turn(&self, mut turn: Turn) {
         if turn.recall {
             let recall = Recall {
-                recall: turn.wake.key,
+                recall: turn.wake.key.clone(),
                 at: milliseconds(turn.now),
             };
             let message = serde_json::to_vec(&recall).expect("invariant: a recall encodes");
-            // A holder whose endpoint is gone has its Delegation reclaimed
-            // by the waiter's next take, which finds its Run gone.
-            if let Err(error) = transport::wake(&turn.endpoint, &message).await {
-                tracing::debug!(%error, "a Delegation's holder was not reached; the waiter waits for its own deadline");
+            match transport::wake(&turn.endpoint, &message).await {
+                Ok(()) => {}
+                // A holder whose endpoint is gone and whose Run is gone has
+                // its Delegation reclaimed by the recaller's next take: it
+                // is woken at once rather than at its own deadline.
+                Err(error) if transport::is_gone(&error) => {
+                    let key = turn.wake.key.clone();
+                    let gone = self
+                        .run(move |backend, context| {
+                            let Backend::File(file) = backend else {
+                                return Ok(false);
+                            };
+                            file.holder_gone(context, &key)
+                        })
+                        .await;
+                    match gone {
+                        Ok(true) => {
+                            let _ = self.0.wakes.send(turn.wake);
+                        }
+                        Ok(false) => {
+                            tracing::debug!(%error, "a Delegation's live holder was not reached; the waiter waits for its own deadline");
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "a recalled Delegation's holder was not read; the waiter waits for its own deadline");
+                        }
+                    }
+                }
+                Err(error) => {
+                    tracing::debug!(%error, "a Delegation's holder was not reached; the waiter waits for its own deadline");
+                }
             }
             return;
         }

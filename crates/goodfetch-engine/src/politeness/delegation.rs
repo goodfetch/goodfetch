@@ -626,6 +626,35 @@ impl FileBackend {
         )
         .map_err(|error| sqlite_error(&context.path, &error))
     }
+
+    /// Whether the Delegation of `key` is no longer held by another
+    /// engine's live Run, so a recall that found its holder's endpoint
+    /// gone lets the recaller retake the key at once.
+    pub(super) fn holder_gone(
+        &self,
+        context: &Context,
+        key: &str,
+    ) -> Result<bool, PolitenessError> {
+        transaction(
+            &self.connection,
+            &self.commits,
+            Row::PolitenessOtherTransactions,
+            |transaction| {
+                let held: Option<(i64, String, String)> = transaction
+                    .prepare_cached(DELEGATION)?
+                    .query_row([key], |row| Ok((row.get(1)?, row.get(2)?, row.get(3)?)))
+                    .optional()?;
+                Ok(held.is_none_or(|(epoch, folder, engine)| {
+                    engine != context.engine
+                        && (context.holder_gone)(
+                            Path::new(&folder),
+                            u64::try_from(epoch).unwrap_or_default(),
+                        )
+                }))
+            },
+        )
+        .map_err(|error| sqlite_error(&context.path, &error))
+    }
 }
 
 /// The wake endpoint of another engine whose live Run holds the

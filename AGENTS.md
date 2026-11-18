@@ -1,6 +1,6 @@
 # Goodfetch
 
-The repository of Goodfetch's two Products: Collie, for browser automation, and Foxhound, for crawling, which contains Collie (ADR 0084). `rnd/` is R&D material kept for inspiration only: nothing in it is an adopted term or decision, and it sets no process. Run the lab's commands from `rnd/lab/` (see its `README.md`). `docs/` holds the Products' final documentation, the ADRs and the agent configuration.
+The repository of Goodfetch's two Products: Collie, for browser automation, and Foxhound, for crawling, which contains Collie (ADR 0084). `rnd/` is R&D material kept for inspiration only: nothing in it is an adopted term or decision, and it sets no process. Run the lab's commands from `rnd/lab/` (see its `README.md`). `docs/` holds the Products' final documentation, the ADRs, the sections of `TESTING.md` (`docs/testing/`) and the agent configuration.
 
 ## Release status
 
@@ -31,7 +31,7 @@ Local secrets live in the git-ignored `.env`, filled by `scripts/env-setup.sh` f
 
 Write every repository and tracker artifact (ADRs, specs, tickets, glossary entries, `STYLE.md`/`TESTING.md` edits, pull request bodies) in English, even when the owner talks in French; owner quotes may keep their language.
 
-Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Tests follow [`TESTING.md`](TESTING.md): read its Contents, then only the sections for what you touch. The checks each role runs, implementer, merger or pull request, are its [Checks by role](TESTING.md#checks-by-role); an orchestrator's brief points there and lists none.
+Code follows [`STYLE.md`](STYLE.md), and the contracts follow ADR 0038. Tests follow [`TESTING.md`](TESTING.md): read its Contents, then only the sections for what you touch. The checks each role runs, implementer, merger or pull request, are its [Checks by role](docs/testing/checks-by-role.md); an orchestrator's brief points there and lists none.
 
 The quality bar lives in the Quality register of [`TESTING.md`](TESTING.md#quality-register); the project has no `CONSTRAINTS.md`. Read the register before writing code on a Shared path (ADR 0140). Change a limit only by the register's rules: tighten it in the same pull request, loosen it with the owner.
 
@@ -79,7 +79,7 @@ Rust has no Rust-specific skill: its section of `STYLE.md` and the references it
 
 ## Agent skills
 
-Agent work follows Matt Pocock's skills as written; the repository adds standards, not process steps (ADR 0133). Where a skill asks for more checks or more implementers at once than `TESTING.md`'s [Checks by role](TESTING.md#checks-by-role) allows, such as `/implement`'s full test suite at the end or `/implement-spec`'s maximum concurrency, Checks by role wins. One departure from a skill is the owner's (2026-11-11, ADR 0133's notes of that day): a `/implement-spec` run has one implementer for the whole spec, in one slot worktree, in place of the skill's implementer and merger for each ticket, and several runs may go side by side. [The Implementation loop](docs/agents/issue-tracker.md#implementation-loop) says how such a run goes.
+Agent work follows Matt Pocock's skills as written; the repository adds standards, not process steps (ADR 0133). Where a skill asks for more checks or more implementers at once than `TESTING.md`'s [Checks by role](docs/testing/checks-by-role.md) allows, such as `/implement`'s full test suite at the end or `/implement-spec`'s maximum concurrency, Checks by role wins. One departure from a skill is the owner's (2026-11-11, ADR 0133's notes of that day): a `/implement-spec` run has one implementer for the whole spec, in one slot worktree, in place of the skill's implementer and merger for each ticket, and several runs may go side by side. [The Implementation loop](docs/agents/issue-tracker.md#implementation-loop) says how such a run goes.
 
 ### Issue tracker
 

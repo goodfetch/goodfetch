@@ -316,6 +316,19 @@
         "commands": [
           {
             "commands": [],
+            "name": "create"
+          },
+          {
+            "commands": [],
+            "name": "directory"
+          }
+        ],
+        "name": "signing-key"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
             "name": "get"
           },
           {
@@ -701,6 +714,19 @@
           }
         ],
         "name": "response"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
+            "name": "create"
+          },
+          {
+            "commands": [],
+            "name": "directory"
+          }
+        ],
+        "name": "signing-key"
       },
       {
         "commands": [

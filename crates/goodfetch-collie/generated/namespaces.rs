@@ -62,6 +62,12 @@
         product: Product::Collie,
     },
     Namespace {
+        name: "signing_key",
+        spelled: "signing-key",
+        about: "Calls the catalog's `signing_key` operations",
+        product: Product::Collie,
+    },
+    Namespace {
         name: "key_value_store",
         spelled: "key-value-store",
         about: "Calls the catalog's `key_value_store` operations",

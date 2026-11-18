@@ -17,6 +17,19 @@
 //! also keeps the run off the user's Goodfetch home, whose list of installed
 //! executables, which the engine reads and rewrites as it starts, every
 //! executable run on the machine changes.
+//!
+//! On one thread of each kind, 2 of 20 runs still stood out, the spread
+//! 1.63% (#2752). In one, the engine's last two threads ran their exit, each
+//! about 40,000 instructions of mimalloc's teardown under glibc's
+//! `__nptl_deallocate_tsd`, before the process ended, which on other runs
+//! they do not reach: Callgrind leaves that function out
+//! (`--toggle-collect`, with `--collect-atstart=yes`, since the toggle alone
+//! starts with counting off), and the spread fell to 0.24% across 20 runs.
+//! In the other, the probe forked early: the forked child's count starts
+//! from Callgrind's counts of every thread at the fork, so an early fork
+//! counts fewer instructions. No Callgrind option leaves those inherited
+//! counts out; a fork early by 160,000 instructions came once in 60 runs,
+//! the other early ones by under 30,000.
 
 use std::path::Path;
 
@@ -24,7 +37,7 @@ use goodfetch_protocol::formats::USER_CONFIGURATION;
 use goodfetch_protocol::settings::HOME_VARIABLE;
 use goodfetch_test_client::HomeLayout;
 use gungraun::prelude::*;
-use gungraun::{Sandbox, Stdin, Stdio};
+use gungraun::{Callgrind, Sandbox, Stdin, Stdio};
 
 /// Foxhound's `hello`, then the end of input.
 const HELLO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/benches/fixtures/hello.jsonl");
@@ -51,7 +64,12 @@ fn pinned_home() {
 
 #[binary_benchmark(
     setup = pinned_home(),
-    config = BinaryBenchmarkConfig::default().sandbox(Sandbox::new(true))
+    config = BinaryBenchmarkConfig::default()
+        .sandbox(Sandbox::new(true))
+        .tool(Callgrind::with_args([
+            "--toggle-collect=__nptl_deallocate_tsd",
+            "--collect-atstart=yes",
+        ]))
 )]
 fn attached_engine_answers_hello() -> gungraun::Command {
     gungraun::Command::new(env!("CARGO_BIN_EXE_goodfetch-foxhound"))

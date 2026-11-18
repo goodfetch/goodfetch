@@ -14,6 +14,11 @@
 //! sends goes through the run's loopback [`bridge`], which connects only
 //! where the Run's HTTP tier may (ADR 0017). Its telemetry is off.
 //!
+//! `lightpanda fetch` sends a bodiless `GET` alone: a crawl request with
+//! another method or a body ([`unsent`]) goes to the browser under `auto`,
+//! and fails with `browser_required` where `fetch.tier` forces the tier
+//! (issue 2471).
+//!
 //! A platform with no pinned build (Windows, musl) cannot take the tier.
 
 use std::path::PathBuf;
@@ -30,6 +35,7 @@ use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, PinnedBy};
+use goodfetch_protocol::foxhound::crawl::CrawlRequest;
 use goodfetch_protocol::page::{NAVIGATION_FAILED, NavigationFailedDetails};
 use serde::Deserialize;
 use serde_json::Value;
@@ -37,6 +43,36 @@ use tokio::io::AsyncReadExt as _;
 use url::Url;
 
 pub(crate) mod bridge;
+
+/// What Provenance and `browser_required` name, in place of a call, as
+/// the cause of a crawl request the tier cannot send: its method, which
+/// is no `GET` (issue 2471).
+const METHOD_CALL: &str = "crawl_request.method";
+
+/// What Provenance and `browser_required` name, in place of a call, as
+/// the cause of a crawl request the tier cannot send: its body (issue
+/// 2471).
+const BODY_CALL: &str = "crawl_request.body";
+
+/// What of `request` the tier cannot send, by the name Provenance and
+/// `browser_required` give it: its method when it is no `GET`, else its
+/// body; none for a bodiless `GET`, the only request `lightpanda fetch`
+/// sends (issue 2471). An empty body is no body, as the Frontier reads
+/// it.
+#[must_use]
+pub fn unsent(request: &CrawlRequest) -> Option<&'static str> {
+    if !request.method.is_get() {
+        Some(METHOD_CALL)
+    } else if request
+        .body
+        .as_ref()
+        .is_some_and(|body| !body.bytes().is_empty())
+    {
+        Some(BODY_CALL)
+    } else {
+        None
+    }
+}
 
 /// The pinned builds, by platform.
 const PINS: &str = include_str!("light_browser/pins.json");

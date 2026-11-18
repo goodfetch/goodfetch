@@ -504,6 +504,17 @@ pub struct Forced {
     pub label: Option<String>,
 }
 
+impl Forced {
+    /// Who set it, as an error's message names it: "the Run" or "the
+    /// Label `<label>`".
+    fn setter(&self) -> String {
+        self.label.as_ref().map_or_else(
+            || "the Run".to_owned(),
+            |label| format!("the Label `{label}`"),
+        )
+    }
+}
+
 /// What a call its page's tier cannot serve exactly leads to.
 #[derive(Debug)]
 pub(crate) enum Unserved {
@@ -528,10 +539,7 @@ pub(crate) fn unserved(choice: &TierChoice, call: &str, waits: bool) -> Unserved
             &json!({ "reason": "escalated", "call": call, "tier": tier }),
         )),
         Some(forced) => {
-            let set = forced.label.as_ref().map_or_else(
-                || "the Run".to_owned(),
-                |label| format!("the Label `{label}`"),
-            );
+            let set = forced.setter();
             let lacks = if waits {
                 ", or the page may simply lack what it waits for"
             } else {
@@ -554,6 +562,27 @@ pub(crate) fn unserved(choice: &TierChoice, call: &str, waits: bool) -> Unserved
     }
 }
 
+/// `browser_required` for a crawl request whose method or body, `call`
+/// names which, the `tier` that `forced` forced cannot send: Lightpanda
+/// sends a bodiless `GET` alone (issue 2471).
+pub(crate) fn unsendable(tier: FetchTier, forced: &Forced, call: &str) -> CallError {
+    let name = tier.as_str();
+    let set = forced.setter();
+    CallError::new(
+        &BROWSER_REQUIRED,
+        format!(
+            "The `{name}` tier sends a crawl request only as a `GET` with no body, so it cannot send this one's `{call}`, and {set} forces it with `fetch.tier`, so the request does not escalate to the browser: set `fetch.tier` to `auto` or `browser`."
+        ),
+        &BrowserRequiredDetails {
+            key: FETCH_TIER.name.to_owned(),
+            tier,
+            label: forced.label.clone(),
+            call: call.to_owned(),
+            fix: "`fetch.tier: auto` or `fetch.tier: browser`".to_owned(),
+        },
+    )
+}
+
 /// What Provenance and `browser_required` name, in place of a call, as
 /// the cause of a request's own document that only a guess could decode
 /// (ADR 0119): the setting that reads it on a non-browser tier.
@@ -564,10 +593,7 @@ pub(crate) const ENCODING_CALL: &str = "fetch.encoding";
 /// forced: its fix names `fetch.encoding` and `fetch.tier` (G6).
 pub(crate) fn undeclared(tier: FetchTier, forced: &Forced, url: &str) -> CallError {
     let name = tier.as_str();
-    let set = forced.label.as_ref().map_or_else(
-        || "the Run".to_owned(),
-        |label| format!("the Label `{label}`"),
-    );
+    let set = forced.setter();
     CallError::new(
         &BROWSER_REQUIRED,
         format!(

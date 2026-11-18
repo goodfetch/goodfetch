@@ -20,7 +20,9 @@ use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache_with_lightpanda};
 use serde_json::{Value, json};
 
-use crate::fetch_tiers::{engine_on, settings, tiers};
+use crate::fetch_tiers::{
+    engine_on, order, order_methods, ordering, requests_for, settings, tiers,
+};
 use crate::frontier::{Inside, crawl_declaring};
 
 /// The Proving ground's seed.
@@ -318,6 +320,162 @@ fn a_call_the_light_browser_cannot_serve_escalates_under_auto_and_fails_when_for
                 json!("browser_required"),
                 json!("locator.click")
             )],
+        )
+    );
+}
+
+/// A crawl request `POST /orders` with a body, or a `GET` with that body,
+/// on a forced `light_browser` tier: Lightpanda's run loads a URL with a
+/// `GET` and no body, so the tier refuses the request before anything is
+/// sent, and it ends `failed` with `browser_required` naming the tier and
+/// what of the crawl request it cannot send, never as a bodiless `GET`
+/// (issue 2471).
+///
+/// Covers: story:6-212, story:5-120, setting:fetch.light_browser, error:browser_required
+#[rstest::rstest]
+#[case::a_post("POST", "crawl_request.method")]
+#[case::a_get_with_a_body("GET", "crawl_request.body")]
+fn a_crawl_request_with_a_method_or_body_on_a_forced_light_browser_fails_with_browser_required_and_sends_nothing(
+    #[case] method: &str,
+    #[case] unsendable: &str,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let mut request = order(&proving_ground);
+    request["method"] = json!(method);
+
+    let mut seen = Vec::new();
+    crawl_declaring(
+        &mut engine,
+        "light-post-forced",
+        &[request],
+        &json!({ "order": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "light_browser", "light_browser": true },
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+        ),
+        &mut ordering(&mut seen),
+    );
+    let answer = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "light-post-forced" }),
+        &mut |_| None,
+    );
+    assert!(engine.finished());
+
+    let ended: Vec<Value> = answer["result"]["outcomes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no outcomes: {answer}"))
+        .iter()
+        .map(|outcome| {
+            let details = &outcome["error"]["details"];
+            json!([
+                outcome["kind"],
+                outcome["error"]["code"],
+                details["key"],
+                details["tier"],
+                details["call"]
+            ])
+        })
+        .collect();
+    assert_eq!(
+        (order_methods(&proving_ground), seen, ended),
+        (
+            Vec::<String>::new(),
+            Vec::new(),
+            vec![json!([
+                "failed",
+                "browser_required",
+                "fetch.tier",
+                "light_browser",
+                unsendable
+            ])],
+        )
+    );
+}
+
+/// Under `auto`, a `POST` crawl request with a body on a Label its samples
+/// moved onto the light-browser tier escalates to the browser before
+/// Lightpanda sends anything: the site receives it only as that `POST`,
+/// from Chrome, and Provenance names the crawl request's method as what
+/// escalated it (issue 2471).
+///
+/// Covers: story:6-212, story:6-259, story:5-120, setting:fetch.light_browser
+#[test]
+fn a_post_crawl_request_on_a_label_learned_onto_the_light_browser_escalates_to_the_browser() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let mut sent = seeds(
+        &proving_ground,
+        &[
+            ("/blog/1", "listing"),
+            ("/blog/2", "listing"),
+            ("/blog/3", "listing"),
+        ],
+    );
+    sent.push(json!({
+        "url": proving_ground.url(HOST, "/blog/4"),
+        "label": "listing",
+        "method": "POST",
+        "body": "cmVhZA==",
+    }));
+
+    let mut handled = Vec::new();
+    crawl_declaring(
+        &mut engine,
+        "light-post-auto",
+        &sent,
+        &json!({ "listing": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "auto", "light_browser": true },
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+        ),
+        &mut |inside, handle| {
+            let html = raw_html(inside, handle);
+            handled.push((
+                path_of(handle["crawl_request"]["url"].as_str().unwrap()),
+                handle["tier"].clone(),
+            ));
+            json!({ "result": { "records": [{ "dataset": "pages", "data": { "items": texts(&html, "<li class=\"item\">") } }] } })
+        },
+    );
+    assert!(engine.finished());
+
+    let fourth: Vec<(String, bool)> = requests_for(&proving_ground, HOST, "/blog/4")
+        .iter()
+        .map(|request| {
+            (
+                request.method.clone(),
+                request
+                    .header("user-agent")
+                    .is_some_and(|agent| agent.contains("Lightpanda/")),
+            )
+        })
+        .collect();
+    let lines = chosen(&env, "light-post-auto", &["listing"]);
+    assert_eq!(
+        (
+            fourth,
+            handled
+                .iter()
+                .filter(|(path, _)| path == "/blog/4")
+                .cloned()
+                .collect::<Vec<_>>(),
+            lines[9..].to_vec(),
+        ),
+        (
+            vec![("POST".to_owned(), false)],
+            vec![("/blog/4".to_owned(), json!("browser"))],
+            vec!["listing browser escalation crawl_request.method".to_owned()],
         )
     );
 }

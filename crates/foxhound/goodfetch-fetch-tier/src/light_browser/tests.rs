@@ -1,9 +1,37 @@
 //! Covers: story:5-120
 
 use goodfetch_engine::browser_cache::BuildPlatform;
+use goodfetch_protocol::foxhound::crawl::CrawlRequest;
+use goodfetch_protocol::foxhound::frontier::{HttpBody, HttpMethod};
+use rstest::rstest;
 
 use super::bridge::Head;
-use super::{Rendered, arguments, pins, rendered};
+use super::{Rendered, arguments, pins, rendered, unsent};
+
+/// What of a crawl request Lightpanda cannot send: its method when it
+/// is no `GET`, else a body with bytes; an empty body is no body, as the
+/// Frontier reads it (issue 2471).
+#[rstest]
+#[case::bodiless_get("GET", None, None)]
+#[case::get_with_an_empty_body("GET", Some(""), None)]
+#[case::get_with_a_body("GET", Some("q=1"), Some("crawl_request.body"))]
+#[case::post("POST", Some("q=1"), Some("crawl_request.method"))]
+#[case::bodiless_head("HEAD", None, Some("crawl_request.method"))]
+fn lightpanda_sends_only_a_get_with_no_body(
+    #[case] method: &str,
+    #[case] body: Option<&str>,
+    #[case] unsendable: Option<&str>,
+) {
+    let request = CrawlRequest {
+        id: "1".to_owned(),
+        url: "https://shop.test/".to_owned(),
+        label: "page".to_owned(),
+        payload: None,
+        method: HttpMethod::parse(method).unwrap(),
+        body: body.map(|body| HttpBody::new(body.as_bytes().to_vec())),
+    };
+    assert_eq!(unsent(&request), unsendable);
+}
 
 /// Each pinned build downloads its release's own executable for its
 /// platform, from GitHub over HTTPS, never from Goodfetch's distribution;

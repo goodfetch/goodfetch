@@ -85,6 +85,7 @@ getrandom.workspace = true
 # crate.
 goodfetch-recording-gate.workspace = true
 goodfetch-test-client.workspace = true
+goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
 mimalloc.workspace = true

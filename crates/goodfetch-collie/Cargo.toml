@@ -12,7 +12,7 @@ publish.workspace = true
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:dirs", "dep:jiff", "dep:mimalloc", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:libc", "dep:tokio-util", "dep:tracing", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
+executable = ["dep:clap", "dep:dirs", "dep:goodfetch-runtime", "dep:jiff", "dep:mimalloc", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:libc", "dep:tokio-util", "dep:tracing", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
 
 [dependencies]
 # The command line both executables carry (ADR 0090): owned names and help,
@@ -22,6 +22,8 @@ clap = { workspace = true, optional = true, features = ["string"] }
 dirs = { workspace = true, optional = true }
 goodfetch-engine.workspace = true
 goodfetch-page.workspace = true
+# The runtimes the executables build (ADR 0081).
+goodfetch-runtime = { workspace = true, optional = true }
 goodfetch-protocol.workspace = true
 # The built-in external Secret providers (spec #564).
 goodfetch-secret-providers.workspace = true
@@ -85,6 +87,9 @@ goodfetch-collie = { path = ".", features = ["executable"] }
 # default (tests/it/clean_up_rules.rs).
 goodfetch-clean-up-rules.workspace = true
 goodfetch-test-client.workspace = true
+# The Rust client crate's Connection to its executable (tests/it/rust_client.rs).
+goodfetch-collie-client.workspace = true
+goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true
 # The Clean-up rules sources' HTTPS stand-in, its authority and its
@@ -96,6 +101,9 @@ rustls = { workspace = true, features = ["ring", "std", "tls12"] }
 sha2.workspace = true
 # The relay authority's key hash, in base64, as its Provenance entry gives it.
 data-encoding.workspace = true
+# An identified Session's Ed25519 key, whose public half and RFC 7638
+# thumbprint the key directory publishes (tests/it/identified.rs).
+ed25519-dalek.workspace = true
 insta.workspace = true
 # The clean-up's time in the page tests, and the pins' lever
 # (examples/pin-chrome-for-testing.rs), which downloads and unpacks the

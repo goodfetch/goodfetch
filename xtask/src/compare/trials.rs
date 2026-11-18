@@ -149,6 +149,10 @@ pub(crate) struct Declared {
     /// for some.
     #[serde(default = "every_scenario")]
     pub(crate) scenarios: Vec<Scenario>,
+    /// The cells the run named, each `<scenario>/<cell>`, which it measured
+    /// alone (#2200): none when it measured every cell of its scenarios.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) cells: Vec<String>,
     /// The command that reruns the run: the recipe and the arguments it
     /// was started with.
     pub(crate) command: String,

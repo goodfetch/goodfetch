@@ -162,6 +162,10 @@ glob = { version = "0.3.4", default-features = false }
 goodfetch-cdp = { path = "crates/goodfetch-cdp" }
 # The Clean-up rules and their matching (spec #577, ADR 0047).
 goodfetch-clean-up-rules = { path = "crates/goodfetch-clean-up-rules" }
+# Collie's client crate, no engine (spec #606, ADR 0095): the Connection,
+# its transports and `Call<T>`; it depends on neither SDK crate nor any
+# Foxhound crate.
+goodfetch-collie-client = { path = "crates/goodfetch-collie-client" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
 # Counted work (ADR 0140): the counts, and each primitive's counted function.
 goodfetch-counted-work = { path = "crates/goodfetch-counted-work" }
@@ -183,6 +187,9 @@ goodfetch-protocol = { path = "crates/goodfetch-protocol" }
 # The page's recording navigation gate, lease check and response observer, a
 # test adapter: only ever a dev-dependency (ADR 0125).
 goodfetch-recording-gate = { path = "crates/goodfetch-recording-gate" }
+# The one place a Tokio runtime is built (ADR 0081, spec #606): `main`, the
+# SDK crates' Connections, test helpers and bench targets take it.
+goodfetch-runtime = { path = "crates/goodfetch-runtime" }
 # The built-in external Secret providers, which each Product's composition registers (spec #564).
 goodfetch-secret-providers = { path = "crates/goodfetch-secret-providers" }
 # Foxhound's Session pool; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
@@ -283,8 +290,9 @@ tokio-rustls = { version = "0.26.4", default-features = false }
 # The Proving ground's identity site verifies Web Bot Auth signatures with
 # Cloudflare's own verifier, as the lab's did with its npm package (#162).
 web-bot-auth = { version = "0.7.0", default-features = false }
-# The identity site's tests sign as an agent would: web-bot-auth's signer
-# takes its covered components as an `IndexMap` and its keys as Ed25519.
+# An identified Session signs each request it sends, and the identity
+# site's tests sign as an agent would: web-bot-auth's signer takes its
+# covered components as an `IndexMap` and its keys as Ed25519.
 ed25519-dalek = { version = "2.2.0", default-features = false }
 indexmap = { version = "2.14.2", default-features = false }
 # The Frontier holds each visited identity memory keeps as a slot number,
@@ -612,8 +620,9 @@ opt-level = 3
 debug-assertions = false
 
 # And for the work a crawl does on each page: HTML parsing and its DOM,
-# clean-up's selector matching and Filter-list engine, readability, JSON and
-# JSON Schema validation, and the C sources `cc` builds at the profile's
+# streaming selector matching, clean-up's selector matching and Filter-list
+# engine, readability, content decoding, JSON and JSON Schema validation,
+# Base64, and the C sources `cc` builds at the profile's
 # opt-level, the allocator's, SQLite's and zstd's. Unoptimized, they took
 # most of the Foxhound Daemon soak's CPU, about 33 ms a page, so its time
 # followed the host's load up to its five-minute kill (#2050). Like those
@@ -647,10 +656,19 @@ opt-level = 3
 [profile.dev.package.dom_smoothie]
 opt-level = 3
 
+[profile.dev.package.lol_html]
+opt-level = 3
+
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+
 [profile.dev.package.serde_json]
 opt-level = 3
 
 [profile.dev.package.jsonschema]
+opt-level = 3
+
+[profile.dev.package.data-encoding]
 opt-level = 3
 
 [profile.dev.package.libmimalloc-sys]

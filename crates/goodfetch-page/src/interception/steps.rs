@@ -14,6 +14,8 @@ use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
+use goodfetch_engine::request_signing::{RequestSigner, SignedHeaders};
+use url::Url;
 
 /// What to send instead of what a request carries; each part replaces the
 /// request's whole.
@@ -75,6 +77,8 @@ pub(crate) struct Paused<'a> {
     pub(crate) url: &'a str,
     pub(crate) method: &'a str,
     pub(crate) overrides: &'a Overrides,
+    /// The headers it carries, which `overrides` may replace.
+    pub(crate) headers: &'a network::Headers,
     /// What it loads.
     pub(crate) kind: ResourceKind,
     /// The URL of the document that sent it.
@@ -103,9 +107,10 @@ pub(crate) enum Stopped {
     Blocked { by_list: bool },
 }
 
-/// Steps 3 to 7 for `paused` under `policy` and `blocking`, and step 8's
-/// command; `fetch` pauses its response, so a stand-in, which has none,
-/// blocks a fetched request instead.
+/// Steps 3 to 7 for `paused` under `policy` and `blocking`, signed by
+/// `signing`, an `identified` Session's signer, and step 8's command;
+/// `fetch` pauses its response, so a stand-in, which has none, blocks a
+/// fetched request instead.
 ///
 /// # Errors
 ///
@@ -114,6 +119,7 @@ pub(crate) fn send_on(
     paused: &Paused<'_>,
     policy: &Policy,
     blocking: &Blocking,
+    signing: Option<&RequestSigner>,
     fetch: bool,
 ) -> Result<Sent, Stopped> {
     // Step 3: the egress check and the domain policy.
@@ -170,16 +176,63 @@ pub(crate) fn send_on(
     // Session's cookies are the browser's own: it puts them on the request
     // as it sends it on, whatever headers a route set, and the routes' view
     // leaves them out. Secret placeholders and the Session's credentials
-    // (#654, #733) are resolved here.
+    // (#654, #733) are resolved here. An `identified` Session signs the
+    // request last, over what it sends (ADR 0045; #1551).
+    let signed = signing.and_then(|signer| {
+        Url::parse(paused.url)
+            .ok()
+            .and_then(|url| signer.sign(&url))
+    });
+    let headers = match signed {
+        Some(signed) => Some(signed_entries(paused, signed)),
+        None => paused.overrides.headers.as_ref().map(entries),
+    };
     // Step 8: the network.
     Ok(Sent::Continue(fetch::ContinueRequestParams {
         request_id: paused.id.clone(),
         url: paused.overrides.url.clone(),
         method: paused.overrides.method.clone(),
         post_data: paused.overrides.post_data.clone(),
-        headers: paused.overrides.headers.as_ref().map(entries),
+        headers,
         intercept_response: fetch.then_some(true),
     }))
+}
+
+/// The headers `paused` is sent on with, its overrides' or its own, and
+/// `signed`, which replace any of the same names it carried.
+fn signed_entries(paused: &Paused<'_>, signed: SignedHeaders) -> Vec<fetch::HeaderEntry> {
+    let carried: Vec<(&str, &str)> = match paused.overrides.headers.as_ref() {
+        Some(headers) => headers
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect(),
+        None => paused
+            .headers
+            .iter()
+            .filter_map(|(name, value)| Some((name.as_str(), value.as_str()?)))
+            .collect(),
+    };
+    carried
+        .into_iter()
+        .filter(|(name, _)| {
+            !SignedHeaders::NAMES
+                .iter()
+                .any(|signed| signed.eq_ignore_ascii_case(name))
+        })
+        .map(|(name, value)| fetch::HeaderEntry {
+            name: name.to_owned(),
+            value: value.to_owned(),
+        })
+        .chain(
+            signed
+                .into_entries()
+                .into_iter()
+                .map(|(name, value)| fetch::HeaderEntry {
+                    name: name.to_owned(),
+                    value,
+                }),
+        )
+        .collect()
 }
 
 /// What a request of `resource_type` loads, as the Filter lists match it;

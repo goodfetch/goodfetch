@@ -2334,11 +2334,14 @@ dependencies = [
  "clap",
  "data-encoding",
  "dirs",
+ "ed25519-dalek",
  "goodfetch-clean-up-rules",
  "goodfetch-collie",
+ "goodfetch-collie-client",
  "goodfetch-engine",
  "goodfetch-page",
  "goodfetch-protocol",
+ "goodfetch-runtime",
  "goodfetch-secret-providers",
  "goodfetch-test-client",
  "goodfetch-test-support",
@@ -2380,6 +2383,24 @@ dependencies = [
  "ureq",
  "url",
  "zip",
+]
+
+[[package]]
+name = "goodfetch-collie-client"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-engine",
+ "goodfetch-protocol",
+ "goodfetch-runtime",
+ "goodfetch-test-support",
+ "goodfetch-workspace-hack",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -2498,11 +2519,13 @@ dependencies = [
  "chacha20 0.10.2",
  "chacha20poly1305",
  "data-encoding",
+ "ed25519-dalek",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
  "goodfetch-counted-work",
  "goodfetch-protocol",
+ "goodfetch-runtime",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "gungraun",
@@ -2513,6 +2536,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "icu_normalizer",
+ "indexmap",
  "insta",
  "jiff",
  "keyring-core",
@@ -2551,6 +2575,7 @@ dependencies = [
  "tracing-subscriber",
  "ulid",
  "url",
+ "web-bot-auth",
  "webpki-roots",
  "windows-native-keyring-store",
  "windows-sys 0.61.2",
@@ -2612,6 +2637,7 @@ dependencies = [
  "goodfetch-frontier",
  "goodfetch-page",
  "goodfetch-protocol",
+ "goodfetch-runtime",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "gungraun",
@@ -2675,6 +2701,7 @@ dependencies = [
  "goodfetch-frontier",
  "goodfetch-page",
  "goodfetch-protocol",
+ "goodfetch-runtime",
  "goodfetch-session-pool",
  "goodfetch-sql-tab",
  "goodfetch-test-client",
@@ -2771,6 +2798,7 @@ dependencies = [
  "goodfetch-extractor",
  "goodfetch-protocol",
  "goodfetch-recording-gate",
+ "goodfetch-runtime",
  "goodfetch-test-client",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
@@ -2833,6 +2861,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "form_urlencoded",
+ "goodfetch-runtime",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "h2",
@@ -2881,12 +2910,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-runtime"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-workspace-hack",
+ "tokio",
+]
+
+[[package]]
 name = "goodfetch-secret-providers"
 version = "0.0.0"
 dependencies = [
  "data-encoding",
  "goodfetch-engine",
  "goodfetch-protocol",
+ "goodfetch-runtime",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "hmac 0.12.1",
@@ -2944,6 +2982,7 @@ dependencies = [
  "goodfetch-conformance",
  "goodfetch-engine",
  "goodfetch-protocol",
+ "goodfetch-runtime",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "http-body-util",
@@ -2985,7 +3024,9 @@ dependencies = [
  "data-encoding",
  "expectrl",
  "flate2",
+ "goodfetch-runtime",
  "goodfetch-workspace-hack",
+ "httparse",
  "insta",
  "jiff",
  "jsonschema",
@@ -7130,6 +7171,7 @@ dependencies = [
  "futures-util",
  "libc",
  "pin-project-lite",
+ "slab",
  "tokio",
 ]
 

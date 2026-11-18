@@ -97,6 +97,7 @@ use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::{self, Navigator, Policy, RequestKind};
+use goodfetch_engine::request_signing::RequestSigner;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::{Run, run_trace};
 use goodfetch_engine::settings::{RunSettings, Values};
@@ -255,6 +256,9 @@ struct Tables {
     /// with none, each with the lookups its requests' hosts are resolved
     /// through.
     interception_only: BTreeMap<SessionId, Arc<Lookups>>,
+    /// The `identified` Sessions, each with the signer its requests are
+    /// signed with (ADR 0045; #1551).
+    signing: BTreeMap<SessionId, Arc<RequestSigner>>,
     /// Each Session's own failure slot: where a Session route's handler
     /// that failed on a service worker's request leaves its failure, for
     /// the next call on any page of the Session.
@@ -322,6 +326,8 @@ pub(crate) trait OnDocument: Send + Sync {
 pub(crate) struct EngineRequests {
     policy: Policy,
     blocking: steps::Blocking,
+    /// An `identified` Session's signer, step 7's last addition.
+    signing: Option<Arc<RequestSigner>>,
 }
 
 impl EngineRequests {
@@ -349,11 +355,18 @@ impl EngineRequests {
                 .as_deref()
                 .unwrap_or(&paused.request.method),
             overrides,
+            headers: &paused.request.headers,
             kind: ResourceKind::Xhr,
             source_url: url,
             egress: RequestKind::Page,
         };
-        match steps::send_on(&request, &self.policy, &self.blocking, true) {
+        match steps::send_on(
+            &request,
+            &self.policy,
+            &self.blocking,
+            self.signing.as_deref(),
+            true,
+        ) {
             Ok(steps::Sent::Continue(command)) => Ok(command),
             Ok(steps::Sent::StandIn(_)) | Err(steps::Stopped::Blocked { .. }) => {
                 Err(CallError::new(
@@ -499,6 +512,15 @@ impl Interception {
             .insert(session.clone(), Arc::new(lookups));
     }
 
+    /// Signs each request of the `identified` Session `session` with
+    /// `signer`, its pages', their frames' and its workers', and the
+    /// engine's own from it, as step 7's last addition (ADR 0045; #1551).
+    pub(crate) fn sign_with(&self, session: &SessionId, signer: Arc<RequestSigner>) {
+        lock(&self.shared.tables)
+            .signing
+            .insert(session.clone(), signer);
+    }
+
     /// Puts the page `page_id` of the Session `session`, which `driver`
     /// drives for `run`, under the interception: every request of its
     /// target is paused and passes the pipeline from now on, its Clean-up
@@ -545,6 +567,7 @@ impl Interception {
         let (state, lookups) = {
             let mut tables = lock(&self.shared.tables);
             let lookups = tables.interception_only.get(session).cloned();
+            let signing = tables.signing.get(session).cloned();
             let pending = Arc::clone(tables.pending.entry(session.clone()).or_default());
             let session_failure = Arc::clone(tables.failures.entry(session.clone()).or_default());
             let session = Arc::clone(tables.sessions.entry(session.clone()).or_default());
@@ -567,6 +590,7 @@ impl Interception {
                 engine_requests: EngineRequests {
                     policy: policy.clone(),
                     blocking: blocking.clone(),
+                    signing,
                 },
                 on_document,
             });
@@ -734,7 +758,7 @@ impl Interception {
             );
             let (policy, blocking, lookups) = (policy.clone(), blocking.clone(), lookups.clone());
             Box::pin(async move {
-                let (routes, pending, session_failure) = {
+                let (routes, pending, session_failure, signing) = {
                     let mut tables = lock(&shared.tables);
                     let Some(routes) = tables.sessions.get(&session).cloned() else {
                         return false;
@@ -743,6 +767,7 @@ impl Interception {
                         routes,
                         tables.pending.get(&session).cloned().unwrap_or_default(),
                         Arc::clone(tables.failures.entry(session.clone()).or_default()),
+                        tables.signing.get(&session).cloned(),
                     )
                 };
                 let log = Arc::new(RequestLog::new(run_trace(&run)));
@@ -770,6 +795,7 @@ impl Interception {
                     engine_requests: EngineRequests {
                         policy: policy.clone(),
                         blocking: blocking.clone(),
+                        signing,
                     },
                     on_document: None,
                 });
@@ -961,23 +987,30 @@ impl Interception {
         self.shared.answers.deliver(route_id, answer)
     }
 
-    /// Steps 3 to 8 for the engine's own requests from a Session of `run`
-    /// whose own settings are `own`, as its pages' would be: its domain
-    /// policy, and the Filter lists and `browser.block_resources` it
-    /// chose, for a request no page of the Session sends.
+    /// Steps 3 to 8 for the engine's own requests from the Session
+    /// `session` of `run`, whose own settings are `own`, as its pages'
+    /// would be: its domain policy, the Filter lists and
+    /// `browser.block_resources` it chose, and its signer when it is
+    /// `identified`, for a request no page of the Session sends.
     ///
     /// # Errors
     ///
     /// `setting_invalid` for a domain list of the Run's that holds no host.
     pub(crate) async fn engine_requests_of(
         &self,
+        session: &SessionId,
         run: &Run,
         own: &Values,
     ) -> Result<EngineRequests, CallError> {
         let policy = policy_of(run)?;
         let choices = clean_up::choices(run.settings().map(RunSettings::resolved), own);
         let (blocking, _) = self.shared.clean_up.blocking(choices, run).await;
-        Ok(EngineRequests { policy, blocking })
+        let signing = lock(&self.shared.tables).signing.get(session).cloned();
+        Ok(EngineRequests {
+            policy,
+            blocking,
+            signing,
+        })
     }
 
     /// Steps 3 to 8 of the page `page_id`'s pipeline, for a request the
@@ -1071,6 +1104,7 @@ impl Interception {
         tables.pending.remove(session);
         tables.failures.remove(session);
         tables.interception_only.remove(session);
+        tables.signing.remove(session);
     }
 }
 

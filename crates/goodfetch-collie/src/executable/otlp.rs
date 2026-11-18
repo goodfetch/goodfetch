@@ -48,13 +48,7 @@ impl opentelemetry_http::HttpClient for ToCollector {
     ) -> Result<http::Response<Bytes>, opentelemetry_http::HttpError> {
         // The export's own thread runs no runtime: each export gets one of
         // its own, as `main`'s other blocking steps do.
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "main builds the runtime (ADR 0060)"
-        )]
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
+        let runtime = goodfetch_runtime::current_thread().enable_all().build()?;
         runtime.block_on(async {
             tokio::select! {
                 answered = self.collector.send(request) => answered.map_err(Into::into),

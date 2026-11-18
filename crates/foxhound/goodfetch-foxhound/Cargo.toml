@@ -43,6 +43,7 @@ goodfetch-workspace-hack.workspace = true
 # (CARGO_BIN_EXE_goodfetch-foxhound, ADRs 0059 and 0062).
 goodfetch-foxhound = { path = ".", features = ["executable"] }
 goodfetch-test-client.workspace = true
+goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
 # The clean-up's removal, which B4's counts example runs once more per page
 # as the plant of its instructions (examples/counts-extraction.rs).

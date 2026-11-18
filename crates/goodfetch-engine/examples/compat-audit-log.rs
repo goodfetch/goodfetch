@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None,
         Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
     );
-    tokio::runtime::Builder::new_current_thread()
+    goodfetch_runtime::current_thread()
         .enable_all()
         .build()?
         .block_on(record(&log))?;

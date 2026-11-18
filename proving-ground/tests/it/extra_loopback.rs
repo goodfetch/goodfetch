@@ -23,7 +23,7 @@ use crate::proving_ground::{ProvingGround, submission};
 /// Sends `GET path` with `host` from the address `local`, and returns the
 /// answer's status and body.
 fn get_from(local: IpAddr, server: SocketAddr, host: &str, path: &str) -> (u16, String) {
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let runtime = goodfetch_runtime::current_thread()
         .enable_io()
         .build()
         .expect("a runtime");

@@ -236,6 +236,104 @@ export type DialogType = "alert" | "confirm" | "prompt" | "beforeunload";
  */
 export type DownloadId = string;
 /**
+ * What `effect.close` answers: how the engine judged the body by what it
+ * sent for it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EffectClosed".
+ */
+export type EffectClosed =
+  | {
+      judged: "done";
+      /**
+       * A point in time in UTC, as RFC 3339.
+       */
+      performed_at: string;
+    }
+  | {
+      judged: "dropped";
+      /**
+       * Whether something was sent for it.
+       */
+      sent: boolean;
+    }
+  | {
+      /**
+       * The Error code the body's value met, `effect_output_invalid`,
+       * when it returned one the Effect journal does not keep.
+       */
+      cause?: string | null;
+      effect: UncertainEffect;
+      judged: "uncertain";
+    };
+/**
+ * What `effect.open` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EffectOpened".
+ */
+export type EffectOpened =
+  | {
+      answer: "perform";
+      /**
+       * The Effect journal entry, which `effect.close` names.
+       */
+      entry: string;
+      /**
+       * An opaque key, the same on every attempt and resume of this
+       * Effect on any machine and different in every Run and install,
+       * for the body to send as a site's `Idempotency-Key`.
+       */
+      idempotency_key: string;
+    }
+  | {
+      answer: "journal";
+      /**
+       * What the body returned, or absent when it returned nothing.
+       */
+      output?: {
+        [k: string]: unknown;
+      };
+      /**
+       * A point in time in UTC, as RFC 3339.
+       */
+      performed_at: string;
+    }
+  | {
+      answer: "reconciled";
+      /**
+       * A point in time in UTC, as RFC 3339.
+       */
+      reconciled_at: string;
+      /**
+       * Who answered.
+       */
+      reconciled_by: string;
+    };
+/**
+ * How an Effect's body ended.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EffectOutcome".
+ */
+export type EffectOutcome =
+  | {
+      ended: "returned";
+      /**
+       * What it returned: JSON up to `effect.output.max_size` bytes, or
+       * absent when it returned nothing.
+       */
+      output?: {
+        [k: string]: unknown;
+      };
+    }
+  | {
+      ended: "threw";
+    }
+  | {
+      ended: "cut_short";
+    };
+/**
  * A state of the element a locator matches (Playwright's `waitFor`).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -2508,6 +2606,124 @@ export interface DownloadSaved {
    * the SDK writes the path.
    */
   written: boolean;
+}
+/**
+ * The crawl attempt an Effect is declared through: a handler's `ctx.run`,
+ * which is bound to its attempt (ADR 0093).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EffectAttempt".
+ */
+export interface EffectAttempt {
+  /**
+   * The ID of the crawl request whose attempt declares the Effect.
+   */
+  crawl_request_id: string;
+  /**
+   * The attempt's lease epoch, as `crawl_request.handle` gave it.
+   */
+  lease_epoch: number;
+}
+/**
+ * What `effect.close` takes: the entry `effect.open` answered and how its
+ * body ended.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EffectCloseParams".
+ */
+export interface EffectCloseParams {
+  /**
+   * The entry `effect.open` answered with `perform`.
+   */
+  entry: string;
+  /**
+   * How the body ended.
+   */
+  outcome:
+    | {
+        ended: "returned";
+        /**
+         * What it returned: JSON up to `effect.output.max_size` bytes, or
+         * absent when it returned nothing.
+         */
+        output?: {
+          [k: string]: unknown;
+        };
+      }
+    | {
+        ended: "threw";
+      }
+    | {
+        ended: "cut_short";
+      };
+  /**
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   */
+  run_id: string;
+}
+/**
+ * The Effect left uncertain, as the Run report lists it.
+ */
+export interface UncertainEffect {
+  /**
+   * The crawl request it ran for, in a crawl.
+   */
+  crawl_request?: string | null;
+  /**
+   * Its Effect journal entry.
+   */
+  entry: string;
+  /**
+   * The first command sent for it.
+   */
+  first_command?: string | null;
+  /**
+   * Its instruction, for an AI action.
+   */
+  instruction?: string | null;
+  /**
+   * Its key, for a declared Effect.
+   */
+  key?: string | null;
+  /**
+   * Why it is uncertain.
+   */
+  reason: string;
+  /**
+   * A point in time in UTC, as RFC 3339.
+   */
+  since: string;
+}
+/**
+ * What `effect.open` takes: the Run, the Effect key and whether its body
+ * is safe to run again.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EffectOpenParams".
+ */
+export interface EffectOpenParams {
+  /**
+   * The crawl attempt whose handler's `ctx.run` declares the Effect
+   * (ADR 0093), whose crawl request is the key's namespace. Absent, the
+   * key's namespace is the Run.
+   */
+  attempt?: EffectAttempt | null;
+  /**
+   * The Effect key, chosen by the program: 1 to 255 Unicode code
+   * points. Its namespace is the crawl request in a handler and the Run
+   * elsewhere.
+   */
+  key: string;
+  /**
+   * Whether the body is safe to run again: a body that sent something
+   * and did not return then runs again at its next declaration instead
+   * of leaving its Effect uncertain. `false` by default.
+   */
+  repeatable?: boolean;
+  /**
+   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   */
+  run_id: string;
 }
 /**
  * An Error code a Run's ending raises, with its message and details.
@@ -6818,7 +7034,7 @@ export interface RunReport {
    * Each Effect it left uncertain, until a person reconciles it (ADR
    * 0106).
    */
-  uncertain_effects?: UncertainEffect[] | null;
+  uncertain_effects?: UncertainEffect1[] | null;
   usage: RunUsage;
   /**
    * Whether a Run's own checks prove what it committed (ADR 0029).
@@ -6844,7 +7060,7 @@ export interface RunReport {
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "UncertainEffect".
  */
-export interface UncertainEffect {
+export interface UncertainEffect1 {
   /**
    * The crawl request it ran for, in a crawl.
    */

@@ -24,6 +24,7 @@ url.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
+goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["server", "http1"] }

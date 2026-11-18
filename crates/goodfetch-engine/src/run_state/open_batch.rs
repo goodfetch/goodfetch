@@ -158,12 +158,14 @@ impl Writer {
     /// Runs `group` in the open batch, opening one when none is, and
     /// commits the batch when the group holds a barrier, a sync falls due,
     /// or a threshold is reached; a group that holds the writer's `last`
-    /// write commits it synced at every level.
-    pub(super) fn batch(&mut self, group: Vec<Queued>, ticked: bool, last: bool) {
-        let sync_due = self
+    /// write commits it synced at every level, and one that holds an
+    /// Effect's sent mark (`sent`) at every level but `off`.
+    pub(super) fn batch(&mut self, group: Vec<Queued>, ticked: bool, last: bool, sent: bool) {
+        let interval_due = self
             .interval
             .as_ref()
             .is_some_and(|interval| interval.plan(ticked, last).synced);
+        let sync_due = interval_due || sent;
         let unsynced_stop =
             last && matches!(self.durability.sync, BatchSync::Never | BatchSync::Off);
         let open_unsynced = self.open_batch().is_some_and(|open| !open.synced);
@@ -182,7 +184,8 @@ impl Writer {
         let synced = match self.durability.sync {
             BatchSync::Each => true,
             BatchSync::Interval(_) => sync_due,
-            BatchSync::Never | BatchSync::Off => synced_stop,
+            BatchSync::Never => synced_stop || sent,
+            BatchSync::Off => synced_stop,
         };
         let commit = sync_due || last;
         if group.is_empty() && !commit {
@@ -201,13 +204,19 @@ impl Writer {
         let barrier = self
             .open_batch()
             .is_some_and(|open| !open.owed.is_empty() || open.declare);
-        if sync_due && !last {
+        if interval_due && !last {
             self.commit_batch(Sealed::Planned, clean, last);
         } else if commit || barrier {
             self.commit_batch(Sealed::Early, clean, last);
         } else {
             self.commit_reached();
         }
+    }
+
+    /// Commits the open batch before the writer's connection switches to
+    /// syncing, which it does outside a transaction only.
+    pub(super) fn commit_open_batch(&mut self) {
+        self.commit_batch(Sealed::Early, false, false);
     }
 
     fn open_batch(&self) -> Option<&OpenBatch> {

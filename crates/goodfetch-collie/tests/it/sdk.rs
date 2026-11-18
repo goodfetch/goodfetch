@@ -136,12 +136,15 @@ fn the_members_generated_from_the_catalog_reach_the_engine() {
 
 /// The `call-timeout-three-states` client conformance case, linked, with
 /// the two tests below, which refuse `Duration::ZERO` and send no timeout:
-/// a call's `timeout` left out takes the setting's default, and one given
-/// as a duration bounds the call (ADR 0080). A `Duration` is never negative
-/// nor infinite, so zero is the one value to refuse.
+/// the linked engine takes a call's `timeout` left out or given as a
+/// duration (ADR 0080). What each state sends is
+/// `goodfetch-collie-client`'s
+/// `a_call_sends_its_timeout_left_out_null_or_in_milliseconds_rounded_up`.
+/// A `Duration` is never negative nor infinite, so zero is the one value to
+/// refuse.
 /// Covers: story:11-40, setting:timeout.run, operation:run.finish
 #[test]
-fn a_timeout_left_out_or_given_as_a_duration_reaches_the_engine() {
+fn a_run_finishes_with_its_timeout_left_out_or_given_as_a_duration() {
     let env = TestEnv::new();
     real_time_runtime().block_on(async {
         let collie = Collie::connect(options(&env)).await.unwrap();

@@ -99,12 +99,10 @@ struct Imports {
     typing: BTreeSet<&'static str>,
     models: bool,
     deprecated: bool,
-    /// Whether a member takes an optional parameter, which defaults to the
-    /// `not_given` sentinel.
-    not_given: bool,
-    /// Whether a member takes its own `timeout`, a `timedelta` sent through
-    /// [`TIMEOUT_OF`].
-    timeout: bool,
+    /// The names it imports from the handle module besides the hosts: the
+    /// `not_given` sentinel when a member takes an optional parameter, and
+    /// [`TIMEOUT_OF`] when a member takes its own `timeout`, a `timedelta`.
+    handle: BTreeSet<&'static str>,
 }
 
 impl Imports {
@@ -355,7 +353,7 @@ fn signature(
     for name in &parameters.optional {
         let (spelled, passed) = match timeout_setting.filter(|_| name == TIMEOUT) {
             Some(setting) => {
-                imports.timeout = true;
+                imports.handle.insert(TIMEOUT_OF);
                 (
                     "timedelta | None".to_owned(),
                     format!("{TIMEOUT_OF}({name}, {setting:?})"),
@@ -363,7 +361,7 @@ fn signature(
             }
             None => spell(name, imports)?,
         };
-        imports.not_given = true;
+        imports.handle.extend(["NotGiven", "not_given"]);
         declared.push(format!("{name}: {spelled} | NotGiven = not_given"));
         optional.push((name.clone(), passed));
     }
@@ -639,7 +637,7 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
         layer.product.name()
     ));
     text.push('\n');
-    if imports.timeout {
+    if imports.handle.contains(TIMEOUT_OF) {
         text.push_str("from datetime import timedelta\n");
     }
     imports.typing.insert("Self");
@@ -648,19 +646,13 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
     if imports.deprecated {
         text.push_str("\nfrom typing_extensions import deprecated\n");
     }
-    let not_given = if imports.not_given {
-        ", NotGiven, not_given"
-    } else {
-        ""
-    };
-    let timeout_of = if imports.timeout {
-        format!(", {TIMEOUT_OF}")
-    } else {
-        String::new()
-    };
+    let handle = imports
+        .handle
+        .iter()
+        .fold(String::new(), |names, name| names + ", " + name);
     let _ = writeln!(
         text,
-        "\nfrom {CALLER_MODULE} import result_of\nfrom {HANDLE_MODULE} import AsyncHandleHost, HandleHost{not_given}{timeout_of}"
+        "\nfrom {CALLER_MODULE} import result_of\nfrom {HANDLE_MODULE} import AsyncHandleHost, HandleHost{handle}"
     );
     if imports.models {
         text.push_str("\nfrom . import models\n");

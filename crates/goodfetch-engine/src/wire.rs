@@ -57,6 +57,27 @@ pub(crate) fn notification_line(method: &str, params: &impl Serialize) -> Vec<u8
     })
 }
 
+/// The line of the notification `method` with `params`, encoded once into a
+/// buffer that starts with room for `capacity` bytes, or the error of params
+/// that do not encode.
+pub(crate) fn try_notification_line(
+    method: &str,
+    params: &impl Serialize,
+    capacity: usize,
+) -> Result<Vec<u8>, serde_json::Error> {
+    let mut line = Vec::with_capacity(capacity);
+    serde_json::to_writer(
+        &mut line,
+        &Outgoing {
+            jsonrpc: Version,
+            method,
+            params,
+        },
+    )?;
+    line.push(b'\n');
+    Ok(line)
+}
+
 /// A notification the engine sends, its params encoded where they are.
 #[derive(Serialize)]
 struct Outgoing<'a, P> {

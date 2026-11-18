@@ -61,7 +61,7 @@ use tokio::sync::mpsc;
 
 use super::daemon::{Machine, NotOpened, Wanted};
 use super::exit_codes;
-use super::runtime::{self, Threads};
+use crate::runtime::{self, Threads};
 
 /// The id of `hello`.
 const HELLO_ID: i64 = 0;

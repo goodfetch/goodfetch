@@ -1,7 +1,11 @@
 # Which of goodfetch-collie's top-level modules may import which (ADR 0126).
 [modules]
 block_detection = []
+blocking = ["collie", "linked"]
+collie = ["linked"]
 composition = ["block_detection", "pins", "sample"]
-executable = ["pins"]
+executable = ["linked", "pins", "runtime"]
+linked = ["composition", "runtime"]
 pins = []
+runtime = []
 sample = []

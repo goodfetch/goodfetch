@@ -1,22 +1,28 @@
 //! The Connection: what a program holds to talk to one engine (ADR 0081).
 //! It takes its runtime as a value, opens its transport and says `hello` on
-//! that runtime, and hands out the call builders. Its handles are cheap
-//! clones, `Send + Sync + 'static`; dropping its last handle shuts a
-//! runtime it owns down in the background, never on the async worker that
-//! drops it.
+//! that runtime, and hands out the call builders and the Runs it starts.
+//! Its handles are cheap clones, `Send + Sync + 'static`; closing it closes
+//! its Runs first (ADR 0078), and dropping its last handle shuts a runtime
+//! it owns down in the background, never on the async worker that drops
+//! it.
 
+use std::fmt::Debug;
+use std::future::Future;
 use std::panic;
-use std::sync::Arc;
+use std::pin::Pin;
+use std::sync::{Arc, PoisonError, Weak};
 
 use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult};
 use serde::Serialize;
 use tokio::runtime::{Handle, Runtime};
+use tokio::sync::oneshot;
 use tokio::task::JoinError;
 use tokio_util::task::TaskTracker;
 
 use crate::call::{Call, Query};
 use crate::error::Error;
-use crate::rpc::{self, Sender};
+use crate::rpc::{self, Outgoing, Sender};
+use crate::sync::{Mutex, MutexGuard};
 use crate::transport::{self, Endpoint, Network};
 
 /// The runtime a Connection's tasks run on.
@@ -79,7 +85,15 @@ pub struct Connection(Arc<Inner>);
 #[derive(Debug)]
 struct Inner {
     sender: Sender,
+    /// The runtime its tasks run on.
+    handle: Handle,
     tasks: TaskTracker,
+    /// The calls `blocking` hands to the runtime, which `close()` never
+    /// waits for, as one of them may be that `close()`.
+    handed: TaskTracker,
+    /// The Runs it started, which `close()` closes first. A Run holds its
+    /// Connection, so the Connection only refers to it.
+    runs: Mutex<Vec<Weak<dyn Closes>>>,
     /// Held only to be dropped with the Connection's last handle.
     _runtime: Owned,
 }
@@ -112,7 +126,10 @@ impl Connection {
         let sender = rpc::start(opened.link, &handle, &tasks);
         let connection = Self(Arc::new(Inner {
             sender,
+            handle,
             tasks,
+            handed: TaskTracker::new(),
+            runs: Mutex::new(Vec::new()),
             _runtime: owned,
         }));
         match connection.call::<HelloResult>(HELLO, &hello).await {
@@ -129,25 +146,107 @@ impl Connection {
         Call::new(self.0.sender.clone(), method, to_value(params))
     }
 
+    /// The call of `method` with `params`, or one that fails with their
+    /// error when it is awaited.
+    pub(crate) fn call_or_fail<T>(
+        &self,
+        method: &str,
+        params: Result<impl Serialize, Error>,
+    ) -> Call<T> {
+        let params = params.and_then(|params| to_value(&params));
+        Call::new(self.0.sender.clone(), method, params)
+    }
+
     /// The query of `method` with `params`, whose answer reads as `T`.
     pub fn query<T>(&self, method: &str, params: &impl Serialize) -> Query<T> {
         Query::new(self.0.sender.clone(), method, to_value(params))
     }
 
-    /// Closes the Connection: every call in flight fails with
+    /// Closes the Connection: first every Run it started that is still
+    /// open, as [`crate::Run::close`] does, then every call in flight fails with
     /// [`Error::Closed`], as does every later one; the engine reads the end
     /// of its input, and an Attached engine exits. Returns once the
     /// Connection's tasks have ended. Closing again does nothing.
     ///
     /// # Errors
     ///
-    /// None yet: the closing tree's failures arrive with it (spec #606).
+    /// The first error a Run's close failed with; the Connection closes
+    /// all the same.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future before it completes leaves the Runs it had not
+    /// closed yet open and the Connection open.
     pub async fn close(&self) -> Result<(), Error> {
+        let runs: Vec<Arc<dyn Closes>> = std::mem::take(&mut *self.runs())
+            .iter()
+            .filter_map(Weak::upgrade)
+            .collect();
+        let mut closed = Ok(());
+        for run in runs {
+            let result = run.close().await;
+            closed = closed.and(result);
+        }
         self.0.sender.close();
         self.0.tasks.close();
         self.0.tasks.wait().await;
-        Ok(())
+        closed
     }
+
+    /// Notes `run` as one `close()` closes, forgetting those already gone.
+    pub(crate) fn register<R: Closes + 'static>(&self, run: &Arc<R>) {
+        let run: Weak<R> = Arc::downgrade(run);
+        let mut runs = self.runs();
+        runs.retain(|known| known.strong_count() > 0);
+        runs.push(run);
+    }
+
+    /// Sends the call of `method` with `params` without waiting for its
+    /// reply, which is dropped: a `Drop` that must never block sends it.
+    pub(crate) fn send_and_forget(&self, method: &str, params: &impl Serialize) {
+        let Ok(params) = serde_json::to_value(params) else {
+            return;
+        };
+        let (reply, _dropped) = oneshot::channel();
+        self.0.sender.call(Outgoing {
+            method: method.to_owned(),
+            params,
+            timeout: None,
+            reply,
+        });
+    }
+
+    /// Runs `future` on the Connection's runtime and blocks the calling
+    /// thread, and only it, until it ends: `blocking`'s every call. It
+    /// never enters a runtime, so it works inside one, where it blocks that
+    /// worker; the runtime must be one the Connection owns, or one some
+    /// other thread drives.
+    pub(crate) fn wait<T: Send + 'static>(
+        &self,
+        future: impl Future<Output = Result<T, Error>> + Send + 'static,
+    ) -> Result<T, Error> {
+        let (done, ended) = std::sync::mpsc::sync_channel(1);
+        self.0.handed.spawn_on(
+            async move {
+                let _gone = done.send(future.await);
+            },
+            &self.0.handle,
+        );
+        // The task ends without sending only when the runtime shut down.
+        ended.recv().unwrap_or(Err(Error::Closed))
+    }
+
+    /// The Runs it started, which a panic elsewhere leaves as they were.
+    fn runs(&self) -> MutexGuard<'_, Vec<Weak<dyn Closes>>> {
+        self.0.runs.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// What a Connection closes before itself: a Run it started. The `run`
+/// module, above the Connection, implements it (ADR 0126).
+pub(crate) trait Closes: Debug + Send + Sync {
+    /// Closes it, as [`crate::Run::close`] does.
+    fn close(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>;
 }
 
 impl Drop for Inner {

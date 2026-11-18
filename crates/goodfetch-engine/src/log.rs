@@ -11,15 +11,20 @@
 //! listens only at the most verbose level a Connection asks for, so with
 //! none listening it costs nothing. Log events are telemetry: the layer never waits, and a
 //! Connection too slow to read them loses the oldest, which the next one it
-//! receives counts as `dropped`.
+//! receives counts as `dropped`. Each event's `$/log` line is encoded once,
+//! as it is emitted, its message and fields written straight into it, and
+//! each Connection at its level sends a copy (ADR 0140's E1).
 
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
-use goodfetch_protocol::log::{LOG, LogEvent, LogLevel};
-use serde_json::{Map, Value};
+use goodfetch_protocol::log::{LOG, LogLevel};
+use serde::ser::{SerializeMap, SerializeStruct as _};
+use serde::{Serialize, Serializer};
+use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, watch};
+use tracing::field::{Field, Visit};
 use tracing::level_filters::LevelFilter;
 use tracing::subscriber::Interest;
 use tracing::{Metadata, Subscriber};
@@ -41,13 +46,20 @@ pub struct LogEvents {
     events: broadcast::Sender<Item>,
 }
 
-/// What the Connections' stream carries: the log events, in the order the
-/// process emitted them, and each Connection's change of level among them,
-/// so a Connection judges each event by the level it had when it was
-/// emitted.
+/// The name of the field that holds an event's message.
+const MESSAGE: &str = "message";
+
+/// What a `$/log` line's buffer starts with room for: a line with a short
+/// message and a few fields fits it whole.
+const LINE_CAPACITY: usize = 256;
+
+/// What the Connections' stream carries: the log events, each at its level
+/// and as its `$/log` line, in the order the process emitted them, and each
+/// Connection's change of level among them, so a Connection judges each
+/// event by the level it had when it was emitted.
 #[derive(Clone, Debug)]
 enum Item {
-    Event(Arc<LogEvent>),
+    Event { level: LogLevel, line: Vec<u8> },
     Level { connection: u64, level: LogLevel },
 }
 
@@ -214,17 +226,13 @@ async fn forward(
                         wanted = level;
                     }
                 }
-                Ok(Item::Event(event)) => {
-                    if wanted == LogLevel::Off || event.level > wanted {
+                Ok(Item::Event { level: emitted, line }) => {
+                    if wanted == LogLevel::Off || emitted > wanted {
                         continue;
                     }
-                    // Copied only to tell the events lost before it.
                     let line = match std::mem::take(&mut dropped) {
-                        0 => line(&event),
-                        dropped => line(&LogEvent {
-                            dropped,
-                            ..LogEvent::clone(&event)
-                        }),
+                        0 => line,
+                        dropped => telling_dropped(line, dropped),
                     };
                     if outgoing.send(line.into()).await.is_err() {
                         return;
@@ -245,28 +253,226 @@ async fn forward(
     }
 }
 
-/// The `$/log` line of `event`, encoded once.
-fn line(event: &LogEvent) -> Vec<u8> {
-    crate::wire::notification_line(LOG, event)
+/// The `$/log` line of `event` at `level`, encoded once, its message and
+/// fields written straight into it: the [`goodfetch_protocol::log::LogEvent`]
+/// its Connections receive, its fields in the order the event records them,
+/// or the error of a value whose `Debug` fails.
+fn encode(level: LogLevel, event: &tracing::Event<'_>) -> Result<Vec<u8>, serde_json::Error> {
+    crate::wire::try_notification_line(LOG, &Params { level, event }, LINE_CAPACITY)
 }
 
-/// The layer that makes each event a [`LogEvent`] for the Connections.
+/// `line`, a `$/log` line as [`encode`] writes it, telling the `dropped` log
+/// events lost before it: `dropped` is the last field of
+/// [`goodfetch_protocol::log::LogEvent`], so it goes after the params'
+/// others, before their closing brace and the message's.
+fn telling_dropped(mut line: Vec<u8>, dropped: u64) -> Vec<u8> {
+    const END: &[u8] = b"}}\n";
+    debug_assert!(
+        line.ends_with(END),
+        "a `$/log` line ends its params and itself"
+    );
+    line.truncate(line.len().saturating_sub(END.len()));
+    line.extend_from_slice(b",\"dropped\":");
+    line.extend_from_slice(dropped.to_string().as_bytes());
+    line.extend_from_slice(END);
+    line
+}
+
+/// An event's `$/log` params as its [`goodfetch_protocol::log::LogEvent`]
+/// has them, with no `dropped`.
+struct Params<'a, 'e> {
+    level: LogLevel,
+    event: &'a tracing::Event<'e>,
+}
+
+impl Serialize for Params<'_, '_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut others = Others(false);
+        self.event.record(&mut others);
+        let mut params = serializer.serialize_struct("LogEvent", 3 + usize::from(others.0))?;
+        params.serialize_field("level", &self.level)?;
+        params.serialize_field("target", self.event.metadata().target())?;
+        params.serialize_field("message", &MessageOf(self.event))?;
+        if others.0 {
+            params.serialize_field("fields", &FieldsOf(self.event))?;
+        }
+        params.end()
+    }
+}
+
+/// Whether an event records a field other than its message.
+struct Others(bool);
+
+impl Visit for Others {
+    fn record_debug(&mut self, field: &Field, _value: &dyn fmt::Debug) {
+        self.0 |= field.name() != MESSAGE;
+    }
+}
+
+/// An event's message: the text of its first `message` field, empty when it
+/// records none.
+struct MessageOf<'a, 'e>(&'a tracing::Event<'e>);
+
+impl Serialize for MessageOf<'_, '_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut message = WriteMessage {
+            serializer: Some(serializer),
+            written: None,
+        };
+        self.0.record(&mut message);
+        match message.written {
+            Some(written) => written,
+            None => message
+                .serializer
+                .expect("invariant: the serializer is taken only to write the message")
+                .serialize_str(""),
+        }
+    }
+}
+
+/// Writes the first `message` field it visits as a JSON string.
+struct WriteMessage<S: Serializer> {
+    serializer: Option<S>,
+    written: Option<Result<S::Ok, S::Error>>,
+}
+
+impl<S: Serializer> WriteMessage<S> {
+    fn write(&mut self, field: &Field, write: impl FnOnce(S) -> Result<S::Ok, S::Error>) {
+        if field.name() != MESSAGE {
+            return;
+        }
+        if let Some(serializer) = self.serializer.take() {
+            self.written = Some(write(serializer));
+        }
+    }
+}
+
+impl<S: Serializer> Visit for WriteMessage<S> {
+    fn record_bool(&mut self, field: &Field, value: bool) {
+        self.write(field, |serializer| {
+            serializer.collect_str(&Value::Bool(value))
+        });
+    }
+
+    fn record_i64(&mut self, field: &Field, value: i64) {
+        self.write(field, |serializer| {
+            serializer.collect_str(&Value::from(value))
+        });
+    }
+
+    fn record_u64(&mut self, field: &Field, value: u64) {
+        self.write(field, |serializer| {
+            serializer.collect_str(&Value::from(value))
+        });
+    }
+
+    fn record_f64(&mut self, field: &Field, value: f64) {
+        self.write(field, |serializer| {
+            serializer.collect_str(&Value::from(value))
+        });
+    }
+
+    fn record_str(&mut self, field: &Field, value: &str) {
+        self.write(field, |serializer| serializer.serialize_str(value));
+    }
+
+    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
+        self.write(field, |serializer| serializer.collect_str(&Shown(value)));
+    }
+}
+
+/// An event's fields other than its message, as a JSON object.
+struct FieldsOf<'a, 'e>(&'a tracing::Event<'e>);
+
+impl Serialize for FieldsOf<'_, '_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut fields = WriteFields {
+            map: serializer.serialize_map(None)?,
+            failed: None,
+        };
+        self.0.record(&mut fields);
+        match fields.failed {
+            Some(error) => Err(error),
+            None => fields.map.end(),
+        }
+    }
+}
+
+/// Writes each field other than the message it visits as an entry, keeping
+/// the first error.
+struct WriteFields<M: SerializeMap> {
+    map: M,
+    failed: Option<M::Error>,
+}
+
+impl<M: SerializeMap> WriteFields<M> {
+    fn write(&mut self, field: &Field, value: &(impl Serialize + ?Sized)) {
+        if field.name() == MESSAGE || self.failed.is_some() {
+            return;
+        }
+        if let Err(error) = self.map.serialize_entry(field.name(), value) {
+            self.failed = Some(error);
+        }
+    }
+}
+
+impl<M: SerializeMap> Visit for WriteFields<M> {
+    fn record_bool(&mut self, field: &Field, value: bool) {
+        self.write(field, &value);
+    }
+
+    fn record_i64(&mut self, field: &Field, value: i64) {
+        self.write(field, &value);
+    }
+
+    fn record_u64(&mut self, field: &Field, value: u64) {
+        self.write(field, &value);
+    }
+
+    fn record_f64(&mut self, field: &Field, value: f64) {
+        self.write(field, &Value::from(value));
+    }
+
+    fn record_str(&mut self, field: &Field, value: &str) {
+        self.write(field, value);
+    }
+
+    fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
+        self.write(field, &AsString(value));
+    }
+}
+
+/// A value's `Debug`, shown as text.
+struct Shown<'a>(&'a dyn fmt::Debug);
+
+impl fmt::Display for Shown<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.0, formatter)
+    }
+}
+
+/// A value's `Debug`, as a JSON string.
+struct AsString<'a>(&'a dyn fmt::Debug);
+
+impl Serialize for AsString<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(&Shown(self.0))
+    }
+}
+
+/// The layer that encodes each event's `$/log` line for the Connections.
 struct Forward {
     events: broadcast::Sender<Item>,
 }
 
 impl<S: Subscriber> Layer<S> for Forward {
     fn on_event(&self, event: &tracing::Event<'_>, _context: Context<'_, S>) {
-        let metadata = event.metadata();
-        let mut fields = Fields::default();
-        event.record(&mut fields);
-        let _ = self.events.send(Item::Event(Arc::new(LogEvent {
-            level: level_of(*metadata.level()),
-            target: metadata.target().to_owned(),
-            message: fields.message.unwrap_or_default(),
-            fields: fields.fields,
-            dropped: 0,
-        })));
+        let level = level_of(*event.metadata().level());
+        // An event one of whose values fails to format is lost, as one no
+        // Connection had room for.
+        if let Ok(line) = encode(level, event) {
+            let _ = self.events.send(Item::Event { level, line });
+        }
     }
 }
 
@@ -317,52 +523,6 @@ fn level_filter(level: LogLevel) -> LevelFilter {
         LogLevel::Info => LevelFilter::INFO,
         LogLevel::Debug => LevelFilter::DEBUG,
         LogLevel::Trace => LevelFilter::TRACE,
-    }
-}
-
-/// An event's message and its other fields, as JSON values.
-#[derive(Default)]
-struct Fields {
-    message: Option<String>,
-    fields: Map<String, Value>,
-}
-
-impl Fields {
-    fn put(&mut self, field: &tracing::field::Field, value: Value) {
-        if field.name() == "message" {
-            self.message = Some(match value {
-                Value::String(message) => message,
-                other => other.to_string(),
-            });
-        } else {
-            self.fields.insert(field.name().to_owned(), value);
-        }
-    }
-}
-
-impl tracing::field::Visit for Fields {
-    fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-        self.put(field, Value::Bool(value));
-    }
-
-    fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-        self.put(field, Value::from(value));
-    }
-
-    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.put(field, Value::from(value));
-    }
-
-    fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
-        self.put(field, Value::from(value));
-    }
-
-    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        self.put(field, Value::String(value.to_owned()));
-    }
-
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn fmt::Debug) {
-        self.put(field, Value::String(format!("{value:?}")));
     }
 }
 

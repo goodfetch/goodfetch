@@ -24,4 +24,8 @@ pub enum Error {
     /// A call's params or result did not fit its type.
     #[error("a message did not fit its type: {0}")]
     Shape(#[source] serde_json::Error),
+    /// The engine the SDK runs in the program's own process, its linked
+    /// engine, could not start or failed (ADR 0087).
+    #[error("the linked engine failed: {0}")]
+    Engine(#[source] Box<dyn std::error::Error + Send + Sync>),
 }

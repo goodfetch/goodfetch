@@ -143,6 +143,103 @@ fn a_connection_receives_only_the_log_events_at_its_level_and_above() {
     );
 }
 
+/// The `$/log` lines a Connection receives, as sent.
+fn sent_lines(lines: &mut mpsc::Receiver<crate::wire::Line>) -> Vec<String> {
+    let mut sent = Vec::new();
+    while let Ok(line) = lines.try_recv() {
+        sent.push(String::from_utf8(line.bytes).unwrap());
+    }
+    sent
+}
+
+/// Each log event reaches a Connection with its target, its message
+/// formatted and escaped, and each of its other fields as the JSON value of
+/// its kind; a message given as another value is that value's JSON text, and
+/// an event with no other field carries no `fields`.
+///
+/// Covers: story:3-105
+#[test]
+fn a_log_events_message_and_fields_reach_a_connection_as_json_values() {
+    let events = LogEvents::new();
+    let subscriber = tracing_subscriber::registry().with(events.layer());
+    let (outgoing, mut lines) = mpsc::channel(16);
+
+    let sent = tracing::subscriber::with_default(subscriber, || {
+        let log = events.connection();
+        log.set(LogLevel::Trace);
+        let forwarding = log.forward(outgoing);
+        tracing::info!(
+            flag = true,
+            delta = -3_i64,
+            count = 7_u64,
+            ratio = 0.5_f64,
+            missing = f64::NAN,
+            name = "a \"quoted\"\nname",
+            shown = ?Some("x"),
+            "a message with \"quotes\", a {} and a \u{7}",
+            "tab\t",
+        );
+        tracing::warn!(message = 42_u64);
+        tracing::error!("no other field");
+        drop(log);
+        goodfetch_test_support::runtime().block_on(forwarding);
+        sent_lines(&mut lines)
+    });
+
+    let received: Vec<LogEvent> = sent
+        .iter()
+        .map(|line| {
+            let notification: Notification = serde_json::from_str(line).unwrap();
+            serde_json::from_value(notification.params.unwrap()).unwrap()
+        })
+        .collect();
+    assert_eq!(
+        (
+            received,
+            sent.iter()
+                .map(|line| line.contains("\"fields\""))
+                .collect::<Vec<_>>()
+        ),
+        (
+            vec![
+                LogEvent {
+                    level: LogLevel::Info,
+                    target: "goodfetch_engine::log::tests".to_owned(),
+                    message: "a message with \"quotes\", a tab\t and a \u{7}".to_owned(),
+                    fields: serde_json::json!({
+                        "flag": true,
+                        "delta": -3,
+                        "count": 7,
+                        "ratio": 0.5,
+                        "missing": null,
+                        "name": "a \"quoted\"\nname",
+                        "shown": "Some(\"x\")",
+                    })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+                    dropped: 0,
+                },
+                LogEvent {
+                    level: LogLevel::Warn,
+                    target: "goodfetch_engine::log::tests".to_owned(),
+                    message: "42".to_owned(),
+                    fields: serde_json::Map::new(),
+                    dropped: 0,
+                },
+                LogEvent {
+                    level: LogLevel::Error,
+                    target: "goodfetch_engine::log::tests".to_owned(),
+                    message: "no other field".to_owned(),
+                    fields: serde_json::Map::new(),
+                    dropped: 0,
+                },
+            ],
+            vec![true, false, false]
+        )
+    );
+}
+
 /// No Connection that asks for none receives a log event, so the layer
 /// listens to nothing.
 #[test]

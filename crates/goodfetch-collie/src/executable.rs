@@ -64,9 +64,7 @@ use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::log::LogEvents;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::settings::{
-    Resolved, SettingsError, SettingsFiles, deployment_variable, get_or_default,
-};
+use goodfetch_engine::settings::{Resolved, SettingsError, SettingsFiles, get_or_default};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Composition, Dependencies, Engine, Identity};
@@ -75,12 +73,14 @@ use goodfetch_protocol::cli::ATTACHED_ENGINE;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::daemon::DRAIN_GRACE;
 use goodfetch_protocol::governor::HUGE_PAGES;
-use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, HOME_VARIABLE};
 use identity::{Refused, identity, refuse};
 use output::{ColourChoice, ColourFlag, Human};
 use settings_flags::SettingsFlags;
 
 pub use command_line::printed_command_line;
+
+use crate::linked::home;
+use crate::runtime;
 
 mod allocator;
 mod attached_ops;
@@ -104,7 +104,6 @@ mod other_product;
 mod otlp;
 pub mod output;
 mod runs;
-mod runtime;
 mod service;
 mod settings_flags;
 mod upgrade;
@@ -813,18 +812,6 @@ fn age_notice(release_date: Option<&str>, home: &Home, identity: &Identity, cloc
         Ok(None) => {}
         Err(error) => tracing::debug!(%error, "the age notice was not recorded"),
     }
-}
-
-/// The Goodfetch home: `GOODFETCH_HOME` when it is set, the `goodfetch`
-/// folder of the OS's usual data folder otherwise.
-fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
-    let home = match deployment_variable(environment, HOME_VARIABLE) {
-        Some(home) => Home::new(home.into()),
-        None => Home::new(dirs::data_dir()?.join(goodfetch_protocol::home::HOME_FOLDER)),
-    };
-    Some(home.with_browsers_path(
-        deployment_variable(environment, BROWSERS_PATH_VARIABLE).map(Into::into),
-    ))
 }
 
 /// The command line of `product`'s executable, whose own commands are

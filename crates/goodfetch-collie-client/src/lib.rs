@@ -4,17 +4,23 @@
 //! on the client side, over the network it is handed: the OS's, or the
 //! in-memory one an engine in the same process serves (ADR 0060). The
 //! Connection takes its runtime as a value, and [`Call`] and [`Query`] are
-//! the builders every call goes through (ADR 0081). The SDK crates build on
-//! it; it depends on neither of them nor on any Foxhound crate.
+//! the builders every call goes through (ADR 0081). A [`Run`] is what a
+//! Connection starts, and [`blocking`] repeats the API for a program that
+//! does not use async. The SDK crates build on it; it depends on neither of
+//! them nor on any Foxhound crate.
 
 #![warn(missing_docs)]
 
+pub mod blocking;
 mod call;
 mod connection;
 mod error;
 mod rpc;
+mod run;
+mod sync;
 pub mod transport;
 
 pub use call::{Call, Query, Reply};
 pub use connection::{Connection, ConnectionRuntime};
 pub use error::Error;
+pub use run::{Run, Start};

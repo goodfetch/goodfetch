@@ -597,7 +597,10 @@ fn a_session_closed_while_its_robots_txt_read_waits_leaves_its_browser_idle() {
 /// `timeout.navigation` broke off: Provenance records the file
 /// unreachable, never the start that arrived as the whole file. The
 /// stalled-robots host sends its robots.txt's head and the start of its
-/// body, then nothing.
+/// body, then nothing. The short timeout bounds that read, and each
+/// command of opening the Session's browser context and its page, but not
+/// the browser's launch, which `timeout.launch` bounds (issue 2813), nor
+/// the program's own navigation, which takes its own `timeout`.
 /// Covers: setting:timeout.navigation
 #[cfg(unix)]
 #[test]
@@ -615,7 +618,11 @@ fn a_robots_txt_read_that_stalls_past_the_navigation_timeout_is_unreachable() {
     let went = engine.ask(
         4,
         "page.goto",
-        &json!({ "page_id": page.page_id, "url": proving_ground.url(STALLED, "/catalog/1") }),
+        &json!({
+            "page_id": page.page_id,
+            "url": proving_ground.url(STALLED, "/catalog/1"),
+            "timeout": 30_000,
+        }),
     )["result"]["response"]["status"]
         .clone();
     let deadline = Instant::now() + SETTLE;
@@ -665,9 +672,11 @@ fn a_browser_launching_for_a_session_is_not_idle_before_its_page_opens() {
 /// A browser that does not come up within the call's deadline is closed
 /// before the call answers its failure, so no launch the call gave up on
 /// stays running beside the next one on the same data folder: with
-/// `timeout.navigation` far shorter than any browser takes to answer, each
-/// `run.new_page` raises `deadline_exceeded`, and no browser is left.
-/// Covers: operation:run.new_page, error:deadline_exceeded, setting:timeout.navigation
+/// `timeout.launch` far shorter than any browser takes to answer, each
+/// `run.new_page` raises `deadline_exceeded` naming it, never
+/// `timeout.navigation`, which bounds no launch (issue 2813), and no browser
+/// is left.
+/// Covers: operation:run.new_page, error:deadline_exceeded, setting:timeout.launch
 #[cfg(unix)]
 #[test]
 fn a_browser_that_does_not_come_up_in_time_is_closed_before_the_next_launch() {
@@ -675,10 +684,7 @@ fn a_browser_that_does_not_come_up_in_time_is_closed_before_the_next_launch() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let mut settings = Map::new();
-    settings.insert(
-        "timeout".to_owned(),
-        json!({ "navigation": 1, "close": 1_000 }),
-    );
+    settings.insert("timeout".to_owned(), json!({ "launch": 1, "close": 1_000 }));
     let mut engine = started_with(
         &env,
         &cache,
@@ -698,12 +704,14 @@ fn a_browser_that_does_not_come_up_in_time_is_closed_before_the_next_launch() {
     assert_eq!(
         (
             &first["error"]["data"]["code"],
+            &first["error"]["data"]["limit"]["key"],
             &second["error"]["data"]["code"],
             after_first,
             after_second,
         ),
         (
             &json!("deadline_exceeded"),
+            &json!("timeout.launch"),
             &json!("deadline_exceeded"),
             0,
             0

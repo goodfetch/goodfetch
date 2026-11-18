@@ -42,7 +42,7 @@ fn a_crawl_on_foxhounds_executable_commits_its_handlers_records_once_in_its_own_
     let started = engine.call(
         "start",
         "crawl.start",
-        &json!({ "run_id": "shop", "seeds": seeds(&site) }),
+        &json!({ "run_id": "shop", "seeds": seeds(&site), "labels": { "page": {} } }),
         &mut |_| None,
     );
     let mut handler = |params: &Value| {
@@ -108,7 +108,7 @@ fn cancel_of_run_finish_in_flight_answers_call_cancelled() {
     engine.call(
         "start",
         "crawl.start",
-        &json!({ "run_id": "slow", "seeds": seeds(&site) }),
+        &json!({ "run_id": "slow", "seeds": seeds(&site), "labels": { "page": {} } }),
         &mut |_| None,
     );
 
@@ -164,7 +164,7 @@ fn a_slow_handler_holds_the_crawl_back_and_a_slow_subscriber_loses_no_record_or_
         .collect();
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": "held", "seeds": seeds },
+        "params": { "run_id": "held", "seeds": seeds, "labels": { "page": {} } },
     }));
 
     let (mut started, mut waiting, mut most_waiting) = (false, Vec::new(), 0);
@@ -271,7 +271,7 @@ fn a_crawls_outcomes_and_failed_requests_are_read_on_foxhounds_executable() {
     engine.call(
         "start",
         "crawl.start",
-        &json!({ "run_id": "endings", "seeds": seeds }),
+        &json!({ "run_id": "endings", "seeds": seeds, "labels": { "page": {} } }),
         &mut |_| None,
     );
     let mut handler = |params: &Value| {
@@ -370,6 +370,7 @@ fn start_keep_alive(engine: &mut Attached, site: &Site, run_id: &str, timeout: O
         "start",
         "crawl.start",
         &json!({
+            "labels": { "page": {} },
             "run_id": run_id,
             "seeds": [{ "url": site.page("/a"), "label": "page" }],
             "settings": settings,

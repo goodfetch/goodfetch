@@ -51,7 +51,7 @@ fn a_handlers_failure_is_kept_without_a_value_the_run_resolved() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "reflected", "seeds": seeds(1) }),
+                    json!({ "run_id": "reflected", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;

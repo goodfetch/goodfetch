@@ -88,6 +88,7 @@ pub(crate) fn crawl(
             "seeds": seeds,
             "settings": settings,
             "datasets": [{ "name": "pages" }],
+            "labels": { "page": {} },
         }),
         &mut |inside, handle| {
             let url = handle["crawl_request"]["url"].clone();

@@ -83,7 +83,12 @@ fn crawl(
     let settings = site.mapped(&settings, connection.acts_for_model());
     let id = connection.request(
         CRAWL_START,
-        &json!({ "run_id": run_id, "seeds": seeds, "settings": settings }),
+        &json!({
+            "run_id": run_id,
+            "seeds": seeds,
+            "labels": { "page": {} },
+            "settings": settings,
+        }),
     )?;
     let answer = connection.answer(id)?;
     checks.check(
@@ -606,6 +611,7 @@ fn handled_page(
         &json!({
             "run_id": run_id,
             "seeds": [{ "url": control, "label": "page" }],
+            "labels": { "page": {} },
             "settings": settings,
         }),
     )?;

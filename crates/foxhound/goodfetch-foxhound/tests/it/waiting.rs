@@ -68,7 +68,7 @@ fn first_group(seeds: &[String], more: &Value, reason: &str, handling: Handling)
         .collect();
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": "waits", "seeds": seeds, "settings": settings(&proving_ground, more) },
+        "params": { "run_id": "waits", "seeds": seeds, "settings": settings(&proving_ground, more), "labels": { "page": {} } },
     }));
     let mut held = Vec::new();
     let mut params = json!({ "run_id": "waits" });

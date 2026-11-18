@@ -44,6 +44,7 @@ fn an_attempt_that_panics_ends_failed_and_gives_back_what_it_held(
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "panics",
                         "seeds": [
                             { "url": "https://shop.test/page/1", "label": "page" },

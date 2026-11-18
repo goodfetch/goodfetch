@@ -27,6 +27,7 @@ use serde_json::{Value, json};
 use crate::attached;
 use crate::attached_with;
 use crate::fetch_tiers::{settings, tiers};
+use crate::frontier::seed_labels;
 
 /// The Proving ground's seed.
 const SEED: u64 = 994;
@@ -92,6 +93,7 @@ fn crawl_read(
         &json!({
             "run_id": run_id,
             "seeds": seeds,
+            "labels": seed_labels(seeds),
             "datasets": [],
             "extraction": extraction,
             "settings": settings(proving_ground, &more),

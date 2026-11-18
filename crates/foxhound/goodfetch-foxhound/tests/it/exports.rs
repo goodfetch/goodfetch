@@ -79,6 +79,7 @@ fn crawl_with(
             "seeds": seeds,
             "datasets": [{ "name": "books" }],
             "settings": settings,
+            "labels": { "page": {} },
         }),
         &mut |_| None,
     );

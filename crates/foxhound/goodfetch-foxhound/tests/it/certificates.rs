@@ -92,6 +92,7 @@ fn crawled_on(
             "seeds": seeds,
             "settings": crawl_settings(proving_ground, tier, accept_invalid_certs),
             "datasets": [{ "name": "pages" }],
+            "labels": { "page": {} },
         }),
         &mut |inside, handle| {
             let url = handle["crawl_request"]["url"].clone();

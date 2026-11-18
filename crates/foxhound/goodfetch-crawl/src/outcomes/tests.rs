@@ -123,7 +123,7 @@ fn on_the_ended_crawl(env: &TestEnv, method: &str, params: Value) -> Value {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "shop", "seeds": seeds() }),
+                    json!({ "run_id": "shop", "seeds": seeds(), "labels": { "list": {}, "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -220,7 +220,7 @@ fn a_reader_from_now_on_reads_only_the_endings_committed_after_its_call() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "live", "seeds": seeds() }),
+                    json!({ "run_id": "live", "seeds": seeds(), "labels": { "list": {}, "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -370,7 +370,7 @@ fn a_refusal_escaping_the_handler_ends_its_request_skipped_with_its_reason(
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "refused", "seeds": seeds }),
+                    json!({ "run_id": "refused", "seeds": seeds, "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;

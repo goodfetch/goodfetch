@@ -359,6 +359,7 @@ impl StateMachineTest for Subject {
                     goodfetch_frontier::BOUNDS_TABLES,
                     goodfetch_frontier::RULES_TABLES,
                     goodfetch_frontier::payload::TABLES,
+                    crate::invariants::fixture::PAGE_DECLARED,
                     goodfetch_frontier::sitemap::TABLES,
                     goodfetch_frontier::trap_links::TABLES,
                 ],

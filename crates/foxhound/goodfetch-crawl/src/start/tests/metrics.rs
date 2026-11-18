@@ -78,7 +78,7 @@ fn a_crawl_counts_the_work_items_its_domain_queues_hold() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "queued", "seeds": seeds(3), "settings": { "crawl": { "handler": { "concurrency": 1 } } } }),
+                    json!({ "run_id": "queued", "seeds": seeds(3), "settings": { "crawl": { "handler": { "concurrency": 1 } } }, "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -112,7 +112,7 @@ fn a_crawl_counts_each_attempt_while_it_runs_and_each_retry() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "measured", "seeds": seeds(1) }),
+                    json!({ "run_id": "measured", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -181,7 +181,7 @@ fn pages_and_round_trips(seeds: &Value) -> (usize, Option<f64>) {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "trips", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 3 } } } }),
+                    json!({ "run_id": "trips", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 3 } } }, "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -220,7 +220,7 @@ fn pages_and_lease_reads(budget: u64) -> (usize, Option<f64>) {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "leases", "seeds": seeds(5), "settings": settings }),
+                    json!({ "run_id": "leases", "seeds": seeds(5), "settings": settings, "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -314,6 +314,7 @@ fn a_work_item_left_with_no_domain_key_is_keyed_once_its_crawl_is_idle_and_its_k
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "left",
                         "seeds": seeds(1),
                         "settings": { "crawl": { "keep_alive": true }, "timeout": { "run": 600_000 } },
@@ -394,7 +395,7 @@ fn attempts_whose_crawls_progress_no_reader_takes_serialize_no_request_in_flight
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "unread", "seeds": seeds(3) }),
+                    json!({ "run_id": "unread", "seeds": seeds(3), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -447,7 +448,7 @@ fn attempts_after_a_subscription_to_the_engines_events_ended_serialize_no_reques
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "subscribed", "seeds": seeds(1) }),
+                    json!({ "run_id": "subscribed", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut handler,
                 )
                 .await;
@@ -468,7 +469,7 @@ fn attempts_after_a_subscription_to_the_engines_events_ended_serialize_no_reques
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "ended", "seeds": seeds(3) }),
+                    json!({ "run_id": "ended", "seeds": seeds(3), "labels": { "page": {} } }),
                     &mut handler,
                 )
                 .await;
@@ -510,7 +511,7 @@ fn a_reader_that_takes_one_value_of_a_crawls_progress_serializes_its_requests_in
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "read", "seeds": seeds(1) }),
+                    json!({ "run_id": "read", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut handler,
                 )
                 .await;
@@ -555,7 +556,7 @@ fn records_and_writer_jobs(staging: fn(&Value) -> Reply) -> (usize, Option<f64>)
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "pushed", "seeds": seeds(1) }),
+                    json!({ "run_id": "pushed", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -635,6 +636,7 @@ fn memory_while_a_link_is_enqueued(level: &str, budget: u64) -> (Option<f64>, Op
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "held",
                         "seeds": seeds(1),
                         "settings": {

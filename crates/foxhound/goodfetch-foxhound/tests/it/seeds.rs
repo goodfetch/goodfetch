@@ -37,6 +37,7 @@ fn start_keep_alive_with(engine: &mut Attached, run_id: &str, seed: &str, run_st
         "start",
         "crawl.start",
         &json!({
+            "labels": { "page": {} },
             "run_id": run_id,
             "seeds": [{ "url": seed, "label": "page" }],
             "settings": { "crawl": { "keep_alive": true }, "run_state": run_state },

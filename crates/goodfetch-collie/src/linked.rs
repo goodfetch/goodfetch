@@ -1,14 +1,20 @@
-//! The linked engine (ADRs 0078, 0081 and 0087): the Collie engine this
-//! crate composes, which each connection starts in the program's own
+//! The linked engine (ADRs 0078, 0081 and 0087): the engine a Product's
+//! Rust SDK composes, which each connection starts in the program's own
 //! process and reaches over area 3's in-memory network. It serves its one
 //! Connection as an Attached engine does, and stops at the end of its
 //! input, which closing the Connection gives it.
+//!
+//! [`LinkedConnection`] is the one way both Products' SDKs open such a
+//! connection: [`Collie`](crate::Collie) with [`Composed::COLLIE`], and
+//! Foxhound's crate with its own composition, which starts from Collie's
+//! (ADR 0087). It names no Product's entries, so Foxhound's stay out of
+//! this crate's API (ADR 0095).
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, mpsc};
 
 use goodfetch_collie_client::transport::{Dial, Endpoint, Link, Network};
 use goodfetch_collie_client::{Connection, ConnectionRuntime, Error};
@@ -21,7 +27,7 @@ use goodfetch_engine::secrets::Keychain;
 use goodfetch_engine::settings::{SettingsFiles, deployment_variable};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, InMemoryDialer};
-use goodfetch_engine::{AttachedFailure, Channel, Dependencies, Engine, Identity};
+use goodfetch_engine::{AttachedFailure, Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, HOME_VARIABLE};
@@ -29,6 +35,192 @@ use tokio::runtime::{Handle, Runtime};
 use tokio_util::task::TaskTracker;
 
 use crate::runtime::{self, Threads};
+
+/// What a connection opens with, in either Product's SDK.
+#[derive(Clone, Debug, Default)]
+pub struct ConnectOptions {
+    environment: Option<BTreeMap<OsString, OsString>>,
+}
+
+impl ConnectOptions {
+    /// The environment variables the linked engine reads, such as
+    /// `GOODFETCH_HOME`, in place of the process's own.
+    #[must_use]
+    pub fn environment(mut self, environment: BTreeMap<OsString, OsString>) -> Self {
+        self.environment = Some(environment);
+        self
+    }
+
+    /// The environment the linked engine reads: the one set, or the
+    /// process's.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the SDK's connect(), given no environment map, reads the process environment once, the one reader besides main (ADR 0083)"
+    )]
+    fn into_environment(self) -> BTreeMap<OsString, OsString> {
+        self.environment
+            .unwrap_or_else(|| std::env::vars_os().collect())
+    }
+}
+
+/// The engine a connection links: its Product and that Product's
+/// composition (ADR 0087).
+#[derive(Clone, Copy, Debug)]
+pub struct Composed {
+    /// The Product the engine is.
+    pub product: Product,
+    /// What its engine is composed of.
+    pub composition: fn() -> Composition,
+}
+
+impl Composed {
+    /// Collie's engine, of [`crate::composition`].
+    pub const COLLIE: Self = Self {
+        product: Product::Collie,
+        composition: crate::composition,
+    };
+}
+
+/// A connection to a linked engine of its own, which a Product's
+/// connection wraps. Cloning it is cheap and every clone is the same
+/// connection.
+#[derive(Clone, Debug)]
+pub struct LinkedConnection {
+    connection: Connection,
+    engine: Arc<LinkedEngine>,
+    handle: Handle,
+}
+
+impl LinkedConnection {
+    /// Opens a connection whose `hello` needs `needs` to a linked `engine`
+    /// of its own, which runs on a runtime the connection owns, so the
+    /// connection works from any executor. The engine reads `options`'
+    /// environment, or the process's, for its Goodfetch home and the
+    /// machine's settings.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Engine`] when the linked engine cannot start, with no
+    /// Goodfetch home among others, and what `hello` fails with:
+    /// `not_in_product` when `engine` does not contain `needs`.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future before it completes stops the linked engine it
+    /// started.
+    pub async fn connect(
+        engine: Composed,
+        needs: Product,
+        options: ConnectOptions,
+    ) -> Result<Self, Error> {
+        let (runtime, dependencies) = production(engine.product, options.into_environment())?;
+        let handle = runtime.handle().clone();
+        Self::open(
+            ConnectionRuntime::owned(runtime),
+            handle,
+            engine,
+            needs,
+            dependencies,
+        )
+        .await
+    }
+
+    /// Opens a connection as [`LinkedConnection::connect`] does, blocking
+    /// the calling thread until it is open. It never enters a runtime, so
+    /// it works inside one too.
+    ///
+    /// # Errors
+    ///
+    /// As [`LinkedConnection::connect`].
+    pub fn connect_blocking(
+        engine: Composed,
+        needs: Product,
+        options: ConnectOptions,
+    ) -> Result<Self, Error> {
+        let (runtime, dependencies) = production(engine.product, options.into_environment())?;
+        let handle = runtime.handle().clone();
+        let on = handle.clone();
+        wait(&handle, async move {
+            Self::open(
+                ConnectionRuntime::owned(runtime),
+                on,
+                engine,
+                needs,
+                dependencies,
+            )
+            .await
+        })
+    }
+
+    /// The Connection, the type a helper written for either Product takes.
+    pub fn connection(&self) -> &Connection {
+        &self.connection
+    }
+
+    /// Closes the connection for every clone: first every Run it started
+    /// that still runs, then the linked engine, which checkpoints and
+    /// stops; returns once it has stopped. Any later call fails with
+    /// [`Error::Closed`]. Closing again does nothing.
+    ///
+    /// # Errors
+    ///
+    /// What closing a Run fails with, and [`Error::Engine`] when the linked
+    /// engine failed.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future before it completes leaves the engine stopping
+    /// on its own.
+    pub async fn close(&self) -> Result<(), Error> {
+        let closed = self.connection.close().await;
+        let stopped = self.engine.stopped().await;
+        closed.and(stopped)
+    }
+
+    /// Closes the connection as [`LinkedConnection::close`] does, blocking
+    /// the calling thread until its linked engine has stopped.
+    ///
+    /// # Errors
+    ///
+    /// As [`LinkedConnection::close`].
+    pub fn close_blocking(&self) -> Result<(), Error> {
+        let linked = self.clone();
+        wait(&self.handle, async move { linked.close().await })
+    }
+
+    /// A connection on `runtime` whose `hello` needs `needs`, to a linked
+    /// `engine` that runs on `handle`, that runtime's handle, with
+    /// `dependencies`. When `hello` fails, the engine is left to stop at
+    /// the end of its input, unwaited.
+    pub(crate) async fn open(
+        runtime: ConnectionRuntime,
+        handle: Handle,
+        engine: Composed,
+        needs: Product,
+        dependencies: Dependencies,
+    ) -> Result<Self, Error> {
+        let (linked, network) = LinkedEngine::start(&handle, engine, dependencies)?;
+        let hello = HelloParams {
+            needs: Some(needs),
+            ..HelloParams::new(Surface::Rust, version())
+        };
+        let (connection, _said) =
+            Connection::open(runtime, &network, &Endpoint::InMemory, hello).await?;
+        Ok(Self {
+            connection,
+            engine: Arc::new(linked),
+            handle,
+        })
+    }
+}
+
+/// C-SEND-SYNC: a connection moves between threads, is shared between
+/// them and outlives the borrow that made it (ADR 0081).
+const _: () = {
+    const fn send_sync_static<T: Send + Sync + 'static>() {}
+    send_sync_static::<LinkedConnection>();
+    send_sync_static::<ConnectOptions>();
+};
 
 /// The Product version this crate is, which its linked engine and its
 /// connection both speak.
@@ -49,17 +241,18 @@ pub(crate) fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
     ))
 }
 
-/// The runtime a production linked engine and its connection run on,
-/// sized by the machine's settings as the executable's are, and what the
-/// engine runs on, from `environment`.
-pub(crate) fn production(
+/// The runtime a production linked engine of `product` and its connection
+/// run on, sized by the machine's settings as the executable's are, and
+/// what the engine runs on, from `environment`.
+fn production(
+    product: Product,
     environment: BTreeMap<OsString, OsString>,
 ) -> Result<(Runtime, Dependencies), Error> {
     let home = home(&environment).ok_or_else(|| {
         Error::Engine("no Goodfetch home: set GOODFETCH_HOME, or a home folder the OS knows".into())
     })?;
     let entropy = Entropy::from_os().map_err(|error| Error::Engine(Box::new(error)))?;
-    let settings = SettingsFiles::of(&home, &version()).machine_settings(Product::Collie);
+    let settings = SettingsFiles::of(&home, &version()).machine_settings(product);
     // Built last, as nothing after it fails: dropping a runtime inside
     // another one panics.
     let runtime = runtime::multi_thread(Threads::of(settings.as_ref().ok()));
@@ -77,26 +270,46 @@ pub(crate) fn production(
     Ok((runtime, dependencies))
 }
 
+/// Runs `future` on `handle`'s runtime and blocks the calling thread until
+/// it ends.
+pub(crate) fn wait<T: Send + 'static>(
+    handle: &Handle,
+    future: impl Future<Output = Result<T, Error>> + Send + 'static,
+) -> Result<T, Error> {
+    let tasks = TaskTracker::new();
+    let (done, ended) = mpsc::sync_channel(1);
+    tasks.spawn_on(
+        async move {
+            let _gone = done.send(future.await);
+        },
+        handle,
+    );
+    tasks.close();
+    // The task ends without sending only when the runtime shut down.
+    ended.recv().unwrap_or(Err(Error::Closed))
+}
+
 /// A linked engine serving one Connection on its runtime.
 #[derive(Debug)]
-pub(crate) struct LinkedEngine {
+struct LinkedEngine {
     tasks: TaskTracker,
     failure: Arc<OnceLock<Arc<AttachedFailure>>>,
 }
 
 impl LinkedEngine {
-    /// Starts a Collie engine on `handle`'s runtime with `dependencies`,
-    /// and the network its Connection reaches it over.
-    pub(crate) fn start(
+    /// Starts `engine` on `handle`'s runtime with `dependencies`, and the
+    /// network its Connection reaches it over.
+    fn start(
         handle: &Handle,
+        engine: Composed,
         dependencies: Dependencies,
     ) -> Result<(Self, Network), Error> {
         let identity = Identity {
-            product: Product::Collie,
+            product: engine.product,
             product_version: version(),
             channel: Channel::CratesIo,
         };
-        let engine = Engine::new(identity, &crate::composition())
+        let engine = Engine::new(identity, &(engine.composition)())
             .map_err(|error| Error::Engine(Box::new(error)))?;
         let (network, dialer) = transport::in_memory();
         let tasks = TaskTracker::new();
@@ -125,27 +338,13 @@ impl LinkedEngine {
     /// # Errors
     ///
     /// [`Error::Engine`] when the engine failed.
-    pub(crate) async fn stopped(&self) -> Result<(), Error> {
+    async fn stopped(&self) -> Result<(), Error> {
         self.tasks.wait().await;
         match self.failure.get() {
             Some(failure) => Err(Error::Engine(Box::new(Arc::clone(failure)))),
             None => Ok(()),
         }
     }
-}
-
-/// Opens the Connection to the linked engine over `network`, on `runtime`.
-pub(crate) async fn open(
-    runtime: ConnectionRuntime,
-    network: &Network,
-) -> Result<Connection, Error> {
-    let hello = HelloParams {
-        needs: Some(Product::Collie),
-        ..HelloParams::new(Surface::Rust, version())
-    };
-    let (connection, _said) =
-        Connection::open(runtime, network, &Endpoint::InMemory, hello).await?;
-    Ok(connection)
 }
 
 /// The engine's in-memory dialer as the client crate dials.

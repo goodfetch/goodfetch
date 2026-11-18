@@ -23,6 +23,9 @@ clap = { workspace = true, optional = true }
 # The bytes of the `$/chunk` notifications `run export --out` writes.
 data-encoding = { workspace = true, optional = true }
 goodfetch-collie.workspace = true
+# The values a connection hands out and their blocking twins (ADRs 0095
+# and 0117), which the SDK re-exports.
+goodfetch-collie-client.workspace = true
 goodfetch-crawl.workspace = true
 goodfetch-frontier.workspace = true
 goodfetch-dataset.workspace = true
@@ -101,6 +104,8 @@ serde_json.workspace = true
 toml.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "io-util", "macros", "time"] }
+# The SDK's public-items check reads its sources (tests/it/sdk/public_items.rs).
+syn.workspace = true
 # The tier race on a scripted browser (tests/it/tier_race/scripted.rs): the
 # `BrowserPages` seam its fetch tiers are handed.
 goodfetch-page.workspace = true

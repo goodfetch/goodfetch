@@ -612,8 +612,9 @@ opt-level = 3
 debug-assertions = false
 
 # And for the work a crawl does on each page: HTML parsing and its DOM,
-# clean-up's selector matching and Filter-list engine, readability, JSON and
-# JSON Schema validation, and the C sources `cc` builds at the profile's
+# streaming selector matching, clean-up's selector matching and Filter-list
+# engine, readability, content decoding, JSON and JSON Schema validation,
+# Base64, and the C sources `cc` builds at the profile's
 # opt-level, the allocator's, SQLite's and zstd's. Unoptimized, they took
 # most of the Foxhound Daemon soak's CPU, about 33 ms a page, so its time
 # followed the host's load up to its five-minute kill (#2050). Like those
@@ -647,10 +648,19 @@ opt-level = 3
 [profile.dev.package.dom_smoothie]
 opt-level = 3
 
+[profile.dev.package.lol_html]
+opt-level = 3
+
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+
 [profile.dev.package.serde_json]
 opt-level = 3
 
 [profile.dev.package.jsonschema]
+opt-level = 3
+
+[profile.dev.package.data-encoding]
 opt-level = 3
 
 [profile.dev.package.libmimalloc-sys]

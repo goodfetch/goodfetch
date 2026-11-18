@@ -2,7 +2,7 @@
 // generates from the forms catalog (ADR 0099): `tsc` fails on a wrong one.
 import { expectTypeOf } from "vitest";
 import type { Locator, Page, PageKeyboard, Run } from "./generated/handles.ts";
-import type { Acted, Field, Navigated, Readiness } from "./generated/types.ts";
+import type { Acted, Navigated, PageField, Readiness } from "./generated/types.ts";
 
 declare const run: Run;
 declare const page: Page;
@@ -43,7 +43,7 @@ expectTypeOf(read).resolves.toEqualTypeOf<{
   values: { title: string | null; price: number | null; tags: (string | null)[] };
   unread: string[];
 }>();
-declare const field: Field;
+declare const field: PageField;
 expectTypeOf(page.read({ field })).resolves.toHaveProperty("values").toEqualTypeOf<{
   field: string | number | null | (string | number | null)[];
 }>();

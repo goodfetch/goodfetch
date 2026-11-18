@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "11"
+version = "12"
 
 [[capability]]
 name = "lifecycle"
@@ -51,15 +51,15 @@ surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 # The catalog's operations reach the engine through the members generated
-# from them (ADR 0099; issue 2399). TypeScript leads; the Python and Rust
-# SDKs join with the rest of issue 1233.
+# from them (ADR 0099; issues 2399 and 1233). The Rust SDK joins with
+# issue 2793.
 [[capability]]
 name = "catalog-mapping"
 
 [[capability.case]]
 id = "catalog-mapping"
 covers = ["story:11-178"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 # A program's first pages (issue 2400): opened, navigated, acted on through

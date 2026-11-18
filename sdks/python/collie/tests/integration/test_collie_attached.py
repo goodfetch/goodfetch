@@ -276,6 +276,34 @@ async def test_reports_the_engine_it_reached_of_either_product(
         assert engine_warnings(caplog) == []
 
 
+@pytest.mark.covers("story:11-178")
+@pytest.mark.client_case(id="catalog-mapping", mode="attached")
+@three_ways
+async def test_reaches_the_engine_through_the_members_generated_from_the_catalog(
+    way: Way, env: Mapping[str, str], client_case: ClientCaseRecord
+) -> None:
+    """Each member a Run takes from the catalog reaches its operation."""
+    collie = await open_collie(way, env)
+    run = await collie.start()
+
+    progress_set = await run.set_progress_message("three pages left")
+    progress_read = await run.progress()
+    finished = await run.finish()
+    report = await run.report()
+    await collie.close()
+
+    with client_case.check(
+        "a member with a positional parameter reaches its operation"
+    ):
+        assert (progress_set.run_id.root, progress_set.lifecycle) == (run.id, "running")
+    with client_case.check("a member with only options answers what the engine holds"):
+        assert progress_read.message == progress_set.message
+    with client_case.check("a member that ends the Run answers its report"):
+        assert (finished.run_id.root, finished.lifecycle) == (run.id, "finished")
+    with client_case.check("the engine holds what the members did"):
+        assert (report.run_id.root, report.lifecycle) == (run.id, "finished")
+
+
 @pytest.mark.client_case(id="closed-after-close", mode="attached")
 @three_ways
 async def test_closes_a_running_run_by_aborting_it_and_refuses_every_later_call(

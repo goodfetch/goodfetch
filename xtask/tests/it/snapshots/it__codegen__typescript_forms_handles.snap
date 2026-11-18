@@ -109,8 +109,8 @@ export class Page implements AsyncDisposable {
   /**
    * Waits until the page's document has loaded.
    */
-  async waitForReady(options: { readonly timeout?: types.WaitForReadyParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
-    return this.#host.call("page.wait_for_ready", defined({ page_id: this.#host.id, timeout: options.timeout }), { signal: options.signal });
+  async waitForReady(options: { readonly expected?: types.WaitForReadyParams["expected"] | undefined; readonly state?: types.WaitForReadyParams["state"] | undefined; readonly timeout?: types.WaitForReadyParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+    return this.#host.call("page.wait_for_ready", defined({ page_id: this.#host.id, expected: options.expected, state: options.state, timeout: options.timeout }), { signal: options.signal });
   }
 
   /**

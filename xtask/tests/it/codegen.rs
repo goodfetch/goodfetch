@@ -1198,8 +1198,8 @@ fn workspace_with_the_forms_catalog() -> Workspace {
     "operation `page.read`"
 )]
 #[case::typed_by_an_optional_parameter(
-    "pub fields: BTreeMap<String, Field>,",
-    "pub fields: Option<BTreeMap<String, Field>>,",
+    "pub fields: BTreeMap<String, PageField>,",
+    "pub fields: Option<BTreeMap<String, PageField>>,",
     "operation `page.read`"
 )]
 #[case::typed_by_on_two_properties(
@@ -1279,37 +1279,129 @@ fn each_declared_kind_generates_its_typescript_form_which_type_checks() {
     );
 }
 
-/// Python's layer does not read the kinds yet (issue 1233): the forms
-/// catalog gives it the flat methods it gives any operation.
+const PYTHON_CLIENT: &str = "sdks/python/collie-client";
+
+/// Runs `checker`, one of the repository's installed Python type checkers,
+/// in Collie's Python client package of `workspace`, and fails with what it
+/// printed.
+fn python_type_check(workspace: &Workspace, checker: &str, args: &[&str]) {
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    let checked = workspace
+        .command(repository.join(".venv/bin").join(checker))
+        .current_dir(workspace.path().join(PYTHON_CLIENT))
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        checked.status.success(),
+        "{checker}: {}{}",
+        String::from_utf8_lossy(&checked.stdout),
+        String::from_utf8_lossy(&checked.stderr)
+    );
+}
+
+/// Each declared kind has one Python form (ADR 0099), on an async handle
+/// and its sync twin: the generated handles type-check with the client
+/// package's own hand-written modules under pyright's strict mode and
+/// `mypy --strict`, and `codegen-forms/forms_types.py` holds what a program
+/// can and cannot write against them, each refusal checked by both.
 ///
 /// Covers: story:11-178
 #[test]
-fn the_forms_catalog_leaves_pythons_layer_one_method_an_operation() {
+fn each_declared_kind_generates_its_python_form_which_type_checks() {
     let workspace = workspace_with_the_forms_catalog();
+    codegen(&workspace);
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    let package = format!("{PYTHON_CLIENT}/src/goodfetch_collie_client");
+    for module in ["caller.py", "handle.py"] {
+        let contents = std::fs::read(repository.join(&package).join(module)).unwrap();
+        workspace.write(&format!("{package}/{module}"), &contents);
+    }
+    workspace.write(&format!("{package}/__init__.py"), b"");
+    workspace.add_fixture_file(
+        "codegen-forms/forms_types.py",
+        &format!("{package}/forms_types.py"),
+    );
+    for config in ["pyrightconfig.json", "mypy.ini"] {
+        workspace.add_fixture_file(
+            &format!("codegen-forms/{config}"),
+            &format!("{PYTHON_CLIENT}/{config}"),
+        );
+    }
+    workspace.link_installed_runners();
+    let python = workspace.path().join(".venv/bin/python");
+    let python = python.to_str().unwrap();
 
+    python_type_check(&workspace, "pyright", &["--pythonpath", python]);
+    python_type_check(
+        &workspace,
+        "mypy",
+        &[
+            "--python-executable",
+            python,
+            "src/goodfetch_collie_client/generated/handles.py",
+            "src/goodfetch_collie_client/forms_types.py",
+        ],
+    );
+
+    insta::assert_snapshot!(
+        "python_forms_handles",
+        workspace.read_text(&format!("{package}/generated/handles.py"))
+    );
+}
+
+/// Every async handle class has its sync twin under the same name less
+/// `Async`, with the same members (ADR 0099).
+///
+/// Covers: story:11-178
+#[test]
+fn every_async_python_handle_has_a_sync_twin_with_the_same_members() {
+    let workspace = workspace_with_the_forms_catalog();
     codegen(&workspace);
 
-    let operations = workspace
-        .read_text("sdks/python/collie-client/src/goodfetch_collie_client/generated/operations.py");
-    let methods: Vec<&str> = operations
-        .lines()
-        .filter_map(|line| line.trim_start().strip_prefix("async def "))
-        .filter_map(|line| line.split('(').next())
-        .collect();
+    let handles = workspace.read_text(&format!(
+        "{PYTHON_CLIENT}/src/goodfetch_collie_client/generated/handles.py"
+    ));
+    let mut classes: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    let mut class = String::new();
+    for line in handles.lines() {
+        if let Some(rest) = line.strip_prefix("class ") {
+            class = rest.split([':', '(']).next().unwrap().to_owned();
+            classes.entry(class.clone()).or_default();
+        } else if let Some(rest) = line
+            .strip_prefix("    async def ")
+            .or_else(|| line.strip_prefix("    def "))
+        {
+            let name = rest.split('(').next().unwrap();
+            let name = match name {
+                "__aenter__" => "__enter__",
+                "__aexit__" => "__exit__",
+                other => other,
+            };
+            classes.get_mut(&class).unwrap().push(name.to_owned());
+        }
+    }
+    let (asynchronous, sync): (Vec<_>, Vec<_>) = classes
+        .iter()
+        .partition(|(name, _)| name.starts_with("Async"));
+
+    assert!(!asynchronous.is_empty(), "{handles}");
     assert_eq!(
-        methods,
-        vec![
-            "locator_click",
-            "page_close",
-            "page_goto",
-            "page_is_ready",
-            "page_keyboard_press",
-            "page_read",
-            "page_wait_for_ready",
-            "run_new_page",
-            "run_start",
-            "sample_echo",
-        ]
+        asynchronous
+            .iter()
+            .map(|(name, members)| (
+                name.trim_start_matches("Async").to_owned(),
+                (*members).clone()
+            ))
+            .collect::<Vec<_>>(),
+        sync.iter()
+            .map(|(name, members)| ((*name).clone(), (*members).clone()))
+            .collect::<Vec<_>>()
     );
 }
 

@@ -13,12 +13,14 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
+use anyhow::Result;
 use serde_json::Value;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::cli::ATTACHED_ENGINE;
 use goodfetch_protocol::settings::{COLLIE_ENGINE_PATH_VARIABLE, FOXHOUND_ENGINE_PATH_VARIABLE};
 
+use super::handles;
 use super::layer::{Deprecation, Layer, Stability};
 use super::naming::{pascal, snake};
 use super::{Generated, TypesFile};
@@ -61,11 +63,19 @@ pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 19] = [
     "ruff-check",
 ];
 
+mod handle_classes;
 pub(super) mod model_defaults;
 
 const EXPERIMENTAL: &str = "Experimental: outside semver until it is promoted (ADR 0030).";
 
-pub(super) fn generate(layer: &Layer) -> Generated {
+pub(super) fn generate(layer: &Layer) -> Result<Generated> {
+    // Collie's client package holds the handles (ADR 0117), as in
+    // TypeScript; what Foxhound's operations add to them joins with its own
+    // package's ticket.
+    let handles = match layer.product {
+        Product::Collie => handles::handles(layer)?,
+        Product::Foxhound => Vec::new(),
+    };
     let (mut input, _) = layer.generator_input(&format!("{}Types", layer.product.name()), |name| {
         ("customTypePath", format!("{CLIENT_PACKAGE}.models.{name}"))
     });
@@ -85,7 +95,13 @@ pub(super) fn generate(layer: &Layer) -> Generated {
     if !layer.shared_types.is_empty() {
         files.push(("shared_types.py", shared_types(layer)));
     }
-    Generated {
+    if !handles.is_empty() {
+        files.push((
+            "handles.py",
+            handle_classes::handles_module(layer, &handles)?,
+        ));
+    }
+    Ok(Generated {
         files,
         types: TypesFile {
             output: "models.py",
@@ -96,7 +112,7 @@ pub(super) fn generate(layer: &Layer) -> Generated {
                 layer.product.name()
             )),
         },
-    }
+    })
 }
 
 /// States JSON Schema's own default, that an object without

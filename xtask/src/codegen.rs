@@ -411,7 +411,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         let layer = Layer::new(&bundle, &collie, &foxhound, package.product, &version)?;
         let generated = match package.language {
             Language::TypeScript => typescript::generate(&layer)?,
-            Language::Python => python::generate(&layer),
+            Language::Python => python::generate(&layer)?,
         };
         for (name, text) in generated.files {
             files.insert(format!("{}/{name}", package.folder), text.into_bytes());

@@ -499,7 +499,7 @@ Decided in [ADR 0064](docs/adr/0064-tests-are-never-retried-and-unpinned-checks-
 ### A flaky test found after merge
 
 1. CI opens (or reopens) one `flaky-test` issue for it, a sub-issue of the spec that owns the test, in the milestone of that spec's ticket that added it ([ADR 0136](docs/adr/0136-each-implement-spec-run-is-one-whole-spec-and-milestones-are-ticket-metadata-and-owner-checkpoints.md)). Until [#1719](https://github.com/goodfetch/goodfetch/issues/1719), `xtask issues` still files it in the earliest open milestone with an open issue.
-2. The same day, add the test to the quarantine list with its issue.
+2. The same day, add the test to the quarantine list with its issue, in a pull request of its own. The quarantine, not the fix, keeps the gates green: the fix waits its turn and never goes ahead of Features' work ([the rollout order](docs/agents/rollout-order.md)).
 3. If the test or the code it covers changed in the last 7 days, you may also revert that change: revert the product code, and the tests stay quarantined.
 4. Fix the cause. A longer timeout alone, a sleep or a retry is not a fix. A race or leak in the product is fixed in the product, and the test stays as it was.
 5. The fix takes the test off the list after 200 passing runs; the issue closes when it merges.

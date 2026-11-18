@@ -15,6 +15,12 @@ pub enum Error {
     /// was never answered.
     #[error("the Connection is closed")]
     Closed,
+    /// Another stream already serves the engine's requests of `method`.
+    #[error("the engine's requests of `{method}` are already served")]
+    AlreadyServed {
+        /// The method.
+        method: String,
+    },
     /// The call's timeout ran out before its reply came.
     #[error("the call timed out")]
     TimedOut,

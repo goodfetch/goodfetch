@@ -21,6 +21,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::call::{Call, Query};
 use crate::error::Error;
+use crate::handler::{HandlerRequests, Streams};
 use crate::rpc::{self, Outgoing, Sender};
 use crate::sync::{Mutex, MutexGuard};
 use crate::transport::{self, Endpoint, Network};
@@ -85,6 +86,8 @@ pub struct Connection(Arc<Inner>);
 #[derive(Debug)]
 struct Inner {
     sender: Sender,
+    /// The streams of the engine's requests the program serves.
+    streams: Streams,
     /// The runtime its tasks run on.
     handle: Handle,
     tasks: TaskTracker,
@@ -123,9 +126,11 @@ impl Connection {
         if let Some(process) = opened.process {
             tasks.spawn_on(process.watch(), &handle);
         }
-        let sender = rpc::start(opened.link, &handle, &tasks);
+        let streams = Streams::new();
+        let sender = rpc::start(opened.link, &handle, &tasks, streams.clone());
         let connection = Self(Arc::new(Inner {
             sender,
+            streams,
             handle,
             tasks,
             handed: TaskTracker::new(),
@@ -160,6 +165,19 @@ impl Connection {
     /// The query of `method` with `params`, whose answer reads as `T`.
     pub fn query<T>(&self, method: &str, params: &impl Serialize) -> Query<T> {
         Query::new(self.0.sender.clone(), method, to_value(params))
+    }
+
+    /// The engine's requests of `method`, such as the Crawl requests a
+    /// crawl's handlers answer (ADR 0093), from now until the Connection
+    /// ends or the stream is dropped. The engine's requests of a method no
+    /// stream serves are answered with the protocol's method error.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::AlreadyServed`] while another stream serves `method`, and
+    /// [`Error::Closed`] once the Connection has ended.
+    pub fn handler_requests(&self, method: &str) -> Result<HandlerRequests, Error> {
+        self.0.streams.open(method)
     }
 
     /// Closes the Connection: first every Run it started that is still

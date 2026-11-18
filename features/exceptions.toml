@@ -107,12 +107,6 @@ reason = "Declared with the Secret-provider driver (#615), but nothing raises it
 link = "https://github.com/goodfetch/goodfetch/issues/654"
 
 [[exception]]
-feature = "exit:verdict_not_verified"
-evidence = "none"
-reason = "No engine path ends a Run with a Verdict other than `verified` yet, and a generated Run command cannot reach a Scripted Daemon that answers one, so the binary never exits `21`; Collie's executable's `exit_codes` unit tests map such a report to it in process. #1183 lets a generated command reach a Daemon, whose Scripted engine then answers `run.finish` with a `needs_review` report for a binary case that removes this exception."
-link = "https://github.com/goodfetch/goodfetch/issues/1183"
-
-[[exception]]
 feature = "error:sample_crawl_refused"
 evidence = "none"
 reason = "A sample entry of `goodfetch-protocol`, which carries `xtask codegen`'s pipeline and has no behaviour to test; the area that defines the real contracts removes it, and this exception with it."

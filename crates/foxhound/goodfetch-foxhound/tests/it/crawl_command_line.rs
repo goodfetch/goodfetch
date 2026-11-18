@@ -159,9 +159,10 @@ fn printed_run_id(process: &goodfetch_test_support::Process) -> Value {
 }
 
 /// A followed crawl exits by how its Run ended: `20` when another command
-/// stopped it, and `0` when another let it finish, `verified`, under
-/// `--require-verified` too. The engine gives a crawl no other Verdict yet,
-/// so `21` is `exit_codes::of_report`'s unit case.
+/// stopped it, `0` when another let it finish `verified`, with or without
+/// `--require-verified`, and `21` under `--require-verified` when it
+/// finished with another Verdict: with `fetch.block_classification` off,
+/// its Verdict is `needs_review` (ADR 0029).
 ///
 /// Covers: story:11-1132, command:crawl.start
 #[rstest]
@@ -169,6 +170,12 @@ fn printed_run_id(process: &goodfetch_test_support::Process) -> Value {
 #[case::stopped(&[], &["run", "stop"], Some(20))]
 /// Covers: command:run.finish, exit:success
 #[case::finished_verified(&["--require-verified"], &["run", "finish"], Some(0))]
+/// Covers: exit:verdict_not_verified
+#[case::finished_needing_review(
+    &["--require-verified", "--set", "fetch.block_classification=false"],
+    &["run", "finish"],
+    Some(21)
+)]
 fn a_followed_crawl_exits_by_how_its_run_ended(
     #[case] more: &[&str],
     #[case] ended_by: &[&str],

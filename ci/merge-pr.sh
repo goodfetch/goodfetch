@@ -32,8 +32,6 @@
 # keeps a failing gate's log and test results where no cleanup reaches them
 # (#2087); and, still holding the gate's lock, removes the build units no
 # gate read since the day before this one started (`xtask sweep-target`).
-# It starts no post-merge run (the owner's decision of 2026-11-18, ADR 0135):
-# what a quick merge skips runs on the finished spec's full gate.
 #
 # The gate outlives its caller. The command starts itself again in a session
 # of its own, with its output in a log the common folder keeps for 30 days
@@ -213,21 +211,9 @@ fi
 # backstop that sees this gate lets it end first and says so in its lock, and
 # the gate then goes on (ci/gate-worktree.sh). Behind a backstop the wait can
 # last hours, so a gate that waited reads its pull request again: it judges
-# the head, the base and the merge cap as they are once it starts. A
-# post-merge run, started by hand only (`just test-health post-merge`), never
-# holds a gate up: the gate stops it and waits for that stop alone, and the
-# next post-merge run covers its range. That run builds in this gate's
-# worktree, and its lock goes only once its suites' processes have all
-# ended, so the checkout below has the worktree to itself
-# (ci/test-health/scheduled.sh).
+# the head, the base and the merge cap as they are once it starts.
 waiting_for=""
 while ahead=$(run_in_the_backstops_worktree "$$") && [[ -n $ahead ]]; do
-  if [[ $ahead == "the post-merge run, process "* ]]; then
-    kill -TERM "${ahead##* }" 2>/dev/null || true
-    while [[ $(run_in_the_backstops_worktree "$$") == "$ahead" ]]; do sleep 1; done
-    echo "Stopped the post-merge run, process ${ahead##* }; the next one covers its range"
-    continue
-  fi
   if [[ $ahead != "$waiting_for" ]]; then
     echo "Waiting for $ahead, to end before the gate starts"
     waiting_for=$ahead
@@ -245,8 +231,8 @@ compiler_cache=$(cd "$(dirname "$0")" && pwd)/compiler-cache.sh
 # `red-steps` holds what each red step's runners had written when it ended
 # (ci/pre-merge.sh), since the gate goes on and later steps clear those files.
 # `steps` holds each red step's own log, which the gate's summary names
-# (ci/keep-going.sh): a post-merge run started by hand may check `main` out
-# in the worktree, which removes them there.
+# (ci/keep-going.sh): the next gate's checkout of the worktree removes them
+# there.
 failures="$common/goodfetch-gate-failures"
 keep_failed_gate() {
   local kept entry

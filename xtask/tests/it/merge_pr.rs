@@ -383,11 +383,9 @@ fn gate_log(workspace: &Workspace) -> String {
     std::fs::read_to_string(&logs[0]).unwrap()
 }
 
-/// No gate starts the post-merge run as it ends, merged or red: its load made
-/// timing tests fail and the next gate stopped it almost every time, so what
-/// a quick merge skips runs on the finished spec's full gate (the owner's
-/// decision of 2026-11-18, ADR 0135). `just test-health post-merge` stays a
-/// command run by hand.
+/// No gate starts a run as it ends, merged or red: what a quick merge skips
+/// runs on the finished spec's full gate alone (the owner's decision of
+/// 2026-11-18, ADR 0135).
 #[rstest]
 #[case::merged(false, 0)]
 #[case::red(true, 3)]
@@ -487,8 +485,7 @@ fn a_failing_gate_keeps_its_log_and_test_results_and_is_swept_too() {
             .join("red-steps/quick/nextest/quick/junit.xml")
             .is_file()
     );
-    // Each red step's own log, which the gate's summary names: a post-merge
-    // run started by hand may check `main` out over them.
+    // Each red step's own log, which the gate's summary names.
     assert_eq!(
         std::fs::read_to_string(kept[0].join("steps/quick/lint.log")).unwrap(),
         "a lint failed\n"
@@ -568,7 +565,7 @@ fn a_caller_shows_the_gates_output_and_log_and_ends_with_its_status() {
 }
 
 /// A stop signal to the process the gate's lock names stops the gate's steps
-/// and lets the lock go; nothing merges and the caller ends with 143.
+/// and lets the lock go; nothing merges, and the caller ends with 143.
 #[rstest]
 #[case::sigterm("-TERM")]
 #[case::sighup("-HUP")]
@@ -1314,8 +1311,6 @@ fn merge_writing_to_a_file(workspace: &Workspace, stand_in: &Path) -> (Child, Pa
 enum HeldBy {
     /// A test-health run, which marks the lock it takes.
     TestHealth,
-    /// The post-merge test-health run, which marks it as a post-merge run's too.
-    PostMerge,
     /// The backstop's own run, in its full run.
     Backstop,
     /// The backstop's own run, which lets the gate of this process, running
@@ -1336,10 +1331,6 @@ fn hold_the_backstops_worktree(workspace: &Workspace, holder: &str, held: HeldBy
     std::fs::write(lock.join("pid"), holder).unwrap();
     match held {
         HeldBy::TestHealth => std::fs::write(lock.join("test-health"), "").unwrap(),
-        HeldBy::PostMerge => {
-            std::fs::write(lock.join("post-merge"), "").unwrap();
-            std::fs::write(lock.join("test-health"), "").unwrap();
-        }
         HeldBy::Backstop => {}
         HeldBy::BackstopWaitingFor(gate) => {
             std::fs::write(lock.join("waits-for"), gate).unwrap();
@@ -1394,55 +1385,6 @@ fn a_gate_waits_for_the_run_in_the_backstops_worktree_and_says_so(
         "{before_the_end:?}"
     );
     assert!(caller.wait().unwrap().success());
-}
-
-/// A gate never waits for a post-merge run, which someone started by hand
-/// (`just test-health post-merge`): it tells the run to stop, starts no step
-/// until it ended, says so, and goes on without waiting as for the other
-/// runs. The run leaves its range
-/// to the next one (ci/test-health/scheduled.sh).
-#[test]
-fn a_gate_stops_a_post_merge_run_and_says_so() {
-    let (workspace, head) = pull_request();
-    let stand_in = stand_ins(&workspace, &head);
-    let hold = stand_in.join("post-merge-hold");
-    let stopping = stand_in.join("post-merge-stopping");
-    std::fs::write(&hold, "").unwrap();
-    let mut run = Started::spawn(
-        Command::new("bash")
-            .arg("-c")
-            .arg(format!(
-                r#"trap 'echo >"{stopping}"; while [ -f "{hold}" ]; do sleep 0.02; done; exit 0' TERM
-while :; do sleep 0.02; done"#,
-                stopping = stopping.display(),
-                hold = hold.display(),
-            ))
-            .stdout(Stdio::null())
-            .stderr(Stdio::null()),
-    );
-    hold_the_backstops_worktree(&workspace, &run.id().to_string(), HeldBy::PostMerge);
-    let (mut caller, output) = merge_writing_to_a_file(&workspace, &stand_in);
-
-    until("the post-merge run's stop", || stopping.exists());
-    let before_the_end = calls(&stand_in);
-    std::fs::remove_file(&hold).unwrap();
-    run.wait();
-
-    until_the_gate_merged(&workspace, &stand_in);
-    assert!(
-        !before_the_end.iter().any(|call| call.starts_with("just ")),
-        "{before_the_end:?}"
-    );
-    assert!(caller.wait().unwrap().success());
-    let said = std::fs::read_to_string(&output).unwrap();
-    assert!(
-        said.contains(&format!(
-            "Stopped the post-merge run, process {}; the next one covers its range",
-            run.id()
-        )),
-        "{said}"
-    );
-    assert!(!said.contains("Waiting for"), "{said}");
 }
 
 /// The nightly fuzzing gives way to a gate (ci/fuzz-nightly.sh): the gate
@@ -1787,7 +1729,6 @@ fn a_pull_request_the_gate_refuses_is_refused_before_any_wait(
 /// and the gate does not say it waits.
 #[rstest]
 #[case::a_test_health_run(HeldBy::TestHealth)]
-#[case::a_post_merge_run(HeldBy::PostMerge)]
 #[case::the_backstop(HeldBy::Backstop)]
 #[case::the_backstop_while_it_waited(HeldBy::BackstopWaitingFor(NO_PROCESS))]
 fn a_gate_waits_for_no_run_that_died(#[case] held: HeldBy) {

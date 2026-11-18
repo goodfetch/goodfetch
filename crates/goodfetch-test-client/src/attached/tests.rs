@@ -41,3 +41,25 @@ fn a_level_a_test_asks_for_stays() {
 
     assert_eq!(level_of(&env), r#"log.level = "warn""#);
 }
+
+/// An engine a test drops while it runs ends at the end of its input, and
+/// is reaped before the drop returns: the test's teardown, which fails a
+/// test whose process is still alive (ADR 0069), never races its exit, as it
+/// did under load for an engine that took a moment to close (issue 2805).
+#[cfg(unix)]
+#[test]
+fn an_engine_dropped_while_it_runs_is_reaped_once_its_input_ends() {
+    let env = TestEnv::new();
+    // An engine that closes a moment after its input ends.
+    let mut command = env.process_command("sh");
+    command.args(["-c", "cat > /dev/null; exec /bin/sleep 0.5"]);
+    let engine = Attached::spawned(&env, MESSAGE_DEADLINE, &mut command);
+    let process = engine.process.clone();
+
+    drop(engine);
+
+    assert!(
+        process.child().try_wait().unwrap().is_some(),
+        "the dropped engine still runs"
+    );
+}

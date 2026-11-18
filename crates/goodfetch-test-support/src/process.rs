@@ -82,6 +82,29 @@ impl Process {
         child.wait()
     }
 
+    /// Waits up to `deadline` for it to exit, and reaps it if it did:
+    /// `None` when it still runs at the deadline.
+    ///
+    /// # Errors
+    ///
+    /// When looking at whether it exited fails.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a test helper times and polls its child's exit outside any async worker (ADR 0062)"
+    )]
+    pub fn wait_within(&self, deadline: Duration) -> io::Result<Option<ExitStatus>> {
+        let started = std::time::Instant::now();
+        loop {
+            if let Some(status) = self.child().try_wait()? {
+                return Ok(Some(status));
+            }
+            if started.elapsed() >= deadline {
+                return Ok(None);
+            }
+            std::thread::sleep(STOP_POLL);
+        }
+    }
+
     /// Asks it to stop with `SIGINT` and waits up to `deadline` for it to
     /// exit, then kills it if it still runs; either way it is reaped. On
     /// Windows, which has no `SIGINT` to send it, it is killed at once.
@@ -90,13 +113,6 @@ impl Process {
     ///
     /// When the signal, the kill or the wait fails, or when it still ran at
     /// the deadline (`TimedOut`, once it is killed and reaped).
-    #[cfg_attr(
-        unix,
-        expect(
-            clippy::disallowed_methods,
-            reason = "a test helper times and polls its child's exit outside any async worker (ADR 0062)"
-        )
-    )]
     pub fn interrupt_and_wait(&self, deadline: Duration) -> io::Result<ExitStatus> {
         if let Some(status) = self.child().try_wait()? {
             return Ok(status);
@@ -104,12 +120,8 @@ impl Process {
         #[cfg(unix)]
         {
             self.interrupt()?;
-            let started = std::time::Instant::now();
-            while started.elapsed() < deadline {
-                if let Some(status) = self.child().try_wait()? {
-                    return Ok(status);
-                }
-                std::thread::sleep(STOP_POLL);
+            if let Some(status) = self.wait_within(deadline)? {
+                return Ok(status);
             }
             self.stop()?;
             Err(io::Error::new(
@@ -179,9 +191,8 @@ impl fmt::Display for ProcessesAlive {
     }
 }
 
-/// How often [`Process::interrupt_and_wait`] looks at whether its process
-/// has exited.
-#[cfg(unix)]
+/// How often [`Process::wait_within`] looks at whether its process has
+/// exited.
 const STOP_POLL: Duration = Duration::from_millis(10);
 
 /// How long `reported_address` waits for the first line.

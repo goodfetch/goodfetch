@@ -8,8 +8,8 @@
 //! Connection starts; it and the handles it opens, [`Session`], [`Page`]
 //! and [`Locator`], have the members the catalog gives them, one form per
 //! declared kind (ADR 0099), and [`blocking`] repeats the API for a
-//! program that does not use async. The SDK crates build on it; it depends on neither of
-//! them nor on any Foxhound crate.
+//! program that does not use async. The SDK crates build on it; it
+//! depends on neither of them nor on any Foxhound crate.
 
 #![warn(missing_docs)]
 

@@ -6,8 +6,9 @@
 # through, `generated` holds the handles `xtask codegen` writes from the
 # catalog (ADR 0099), `run` starts and closes the Runs a Connection drives,
 # and `blocking` gives them all a face that blocks, with the twins of the
-# generated handles as its own submodule. `sync` names the crate's locks. Credits, cancellation, event resumption and bodies join as their
-# own modules with the tickets that add them.
+# generated handles as its own submodule. `sync` names the crate's locks.
+# Credits, cancellation, event resumption and bodies join as their own
+# modules with the tickets that add them.
 [modules]
 blocking = ["call", "connection", "error", "generated", "run"]
 call = ["error", "rpc"]

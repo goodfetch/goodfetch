@@ -172,6 +172,21 @@ impl<T: DeserializeOwned, P> Query<T, P> {
     }
 }
 
+impl<T, P> Query<T, P> {
+    /// Changes the params before they are sent: an option's builder
+    /// method.
+    #[expect(
+        dead_code,
+        reason = "no query of the catalog takes an option yet; `xtask codegen` writes its builder methods through this one"
+    )]
+    pub(crate) fn edit(mut self, edit: impl FnOnce(&mut P)) -> Self {
+        if let Ok(params) = &mut self.request.params {
+            edit(params);
+        }
+        self
+    }
+}
+
 impl<T: Send + 'static, P: Serialize + Send + 'static> IntoFuture for Query<T, P> {
     type Output = Result<T, Error>;
     type IntoFuture = Reply<T>;

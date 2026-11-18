@@ -110,7 +110,10 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> Call<T, P> {
     ///
     /// # Errors
     ///
-    /// What the call fails with.
+    /// [`Error::Closed`] once its handle or the Connection is closed,
+    /// [`Error::Failed`] with the engine's error, [`Error::TimedOut`] once
+    /// its timeout runs out, and [`Error::Shape`] when its reply does not
+    /// fit `T`.
     pub fn send(self) -> Result<T, Error> {
         self.connection.wait(self.call.into_future())
     }
@@ -132,6 +135,19 @@ impl<T, P> Query<T, P> {
             connection: connection.clone(),
         }
     }
+
+    /// Changes the params before they are sent, as the async query's
+    /// option builder methods do.
+    #[expect(
+        dead_code,
+        reason = "no query of the catalog takes an option yet; `xtask codegen` writes its builder methods through this one"
+    )]
+    pub(crate) fn edit(self, edit: impl FnOnce(&mut P)) -> Self {
+        Self {
+            query: self.query.edit(edit),
+            ..self
+        }
+    }
 }
 
 impl<T: Send + 'static, P: Serialize + Send + 'static> Query<T, P> {
@@ -139,7 +155,9 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> Query<T, P> {
     ///
     /// # Errors
     ///
-    /// What the query fails with.
+    /// [`Error::Closed`] once its handle or the Connection is closed,
+    /// [`Error::Failed`] with the engine's error, and [`Error::Shape`] when
+    /// its answer does not fit `T`.
     pub fn send(self) -> Result<T, Error> {
         self.connection.wait(self.query.into_future())
     }

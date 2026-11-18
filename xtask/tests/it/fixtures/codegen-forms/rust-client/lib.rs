@@ -52,8 +52,7 @@ impl<T, P> Call<T, P> {
 
     pub(crate) fn map<U>(self, _map: impl FnOnce(T) -> U + Send + 'static) -> Call<U, P>
     where
-        T: Send + 'static,
-        U: Send + 'static,
+        T: 'static,
     {
         Call {
             params: self.params,

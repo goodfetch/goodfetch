@@ -64,7 +64,7 @@ received (ADR 0079).
 - `stopped`: It stopped before its end, `incomplete`; a crawl's counts the requests it left.
 """
 
-LimitScope: TypeAlias = Literal["connection", "daemon", "install", "person", "token"] | str
+LimitScope: TypeAlias = Literal["connection", "daemon", "install", "person", "run", "token"] | str
 """A `limit_scope`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -74,6 +74,7 @@ received (ADR 0079).
 - `daemon`: Every run a Daemon runs.
 - `install`: Every run of the user on the machine, whichever engine runs it.
 - `person`: Every run a person starts.
+- `run`: The Run whose program gave the Limit at its start; it has no period.
 - `token`: Every run a Connection holding a named token starts.
 """
 

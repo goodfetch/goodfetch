@@ -322,6 +322,14 @@ class LimitNotUnderstoodError(RefusedError):
         super().__init__(message, code="limit_not_understood", group="refused", retryable=False, fix=fix, details=details)
 
 
+class LimitRaiseRefusedError(RefusedError):
+    """A start that names an existing Run gave a Limit above the Run's Limit as it stands; the details name its Usage kind, its currency, the amount given and the one standing. A program only lowers a Limit: ask a person to raise it."""
+
+    def __init__(self, message: str, *, fix: str | None = None, details: Mapping[str, object] | None = None) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="limit_raise_refused", group="refused", retryable=False, fix=fix, details=details)
+
+
 class LimitReachedError(RefusedError):
     """A Limit that covers the run has nothing left in its period; the details name its scope, its Usage kind, its period and when it starts again. Wait for the next period, or ask a person to raise it."""
 
@@ -837,6 +845,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "format_version_unsupported": FormatVersionUnsupportedError,
     "header_value_invalid": HeaderValueInvalidError,
     "limit_not_understood": LimitNotUnderstoodError,
+    "limit_raise_refused": LimitRaiseRefusedError,
     "limit_reached": LimitReachedError,
     "local_address_unavailable": LocalAddressUnavailableError,
     "logged_out": LoggedOutError,

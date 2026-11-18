@@ -97,6 +97,7 @@ mod parent_death;
 mod private_endpoint;
 mod private_ranges;
 mod proxy;
+#[cfg(unix)]
 mod proxy_limits;
 mod relay_fingerprint;
 mod request_kinds;

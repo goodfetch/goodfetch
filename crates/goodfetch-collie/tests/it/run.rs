@@ -17,6 +17,7 @@ use std::path::Path;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_test_client::HomeLayout;
+#[cfg(unix)]
 use goodfetch_test_support::MESSAGE_DEADLINE;
 use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;

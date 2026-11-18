@@ -159,6 +159,10 @@ mod learned_rules;
 mod light_browser;
 mod limits;
 mod navigation_gate;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
 mod no_console;
 mod operator_policy;
 mod outcomes;

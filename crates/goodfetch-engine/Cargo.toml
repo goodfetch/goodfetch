@@ -182,5 +182,10 @@ harness = false
 [package.metadata.cargo-shear]
 ignored = ["bindgen"]
 
+# Its tests start the Proving ground through the test tool manifest, so a
+# change to it runs them (TESTING.md, Commands).
+[package.metadata.goodfetch]
+runs = ["goodfetch-proving-ground"]
+
 [lints]
 workspace = true

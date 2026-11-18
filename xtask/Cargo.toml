@@ -54,5 +54,10 @@ insta.workspace = true
 proptest.workspace = true
 rstest.workspace = true
 
+# Its tests run the Proving ground and both Products' executables through
+# the test tool manifest, so a change to any runs them (TESTING.md, Commands).
+[package.metadata.goodfetch]
+runs = ["goodfetch-collie", "goodfetch-foxhound", "goodfetch-proving-ground"]
+
 [lints]
 workspace = true

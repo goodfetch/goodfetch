@@ -71,7 +71,8 @@ fn only_child(pid: u32) -> u32 {
     children.trim().parse().unwrap()
 }
 
-/// One worker a core, as Tokio counts the cores the test may use.
+/// One thread a core, as Tokio and the engine count the cores the test may
+/// use.
 fn per_core() -> usize {
     std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
 }
@@ -100,13 +101,14 @@ fn an_attached_engine_has_the_workers_the_setting_says(
 
 /// Many calls that each read the Usage ledger on a blocking thread, sent at
 /// once, start no more blocking threads than `governor.blocking_threads`
-/// caps, 4 by default. A blocking thread outlives its work by Tokio's
+/// caps, one a core by default. A blocking thread outlives its work by Tokio's
 /// keep-alive of 10 seconds, longer than the calls take, so the threads
 /// alive once they are answered are every one they started.
 /// Covers: setting:governor.blocking_threads, command:usage.list
 #[rstest]
-#[case::by_default("", 4)]
+#[case::by_default("", per_core())]
 #[case::at_a_count("governor.blocking_threads = 2\n", 2)]
+#[case::per_core("governor.blocking_threads = \"per_core\"\n", per_core())]
 fn blocking_work_never_takes_more_threads_than_the_cap(#[case] settings: &str, #[case] cap: usize) {
     let env = TestEnv::new();
     env.user_configuration(settings);
@@ -302,7 +304,7 @@ fn config_explain_shows_both_and_the_operator_policy_locks_them() {
         (shown(&by_default), shown(&locked)),
         (
             vec![
-                json!(["governor.blocking_threads", 4, "default", null]),
+                json!(["governor.blocking_threads", "per_core", "default", null]),
                 json!(["governor.worker_threads", 2, "default", null]),
             ],
             vec![

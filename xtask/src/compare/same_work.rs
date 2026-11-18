@@ -39,8 +39,8 @@ use super::extracted::{ANSWERED_PAGES, Extracted};
 use super::matrix::{self, OutputCheck, Row, Scenario};
 use super::trials::{
     AutoRun, Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_SCENARIOS,
-    INSTRUCTION_TOOLS, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, StoppedRun, Tool, Trial,
-    Work, size_not_run,
+    INSTRUCTION_TOOLS, SIZE_CONCURRENCIES, SIZES, SizesCell, StoppedRun, Tool, Trial, Work,
+    size_not_run, size_tools,
 };
 
 /// What one trial of a pass did, whichever pass.
@@ -305,7 +305,7 @@ fn check_auto(runs: &[AutoRun]) -> Vec<Finding> {
 }
 
 /// Each finding of the sizes cell, one pass per size and concurrency, of
-/// the scenario 1 main cells of [`SIZE_TOOLS`] it runs there
+/// the scenario 1 main cells of the [`size_tools`] it runs there
 /// ([`size_not_run`]) when `raw` holds scenario 1, of those `named` names
 /// when it names some.
 fn check_sizes(sizes: &SizesCell, raw: &[Scenario], named: Option<&[&str]>) -> Vec<Finding> {
@@ -321,8 +321,9 @@ fn check_sizes(sizes: &SizesCell, raw: &[Scenario], named: Option<&[&str]>) -> V
     for site_pages in SIZES {
         for concurrency in SIZE_CONCURRENCIES {
             let at = |pages, at_concurrency| pages == site_pages && at_concurrency == concurrency;
-            let tools: Vec<Tool> = SIZE_TOOLS
-                .into_iter()
+            let tools: Vec<Tool> = size_tools(concurrency)
+                .iter()
+                .copied()
                 .filter(|&tool| size_not_run(tool, concurrency).is_none())
                 .collect();
             findings.extend(check_pass(&Pass {

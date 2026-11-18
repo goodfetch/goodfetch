@@ -42,8 +42,17 @@ pub(crate) const MILESTONES: [u64; 3] = [1_000, 10_000, 100_000];
 /// Spider's at, then 1 and 64, reported without that bar (spec #2165).
 pub(crate) const SIZES: [u64; 3] = [100, 1_000, 10_000];
 pub(crate) const SIZE_CONCURRENCIES: [u32; 3] = [CONCURRENCY, 1, 64];
-/// The tools the sizes cell crawls with, each on its scenario 1 main row.
-pub(crate) const SIZE_TOOLS: [Tool; 2] = [Tool::Foxhound, Tool::Spider];
+/// The tools the sizes cell crawls with at `concurrency`, each on its
+/// scenario 1 main row: every tool at [`CONCURRENCY`], where Foxhound's
+/// peak is held to the best competitor's (#2205, #2871), and Foxhound and
+/// Spider alone at the other concurrencies, which carry no bar.
+pub(crate) fn size_tools(concurrency: u32) -> &'static [Tool] {
+    if concurrency == CONCURRENCY {
+        &Tool::ALL
+    } else {
+        &[Tool::Foxhound, Tool::Spider]
+    }
+}
 
 /// Why the sizes cell runs no trial of `tool` at `concurrency` in flight,
 /// where it does not: Spider at 1, whose crawl stops short of the site.

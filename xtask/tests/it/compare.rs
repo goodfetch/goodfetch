@@ -417,18 +417,35 @@ fn trials_of_the_same_work_report_each_cells_medians_with_their_spread() {
 }
 
 /// The trials file with a sizes cell: three trials of Foxhound and Spider
-/// at each size and concurrency, Spider's at 1 in flight aside, Foxhound's
-/// peak 22 MiB, Spider's 18 MiB at 100 pages and 30 MiB above.
+/// at each size and concurrency, Spider's at 1 in flight aside, and of
+/// every other tool's scenario 1 main row at 16 in flight; Foxhound's peak
+/// 22 MiB, Spider's 18 MiB at 100 pages and 30 MiB above, the others' 40.
 fn sized_trials() -> Value {
+    sized_trials_with(|_, _| 40)
+}
+
+/// [`sized_trials`], each tool but Foxhound and Spider peaking at
+/// `competitor(tool, pages)` MiB.
+fn sized_trials_with(competitor: fn(&str, u64) -> u64) -> Value {
     let mut trials = trials();
     let mut sized = Vec::new();
     for pages in [100_u64, 1000, 10_000] {
         for concurrency in [1, 16, 64] {
-            for (tool, mib) in [
-                ("foxhound", 22),
-                ("spider", if pages == 100 { 18 } else { 30 }),
-            ] {
-                if (tool, concurrency) == ("spider", 1) {
+            let tools = CELLS
+                .iter()
+                .filter(|(scenario, cell, tool)| *scenario == "raw" && cell == tool)
+                .map(|&(_, _, tool)| match tool {
+                    "foxhound" => (tool, 22),
+                    "spider" => (tool, if pages == 100 { 18 } else { 30 }),
+                    _ => (tool, competitor(tool, pages)),
+                });
+            for (tool, mib) in tools {
+                let sized_here = match tool {
+                    "foxhound" => true,
+                    "spider" => concurrency != 1,
+                    _ => concurrency == 16,
+                };
+                if !sized_here {
                     continue;
                 }
                 for number in 1..=3 {
@@ -470,8 +487,8 @@ fn sized_trials() -> Value {
 /// The sizes cell (spec #2165): Foxhound's and Spider's scenario 1 main
 /// rows at each size and concurrency, each tool's median peak, private
 /// memory and executable's pages, and at 16 in flight alone whether
-/// Foxhound's peak is at most Spider's. Spider runs no trial at 1 in
-/// flight, and its row there says why.
+/// Foxhound's peak is at most the best competitor's, here Spider's. Spider
+/// runs no trial at 1 in flight, and its row there says why.
 #[test]
 fn the_sizes_cell_reports_each_tools_peak_with_the_bar_at_16_in_flight() {
     let workspace = Workspace::from_fixture("empty");
@@ -531,8 +548,69 @@ fn the_sizes_cell_reports_each_tools_peak_with_the_bar_at_16_in_flight() {
     );
     let markdown = workspace.read_text(MARKDOWN);
     assert!(
-        markdown.contains("| 100 | 16 | foxhound | 3 | 22.0 MiB | 20.0 MiB | 9.0 MiB | missed |")
-            && markdown.contains("| 100 | 1 | spider | not measured: "),
+        markdown.contains(
+            "| 100 | 16 | foxhound | 3 | 22.0 MiB | 20.0 MiB | 9.0 MiB | missed: spider 18.0 MiB |"
+        ) && markdown.contains("| 100 | 1 | spider | not measured: "),
+        "{markdown}"
+    );
+}
+
+/// At 16 in flight the sizes cell crawls with every tool's scenario 1 main
+/// row, and Foxhound's peak is held to the best competitor's at each size
+/// (#2205's bar, #2871): here crawlee-rs's, below Spider's and Foxhound's
+/// at 10,000 pages. At 1 and 64 in flight only Foxhound and Spider crawl.
+#[test]
+fn the_sizes_cell_holds_foxhound_to_the_best_competitor_at_16_in_flight() {
+    let workspace = Workspace::from_fixture("empty");
+    let trials = sized_trials_with(|tool, pages| {
+        if (tool, pages) == ("crawlee-rs", 10_000) {
+            20
+        } else {
+            40
+        }
+    });
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let report = written(&workspace);
+    let points: Vec<(u64, u64, usize, Value, Value)> = report["sizes"]["points"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|point| {
+            (
+                point["site_pages"].as_u64().unwrap(),
+                point["concurrency"].as_u64().unwrap(),
+                point["tools"].as_object().unwrap().len(),
+                point["bar_met"].clone(),
+                point["best_competitor"].clone(),
+            )
+        })
+        .filter(|&(_, concurrency, ..)| concurrency != 1)
+        .collect();
+    let best = |tool: &str, mib: u64| json!({ "tool": tool, "peak_bytes": mib * MIB });
+    assert_eq!(
+        points,
+        vec![
+            (100, 16, 9, json!(false), best("spider", 18)),
+            (1000, 16, 9, json!(true), best("spider", 30)),
+            (10_000, 16, 9, json!(false), best("crawlee-rs", 20)),
+            (100, 64, 2, Value::Null, Value::Null),
+            (1000, 64, 2, Value::Null, Value::Null),
+            (10_000, 64, 2, Value::Null, Value::Null),
+        ]
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    assert!(
+        markdown.contains(
+            "| 10000 | 16 | foxhound | 3 | 22.0 MiB | 20.0 MiB | 9.0 MiB | missed: crawlee-rs 20.0 MiB |"
+        ),
         "{markdown}"
     );
 }

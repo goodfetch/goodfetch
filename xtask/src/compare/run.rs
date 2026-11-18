@@ -33,9 +33,9 @@ use super::trials::{
     CollieScenario, Comparison, CountedCell, CountedRun, Declared, FASTCRW_VERSION, GROWTH_PAGES,
     GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Measured,
     OPENSPIDER_COMMIT, PAGESIFT_VERSION, PLAYWRIGHT_VERSION, QUIET_LOAD, RULE_RUNS, Redone,
-    RuledRun, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES,
-    SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC, STRACE_QUIET_LOAD, SizesCell, StoppedPoint,
-    StoppedRun, Trial, size_not_run,
+    RuledRun, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES, SIZES,
+    SPIDER_VERSION, STATISTIC, STRACE_QUIET_LOAD, SizesCell, StoppedPoint, StoppedRun, Trial,
+    size_not_run, size_tools,
 };
 
 mod collie;
@@ -501,19 +501,16 @@ fn main_points(cells: &[(&'static Cell, Config)], options: &Options, pages: u64)
         .collect()
 }
 
-/// The sizes cell's points: each scenario 1 main cell of [`SIZE_TOOLS`]
-/// the run measures, at each site of [`SIZES`] and each concurrency of
-/// [`SIZE_CONCURRENCIES`] it runs at ([`size_not_run`]), its samples
+/// The sizes cell's points: each scenario 1 main cell the run measures, at
+/// each site of [`SIZES`] and each concurrency of [`SIZE_CONCURRENCIES`]
+/// whose [`size_tools`] hold its tool and that it runs at
+/// ([`size_not_run`]), its samples
 /// reading the executable's own pages; Spider's at 64 in flight on a page
 /// channel of [`matrix::SPIDER_CAPACITY_AT_64`].
 fn size_points(options: &Options) -> Vec<Point> {
     let cells: Vec<_> = measured(options)
         .into_iter()
-        .filter(|(cell, config)| {
-            cell.scenario == Scenario::Raw
-                && cell.row == Row::Main
-                && SIZE_TOOLS.contains(&config.tool())
-        })
+        .filter(|(cell, _)| cell.scenario == Scenario::Raw && cell.row == Row::Main)
         .collect();
     SIZES
         .iter()
@@ -527,7 +524,10 @@ fn size_points(options: &Options) -> Vec<Point> {
         .flat_map(|crawl| {
             cells
                 .iter()
-                .filter(move |(_, config)| size_not_run(config.tool(), crawl.concurrency).is_none())
+                .filter(move |(_, config)| {
+                    size_tools(crawl.concurrency).contains(&config.tool())
+                        && size_not_run(config.tool(), crawl.concurrency).is_none()
+                })
                 .map(move |&(cell, config)| {
                     (cell, at_concurrency(config, crawl.concurrency), crawl)
                 })
@@ -899,7 +899,7 @@ fn sizes(executables: &Executables<'_>, options: &Options, state: &mut u64) -> R
     let points = size_points(options);
     if points.is_empty() {
         return Ok(SizesCell::NotRun {
-            reason: "the run asked for no scenario 1 main cell of Foxhound or Spider".to_owned(),
+            reason: "the run asked for no scenario 1 main cell".to_owned(),
         });
     }
     let (trials_run, stopped) = timed(executables, options, &points, state, "sizes ")?;

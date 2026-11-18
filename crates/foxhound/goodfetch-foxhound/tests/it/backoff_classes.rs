@@ -329,6 +329,7 @@ fn a_failing_site_backs_its_domain_off_and_a_500_does_not(
     let finished = crawled(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "classes",
             "seeds": [{ "url": url, "label": "page" }],
             "settings": crawl_settings(&proving_ground, tier, &extra, &more),
@@ -390,6 +391,7 @@ fn the_sites_retry_after_holds_its_domain_and_nothing_is_sent_before_it(
     let finished = crawled(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "retry-after",
             "seeds": [
                 { "url": proving_ground.url("fetch-edge.test", "/retry-after/503/long"), "label": "page", "priority": 1 },
@@ -486,6 +488,7 @@ fn a_sites_429_through_a_proxy_backs_its_domain_off_and_lowers_no_ceiling() {
     let held = crawled_until_held(
         &mut engine,
         &json!({
+            "labels": { "page": {} },
             "run_id": "through-open",
             "seeds": [{
                 "url": proving_ground.url("scope.test", "/quiet?mark=site&status=429"),

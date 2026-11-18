@@ -84,7 +84,7 @@ fn crawl_at_once(env: &TestEnv, runs: &[(&str, Vec<Value>, Value)], handled: &mu
             let mut engine = attached(env);
             engine.send(&json!({
                 "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-                "params": { "run_id": run, "seeds": seeds, "settings": settings },
+                "params": { "run_id": run, "seeds": seeds, "settings": settings, "labels": { "page": {} } },
             }));
             (engine, *run, seeds.len(), false)
         })

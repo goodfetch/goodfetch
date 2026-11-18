@@ -42,6 +42,7 @@ fn a_document_the_http_transport_sent_under_auto_is_recorded_on_http() {
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "shop",
                         "seeds": [{ "url": format!("http://{HOST}/page/1"), "label": "page" }],
                         "settings": {

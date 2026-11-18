@@ -154,6 +154,7 @@ fn started(
         "params": {
             "run_id": run_id, "seeds": seeds(site, count), "datasets": [{ "name": "pages" }],
             "settings": { "crawl": { "handler": { "concurrency": 1 } } },
+            "labels": { "page": {} },
         },
     }));
     let first = engine.request(kept);

@@ -85,6 +85,7 @@ fn a_crawls_progress_counts_its_requests_and_lists_those_in_flight() {
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "counted",
                         "seeds": [seed("https://a.test/1"), seed("https://b.test/1")],
                     }),
@@ -148,6 +149,7 @@ fn a_live_crawls_progress_counts_its_requests_in_memory_and_its_last_value_reads
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "live",
                         "seeds": [seed("https://a.test/1")],
                         "settings": { "crawl": { "keep_alive": true } },
@@ -246,6 +248,7 @@ fn a_live_crawls_counts_in_memory_are_its_run_files_through_every_ending() {
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "walked",
                         "seeds": [
                             {
@@ -346,7 +349,7 @@ fn a_subscription_reads_a_crawls_requests_in_flight_in_its_runs_progress_events(
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "published", "seeds": [seed("https://a.test/1")] }),
+                    json!({ "run_id": "published", "seeds": [seed("https://a.test/1")], "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -398,6 +401,7 @@ fn a_keep_alive_crawl_with_no_work_says_it_is_idle() {
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "kept",
                         "seeds": [seed("https://a.test/1")],
                         "settings": { "crawl": { "keep_alive": true } },
@@ -436,6 +440,7 @@ fn a_domain_at_its_concurrency_holds_its_due_requests_under_domain_concurrency()
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "held",
                         "seeds": [seed("https://shop.test/1"), seed("https://shop.test/2")],
                         "settings": { "politeness": { "domain": { "concurrency": 1 } } },
@@ -475,7 +480,7 @@ fn first_group(
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "waits", "seeds": seeds, "settings": settings }),
+                    json!({ "run_id": "waits", "seeds": seeds, "settings": settings, "labels": { "page": {} } }),
                     &mut start_handler,
                 )
                 .await;

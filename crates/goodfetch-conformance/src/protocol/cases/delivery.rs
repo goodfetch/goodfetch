@@ -65,6 +65,7 @@ impl Crawl {
             &json!({
                 "run_id": run_id,
                 "seeds": seeds,
+                "labels": { "page": {} },
                 "datasets": [{ "name": "pages" }],
                 "settings": settings,
             }),

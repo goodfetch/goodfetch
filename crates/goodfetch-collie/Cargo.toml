@@ -120,8 +120,6 @@ serde_json.workspace = true
 tempfile.workspace = true
 # `block_detection`'s check of its rules' sources against its `third-party.toml`.
 toml.workspace = true
-# The SDK's public-items check reads its sources (tests/it/sdk/public_items.rs).
-syn.workspace = true
 # The tests' HTTP Client, and the pins' lever's download.
 ureq.workspace = true
 # The SSRF table runners' URLs as the WHATWG parser writes them

@@ -29,6 +29,7 @@ fn start(engine: &mut Attached, failing: &str) -> Value {
             "run_id": RUN_ID,
             "seeds": [seed(failing)],
             "settings": { "crawl": { "keep_alive": true } },
+            "labels": { "page": {} },
         }),
         &mut |_| None,
     )

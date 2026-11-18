@@ -5,32 +5,16 @@
 //! from the catalog (ADR 0099), the `catalog-mapping` client conformance
 //! case in `linked` mode.
 
-use std::collections::BTreeMap;
-use std::ffi::OsString;
-
 use goodfetch_collie::{Collie, ConnectOptions, Error, RunId, StartedAs, blocking};
 use goodfetch_protocol::run::{Lifecycle, ProgressMessage};
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, real_time_runtime};
 
 mod public_items;
 
 /// What a connection opens with: the test's environment, which names its
 /// Goodfetch home.
 fn options(env: &TestEnv) -> ConnectOptions {
-    let environment: BTreeMap<OsString, OsString> = env
-        .env()
-        .iter()
-        .map(|(name, value)| (name.into(), value.into()))
-        .collect();
-    ConnectOptions::default().environment(environment)
-}
-
-/// A single-threaded runtime, as a program's own may be.
-fn current_thread() -> tokio::runtime::Runtime {
-    goodfetch_runtime::current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
+    ConnectOptions::default().environment(env.env_os())
 }
 
 /// Covers: story:11-3, story:11-11, story:11-59
@@ -38,7 +22,7 @@ fn current_thread() -> tokio::runtime::Runtime {
 fn a_program_connects_starts_a_run_finishes_it_and_closes_on_a_single_threaded_runtime() {
     let env = TestEnv::new();
     let first = RunId::parse("first").unwrap();
-    current_thread().block_on(async {
+    real_time_runtime().block_on(async {
         let collie = Collie::connect(options(&env)).await.unwrap();
 
         let run = collie.start().run_id(&first).await.unwrap();
@@ -58,7 +42,7 @@ fn a_program_connects_starts_a_run_finishes_it_and_closes_on_a_single_threaded_r
 #[test]
 fn a_scope_lends_its_connection_to_the_body_and_closes_it_after() {
     let env = TestEnv::new();
-    let (report, kept) = current_thread().block_on(async {
+    let (report, kept) = real_time_runtime().block_on(async {
         Collie::scope(options(&env), async |collie| {
             let report = collie.start().await?.finish().await?;
             Ok((report, collie.clone()))
@@ -68,7 +52,7 @@ fn a_scope_lends_its_connection_to_the_body_and_closes_it_after() {
     });
 
     assert_eq!(report.lifecycle, Lifecycle::Finished);
-    let after = current_thread().block_on(async { kept.start().await });
+    let after = real_time_runtime().block_on(async { kept.start().await });
     assert!(matches!(after, Err(Error::Closed)), "{after:?}");
 }
 
@@ -96,7 +80,7 @@ fn a_program_without_async_connects_starts_a_run_finishes_it_and_closes() {
 #[test]
 fn blocking_inside_an_async_runtime_never_nests_a_runtime() {
     let env = TestEnv::new();
-    current_thread().block_on(async {
+    real_time_runtime().block_on(async {
         let collie = blocking::Collie::connect(options(&env)).unwrap();
 
         let report = collie.start().send().unwrap().finish().send().unwrap();
@@ -115,7 +99,7 @@ fn blocking_inside_an_async_runtime_never_nests_a_runtime() {
 fn the_members_generated_from_the_catalog_reach_the_engine() {
     let env = TestEnv::new();
     let message = ProgressMessage::parse("three pages left").unwrap();
-    current_thread().block_on(async {
+    real_time_runtime().block_on(async {
         let collie = Collie::connect(options(&env)).await.unwrap();
         let run = collie.start().await.unwrap();
 

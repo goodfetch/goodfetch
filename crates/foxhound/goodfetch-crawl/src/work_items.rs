@@ -356,15 +356,16 @@ pub(crate) fn check_seeds(
         .collect()
 }
 
-/// Checks `seed` before it is admitted: a request's Payload, serialized
-/// once, against its Label's schema and the cap the Run's `invariants`
-/// hold, and a sitemap seed's rules, each pattern one the engine matches
-/// (`pattern_unsupported`), kept compiled for its sitemaps' reads, and
-/// each Label one that takes no Payload, since an entry carries none.
+/// Checks `seed` before it is admitted: a request's Label, one the crawl
+/// declares, and its Payload, serialized once, against its Label's schema
+/// and the cap the Run's `invariants` hold, and a sitemap seed's rules,
+/// each pattern one the engine matches (`pattern_unsupported`), kept
+/// compiled for its sitemaps' reads, and each Label one the crawl declares
+/// that takes no Payload, since an entry carries none.
 ///
 /// # Errors
 ///
-/// `payload_invalid` or `pattern_unsupported`.
+/// `label_unknown`, `payload_invalid` or `pattern_unsupported`.
 pub(crate) fn check_seed(
     invariants: &Invariants,
     mut seed: Seed,
@@ -1048,6 +1049,19 @@ pub(crate) fn pending_of(connection: &Connection, label: &str) -> rusqlite::Resu
              ORDER BY position",
         )?
         .query_map([label], |row| row.get(0))?
+        .collect()
+}
+
+/// The Labels of the work items not ended, pending or leased, each once, in
+/// order: those a resume would deliver. A sitemap's fetch, whose Label is
+/// the engine's empty one, is none of them.
+pub(crate) fn pending_labels(connection: &Connection) -> rusqlite::Result<Vec<String>> {
+    connection
+        .prepare_cached(
+            "SELECT DISTINCT label FROM work_items
+             WHERE status IN ('pending', 'leased') AND label <> '' ORDER BY label",
+        )?
+        .query_map([], |row| row.get(0))?
         .collect()
 }
 

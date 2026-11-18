@@ -82,7 +82,9 @@ CREATE TABLE labels (
             name TEXT NOT NULL PRIMARY KEY,
             declaration TEXT NOT NULL
         ) STRICT;
+INSERT INTO "labels" VALUES('guarded','{}');
 INSERT INTO "labels" VALUES('home','{"payload":{"type":["object","null"]}}');
+INSERT INTO "labels" VALUES('listed','{}');
 INSERT INTO "labels" VALUES('product','{}');
 CREATE TABLE learned_identities (
             identity TEXT NOT NULL PRIMARY KEY,
@@ -150,7 +152,9 @@ CREATE TABLE payload_labels (
             schema TEXT,
             hash TEXT
         ) STRICT, WITHOUT ROWID;
+INSERT INTO "payload_labels" VALUES('guarded',NULL,NULL);
 INSERT INTO "payload_labels" VALUES('home','{"type":["object","null"]}','5d4827562aefcfb1c3413607ff8ccbcce66217250c6ee5c6565bd52ef9eebc64');
+INSERT INTO "payload_labels" VALUES('listed',NULL,NULL);
 INSERT INTO "payload_labels" VALUES('product',NULL,NULL);
 CREATE TABLE payloads (
             request TEXT NOT NULL PRIMARY KEY,

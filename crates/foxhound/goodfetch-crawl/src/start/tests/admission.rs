@@ -33,7 +33,7 @@ fn handled(env: &TestEnv, seeds: &Value, settings: &Value) -> Vec<(String, Durat
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "fair", "seeds": seeds, "settings": settings }),
+                    json!({ "run_id": "fair", "seeds": seeds, "settings": settings, "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -119,7 +119,7 @@ fn answered_after(
     crawl(
         || default_dependencies(env, RunStateOptions::default()),
         async |client| {
-            let params = json!({ "run_id": "timed", "seeds": seeds, "settings": settings });
+            let params = json!({ "run_id": "timed", "seeds": seeds, "labels": { "page": {} }, "settings": settings });
             client
                 .send(&json!({ "jsonrpc": "2.0", "id": "start", "method": "crawl.start", "params": as_sent("crawl.start", params) }))
                 .await;
@@ -342,7 +342,7 @@ fn a_domain_whose_first_byte_timed_out_backs_off_while_the_others_go() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "slow", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 1 } } } }),
+                    json!({ "run_id": "slow", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 1 } } }, "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -417,7 +417,7 @@ fn a_429_a_handler_met_backs_its_domain_off_while_the_others_go(
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "refused", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 1 } }, "politeness": { "sharing": sharing } } }),
+                    json!({ "run_id": "refused", "seeds": seeds, "settings": { "crawl": { "handler": { "concurrency": 1 } }, "politeness": { "sharing": sharing } }, "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -524,7 +524,7 @@ fn after_a_429(env: &TestEnv, run_id: &str, settings: &Value) -> Vec<(String, Du
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": run_id, "seeds": seeds, "settings": settings }),
+                    json!({ "run_id": run_id, "seeds": seeds, "settings": settings, "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -599,7 +599,7 @@ fn crawled_with(
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": run_id, "seeds": seeds, "settings": settings }),
+                    json!({ "run_id": run_id, "seeds": seeds, "settings": settings, "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;

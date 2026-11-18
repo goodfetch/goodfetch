@@ -13,18 +13,22 @@
 //! The crawl's Datasets, refused with `dataset_duplicate` or
 //! `dataset_key_invalid` before the Run begins, its Labels and
 //! `crawl.payload.max_size` are recorded with the Run, and a seed whose Payload does not fit them fails the start with
-//! `payload_invalid` before the Run begins; under a Run ID that names a
-//! Run, whose seeds are not checked again, a Label whose Payload schema
-//! changed under a pending Payload that fails it refuses the start with
-//! `payload_schema_changed` before any work (ADR 0082). A Label whose
+//! `payload_invalid` before the Run begins, and a seed or a sitemap rule
+//! naming a Label the crawl does not declare with `label_unknown` (ADR
+//! 0093); under a Run ID that names a Run, whose seeds are not checked
+//! again, a pending request of a Label the crawl no longer declares
+//! refuses the start with `label_unknown`, and a Label whose Payload schema
+//! changed under a pending Payload that fails it with
+//! `payload_schema_changed`, before any work (ADRs 0082 and 0102). A Label whose
 //! settings can never be served is refused with `setting_not_applicable`
 //! before the Run begins (ADRs 0110 and 0120), and which requests keep
 //! their URLs' fragments is recorded with the Run, so a start under its ID
 //! that changes `crawl.keep_url_fragment` is refused with
 //! `setting_not_applicable`. Such a start that drops a Dataset holding
 //! Records is refused with `dataset_unknown`, and one that changes its key
-//! with `dataset_key_invalid` (ADR 0103); its declarations, a code-free
-//! crawl's extraction among them, are recorded when the Run resumes.
+//! with `dataset_key_invalid` (ADR 0103); its declarations, its Labels and
+//! a code-free crawl's extraction among them, are recorded when the Run
+//! resumes.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -231,10 +235,7 @@ async fn start(
     } else {
         work_items::check_seeds(&invariants, seeds, &work)?
     };
-    let declared = params.labels;
-    let redeclaring = (datasets.clone(), params.extraction.clone());
-    let opening = datasets.clone();
-    let serving = invariants.clone();
+    let (declared, opening, serving) = (params.labels, datasets.clone(), invariants.clone());
     let admitted = code_free::admitted(params.extraction.as_ref(), checked);
     let (recording, extraction) = (params.extraction.clone(), params.extraction);
     let started = context
@@ -292,15 +293,20 @@ async fn start(
             ));
             started
         }
-        Started::Existing(existing) => redeclared.keep(existing, redeclaring, &crawls).await,
+        Started::Existing(existing) => {
+            let kept = (opening, serving.payloads().clone(), extraction);
+            redeclared.keep(existing, kept, &crawls).await
+        }
     })
 }
 
 /// Whether a Run `run_id` exists (never when the start names none), which
 /// a start under its ID goes on with (ADR 0102), its seeds not admitted
 /// again, once it may go on under the
-/// crawl's `invariants`: refused with `payload_schema_changed` before any
-/// work when a declared Label's Payload schema changed and a pending
+/// crawl's `invariants`: refused with `label_unknown` before any work when
+/// a pending request names a Label the crawl no longer declares (ADR
+/// 0102), with `payload_schema_changed` when a declared Label's Payload
+/// schema changed and a pending
 /// Payload of it fails the new one (ADR 0082), with
 /// `setting_not_applicable` when the Labels' fragments differ from those
 /// the Run began with (ADR 0120), and with `dataset_unknown` or
@@ -325,14 +331,16 @@ async fn schema_unchanged(
     let changed = match reader
         .read(move |connection| {
             let began = labels::Fragments::read(connection)?;
+            let pending = work_items::pending_labels(connection)?;
             let changed = declared.schema_changed(connection, |label| {
                 work_items::pending_of(connection, label)
             })?;
-            Ok((began, Began::read(connection)?, changed))
+            Ok((began, Began::read(connection)?, pending, changed))
         })
         .await
     {
-        Ok((began, began_with, changed)) => {
+        Ok((began, began_with, pending, changed)) => {
+            invariants.payloads().resumes(&pending, run_id.as_str())?;
             invariants.fragments().unchanged(&began, run_id.as_str())?;
             datasets.resumes(&began_with, run_id.as_str())?;
             changed

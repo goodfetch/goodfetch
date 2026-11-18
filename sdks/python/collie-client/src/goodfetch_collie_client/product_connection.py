@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from goodfetch_collie_client.attached_engine import AttachedEngine
 from goodfetch_collie_client.connection import CLOSE_TIMEOUT, ClientConnection
 from goodfetch_collie_client.generated.errors import SettingInvalidError
+from goodfetch_collie_client.limits import limit_list
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
 
     from goodfetch_collie_client.generated.models import Product
     from goodfetch_collie_client.goodfetch_error import ErrorClass
+    from goodfetch_collie_client.limits import Limits
 
 
 @dataclass(frozen=True)
@@ -97,15 +99,19 @@ async def open_attached(
     *,
     env: Mapping[str, str] | None = None,
     close_timeout: float = CLOSE_TIMEOUT,
+    limits: Limits | None = None,
 ) -> ClientConnection:
-    """Starts `product`'s engine as an Attached engine and finishes `hello`.
+    """Starts `product`'s engine as an Attached engine, then `hello` and `limits`.
 
     `env` is the environment map, read here and never at import: the
     process's own when left out (ADRs 0062 and 0083). The engine gets
-    exactly this map. A missing executable (`engine_not_found`) or a refused
-    Product (`not_in_product`) or version raises here, with a `fix`, leaving
-    no engine behind.
+    exactly this map. A `limits` amount the SDK cannot turn exactly
+    (`setting_invalid`) raises before the engine starts. A missing
+    executable (`engine_not_found`), a refused Product (`not_in_product`) or
+    version, or a refused Limit raises here, with a `fix`, leaving no engine
+    behind.
     """
+    connection_limits = limit_list(limits)
     environment = dict(os.environ if env is None else env)
     location = locate_engine(environment, product)
     engine = await AttachedEngine.start(
@@ -117,6 +123,7 @@ async def open_attached(
         error_classes=product.error_classes,
         engine=engine,
         close_timeout=close_timeout,
+        limits=connection_limits,
     )
 
 

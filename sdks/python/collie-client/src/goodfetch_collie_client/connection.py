@@ -1,7 +1,9 @@
 """The Connection every Product's Connection type is built on (ADRs 0078 and 0095).
 
 It opens with `hello`, naming the Product the Client needs, its version and
-the form `python`, and holds the engine's answer; it starts Runs and closes
+the form `python`, and holds the engine's answer; then it sets the
+Connection's Limits, each a `usage.set` on scope `connection` (ADR 0080),
+and a refused one fails the opening. It starts Runs and closes
 them before itself; and once closed, every call fails with `closed`. The
 only check of the engine's answers is the protocol version's (STYLE.md).
 TypeScript's `client-connection.ts` is its twin.
@@ -36,19 +38,22 @@ from goodfetch_collie_client.generated.models import (
     ProtocolVersion,
     RunStartParams,
     Surface,
+    UsageSetParams,
 )
 from goodfetch_collie_client.generated.operations import AsyncCollieOperations
+from goodfetch_collie_client.limits import Limits, limit_list
 from goodfetch_collie_client.once import Once
 from goodfetch_collie_client.rpc import Channel, InvalidLine, ReadFailed, WriteFailed
 from goodfetch_collie_client.run import AsyncRun
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping
+    from collections.abc import Callable, Iterable, Mapping, Sequence
 
     from anyio.abc import ByteStream
     from pydantic import BaseModel
 
     from goodfetch_collie_client.attached_engine import AttachedEngine
+    from goodfetch_collie_client.generated.models import RunLimit
     from goodfetch_collie_client.goodfetch_error import ErrorClass, GoodfetchError
     from goodfetch_collie_client.rpc import TransportEnd
 
@@ -112,15 +117,20 @@ class ClientConnection:
         error_classes: Mapping[str, ErrorClass],
         engine: AttachedEngine | None = None,
         close_timeout: float = CLOSE_TIMEOUT,
+        limits: Sequence[RunLimit] = (),
     ) -> ClientConnection:
-        """Opens a Connection over `transport` and finishes `hello` before it returns.
+        """Opens a Connection over `transport`, finishing `hello` before it returns.
 
-        A refused Product or protocol version raises here, once the transport
-        and its engine are ended; so does a cancelled opening.
+        Then each of `limits`, the wire's list of the Connection's Limits,
+        is set on it. A refused Product, protocol version or Limit raises
+        here, once the transport and its engine are ended; so does a
+        cancelled opening.
         """
         connection = cls(transport, engine, error_classes, close_timeout)
         try:
             await connection._hello(needs)
+            for limit in limits:
+                await connection._set_limit(limit)
         except BaseException:
             with anyio.CancelScope(shield=True):
                 await connection._end()
@@ -168,15 +178,26 @@ class ClientConnection:
         await self._channel.notify(method, params)
 
     async def start(
-        self, *, run_id: str | None = None, tags: Iterable[str] | None = None
+        self,
+        *,
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
     ) -> AsyncRun:
-        """Starts a Run and returns once it is started (ADR 0102)."""
+        """Starts a Run and returns once it is started (ADR 0102).
+
+        A `limits` amount the SDK cannot turn exactly fails with
+        `setting_invalid` before anything is sent.
+        """
         self.ensure_open("run.start")
         fields: dict[str, object] = {}
         if run_id is not None:
             fields["run_id"] = run_id
         if tags is not None:
             fields["tags"] = list(tags)
+        run_limits = limit_list(limits)
+        if run_limits:
+            fields["limits"] = run_limits
         started = await self._operations.run_start(
             RunStartParams.model_construct(None, **fields)
         )
@@ -269,6 +290,12 @@ class ClientConnection:
             version=version if isinstance(version, str) else "",
             protocol_version=spoken,
             engine_path=None if self._engine is None else self._engine.path,
+        )
+
+    async def _set_limit(self, limit: RunLimit) -> None:
+        """Sets `limit` on the Connection: no `scope_id`, no period (ADR 0080)."""
+        await self._operations.usage_set(
+            UsageSetParams(scope="connection", **limit.model_dump(exclude_unset=True))
         )
 
     async def _close(self) -> None:

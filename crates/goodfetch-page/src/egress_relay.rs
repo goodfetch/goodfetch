@@ -502,12 +502,15 @@ impl EgressRelay {
         lock(&self.record.terminated).get(host).cloned().flatten()
     }
 
-    /// Whether the relay terminates `host`'s connections: its domain is
-    /// listed for an invalid-certificate exception.
-    pub(crate) fn terminates(&self, host: &str) -> bool {
+    /// Whether the relay terminates `host`'s connections for an
+    /// invalid-certificate exception, which its domain is listed for, as
+    /// the relay's own Cookie check reads it (ADR 0042). A host it
+    /// terminates only for `tls.trusted_cas` is not one: the engine
+    /// verifies its chain under the user's own authority (#2653).
+    pub(crate) fn excepts(&self, host: &str) -> bool {
         self.terminating
             .as_deref()
-            .is_some_and(|terminating| terminating.terminates(host))
+            .is_some_and(|terminating| terminating.exceptions.covers(host))
     }
 
     /// How the certificate of `url`'s host fails the engine's per-host

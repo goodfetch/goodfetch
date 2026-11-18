@@ -65,7 +65,7 @@ pub struct WaitForUrlParams {
         deserialize_with = "super::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 
@@ -90,7 +90,7 @@ pub struct WaitForExchangeParams {
         deserialize_with = "super::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 
@@ -113,7 +113,7 @@ pub struct WaitForLoadStateParams {
         deserialize_with = "super::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 
@@ -155,7 +155,7 @@ pub struct WaitForFunctionParams {
         deserialize_with = "super::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 
@@ -193,7 +193,7 @@ pub struct LocatorWaitForFunctionParams {
         deserialize_with = "super::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 
@@ -232,7 +232,7 @@ pub struct LocatorWaitForParams {
         deserialize_with = "super::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 
@@ -270,7 +270,7 @@ pub struct WaitForCountParams {
         deserialize_with = "super::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 

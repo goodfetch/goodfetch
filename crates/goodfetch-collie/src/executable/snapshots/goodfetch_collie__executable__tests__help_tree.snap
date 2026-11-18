@@ -619,7 +619,7 @@ Arguments:
   <RUN_ID>  The Run's ID
 
 Options:
-      --timeout <DURATION>  How long the call waits for the Run's end, in milliseconds; past it, it fails with `deadline_exceeded` and only the wait ends. None by default for `run.finish`, which the Run's own `timeout.run` bounds; `timeout.close` by default for `run.stop`
+      --timeout <DURATION>  How long the call waits for the Run's end, in milliseconds, at least 1, as `timeout.run` for this call alone: absent or `null` for none, since the Run's own `timeout.run` bounds it (ADR 0080). Past it, the call fails with `deadline_exceeded` and only the wait ends
       --json                Prints the result as JSON
       --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
       --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
@@ -636,7 +636,7 @@ Arguments:
   <RUN_ID>  The Run's ID
 
 Options:
-      --timeout <DURATION>  How long the call waits for the Run's end, in milliseconds; past it, it fails with `deadline_exceeded` and only the wait ends. None by default for `run.finish`, which the Run's own `timeout.run` bounds; `timeout.close` by default for `run.stop`
+      --timeout <DURATION>  How long the call waits for the Run's safe point, in milliseconds, at least 1: absent for the Run's `timeout.close`, `null` for none (ADR 0080). Past it, the call fails with `deadline_exceeded` and the Run still stops at its next safe point
       --json                Prints the result as JSON
       --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
       --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command

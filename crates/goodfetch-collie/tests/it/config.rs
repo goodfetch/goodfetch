@@ -647,7 +647,7 @@ fn a_foxhound_keys_refusal_names_foxhound_and_its_install() {
 )]
 #[case::identified_from_a_flag(
     &["browser.access_mode=identified"],
-    json!({ "key": "browser.access_mode", "value": "identified", "layer": "run" }),
+    json!({ "key": "browser.access_mode", "value": "identified", "layer": "run", "origin": "flag" }),
     "yields to browser.access_mode = \"identified\" (run): only a `stealth` Session runs a stealth item",
 )]
 #[case::stealth_from_a_flag(&["browser.access_mode=stealth"], Value::Null, "")]

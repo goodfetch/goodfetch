@@ -15,6 +15,7 @@ use goodfetch_protocol::page::{
     NAVIGATION_FAILED, NAVIGATION_INTERRUPTED, Navigated, PAGE_GO_BACK, PAGE_GO_FORWARD, PAGE_GOTO,
     PAGE_RELOAD, PageResponse,
 };
+use goodfetch_protocol::settings::SETTING_INVALID;
 use serde_json::{Value, json};
 
 use super::{Checks, Site, finish_run, new_page, start_run};
@@ -488,8 +489,16 @@ pub(super) fn past_its_deadline(
         &json!({ "url": held, "timeout": 0 }),
     )?;
     checks.check(
-        "a `timeout` of 0 is refused with `invalid_params`",
-        refused["error"]["code"] == json!(-32602),
+        format!(
+            "a `timeout` of 0 is refused with `{}` naming its setting at the run layer from the argument, and the null form as its fix",
+            SETTING_INVALID.name
+        ),
+        refused["error"]["data"]["code"] == json!(SETTING_INVALID.name)
+            && refused["error"]["data"]["limit"]
+                == json!({ "key": "timeout.navigation", "value": 0, "layer": "run", "origin": "argument" })
+            && refused["error"]["data"]["fix"]
+                .as_str()
+                .is_some_and(|fix| fix.contains("`timeout: null`")),
     );
     let slowed = site.proving_ground.set_time_step(SLOW_STEP).is_ok();
     checks.check("the Proving ground holds its pacing pages' answers", slowed);
@@ -513,7 +522,7 @@ pub(super) fn past_its_deadline(
     checks.check(
         "its limit names `timeout.navigation`, the call's value and the run layer",
         data["limit"]
-            == json!({ "key": "timeout.navigation", "value": SHORT_NAVIGATION_TIMEOUT, "layer": "run" }),
+            == json!({ "key": "timeout.navigation", "value": SHORT_NAVIGATION_TIMEOUT, "layer": "run", "origin": "argument" }),
     );
     checks.check(
         "it waited for the `load` the call named",

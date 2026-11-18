@@ -85,12 +85,12 @@ impl Run {
     /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
     pub fn finish(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunWaitParams>
+    ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunFinishParams>
     {
         self.host
             .call(
                 "run.finish",
-                ::goodfetch_protocol::run::RunWaitParams {
+                ::goodfetch_protocol::run::RunFinishParams {
                     run_id: self.host.id().clone(),
                     timeout: None,
                 },
@@ -263,12 +263,12 @@ impl Run {
     /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
     pub fn stop(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunWaitParams>
+    ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunStopParams>
     {
         self.host
             .call(
                 "run.stop",
-                ::goodfetch_protocol::run::RunWaitParams {
+                ::goodfetch_protocol::run::RunStopParams {
                     run_id: self.host.id().clone(),
                     timeout: None,
                 },

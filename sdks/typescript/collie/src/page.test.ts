@@ -94,6 +94,33 @@ describe("a Run's page", () => {
     },
   );
 
+  test.for([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    "refuses a call's own timeout of %s before sending it, naming its setting and the null form",
+    { tags: ["story:11-40", "story:11-42", "error:setting_invalid"] },
+    async (timeout) => {
+      const { collie, played } = await collieOn("page/closed.json");
+      const run = await collie.start();
+      const page = await run.newPage();
+
+      const navigation = await failure(page.goto("https://20.actionability.test/", { timeout }));
+
+      expect(navigation).toMatchObject({
+        code: "setting_invalid",
+        group: "program",
+        details: {
+          key: "timeout.navigation",
+          layer: "run",
+          limit: { key: "timeout.navigation", layer: "run", origin: "argument" },
+          fix: expect.stringContaining("`timeout: null`"),
+        },
+      });
+      await page.close();
+      await run.finish();
+      await collie.close();
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
   test("closes a page twice with one request", { tags: ["story:11-77"] }, async () => {
     const { collie, played } = await collieOn("page/closed.json");
     const run = await collie.start();

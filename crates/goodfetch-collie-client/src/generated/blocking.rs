@@ -74,7 +74,7 @@ impl Run {
         &self,
     ) -> crate::blocking::Call<
         ::goodfetch_protocol::run::RunReport,
-        ::goodfetch_protocol::run::RunWaitParams,
+        ::goodfetch_protocol::run::RunFinishParams,
     > {
         crate::blocking::Call::new(self.inner.finish(), self.inner.host.connection())
     }
@@ -206,7 +206,7 @@ impl Run {
         &self,
     ) -> crate::blocking::Call<
         ::goodfetch_protocol::run::RunReport,
-        ::goodfetch_protocol::run::RunWaitParams,
+        ::goodfetch_protocol::run::RunStopParams,
     > {
         crate::blocking::Call::new(self.inner.stop(), self.inner.host.connection())
     }

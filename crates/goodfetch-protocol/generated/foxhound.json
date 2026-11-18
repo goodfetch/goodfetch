@@ -4699,6 +4699,7 @@
           "description": "How long the navigation may take, in milliseconds, at least 1:\nabsent for `timeout.navigation`, `null` for none, though an\nenclosing timeout still applies (ADR 0080). Its waits for permits\ncount against it no more than against the setting.",
           "format": "uint64",
           "minimum": 0,
+          "setting": "timeout.navigation",
           "type": [
             "integer",
             "null"
@@ -5781,6 +5782,7 @@
           "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
           "format": "uint64",
           "minimum": 0,
+          "setting": "timeout.wait",
           "type": [
             "integer",
             "null"
@@ -5835,6 +5837,7 @@
           "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
           "format": "uint64",
           "minimum": 0,
+          "setting": "timeout.wait",
           "type": [
             "integer",
             "null"
@@ -9250,6 +9253,7 @@
           "description": "How long the read may wait for its request to end and its body to\nbe read, in milliseconds, at least 1: absent for `timeout.wait`,\n`null` for none, though an enclosing timeout still applies (ADR\n0080).",
           "format": "uint64",
           "minimum": 0,
+          "setting": "timeout.wait",
           "type": [
             "integer",
             "null"
@@ -9962,6 +9966,36 @@
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
           "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunFinishParams": {
+      "additionalProperties": false,
+      "description": "What `run.finish` takes: the Run, and how long the call waits for its\nend.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call waits for the Run's end, in milliseconds, at least\n1, as `timeout.run` for this call alone: absent or `null` for none,\nsince the Run's own `timeout.run` bounds it (ADR 0080). Past it, the\ncall fails with `deadline_exceeded` and only the wait ends.",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.run",
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -11171,6 +11205,36 @@
       ],
       "type": "object"
     },
+    "RunStopParams": {
+      "additionalProperties": false,
+      "description": "What `run.stop` takes: the Run, and how long the call waits for its\nsafe point.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call waits for the Run's safe point, in milliseconds,\nat least 1: absent for the Run's `timeout.close`, `null` for none\n(ADR 0080). Past it, the call fails with `deadline_exceeded` and the\nRun still stops at its next safe point.",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.close",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
     "RunStopping": {
       "description": "What `run.stopping` carries.",
       "properties": {
@@ -11340,35 +11404,6 @@
         "browser_time",
         "proxy_bytes",
         "requests"
-      ],
-      "type": "object"
-    },
-    "RunWaitParams": {
-      "additionalProperties": false,
-      "description": "What `run.finish` and `run.stop` take: the Run, and how long the call\nwaits for its end.",
-      "properties": {
-        "_meta": {
-          "$ref": "#/$defs/TraceContext",
-          "arrived_in": "0.1"
-        },
-        "run_id": {
-          "$ref": "#/$defs/RunId",
-          "arrived_in": "0.1",
-          "description": "The Run's ID."
-        },
-        "timeout": {
-          "arrived_in": "0.1",
-          "description": "How long the call waits for the Run's end, in milliseconds; past it,\nit fails with `deadline_exceeded` and only the wait ends. None by\ndefault for `run.finish`, which the Run's own `timeout.run` bounds;\n`timeout.close` by default for `run.stop`.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "run_id"
       ],
       "type": "object"
     },
@@ -12120,7 +12155,7 @@
       "type": "object"
     },
     "SettingLimit": {
-      "description": "A setting that decided an outcome: its key, its value and the layer that\nset it (ADRs 0028 and 0079).",
+      "description": "A setting that decided an outcome: its key, its value, the layer that\nset it and, for the run layer, where the value came from (ADRs 0028,\n0079 and 0083).",
       "properties": {
         "key": {
           "arrived_in": "0.1",
@@ -12131,6 +12166,18 @@
           "$ref": "#/$defs/SettingsLayer",
           "arrived_in": "0.1",
           "description": "The layer that set it."
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "For the run layer, where the value came from, such as `argument`\nfor a call's own `timeout` (ADR 0083); absent when unknown or for\nanother layer."
         },
         "value": {
           "arrived_in": "0.1",
@@ -13940,6 +13987,7 @@
           "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
           "format": "uint64",
           "minimum": 0,
+          "setting": "timeout.wait",
           "type": [
             "integer",
             "null"
@@ -13970,6 +14018,7 @@
           "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
           "format": "uint64",
           "minimum": 0,
+          "setting": "timeout.wait",
           "type": [
             "integer",
             "null"
@@ -14030,6 +14079,7 @@
           "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
           "format": "uint64",
           "minimum": 0,
+          "setting": "timeout.wait",
           "type": [
             "integer",
             "null"
@@ -14084,6 +14134,7 @@
           "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
           "format": "uint64",
           "minimum": 0,
+          "setting": "timeout.wait",
           "type": [
             "integer",
             "null"
@@ -14113,6 +14164,7 @@
           "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
           "format": "uint64",
           "minimum": 0,
+          "setting": "timeout.wait",
           "type": [
             "integer",
             "null"
@@ -14154,6 +14206,7 @@
           "description": "How long the wait may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none, though an enclosing timeout still\napplies (ADR 0080).",
           "format": "uint64",
           "minimum": 0,
+          "setting": "timeout.wait",
           "type": [
             "integer",
             "null"
@@ -18314,7 +18367,7 @@
       "kind": "round_trip",
       "name": "run.finish",
       "params": {
-        "$ref": "#/$defs/RunWaitParams"
+        "$ref": "#/$defs/RunFinishParams"
       },
       "product": "collie",
       "reach": "all_surfaces",
@@ -18627,7 +18680,7 @@
       "kind": "round_trip",
       "name": "run.stop",
       "params": {
-        "$ref": "#/$defs/RunWaitParams"
+        "$ref": "#/$defs/RunStopParams"
       },
       "product": "collie",
       "reach": "all_surfaces",
@@ -23609,6 +23662,44 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": 600000,
+      "description": "How long an Agent's task may run, its actions and model calls nested inside, before it stops with `ended: stopped` and the reason `timeout`: 10 min.",
+      "name": "timeout.agent",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 120000,
+      "description": "How long an AI verb may take from its call to its return, its model calls and a Repair included, before it fails with `deadline_exceeded`: 120 s.",
+      "name": "timeout.ai",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": 30000,
       "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
       "name": "timeout.close",
@@ -23702,6 +23793,63 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": 10000,
+      "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+      "name": "timeout.hook",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 86400000,
+      "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
+      "name": "timeout.human_pause",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 60000,
+      "description": "How long one attempt of one model request may take before it is retried within the call that made it: 60 s.",
+      "name": "timeout.model",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": 30000,
       "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
       "name": "timeout.navigation",
@@ -23743,6 +23891,25 @@
       "default": 30000,
       "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
       "name": "timeout.secret",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long one write to a Sink may take before it fails with `deadline_exceeded`: 30 s.",
+      "name": "timeout.sink_write",
       "product": "collie",
       "products": [
         "collie",

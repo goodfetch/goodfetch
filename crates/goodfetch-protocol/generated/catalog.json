@@ -3876,7 +3876,7 @@
       "kind": "round_trip",
       "name": "run.finish",
       "params": {
-        "$ref": "#/$defs/RunWaitParams"
+        "$ref": "#/$defs/RunFinishParams"
       },
       "product": "collie",
       "reach": "all_surfaces",
@@ -4189,7 +4189,7 @@
       "kind": "round_trip",
       "name": "run.stop",
       "params": {
-        "$ref": "#/$defs/RunWaitParams"
+        "$ref": "#/$defs/RunStopParams"
       },
       "product": "collie",
       "reach": "all_surfaces",
@@ -9171,6 +9171,44 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": 600000,
+      "description": "How long an Agent's task may run, its actions and model calls nested inside, before it stops with `ended: stopped` and the reason `timeout`: 10 min.",
+      "name": "timeout.agent",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 120000,
+      "description": "How long an AI verb may take from its call to its return, its model calls and a Repair included, before it fails with `deadline_exceeded`: 120 s.",
+      "name": "timeout.ai",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": 30000,
       "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
       "name": "timeout.close",
@@ -9264,6 +9302,63 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": 10000,
+      "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+      "name": "timeout.hook",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 86400000,
+      "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
+      "name": "timeout.human_pause",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 60000,
+      "description": "How long one attempt of one model request may take before it is retried within the call that made it: 60 s.",
+      "name": "timeout.model",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": 30000,
       "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
       "name": "timeout.navigation",
@@ -9305,6 +9400,25 @@
       "default": 30000,
       "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
       "name": "timeout.secret",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "description": "How long one write to a Sink may take before it fails with `deadline_exceeded`: 30 s.",
+      "name": "timeout.sink_write",
       "product": "collie",
       "products": [
         "collie",

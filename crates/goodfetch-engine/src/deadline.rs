@@ -10,8 +10,9 @@ use std::time::Duration;
 
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails, WaitedFor};
-use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
+use goodfetch_protocol::settings::{
+    RunOrigin, SETTING_INVALID, SettingInvalidDetails, SettingLimit, SettingsLayer,
+};
 
 use crate::call_error::CallError;
 use crate::clock::Clock;
@@ -41,9 +42,9 @@ impl Deadline {
         })
     }
 
-    /// The deadline of `millis` the timeout `setting` takes from `layer`:
-    /// the run layer for a call's own `timeout`, the default when nothing
-    /// resolved it.
+    /// The deadline of `millis` the timeout `setting` takes from `layer`,
+    /// with no run-layer origin: the default when nothing resolved it. A
+    /// call's own `timeout` is [`Self::argument`], which refuses 0.
     pub fn given(setting: &Setting, millis: u64, layer: SettingsLayer) -> Self {
         Self {
             limit: SettingLimit {
@@ -54,6 +55,46 @@ impl Deadline {
             },
             duration: Duration::from_millis(millis),
         }
+    }
+
+    /// The deadline of a call's own `timeout` of `millis`, the timeout
+    /// `setting` for that call alone: that setting at the run layer, from
+    /// the call's argument (ADRs 0080 and 0083).
+    ///
+    /// # Errors
+    ///
+    /// `setting_invalid` for 0, which would end the call at once: its
+    /// `limit` names the value refused and its `fix` the null form that
+    /// sets no timeout.
+    pub fn argument(setting: &Setting, millis: u64) -> Result<Self, CallError> {
+        let limit = SettingLimit {
+            key: setting.name.to_owned(),
+            value: millis.into(),
+            layer: SettingsLayer::Run,
+            origin: Some(RunOrigin::Argument),
+        };
+        if millis == 0 {
+            let reason = "a timeout of 0 ms would end the call at once";
+            let fix = "give at least 1 ms, or `timeout: null` for no timeout";
+            return Err(CallError::new(
+                &SETTING_INVALID,
+                format!(
+                    "The call's `timeout`, its `{}`: {reason}; {fix}.",
+                    setting.name
+                ),
+                &SettingInvalidDetails {
+                    key: setting.name.to_owned(),
+                    layer: Some(SettingsLayer::Run),
+                    reason: reason.to_owned(),
+                    limit: Some(limit),
+                    fix: Some(fix.to_owned()),
+                },
+            ));
+        }
+        Ok(Self {
+            limit,
+            duration: Duration::from_millis(millis),
+        })
     }
 
     /// The deadline the timeout `setting` declares as its default, set by
@@ -88,8 +129,7 @@ impl Deadline {
     ///
     /// # Errors
     ///
-    /// `invalid_params` for a `timeout` of 0, which would end the call at
-    /// once.
+    /// `setting_invalid` for a `timeout` of 0, as [`Self::argument`] says.
     pub fn of_call(
         scope: &Self,
         setting: &Setting,
@@ -98,14 +138,7 @@ impl Deadline {
         match timeout {
             None => Ok(Some(scope.clone())),
             Some(None) => Ok(None),
-            Some(Some(0)) => Err(CallError::protocol(
-                ProtocolFailure::InvalidParams,
-                format!(
-                    "the call's timeout, its `{}`, is 0 ms, which would end it at once: give at least 1, or null for none",
-                    setting.name
-                ),
-            )),
-            Some(Some(millis)) => Ok(Some(Self::given(setting, millis, SettingsLayer::Run))),
+            Some(Some(millis)) => Self::argument(setting, millis).map(Some),
         }
     }
 

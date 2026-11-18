@@ -5,7 +5,9 @@
 //! its own value), a sub-object (`page.keyboard`), a `close` and a query
 //! whose result is typed by the fields its call declares (`page.read`). The
 //! `codegen` workspace takes this module when a test asks what each
-//! language's generator writes for them.
+//! language's generator writes for them. It declares `setting_invalid`,
+//! which an SDK raises before sending a call's own `timeout` it refuses
+//! (ADR 0080).
 
 use std::collections::BTreeMap;
 
@@ -14,8 +16,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::catalog::{
-    Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Stability,
-    schema_of,
+    Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Reach, Stability, schema_of,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -70,6 +72,7 @@ pub struct GotoParams {
     /// Whether the browser's cache is left out.
     pub fresh: bool,
     /// How long the navigation may take, in milliseconds.
+    #[schemars(extend("setting" = "timeout.navigation"))]
     pub timeout: Option<u64>,
 }
 
@@ -102,6 +105,7 @@ pub struct WaitForReadyParams {
     /// The page.
     pub page_id: PageId,
     /// How long the wait may take, in milliseconds.
+    #[schemars(extend("setting" = "timeout.wait"))]
     pub timeout: Option<u64>,
     /// A JSON value the wait checks against, of any type; absent for none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -326,7 +330,14 @@ pub const ENTRIES: Entries = Entries {
     ],
     events: &[],
     handler_requests: &[],
-    error_codes: &[],
+    error_codes: &[ErrorCodeDefinition {
+        name: "setting_invalid",
+        description: "A value out of the setting's own range.",
+        group: ErrorGroup::Program,
+        retryable: false,
+        exit_code: None,
+        arrived_in: ARRIVED_IN,
+    }],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[],

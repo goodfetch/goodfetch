@@ -284,7 +284,7 @@ pub struct ResponseBodyParams {
         deserialize_with = "super::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 
@@ -308,7 +308,7 @@ pub struct WaitForRequestFinishedParams {
         deserialize_with = "super::present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
     pub timeout: Option<Option<u64>>,
 }
 

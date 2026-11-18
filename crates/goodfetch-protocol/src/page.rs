@@ -92,7 +92,7 @@ const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
     clippy::option_option,
     reason = "three states (ADRs 0080 and 0083): left out inherits, `null` clears, a value sets"
 )]
-fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+pub(crate) fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: Deserialize<'de>,
@@ -268,7 +268,7 @@ pub struct GotoParams {
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
-    #[schemars(extend("arrived_in" = "0.1"))]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.navigation"))]
     pub timeout: Option<Option<u64>>,
 }
 

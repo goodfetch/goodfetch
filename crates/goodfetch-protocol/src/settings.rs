@@ -580,6 +580,26 @@ fn thirty_seconds() -> Value {
     json!(30_000)
 }
 
+fn ten_seconds() -> Value {
+    json!(10_000)
+}
+
+fn one_minute() -> Value {
+    json!(60_000)
+}
+
+fn two_minutes() -> Value {
+    json!(120_000)
+}
+
+fn ten_minutes() -> Value {
+    json!(600_000)
+}
+
+fn a_day() -> Value {
+    json!(86_400_000)
+}
+
 /// `network.resolve` (ADR 0059).
 pub const NETWORK_RESOLVE: Setting = Setting {
     name: "network.resolve",
@@ -1047,6 +1067,96 @@ pub const TIMEOUT_FIRST_BYTE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `timeout.hook` (ADRs 0080 and 0083), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_HOOK: Setting = Setting {
+    name: "timeout.hook",
+    description: "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+    kind: ValueKind::Duration,
+    default: ten_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("hooks"),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.sink_write` (ADRs 0080 and 0083), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_SINK_WRITE: Setting = Setting {
+    name: "timeout.sink_write",
+    description: "How long one write to a Sink may take before it fails with `deadline_exceeded`: 30 s.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("sinks"),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.agent` (ADRs 0080 and 0100), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_AGENT: Setting = Setting {
+    name: "timeout.agent",
+    description: "How long an Agent's task may run, its actions and model calls nested inside, before it stops with `ended: stopped` and the reason `timeout`: 10 min.",
+    kind: ValueKind::Duration,
+    default: ten_minutes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("agent"),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.ai` (ADRs 0080 and 0091), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_AI: Setting = Setting {
+    name: "timeout.ai",
+    description: "How long an AI verb may take from its call to its return, its model calls and a Repair included, before it fails with `deadline_exceeded`: 120 s.",
+    kind: ValueKind::Duration,
+    default: two_minutes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("ai_verbs"),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.model` (ADRs 0080 and 0101), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_MODEL: Setting = Setting {
+    name: "timeout.model",
+    description: "How long one attempt of one model request may take before it is retried within the call that made it: 60 s.",
+    kind: ValueKind::Duration,
+    default: one_minute,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("model_calls"),
+    arrived_in: ARRIVED_IN,
+};
+
+/// `timeout.human_pause` (ADRs 0080 and 0092), refused away from its default until its phase is
+/// built.
+pub const TIMEOUT_HUMAN_PAUSE: Setting = Setting {
+    name: "timeout.human_pause",
+    description: "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
+    kind: ValueKind::Duration,
+    default: a_day,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("human_pause"),
+    arrived_in: ARRIVED_IN,
+};
+
 /// `admission.max_requests_per_minute` (RT-02, ADR 0004).
 pub const ADMISSION_MAX_REQUESTS_PER_MINUTE: Setting = Setting {
     name: "admission.max_requests_per_minute",
@@ -1106,6 +1216,12 @@ pub const ENTRIES: Entries = Entries {
         TIMEOUT_NAVIGATION,
         TIMEOUT_WAIT,
         TIMEOUT_FIRST_BYTE,
+        TIMEOUT_HOOK,
+        TIMEOUT_SINK_WRITE,
+        TIMEOUT_AGENT,
+        TIMEOUT_AI,
+        TIMEOUT_MODEL,
+        TIMEOUT_HUMAN_PAUSE,
         ADMISSION_MAX_REQUESTS_PER_MINUTE,
     ],
     hook_stages: &[],

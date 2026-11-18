@@ -24,7 +24,7 @@ use goodfetch_protocol::page::waits::{
     PAGE_WAIT_FOR_LOAD_STATE, PAGE_WAIT_FOR_REQUEST, PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL,
 };
 use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_GOTO, PATTERN_UNSUPPORTED};
-use goodfetch_protocol::settings::TIMEOUT_WAIT;
+use goodfetch_protocol::settings::{SETTING_INVALID, TIMEOUT_WAIT};
 use serde_json::{Value, json};
 
 use super::exchange::Exchange;
@@ -614,7 +614,7 @@ fn own_timeouts(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -
             data["code"] == DEADLINE_EXCEEDED.name
                 && data["waited_for"] == waited_for
                 && data["limit"]
-                    == json!({ "key": TIMEOUT_WAIT.name, "value": SHORT_WAIT, "layer": "run" })
+                    == json!({ "key": TIMEOUT_WAIT.name, "value": SHORT_WAIT, "layer": "run", "origin": "argument" })
                 && data["elapsed"]
                     .as_u64()
                     .is_some_and(|elapsed| (SHORT_WAIT..LONG_WAIT).contains(&elapsed)),
@@ -647,8 +647,16 @@ fn own_timeouts(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -
         &json!({ "page_id": page, "url": never, "timeout": 0 }),
     )?;
     checks.check(
-        "a `timeout` of 0 is refused with `invalid_params`",
-        refused["error"]["code"] == json!(-32602),
+        format!(
+            "a `timeout` of 0 is refused with `{}` naming its setting at the run layer from the argument, and the null form as its fix",
+            SETTING_INVALID.name
+        ),
+        refused["error"]["data"]["code"] == json!(SETTING_INVALID.name)
+            && refused["error"]["data"]["limit"]
+                == json!({ "key": TIMEOUT_WAIT.name, "value": 0, "layer": "run", "origin": "argument" })
+            && refused["error"]["data"]["fix"]
+                .as_str()
+                .is_some_and(|fix| fix.contains("`timeout: null`")),
     );
     exchange.finish(run_id)
 }

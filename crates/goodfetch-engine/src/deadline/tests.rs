@@ -39,7 +39,7 @@ fn settings(user_configuration: Value) -> crate::settings::Resolved {
     resolve(&layers, Product::Collie, Product::Collie).unwrap()
 }
 
-/// Covers: story:3-52, error:deadline_exceeded, setting:timeout.first_byte
+/// Covers: story:3-52, story:11-43, error:deadline_exceeded, setting:timeout.first_byte
 #[test]
 fn a_wait_past_its_first_byte_timeout_ends_with_deadline_exceeded_naming_the_setting() {
     let settings = settings(json!({ "timeout": { "first_byte": 5_000 } }));

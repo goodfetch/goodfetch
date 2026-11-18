@@ -4,7 +4,6 @@
 //! engine this crate composes, in the program's own process (ADR 0087).
 
 use goodfetch_collie_client::{Connection, Error, Start};
-use goodfetch_protocol::catalog::Product;
 
 use crate::linked::{Composed, ConnectOptions, LinkedConnection};
 
@@ -32,7 +31,7 @@ use crate::linked::{Composed, ConnectOptions, LinkedConnection};
 /// ```
 #[derive(Clone, Debug)]
 pub struct Collie {
-    pub(crate) linked: LinkedConnection,
+    linked: LinkedConnection,
 }
 
 impl Collie {
@@ -51,7 +50,7 @@ impl Collie {
     /// Dropping the future before it completes stops the linked engine it
     /// started.
     pub async fn connect(options: ConnectOptions) -> Result<Self, Error> {
-        let linked = LinkedConnection::connect(Composed::COLLIE, Product::Collie, options).await?;
+        let linked = LinkedConnection::connect(Composed::COLLIE, options).await?;
         Ok(Self { linked })
     }
 
@@ -164,7 +163,7 @@ impl Collie {
             goodfetch_collie_client::ConnectionRuntime::driven(handle.clone()),
             handle,
             Composed::COLLIE,
-            Product::Collie,
+            Composed::COLLIE.product,
             dependencies,
         )
         .await?;
@@ -173,7 +172,8 @@ impl Collie {
 }
 
 /// The Connection, the type a helper written for either Product takes
-/// (ADR 0095): `helper(collie.as_ref())`.
+/// (ADR 0095): `helper(collie.as_ref())`, until
+/// ADR 0099's `Connection` trait lands (#1257).
 impl AsRef<Connection> for Collie {
     fn as_ref(&self) -> &Connection {
         self.linked.connection()

@@ -8,7 +8,6 @@
 use goodfetch_collie::ConnectOptions;
 use goodfetch_collie::linked::LinkedConnection;
 use goodfetch_collie_client::Error;
-use goodfetch_protocol::catalog::Product;
 
 pub use goodfetch_collie_client::blocking::{
     Call, Connection, Locator, Page, Query, Run, Session, Start,
@@ -51,7 +50,7 @@ impl Foxhound {
     ///
     /// As [`crate::Foxhound::connect`].
     pub fn connect(options: ConnectOptions) -> Result<Self, Error> {
-        let linked = LinkedConnection::connect_blocking(ENGINE, Product::Foxhound, options)?;
+        let linked = LinkedConnection::connect_blocking(ENGINE, options)?;
         Ok(Self {
             connection: Connection::from(linked.connection().clone()),
             linked,
@@ -77,7 +76,8 @@ impl Foxhound {
 }
 
 /// The blocking Connection, the type a helper written for either Product
-/// takes (ADR 0095): `helper(foxhound.as_ref())`.
+/// takes (ADR 0095): `helper(foxhound.as_ref())`, until
+/// ADR 0099's `Connection` trait lands (#1257).
 impl AsRef<Connection> for Foxhound {
     fn as_ref(&self) -> &Connection {
         &self.connection

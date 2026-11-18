@@ -5,7 +5,6 @@
 //! works inside one too, where it blocks only the thread that calls it.
 
 use goodfetch_collie_client::blocking;
-use goodfetch_protocol::catalog::Product;
 
 pub use goodfetch_collie_client::blocking::{
     Call, Connection, Locator, Page, Query, Run, Session, Start,
@@ -49,8 +48,7 @@ impl Collie {
     ///
     /// As [`crate::Collie::connect`].
     pub fn connect(options: ConnectOptions) -> Result<Self, Error> {
-        let linked =
-            LinkedConnection::connect_blocking(Composed::COLLIE, Product::Collie, options)?;
+        let linked = LinkedConnection::connect_blocking(Composed::COLLIE, options)?;
         Ok(Self {
             connection: blocking::Connection::from(linked.connection().clone()),
             linked,
@@ -75,7 +73,8 @@ impl Collie {
 }
 
 /// The blocking Connection, the type a helper written for either Product
-/// takes (ADR 0095): `helper(collie.as_ref())`.
+/// takes (ADR 0095): `helper(collie.as_ref())`, until
+/// ADR 0099's `Connection` trait lands (#1257).
 impl AsRef<blocking::Connection> for Collie {
     fn as_ref(&self) -> &blocking::Connection {
         &self.connection

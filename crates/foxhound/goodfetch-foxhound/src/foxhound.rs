@@ -60,7 +60,7 @@ impl Foxhound {
     /// Dropping the future before it completes stops the linked engine it
     /// started.
     pub async fn connect(options: ConnectOptions) -> Result<Self, Error> {
-        let linked = LinkedConnection::connect(ENGINE, Product::Foxhound, options).await?;
+        let linked = LinkedConnection::connect(ENGINE, options).await?;
         Ok(Self { linked })
     }
 
@@ -132,7 +132,8 @@ impl Foxhound {
 }
 
 /// The Connection, the type a helper written for either Product takes
-/// (ADR 0095): `helper(foxhound.as_ref())`.
+/// (ADR 0095): `helper(foxhound.as_ref())`, until
+/// ADR 0099's `Connection` trait lands (#1257).
 impl AsRef<Connection> for Foxhound {
     fn as_ref(&self) -> &Connection {
         self.linked.connection()

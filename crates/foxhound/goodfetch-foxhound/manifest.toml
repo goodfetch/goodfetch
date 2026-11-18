@@ -1,0 +1,69 @@
+# The manifest of Foxhound's Rust SDK's hand-written public members (ADR
+# 0099; STYLE.md, Protocol and SDKs): each names the catalog entry it serves,
+# or `entry = "none"` with its reason, and the canonical words and form it is
+# spelled from, in the forms of `sdks/typescript/manifest.toml`. The values a
+# connection hands out are the Collie client crate's, re-exported, and listed
+# with it. No check reads this file yet: ADR 0099's completeness tests join
+# with area 11's catalog mapping ticket; until then a member added by hand
+# gets its line here.
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "connect"
+entry = "none"
+reason = "The one factory of ADR 0078, as `Collie::connect` is: it starts the linked Foxhound engine the crate composes (ADR 0087) and finishes `hello`, naming Foxhound, which no catalog entry carries."
+words = ["connect"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "scope"
+entry = "none"
+reason = "The scoped form of `connect` and `close` (ADRs 0078 and 0112); `Collie::scope`'s member under the same name."
+words = ["scope"]
+form = "closer"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "close"
+entry = "none"
+reason = "Closes the Connection's Runs, then ends the linked engine's input and waits for it (ADR 0078); `Collie::close`'s member under the same name."
+words = ["close"]
+form = "closer"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "connect"
+entry = "none"
+reason = "`Foxhound::connect` without async (ADR 0081), blocking the calling thread until `hello` is finished."
+words = ["connect"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "start"
+entry = "run.start"
+words = ["start"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "close"
+entry = "none"
+reason = "`Foxhound::close` without async (ADR 0081)."
+words = ["close"]
+form = "closer"

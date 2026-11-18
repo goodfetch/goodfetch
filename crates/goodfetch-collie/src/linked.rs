@@ -84,6 +84,25 @@ impl Composed {
 /// A connection to a linked engine of its own, which a Product's
 /// connection wraps. Cloning it is cheap and every clone is the same
 /// connection.
+///
+/// ```
+/// use goodfetch_collie::ConnectOptions;
+/// use goodfetch_collie::linked::{Composed, LinkedConnection};
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # let home = tempfile::tempdir()?;
+/// # let options = ConnectOptions::default()
+/// #     .environment([("GOODFETCH_HOME".into(), home.path().into())].into());
+/// let linked = LinkedConnection::connect_blocking(Composed::COLLIE, options)?;
+/// # goodfetch_runtime::current_thread().enable_all().build()?.block_on(async {
+/// let report = linked.connection().start().await?.finish().await?;
+/// println!("{} ended {:?}", report.run_id, report.lifecycle);
+/// linked.close().await?;
+/// # Ok::<(), goodfetch_collie::Error>(())
+/// # })?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone, Debug)]
 pub struct LinkedConnection {
     connection: Connection,
@@ -92,23 +111,29 @@ pub struct LinkedConnection {
 }
 
 impl LinkedConnection {
-    /// Opens a connection whose `hello` needs `needs` to a linked `engine`
-    /// of its own, which runs on a runtime the connection owns, so the
-    /// connection works from any executor. The engine reads `options`'
-    /// environment, or the process's, for its Goodfetch home and the
-    /// machine's settings.
+    /// Opens a connection to a linked `engine` of its own, whose `hello`
+    /// needs that engine's Product. The engine runs on a runtime the
+    /// connection owns, so the connection works from any executor, and
+    /// reads `options`' environment, or the process's, for its Goodfetch
+    /// home and the machine's settings.
     ///
     /// # Errors
     ///
     /// [`Error::Engine`] when the linked engine cannot start, with no
-    /// Goodfetch home among others, and what `hello` fails with:
-    /// `not_in_product` when `engine` does not contain `needs`.
+    /// Goodfetch home among others, and what `hello` fails with.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future before it completes stops the linked engine it
     /// started.
-    pub async fn connect(
+    pub async fn connect(engine: Composed, options: ConnectOptions) -> Result<Self, Error> {
+        Self::connect_needing(engine, engine.product, options).await
+    }
+
+    /// Opens a connection as [`LinkedConnection::connect`] does, whose
+    /// `hello` needs `needs`: it fails with `not_in_product` when `engine`
+    /// does not contain `needs`.
+    async fn connect_needing(
         engine: Composed,
         needs: Product,
         options: ConnectOptions,
@@ -132,11 +157,7 @@ impl LinkedConnection {
     /// # Errors
     ///
     /// As [`LinkedConnection::connect`].
-    pub fn connect_blocking(
-        engine: Composed,
-        needs: Product,
-        options: ConnectOptions,
-    ) -> Result<Self, Error> {
+    pub fn connect_blocking(engine: Composed, options: ConnectOptions) -> Result<Self, Error> {
         let (runtime, dependencies) = production(engine.product, options.into_environment())?;
         let handle = runtime.handle().clone();
         let on = handle.clone();
@@ -145,7 +166,7 @@ impl LinkedConnection {
                 ConnectionRuntime::owned(runtime),
                 on,
                 engine,
-                needs,
+                engine.product,
                 dependencies,
             )
             .await
@@ -272,7 +293,7 @@ fn production(
 
 /// Runs `future` on `handle`'s runtime and blocks the calling thread until
 /// it ends.
-pub(crate) fn wait<T: Send + 'static>(
+fn wait<T: Send + 'static>(
     handle: &Handle,
     future: impl Future<Output = Result<T, Error>> + Send + 'static,
 ) -> Result<T, Error> {
@@ -346,6 +367,9 @@ impl LinkedEngine {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// The engine's in-memory dialer as the client crate dials.
 struct InMemory(InMemoryDialer);

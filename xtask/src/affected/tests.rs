@@ -661,6 +661,50 @@ fn changed_crates_list_them_and_their_dependants_for_cargo(
     assert_eq!(value(&selection, "crates"), crates);
 }
 
+/// A crate reached only through `runs` selects its own tests: not its bench
+/// targets, which run no executable, and not its dependants, which are
+/// selected only when they name the executable in `runs` themselves (the
+/// owner's « Oui » of 2026-11-04, issue 2090's F9). Here test support's
+/// tests run the Proving ground, as in the repository; the engine
+/// dev-depends on test support, and Collie, Foxhound and the frontier
+/// depend on the engine.
+#[rstest]
+#[case::a_dependant_that_does_not_name_it(
+    &[],
+    "goodfetch-conformance goodfetch-proving-ground goodfetch-test-support"
+)]
+#[case::a_dependant_that_names_it(
+    &["goodfetch-proving-ground"],
+    "goodfetch-conformance goodfetch-engine goodfetch-proving-ground goodfetch-test-support"
+)]
+fn a_crate_reached_through_runs_selects_its_own_tests_alone(
+    #[case] engine_runs: &[&str],
+    #[case] crates: &str,
+) {
+    let mut workspace = fixture();
+    for krate in &mut workspace.crates {
+        match krate.name.as_str() {
+            "goodfetch-test-support" => krate.runs = names(&["goodfetch-proving-ground"]),
+            "goodfetch-engine" => krate.runs = names(engine_runs),
+            _ => {}
+        }
+    }
+
+    let selection = select(
+        &workspace,
+        &[RepoPath::new("proving-ground/src/oracle.rs")],
+        &ChangedParts::default(),
+    );
+
+    assert_eq!(
+        (
+            value(&selection, "crates"),
+            value(&selection, "bench-targets")
+        ),
+        (crates.to_owned(), String::new())
+    );
+}
+
 #[rstest]
 #[case::client_package_and_its_dependants(&["sdks/typescript/collie-client/src/index.ts"], "sdks/typescript/collie sdks/typescript/collie-client sdks/typescript/foxhound", "")]
 #[case::python_package(&["sdks/python/collie/src/goodfetch_collie/client.py"], "", "sdks/python/collie")]

@@ -179,8 +179,8 @@ how = "holds no value: a pinned download's bytes"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/politeness.rs"
-count = 3
-how = "holds no value: per-domain Politeness state"
+count = 4
+how = "holds no value: per-domain Politeness state, and each domain key's Delegation: the Run, its folder, its engine and wake endpoint"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/robots_txt.rs"

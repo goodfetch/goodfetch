@@ -7,6 +7,15 @@ CREATE TABLE crawl_delays (
             PRIMARY KEY (key, location)
         ) STRICT;
 INSERT INTO "crawl_delays" VALUES('shop.test','https://shop.test/robots.txt',2000);
+CREATE TABLE delegations (
+        key TEXT NOT NULL PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        epoch INTEGER NOT NULL,
+        run_folder TEXT NOT NULL,
+        engine TEXT NOT NULL,
+        endpoint TEXT NOT NULL
+    ) STRICT;
+INSERT INTO "delegations" VALUES('lend.test','lending',1,'0.0/runs/lending','374ad8b83fe02477','wake.sock');
 CREATE TABLE domain_limits (
             key TEXT NOT NULL PRIMARY KEY,
             ready_at INTEGER,
@@ -46,7 +55,7 @@ CREATE TABLE proxy_limits (
         ) STRICT;
 INSERT INTO "proxy_limits" VALUES('proxy http://proxy.test:3128 corpus',1,1767603610300,1767603610000);
 CREATE TABLE returns (key TEXT NOT NULL PRIMARY KEY, generation INTEGER NOT NULL) STRICT;
-INSERT INTO "returns" VALUES('shop.test',2);
+INSERT INTO "returns" VALUES('shop.test',1);
 CREATE TABLE robots_txt (
             location TEXT NOT NULL PRIMARY KEY,
             fetched_at INTEGER NOT NULL,
@@ -55,6 +64,7 @@ CREATE TABLE robots_txt (
         ) STRICT;
 INSERT INTO "robots_txt" VALUES('https://shop.test/robots.txt',1767603600000,200,X'557365722D6167656E743A202A0A446973616C6C6F773A202F707269766174652F0A437261776C2D64656C61793A20320A');
 INSERT INTO "robots_txt" VALUES('https://hold.test/robots.txt',1767603607385,404,X'6E6F7420666F756E64');
+INSERT INTO "robots_txt" VALUES('https://lend.test/robots.txt',1767603607385,404,X'6E6F7420666F756E64');
 CREATE TABLE waiters (
         key TEXT NOT NULL,
         run_id TEXT NOT NULL,

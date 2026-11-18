@@ -17,12 +17,12 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::home::POLITENESS_FILE;
 use goodfetch_test_support::{CrashVfs, IoFault, TestEnv, damage_table};
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, OptionalExtension as _};
 use tokio::sync::broadcast;
 
 use super::{
-    Ending, Holder, KeyState, MemoryTables, Permit, PermitRule, Politeness, PolitenessError,
-    PolitenessOptions, SharedRule, Step, Taken, Verdict, Wake,
+    Ending, Hold, Holder, KeyState, MemoryTables, Permit, PermitRule, Politeness, PolitenessError,
+    PolitenessOptions, PolitenessTables, SharedRule, Step, Taken, Verdict, Wake,
 };
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -117,6 +117,7 @@ fn holder(env: &TestEnv, run_id: &str) -> Holder {
         run_id: run_id.to_owned(),
         epoch: 1,
         run_folder: env.folder().join(run_id),
+        delegates: true,
     }
 }
 
@@ -831,4 +832,543 @@ fn only_an_answered_message_to_a_runs_own_politeness_counts_a_read_round_trip() 
         ),
         (2, 0)
     );
+}
+
+/// The start of the last request under each key, kept in the file and held
+/// in memory by a key's Delegation (#2172).
+struct LastStart(Option<i64>);
+
+/// [`LastStart`] of each key a Delegation holds in memory.
+#[derive(Default)]
+struct HeldStarts(std::collections::HashMap<String, i64>);
+
+const STARTS: PolitenessTables = PolitenessTables {
+    name: "test-starts",
+    statements: &[
+        "CREATE TABLE IF NOT EXISTS test_starts (key TEXT NOT NULL PRIMARY KEY, at INTEGER NOT NULL) STRICT",
+    ],
+    prepared: &[
+        "SELECT at FROM test_starts WHERE key = ?1",
+        "INSERT OR REPLACE INTO test_starts (key, at) VALUES (?1, ?2)",
+    ],
+};
+
+impl KeyState for LastStart {
+    type Key = str;
+    type Reads = ();
+    type Writes = bool;
+
+    const DELEGATES: bool = true;
+
+    fn load(connection: &Connection, key: &str, (): ()) -> rusqlite::Result<Self> {
+        connection
+            .prepare_cached("SELECT at FROM test_starts WHERE key = ?1")?
+            .query_row([key], |row| row.get(0))
+            .optional()
+            .map(Self)
+    }
+
+    fn save(&self, connection: &Connection, key: &str, wrote: &bool) -> rusqlite::Result<()> {
+        if let (true, Some(at)) = (wrote, self.0) {
+            connection
+                .prepare_cached("INSERT OR REPLACE INTO test_starts (key, at) VALUES (?1, ?2)")?
+                .execute((key, at))?;
+        }
+        Ok(())
+    }
+
+    fn load_from(tables: &MemoryTables, key: &str, (): ()) -> Self {
+        Self(
+            tables
+                .get::<HeldStarts>()
+                .and_then(|held| held.0.get(key).copied()),
+        )
+    }
+
+    fn save_to(&self, tables: &mut MemoryTables, key: &str, wrote: &bool) {
+        if let (true, Some(at)) = (wrote, self.0) {
+            tables.get_mut::<HeldStarts>().0.insert(key.to_owned(), at);
+        }
+    }
+
+    fn delegated_under(key: &str) -> Option<&str> {
+        Some(key)
+    }
+
+    fn delegate(
+        connection: &Connection,
+        key: &str,
+        tables: &mut MemoryTables,
+    ) -> rusqlite::Result<()> {
+        Self::load(connection, key, ())?.save_to(tables, key, &true);
+        Ok(())
+    }
+
+    fn write_back(
+        tables: &MemoryTables,
+        key: &str,
+        connection: &Connection,
+    ) -> rusqlite::Result<()> {
+        Self::load_from(tables, key, ()).save(connection, key, &true)
+    }
+
+    fn forget(tables: &mut MemoryTables, key: &str) {
+        tables.get_mut::<HeldStarts>().0.remove(key);
+    }
+}
+
+/// A cap on the count in flight under a key, and a delay between its
+/// requests' starts.
+struct Spaced {
+    cap: u64,
+    delay: Duration,
+}
+
+impl PermitRule for Spaced {
+    type State = LastStart;
+
+    fn reads(&self, _: Step) {}
+
+    fn admit(&self, state: &LastStart, in_flight: u64, now: SystemTime) -> Verdict {
+        let ready = state.0.map(|at| super::moment(at) + self.delay);
+        match ready {
+            Some(ready) if ready > now => Verdict::Until(ready, Hold::Delay),
+            _ if in_flight >= self.cap => Verdict::Busy,
+            _ => Verdict::Go,
+        }
+    }
+
+    fn started(&self, state: &mut LastStart, now: SystemTime) -> bool {
+        state.0 = Some(super::milliseconds(now));
+        true
+    }
+
+    fn ended(
+        &self,
+        _: &mut LastStart,
+        _: u64,
+        _: Ending,
+        _: SystemTime,
+    ) -> (Option<SystemTime>, bool) {
+        (None, false)
+    }
+}
+
+fn spaced(cap: u64, delay: Duration) -> SharedRule {
+    SharedRule::new(Spaced { cap, delay })
+}
+
+/// An engine of the test's whose file holds [`LastStart`], counting its
+/// work in `work`.
+async fn delegating_engine(
+    env: &TestEnv,
+    name: &str,
+    work: &CountedWork,
+    owner: &TaskOwner,
+) -> Politeness {
+    Politeness::open(
+        env.home().join(POLITENESS_FILE),
+        &PolitenessOptions {
+            work: work.clone(),
+            ..PolitenessOptions::default()
+        },
+        vec![STARTS],
+        gone_unless_live,
+        name.to_owned(),
+        owner,
+    )
+    .await
+    .unwrap()
+}
+
+/// A moment a whole number of milliseconds after the Unix epoch, as the
+/// file keeps it.
+fn at(seconds: u64) -> SystemTime {
+    SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000 + seconds)
+}
+
+/// The transactions of `work`'s file: a Permit's, a Delegation's, and
+/// the others; and how many Delegations it took.
+fn transactions(work: &CountedWork) -> [u64; 4] {
+    [
+        work.read(Row::PolitenessTransactions),
+        work.read(Row::PolitenessDelegationTransactions),
+        work.read(Row::PolitenessOtherTransactions),
+        work.read(Row::PolitenessDelegations),
+    ]
+}
+
+/// Takes and gives back `rounds` Permits of `key` for `holder`, one delay
+/// apart, then stops `holder`'s Run.
+async fn rounds(politeness: &Politeness, holder: &Holder, key: &str, rounds: u64) {
+    let rule = spaced(1, Duration::from_secs(1));
+    for round in 0..rounds {
+        let permit = granted(
+            politeness
+                .take(key, holder, rule.clone(), at(round))
+                .await
+                .unwrap(),
+        );
+        politeness
+            .give_back(permit, rule.clone(), Ending::Done, at(round))
+            .await
+            .unwrap();
+    }
+    politeness.stop_waiting(holder, at(rounds)).await.unwrap();
+}
+
+/// The start the file keeps for `key`.
+fn kept_start(env: &TestEnv, key: &str) -> Option<i64> {
+    let file = Connection::open(env.home().join(POLITENESS_FILE)).unwrap();
+    file.query_row("SELECT at FROM test_starts WHERE key = ?1", [key], |row| {
+        row.get(0)
+    })
+    .optional()
+    .unwrap()
+}
+
+/// A Run at the default `politeness.delegation` takes its key's Delegation
+/// in one transaction and serves its Permits from memory, with no
+/// transaction per Permit; its state reaches the file as its Run stops and
+/// gives the Delegation back (ADR 0142).
+///
+/// Covers: setting:politeness.delegation
+#[test]
+fn a_delegating_run_takes_its_permits_with_no_transaction_per_permit() {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+
+    run(async |owner| {
+        let politeness = delegating_engine(&env, "first", &work, owner).await;
+        rounds(&politeness, &holder(&env, "crawl"), "shop.test", 3).await;
+    });
+
+    assert_eq!(
+        transactions(&work)[..2],
+        [0, 1],
+        "Permit and Delegation transactions"
+    );
+    assert_eq!(transactions(&work)[3], 1, "Delegations");
+    assert_eq!(
+        kept_start(&env, "shop.test"),
+        Some(super::milliseconds(at(2)))
+    );
+}
+
+/// ADR 0142's Nothing-removed row: a Run at `politeness.delegation =
+/// false` takes and gives back each Permit in a transaction of the file,
+/// and takes no Delegation.
+///
+/// Covers: setting:politeness.delegation
+#[test]
+fn a_run_at_delegation_false_takes_each_permit_in_a_transaction_of_the_file() {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let apart = Holder {
+        delegates: false,
+        ..holder(&env, "crawl")
+    };
+
+    run(async |owner| {
+        let politeness = delegating_engine(&env, "first", &work, owner).await;
+        rounds(&politeness, &apart, "shop.test", 3).await;
+    });
+
+    assert_eq!(
+        transactions(&work)[..2],
+        [6, 0],
+        "Permit and Delegation transactions"
+    );
+    assert_eq!(transactions(&work)[3], 0, "Delegations");
+    assert_eq!(
+        kept_start(&env, "shop.test"),
+        Some(super::milliseconds(at(2)))
+    );
+}
+
+/// Two Runs of one engine share its Delegation of a key: one's Permit in
+/// flight holds the other at the cap, and its give back wakes the other
+/// within the engine, with no transaction.
+///
+/// Covers: setting:politeness.delegation
+#[test]
+fn two_runs_of_one_engine_keep_a_delegated_keys_cap_together() {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let rule = spaced(1, Duration::ZERO);
+
+    let (refused, woken, regranted) = run(async |owner| {
+        let politeness = delegating_engine(&env, "first", &work, owner).await;
+        let mut wakes = politeness.wakes();
+        let (first, second) = (holder(&env, "first-run"), holder(&env, "second-run"));
+        let permit = granted(
+            politeness
+                .take("shop.test", &first, rule.clone(), at(0))
+                .await
+                .unwrap(),
+        );
+        let refused = politeness
+            .take("shop.test", &second, rule.clone(), at(0))
+            .await
+            .unwrap();
+        politeness
+            .give_back(permit, rule.clone(), Ending::Done, at(1))
+            .await
+            .unwrap();
+        let woken = next_wake(&mut wakes).await;
+        let regranted = politeness
+            .take("shop.test", &second, rule.clone(), at(1))
+            .await
+            .unwrap();
+        (refused, woken, matches!(regranted, Taken::Granted(_)))
+    });
+
+    assert_eq!(
+        (refused, woken.as_str(), regranted),
+        (Taken::Wait(None), "second-run@shop.test", true)
+    );
+    assert_eq!(
+        transactions(&work)[..2],
+        [0, 1],
+        "Permit and Delegation transactions"
+    );
+}
+
+/// Two Runs of one engine share its Delegation's delay too: the second
+/// Run's take waits out the delay counted from the first Run's start.
+///
+/// Covers: setting:politeness.delegation
+#[test]
+fn two_runs_of_one_engine_keep_a_delegated_keys_delay_together() {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let delay = Duration::from_secs(10);
+    let rule = spaced(4, delay);
+
+    let (held, ready) = run(async |owner| {
+        let politeness = delegating_engine(&env, "first", &work, owner).await;
+        let (first, second) = (holder(&env, "first-run"), holder(&env, "second-run"));
+        granted(
+            politeness
+                .take("shop.test", &first, rule.clone(), at(0))
+                .await
+                .unwrap(),
+        );
+        let held = politeness
+            .take("shop.test", &second, rule.clone(), at(1))
+            .await
+            .unwrap();
+        let ready = politeness
+            .take("shop.test", &second, rule.clone(), at(0) + delay)
+            .await
+            .unwrap();
+        (held, matches!(ready, Taken::Granted(_)))
+    });
+
+    assert_eq!(
+        (held, ready),
+        (Taken::Wait(Some((at(0) + delay, Hold::Delay))), true)
+    );
+    assert_eq!(transactions(&work)[0], 0, "Permit transactions");
+}
+
+/// Another engine's take of a key whose Delegation a live Run holds waits
+/// in turn; one whose holder is gone reclaims it, and the key's delay
+/// counts from the reclaim, as the gone Run may have sent a request then.
+///
+/// Covers: setting:politeness.delegation
+#[test]
+fn a_gone_holders_delegation_is_reclaimed_with_the_keys_delay_from_the_reclaim() {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let delay = Duration::from_secs(10);
+    let rule = spaced(4, delay);
+
+    let (held, reclaimed) = run(async |owner| {
+        let first = delegating_engine(&env, "first", &work, owner).await;
+        let second = delegating_engine(&env, "second", &CountedWork::default(), owner).await;
+        granted(
+            first
+                .take("live.test", &holder(&env, "live"), rule.clone(), at(0))
+                .await
+                .unwrap(),
+        );
+        granted(
+            first
+                .take("gone.test", &holder(&env, "gone-run"), rule.clone(), at(0))
+                .await
+                .unwrap(),
+        );
+        let held = second
+            .take("live.test", &holder(&env, "other"), rule.clone(), at(20))
+            .await
+            .unwrap();
+        let reclaimed = second
+            .take("gone.test", &holder(&env, "other"), rule.clone(), at(20))
+            .await
+            .unwrap();
+        (held, reclaimed)
+    });
+
+    assert_eq!(held, Taken::Wait(None));
+    assert_eq!(reclaimed, Taken::Wait(Some((at(20) + delay, Hold::Delay))));
+}
+
+/// Another engine's take of a key whose Delegation a live Run holds
+/// recalls it: the holder writes its Permit in flight to the file and
+/// wakes the waiter, whose retake still finds the cap held; the holder's
+/// give back, now in the file, wakes it again and its take is granted.
+///
+/// Covers: setting:politeness.delegation
+#[test]
+fn another_engines_take_recalls_the_delegation_with_its_permits_in_flight() {
+    let env = TestEnv::new();
+    let rule = spaced(1, Duration::ZERO);
+
+    let answers = run(async |owner| {
+        let first = delegating_engine(&env, "first", &CountedWork::default(), owner).await;
+        let second = delegating_engine(&env, "second", &CountedWork::default(), owner).await;
+        let mut wakes = second.wakes();
+        let (holding, other) = (holder(&env, "holding"), holder(&env, "other"));
+        let permit = granted(
+            first
+                .take("shop.test", &holding, rule.clone(), at(0))
+                .await
+                .unwrap(),
+        );
+        let held = second
+            .take("shop.test", &other, rule.clone(), at(1))
+            .await
+            .unwrap();
+        let recalled = next_wake(&mut wakes).await;
+        let still_held = second
+            .take("shop.test", &other, rule.clone(), at(1))
+            .await
+            .unwrap();
+        first
+            .give_back(permit, rule.clone(), Ending::Done, at(2))
+            .await
+            .unwrap();
+        let woken = next_wake(&mut wakes).await;
+        let granted_after = second
+            .take("shop.test", &other, rule.clone(), at(2))
+            .await
+            .unwrap();
+        (
+            held,
+            recalled,
+            still_held,
+            woken,
+            matches!(granted_after, Taken::Granted(_)),
+        )
+    });
+
+    assert_eq!(
+        answers,
+        (
+            Taken::Wait(None),
+            "other@shop.test".to_owned(),
+            Taken::Wait(None),
+            "other@shop.test".to_owned(),
+            true
+        )
+    );
+}
+
+/// A Run of the holder's engine that waited for the key before the recall
+/// keeps its turn ahead of the engine that recalled it: the holder's give
+/// back wakes it, and its take is granted while the recaller still waits.
+///
+/// Covers: setting:politeness.delegation
+#[test]
+fn a_recalled_delegations_waiters_keep_their_turn_ahead_of_the_recaller() {
+    let env = TestEnv::new();
+    let rule = spaced(1, Duration::ZERO);
+
+    let answers = run(async |owner| {
+        let first = delegating_engine(&env, "first", &CountedWork::default(), owner).await;
+        let second = delegating_engine(&env, "second", &CountedWork::default(), owner).await;
+        let (mut first_wakes, mut second_wakes) = (first.wakes(), second.wakes());
+        let (holding, behind, other) = (
+            holder(&env, "holding"),
+            holder(&env, "behind"),
+            holder(&env, "other"),
+        );
+        let permit = granted(
+            first
+                .take("shop.test", &holding, rule.clone(), at(0))
+                .await
+                .unwrap(),
+        );
+        let waits = first
+            .take("shop.test", &behind, rule.clone(), at(0))
+            .await
+            .unwrap();
+        second
+            .take("shop.test", &other, rule.clone(), at(1))
+            .await
+            .unwrap();
+        next_wake(&mut second_wakes).await;
+        second
+            .take("shop.test", &other, rule.clone(), at(1))
+            .await
+            .unwrap();
+        first
+            .give_back(permit, rule.clone(), Ending::Done, at(2))
+            .await
+            .unwrap();
+        let woken = next_wake(&mut first_wakes).await;
+        let behind_takes = first
+            .take("shop.test", &behind, rule.clone(), at(2))
+            .await
+            .unwrap();
+        let other_takes = second
+            .take("shop.test", &other, rule.clone(), at(2))
+            .await
+            .unwrap();
+        (
+            waits,
+            woken,
+            matches!(behind_takes, Taken::Granted(_)),
+            other_takes,
+        )
+    });
+
+    assert_eq!(
+        answers,
+        (
+            Taken::Wait(None),
+            "behind@shop.test".to_owned(),
+            true,
+            Taken::Wait(None)
+        )
+    );
+}
+
+/// The takes of many keys that reach the engine together take their
+/// Delegations together: one transaction for the group.
+///
+/// Covers: setting:politeness.delegation
+#[test]
+fn takes_of_many_keys_take_their_delegations_in_shared_transactions() {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let rule = spaced(1, Duration::ZERO);
+    let keys: Vec<String> = (0..50).map(|key| format!("site-{key}.test")).collect();
+
+    let granted_all = run(async |owner| {
+        let politeness = delegating_engine(&env, "first", &work, owner).await;
+        let crawl = holder(&env, "crawl");
+        let takes = keys
+            .iter()
+            .map(|key| politeness.take(key, &crawl, rule.clone(), at(0)));
+        futures_util::future::join_all(takes)
+            .await
+            .into_iter()
+            .all(|taken| matches!(taken, Ok(Taken::Granted(_))))
+    });
+
+    let [permits, delegating, _, delegations] = transactions(&work);
+    assert!(granted_all);
+    assert_eq!((permits, delegating, delegations), (0, 1, 50));
 }

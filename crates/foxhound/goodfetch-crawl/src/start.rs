@@ -130,7 +130,8 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                     (redeclaring.clone(), resuming.clone(), tiers.clone());
                 Box::pin(async move {
                     redeclared.record(&run).await;
-                    delivery::resume(run, context, settings, crawls, tiers).await;
+                    // Boxed: a Run's delivery is a large future, built once per Run.
+                    Box::pin(delivery::resume(run, context, settings, crawls, tiers)).await;
                 })
             }),
             DRIVING,

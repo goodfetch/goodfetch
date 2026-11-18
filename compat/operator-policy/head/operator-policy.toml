@@ -258,6 +258,7 @@ age_notice = true
 
 [settings.politeness]
 sharing = "shared"
+delegation = true
 
 [settings.politeness.proxy]
 concurrency = 4
@@ -649,6 +650,7 @@ age_notice = true
 
 [lock.politeness]
 sharing = "shared"
+delegation = true
 
 [lock.politeness.proxy]
 concurrency = 4

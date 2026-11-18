@@ -65,7 +65,7 @@ use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::governor::{RUN_SHARE, SystemInfo};
 use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::page::BodyHandle;
-use goodfetch_protocol::politeness::POLITENESS_SHARING;
+use goodfetch_protocol::politeness::{POLITENESS_DELEGATION, POLITENESS_SHARING};
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, HumanPause, Lifecycle,
     LimitScope, MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, PointInTime,
@@ -1971,6 +1971,7 @@ impl Run {
             run_id: self.id.to_string(),
             epoch: self.state.epoch(),
             run_folder: self.folder.clone(),
+            delegates: settings.get::<bool>(&POLITENESS_DELEGATION),
         };
         Ok((politeness, holder))
     }

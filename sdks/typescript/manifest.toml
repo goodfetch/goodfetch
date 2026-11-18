@@ -2,7 +2,8 @@
 # 0099; STYLE.md, Protocol and SDKs): each names the catalog entry it serves,
 # or `entry = "none"` with its reason, and the canonical words and form it is
 # spelled from. Everything `xtask codegen` writes is generated, never listed.
-# The completeness tests that read this file join with area 11's catalog
+# `xtask sdk-manifests` refuses an entry that is no catalog operation or one
+# only a person may call. The completeness tests join with area 11's catalog
 # mapping ticket; until then a member added by hand gets its line here.
 #
 # Forms: `opener` (a round trip that returns a value the caller closes),

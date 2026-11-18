@@ -98,6 +98,7 @@ mod rss;
 mod runtimes;
 mod scan;
 mod screenshots;
+mod sdk_manifests;
 mod self_hosted;
 mod size;
 mod static_pie;

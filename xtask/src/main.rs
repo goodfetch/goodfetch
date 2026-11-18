@@ -76,6 +76,7 @@ mod runners;
 mod runtimes;
 mod scan;
 mod screenshots;
+mod sdk_manifests;
 mod self_hosted;
 mod size;
 mod static_pie;
@@ -342,6 +343,10 @@ enum Command {
         #[command(subcommand)]
         command: rss::Command,
     },
+    /// Fails on a member of an SDK's manifest that serves no catalog
+    /// operation, or one only a person may call, such as `usage.raise`
+    /// (ADRs 0041, 0080, 0099).
+    SdkManifests,
     /// Reference screenshots (ADR 0073).
     Screenshots {
         #[command(subcommand)]
@@ -598,6 +603,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Results { command } => run_results(command, environment),
         Command::Compare { command } => compare::run(command, environment),
         Command::Rss { command } => rss::run(command, environment),
+        Command::SdkManifests => Ok(check::report(&sdk_manifests::check(root)?)),
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::Runtimes => Ok(check::report(&runtimes::check(root)?)),
         Command::SelfHosted { command } => self_hosted::run(command, environment),

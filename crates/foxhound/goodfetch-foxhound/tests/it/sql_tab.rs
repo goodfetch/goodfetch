@@ -46,6 +46,7 @@ fn crawled(engine: &mut Attached, proving_ground: &ProvingGround, run_id: &str, 
             "seeds": seeds,
             "datasets": [{ "name": "books" }],
             "settings": { "crawl": { "handler": { "concurrency": 1 } } },
+            "labels": { "page": {} },
         }),
         &mut |_| None,
     );

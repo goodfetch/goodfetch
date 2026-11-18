@@ -1081,13 +1081,15 @@ fn crawl_start(
         if frontier.items_on(linked) > 0 {
             seeds.push(json!({ "url": format!("http://{HOST}{ITEM}?id=0"), "label": "page" }));
         }
-        if frontier.schema {
-            labels = json!({ "typed": { "payload": {
+        labels = if frontier.schema {
+            json!({ "typed": { "payload": {
                 "type": "object",
                 "required": ["isbn"],
                 "properties": { "isbn": { "type": "string" } },
-            } } });
-        }
+            } } })
+        } else {
+            json!({ "typed": {} })
+        };
     }
     if let Some(handler) = handler {
         settings.insert(

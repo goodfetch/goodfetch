@@ -59,7 +59,7 @@ fn a_crawl_resumed_elsewhere_from_its_checkpoint_redoes_only_the_work_since_and_
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "moved", "seeds": seeds(3), "settings": at(level) }),
+                    json!({ "run_id": "moved", "seeds": seeds(3), "settings": at(level), "labels": { "page": {} } }),
                     &mut handler,
                 )
                 .await;
@@ -165,7 +165,7 @@ fn a_paused_crawl_resumes_by_its_run_id_and_finishes_with_each_record_once(
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "paused", "seeds": seeds(2), "settings": at(level) }),
+                    json!({ "run_id": "paused", "seeds": seeds(2), "settings": at(level), "labels": { "page": {} } }),
                     &mut first_only,
                 )
                 .await;
@@ -235,6 +235,7 @@ fn a_crawl_its_timeout_stopped_checkpoints_then_resumes_only_its_pending_work() 
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "timed",
                         "seeds": seeds,
                         "settings": {

@@ -91,7 +91,7 @@ fn killed_at(
         &victim,
         &[
             hello(),
-            json!({ "jsonrpc": "2.0", "id": "start", "method": "crawl.start", "params": { "run_id": run_id, "seeds": seeds, "settings": site.settings() } }),
+            json!({ "jsonrpc": "2.0", "id": "start", "method": "crawl.start", "params": { "run_id": run_id, "seeds": seeds, "settings": site.settings(), "labels": { "page": {} } } }),
         ],
     );
     kill_at(&victim, moment, log).unwrap();

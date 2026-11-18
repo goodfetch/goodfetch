@@ -2375,8 +2375,11 @@ class CrawlStartParams(BaseModel):
     The crawl's Labels, by name, each with its Payload's JSON Schema or
     none, and its own settings (ADRs 0082 and 0093): a scope between the
     Run and its requests. A Payload of a declared schema is checked
-    against it at every enqueue; a Label the crawl does not declare
-    takes any Payload.
+    against it at every enqueue. A seed, a sitemap rule or an enqueue
+    naming a Label the crawl does not declare fails with
+    `label_unknown`, and so does a start under the ID of a Run with
+    pending requests of a Label no longer declared, before any work; a
+    code-free crawl declares its own Label.
     """
     project: ProjectSettings | None = None
     """The project configuration the Client found, layer 3 (ADR 0083)."""

@@ -7,7 +7,9 @@
 //! so is one whose JSON, written compactly, is longer than
 //! `crawl.payload.max_size`, which names the setting, since the Payload
 //! lives in the Frontier and in every Checkpoint. A Label declared without
-//! a schema, or not declared, takes any Payload under the cap.
+//! a schema takes any Payload under the cap, and one the crawl does not
+//! declare is refused before its Payload is read with `label_unknown`,
+//! naming the Label and those the crawl declares (ADR 0093).
 //!
 //! Each declared Label is recorded in the run file when the Run begins,
 //! with its schema and the schema's hash, the SHA-256 of its JSON with keys
@@ -15,8 +17,11 @@
 //! schema has every pending Payload checked against it before any work,
 //! and one that fails refuses the resume with `payload_schema_changed`,
 //! naming the Label, how many fail out of how many, and the first failure;
-//! a Payload is never migrated. The cap is recorded when the Run begins and
-//! again when it resumes under its new settings.
+//! a Payload is never migrated. A resume whose pending requests name a
+//! Label it no longer declares is refused with `label_unknown`, and one
+//! that goes on records its Labels in place of those the Run began with,
+//! so a new Label is accepted (ADR 0102). The cap is recorded when the Run
+//! begins and again when it resumes under its new settings.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -27,7 +32,7 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::settings::{Resolved, catalog_default};
-use goodfetch_protocol::foxhound::crawl::LabelDeclaration;
+use goodfetch_protocol::foxhound::crawl::{LABEL_UNKNOWN, LabelDeclaration, LabelUnknownDetails};
 use goodfetch_protocol::foxhound::frontier::{
     CRAWL_PAYLOAD_MAX_SIZE, PAYLOAD_INVALID, PayloadInvalidDetails, PayloadIssue,
     PayloadSchemaChangedDetails,
@@ -187,6 +192,24 @@ impl PayloadRules {
     /// When the run file cannot be written.
     pub fn record(&self, connection: &Connection) -> rusqlite::Result<()> {
         record_cap(connection, self.max_size)?;
+        self.record_labels(connection)
+    }
+
+    /// Records these rules' Labels in the run file `connection` holds in
+    /// place of those it holds, as a Run that [`PayloadRules::resumes`]
+    /// allowed resumes: the cap is recorded from the Run's settings.
+    ///
+    /// # Errors
+    ///
+    /// When the run file cannot be written.
+    pub fn record_labels_again(&self, connection: &Connection) -> rusqlite::Result<()> {
+        connection
+            .prepare_cached("DELETE FROM payload_labels")
+            .and_then(|mut cached| cached.execute([]))?;
+        self.record_labels(connection)
+    }
+
+    fn record_labels(&self, connection: &Connection) -> rusqlite::Result<()> {
         let mut insert = connection.prepare_cached(
             "INSERT INTO payload_labels (label, schema, hash) VALUES (?1, ?2, ?3)
              ON CONFLICT (label) DO UPDATE SET schema = excluded.schema, hash = excluded.hash",
@@ -228,10 +251,65 @@ impl PayloadRules {
         Ok(Self::built(max_size, labels))
     }
 
+    /// Whether the crawl declares `label`.
+    ///
+    /// # Errors
+    ///
+    /// `label_unknown` naming `label` and the Labels the crawl declares,
+    /// when it declares no `label`.
+    pub fn declares(&self, label: &str) -> Result<(), CallError> {
+        if self.labels.contains_key(label) {
+            return Ok(());
+        }
+        Err(CallError::new(
+            &LABEL_UNKNOWN,
+            format!(
+                "The crawl declares no Label `{label}`, so nothing was added: declare it on this crawl, or use one it declares ({}).",
+                self.declared().join(", ")
+            ),
+            &self.unknown(label),
+        ))
+    }
+
+    /// Whether a Run whose pending requests name each of `pending` may
+    /// resume under the Labels these rules, the resume's, declare.
+    ///
+    /// # Errors
+    ///
+    /// `label_unknown` naming the first of `pending` these rules do not
+    /// declare, and those they declare.
+    pub fn resumes(&self, pending: &[String], run_id: &str) -> Result<(), CallError> {
+        let Some(label) = pending
+            .iter()
+            .find(|label| !self.labels.contains_key(label.as_str()))
+        else {
+            return Ok(());
+        };
+        Err(CallError::new(
+            &LABEL_UNKNOWN,
+            format!(
+                "The Run `{run_id}` has pending requests of the Label `{label}`, which the crawl no longer declares, so the Run did no work: declare `{label}` again, or start a new Run."
+            ),
+            &self.unknown(label),
+        ))
+    }
+
+    fn declared(&self) -> Vec<String> {
+        self.labels.keys().cloned().collect()
+    }
+
+    fn unknown(&self, label: &str) -> LabelUnknownDetails {
+        LabelUnknownDetails {
+            label: label.to_owned(),
+            declared: self.declared(),
+        }
+    }
+
     /// Whether `payload`, enqueued under `label`, may be added.
     ///
     /// # Errors
     ///
+    /// `label_unknown` when the crawl does not declare `label`;
     /// `payload_invalid` when its JSON is longer than the cap, or it does
     /// not fit its Label's schema.
     pub fn check(
@@ -240,6 +318,7 @@ impl PayloadRules {
         payload: Option<&Payload>,
         work: &CountedWork,
     ) -> Result<(), CallError> {
+        self.declares(label)?;
         if let Some(payload) = payload {
             let size = u64::try_from(payload.json.len()).unwrap_or(u64::MAX);
             if size > self.max_size {

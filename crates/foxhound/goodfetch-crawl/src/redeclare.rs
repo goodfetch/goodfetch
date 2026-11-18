@@ -1,29 +1,34 @@
-//! The Datasets and the code-free extraction a start under the ID of a Run
-//! declares when no crawl of this engine works that Run (ADRs 0102 and
-//! 0103): the start checked the Datasets against those the Run began with,
-//! and both are kept until the Run resumes here, when they are recorded in
-//! its run file in one write before any work, so the Records committed from
-//! then on are read by the new extraction, checked against the schema
-//! generated from it, and keep its hash. A start under the ID of a crawl
-//! this engine works changes none of its declarations, as it changes none
-//! of its Labels.
+//! The Datasets, the Labels and the code-free extraction a start under the
+//! ID of a Run declares when no crawl of this engine works that Run (ADRs
+//! 0102 and 0103): the start checked the Datasets against those the Run
+//! began with, and the Labels against its pending requests, and all are
+//! kept until the Run resumes here, when they are recorded in its run file
+//! in one write before any work, so the Records committed from then on are
+//! read by the new extraction, checked against the schema generated from
+//! it, and keep its hash, and each enqueue is checked against the new
+//! Labels, a new one accepted. A start under the ID of a crawl this engine
+//! works changes none of its declarations.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_dataset::Datasets;
 use goodfetch_engine::runs::Run;
+use goodfetch_frontier::payload::PayloadRules;
 use goodfetch_protocol::foxhound::crawl::CrawlExtraction;
 use goodfetch_protocol::run::{RunId, RunStarted};
 use tokio::sync::Mutex;
 
 use crate::code_free;
+use crate::invariants::Invariants;
 use crate::serving::Crawls;
 
-/// What a start under the ID of a Run declared: its Datasets, and the
-/// extraction of a code-free crawl, none for one its program handles.
+/// What a start under the ID of a Run declared: its Datasets, its Labels,
+/// as the rules its Payloads are checked by, and the extraction of a
+/// code-free crawl, none for one its program handles.
 struct Declared {
     datasets: Datasets,
+    labels: PayloadRules,
     extraction: Option<CrawlExtraction>,
 }
 
@@ -32,13 +37,14 @@ struct Declared {
 pub(crate) struct Redeclared(Arc<Mutex<BTreeMap<RunId, Declared>>>);
 
 impl Redeclared {
-    /// Keeps `datasets` and `extraction` for the resume of the Run a start
-    /// under its ID found, in place of any kept before, unless a crawl of
-    /// `crawls` works it; answers how that start found it.
+    /// Keeps `datasets`, the Labels of `invariants` and `extraction` for the
+    /// resume of the Run a start under its ID found, in place of any kept
+    /// before, unless a crawl of `crawls` works it; answers how that start
+    /// found it.
     pub(crate) async fn keep(
         &self,
         found: RunStarted,
-        (datasets, extraction): (Datasets, Option<CrawlExtraction>),
+        (datasets, invariants, extraction): (Datasets, Invariants, Option<CrawlExtraction>),
         crawls: &Crawls,
     ) -> RunStarted {
         if crawls.live(&found.run_id).await.is_none() {
@@ -46,6 +52,7 @@ impl Redeclared {
                 found.run_id.clone(),
                 Declared {
                     datasets,
+                    labels: invariants.payloads().clone(),
                     extraction,
                 },
             );
@@ -59,6 +66,7 @@ impl Redeclared {
     pub(crate) async fn record(&self, run: &Run) {
         let Some(Declared {
             datasets,
+            labels,
             extraction,
         }) = self.0.lock().await.remove(run.id())
         else {
@@ -68,11 +76,12 @@ impl Redeclared {
             .state()
             .write(move |connection| {
                 datasets.record_again(connection)?;
+                labels.record_labels_again(connection)?;
                 code_free::record_again(connection, extraction.as_ref())
             })
             .await
         {
-            tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Datasets were not recorded again");
+            tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Datasets and Labels were not recorded again");
         }
     }
 }

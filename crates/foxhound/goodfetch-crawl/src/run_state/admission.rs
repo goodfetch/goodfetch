@@ -43,8 +43,9 @@ pub(crate) struct Enqueue {
 /// Adds `params`'s request, carrying `payload`, through the Frontier, at
 /// its position from `positions`, within the Run's `invariants` and under
 /// its domain policy `egress`, while its attempt holds its lease, against
-/// `document`'s base URL, else the attempt's own URL, once its Payload fits
-/// its Label's schema and the cap, else `payload_invalid`; `None` once the
+/// `document`'s base URL, else the attempt's own URL, once the crawl
+/// declares its Label, else `label_unknown`, and its Payload fits its
+/// Label's schema and the cap, else `payload_invalid`; `None` once the
 /// attempt ended.
 pub(crate) fn enqueue(
     connection: &Connection,

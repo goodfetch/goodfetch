@@ -38,7 +38,7 @@ fn a_crawl_request_the_program_gives_back_is_delivered_again_in_the_same_run_unc
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "given", "seeds": seeds(1) }),
+                    json!({ "run_id": "given", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut handler,
                 )
                 .await;
@@ -86,7 +86,7 @@ fn every_crawl_request_given_back_then_resumed_keeps_its_attempt_count() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "stopped", "seeds": seeds(2) }),
+                    json!({ "run_id": "stopped", "seeds": seeds(2), "labels": { "page": {} } }),
                     &mut giving_back,
                 )
                 .await;
@@ -178,7 +178,7 @@ fn a_call_cancelled_that_is_no_give_back_counts_its_attempt(#[case] details: Val
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "cancelled", "seeds": seeds(1) }),
+                    json!({ "run_id": "cancelled", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut handler,
                 )
                 .await;

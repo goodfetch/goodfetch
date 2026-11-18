@@ -88,6 +88,7 @@ fn crawl(connection: &mut DaemonClient, proving_ground: &ProvingGround, run_id: 
         &json!({
             "run_id": run_id,
             "seeds": seeds,
+            "labels": { "item": {} },
             "datasets": [],
             "extraction": { "formats": { "markdown": true }, "follow": "none" },
             "settings": settings(

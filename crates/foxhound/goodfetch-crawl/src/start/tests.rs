@@ -19,6 +19,7 @@ mod admission;
 mod finishing;
 mod given_back;
 mod keep_alive;
+mod labels;
 mod limits;
 mod lost_outcome;
 mod masking;
@@ -662,7 +663,7 @@ fn a_crawls_seeds_reach_the_handler_and_their_records_commit_once() {
             let started = client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "shop", "seeds": seeds(3) }),
+                    json!({ "run_id": "shop", "seeds": seeds(3), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -724,7 +725,7 @@ fn a_handler_failure_that_is_retryable_is_tried_again_and_commits_once() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "retry", "seeds": seeds(1) }),
+                    json!({ "run_id": "retry", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -767,7 +768,7 @@ fn a_handlers_own_failure_commits_nothing_and_is_not_retried() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "bug", "seeds": seeds(1) }),
+                    json!({ "run_id": "bug", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -807,7 +808,7 @@ fn a_handler_that_never_answers_loses_its_lease_and_its_late_answer_commits_noth
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "hung", "seeds": seeds(1) }),
+                    json!({ "run_id": "hung", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -863,6 +864,7 @@ fn a_late_commit_after_a_default_lease_ended_is_refused_and_the_retry_commits(
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "late",
                         "seeds": seeds(1),
                         "settings": { "run_state": { "durability": level } },
@@ -956,7 +958,7 @@ fn a_handler_that_never_answers_any_attempt_fails_its_work_item_with_handler_los
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "gone", "seeds": seeds(1) }),
+                    json!({ "run_id": "gone", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -1000,6 +1002,7 @@ fn an_aborted_crawl_stops_incomplete_and_its_work_items_return_to_pending(
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "aborted",
                         "seeds": seeds(2),
                         "settings": { "run_state": { "durability": level } },
@@ -1058,6 +1061,7 @@ fn a_crawl_at_off_with_no_threshold_writes_its_records_only_as_it_stops() {
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "unwritten",
                         "seeds": seeds(2),
                         "settings": {
@@ -1107,14 +1111,14 @@ fn a_start_under_a_crawls_run_id_with_other_inputs_conflicts_and_one_with_the_sa
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "same", "seeds": seeds(1) }),
+                    json!({ "run_id": "same", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut silent,
                 )
                 .await;
             let other_seeds = client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "same", "seeds": seeds(2) }),
+                    json!({ "run_id": "same", "seeds": seeds(2), "labels": { "page": {} } }),
                     &mut silent,
                 )
                 .await;
@@ -1124,7 +1128,7 @@ fn a_start_under_a_crawls_run_id_with_other_inputs_conflicts_and_one_with_the_sa
             let same = client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "same", "seeds": seeds(1) }),
+                    json!({ "run_id": "same", "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut silent,
                 )
                 .await;
@@ -1166,7 +1170,7 @@ fn a_crawl_needs_foxhound_in_its_run_state_and_its_run_index_row() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "tagged", "tags": ["nightly", "shop"], "seeds": seeds(1) }),
+                    json!({ "run_id": "tagged", "tags": ["nightly", "shop"], "seeds": seeds(1), "labels": { "page": {} } }),
                     &mut |_| Reply::Silent,
                 )
                 .await;
@@ -1225,6 +1229,7 @@ fn a_crawls_settings_shape_its_attempts() {
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "once",
                         "seeds": seeds(1),
                         "settings": { "crawl": { "retry": { "max": 0 } } },
@@ -1260,7 +1265,8 @@ fn a_crawls_settings_shape_its_attempts() {
 fn an_operator_policy_cap_tightened_during_a_crawl_reaches_the_next_crawl() {
     let env = TestEnv::new();
     let policy = env.home().join("1").join("operator-policy.toml");
-    let started = |run_id: &str| json!({ "run_id": run_id, "seeds": seeds(1) });
+    let started =
+        |run_id: &str| json!({ "run_id": run_id, "seeds": seeds(1), "labels": { "page": {} } });
 
     crawl(
         || default_dependencies(&env, RunStateOptions::default()),
@@ -1317,7 +1323,8 @@ fn an_operator_policy_loosened_cap_applies_to_a_new_crawl_only() {
     let tight = "version = \"0.1\"\n\n[cap.crawl.retry]\nmax = 1\n";
     std::fs::create_dir_all(policy.parent().unwrap()).unwrap();
     std::fs::write(&policy, tight).unwrap();
-    let started = |run_id: &str| json!({ "run_id": run_id, "seeds": seeds(1) });
+    let started =
+        |run_id: &str| json!({ "run_id": run_id, "seeds": seeds(1), "labels": { "page": {} } });
 
     let (going, after) = crawl(
         || default_dependencies(&env, RunStateOptions::default()),
@@ -1571,6 +1578,7 @@ fn a_start_checks_a_fields_selector_on_the_engines_counted_work() {
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "refused",
                         "seeds": seeds(1),
                         "datasets": [],
@@ -1676,15 +1684,15 @@ fn transport_on_a_pool_that_holds_a_login_is_refused_at_the_runs_start(
 #[rstest::rstest]
 #[case::a_labels_login_pool_under_the_runs_transport(
     json!({ "fetch": { "http_from": "transport" } }),
-    json!({ "account": { "settings": { "session": { "source": shop() } } } })
+    json!({ "account": { "settings": { "session": { "source": shop() } } }, "page": {} })
 )]
 #[case::the_runs_login_pool_under_learned(
     json!({ "session": { "source": shop() }, "fetch": { "http_from": "learned" } }),
-    json!({})
+    json!({ "page": {} })
 )]
 #[case::a_labels_login_pool_under_its_own_learned(
     json!({}),
-    json!({ "account": { "settings": { "session": { "source": shop() }, "fetch": { "http_from": "learned" } } } })
+    json!({ "account": { "settings": { "session": { "source": shop() }, "fetch": { "http_from": "learned" } } }, "page": {} })
 )]
 fn a_login_pool_under_a_value_that_yields_starts(#[case] settings: Value, #[case] labels: Value) {
     let env = TestEnv::new();
@@ -1731,7 +1739,7 @@ fn a_label_keeping_fragments_on_a_tier_that_serves_them_starts(#[case] label: Va
                     json!({
                         "run_id": "fragments",
                         "seeds": seeds(1),
-                        "labels": { "app": { "settings": label } },
+                        "labels": { "app": { "settings": label }, "page": {} },
                     }),
                     &mut |_| Reply::Silent,
                 )
@@ -1760,8 +1768,8 @@ fn a_start_under_a_runs_id_that_changes_keep_url_fragment_is_refused() {
             "settings": settings,
         })
     };
-    let keeping = json!({ "app": { "settings": { "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "browser" } } } });
-    let dropping = json!({ "app": { "settings": { "fetch": { "tier": "browser" } } } });
+    let keeping = json!({ "app": { "settings": { "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "browser" } } }, "page": {} });
+    let dropping = json!({ "app": { "settings": { "fetch": { "tier": "browser" } } }, "page": {} });
 
     let answers = crawl(
         || dependencies(&env, RunStateOptions::default()),
@@ -1824,6 +1832,7 @@ fn a_crawl_whose_redirect_count_the_browser_cannot_keep_is_refused(#[case] max: 
                 .call(
                     "crawl.start",
                     json!({
+                        "labels": { "page": {} },
                         "run_id": "redirects",
                         "seeds": seeds(1),
                         "settings": { "fetch": { "redirect": { "max": max } } },

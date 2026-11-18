@@ -3,14 +3,17 @@
 # child process, `rpc` frames and correlates the messages, `call` holds the
 # builders every call goes through, `connection` ties them to the
 # Connection's runtime, `run` holds the Runs a Connection starts, above it,
-# and `blocking` gives them all a face that blocks. `sync` names the crate's
-# locks. Credits, cancellation, event resumption and bodies join as their
-# own modules with the tickets that add them.
+# and `blocking` gives them all a face that blocks. `file_saving` writes a
+# file to the program's path whole or not at all (ADR 0116), which
+# `connection` drives. `sync` names the crate's locks. Credits,
+# cancellation, event resumption and bodies join as their own modules with
+# the tickets that add them.
 [modules]
 blocking = ["call", "connection", "error", "run"]
 call = ["error", "rpc"]
-connection = ["call", "error", "rpc", "sync", "transport"]
+connection = ["call", "error", "file_saving", "rpc", "sync", "transport"]
 error = []
+file_saving = ["error"]
 rpc = ["error", "transport"]
 run = ["call", "connection", "error", "sync"]
 sync = []

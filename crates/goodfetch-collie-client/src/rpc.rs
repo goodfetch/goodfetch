@@ -3,13 +3,17 @@
 //! runtime owns the calls in flight, their deadlines and the input; a
 //! second writes the output, so a slow reader never holds the input up.
 //! Callers only exchange messages with them, so a call's future runs on any
-//! executor (ADR 0081).
+//! executor (ADR 0081). A streaming call, such as one whose engine sends a
+//! file in `$/chunk` notifications, is told its id once it is sent and
+//! hears the notifications that name that id, until its reply comes; the
+//! Connection sends its own notifications, such as `$/credit`, the same
+//! way it sends calls.
 
 use std::collections::BTreeMap;
 use std::future::poll_fn;
 use std::time::Duration;
 
-use goodfetch_protocol::jsonrpc::{Message, Request, RequestId, Version};
+use goodfetch_protocol::jsonrpc::{Message, Notification, Request, RequestId, Version};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncWrite, AsyncWriteExt as _, BufReader};
 use tokio::runtime::Handle;
@@ -32,12 +36,31 @@ pub(crate) struct Outgoing {
     pub(crate) timeout: Option<Duration>,
     /// Where the reply goes.
     pub(crate) reply: oneshot::Sender<Result<Value, Error>>,
+    /// Where a streaming call hears its id and its notifications; none for
+    /// a call that streams nothing.
+    pub(crate) notified: Option<mpsc::UnboundedSender<Heard>>,
+}
+
+/// What a streaming call hears before its reply.
+#[derive(Debug)]
+pub(crate) enum Heard {
+    /// It was sent with this id.
+    Sent(i64),
+    /// The engine sent the notification `method` naming its id.
+    Notified {
+        /// The notification.
+        method: String,
+        /// Its params.
+        params: Value,
+    },
 }
 
 /// What the Connection's correlating task acts on.
 enum Command {
     /// Sends a call.
     Call(Outgoing),
+    /// Sends a notification.
+    Notify(Notification),
     /// Ends the Connection: no more calls, the output closed, every call
     /// in flight failed as closed.
     Close,
@@ -53,6 +76,16 @@ impl Sender {
         if let Err(mpsc::error::SendError(Command::Call(call))) = self.0.send(Command::Call(call)) {
             let _closed = call.reply.send(Err(Error::Closed));
         }
+    }
+
+    /// Sends the notification `method` with `params`; one sent once the
+    /// Connection is closed goes nowhere.
+    pub(crate) fn notify(&self, method: &str, params: Value) {
+        let _closed = self.0.send(Command::Notify(Notification {
+            jsonrpc: Version,
+            method: method.to_owned(),
+            params: Some(params),
+        }));
     }
 
     /// Ends the Connection without waiting.
@@ -97,6 +130,7 @@ async fn write(
 struct Pending {
     reply: oneshot::Sender<Result<Value, Error>>,
     deadline: Option<Key>,
+    notified: Option<mpsc::UnboundedSender<Heard>>,
 }
 
 /// Sends calls, matches replies and deadlines to them, and fails what is
@@ -136,7 +170,18 @@ async fn correlate(
                         continue;
                     }
                     let deadline = call.timeout.map(|timeout| deadlines.insert(id, timeout));
-                    pending.insert(id, Pending { reply: call.reply, deadline });
+                    if let Some(notified) = &call.notified {
+                        let _gone = notified.send(Heard::Sent(id));
+                    }
+                    pending.insert(id, Pending { reply: call.reply, deadline, notified: call.notified });
+                }
+                Some(Command::Notify(notification)) => {
+                    let Ok(mut line) = serde_json::to_vec(&notification) else {
+                        tracing::warn!(target: "goodfetch::client", method = %notification.method, "a notification that is no JSON was not sent");
+                        continue;
+                    };
+                    line.push(b'\n');
+                    let _closed = lines.send(line);
                 }
                 Some(Command::Close) | None => break,
             },
@@ -178,7 +223,7 @@ fn answer(line: &str, pending: &mut BTreeMap<i64, Pending>, deadlines: &mut Dela
         Ok(Message::Response(response)) => (Some(response.id), Ok(response.result)),
         Ok(Message::Error(failure)) => (failure.id, Err(Error::Failed(Box::new(failure.error)))),
         Ok(Message::Notification(notification)) => {
-            tracing::trace!(target: "goodfetch::client", method = %notification.method, "a notification no one awaits");
+            hand_over(notification, pending);
             return;
         }
         Ok(Message::Request(request)) => {
@@ -202,4 +247,24 @@ fn answer(line: &str, pending: &mut BTreeMap<i64, Pending>, deadlines: &mut Dela
         deadlines.remove(&key);
     }
     let _gone = call.reply.send(outcome);
+}
+
+/// Hands `notification` to the streaming call in flight whose id its
+/// params name; one that names no such call changes nothing.
+fn hand_over(notification: Notification, pending: &BTreeMap<i64, Pending>) {
+    let Notification { method, params, .. } = notification;
+    let call = params
+        .as_ref()
+        .and_then(|params| params.get("id"))
+        .and_then(Value::as_i64)
+        .and_then(|id| pending.get(&id))
+        .and_then(|call| call.notified.as_ref());
+    let Some(notified) = call else {
+        tracing::trace!(target: "goodfetch::client", %method, "a notification no one awaits");
+        return;
+    };
+    let _gone = notified.send(Heard::Notified {
+        method,
+        params: params.unwrap_or(Value::Null),
+    });
 }

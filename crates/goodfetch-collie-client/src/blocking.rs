@@ -5,6 +5,7 @@
 //! where it blocks only the thread that calls it.
 
 use std::future::IntoFuture;
+use std::path::Path;
 use std::time::Duration;
 
 use goodfetch_protocol::run::{RunId, RunReport, StartedAs};
@@ -39,6 +40,23 @@ impl Connection {
     /// `send()` sends.
     pub fn start(&self) -> Start {
         Start(self.0.start(), self.0.clone())
+    }
+
+    /// Saves a file to the program's `path` as
+    /// [`crate::Connection::save_file`] does, and blocks the calling thread
+    /// until it is saved.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::Connection::save_file`].
+    pub fn save_file<T: DeserializeOwned + Send + 'static>(
+        &self,
+        method: &str,
+        params: &impl Serialize,
+        path: &Path,
+        call: &str,
+    ) -> Result<T, Error> {
+        self.0.wait(self.0.save_file(method, params, path, call))
     }
 
     /// Closes the Connection as [`crate::Connection::close`] does, and
@@ -158,4 +176,5 @@ const _: () = {
     send_sync_static::<Run>();
     send_static::<Call<RunReport>>();
     send_static::<Start>();
+    send_static::<crate::Reply<serde_json::Value>>();
 };

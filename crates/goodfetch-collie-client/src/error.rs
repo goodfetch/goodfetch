@@ -2,6 +2,9 @@
 //! the classes of Collie's Error codes replace [`Error::Failed`]'s one shape
 //! with the ticket that adds them (spec #606).
 
+use std::io;
+use std::path::{Path, PathBuf};
+
 use goodfetch_protocol::jsonrpc::ErrorObject;
 
 /// Why a Connection or one of its calls failed.
@@ -28,4 +31,58 @@ pub enum Error {
     /// engine, could not start or failed (ADR 0087).
     #[error("the linked engine failed: {0}")]
     Engine(#[source] Box<dyn std::error::Error + Send + Sync>),
+    /// The program's path cannot be written for a reason the path causes,
+    /// such as a folder the user cannot write: `path_not_writable`
+    /// (ADR 0116). Its source is the OS's error, where there is one.
+    #[error(transparent)]
+    PathNotWritable(Box<FileFailure>),
+    /// The program's storage failed while a file was written to its path,
+    /// such as when it is full: `file_write_failed`, side `program`
+    /// (ADR 0116). Its source is the OS's error.
+    #[error(transparent)]
+    FileWriteFailed(Box<FileFailure>),
+}
+
+/// Why a file did not reach the program's path, which holds what it held
+/// before: the details of [`Error::PathNotWritable`] and
+/// [`Error::FileWriteFailed`].
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+pub struct FileFailure {
+    pub(crate) reason: &'static str,
+    pub(crate) os_code: Option<&'static str>,
+    pub(crate) side: Option<&'static str>,
+    pub(crate) path: PathBuf,
+    pub(crate) message: String,
+    pub(crate) fix: String,
+    #[source]
+    pub(crate) cause: Option<io::Error>,
+}
+
+impl FileFailure {
+    /// ADR 0116's reason, such as `permission_denied` or `storage_full`.
+    pub fn reason(&self) -> &'static str {
+        self.reason
+    }
+
+    /// The OS's name of the error, such as `EACCES`, where it gives one.
+    pub fn os_code(&self) -> Option<&'static str> {
+        self.os_code
+    }
+
+    /// Whose storage failed, `program`, for a `file_write_failed`; none
+    /// for a `path_not_writable`.
+    pub fn side(&self) -> Option<&'static str> {
+        self.side
+    }
+
+    /// The absolute path that was to be written.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// What to do about it, naming the call that wrote.
+    pub fn fix(&self) -> &str {
+        &self.fix
+    }
 }

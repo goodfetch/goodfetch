@@ -37,7 +37,9 @@ class Way(enum.Enum):
 
         The two async ways return `async_api`. The sync way returns an object
         whose every method awaits the sync API's method of the same name in a
-        worker thread, as a sync caller outside any event loop would call it.
+        worker thread, as a sync caller outside any event loop would call it;
+        an attribute that is no method, such as a property's value, is the
+        sync API's own.
         """
         if self is not Way.SYNC:
             return async_api
@@ -45,19 +47,43 @@ class Way(enum.Enum):
         # so the proxy answers the async API's interface.
         return cast("_Api", _InWorkerThread(sync_api))
 
+    async def open(
+        self, open_async: Callable[[], Awaitable[_Api]], open_sync: Callable[[], object]
+    ) -> _Api:
+        """The value this way's API opens, such as a Connection, with async methods.
+
+        The two async ways await `open_async`. The sync way runs `open_sync`
+        in a worker thread and hands its value as `api` hands the sync API.
+        """
+        if self is not Way.SYNC:
+            return await open_async()
+        opened = await anyio.to_thread.run_sync(open_sync)
+        return cast("_Api", _InWorkerThread(opened))
+
 
 class _InWorkerThread:
-    """A sync API whose methods are awaited, each call run in a worker thread."""
+    """A sync API whose methods are awaited, each call run in a worker thread.
+
+    A method's value that has a `close` method, as every value with a
+    round trip has (ADR 0078), such as a Run, is handed the same way.
+    """
 
     def __init__(self, sync_api: object) -> None:
         self._sync_api = sync_api
 
-    def __getattr__(self, name: str) -> Callable[..., Awaitable[object]]:
-        method = cast("Callable[..., object]", getattr(self._sync_api, name))
+    def __getattr__(self, name: str) -> object:
+        method: object = getattr(self._sync_api, name)
+        if not callable(method):
+            return method
 
         async def call(*args: object, **kwargs: object) -> object:
-            return await anyio.to_thread.run_sync(
+            value = await anyio.to_thread.run_sync(
                 functools.partial(method, *args, **kwargs)
+            )
+            return (
+                _InWorkerThread(value)
+                if callable(getattr(value, "close", None))
+                else value
             )
 
         return call

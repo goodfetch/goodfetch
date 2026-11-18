@@ -103,6 +103,12 @@ pub struct WaitForReadyParams {
     pub page_id: PageId,
     /// How long the wait may take, in milliseconds.
     pub timeout: Option<u64>,
+    /// A JSON value the wait checks against, of any type; absent for none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<Value>,
+    /// How far the document must get; `interactive` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<ReadyState>,
 }
 
 /// What an operation that only acts answers.
@@ -134,14 +140,28 @@ pub struct KeyboardPressParams {
     /// The page.
     pub page_id: PageId,
     /// The key to press.
-    pub key: String,
+    pub key: Key,
+}
+
+/// A key, as the page names it: one wire string of a type of its own.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Key(pub String);
+
+/// How far a page's document got: a choice of strings.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadyState {
+    /// Parsed.
+    Interactive,
+    /// Loaded, with its subresources.
+    Complete,
 }
 
 /// A field read from the page: the first element its selector finds, or
 /// each one's, for a list.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
-pub enum Field {
+pub enum PageField {
     /// The first element.
     Value(ValueField),
     /// Each element.
@@ -185,7 +205,7 @@ pub struct ReadParams {
     /// The page.
     pub page_id: PageId,
     /// The fields, by name.
-    pub fields: BTreeMap<String, Field>,
+    pub fields: BTreeMap<String, PageField>,
 }
 
 /// What `page.read` answers.

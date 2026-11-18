@@ -1,0 +1,9 @@
+{
+  "typeCheckingMode": "strict",
+  "reportUnnecessaryTypeIgnoreComment": "error",
+  "extraPaths": ["src"],
+  "include": [
+    "src/goodfetch_collie_client/generated/handles.py",
+    "src/goodfetch_collie_client/forms_types.py"
+  ]
+}

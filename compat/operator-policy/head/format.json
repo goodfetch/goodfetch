@@ -930,6 +930,11 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "launch": {
+                "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "navigation": {
                 "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
                 "minimum": 0,
@@ -3730,6 +3735,11 @@
               },
               "hello": {
                 "description": "How long a Connection to a listener that takes a token, a Daemon's or an Attached engine's private endpoint, may take to send its complete `hello`, from its accept: 5 s. One that has not by then is closed unanswered, and the refusal logged and recorded as `hello_timed_out`. An Attached engine's stdio takes no token and has no such deadline. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "launch": {
+                "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
                 "minimum": 0,
                 "type": "integer"
               },
@@ -6649,6 +6659,11 @@
               },
               "hello": {
                 "description": "How long a Connection to a listener that takes a token, a Daemon's or an Attached engine's private endpoint, may take to send its complete `hello`, from its accept: 5 s. One that has not by then is closed unanswered, and the refusal logged and recorded as `hello_timed_out`. An Attached engine's stdio takes no token and has no such deadline. Set in user configuration or an Operator policy only.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "launch": {
+                "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
                 "minimum": 0,
                 "type": "integer"
               },

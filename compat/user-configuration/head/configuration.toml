@@ -8,6 +8,7 @@ run = 30000
 close = 30000
 action = 30000
 navigation = 30000
+launch = 30000
 wait = 30000
 first_byte = 30000
 handler = 30000

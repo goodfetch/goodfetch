@@ -2786,6 +2786,11 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "launch": {
+                "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                "minimum": 0,
+                "type": "integer"
+              },
               "navigation": {
                 "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
                 "minimum": 0,

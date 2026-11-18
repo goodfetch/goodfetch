@@ -1356,6 +1356,18 @@ number = 8
 kind = "setting"
 prefix = "identified."
 
+# The key an `identified` Session signs with and its key directory, made
+# and exported by `signing_key.*` and `signing-key` (#1551).
+[[area]]
+number = 8
+kind = "operation"
+prefix = "signing_key."
+
+[[area]]
+number = 8
+kind = "command"
+prefix = "signing-key."
+
 # Area 6, Collection, Foxhound (specs #581 and #582): what the Frontier
 # answers each seed and a handler's enqueue (#828), and the call on an
 # attempt that ended, which every member of a handler's context answers

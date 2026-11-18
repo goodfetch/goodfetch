@@ -2883,6 +2883,14 @@ impl Runs {
         &self.metrics
     }
 
+    /// The Secret-provider driver, and what a call outside any Run resolves
+    /// through: the engine's providers, each bounded by `timeout.secret`'s
+    /// default, its values masked. `signing_key.*` makes and reads keys
+    /// through them (ADR 0045).
+    pub(crate) fn outside_a_run(&self) -> (&Secrets, RunSecrets) {
+        (&self.secrets, run_secrets(&self.secrets, None))
+    }
+
     /// How the gate in admission of a Run with the settings `settings`
     /// keys a request's URL, before the Run exists: a start keys the work
     /// items it adds as its gate will. `None` when the composition passes

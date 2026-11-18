@@ -5747,6 +5747,31 @@ export interface ProxyKindBytes {
   kind: string;
 }
 /**
+ * A key directory's entry of one key: its public JSON Web Key, named by
+ * its thumbprint.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PublicSigningKey".
+ */
+export interface PublicSigningKey {
+  /**
+   * The curve, `Ed25519`.
+   */
+  crv: string;
+  /**
+   * The key's ID, its RFC 7638 thumbprint, which each signature names.
+   */
+  kid: string;
+  /**
+   * The key type, `OKP`.
+   */
+  kty: string;
+  /**
+   * The public key, in unpadded Base64url.
+   */
+  x: string;
+}
+/**
  * What `page.wait_for_url`, `page.wait_for_load_state` and
  * `locator.wait_for` answer once the state they waited for came.
  *
@@ -7585,6 +7610,130 @@ export interface SettingsFile {
    * Its path.
    */
   path: string;
+}
+/**
+ * What `signing_key.create` takes: where the key is kept.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SigningKeyCreateParams".
+ */
+export interface SigningKeyCreateParams {
+  /**
+   * The Secret reference of the item the key is kept in, a `keychain:`
+   * or a `secretfile:` one, such as `keychain:goodfetch/signing-key`;
+   * the value `identified.signing_key` then takes.
+   */
+  signing_key: string;
+}
+/**
+ * What `signing_key.create` answers: the key's reference and its public
+ * half, never its private key.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SigningKeyCreated".
+ */
+export interface SigningKeyCreated {
+  /**
+   * Whether this call made the key; false when the item held a key
+   * already, which is kept.
+   */
+  created: boolean;
+  /**
+   * The key's ID, its RFC 7638 thumbprint.
+   */
+  key_id: string;
+  public_key: PublicSigningKey1;
+  /**
+   * The Secret reference the key is kept at.
+   */
+  signing_key: string;
+}
+/**
+ * The key's public JSON Web Key.
+ */
+export interface PublicSigningKey1 {
+  /**
+   * The curve, `Ed25519`.
+   */
+  crv: string;
+  /**
+   * The key's ID, its RFC 7638 thumbprint, which each signature names.
+   */
+  kid: string;
+  /**
+   * The key type, `OKP`.
+   */
+  kty: string;
+  /**
+   * The public key, in unpadded Base64url.
+   */
+  x: string;
+}
+/**
+ * What `signing_key.directory` answers: the directory's body and the
+ * header fields its response carries, served as they are.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SigningKeyDirectory".
+ */
+export interface SigningKeyDirectory {
+  /**
+   * The response's body, the JSON key set, byte for byte.
+   */
+  body: string;
+  /**
+   * The response's `Content-Type`.
+   */
+  content_type: string;
+  /**
+   * A point in time in UTC, as RFC 3339.
+   */
+  expires: string;
+  /**
+   * The IDs of the keys it publishes, in the order given.
+   */
+  key_ids: string[];
+  /**
+   * Where on the origin the directory is served.
+   */
+  path: string;
+  /**
+   * The response's `Signature` field, one label per key.
+   */
+  signature: string;
+  /**
+   * The response's `Signature-Input` field, one label per key.
+   */
+  signature_input: string;
+}
+/**
+ * What `signing_key.directory` takes: the keys it publishes and the
+ * origin that serves it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SigningKeyDirectoryParams".
+ */
+export interface SigningKeyDirectoryParams {
+  /**
+   * The authority of the origin that serves the directory, its host
+   * and its port when not the scheme's own, such as `bot.example`,
+   * which the signatures cover: the origin `identified.signature_agent`
+   * names.
+   */
+  authority: string;
+  /**
+   * The Secret references of the keys the directory publishes, each
+   * proven by its own signature: the key in use, and while a rotation
+   * lasts the one before or after it.
+   *
+   * @minItems 1
+   */
+  signing_keys: [string, ...string[]];
+  /**
+   * How long the directory's signatures stay valid, in milliseconds,
+   * after which it is exported again; seven days when none is given.
+   */
+  valid_for?: number | null;
 }
 /**
  * A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,

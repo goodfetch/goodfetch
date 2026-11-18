@@ -9,7 +9,7 @@ from typing_extensions import deprecated
 
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunList, RunListParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunList, RunListParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunUsage, RunWaitParams, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 
 
 class AsyncCollieOperations:
@@ -538,6 +538,20 @@ class AsyncCollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return result_of(RouteEnded, await self._caller.call("session.route", params))
+
+    async def signing_key_create(self, params: SigningKeyCreateParams) -> SigningKeyCreated:
+        """Makes a new Ed25519 key for an `identified` Session's Web Bot Auth signatures, from the OS generator, and keeps it as a private JSON Web Key in the item a `keychain:` or `secretfile:` Secret reference names; answers the reference, the key's ID and its public key, never the private key. An item that holds an Ed25519 key already keeps it and answers it with `created` false; one that holds anything else is refused. Set `identified.signing_key` to the reference, then export the key directory with `signing_key.directory`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return result_of(SigningKeyCreated, await self._caller.call("signing_key.create", params))
+
+    async def signing_key_directory(self, params: SigningKeyDirectoryParams) -> SigningKeyDirectory:
+        """Exports the Web Bot Auth key directory of the keys the Secret references name, for the user to serve at `/.well-known/http-message-signatures-directory` of the origin `identified.signature_agent` names: the body, a JSON key set of each key's public JSON Web Key named by its RFC 7638 thumbprint, and the `Content-Type`, `Signature-Input` and `Signature` fields its response carries, where each key signs the origin's authority with the tag `http-message-signatures-directory` to prove it holds the key. Valid for `valid_for` milliseconds, seven days by default; export it again before `expires`. A reference that gives no Ed25519 private JSON Web Key is refused.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return result_of(SigningKeyDirectory, await self._caller.call("signing_key.directory", params))
 
     async def usage_list(self, params: UsageListParams) -> UsageListResult:
         """Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.
@@ -1080,6 +1094,20 @@ class CollieOperations:
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         return result_of(RouteEnded, self._caller.call("session.route", params))
+
+    def signing_key_create(self, params: SigningKeyCreateParams) -> SigningKeyCreated:
+        """Makes a new Ed25519 key for an `identified` Session's Web Bot Auth signatures, from the OS generator, and keeps it as a private JSON Web Key in the item a `keychain:` or `secretfile:` Secret reference names; answers the reference, the key's ID and its public key, never the private key. An item that holds an Ed25519 key already keeps it and answers it with `created` false; one that holds anything else is refused. Set `identified.signing_key` to the reference, then export the key directory with `signing_key.directory`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return result_of(SigningKeyCreated, self._caller.call("signing_key.create", params))
+
+    def signing_key_directory(self, params: SigningKeyDirectoryParams) -> SigningKeyDirectory:
+        """Exports the Web Bot Auth key directory of the keys the Secret references name, for the user to serve at `/.well-known/http-message-signatures-directory` of the origin `identified.signature_agent` names: the body, a JSON key set of each key's public JSON Web Key named by its RFC 7638 thumbprint, and the `Content-Type`, `Signature-Input` and `Signature` fields its response carries, where each key signs the origin's authority with the tag `http-message-signatures-directory` to prove it holds the key. Valid for `valid_for` milliseconds, seven days by default; export it again before `expires`. A reference that gives no Ed25519 private JSON Web Key is refused.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return result_of(SigningKeyDirectory, self._caller.call("signing_key.directory", params))
 
     def usage_list(self, params: UsageListParams) -> UsageListResult:
         """Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.

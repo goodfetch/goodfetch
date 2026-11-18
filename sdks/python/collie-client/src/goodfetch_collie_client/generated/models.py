@@ -1772,6 +1772,25 @@ class ProxyKindBytes(BaseModel):
     """The proxy kind, such as `residential`."""
 
 
+class PublicSigningKey(BaseModel):
+    """
+    A key directory's entry of one key: its public JSON Web Key, named by
+    its thumbprint.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    crv: str
+    """The curve, `Ed25519`."""
+    kid: str
+    """The key's ID, its RFC 7638 thumbprint, which each signature names."""
+    kty: str
+    """The key type, `OKP`."""
+    x: str
+    """The public key, in unpadded Base64url."""
+
+
 class Reached(BaseModel):
     """
     What `page.wait_for_url`, `page.wait_for_load_state` and
@@ -2569,6 +2588,110 @@ class SettingsLayer(StrEnum):
     """
     The run: a program's settings, a call's argument, a CLI flag or an
     Integration's form.
+    """
+
+
+class SigningKeyCreateParams(BaseModel):
+    """What `signing_key.create` takes: where the key is kept."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    signing_key: Annotated[
+        str,
+        Field(
+            pattern="^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$"
+        ),
+    ]
+    """
+    The Secret reference of the item the key is kept in, a `keychain:`
+    or a `secretfile:` one, such as `keychain:goodfetch/signing-key`;
+    the value `identified.signing_key` then takes.
+    """
+
+
+class SigningKeyCreated(BaseModel):
+    """
+    What `signing_key.create` answers: the key's reference and its public
+    half, never its private key.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    created: bool
+    """
+    Whether this call made the key; false when the item held a key
+    already, which is kept.
+    """
+    key_id: str
+    """The key's ID, its RFC 7638 thumbprint."""
+    public_key: PublicSigningKey
+    """The key's public JSON Web Key."""
+    signing_key: str
+    """The Secret reference the key is kept at."""
+
+
+class SigningKeyDirectory(BaseModel):
+    """
+    What `signing_key.directory` answers: the directory's body and the
+    header fields its response carries, served as they are.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    body: str
+    """The response's body, the JSON key set, byte for byte."""
+    content_type: str
+    """The response's `Content-Type`."""
+    expires: PointInTime
+    """When its signatures expire, by which it is exported again."""
+    key_ids: list[str]
+    """The IDs of the keys it publishes, in the order given."""
+    path: str
+    """Where on the origin the directory is served."""
+    signature: str
+    """The response's `Signature` field, one label per key."""
+    signature_input: str
+    """The response's `Signature-Input` field, one label per key."""
+
+
+class SigningKey(RootModel[str]):
+    root: Annotated[
+        str,
+        Field(
+            pattern="^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$"
+        ),
+    ]
+
+
+class SigningKeyDirectoryParams(BaseModel):
+    """
+    What `signing_key.directory` takes: the keys it publishes and the
+    origin that serves it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    authority: Annotated[str, Field(min_length=1)]
+    """
+    The authority of the origin that serves the directory, its host
+    and its port when not the scheme's own, such as `bot.example`,
+    which the signatures cover: the origin `identified.signature_agent`
+    names.
+    """
+    signing_keys: Annotated[list[SigningKey], Field(min_length=1)]
+    """
+    The Secret references of the keys the directory publishes, each
+    proven by its own signature: the key in use, and while a rotation
+    lasts the one before or after it.
+    """
+    valid_for: Annotated[int | None, Field(ge=1000)] = None
+    """
+    How long the directory's signatures stay valid, in milliseconds,
+    after which it is exported again; seven days when none is given.
     """
 
 

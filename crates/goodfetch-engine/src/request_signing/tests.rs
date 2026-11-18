@@ -7,6 +7,8 @@
     reason = "tests run on the test Entropy (ADR 0059)"
 )]
 
+use std::time::Duration;
+
 use data_encoding::{BASE64, BASE64URL_NOPAD};
 use ed25519_dalek::SigningKey;
 use rstest::rstest;
@@ -14,11 +16,14 @@ use secrecy::SecretString;
 use serde_json::json;
 use url::Url;
 use web_bot_auth::components::{CoveredComponent, DerivedComponent, HTTPField};
-use web_bot_auth::keyring::{KeyRing, Thumbprintable};
-use web_bot_auth::message_signatures::SignedMessage;
+use web_bot_auth::keyring::{JSONWebKeySet, KeyRing, Thumbprintable};
+use web_bot_auth::message_signatures::{MessageVerifier, SignedMessage};
 use web_bot_auth::{SignatureAgentLink, WebBotAuthVerifier};
 
-use super::{KeyError, RequestSigner, SignedHeaders};
+use super::{
+    Directory, DirectoryError, KeyError, RequestSigner, SignedHeaders, directory, new_key,
+    public_key,
+};
 use crate::entropy::Entropy;
 
 /// RFC 9421, Appendix B.1.4's Ed25519 test key.
@@ -221,4 +226,129 @@ fn an_agent_a_header_string_cannot_carry_is_refused(#[case] agent: &str) {
         .expect_err("the agent cannot be sent");
 
     assert_eq!(error, KeyError::BadAgent);
+}
+
+/// The key directory response `directory` as a site that fetched it from
+/// `authority` receives it.
+fn fetched(authority: &str, directory: &Directory) -> Received {
+    Received {
+        authority: authority.to_owned(),
+        headers: SignedHeaders {
+            signature_agent: String::new(),
+            signature_input: directory.signature_input.clone(),
+            signature: directory.signature.clone(),
+        },
+    }
+}
+
+/// Whether `label`'s signature in `received` verifies against `keys`, and
+/// the key ID and tag it names.
+fn proof(
+    received: &Received,
+    label: &str,
+    keys: &KeyRing,
+) -> (bool, Option<String>, Option<String>) {
+    let verifier = MessageVerifier::parse(received, |(name, _)| name.as_str() == label)
+        .expect("a labelled signature");
+    let details = verifier.parsed.base.parameters.details.clone();
+    (
+        verifier.verify(keys, None).is_ok(),
+        details.keyid,
+        details.tag,
+    )
+}
+
+#[test]
+fn a_directory_publishes_each_key_by_its_thumbprint_and_proves_it_holds_each() {
+    let other = [7; 32];
+    let keys = [private_jwk(&RFC_KEY), private_jwk(&other)];
+
+    let directory =
+        directory(&keys, "Bot.Example:8443", Duration::from_secs(60)).expect("the directory");
+
+    let published: JSONWebKeySet = serde_json::from_str(&directory.body).expect("a key set");
+    let mut ring = KeyRing::default();
+    ring.import_jwks(published.clone());
+    let thumbprints: Vec<String> = published
+        .keys
+        .iter()
+        .map(Thumbprintable::b64_thumbprint)
+        .collect();
+    let received = fetched("bot.example:8443", &directory);
+    let tag = Some("http-message-signatures-directory".to_owned());
+    assert_eq!(
+        (
+            &directory.key_ids,
+            &thumbprints,
+            proof(&received, "sig1", &ring),
+            proof(&received, "sig2", &ring),
+        ),
+        (
+            &thumbprints,
+            &vec![
+                public_key(&keys[0]).expect("a key").kid,
+                public_key(&keys[1]).expect("a key").kid,
+            ],
+            (true, Some(thumbprints[0].clone()), tag.clone()),
+            (true, Some(thumbprints[1].clone()), tag),
+        )
+    );
+    assert!(
+        !proof(
+            &fetched("elsewhere.example:8443", &directory),
+            "sig1",
+            &ring
+        )
+        .0
+    );
+    assert!(directory.expires > 0);
+}
+
+#[rstest]
+#[case::empty("")]
+#[case::a_url("https://bot.example")]
+#[case::a_path("bot.example/keys")]
+#[case::user_info("user@bot.example")]
+fn an_authority_that_is_not_a_host_and_a_port_is_refused(#[case] authority: &str) {
+    let error = directory(&[private_jwk(&RFC_KEY)], authority, Duration::from_secs(60))
+        .expect_err("no authority");
+
+    assert!(matches!(error, DirectoryError::BadAuthority(_)), "{error}");
+}
+
+#[test]
+fn a_directory_of_no_keys_or_a_key_that_cannot_sign_is_refused_without_quoting_it() {
+    let held = "not-a-signing-key";
+
+    let none = directory(&[], "bot.example", Duration::from_secs(60)).expect_err("no keys");
+    let bad = directory(
+        &[private_jwk(&RFC_KEY), SecretString::from(held.to_owned())],
+        "bot.example",
+        Duration::from_secs(60),
+    )
+    .expect_err("a bad key");
+
+    assert!(matches!(none, DirectoryError::NoKeys));
+    assert!(matches!(
+        bad,
+        DirectoryError::Key {
+            index: 1,
+            error: KeyError::NotJwk
+        }
+    ));
+    assert!(!bad.to_string().contains(held));
+}
+
+#[test]
+fn a_new_key_signs_and_differs_from_the_last() {
+    let first = new_key().expect("a key");
+    let second = new_key().expect("a key");
+
+    let public = public_key(&first).expect("the new key signs");
+
+    assert_eq!(
+        (public.kty, public.crv, public.kid.len()),
+        ("OKP", "Ed25519", 43)
+    );
+    assert_ne!(public, public_key(&second).expect("the new key signs"));
 }

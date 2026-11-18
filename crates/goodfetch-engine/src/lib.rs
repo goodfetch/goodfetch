@@ -81,6 +81,7 @@ pub mod secret_endpoint;
 pub mod secrets;
 pub mod settings;
 mod settings_editor;
+mod signing_key_operations;
 mod sqlite_store;
 mod sqlite_wal;
 pub mod staging;

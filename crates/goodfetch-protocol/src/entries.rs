@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 50] = [
+pub const MODULES: [&Entries; 51] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -30,6 +30,7 @@ pub const MODULES: [&Entries; 50] = [
     &page::ENTRIES,
     &page::proxy::ENTRIES,
     &page::access_mode::ENTRIES,
+    &page::signing_key::ENTRIES,
     &executables::ENTRIES,
     &run::ENTRIES,
     &run::completeness::ENTRIES,
@@ -175,7 +176,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 87] = [
+    const COLLIE: [&str; 89] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -232,6 +233,8 @@ mod tests {
         "locator.wait_for_function",
         "locator.wait_for",
         "locator.wait_for_count",
+        "signing_key.create",
+        "signing_key.directory",
         "run.start",
         "run.finish",
         "run.stop",

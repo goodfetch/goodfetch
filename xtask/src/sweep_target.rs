@@ -32,10 +32,25 @@
 //! a profile that a run reads less often than the sweep's window gets a
 //! sweep of its own, with the profile's folder as its target (the backstop's
 //! worktree, `ci/gate-backstop.sh`).
+//!
+//! `--free-gb` sweeps by free space instead, for the slots' build folders on
+//! a shared host: while the file system of a target has less than that many
+//! GB free, it removes the units no build has read for longest, until the
+//! line is free again, and never one a build may have read within
+//! `--keep-hours`. A day of `relatime` lag would make that window a day
+//! longer, so each such run re-arms the units it keeps: it writes back the
+//! access time of each fingerprint file read since its last change, which
+//! moves that change to now, and the next read is recorded at once. A file
+//! whose access time is older than its last change has not been read since
+//! that change, so a unit re-armed before the window and unread since goes,
+//! even within the day. A host's disk monitor runs it every few minutes,
+//! over and under the line, so the re-arms are never far behind.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
+
+mod recency;
 
 use std::collections::BTreeMap;
 use std::fs::{File, FileTimes};
@@ -47,6 +62,7 @@ use anyhow::{Context as _, Result, bail};
 
 use crate::environment::Environment;
 use crate::output;
+use recency::{Candidate, Times, least_read_first};
 
 /// The lock files Cargo takes in a profile folder while it builds there.
 const CARGO_LOCKS: [&str; 3] = [".cargo-lock", ".cargo-build-lock", ".cargo-artifact-lock"];
@@ -57,6 +73,9 @@ const HASHED: [&str; 3] = ["deps", "build", "examples"];
 /// The stress run's base build, which the sweep never enters.
 const STRESS_BASE: &str = "stress-base";
 
+/// How long after a read `relatime` may leave a file's access time behind.
+const RELATIME_LAG: Duration = Duration::from_hours(24);
+
 /// How deep under the target folder a profile folder is looked for: a
 /// target triple's (`<triple>/<profile>`), the MSRV's (`msrv/<profile>`) and
 /// a fixture build's (`tmp/<fixture>/target/<profile>`).
@@ -64,9 +83,9 @@ const MAX_DEPTH: usize = 4;
 
 #[derive(clap::Args)]
 pub(crate) struct Arguments {
-    /// The Cargo target folder to sweep.
+    /// A Cargo target folder to sweep; repeat it for several.
     #[arg(long, default_value = "target")]
-    target: PathBuf,
+    target: Vec<PathBuf>,
     /// Removes what no build has read for this many hours; above 24, so
     /// `relatime`'s day-long resolution keeps what was read.
     #[arg(long, default_value_t = 48, value_parser = clap::value_parser!(u64).range(25..))]
@@ -75,6 +94,15 @@ pub(crate) struct Arguments {
     /// in the day before it, which `relatime` may lag; not after now.
     #[arg(long, conflicts_with = "unused_hours")]
     read_since: Option<u64>,
+    /// Sweeps only while a target's file system has less than this many GB
+    /// free, least recently read units first, until it has them; re-arms the
+    /// access times of the units it keeps.
+    #[arg(long, value_name = "GB", conflicts_with_all = ["unused_hours", "read_since"])]
+    free_gb: Option<u64>,
+    /// With `--free-gb`: never removes a unit a build may have read within
+    /// this many hours.
+    #[arg(long, default_value_t = 2, requires = "free_gb")]
+    keep_hours: u64,
     /// Never enters a folder of this name, wherever it is under the target
     /// folder: a profile another sweep gives a window of its own.
     #[arg(long, value_name = "FOLDER")]
@@ -93,6 +121,9 @@ pub(crate) struct Swept {
     pub(crate) units: usize,
     /// The units kept.
     pub(crate) kept: usize,
+    /// The units kept whose next read `relatime` would not have recorded
+    /// until the re-arm: by the free-space sweep alone.
+    pub(crate) rearmed: usize,
     /// The paths removed: files, and folders whole.
     pub(crate) removed: Vec<PathBuf>,
     /// Each profile left whole, with why.
@@ -100,8 +131,15 @@ pub(crate) struct Swept {
 }
 
 pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
-    let target = environment.path(&arguments.target);
+    let targets: Vec<PathBuf> = arguments
+        .target
+        .iter()
+        .map(|target| environment.path(target))
+        .collect();
     let now = SystemTime::now();
+    if let Some(line_gb) = arguments.free_gb {
+        return run_to_line(arguments, &targets, line_gb, now);
+    }
     let (cutoff, unread) = match arguments.read_since {
         Some(seconds) => {
             let since = SystemTime::UNIX_EPOCH + Duration::from_secs(seconds);
@@ -112,7 +150,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
             }
             (
                 since
-                    .checked_sub(Duration::from_hours(24))
+                    .checked_sub(RELATIME_LAG)
                     .context("the cutoff precedes the clock's range")?,
                 format!("since the day before {seconds}"),
             )
@@ -123,26 +161,81 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
             format!("for {} h", arguments.unused_hours),
         ),
     };
-    let swept = sweep(&target, cutoff, &arguments.leave, arguments.dry_run)?;
+    for target in &targets {
+        let swept = sweep(target, cutoff, &arguments.leave, arguments.dry_run)?;
+        report(
+            target,
+            &swept,
+            arguments.dry_run,
+            &format!("no build read {unread}"),
+            "",
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn run_to_line(
+    arguments: &Arguments,
+    targets: &[PathBuf],
+    line_gb: u64,
+    now: SystemTime,
+) -> Result<ExitCode> {
+    let since = now
+        .checked_sub(Duration::from_hours(arguments.keep_hours))
+        .context("the keep window precedes the clock's range")?;
+    let line = line_gb.saturating_mul(GB);
+    let swept = sweep_to_line(targets, line, since, &arguments.leave, arguments.dry_run)?;
+    let rearm = if arguments.dry_run {
+        "would re-arm"
+    } else {
+        "re-armed"
+    };
+    for (target, (swept, free)) in targets.iter().zip(&swept) {
+        let Some(free) = free else {
+            output::line(&format!(
+                "{}: no such folder, nothing swept",
+                target.display()
+            ));
+            continue;
+        };
+        report(
+            target,
+            swept,
+            arguments.dry_run,
+            &format!("no build read in the last {} h", arguments.keep_hours),
+            &format!(
+                ", {rearm} {}; {} GB free, line {line_gb} GB",
+                swept.rearmed,
+                tenths(*free)
+            ),
+        );
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+const GB: u64 = 1_000_000_000;
+
+/// `bytes` in GB, to a tenth.
+fn tenths(bytes: u64) -> String {
+    let tenths = bytes / (GB / 10);
+    format!("{}.{}", tenths / 10, tenths % 10)
+}
+
+/// Prints what the sweep of `target` did: `which` says which units went,
+/// and `tail` ends the line.
+fn report(target: &Path, swept: &Swept, dry_run: bool, which: &str, tail: &str) {
     for (profile, reason) in &swept.skipped {
         output::line(&format!("{}: left whole, {reason}", profile.display()));
     }
-    let verb = if arguments.dry_run {
-        "would free"
-    } else {
-        "freed"
-    };
-    let tenths_of_gb = swept.bytes / 100_000_000;
+    let verb = if dry_run { "would free" } else { "freed" };
     output::line(&format!(
-        "Swept {}: {verb} {}.{} GB, {} units no build read {unread} and {} other paths; kept {} units",
+        "Swept {}: {verb} {} GB, {} units {which} and {} other paths; kept {} units{tail}",
         target.display(),
-        tenths_of_gb / 10,
-        tenths_of_gb % 10,
+        tenths(swept.bytes),
         swept.units,
         swept.removed.len().saturating_sub(swept.units),
         swept.kept,
     ));
-    Ok(ExitCode::SUCCESS)
 }
 
 /// Removes, from the target folder `target`, every unit whose fingerprint
@@ -174,6 +267,265 @@ pub(crate) fn sweep(
         drop(locks);
     }
     Ok(swept)
+}
+
+/// A unit's fingerprint folder and its files, which the sweep re-arms
+/// unless it removes the unit.
+struct Fingerprint {
+    target: usize,
+    folder: PathBuf,
+    files: Vec<(PathBuf, Times)>,
+    removed: bool,
+}
+
+/// Removes, from each of `targets`, while its file system has less than
+/// `line` bytes free as `free` reads them, the units, hashed files with no
+/// fingerprint and incremental folders no build has read since `since`, the
+/// least recently read first; then re-arms the units each kept. Each
+/// target's sweep comes with its free bytes once done (estimated, with
+/// `dry_run`, which removes and re-arms nothing), or none for a target that
+/// is no folder.
+pub(crate) fn sweep_to_line(
+    targets: &[PathBuf],
+    line: u64,
+    since: SystemTime,
+    leave: &[String],
+    dry_run: bool,
+) -> Result<Vec<(Swept, Option<u64>)>> {
+    let mut swept: Vec<Swept> = targets.iter().map(|_| Swept::default()).collect();
+    let mut held = Vec::new();
+    let mut candidates = Vec::new();
+    let mut fingerprints = Vec::new();
+    let mut devices = Vec::new();
+    let mut start = Vec::new();
+    for (index, target) in targets.iter().enumerate() {
+        if !target.is_dir() {
+            devices.push(None);
+            start.push(0);
+            continue;
+        }
+        records_access_times(target)?;
+        devices.push(Some(device(target)?));
+        start.push(free_bytes(target)?);
+        let mut profiles = Vec::new();
+        find_profiles(target, 0, leave, &mut profiles)?;
+        for profile in profiles {
+            match lock(&profile)? {
+                Ok(locks) => {
+                    held.push(locks);
+                    list_profile(&profile, index, since, &mut candidates, &mut fingerprints)?;
+                }
+                Err(reason) => swept[index].skipped.push((profile, reason)),
+            }
+        }
+    }
+    // A dry run removes nothing, so its free bytes are those it started
+    // with plus what it would have removed on the same file system.
+    let free_now = |target: usize, swept: &[Swept]| -> Result<u64> {
+        if !dry_run {
+            return free_bytes(&targets[target]);
+        }
+        let would = (0..targets.len())
+            .filter(|other| devices[*other] == devices[target])
+            .map(|other| swept[other].bytes)
+            .sum::<u64>();
+        Ok(start[target].saturating_add(would))
+    };
+    least_read_first(
+        &mut candidates,
+        |target, swept| Ok(free_now(target, swept)? < line),
+        |candidate, swept| {
+            let target = &mut swept[candidate.target];
+            for path in &candidate.paths {
+                remove(path, dry_run, target)?;
+            }
+            if let Some(unit) = candidate.unit {
+                let fingerprint = &mut fingerprints[unit];
+                remove(&fingerprint.folder, dry_run, target)?;
+                fingerprint.removed = true;
+                target.units += 1;
+            }
+            Ok(())
+        },
+        &mut swept,
+    )?;
+    for fingerprint in fingerprints.iter().filter(|unit| !unit.removed) {
+        let target = &mut swept[fingerprint.target];
+        target.kept += 1;
+        if fingerprint
+            .files
+            .iter()
+            .any(|(_, times)| times.needs_rearm())
+        {
+            target.rearmed += 1;
+            if !dry_run {
+                rearm(fingerprint)?;
+            }
+        }
+    }
+    drop(held);
+    let mut ended = Vec::new();
+    for (index, device) in devices.iter().enumerate() {
+        ended.push(match device {
+            Some(_) => Some(free_now(index, &swept)?),
+            None => None,
+        });
+    }
+    Ok(swept.into_iter().zip(ended).collect())
+}
+
+/// Lists the free-space sweep's candidates in `profile`, of target `target`,
+/// and every unit's fingerprint.
+fn list_profile(
+    profile: &Path,
+    target: usize,
+    since: SystemTime,
+    candidates: &mut Vec<Candidate>,
+    fingerprints: &mut Vec<Fingerprint>,
+) -> Result<()> {
+    // Each unit's hash, with its candidate's index when no build read it
+    // since `since`.
+    let mut units: BTreeMap<String, Option<usize>> = BTreeMap::new();
+    for folder in sorted_entries(&profile.join(".fingerprint"))? {
+        let Some(hash) = hash_of(&folder) else {
+            continue;
+        };
+        // The folder's own change too: Cargo makes it before the unit's
+        // compile and writes the fingerprint after.
+        let made = std::fs::symlink_metadata(&folder)
+            .with_context(|| format!("reading {}", folder.display()))?
+            .modified()?;
+        let mut last = made;
+        let mut unread = made < since;
+        let mut files = Vec::new();
+        for file in sorted_entries(&folder)? {
+            let times = Times::of(
+                &std::fs::symlink_metadata(&file)
+                    .with_context(|| format!("reading {}", file.display()))?,
+            )?;
+            last = last.max(times.accessed).max(times.modified);
+            unread &= times.unread_since(since);
+            files.push((file, times));
+        }
+        let hash = hash.to_owned();
+        fingerprints.push(Fingerprint {
+            target,
+            folder,
+            files,
+            removed: false,
+        });
+        let candidate = unread.then(|| {
+            candidates.push(Candidate {
+                last,
+                target,
+                paths: Vec::new(),
+                unit: Some(fingerprints.len() - 1),
+            });
+            candidates.len() - 1
+        });
+        units.insert(hash, candidate);
+    }
+    for folder in HASHED {
+        let folder = profile.join(folder);
+        if !folder.is_dir() {
+            continue;
+        }
+        for entry in sorted_entries(&folder)? {
+            let Some(hash) = hash_of(&entry) else {
+                continue;
+            };
+            match units.get(hash) {
+                Some(Some(candidate)) => candidates[*candidate].paths.push(entry),
+                Some(None) => {}
+                // Cargo never takes a file with no fingerprint as fresh.
+                None => candidates.push(Candidate {
+                    last: SystemTime::UNIX_EPOCH,
+                    target,
+                    paths: vec![entry],
+                    unit: None,
+                }),
+            }
+        }
+    }
+    let incremental = profile.join("incremental");
+    if incremental.is_dir() {
+        for folder in sorted_entries(&incremental)? {
+            let last = last_written(&folder)?;
+            if last < since {
+                candidates.push(Candidate {
+                    last,
+                    target,
+                    paths: vec![folder],
+                    unit: None,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Writes back the access time of each fingerprint file a read left
+/// unchanged since: the write moves the file's last change to now, so the
+/// next read moves the access time again.
+fn rearm(fingerprint: &Fingerprint) -> Result<()> {
+    for (file, times) in &fingerprint.files {
+        if times.needs_rearm() {
+            File::open(file)
+                .and_then(|open| open.set_times(FileTimes::new().set_accessed(times.accessed)))
+                .with_context(|| format!("re-arming {}", file.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// The device of the file system holding `folder`.
+#[cfg(unix)]
+fn device(folder: &Path) -> Result<u64> {
+    use std::os::unix::fs::MetadataExt as _;
+
+    Ok(std::fs::metadata(folder)
+        .with_context(|| format!("reading {}", folder.display()))?
+        .dev())
+}
+
+#[cfg(not(unix))]
+fn device(_folder: &Path) -> Result<u64> {
+    bail!("--free-gb reads a file system's free space, which only a Unix host gives here")
+}
+
+/// The bytes free to an unprivileged user on the file system holding
+/// `folder`.
+#[cfg(unix)]
+#[expect(
+    unsafe_code,
+    reason = "Unix gives a file system's free space only through `statvfs`"
+)]
+fn free_bytes(folder: &Path) -> Result<u64> {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let path = std::ffi::CString::new(folder.as_os_str().as_bytes())
+        .with_context(|| format!("{} holds a NUL byte", folder.display()))?;
+    let mut found = std::mem::MaybeUninit::<libc::statvfs>::zeroed();
+    // SAFETY: `path` is a NUL-terminated string and `found` a writable
+    // `statvfs` the call fills.
+    if unsafe { libc::statvfs(path.as_ptr(), found.as_mut_ptr()) } != 0 {
+        return Err(std::io::Error::last_os_error())
+            .with_context(|| format!("reading the free space of {}", folder.display()));
+    }
+    // SAFETY: the call succeeded, so it filled `found`.
+    let found = unsafe { found.assume_init() };
+    Ok(wide(found.f_bavail).saturating_mul(wide(found.f_frsize)))
+}
+
+#[cfg(not(unix))]
+fn free_bytes(_folder: &Path) -> Result<u64> {
+    bail!("--free-gb reads a file system's free space, which only a Unix host gives here")
+}
+
+/// A `statvfs` count, whose width differs by OS, as a `u64`.
+#[cfg(unix)]
+fn wide<T: Into<u64>>(count: T) -> u64 {
+    count.into()
 }
 
 /// Fails unless reading a file updates its access time here, which the

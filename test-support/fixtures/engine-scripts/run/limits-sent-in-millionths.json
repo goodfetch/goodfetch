@@ -45,6 +45,7 @@
             "must_understand": false,
             "set_by": "client"
           },
+          "standing": "held",
           "charged": 0,
           "held": 0,
           "left": 100
@@ -76,6 +77,7 @@
             "set_by": "client",
             "currency": "USD"
           },
+          "standing": "held",
           "charged": 0,
           "held": 0,
           "left": 2500000

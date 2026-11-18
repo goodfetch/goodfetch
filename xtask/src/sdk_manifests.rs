@@ -51,7 +51,8 @@ struct Manifest {
 #[derive(Deserialize)]
 struct Member {
     receiver: String,
-    member: String,
+    #[serde(rename = "member")]
+    name: String,
     entry: String,
 }
 
@@ -74,7 +75,7 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
         let parsed: Manifest =
             toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         for member in &parsed.members {
-            let subject = format!("{manifest} {}.{}", member.receiver, member.member);
+            let subject = format!("{manifest} {}.{}", member.receiver, member.name);
             if member.entry == NO_ENTRY {
                 continue;
             }

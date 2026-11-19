@@ -16,9 +16,7 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use goodfetch_protocol::connection::{CANCEL, CancelParams};
-use goodfetch_protocol::events::{CREDIT, CreditParams, EVENTS, EventBatch, EventEnvelope};
-use goodfetch_protocol::jsonrpc::RequestId;
+use goodfetch_protocol::events::{EVENTS, EventBatch, EventEnvelope};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
@@ -164,8 +162,9 @@ impl<T: DeserializeOwned> EventStream<T> {
         }
     }
 
-    /// Acts on what the call heard: grants its first credits once it is
-    /// sent, and keeps a batch's events for the program.
+    /// Acts on what the call heard: grants its first credits once it
+    /// hears the call was sent, which the program's first read polls for,
+    /// and keeps a batch's events for the program.
     fn hear(&mut self, heard: Heard) {
         match heard {
             Heard::Sent(id) => {
@@ -217,15 +216,8 @@ impl<T: DeserializeOwned> EventStream<T> {
 
     /// Grants the call `credits` more events.
     fn credit(&self, credits: u32) {
-        let Some(id) = self.id else {
-            return;
-        };
-        let params = CreditParams {
-            id: RequestId::Number(id),
-            credits,
-        };
-        if let Ok(params) = serde_json::to_value(params) {
-            self.sender.notify(CREDIT, params);
+        if let Some(id) = self.id {
+            self.sender.credit(id, credits);
         }
     }
 }
@@ -243,7 +235,8 @@ impl<T> Drop for EventStream<T> {
     /// warning. A call not sent yet is cancelled once it is: the closed
     /// stream tells the Connection that no one reads it.
     fn drop(&mut self) {
-        if self.ended || self.reply.is_none() {
+        // Ended, or never sent: nothing to cancel.
+        if self.reply.is_none() {
             return;
         }
         self.heard.close();
@@ -254,19 +247,15 @@ impl<T> Drop for EventStream<T> {
                 Err(_) => break,
             }
         }
-        let Some(id) = self.id else {
-            return;
-        };
-        if let Ok(params) = serde_json::to_value(CancelParams {
-            id: RequestId::Number(id),
-        }) {
-            self.sender.notify(CANCEL, params);
+        if let Some(id) = self.id {
+            self.sender.cancel(id);
         }
     }
 }
 
-/// C-SEND-SYNC: a stream moves into a spawned task (ADR 0081).
+/// C-SEND-SYNC: a stream moves into a spawned task, and any
+/// `futures_core::Stream` consumer reads it (ADR 0081).
 const _: () = {
-    const fn send_static<T: Send + 'static>() {}
-    send_static::<EventStream<Value>>();
+    const fn send_static_stream<T: Send + 'static + futures_core::Stream>() {}
+    send_static_stream::<EventStream<Value>>();
 };

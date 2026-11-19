@@ -19,9 +19,7 @@ use std::sync::{Arc, PoisonError, Weak};
 use std::time::Duration;
 
 use data_encoding::BASE64;
-use goodfetch_protocol::connection::{CANCEL, CancelParams, HELLO, HelloParams, HelloResult};
-use goodfetch_protocol::events::{CREDIT, CreditParams};
-use goodfetch_protocol::jsonrpc::RequestId;
+use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult};
 use goodfetch_protocol::page::{BodyHandle, CHUNK, Chunk};
 use goodfetch_protocol::settings::TIMEOUT_CLOSE;
 use serde::Serialize;
@@ -258,7 +256,8 @@ impl ClientConnection {
         match heard {
             Heard::Sent(id) => {
                 saving.id = Some(id);
-                self.credit(id, CHUNKS_AHEAD)
+                self.0.sender.credit(id, CHUNKS_AHEAD);
+                Ok(())
             }
             Heard::Notified { method, params } if method == CHUNK => {
                 let chunk: Chunk = serde_json::from_value(params).map_err(Error::Shape)?;
@@ -285,7 +284,7 @@ impl ClientConnection {
                     .await?;
                 saving.file = Some(file);
                 if let Some(id) = saving.id {
-                    self.credit(id, 1)?;
+                    self.0.sender.credit(id, 1);
                 }
                 Ok(())
             }
@@ -310,16 +309,6 @@ impl ClientConnection {
             file.finish()
         })
         .await
-    }
-
-    /// Grants the streaming call `id` `credits` more chunks.
-    fn credit(&self, id: i64, credits: u32) -> Result<(), Error> {
-        let params = to_value(&CreditParams {
-            id: RequestId::Number(id),
-            credits,
-        })?;
-        self.0.sender.notify(CREDIT, params);
-        Ok(())
     }
 
     /// The bytes of the page body `handle` names, read from the file the
@@ -577,11 +566,7 @@ impl Drop for Saving {
         let Some(id) = self.id.filter(|_| !self.answered) else {
             return;
         };
-        if let Ok(params) = serde_json::to_value(CancelParams {
-            id: RequestId::Number(id),
-        }) {
-            self.sender.notify(CANCEL, params);
-        }
+        self.sender.cancel(id);
     }
 }
 

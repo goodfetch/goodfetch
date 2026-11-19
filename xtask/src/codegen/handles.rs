@@ -449,7 +449,8 @@ fn listener<'a>(
                 .map(|variant| variant["const"].as_str())
                 .collect::<Option<Vec<_>>>()
         });
-    let Some(values) = values.filter(|values| !values.is_empty()) else {
+    let (Some(event_type), Some(values)) = (event_type, values.filter(|values| !values.is_empty()))
+    else {
         bail!(
             "operation `{}`: its `{event}` is a type of its own whose values name the events listened to (ADR 0081)",
             operation.name
@@ -475,7 +476,7 @@ fn listener<'a>(
     Ok(Listener {
         operation,
         param: event.clone(),
-        event_type: event_type.unwrap_or_default().to_owned(),
+        event_type: event_type.to_owned(),
         events,
     })
 }

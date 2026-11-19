@@ -11,6 +11,8 @@
 import type { CallOptions } from "./caller.ts";
 import { ProgramError } from "./generated/errors.ts";
 import type { JSONValue } from "./json.ts";
+import { collieWire } from "./generated/wire.ts";
+import { toWire, type WirePath } from "./wire.ts";
 
 /** What the raw call takes beside its params (ADR 0099). */
 export interface RawCallOptions {
@@ -132,12 +134,18 @@ export abstract class Handle {
   readonly #host: RawHost;
   readonly #namespaces: string[];
   readonly #param: string;
+  readonly #idPath: WirePath;
 
-  /** @internal A generated handle passes its host, its namespace and the parameter its ID fills. */
-  constructor(host: RawHost, namespace: string, param: string) {
+  /**
+   * @internal A generated handle passes its host, its namespace, the
+   * parameter its ID fills and the path of its ID's type, which a raw call
+   * sends in the engine's spelling.
+   */
+  constructor(host: RawHost, namespace: string, param: string, idPath: WirePath) {
     this.#host = host;
     this.#namespaces = [namespace];
     this.#param = param;
+    this.#idPath = idPath;
   }
 
   /**
@@ -159,7 +167,7 @@ export abstract class Handle {
     return rawCall(send, operation, params, options, {
       namespaces: this.#namespaces,
       param: this.#param,
-      id: host.id,
+      id: toWire(host.id, this.#idPath, collieWire.types),
     });
   }
 }

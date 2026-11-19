@@ -16,9 +16,9 @@ describe("Points in time on the Scripted engine as the Attached engine", () => {
 
       const report = await (await collie.start()).finish();
 
-      expect(report.started_at).toBeInstanceOf(Date);
-      expect(report.started_at.toISOString()).toBe("2026-11-19T12:30:00.123Z");
-      expect(report.ended_at.toISOString()).toBe("2026-11-19T12:31:00.500Z");
+      expect(report.startedAt).toBeInstanceOf(Date);
+      expect(report.startedAt.toISOString()).toBe("2026-11-19T12:30:00.123Z");
+      expect(report.endedAt.toISOString()).toBe("2026-11-19T12:31:00.500Z");
     },
   );
 });

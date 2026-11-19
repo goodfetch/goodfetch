@@ -16,15 +16,15 @@
     }
   },
   "sdks/typescript/collie-client/src/generated/types.ts": {
-    "input": "c382ab2dbbb0841e05f98e436c220fecf8a4a0235a7c746858c5d96c602a03b7",
-    "output": "ea13fdaa4906d46826de6a7a6ed0da7d61ff352370fa1769280ffd07d91bc1a3",
+    "input": "8a4f88b254558dacfab7d9217370cf3ee04c629c3f286e5bf169c5c2bc0a6022",
+    "output": "4b9c1f663d8f7c01c2846e4056ab3e39e2fd0f4304df4f568971980cffb3ad75",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }
   },
   "sdks/typescript/foxhound/src/generated/types.ts": {
-    "input": "e2907b67dbdc44c352f61c3878003c9a15865d1cd84d34174c261a84fd8daf8c",
-    "output": "76c1309b2e6476eb4109cacdbf39e32e2cb815c6f72cc13a5bccc4c217478b54",
+    "input": "41ac4eaddf271c94eea533ec75a617bc26fa6cfba7fed2af603d98c6d7750b91",
+    "output": "abbf60338fba81508aa51ebd0cbfbef2ac54b141f7175b50cec9a3143c4e6cb6",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }

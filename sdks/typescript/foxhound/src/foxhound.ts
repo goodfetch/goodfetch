@@ -21,6 +21,7 @@ import type {
 } from "@goodfetch/collie-client";
 import { RunNotFoundError } from "@goodfetch/collie-client";
 import {
+  fromWire,
   holdInRealm,
   openEngine,
   openOver,
@@ -38,7 +39,7 @@ import {
   type RequestSeed,
 } from "./generated/index.ts";
 import { settingsOnWire, type CrawlSettings } from "./generated/settings.ts";
-import { foxhoundTimes } from "./generated/times.ts";
+import { foxhoundWire } from "./generated/wire.ts";
 import { foxhound } from "./product.ts";
 
 /**
@@ -110,7 +111,7 @@ export class Foxhound implements Connection {
 
   private constructor(connection: ClientConnection) {
     this.#connection = connection;
-    const calls = connection.caller<FoxhoundOperationTypes>(foxhoundTimes);
+    const calls = connection.caller<FoxhoundOperationTypes>(foxhoundWire);
     this.#operations = new FoxhoundOperations(calls);
     this.#crawlHost = {
       connection,
@@ -121,8 +122,15 @@ export class Foxhound implements Connection {
       },
     };
     connection.serve("crawl_request.handle", async (params, signal) =>
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the engine's requests are not validated beyond `hello`'s protocol version (STYLE.md): `crawl_request.handle` carries its params as the catalog types them.
-      this.#handle(params as CrawlRequestHandleParams, signal),
+      this.#handle(
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the engine's requests are not validated beyond `hello`'s protocol version (STYLE.md): `crawl_request.handle` carries its params as the catalog types them, read in camelCase.
+        fromWire(
+          params,
+          { type: "CrawlRequestHandleParams" },
+          foxhoundWire.types,
+        ) as CrawlRequestHandleParams,
+        signal,
+      ),
     );
     holdInRealm(this);
   }
@@ -170,7 +178,7 @@ export class Foxhound implements Connection {
     const params: CrawlStartParams = {
       ...crawlDeclaration(crawl),
       seeds: [...options.seeds],
-      ...(options.runId === undefined ? {} : { run_id: options.runId }),
+      ...(options.runId === undefined ? {} : { runId: options.runId }),
       ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
       ...(settings === undefined ? {} : { settings }),
     };
@@ -221,14 +229,14 @@ export class Foxhound implements Connection {
     request: CrawlRequestHandleParams,
     signal: AbortSignal,
   ): Promise<CrawlRequestHandled> {
-    if (!this.#crawlRuns.has(request.run_id)) {
+    if (!this.#crawlRuns.has(request.runId)) {
       await Promise.allSettled(this.#starting);
     }
-    const run = this.#crawlRuns.get(request.run_id);
+    const run = this.#crawlRuns.get(request.runId);
     if (run === undefined) {
       throw new RunNotFoundError(
-        `the crawl request ${request.crawl_request.id} names the Run ${request.run_id}, which no crawl started on this Connection runs`,
-        { details: { run_id: request.run_id } },
+        `the crawl request ${request.crawlRequest.id} names the Run ${request.runId}, which no crawl started on this Connection runs`,
+        { details: { run_id: request.runId } },
       );
     }
     return handleRequest(run, request, signal);

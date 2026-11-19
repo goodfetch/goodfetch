@@ -25,7 +25,7 @@ export class Run extends Handle {
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
   constructor(host: HandleHost<types.RunId, CollieOperationTypes>) {
-    super(host, "run", "run_id");
+    super(host, "run", "run_id", { type: "RunId" });
     this.#host = host;
   }
 
@@ -36,7 +36,7 @@ export class Run extends Handle {
    */
   async abort(options: { readonly forwarded?: types.RunAbortParams["forwarded"] | undefined } = {}): Promise<types.RunReport> {
     warnExperimental("run.abort");
-    return this.#host.call("run.abort", defined({ run_id: this.#host.id, forwarded: options.forwarded }), {});
+    return this.#host.call("run.abort", defined({ runId: this.#host.id, forwarded: options.forwarded }), {});
   }
 
   /**
@@ -46,7 +46,7 @@ export class Run extends Handle {
    */
   async checkpoint(options: { readonly location?: types.RunCheckpointParams["location"] | undefined } = {}): Promise<types.Checkpoint> {
     warnExperimental("run.checkpoint");
-    return this.#host.call("run.checkpoint", defined({ run_id: this.#host.id, location: options.location }), {});
+    return this.#host.call("run.checkpoint", defined({ runId: this.#host.id, location: options.location }), {});
   }
 
   /**
@@ -54,9 +54,9 @@ export class Run extends Handle {
    *
    * @experimental
    */
-  async discard(): Promise<types.RunDiscarded["run_id"]> {
+  async discard(): Promise<types.RunDiscarded["runId"]> {
     warnExperimental("run.discard");
-    return (await this.#host.call("run.discard", { run_id: this.#host.id }, {})).run_id;
+    return (await this.#host.call("run.discard", { runId: this.#host.id }, {})).runId;
   }
 
   /**
@@ -66,7 +66,7 @@ export class Run extends Handle {
    */
   async finish(options: { readonly timeout?: types.RunFinishParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.RunReport> {
     warnExperimental("run.finish");
-    return this.#host.call("run.finish", defined({ run_id: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.run") }), { signal: options.signal });
+    return this.#host.call("run.finish", defined({ runId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.run") }), { signal: options.signal });
   }
 
   /**
@@ -76,7 +76,7 @@ export class Run extends Handle {
    */
   async migrate(options: { readonly location?: types.RunCheckpointParams["location"] | undefined } = {}): Promise<types.RunReport> {
     warnExperimental("run.migrate");
-    return this.#host.call("run.migrate", defined({ run_id: this.#host.id, location: options.location }), {});
+    return this.#host.call("run.migrate", defined({ runId: this.#host.id, location: options.location }), {});
   }
 
   /**
@@ -86,8 +86,8 @@ export class Run extends Handle {
    */
   async newPage(options: { readonly settings?: PageSettings | undefined } = {}): Promise<Page> {
     warnExperimental("run.new_page");
-    const opened = await this.#host.call("run.new_page", defined({ run_id: this.#host.id, settings: settingsOnWire(options.settings) }), {});
-    return new Page(this.#host.child(opened.page_id));
+    const opened = await this.#host.call("run.new_page", defined({ runId: this.#host.id, settings: settingsOnWire(options.settings) }), {});
+    return new Page(this.#host.child(opened.pageId));
   }
 
   /**
@@ -97,8 +97,8 @@ export class Run extends Handle {
    */
   async newSession(options: { readonly settings?: SessionSettings | undefined; readonly source?: types.NewSessionParams["source"] | undefined } = {}): Promise<Session> {
     warnExperimental("run.new_session");
-    const opened = await this.#host.call("run.new_session", defined({ run_id: this.#host.id, settings: settingsOnWire(options.settings), source: options.source }), {});
-    return new Session(this.#host.child(opened.session_id));
+    const opened = await this.#host.call("run.new_session", defined({ runId: this.#host.id, settings: settingsOnWire(options.settings), source: options.source }), {});
+    return new Session(this.#host.child(opened.sessionId));
   }
 
   /**
@@ -108,7 +108,7 @@ export class Run extends Handle {
    */
   async pause(): Promise<types.RunReport> {
     warnExperimental("run.pause");
-    return this.#host.call("run.pause", { run_id: this.#host.id }, {});
+    return this.#host.call("run.pause", { runId: this.#host.id }, {});
   }
 
   /**
@@ -118,7 +118,7 @@ export class Run extends Handle {
    */
   async progress(options: { readonly after?: types.RunProgressParams["after"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.RunProgress> {
     warnExperimental("run.progress");
-    return this.#host.call("run.progress", defined({ run_id: this.#host.id, after: options.after }), { signal: options.signal });
+    return this.#host.call("run.progress", defined({ runId: this.#host.id, after: options.after }), { signal: options.signal });
   }
 
   /**
@@ -128,7 +128,7 @@ export class Run extends Handle {
    */
   async report(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.RunReport> {
     warnExperimental("run.report");
-    return this.#host.call("run.report", { run_id: this.#host.id }, { signal: options.signal });
+    return this.#host.call("run.report", { runId: this.#host.id }, { signal: options.signal });
   }
 
   /**
@@ -138,7 +138,7 @@ export class Run extends Handle {
    */
   async setProgressMessage(message: types.RunSetProgressMessageParams["message"]): Promise<types.RunProgress> {
     warnExperimental("run.set_progress_message");
-    return this.#host.call("run.set_progress_message", { run_id: this.#host.id, message }, {});
+    return this.#host.call("run.set_progress_message", { runId: this.#host.id, message }, {});
   }
 
   /**
@@ -148,7 +148,7 @@ export class Run extends Handle {
    */
   async stop(options: { readonly timeout?: types.RunStopParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.RunReport> {
     warnExperimental("run.stop");
-    return this.#host.call("run.stop", defined({ run_id: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.close") }), { signal: options.signal });
+    return this.#host.call("run.stop", defined({ runId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.close") }), { signal: options.signal });
   }
 
   /**
@@ -158,7 +158,7 @@ export class Run extends Handle {
    */
   async usage(): Promise<types.RunUsage> {
     warnExperimental("run.usage");
-    return this.#host.call("run.usage", { run_id: this.#host.id }, {});
+    return this.#host.call("run.usage", { runId: this.#host.id }, {});
   }
 }
 
@@ -184,7 +184,7 @@ const SESSION_EVENTS = {
 const SESSION_EVENTS_VALUES: {
   readonly [Name in keyof SessionEvents]: (host: HandleHost<types.SessionId, CollieOperationTypes>, payload: SessionPayloads[Name]) => SessionEvents[Name];
 } = {
-  page: (host, payload) => new Page(host.child(payload.page_id)),
+  page: (host, payload) => new Page(host.child(payload.pageId)),
 };
 
 let idInSession: (handle: Session) => types.SessionId;
@@ -204,7 +204,7 @@ export class Session extends Handle implements AsyncDisposable {
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
   constructor(host: HandleHost<types.SessionId, CollieOperationTypes>) {
-    super(host, "session", "session_id");
+    super(host, "session", "session_id", { type: "SessionId" });
     this.#host = host;
   }
 
@@ -215,7 +215,7 @@ export class Session extends Handle implements AsyncDisposable {
    */
   async close(): Promise<void> {
     warnExperimental("session.close");
-    await this.#host.close("session.close", { session_id: this.#host.id });
+    await this.#host.close("session.close", { sessionId: this.#host.id });
   }
 
   /**
@@ -225,8 +225,8 @@ export class Session extends Handle implements AsyncDisposable {
    */
   async newPage(options: { readonly settings?: PageSettings | undefined } = {}): Promise<Page> {
     warnExperimental("session.new_page");
-    const opened = await this.#host.call("session.new_page", defined({ session_id: this.#host.id, settings: settingsOnWire(options.settings) }), {});
-    return new Page(this.#host.child(opened.page_id));
+    const opened = await this.#host.call("session.new_page", defined({ sessionId: this.#host.id, settings: settingsOnWire(options.settings) }), {});
+    return new Page(this.#host.child(opened.pageId));
   }
 
   /**
@@ -236,7 +236,7 @@ export class Session extends Handle implements AsyncDisposable {
    */
   async pages(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.SessionPages["pages"]> {
     warnExperimental("session.pages");
-    return (await this.#host.call("session.pages", { session_id: this.#host.id }, { signal: options.signal })).pages;
+    return (await this.#host.call("session.pages", { sessionId: this.#host.id }, { signal: options.signal })).pages;
   }
 
   /**
@@ -248,7 +248,7 @@ export class Session extends Handle implements AsyncDisposable {
     warnExperimental("session.on");
     const listened = SESSION_EVENTS[event];
     const build = SESSION_EVENTS_VALUES[event];
-    return this.#host.listenPublished("session.on", { session_id: this.#host.id, event: listened }, `session.${listened}`, "session_id", (payload: SessionPayloads[Name], dropped: number) => listener(build(this.#host, payload), dropped));
+    return this.#host.listenPublished("session.on", { sessionId: this.#host.id, event: listened }, `session.${listened}`, "session_id", (payload: SessionPayloads[Name], dropped: number) => listener(build(this.#host, payload), dropped));
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
@@ -341,7 +341,7 @@ export class Page extends Handle implements AsyncDisposable {
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
   constructor(host: HandleHost<types.PageId, CollieOperationTypes>) {
-    super(host, "page", "page_id");
+    super(host, "page", "page_id", { type: "PageId" });
     this.#host = host;
   }
 
@@ -350,9 +350,9 @@ export class Page extends Handle implements AsyncDisposable {
    *
    * @experimental
    */
-  async close(options: { readonly runBeforeUnload?: types.PageCloseParams["run_before_unload"] | undefined } = {}): Promise<void> {
+  async close(options: { readonly runBeforeUnload?: types.PageCloseParams["runBeforeUnload"] | undefined } = {}): Promise<void> {
     warnExperimental("page.close");
-    await this.#host.close("page.close", defined({ page_id: this.#host.id, run_before_unload: options.runBeforeUnload }));
+    await this.#host.close("page.close", defined({ pageId: this.#host.id, runBeforeUnload: options.runBeforeUnload }));
   }
 
   /**
@@ -362,7 +362,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async evaluate(function_: types.EvaluateParams["function"], options: { readonly arg?: types.EvaluateParams["arg"] | undefined; readonly world?: types.EvaluateParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Evaluated["value"]> | null> {
     warnExperimental("page.evaluate");
-    return (await this.#host.call("page.evaluate", defined({ page_id: this.#host.id, function: function_, arg: options.arg, world: options.world }), { signal: options.signal })).value ?? null;
+    return (await this.#host.call("page.evaluate", defined({ pageId: this.#host.id, function: function_, arg: options.arg, world: options.world }), { signal: options.signal })).value ?? null;
   }
 
   /**
@@ -372,7 +372,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async formats(formats: types.FormatsParams["formats"], options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.PageFormats> {
     warnExperimental("page.formats");
-    return this.#host.call("page.formats", { page_id: this.#host.id, formats }, { signal: options.signal });
+    return this.#host.call("page.formats", { pageId: this.#host.id, formats }, { signal: options.signal });
   }
 
   /**
@@ -382,7 +382,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async goBack(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Navigated["response"]> | null> {
     warnExperimental("page.go_back");
-    return (await this.#host.call("page.go_back", { page_id: this.#host.id }, { signal: options.signal })).response ?? null;
+    return (await this.#host.call("page.go_back", { pageId: this.#host.id }, { signal: options.signal })).response ?? null;
   }
 
   /**
@@ -392,7 +392,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async goForward(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Navigated["response"]> | null> {
     warnExperimental("page.go_forward");
-    return (await this.#host.call("page.go_forward", { page_id: this.#host.id }, { signal: options.signal })).response ?? null;
+    return (await this.#host.call("page.go_forward", { pageId: this.#host.id }, { signal: options.signal })).response ?? null;
   }
 
   /**
@@ -400,9 +400,9 @@ export class Page extends Handle implements AsyncDisposable {
    *
    * @experimental
    */
-  async goto(url: types.GotoParams["url"], options: { readonly timeout?: types.GotoParams["timeout"] | undefined; readonly waitUntil?: types.GotoParams["wait_until"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Navigated["response"]> | null> {
+  async goto(url: types.GotoParams["url"], options: { readonly timeout?: types.GotoParams["timeout"] | undefined; readonly waitUntil?: types.GotoParams["waitUntil"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Navigated["response"]> | null> {
     warnExperimental("page.goto");
-    return (await this.#host.call("page.goto", defined({ page_id: this.#host.id, url, timeout: timeoutOf(options.timeout, "timeout.navigation"), wait_until: options.waitUntil }), { signal: options.signal })).response ?? null;
+    return (await this.#host.call("page.goto", defined({ pageId: this.#host.id, url, timeout: timeoutOf(options.timeout, "timeout.navigation"), waitUntil: options.waitUntil }), { signal: options.signal })).response ?? null;
   }
 
   /**
@@ -412,7 +412,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async read<const Fields extends types.PageReadParams["fields"]>(fields: Fields, options: { readonly signal?: AbortSignal | undefined } = {}): Promise<TypedBy<types.PageRead, "values", Fields>> {
     warnExperimental("page.read");
-    return typedBy<types.PageRead, "values", Fields>(await this.#host.call("page.read", { page_id: this.#host.id, fields }, { signal: options.signal }));
+    return typedBy<types.PageRead, "values", Fields>(await this.#host.call("page.read", { pageId: this.#host.id, fields }, { signal: options.signal }));
   }
 
   /**
@@ -422,7 +422,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async reload(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Navigated["response"]> | null> {
     warnExperimental("page.reload");
-    return (await this.#host.call("page.reload", { page_id: this.#host.id }, { signal: options.signal })).response ?? null;
+    return (await this.#host.call("page.reload", { pageId: this.#host.id }, { signal: options.signal })).response ?? null;
   }
 
   /**
@@ -430,9 +430,9 @@ export class Page extends Handle implements AsyncDisposable {
    *
    * @experimental
    */
-  async request(url: types.PageRequestParams["url"], options: { readonly headers?: types.PageRequestParams["headers"] | undefined; readonly maxRedirects?: types.PageRequestParams["max_redirects"] | undefined; readonly method?: types.PageRequestParams["method"] | undefined; readonly postData?: types.PageRequestParams["post_data"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.PageResponse> {
+  async request(url: types.PageRequestParams["url"], options: { readonly headers?: types.PageRequestParams["headers"] | undefined; readonly maxRedirects?: types.PageRequestParams["maxRedirects"] | undefined; readonly method?: types.PageRequestParams["method"] | undefined; readonly postData?: types.PageRequestParams["postData"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.PageResponse> {
     warnExperimental("page.request");
-    return this.#host.call("page.request", defined({ page_id: this.#host.id, url, headers: options.headers, max_redirects: options.maxRedirects, method: options.method, post_data: options.postData }), { signal: options.signal });
+    return this.#host.call("page.request", defined({ pageId: this.#host.id, url, headers: options.headers, maxRedirects: options.maxRedirects, method: options.method, postData: options.postData }), { signal: options.signal });
   }
 
   /**
@@ -440,9 +440,9 @@ export class Page extends Handle implements AsyncDisposable {
    *
    * @experimental
    */
-  async waitForFunction(function_: types.WaitForFunctionParams["function"], options: { readonly arg?: types.WaitForFunctionParams["arg"] | undefined; readonly pollingInterval?: types.WaitForFunctionParams["polling_interval"] | undefined; readonly timeout?: types.WaitForFunctionParams["timeout"] | undefined; readonly world?: types.WaitForFunctionParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Evaluated["value"]> | null> {
+  async waitForFunction(function_: types.WaitForFunctionParams["function"], options: { readonly arg?: types.WaitForFunctionParams["arg"] | undefined; readonly pollingInterval?: types.WaitForFunctionParams["pollingInterval"] | undefined; readonly timeout?: types.WaitForFunctionParams["timeout"] | undefined; readonly world?: types.WaitForFunctionParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Evaluated["value"]> | null> {
     warnExperimental("page.wait_for_function");
-    return (await this.#host.call("page.wait_for_function", defined({ page_id: this.#host.id, function: function_, arg: options.arg, polling_interval: options.pollingInterval, timeout: timeoutOf(options.timeout, "timeout.wait"), world: options.world }), { signal: options.signal })).value ?? null;
+    return (await this.#host.call("page.wait_for_function", defined({ pageId: this.#host.id, function: function_, arg: options.arg, pollingInterval: options.pollingInterval, timeout: timeoutOf(options.timeout, "timeout.wait"), world: options.world }), { signal: options.signal })).value ?? null;
   }
 
   /**
@@ -452,7 +452,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async waitForLoadState(options: { readonly state?: types.WaitForLoadStateParams["state"] | undefined; readonly timeout?: types.WaitForLoadStateParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Reached> {
     warnExperimental("page.wait_for_load_state");
-    return this.#host.call("page.wait_for_load_state", defined({ page_id: this.#host.id, state: options.state, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal });
+    return this.#host.call("page.wait_for_load_state", defined({ pageId: this.#host.id, state: options.state, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal });
   }
 
   /**
@@ -462,7 +462,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async waitForRequest(options: { readonly timeout?: types.WaitForExchangeParams["timeout"] | undefined; readonly url?: types.WaitForExchangeParams["url"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.PageRequest> {
     warnExperimental("page.wait_for_request");
-    return this.#host.call("page.wait_for_request", defined({ page_id: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.wait"), url: options.url }), { signal: options.signal });
+    return this.#host.call("page.wait_for_request", defined({ pageId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.wait"), url: options.url }), { signal: options.signal });
   }
 
   /**
@@ -472,7 +472,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async waitForRequestFinished(options: { readonly timeout?: types.WaitForRequestFinishedParams["timeout"] | undefined; readonly url?: types.WaitForRequestFinishedParams["url"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.PageExchange> {
     warnExperimental("page.wait_for_request_finished");
-    return this.#host.call("page.wait_for_request_finished", defined({ page_id: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.wait"), url: options.url }), { signal: options.signal });
+    return this.#host.call("page.wait_for_request_finished", defined({ pageId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.wait"), url: options.url }), { signal: options.signal });
   }
 
   /**
@@ -482,7 +482,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   async waitForResponse(options: { readonly timeout?: types.WaitForExchangeParams["timeout"] | undefined; readonly url?: types.WaitForExchangeParams["url"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.PageExchange> {
     warnExperimental("page.wait_for_response");
-    return this.#host.call("page.wait_for_response", defined({ page_id: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.wait"), url: options.url }), { signal: options.signal });
+    return this.#host.call("page.wait_for_response", defined({ pageId: this.#host.id, timeout: timeoutOf(options.timeout, "timeout.wait"), url: options.url }), { signal: options.signal });
   }
 
   /**
@@ -490,9 +490,9 @@ export class Page extends Handle implements AsyncDisposable {
    *
    * @experimental
    */
-  async waitForURL(url: types.WaitForUrlParams["url"], options: { readonly timeout?: types.WaitForUrlParams["timeout"] | undefined; readonly waitUntil?: types.WaitForUrlParams["wait_until"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Reached> {
+  async waitForURL(url: types.WaitForUrlParams["url"], options: { readonly timeout?: types.WaitForUrlParams["timeout"] | undefined; readonly waitUntil?: types.WaitForUrlParams["waitUntil"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Reached> {
     warnExperimental("page.wait_for_url");
-    return this.#host.call("page.wait_for_url", defined({ page_id: this.#host.id, url, timeout: timeoutOf(options.timeout, "timeout.wait"), wait_until: options.waitUntil }), { signal: options.signal });
+    return this.#host.call("page.wait_for_url", defined({ pageId: this.#host.id, url, timeout: timeoutOf(options.timeout, "timeout.wait"), waitUntil: options.waitUntil }), { signal: options.signal });
   }
 
   /**
@@ -503,7 +503,7 @@ export class Page extends Handle implements AsyncDisposable {
   on<Name extends keyof PageEvents>(event: Name, listener: Listener<PageEvents[Name]>): Subscription {
     warnExperimental("page.on");
     const listened = PAGE_EVENTS[event];
-    return this.#host.listen("page.on", { page_id: this.#host.id, event: listened }, `page.${listened}`, listener);
+    return this.#host.listen("page.on", { pageId: this.#host.id, event: listened }, `page.${listened}`, listener);
   }
 
   /**
@@ -514,7 +514,7 @@ export class Page extends Handle implements AsyncDisposable {
    * Built without a call (ADR 0099).
    */
   locator(selector: types.Locator["selector"]): Locator {
-    return new Locator(this.#host.child<types.Locator>({ page_id: this.#host.id, selector }));
+    return new Locator(this.#host.child<types.Locator>({ pageId: this.#host.id, selector }));
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
@@ -539,7 +539,7 @@ export class Locator extends Handle {
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
   constructor(host: HandleHost<types.Locator, CollieOperationTypes>) {
-    super(host, "locator", "locator");
+    super(host, "locator", "locator", { type: "Locator" });
     this.#host = host;
   }
 
@@ -608,8 +608,8 @@ export class Locator extends Handle {
    *
    * @experimental
    */
-  async waitForFunction(function_: types.LocatorWaitForFunctionParams["function"], options: { readonly arg?: types.LocatorWaitForFunctionParams["arg"] | undefined; readonly pollingInterval?: types.LocatorWaitForFunctionParams["polling_interval"] | undefined; readonly timeout?: types.LocatorWaitForFunctionParams["timeout"] | undefined; readonly world?: types.LocatorWaitForFunctionParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Evaluated["value"]> | null> {
+  async waitForFunction(function_: types.LocatorWaitForFunctionParams["function"], options: { readonly arg?: types.LocatorWaitForFunctionParams["arg"] | undefined; readonly pollingInterval?: types.LocatorWaitForFunctionParams["pollingInterval"] | undefined; readonly timeout?: types.LocatorWaitForFunctionParams["timeout"] | undefined; readonly world?: types.LocatorWaitForFunctionParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Evaluated["value"]> | null> {
     warnExperimental("locator.wait_for_function");
-    return (await this.#host.call("locator.wait_for_function", defined({ locator: this.#host.id, function: function_, arg: options.arg, polling_interval: options.pollingInterval, timeout: timeoutOf(options.timeout, "timeout.wait"), world: options.world }), { signal: options.signal })).value ?? null;
+    return (await this.#host.call("locator.wait_for_function", defined({ locator: this.#host.id, function: function_, arg: options.arg, pollingInterval: options.pollingInterval, timeout: timeoutOf(options.timeout, "timeout.wait"), world: options.world }), { signal: options.signal })).value ?? null;
   }
 }

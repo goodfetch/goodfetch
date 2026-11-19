@@ -35,11 +35,11 @@ describe("limitList", () => {
       };
 
       expect(limitList(limits)).toEqual([
-        { usage_kind: "model_calls", amount: 100 },
-        { usage_kind: "browser_time", amount: 60_000 },
-        { usage_kind: "page_crashes", amount: 0 },
-        { usage_kind: "proxy_bytes", currency: "EUR", amount: 1 },
-        { usage_kind: "paid_solves", currency: "USD", amount: 2_500_000 },
+        { usageKind: "model_calls", amount: 100 },
+        { usageKind: "browser_time", amount: 60_000 },
+        { usageKind: "page_crashes", amount: 0 },
+        { usageKind: "proxy_bytes", currency: "EUR", amount: 1 },
+        { usageKind: "paid_solves", currency: "USD", amount: 2_500_000 },
       ]);
     },
   );
@@ -51,7 +51,7 @@ describe("limitList", () => {
     ["the largest the wire carries exactly", "9007199254.740991", Number.MAX_SAFE_INTEGER],
   ])("turns %s exactly", { tags: ["story:11-51"] }, (_, amount, millionths) => {
     expect(limitList({ price: { modelTokens: { amount, currency: "USD" } } })).toEqual([
-      { usage_kind: "model_tokens", currency: "USD", amount: millionths },
+      { usageKind: "model_tokens", currency: "USD", amount: millionths },
     ]);
   });
 

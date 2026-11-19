@@ -229,7 +229,7 @@ export type ResponseOrigin =
       /**
        * When the cached response was fetched.
        */
-      fetched_at: PointInTime;
+      fetchedAt: PointInTime;
       kind: "response_cache";
     }
   | {
@@ -237,7 +237,7 @@ export type ResponseOrigin =
       /**
        * When the recorded response was received.
        */
-      recorded_at: PointInTime;
+      recordedAt: PointInTime;
     };
 /**
  * What a Record's Provenance says of the robots.txt of its page's origin
@@ -348,7 +348,7 @@ export type EffectClosed =
       /**
        * When it was performed.
        */
-      performed_at: PointInTime;
+      performedAt: PointInTime;
     }
   | {
       judged: "dropped";
@@ -387,7 +387,7 @@ export type EffectOpened =
        * Effect on any machine and different in every Run and install,
        * for the body to send as a site's `Idempotency-Key`.
        */
-      idempotency_key: string;
+      idempotencyKey: string;
     }
   | {
       answer: "journal";
@@ -400,18 +400,18 @@ export type EffectOpened =
       /**
        * When it was performed.
        */
-      performed_at: PointInTime;
+      performedAt: PointInTime;
     }
   | {
       answer: "reconciled";
       /**
        * When they answered.
        */
-      reconciled_at: PointInTime;
+      reconciledAt: PointInTime;
       /**
        * Who answered.
        */
-      reconciled_by: string;
+      reconciledBy: string;
     };
 /**
  * A state of the element a locator matches (Playwright's `waitFor`).
@@ -573,7 +573,7 @@ export type FieldTransform =
       /**
        * The time zone, an IANA name, of a text that states none.
        */
-      time_zone?: string | null;
+      timeZone?: string | null;
     };
 /**
  * The form a Client's user writes names in (ADR 0099), which the engine
@@ -805,7 +805,7 @@ export type SessionSource =
       /**
        * A Chromium-family profile within it.
        */
-      chromium_profile?: string | null;
+      chromiumProfile?: string | null;
       /**
        * The registrable domains its navigation is bound to.
        */
@@ -824,7 +824,7 @@ export type SessionSource =
       /**
        * A Chromium-family profile of it.
        */
-      chromium_profile?: string | null;
+      chromiumProfile?: string | null;
       /**
        * The registrable domains its data is read for.
        */
@@ -881,7 +881,7 @@ export type NothingDone =
       /**
        * When it ended.
        */
-      ended_at: PointInTime;
+      endedAt: PointInTime;
       reason: "already_ended";
     }
   | {
@@ -1206,7 +1206,7 @@ export interface AddInitScriptParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
 }
 /**
  * A Limit that applies to a Run (ADRs 0041 and 0101): its scope's kind and
@@ -1236,7 +1236,7 @@ export interface AppliedLimit {
   /**
    * When its period starts again; none for a Limit without one.
    */
-  resets_at?: PointInTime | null;
+  resetsAt?: PointInTime | null;
   /**
    * What it is on; a scope kind this reader does not know is kept.
    */
@@ -1244,11 +1244,11 @@ export interface AppliedLimit {
   /**
    * Who set it.
    */
-  set_by: LimitSetter;
+  setBy: LimitSetter;
   /**
    * The Usage kind it caps.
    */
-  usage_kind: string;
+  usageKind: string;
 }
 /**
  * The period a Limit counts over, in an explicit IANA time zone, so that
@@ -1265,7 +1265,7 @@ export interface Period {
   /**
    * The IANA time zone its midnights are in, such as `Europe/Paris`.
    */
-  time_zone: string;
+  timeZone: string;
 }
 /**
  * What a Limit is on: a scope kind, a value of a type both Products share
@@ -1372,7 +1372,7 @@ export interface ExportedAuditEntry {
   /**
    * The Run it happened in; none outside a Run.
    */
-  run_id?: RunId | null;
+  runId?: RunId | null;
   /**
    * Its place in the chain, from 1.
    */
@@ -1403,7 +1403,7 @@ export interface AuditVerified {
    * or out of its place, or, past the last entry, a tail the head file
    * says was there; none when intact.
    */
-  first_broken?: number | null;
+  firstBroken?: number | null;
   /**
    * Whether every entry chains to the one before it and the head file
    * agrees with the last one.
@@ -1428,7 +1428,7 @@ export interface AxisReason {
    * The AI task it is about, by its `callId`, when it is about one (ADR
    * 0100).
    */
-  call_id?: string | null;
+  callId?: string | null;
   /**
    * What it is, such as `stopped` or `failed`; a reason this reader does
    * not know is kept as it is.
@@ -1462,7 +1462,7 @@ export interface BodyHandle {
   /**
    * The Run whose folder holds it.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * Its size in bytes.
    */
@@ -1496,7 +1496,7 @@ export interface CertificateExceptionMark {
    * The SHA-256 of the public key of the certificate it accepted, as
    * `sha256/<base64>`, the known-certificates store's spelling.
    */
-  spki_sha256: string;
+  spkiSha256: string;
 }
 /**
  * One pin of the known-certificates store, as `certs.list` answers it and
@@ -1512,7 +1512,7 @@ export interface CertificatePin {
    * with `certificate_changed`, as `sha256/` and its standard base64: the
    * key `certs.accept` pins in its place. None while no change waits.
    */
-  changed_spki_sha256?: string | null;
+  changedSpkiSha256?: string | null;
   /**
    * The host, as the URL parser leaves it.
    */
@@ -1520,18 +1520,18 @@ export interface CertificatePin {
   /**
    * When it was pinned; none when the row cannot be read.
    */
-  pinned_at?: PointInTime | null;
+  pinnedAt?: PointInTime | null;
   /**
    * The Run whose connection pinned it; none outside a Run or when the
    * row cannot be read.
    */
-  run_id?: RunId | null;
+  runId?: RunId | null;
   /**
    * The SHA-256 of the pinned certificate's `SubjectPublicKeyInfo`, as
    * `sha256/` and its standard base64; none when the row cannot be read,
    * which stops the host as a changed key.
    */
-  spki_sha256?: string | null;
+  spkiSha256?: string | null;
 }
 /**
  * What `certs.accept` takes: the host, and the changed key the person
@@ -1548,7 +1548,7 @@ export interface CertsAcceptParams {
   /**
    * The SHA-256 of the changed key, as `sha256/` and its standard base64.
    */
-  spki_sha256: string;
+  spkiSha256: string;
 }
 /**
  * What `certs.forget` takes: the host.
@@ -1615,7 +1615,7 @@ export interface Checkpoint {
    * The position of the run's journal it holds: how many commits of the
    * run file it contains. A resume from it redoes the work after.
    */
-  journal_position: number;
+  journalPosition: number;
   /**
    * Where it is: the file's path on the engine's machine.
    */
@@ -1624,11 +1624,11 @@ export interface Checkpoint {
    * The run epoch of the writer that took it (ADR 0003), which a
    * destination compares and sets: one older than it holds is refused.
    */
-  run_epoch: number;
+  runEpoch: number;
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * Its size in bytes.
    */
@@ -1682,7 +1682,7 @@ export interface Locator {
   /**
    * The page it looks on.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * A CSS selector, which also matches inside open shadow roots.
    */
@@ -1698,7 +1698,7 @@ export interface Concurrency {
   /**
    * Open browser pages.
    */
-  browser_page: KindConcurrency;
+  browserPage: KindConcurrency;
   /**
    * HTTP and discovered-API fetches.
    */
@@ -1706,7 +1706,7 @@ export interface Concurrency {
   /**
    * Model calls.
    */
-  model_call: KindConcurrency;
+  modelCall: KindConcurrency;
 }
 /**
  * One kind's concurrency.
@@ -1726,7 +1726,7 @@ export interface KindConcurrency {
   /**
    * How many are admitted now.
    */
-  in_use: number;
+  inUse: number;
   /**
    * How many the governor admits at once now.
    */
@@ -1749,7 +1749,7 @@ export interface ConfigExplainParams {
    * of `project`, when no file is there: it sets nothing, and the answer
    * lists it as not found.
    */
-  missing_project?: string | null;
+  missingProject?: string | null;
   /**
    * Where those run values come from: a scope's `settings` option by
    * default, or the CLI's flags when the CLI asks a Daemon.
@@ -1823,11 +1823,11 @@ export interface ConsoleLocation {
   /**
    * The column, from 0.
    */
-  column_number: number;
+  columnNumber: number;
   /**
    * The line, from 0.
    */
-  line_number: number;
+  lineNumber: number;
   /**
    * The script's URL; empty for a script the page evaluated.
    */
@@ -1847,7 +1847,7 @@ export interface ConsoleMessage {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * Its text: each argument, a primitive as its value and any other as
    * the browser describes it, joined by spaces.
@@ -1990,7 +1990,7 @@ export interface CpuReading {
   /**
    * The Tokio workers' busy time since the last sample, in percent.
    */
-  tokio_busy: number;
+  tokioBusy: number;
 }
 /**
  * What `$/credit` grants: more events, or chunks, for a streaming call;
@@ -2065,16 +2065,16 @@ export interface DaemonState {
   /**
    * Its `daemon.idle_timeout`, in milliseconds.
    */
-  idle_timeout: number;
+  idleTimeout: number;
   /**
    * Whether it never stops idle: `--keep-alive`, a held Schedule or an
    * installed service.
    */
-  kept_alive: boolean;
+  keptAlive: boolean;
   /**
    * How many of its Runs are live.
    */
-  live_runs: number;
+  liveRuns: number;
   /**
    * Its process ID.
    */
@@ -2086,7 +2086,7 @@ export interface DaemonState {
   /**
    * Its Product version.
    */
-  product_version: ProductVersion;
+  productVersion: ProductVersion;
 }
 /**
  * What `daemon.stop` answers, before the Daemon stops.
@@ -2098,7 +2098,7 @@ export interface DaemonStopping {
   /**
    * How many live Runs it stops, each resumable from its own state.
    */
-  live_runs: number;
+  liveRuns: number;
 }
 /**
  * One committed Record of a Dataset, as a reader reads it (ADR 0103).
@@ -2110,7 +2110,7 @@ export interface DatasetRecord {
   /**
    * When it was committed.
    */
-  committed_at: PointInTime;
+  committedAt: PointInTime;
   /**
    * Its number in its Dataset, from 1, in commit order, with no gaps.
    */
@@ -2122,7 +2122,7 @@ export interface DatasetRecord {
   /**
    * The ID of the crawl request whose attempt committed it.
    */
-  request_id: string;
+  requestId: string;
   /**
    * That crawl request's URL.
    */
@@ -2145,12 +2145,12 @@ export interface RecordProvenance {
    * The exception of `tls.accept_invalid_certs` its document's host was
    * reached through; none where its certificate verified.
    */
-  certificate_exception?: CertificateExceptionMark | null;
+  certificateException?: CertificateExceptionMark | null;
   /**
    * The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,
    * whose Run trace names their date and the release that applied them.
    */
-  clean_up_rules?: string | null;
+  cleanUpRules?: string | null;
   /**
    * The encoding the document was read in, and where it came from;
    * none for a request with no document.
@@ -2169,7 +2169,7 @@ export interface RecordProvenance {
   /**
    * The ID of the crawl request whose attempt produced it.
    */
-  request_id: string;
+  requestId: string;
   /**
    * `ignored` when its page was fetched while
    * `site_preferences.respect_robots_txt` was off and
@@ -2177,7 +2177,7 @@ export interface RecordProvenance {
    * origin's robots.txt disallows, so a result taken against a site's
    * stated preferences can be found and removed; none otherwise.
    */
-  robots_txt?: RobotsTxtMark | null;
+  robotsTxt?: RobotsTxtMark | null;
   /**
    * The tier that fetched that request's document, and how it was
    * chosen; none where no document was fetched.
@@ -2187,12 +2187,12 @@ export interface RecordProvenance {
    * Each field of a code-free crawl the page did not give, null in the
    * Record, with why; absent where every field was read.
    */
-  unread_fields?: UnreadField[];
+  unreadFields?: UnreadField[];
   /**
    * Each field whose value an engine Value transform gave, in the
    * order read; empty where the program parsed its own values.
    */
-  value_transforms?: TransformProvenance[];
+  valueTransforms?: TransformProvenance[];
   /**
    * The Wall its page was read past; none where no Wall was met.
    */
@@ -2235,7 +2235,7 @@ export interface PaymentMark {
   /**
    * The domain paid.
    */
-  payee_domain: string;
+  payeeDomain: string;
   /**
    * The payment scheme the site asked through.
    */
@@ -2258,7 +2258,7 @@ export interface TierProvenance {
    * when the Session's own HTTP transport sent them, `browser_fetch`
    * when they left from inside its browser.
    */
-  calls_sent_on?: FetchTier | null;
+  callsSentOn?: FetchTier | null;
   /**
    * How it was chosen.
    */
@@ -2266,7 +2266,7 @@ export interface TierProvenance {
   /**
    * What forced it, when `chosen` is `forced`.
    */
-  forced_by?: ForcedBy | null;
+  forcedBy?: ForcedBy | null;
   /**
    * The tier that sent the document's request, whoever chose it:
    * `browser_fetch` when it left from inside the Session's browser, as
@@ -2329,7 +2329,7 @@ export interface TransformProvenance {
    * Its resolved time zone, an IANA name, for a date-time or a
    * relative time.
    */
-  time_zone?: string | null;
+  timeZone?: string | null;
   /**
    * The transform.
    */
@@ -2362,7 +2362,7 @@ export interface Dialog {
   /**
    * A prompt's default value; empty for any other kind.
    */
-  default_value: string;
+  defaultValue: string;
   /**
    * Its message.
    */
@@ -2382,11 +2382,11 @@ export interface DialogAcceptParams {
   /**
    * The dialog.
    */
-  dialog_id: DialogId;
+  dialogId: DialogId;
   /**
    * The text a prompt returns; its default value when absent.
    */
-  prompt_text?: string | null;
+  promptText?: string | null;
 }
 /**
  * What an answer to a dialog answers once the page closed the dialog.
@@ -2405,7 +2405,7 @@ export interface DialogDismissParams {
   /**
    * The dialog.
    */
-  dialog_id: DialogId;
+  dialogId: DialogId;
 }
 /**
  * What `dialog.handle` gives the handler: the dialog, named by the ID its
@@ -2422,7 +2422,7 @@ export interface DialogHandleParams {
   /**
    * The dialog, which an answer names.
    */
-  dialog_id: DialogId;
+  dialogId: DialogId;
   /**
    * The id of the `page.on_dialog` call whose handler is asked.
    */
@@ -2430,7 +2430,7 @@ export interface DialogHandleParams {
   /**
    * The page that opened it.
    */
-  page_id: PageId;
+  pageId: PageId;
 }
 /**
  * What the handler replies to `dialog.handle` once it ended; a failure
@@ -2465,11 +2465,11 @@ export interface DownloadProgress {
   /**
    * The bytes received so far.
    */
-  received_bytes: number;
+  receivedBytes: number;
   /**
    * The bytes the answer announced, when it did.
    */
-  total_bytes?: number | null;
+  totalBytes?: number | null;
 }
 /**
  * What `download.save_as` takes.
@@ -2481,7 +2481,7 @@ export interface DownloadSaveAsParams {
   /**
    * The Download.
    */
-  download_id: DownloadId;
+  downloadId: DownloadId;
   /**
    * The program's path, absolute, which an Attached engine writes
    * itself; any other engine leaves it to the SDK and sends the file's
@@ -2522,11 +2522,11 @@ export interface EffectAttempt {
   /**
    * The ID of the crawl request whose attempt declares the Effect.
    */
-  crawl_request_id: string;
+  crawlRequestId: string;
   /**
    * The attempt's lease epoch, as `crawl_request.handle` gave it.
    */
-  lease_epoch: number;
+  leaseEpoch: number;
 }
 /**
  * What `effect.close` takes: the entry `effect.open` answered and how its
@@ -2547,7 +2547,7 @@ export interface EffectCloseParams {
   /**
    * The Run whose Effect journal keeps the Effect.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * An Effect a Run left uncertain (ADR 0106), until a person reconciles it.
@@ -2559,7 +2559,7 @@ export interface UncertainEffect {
   /**
    * The crawl request it ran for, in a crawl.
    */
-  crawl_request?: string | null;
+  crawlRequest?: string | null;
   /**
    * Its Effect journal entry.
    */
@@ -2567,7 +2567,7 @@ export interface UncertainEffect {
   /**
    * The first command sent for it.
    */
-  first_command?: string | null;
+  firstCommand?: string | null;
   /**
    * Its instruction, for an AI action.
    */
@@ -2614,7 +2614,7 @@ export interface EffectOpenParams {
   /**
    * The Run whose Effect journal keeps the Effect.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * An Error code a Run's ending raises, with its message and details.
@@ -2652,15 +2652,15 @@ export interface EngineInfo {
   /**
    * The major of its Product version, which names its per-major state.
    */
-  product_major: number;
+  productMajor: number;
   /**
    * The engine's Product version.
    */
-  product_version: ProductVersion;
+  productVersion: ProductVersion;
   /**
    * The protocol version the engine speaks.
    */
-  protocol_version: ProtocolVersion;
+  protocolVersion: ProtocolVersion;
 }
 /**
  * What `engine.info` takes: nothing.
@@ -2726,7 +2726,7 @@ export interface EvaluateParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * Where it runs; the main world when absent.
    */
@@ -2812,7 +2812,7 @@ export interface EventsSubscribeParams {
    * periodic readings; false by default, so a subscription that reads
    * only what changes sees no periodic event.
    */
-  system_info?: boolean;
+  systemInfo?: boolean;
 }
 /**
  * The last event a Client read: its position, and the engine instance
@@ -2825,7 +2825,7 @@ export interface LastRead {
   /**
    * The engine instance, as its `hello` named it.
    */
-  engine_instance: EngineInstance;
+  engineInstance: EngineInstance;
   /**
    * The event's position.
    */
@@ -2854,7 +2854,7 @@ export interface ExplainedSetting {
    * refused with `setting_not_applicable`, and only a new Run takes
    * another value (ADRs 0102 and 0120).
    */
-  fixed_for_run?: boolean;
+  fixedForRun?: boolean;
   /**
    * Its key.
    */
@@ -2868,7 +2868,7 @@ export interface ExplainedSetting {
    * Recipe that declares it without exposing it, or the default for an
    * honesty guarantee.
    */
-  locked_by?: SettingsLayer | null;
+  lockedBy?: SettingsLayer | null;
   /**
    * For the run layer, where the value came from.
    */
@@ -2888,7 +2888,7 @@ export interface ExplainedSetting {
    * configuration hold it and no lower layer locked it, so a person
    * surface may offer its user-level value for editing (ADR 0031).
    */
-  user_settable?: boolean;
+  userSettable?: boolean;
   /**
    * The effective value, or for a key this engine does not apply, the
    * value its highest layer wrote.
@@ -2908,7 +2908,7 @@ export interface ExplainedSetting {
    * `session.source`, whose Sessions hold a login and so send their HTTP
    * from the browser (#2418).
    */
-  yields_to?: SettingLimit | null;
+  yieldsTo?: SettingLimit | null;
 }
 /**
  * The setting whose value names the preset that gave another setting its
@@ -3009,7 +3009,7 @@ export interface FormatsParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
 }
 /**
  * The formats a `page.formats` call asks for, each `true` or its options:
@@ -3095,7 +3095,7 @@ export interface GotoParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * How long the navigation may take, in milliseconds, at least 1:
    * absent for `timeout.navigation`, `null` for none, though an
@@ -3110,7 +3110,7 @@ export interface GotoParams {
   /**
    * When the navigation answers; `load` when absent.
    */
-  wait_until?: WaitUntil | null;
+  waitUntil?: WaitUntil | null;
 }
 /**
  * What a `hello` says.
@@ -3127,7 +3127,7 @@ export interface HelloParams {
    * `not_in_product` (ADR 0095). None on the gateway's own Connection;
    * any other surface names none.
    */
-  client_surface?: Surface | null;
+  clientSurface?: Surface | null;
   /**
    * The form its user writes names in (ADR 0099); none until each
    * surface names its own.
@@ -3140,13 +3140,13 @@ export interface HelloParams {
    * Connection does (ADR 0141). Read only from a `kennel` Connection,
    * and ignored on any other surface's.
    */
-  keep_daemon_alive?: boolean;
+  keepDaemonAlive?: boolean;
   /**
    * The level of the engine's log events the Client receives as `$/log`
    * notifications, until `connection.set_log_level` changes it; none,
    * as `off`, receives none (ADR 0078).
    */
-  log_level?: LogLevel | null;
+  logLevel?: LogLevel | null;
   /**
    * The Product the Client needs, which every surface but a Browser
    * host's must name (ADR 0095).
@@ -3155,11 +3155,11 @@ export interface HelloParams {
   /**
    * The sender's own Product version.
    */
-  product_version: ProductVersion;
+  productVersion: ProductVersion;
   /**
    * The protocol version the sender speaks.
    */
-  protocol_version: ProtocolVersion;
+  protocolVersion: ProtocolVersion;
   /**
    * The surface it comes from.
    */
@@ -3181,13 +3181,13 @@ export interface HelloResult {
    * of its events count within it, so a Client that meets a new one
    * resyncs (ADR 0031).
    */
-  engine_instance: EngineInstance;
+  engineInstance: EngineInstance;
   /**
    * An Attached engine's private endpoint, reported to the Client of its
    * stdio alone: where that Client's `workers=N` handler processes, and a
    * Daemon forwarding a live action, connect (ADRs 0024 and 0031).
    */
-  private_endpoint?: PrivateEndpoint | null;
+  privateEndpoint?: PrivateEndpoint | null;
   /**
    * The engine's Product.
    */
@@ -3195,11 +3195,11 @@ export interface HelloResult {
   /**
    * The engine's Product version.
    */
-  product_version: ProductVersion;
+  productVersion: ProductVersion;
   /**
    * The protocol version the engine speaks.
    */
-  protocol_version: ProtocolVersion;
+  protocolVersion: ProtocolVersion;
 }
 /**
  * An Attached engine's private endpoint (ADRs 0024 and 0031): where it
@@ -3218,7 +3218,7 @@ export interface PrivateEndpoint {
   /**
    * The path of the file holding its token.
    */
-  token_file: string;
+  tokenFile: string;
 }
 /**
  * A Human pause waiting for a person (ADR 0092).
@@ -3240,7 +3240,7 @@ export interface HumanPause {
   /**
    * Whether the program or the engine raised it.
    */
-  raised_by: PauseOrigin;
+  raisedBy: PauseOrigin;
   /**
    * Why, as the program or the engine said it.
    */
@@ -3299,11 +3299,11 @@ export interface KeyValueStoreAttempt {
   /**
    * The ID of the crawl request whose attempt makes the call.
    */
-  crawl_request_id: string;
+  crawlRequestId: string;
   /**
    * The attempt's lease epoch, as `crawl_request.handle` gave it.
    */
-  lease_epoch: number;
+  leaseEpoch: number;
 }
 /**
  * Bytes the store holds for a key, with their content type.
@@ -3319,7 +3319,7 @@ export interface KeyValueStoreBytes {
   /**
    * Their content type, as `set_bytes` gave it.
    */
-  content_type: string;
+  contentType: string;
 }
 /**
  * What `key_value_store.get_bytes` answers: the key's committed bytes, or
@@ -3384,7 +3384,7 @@ export interface KeyValueStoreKeyParams {
   /**
    * The Run whose store it is.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `key_value_store.keys` answers once it sent its last key.
@@ -3413,7 +3413,7 @@ export interface KeyValueStoreKeysParams {
   /**
    * The Run whose store it is.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `key_value_store.set` answers once the value is committed.
@@ -3444,7 +3444,7 @@ export interface KeyValueStoreSetBytesParams {
   /**
    * Their content type, such as `image/png`.
    */
-  content_type: string;
+  contentType: string;
   /**
    * The key.
    */
@@ -3452,7 +3452,7 @@ export interface KeyValueStoreSetBytesParams {
   /**
    * The Run whose store it is.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `key_value_store.set` takes: the Run, the key and its value.
@@ -3474,7 +3474,7 @@ export interface KeyValueStoreSetParams {
   /**
    * The Run whose store it is.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * The value: any JSON but a top-level null, which `value_invalid`
    * refuses; a nested null is kept.
@@ -3516,7 +3516,7 @@ export interface KindUsage {
   /**
    * The Usage kind, a value of a type both Products share.
    */
-  usage_kind: string;
+  usageKind: string;
 }
 /**
  * One Limit of the Usage ledger: a generic row, which a newer engine may
@@ -3541,7 +3541,7 @@ export interface Limit {
    * Whether an engine that cannot evaluate it must refuse the runs it
    * cannot place outside it, with `limit_not_understood`.
    */
-  must_understand: boolean;
+  mustUnderstand: boolean;
   /**
    * The period it counts over; none for a Limit that never starts again,
    * such as a Client connection's.
@@ -3554,11 +3554,11 @@ export interface Limit {
   /**
    * Who set it.
    */
-  set_by: LimitSetter;
+  setBy: LimitSetter;
   /**
    * The Usage kind it caps, a value of a type both Products share.
    */
-  usage_kind: string;
+  usageKind: string;
 }
 /**
  * One Limit with the Usage counted against it in its current period.
@@ -3588,15 +3588,15 @@ export interface LimitUsage {
    * The major of the managed Operator policy whose row it is; none for
    * a row no managed policy wrote.
    */
-  managed_major?: string | null;
+  managedMajor?: string | null;
   /**
    * When the current period started; none for a Limit without one.
    */
-  period_started_at?: PointInTime | null;
+  periodStartedAt?: PointInTime | null;
   /**
    * When the next period starts; none for a Limit without one.
    */
-  resets_at?: PointInTime | null;
+  resetsAt?: PointInTime | null;
   /**
    * What the engine that read it makes of it.
    */
@@ -3735,7 +3735,7 @@ export interface LocatorWaitForFunctionParams {
    * The milliseconds between two checks, at least 1; absent, about one
    * frame's, 16.
    */
-  polling_interval?: number | null;
+  pollingInterval?: number | null;
   /**
    * How long the wait may take, in milliseconds, at least 1: absent for
    * `timeout.wait`, `null` for none, though an enclosing timeout still
@@ -3849,7 +3849,7 @@ export interface MemoryReading {
   /**
    * What set it.
    */
-  allowance_source: AllowanceSource;
+  allowanceSource: AllowanceSource;
   /**
    * What the browsers it counts use, in bytes, each process with its
    * descendants (PSS on Linux), summed; part of `used`, 0 with none.
@@ -3905,7 +3905,7 @@ export interface Metadata {
    * Each `<script type="application/ld+json">` block that parses, as
    * JSON, in document order.
    */
-  json_ld: unknown[];
+  jsonLd: unknown[];
   /**
    * Its root element's `lang`; `null` when it has none.
    */
@@ -3925,7 +3925,7 @@ export interface Metadata {
    * Its Open Graph tags: every `<meta property>` not named `twitter:`,
    * and every `<meta name>` named `og:`.
    */
-  open_graph: MetaTag[];
+  openGraph: MetaTag[];
   /**
    * Its first `<title>`'s text, white space collapsed; `null` when it
    * has none.
@@ -3981,7 +3981,7 @@ export interface ModelAllowance {
   /**
    * When a model call was first refused under it; none until then.
    */
-  reached_at?: PointInTime | null;
+  reachedAt?: PointInTime | null;
   /**
    * What remains of it, spent and reserved taken off.
    */
@@ -4006,12 +4006,12 @@ export interface ModelCounts {
    * The input tokens read from the provider's cache, part of
    * `input_tokens`.
    */
-  cache_read_tokens: number;
+  cacheReadTokens: number;
   /**
    * The input tokens written to the provider's cache, part of
    * `input_tokens`.
    */
-  cache_write_tokens: number;
+  cacheWriteTokens: number;
   /**
    * The calls, retries and Repairs included.
    */
@@ -4019,11 +4019,11 @@ export interface ModelCounts {
   /**
    * The input tokens, the cached ones included.
    */
-  input_tokens: number;
+  inputTokens: number;
   /**
    * The output tokens, the reasoning ones included.
    */
-  output_tokens: number;
+  outputTokens: number;
   /**
    * Their price at the price table's list prices, in its currency: an
    * estimate, never a bill (ADR 0012). `null` when it needs a price or
@@ -4034,7 +4034,7 @@ export interface ModelCounts {
    * The output tokens the model spent reasoning, part of
    * `output_tokens`.
    */
-  reasoning_tokens: number;
+  reasoningTokens: number;
   /**
    * The tokens, input and output, what the `model_tokens` Usage kind
    * counts.
@@ -4068,19 +4068,19 @@ export interface ModelUsage {
   /**
    * The counts and price of each model called, by Model reference.
    */
-  by_model?: {
+  byModel?: {
     [k: string]: ModelCounts;
   };
   /**
    * The input tokens read from the provider's cache, part of
    * `input_tokens`.
    */
-  cache_read_tokens: number;
+  cacheReadTokens: number;
   /**
    * The input tokens written to the provider's cache, part of
    * `input_tokens`.
    */
-  cache_write_tokens: number;
+  cacheWriteTokens: number;
   /**
    * The calls, retries and Repairs included.
    */
@@ -4088,11 +4088,11 @@ export interface ModelUsage {
   /**
    * The input tokens, the cached ones included.
    */
-  input_tokens: number;
+  inputTokens: number;
   /**
    * The output tokens, the reasoning ones included.
    */
-  output_tokens: number;
+  outputTokens: number;
   /**
    * Their price at the price table's list prices, in its currency: an
    * estimate, never a bill (ADR 0012). `null` when it needs a price or
@@ -4103,7 +4103,7 @@ export interface ModelUsage {
    * The output tokens the model spent reasoning, part of
    * `output_tokens`.
    */
-  reasoning_tokens: number;
+  reasoningTokens: number;
   /**
    * The tokens, input and output, what the `model_tokens` Usage kind
    * counts.
@@ -4144,7 +4144,7 @@ export interface PageResponse {
    * Whether a site's service worker supplied it, from its own cache or
    * through its own fetch (ADR 0121).
    */
-  from_service_worker: boolean;
+  fromServiceWorker: boolean;
   /**
    * Its headers, their names lower-cased, as the browser received them.
    */
@@ -4155,7 +4155,7 @@ export interface PageResponse {
    * The engine's ID for its request's hop, which `response.body` takes:
    * its request's `request_id`.
    */
-  request_id: string;
+  requestId: string;
   /**
    * Its HTTP status.
    */
@@ -4163,7 +4163,7 @@ export interface PageResponse {
   /**
    * Its status text.
    */
-  status_text: string;
+  statusText: string;
   /**
    * Its final URL.
    */
@@ -4327,7 +4327,7 @@ export interface NeedsYouRemoveRefetchDomainParams {
    * When only `*` covers the domain in its layer, the registrable
    * domains that replace `*` there, the domain itself not among them.
    */
-  instead_of_star?: string[] | null;
+  insteadOfStar?: string[] | null;
 }
 /**
  * What `run.new_page` takes: the Run whose default Session opens the page,
@@ -4340,7 +4340,7 @@ export interface NewPageParams {
   /**
    * The Run.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * The page's own settings, nested by key (ADR 0083), which it takes
    * over its Session's and its Run's: `content.extractor`, the
@@ -4363,7 +4363,7 @@ export interface NewSessionPageParams {
   /**
    * The Session.
    */
-  session_id: SessionId;
+  sessionId: SessionId;
   /**
    * The page's own settings, nested by key (ADR 0083), which it takes
    * over its Session's and its Run's: `content.extractor`, the
@@ -4387,7 +4387,7 @@ export interface NewSessionParams {
   /**
    * The Run.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * The Session's own settings, nested by key: `filter_lists.ads`,
    * `.trackers`, `.annoyances`, `.first_party_scripts`,
@@ -4436,7 +4436,7 @@ export interface NotUnderstoodLimit {
   /**
    * The Usage kind it caps.
    */
-  usage_kind: string;
+  usageKind: string;
 }
 /**
  * How many seeds one reason kept from a handler.
@@ -4519,7 +4519,7 @@ export interface PageBodyParams {
   /**
    * The Run whose folder holds it.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `page.body` answers once it sent the last chunk.
@@ -4544,12 +4544,12 @@ export interface PageCloseParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * Runs the page's `beforeunload` handlers first, whose dialog goes to
    * the page's dialog handlers; false when absent.
    */
-  run_before_unload?: boolean | null;
+  runBeforeUnload?: boolean | null;
 }
 /**
  * What `page.close` answers.
@@ -4569,11 +4569,11 @@ export interface PageDownload {
   /**
    * The page whose navigation it was.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * The file name the browser suggests for it.
    */
-  suggested_filename: string;
+  suggestedFilename: string;
   /**
    * The file's URL.
    */
@@ -4620,7 +4620,7 @@ export interface PageRequest {
    * Whether it loads the document of one of the page's frames, its main
    * frame's or an iframe's, as Playwright's `isNavigationRequest()`.
    */
-  is_navigation_request: boolean;
+  isNavigationRequest: boolean;
   /**
    * Its method, such as `GET`.
    */
@@ -4628,32 +4628,32 @@ export interface PageRequest {
   /**
    * The page that sent it.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * Its body, in Base64 (RFC 4648, with padding), when it has one.
    */
-  post_data?: string | null;
+  postData?: string | null;
   /**
    * The URLs of the hops a redirect led from before it, the first first;
    * empty when no redirect led to it.
    */
-  redirect_chain: string[];
+  redirectChain: string[];
   /**
    * The `request_id` of the hop whose redirect led to it, Playwright's
    * `redirectedFrom()`; none at a request's first hop.
    */
-  redirected_from?: string | null;
+  redirectedFrom?: string | null;
   /**
    * The engine's ID for this hop, which `response.body` takes: the
    * browser's ID for the request at its first hop, and that ID with
    * `#` and the hop's number after each redirect.
    */
-  request_id: string;
+  requestId: string;
   /**
    * What it loads, as Playwright's `resourceType()` names it: the
    * browser's name in lowercase, such as `document`, `fetch` or `xhr`.
    */
-  resource_type: string;
+  resourceType: string;
   /**
    * Its URL.
    */
@@ -4676,7 +4676,7 @@ export interface RequestFailure {
    * a route aborted or `net::ERR_BLOCKED_BY_CLIENT` for one the engine
    * blocked.
    */
-  error_text: string;
+  errorText: string;
 }
 /**
  * Rows: for each element the base locator finds, in document order, one
@@ -4710,7 +4710,7 @@ export interface PageFired {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
 }
 /**
  * What `page.formats` answers: the formats the request asked for, and
@@ -4726,7 +4726,7 @@ export interface PageFormats {
    * The URL its relative URLs resolve against: its first `<base href>`,
    * else its URL.
    */
-  base_url: string;
+  baseURL: string;
   /**
    * Its contacts, when the request asked for them.
    */
@@ -4747,7 +4747,7 @@ export interface PageFormats {
    * Whether it has main content, when the request asked for a format
    * read from it ([`FormatsRequest::reads_main_content`]).
    */
-  main_content?: MainContent;
+  mainContent?: MainContent;
   /**
    * Its content as Markdown, when the request asked for it.
    */
@@ -4785,7 +4785,7 @@ export interface Table {
   /**
    * Its other rows, its `<tfoot>`'s last.
    */
-  body_rows: string[][];
+  bodyRows: string[][];
   /**
    * Its `<caption>`'s text; `null` when it has none.
    */
@@ -4794,7 +4794,7 @@ export interface Table {
    * Its header rows: its `<thead>`'s, else the rows it begins with whose
    * cells are all `<th>`.
    */
-  header_rows: string[][];
+  headerRows: string[][];
 }
 /**
  * What `page.on_dialog` takes: the page whose dialogs its handler
@@ -4807,7 +4807,7 @@ export interface PageOnDialogParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
 }
 /**
  * What `page.on` answers when its page goes, closed or with its Run.
@@ -4830,7 +4830,7 @@ export interface PageOnParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
 }
 /**
  * What `run.new_page` and `session.new_page` answer: the page, and the
@@ -4843,11 +4843,11 @@ export interface PageOpened {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * Its Session: the Run's default Session for `run.new_page`.
    */
-  session_id: SessionId;
+  sessionId: SessionId;
 }
 /**
  * What `page.reload`, `page.go_back` and `page.go_forward` take: the page.
@@ -4859,7 +4859,7 @@ export interface PageParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
 }
 /**
  * What `page.popup` reports: the page that opened a popup, and the
@@ -4872,7 +4872,7 @@ export interface PagePopup {
   /**
    * The opener.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * The popup.
    */
@@ -4918,7 +4918,7 @@ export interface PageReadParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
 }
 /**
  * What `page.request` takes: the page whose Session sends the request, and
@@ -4940,7 +4940,7 @@ export interface PageRequestParams {
    * to 19, the default; past its count it raises `too_many_redirects`,
    * and a count above 19 is refused with `setting_invalid`.
    */
-  max_redirects?: number | null;
+  maxRedirects?: number | null;
   /**
    * Its method; `GET` when absent.
    */
@@ -4948,11 +4948,11 @@ export interface PageRequestParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * Its body, in Base64.
    */
-  post_data?: string | null;
+  postData?: string | null;
   /**
    * The URL.
    */
@@ -4969,7 +4969,7 @@ export interface PageRouteParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * The URLs it answers.
    */
@@ -4986,7 +4986,7 @@ export interface PageWebSocket {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * Its URL.
    */
@@ -4994,7 +4994,7 @@ export interface PageWebSocket {
   /**
    * The browser's ID for the socket, which its events name.
    */
-  web_socket_id: string;
+  webSocketId: string;
 }
 /**
  * What a Run did with its Plan file (ADR 0091).
@@ -5014,7 +5014,7 @@ export interface PlanReport {
   /**
    * The steps that changed, each Agent task one entry (ADR 0100).
    */
-  steps_changed?: string[];
+  stepsChanged?: string[];
   /**
    * The version it used.
    */
@@ -5031,7 +5031,7 @@ export interface PluginRun {
    * The parts of its confinement the host could not give, under a
    * reduced confinement the Operator policy allowed.
    */
-  confinement_missing?: string[];
+  confinementMissing?: string[];
   /**
    * Its name.
    */
@@ -5039,7 +5039,7 @@ export interface PluginRun {
   /**
    * The network level it ran at.
    */
-  network_level: string;
+  networkLevel: string;
 }
 /**
  * One change `config.policy_write` makes.
@@ -5219,7 +5219,7 @@ export interface ReachedLimit {
   /**
    * When its period starts again; none for a Limit without one.
    */
-  resets_at?: PointInTime | null;
+  resetsAt?: PointInTime | null;
   /**
    * The Limit's scope.
    */
@@ -5227,7 +5227,7 @@ export interface ReachedLimit {
   /**
    * The Usage kind it caps.
    */
-  usage_kind: string;
+  usageKind: string;
 }
 /**
  * What `$/record` carries: the next Record a `run.records` call reads.
@@ -5267,19 +5267,19 @@ export interface RecordingReport {
   /**
    * When the oldest of them was fetched.
    */
-  recorded_from?: PointInTime | null;
+  recordedFrom?: PointInTime | null;
   /**
    * When the newest of them was fetched.
    */
-  recorded_to?: PointInTime | null;
+  recordedTo?: PointInTime | null;
   /**
    * How many recorded responses it used.
    */
-  responses_used: number;
+  responsesUsed: number;
   /**
    * The engine that wrote them.
    */
-  written_by?: string | null;
+  writtenBy?: string | null;
 }
 /**
  * What `needs_you.remove_refetch_domain` answers.
@@ -5368,11 +5368,11 @@ export interface ResponseBodyParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * The request's hop, by the engine's ID for it.
    */
-  request_id: string;
+  requestId: string;
   /**
    * How long the read may wait for its request to end and its body to
    * be read, in milliseconds, at least 1: absent for `timeout.wait`,
@@ -5392,7 +5392,7 @@ export interface Resync {
   /**
    * Every item of "Needs you", by `since`, then by ID.
    */
-  needs_you: NeedsYouItem[];
+  needsYou: NeedsYouItem[];
   /**
    * The axes of each live Run the engine knows. A Run it leaves out
    * ended, and `run.list` gives its axes.
@@ -5418,7 +5418,7 @@ export interface RunAxes {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * Whether its own checks prove what it committed, once it ended.
    */
@@ -5434,11 +5434,11 @@ export interface RouteAbortParams {
   /**
    * The network error; `failed` when absent.
    */
-  error_code?: AbortReason | null;
+  errorCode?: AbortReason | null;
   /**
    * The request.
    */
-  route_id: RouteId;
+  routeId: RouteId;
 }
 /**
  * What an answer to a route answers once the engine acted on it.
@@ -5479,7 +5479,7 @@ export interface RouteFetched {
   /**
    * Its status text.
    */
-  status_text: string;
+  statusText: string;
 }
 /**
  * What `route.fulfill` takes: the request, and the response the program
@@ -5496,7 +5496,7 @@ export interface RouteFulfillParams {
   /**
    * Its `Content-Type`, set over `headers`' own.
    */
-  content_type?: string | null;
+  contentType?: string | null;
   /**
    * Its headers.
    */
@@ -5506,7 +5506,7 @@ export interface RouteFulfillParams {
   /**
    * The request.
    */
-  route_id: RouteId;
+  routeId: RouteId;
   /**
    * Its status; 200 when absent.
    */
@@ -5530,7 +5530,7 @@ export interface RouteHandleParams {
    * worker sent itself, which belongs to no page and reaches only
    * Session routes (ADR 0121).
    */
-  page_id?: PageId | null;
+  pageId?: PageId | null;
   /**
    * The request.
    */
@@ -5538,7 +5538,7 @@ export interface RouteHandleParams {
   /**
    * The intercepted request, which an answer names.
    */
-  route_id: RouteId;
+  routeId: RouteId;
 }
 /**
  * A request as a route sees it: as the page sent it, with the overrides of
@@ -5560,7 +5560,7 @@ export interface RouteRequest {
    * Whether it loads the document of one of the page's frames, its main
    * frame's or an iframe's, as Playwright's `isNavigationRequest()`.
    */
-  is_navigation_request: boolean;
+  isNavigationRequest: boolean;
   /**
    * Its method, such as `GET`.
    */
@@ -5569,13 +5569,13 @@ export interface RouteRequest {
    * Its body, in Base64 (RFC 4648, with padding), when it has one: as
    * the page sent it, or as a route before replaced it.
    */
-  post_data?: string | null;
+  postData?: string | null;
   /**
    * What the page loads with it, as Playwright's `resourceType()` names
    * it: the browser's name in lowercase, such as `document`, `script`
    * or `xhr`.
    */
-  resource_type: string;
+  resourceType: string;
   /**
    * Its URL.
    */
@@ -5612,11 +5612,11 @@ export interface RouteOverridesParams {
   /**
    * Another body, in Base64.
    */
-  post_data?: string | null;
+  postData?: string | null;
   /**
    * The request.
    */
-  route_id: RouteId;
+  routeId: RouteId;
   /**
    * Another URL, judged again by the domain policy.
    */
@@ -5638,7 +5638,7 @@ export interface RunAbortParams {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `run.aborting` carries.
@@ -5654,7 +5654,7 @@ export interface RunAborting {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `run.checkpoint` takes.
@@ -5671,7 +5671,7 @@ export interface RunCheckpointParams {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `run.checkpointing` carries.
@@ -5683,11 +5683,11 @@ export interface RunCheckpointing {
   /**
    * The run epoch the Checkpoint is taken under.
    */
-  run_epoch: number;
+  runEpoch: number;
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `run.discard` answers: the Run it discarded (ADRs 0001 and 0036).
@@ -5699,7 +5699,7 @@ export interface RunDiscarded {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `run.finish` takes: the Run, and how long the call waits for its
@@ -5712,7 +5712,7 @@ export interface RunFinishParams {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * How long the call waits for the Run's end, in milliseconds, at least
    * 1, as `timeout.run` for this call alone: absent or `null` for none,
@@ -5736,7 +5736,7 @@ export interface RunIndexRow {
   /**
    * When it ended.
    */
-  ended_at?: PointInTime | null;
+  endedAt?: PointInTime | null;
   /**
    * What kind of Run it is.
    */
@@ -5768,7 +5768,7 @@ export interface RunIndexRow {
   /**
    * The program's own status line, once it set one (RT-15).
    */
-  progress_message?: string | null;
+  progressMessage?: string | null;
   /**
    * Whether it replayed a Response recording (ADR 0105), which marks
    * its row so that no one reads it as a live run.
@@ -5777,16 +5777,16 @@ export interface RunIndexRow {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * When it started.
    */
-  started_at: PointInTime;
+  startedAt: PointInTime;
   /**
    * Why it stopped, once it stopped: "Needs you" lists a Run stopped by
    * storage from it (ADR 0122).
    */
-  stop_reason?: StopReason | null;
+  stopReason?: StopReason | null;
   /**
    * Its tags (ADR 0036).
    */
@@ -5818,7 +5818,7 @@ export interface RunLimit {
   /**
    * The Usage kind it caps.
    */
-  usage_kind: string;
+  usageKind: string;
 }
 /**
  * What `run.list` answers: the rows of its filter, in its order.
@@ -5904,7 +5904,7 @@ export interface RunListParams {
    * Whether Watch runs are listed too; they are left out by default
    * (ADR 0036).
    */
-  watch_runs?: boolean;
+  watchRuns?: boolean;
 }
 /**
  * A span of time: from its first point, included, until its last,
@@ -5933,7 +5933,7 @@ export interface RunMigrating {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `run.usage`, `run.pause` and `run.migrate` take: the Run.
@@ -5945,7 +5945,7 @@ export interface RunParams {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * A Run's progress as it is now (ADR 0102): what `run.progress` answers
@@ -5962,7 +5962,7 @@ export interface RunProgress {
   /**
    * When its last Checkpoint was written, once one was.
    */
-  checkpoint_at?: PointInTime | null;
+  checkpointAt?: PointInTime | null;
   /**
    * Its run epoch (ADR 0003), which a resume or a migration advances.
    */
@@ -5993,11 +5993,11 @@ export interface RunProgress {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * Why it stopped, once it did.
    */
-  stop_reason?: StopReason | null;
+  stopReason?: StopReason | null;
   /**
    * The worst storage level among the filesystems the Run writes to,
    * once one is above `normal` (ADR 0122).
@@ -6024,7 +6024,7 @@ export interface RunStorage {
   /**
    * The space left on it to the engine's user, in bytes.
    */
-  free_bytes: number;
+  freeBytes: number;
   /**
    * The level.
    */
@@ -6046,7 +6046,7 @@ export interface RunProgressParams {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What a Run states about itself when it ends (ADR 0102). A part no area
@@ -6067,11 +6067,11 @@ export interface RunReport {
   /**
    * Why it is not `complete`, when it is not.
    */
-  completeness_reasons?: AxisReason[];
+  completenessReasons?: AxisReason[];
   /**
    * When it ended.
    */
-  ended_at: PointInTime;
+  endedAt: PointInTime;
   /**
    * The error the call that ends it raises: the one that failed a
    * `failed` Run, or a write at its end that failed, such as its Plan
@@ -6085,7 +6085,7 @@ export interface RunReport {
   /**
    * Why the call that answered it did nothing, when it did nothing.
    */
-  nothing_done?: NothingDone | null;
+  nothingDone?: NothingDone | null;
   /**
    * What it did with its Plan file (ADR 0091).
    */
@@ -6098,7 +6098,7 @@ export interface RunReport {
    * The version of the Operator policy it ran under, when one applied
    * (ADR 0031).
    */
-  policy_version?: string | null;
+  policyVersion?: string | null;
   /**
    * What it did with the Response recording its start named (ADR 0105).
    */
@@ -6106,7 +6106,7 @@ export interface RunReport {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * Each effective value it ran with, the layer that set it and the one
    * that locked it, as `config.explain` gives them (ADR 0028).
@@ -6115,16 +6115,16 @@ export interface RunReport {
   /**
    * When it started.
    */
-  started_at: PointInTime;
+  startedAt: PointInTime;
   /**
    * Why it stopped, when it did.
    */
-  stop_reason?: StopReason | null;
+  stopReason?: StopReason | null;
   /**
    * Each Effect it left uncertain, until a person reconciles it (ADR
    * 0106).
    */
-  uncertain_effects?: UncertainEffect[] | null;
+  uncertainEffects?: UncertainEffect[] | null;
   /**
    * What it used, as the Usage ledger charged it, with the Limits that
    * apply to it (ADR 0101).
@@ -6137,7 +6137,7 @@ export interface RunReport {
   /**
    * Why it is not `verified`, when it is not.
    */
-  verdict_reasons?: AxisReason[];
+  verdictReasons?: AxisReason[];
   /**
    * What the areas warn of, each with a code and a message.
    */
@@ -6160,7 +6160,7 @@ export interface RunUsage {
   /**
    * How long it held a browser, in milliseconds.
    */
-  browser_time: number;
+  browserTime: number;
   /**
    * Each Limit that applies to it, with what is left of it.
    */
@@ -6173,7 +6173,7 @@ export interface RunUsage {
    * Its Model allowance, one entry per kind set (ADR 0107): not a Limit,
    * so apart from `limits`; empty when none is set.
    */
-  model_allowance?: ModelAllowance[];
+  modelAllowance?: ModelAllowance[];
   /**
    * What it used of a Usage kind this engine does not name, kept as the
    * ledger holds it.
@@ -6182,25 +6182,25 @@ export interface RunUsage {
   /**
    * Its Paid fetches, by currency (ADR 0045).
    */
-  paid_fetches?: UsageAmount[];
+  paidFetches?: UsageAmount[];
   /**
    * Its paid solves, by currency (ADR 0035).
    */
-  paid_solves?: UsageAmount[];
+  paidSolves?: UsageAmount[];
   /**
    * The bytes it sent and received through a proxy.
    */
-  proxy_bytes: number;
+  proxyBytes: number;
   /**
    * The bytes it sent and received through a Proxy provider's proxies,
    * by proxy kind (ADR 0021), cheapest kind first.
    */
-  proxy_bytes_by_kind?: ProxyKindBytes[];
+  proxyBytesByKind?: ProxyKindBytes[];
   /**
    * The price of those bytes, by currency, at each provider's configured
    * price (ADR 0101).
    */
-  proxy_price?: UsageAmount[];
+  proxyPrice?: UsageAmount[];
   /**
    * The requests it sent.
    */
@@ -6289,7 +6289,7 @@ export interface RunResumeParams {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * The Run's settings from the resume on, nested by key: the run layer
    * (ADRs 0083 and 0102).
@@ -6312,7 +6312,7 @@ export interface RunSetProgressMessageParams {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `run.start` takes.
@@ -6337,7 +6337,7 @@ export interface RunStartParams {
    * inputs match, as `run.start` says, and fails with `run_conflict`
    * otherwise.
    */
-  run_id?: string | null;
+  runId?: string | null;
   /**
    * The Run's settings, nested by key: the run layer (ADR 0083).
    */
@@ -6368,11 +6368,11 @@ export interface RunStarted {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * Whether the start began it.
    */
-  started_as: StartedAs;
+  startedAs: StartedAs;
 }
 /**
  * What `run.stop` takes: the Run, and how long the call waits for its
@@ -6385,7 +6385,7 @@ export interface RunStopParams {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * How long the call waits for the Run's safe point, in milliseconds,
    * at least 1: absent for the Run's `timeout.close`, `null` for none
@@ -6408,7 +6408,7 @@ export interface RunStopping {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `sample.echo` repeats.
@@ -6570,7 +6570,7 @@ export interface SessionOnParams {
   /**
    * The Session.
    */
-  session_id: SessionId;
+  sessionId: SessionId;
 }
 /**
  * What `run.new_session` answers: the Session it opened.
@@ -6582,7 +6582,7 @@ export interface SessionOpened {
   /**
    * The Session.
    */
-  session_id: SessionId;
+  sessionId: SessionId;
 }
 /**
  * What `session.pages` answers: the Session's open pages, in the order
@@ -6607,7 +6607,7 @@ export interface SessionParams {
   /**
    * The Session.
    */
-  session_id: SessionId;
+  sessionId: SessionId;
 }
 /**
  * What `session.route` takes: the Session, and the URLs whose requests its
@@ -6620,7 +6620,7 @@ export interface SessionRouteParams {
   /**
    * The Session.
    */
-  session_id: SessionId;
+  sessionId: SessionId;
   /**
    * The URLs it answers.
    */
@@ -6636,7 +6636,7 @@ export interface SetLogLevelParams {
   /**
    * The Connection's new level.
    */
-  log_level: LogLevel;
+  logLevel: LogLevel;
 }
 /**
  * What `config.explain` answers and `config explain --json` prints:
@@ -6656,7 +6656,7 @@ export interface SettingsExplanation {
    * of its file's digest, which the run report names; `None` without a
    * policy.
    */
-  policy_version?: string | null;
+  policyVersion?: string | null;
   /**
    * Each setting, by key.
    */
@@ -6694,7 +6694,7 @@ export interface SigningKeyCreateParams {
    * or a `secretfile:` one, such as `keychain:goodfetch/signing-key`;
    * the value `identified.signing_key` then takes.
    */
-  signing_key: string;
+  signingKey: string;
 }
 /**
  * What `signing_key.create` answers: the key's reference and its public
@@ -6712,15 +6712,15 @@ export interface SigningKeyCreated {
   /**
    * The key's ID, its RFC 7638 thumbprint.
    */
-  key_id: string;
+  keyId: string;
   /**
    * The key's public JSON Web Key.
    */
-  public_key: PublicSigningKey;
+  publicKey: PublicSigningKey;
   /**
    * The Secret reference the key is kept at.
    */
-  signing_key: string;
+  signingKey: string;
 }
 /**
  * What `signing_key.directory` answers: the directory's body and the
@@ -6737,7 +6737,7 @@ export interface SigningKeyDirectory {
   /**
    * The response's `Content-Type`.
    */
-  content_type: string;
+  contentType: string;
   /**
    * When its signatures expire, by which it is exported again.
    */
@@ -6745,7 +6745,7 @@ export interface SigningKeyDirectory {
   /**
    * The IDs of the keys it publishes, in the order given.
    */
-  key_ids: string[];
+  keyIds: string[];
   /**
    * Where on the origin the directory is served.
    */
@@ -6757,7 +6757,7 @@ export interface SigningKeyDirectory {
   /**
    * The response's `Signature-Input` field, one label per key.
    */
-  signature_input: string;
+  signatureInput: string;
 }
 /**
  * What `signing_key.directory` takes: the keys it publishes and the
@@ -6781,12 +6781,12 @@ export interface SigningKeyDirectoryParams {
    *
    * @minItems 1
    */
-  signing_keys: [string, ...string[]];
+  signingKeys: [string, ...string[]];
   /**
    * How long the directory's signatures stay valid, in milliseconds,
    * after which it is exported again; seven days when none is given.
    */
-  valid_for?: number | null;
+  validFor?: number | null;
 }
 /**
  * What `events.subscribe` answers when its subscription ends without the
@@ -6816,7 +6816,7 @@ export interface SystemInfo {
    * Whether memory stayed critical at the floor past
    * `governor.last_resort_after`.
    */
-  last_resort: boolean;
+  lastResort: boolean;
   /**
    * How loaded the engine is.
    */
@@ -6828,7 +6828,7 @@ export interface SystemInfo {
   /**
    * The reading that holds it above `normal`; none at `normal`.
    */
-  pressure_source?: PressureSource | null;
+  pressureSource?: PressureSource | null;
 }
 /**
  * A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`
@@ -6900,11 +6900,11 @@ export interface UsageRaiseParams {
    * Which one of its kind; the person's own when absent (their Client
    * connection, their person, the engine's Daemon, the install).
    */
-  scope_id?: string | null;
+  scopeId?: string | null;
   /**
    * The Usage kind it caps.
    */
-  usage_kind: string;
+  usageKind: string;
 }
 /**
  * What `usage.set` takes: a Limit of the caller's own, which holds beside
@@ -6935,11 +6935,11 @@ export interface UsageSetParams {
    * Which one of its kind; the caller's own when absent (its Client
    * connection, its person, the engine's Daemon, the install).
    */
-  scope_id?: string | null;
+  scopeId?: string | null;
   /**
    * The Usage kind it caps.
    */
-  usage_kind: string;
+  usageKind: string;
 }
 /**
  * One user-level value `config.user_write` writes.
@@ -7018,7 +7018,7 @@ export interface WaitForExchangeParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * How long the wait may take, in milliseconds, at least 1: absent for
    * `timeout.wait`, `null` for none, though an enclosing timeout still
@@ -7052,12 +7052,12 @@ export interface WaitForFunctionParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * The milliseconds between two checks, at least 1; absent, about one
    * frame's, 16.
    */
-  polling_interval?: number | null;
+  pollingInterval?: number | null;
   /**
    * How long the wait may take, in milliseconds, at least 1: absent for
    * `timeout.wait`, `null` for none, though an enclosing timeout still
@@ -7079,7 +7079,7 @@ export interface WaitForLoadStateParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * The state; `load` when absent.
    */
@@ -7102,7 +7102,7 @@ export interface WaitForRequestFinishedParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * How long the wait may take, in milliseconds, at least 1: absent for
    * `timeout.wait`, `null` for none, though an enclosing timeout still
@@ -7125,7 +7125,7 @@ export interface WaitForUrlParams {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * How long the wait may take, in milliseconds, at least 1: absent for
    * `timeout.wait`, `null` for none, though an enclosing timeout still
@@ -7140,7 +7140,7 @@ export interface WaitForUrlParams {
    * The state a new document at that URL must reach; `load` when
    * absent. A change within the document waits for none.
    */
-  wait_until?: LoadState | null;
+  waitUntil?: LoadState | null;
 }
 /**
  * What `needs_you.deny_wall_domain` answers.
@@ -7183,7 +7183,7 @@ export interface WebError {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * Its stack as the browser renders it, when it has one.
    */
@@ -7199,11 +7199,11 @@ export interface WebSocketClosed {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * The socket.
    */
-  web_socket_id: string;
+  webSocketId: string;
 }
 /**
  * What `web_socket.frame_sent` and `web_socket.frame_received` report: one
@@ -7220,7 +7220,7 @@ export interface WebSocketFrame {
   /**
    * The page.
    */
-  page_id: PageId;
+  pageId: PageId;
   /**
    * Its payload: its text, or for a binary frame its bytes in Base64.
    */
@@ -7228,5 +7228,5 @@ export interface WebSocketFrame {
   /**
    * The socket.
    */
-  web_socket_id: string;
+  webSocketId: string;
 }

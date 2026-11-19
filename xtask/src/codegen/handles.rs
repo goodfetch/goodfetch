@@ -90,8 +90,8 @@ pub(super) enum Form {
 }
 
 /// A handle's `on`, which registers a listener for one of its events (ADR
-/// 0081): its call stays in flight and gets them. TypeScript writes it so
-/// far, Python and Rust with issues 2932 and 2933.
+/// 0081): its call stays in flight and gets them. TypeScript and Python
+/// write it so far, Rust with issue 2933.
 pub(super) struct Listener<'a> {
     pub(super) operation: &'a Operation,
     /// The parameter that names the event listened to, such as `event`.

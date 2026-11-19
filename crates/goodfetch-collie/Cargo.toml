@@ -45,7 +45,7 @@ serde_json.workspace = true
 # The Browser cache's write check before a Daemon's copy goes in it.
 tempfile = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
-tokio = { workspace = true, features = ["rt"] }
+tokio = { workspace = true, features = ["rt", "time"] }
 # A linked engine's task, and the foreground Daemon's drain (ADR 0049).
 tokio-util = { workspace = true, features = ["rt"] }
 tracing.workspace = true

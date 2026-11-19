@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "21"
+version = "23"
 
 [[capability]]
 name = "lifecycle"
@@ -29,20 +29,20 @@ name = "lifecycle"
 [[capability.case]]
 id = "two-connections-at-once"
 covers = ["story:11-15"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "connect-after-close"
 covers = ["story:11-15"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "closed-after-close"
 covers = ["story:11-17"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "nothing-at-import-or-connect"
@@ -57,24 +57,26 @@ modes = ["attached"]
 # engine, and a failed close raises its typed error, a `SuppressedError`
 # under `await using` and an exception chained to the one `async with` or
 # `with` was unwinding from in Python (issue 2927). The Rust SDK joins with
-# issue 2928.
+# issue 2928, linked, where a real engine plays every case but the failed
+# close, which only the Scripted engine plays, reached by Rust as a Daemon:
+# Rust's `daemon` mode, which these cases' other surfaces do not list yet.
 [[capability.case]]
 id = "children-close-with-their-parent"
 covers = ["story:11-16"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "close-stops-a-running-run"
 covers = ["story:11-18"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "connection-close-stops-its-engine"
 covers = ["story:11-19"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "failed-close-raises-a-typed-error"
@@ -93,6 +95,16 @@ id = "catalog-mapping"
 covers = ["story:11-178"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
+
+# The raw catalog call (ADR 0099, G8; issue 1254): `call` on the Connection
+# and on each value reaches an operation the SDK does not generate, its
+# params and result the wire's JSON, under the main path's protections.
+# Rust's `call` builder joins with its part of issue 1254.
+[[capability.case]]
+id = "raw-call"
+covers = ["story:11-181"]
+surfaces = ["sdk-typescript", "sdk-python"]
+modes = ["attached"]
 
 # A program's first pages (issue 2400): opened, navigated, acted on through
 # locators, read and closed, on the Proving ground: attached through
@@ -132,12 +144,12 @@ covers = ["story:11-77"]
 surfaces = ["sdk-typescript", "sdk-rust"]
 modes = ["attached", "linked"]
 
-# A page's listeners (issue 1277, ADR 0081): TypeScript leads; the Python
-# SDK joins with issue 2932 and the Rust SDK with issue 2933.
+# A page's listeners (issues 1277 and 2932, ADR 0081): the TypeScript and
+# Python SDKs; the Rust SDK joins with issue 2933.
 [[capability.case]]
 id = "listeners-in-order-and-a-thrower-raises-listener-failed"
 covers = ["story:11-61", "story:11-62", "story:11-63", "error:listener_failed"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 # A program's crawl (issue 1467): declared on a `Crawl` value, started on

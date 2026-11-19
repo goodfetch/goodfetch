@@ -312,8 +312,8 @@ fn page_read_answers_the_declared_fields_typed_through_blocking() {
 
 /// The `closed-page-raises-closed` client conformance case, linked: a
 /// closed page, and a Locator built on it before, refuse their calls with
-/// `closed`.
-/// Covers: story:11-77
+/// [`Error::Closed`] before sending them.
+/// Covers: story:11-77, story:11-17
 #[test]
 fn a_closed_page_and_its_locators_refuse_their_calls_with_closed() {
     let env = TestEnv::new();
@@ -327,15 +327,13 @@ fn a_closed_page_and_its_locators_refuse_their_calls_with_closed() {
         let button = page.locator("#submit");
         page.close().await.unwrap();
 
-        let navigation = failure(page.goto(&form).await);
-        let click = failure(button.click().await);
+        let navigation = page.goto(&form).await;
+        let click = button.click().await;
         run.finish().await.unwrap();
         collie.close().await.unwrap();
 
-        assert_eq!(
-            (navigation.0.as_str(), click.0.as_str()),
-            ("closed", "closed")
-        );
+        assert!(matches!(navigation, Err(Error::Closed)), "{navigation:?}");
+        assert!(matches!(click, Err(Error::Closed)), "{click:?}");
     });
 }
 

@@ -14,6 +14,7 @@ use std::marker::PhantomData;
 use std::panic;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError, Weak};
 use std::time::Duration;
 
@@ -22,6 +23,7 @@ use goodfetch_protocol::connection::{CANCEL, CancelParams, HELLO, HelloParams, H
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::{BodyHandle, CHUNK, Chunk};
+use goodfetch_protocol::settings::TIMEOUT_CLOSE;
 use serde::Serialize;
 use serde::de::{DeserializeOwned, Error as _};
 use serde_json::Value;
@@ -35,7 +37,7 @@ use crate::error::Error;
 use crate::file_saving::{self, FileSaving};
 use crate::handler::{HandlerRequests, Streams};
 use crate::rpc::{self, Heard, Outgoing, Sender};
-use crate::sync::{Mutex, MutexGuard};
+use crate::sync::{AtomicBool, Mutex, MutexGuard};
 use crate::transport::{self, Endpoint, Network};
 
 /// How many `$/chunk` notifications a save takes ahead of those it has
@@ -114,6 +116,9 @@ struct Inner {
     /// The Runs it started, which `close()` closes first. A Run holds its
     /// Connection, so the Connection only refers to it.
     runs: Mutex<Vec<Weak<dyn Closes>>>,
+    /// Whether a close has returned, after which closing again does
+    /// nothing, even when that close timed out with a task still running.
+    closed: AtomicBool,
     /// Held only to be dropped with the Connection's last handle.
     _runtime: Owned,
 }
@@ -152,6 +157,7 @@ impl ClientConnection {
             tasks,
             handed: TaskTracker::new(),
             runs: Mutex::new(Vec::new()),
+            closed: AtomicBool::new(false),
             _runtime: owned,
         }));
         match connection.call::<HelloResult>(HELLO, &hello).await {
@@ -372,18 +378,45 @@ impl ClientConnection {
     /// open, as [`crate::Run::close`] does, then every call in flight fails with
     /// [`Error::Closed`], as does every later one; the engine reads the end
     /// of its input, and an Attached engine exits. Returns once the
-    /// Connection's tasks have ended. Closing again does nothing.
+    /// Connection's tasks have ended, or once `timeout.close` has run out.
+    /// Closing again does nothing. A Connection to a Daemon only
+    /// disconnects: the Daemon goes on.
     ///
     /// # Errors
     ///
-    /// The first error a Run's close failed with; the Connection closes
-    /// all the same.
+    /// The first error a Run's close failed with, and [`Error::TimedOut`]
+    /// when `timeout.close` ran out first; the Connection closes all the
+    /// same.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future before it completes leaves the Runs it had not
     /// closed yet open and the Connection open.
     pub async fn close(&self) -> Result<(), Error> {
+        if self.0.closed.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        // The timer is the Connection's runtime's, so the close runs on
+        // any executor (ADR 0081).
+        let bounded = {
+            let _entered = self.0.handle.enter();
+            tokio::time::timeout(close_timeout(), self.close_unbounded())
+        };
+        let closed = match bounded.await {
+            Ok(closed) => closed,
+            Err(_elapsed) => {
+                self.0.sender.close();
+                self.0.tasks.close();
+                Err(Error::TimedOut)
+            }
+        };
+        self.0.closed.store(true, Ordering::Release);
+        closed
+    }
+
+    /// Closes the Connection as [`ClientConnection::close`] says, however
+    /// long it takes.
+    async fn close_unbounded(&self) -> Result<(), Error> {
         let runs: Vec<Arc<dyn Closes>> = std::mem::take(&mut *self.runs())
             .iter()
             .filter_map(Weak::upgrade)
@@ -570,6 +603,14 @@ impl Drop for Inner {
             self.tasks.close();
         }
     }
+}
+
+/// How long a close waits: `timeout.close`'s default (ADR 0078).
+pub(crate) fn close_timeout() -> Duration {
+    let millis = (TIMEOUT_CLOSE.default)()
+        .as_u64()
+        .expect("invariant: `timeout.close` defaults to a duration in milliseconds");
+    Duration::from_millis(millis)
 }
 
 /// `params` as the call sends them.

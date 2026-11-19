@@ -430,7 +430,7 @@ fn an_attached_engine_reaches_the_program_over_stdio() {
             .map(|(name, value)| (name.into(), value.into()))
             .collect(),
     });
-    let runtime = goodfetch_test_support::runtime();
+    let runtime = goodfetch_test_support::real_time_runtime();
     runtime.block_on(async {
         let connection = open(&Network::Os, &engine).await;
         let mut requests = connection.handler_requests(HANDLE).unwrap();

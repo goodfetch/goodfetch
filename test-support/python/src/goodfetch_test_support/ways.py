@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import enum
 import functools
+import inspect
+import sys
 from collections.abc import Awaitable, Callable
 from typing import TypeVar, cast
 
@@ -65,7 +67,10 @@ class _InWorkerThread:
     """A sync API whose methods are awaited, each call run in a worker thread.
 
     A method's value that has a `close` method, as every value with a
-    round trip has (ADR 0078), such as a Run, is handed the same way.
+    round trip has (ADR 0078), such as a Run, is handed the same way. A
+    method its async twin, `Async<Name>` of the same module, has as a
+    plain function, such as a page's `on`, is the sync API's own, since
+    both APIs call it without `await`.
     """
 
     def __init__(self, sync_api: object) -> None:
@@ -73,7 +78,7 @@ class _InWorkerThread:
 
     def __getattr__(self, name: str) -> object:
         method: object = getattr(self._sync_api, name)
-        if not callable(method):
+        if not callable(method) or _plain_in_async_twin(self._sync_api, name):
             return method
 
         async def call(*args: object, **kwargs: object) -> object:
@@ -87,6 +92,16 @@ class _InWorkerThread:
             )
 
         return call
+
+
+def _plain_in_async_twin(sync_api: object, name: str) -> bool:
+    """Whether the async twin of `sync_api`'s class has `name` as a plain function."""
+    sync_class = type(sync_api)
+    twin: object = getattr(
+        sys.modules[sync_class.__module__], f"Async{sync_class.__name__}", None
+    )
+    member: object = getattr(twin, name, None)
+    return callable(member) and not inspect.iscoroutinefunction(member)
 
 
 _WAYS = [

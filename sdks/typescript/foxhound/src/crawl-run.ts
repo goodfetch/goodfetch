@@ -14,6 +14,7 @@ import {
 } from "@goodfetch/collie-client";
 import type { Caller, RunStarted } from "@goodfetch/collie-client/generated";
 import {
+  alsoInNamespace,
   ensureRunOpen,
   idOfLocator,
   pageOf,
@@ -85,6 +86,8 @@ export class CrawlRun extends Run {
   /** @internal `Foxhound.startCrawl` opens a crawl's Run; a program never constructs one. */
   constructor(host: RunHost, started: RunStarted, crawl: Crawl, crawlHost: CrawlHost) {
     super(host, started);
+    // A crawl's Run takes the `crawl` operations beside a Run's (ADR 0099).
+    alsoInNamespace(this, "crawl");
     this.#crawl = crawl;
     this.#crawlHost = crawlHost;
   }

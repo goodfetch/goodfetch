@@ -16,7 +16,7 @@ use crate::scripted_daemon::{daemon_hello, scripted_daemon};
 fn a_navigation_answers_its_response_or_none_and_an_evaluation_its_value() {
     let env = TestEnv::new();
     let (process, endpoint) = scripted_daemon(&env, "page/navigations.json");
-    let runtime = goodfetch_test_support::runtime();
+    let runtime = goodfetch_test_support::real_time_runtime();
     runtime.block_on(async {
         let (connection, _said) = ClientConnection::open(
             ConnectionRuntime::driven(tokio::runtime::Handle::current()),

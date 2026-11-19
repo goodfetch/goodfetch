@@ -12,9 +12,14 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
+from goodfetch_collie_client.handle import NotGiven, not_given
+
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
+    from datetime import timedelta
     from typing import Self
+
+    from pydantic import JsonValue
 
     from goodfetch_collie_client.connection import EngineInfo
     from goodfetch_collie_client.limits import Limits
@@ -47,6 +52,23 @@ class AsyncConnection(ABC):
 
         A `run_id` naming an interrupted Run resumes it, and one naming a
         finished Run returns it as it ended. Raises `closed` once the
+        Connection is closed.
+        """
+
+    @abstractmethod
+    async def call(
+        self,
+        operation: str,
+        params: Mapping[str, JsonValue] | None = None,
+        *,
+        timeout: timedelta | NotGiven | None = not_given,
+    ) -> JsonValue:
+        """Sends `operation`, one acting on no value, as the wire's JSON (ADR 0099).
+
+        The way down to an operation the SDK does not generate. `params`
+        are sent and the result answered as on the wire, in snake_case.
+        `timeout` is sent as the operation's own; cancelling the task
+        cancels the call. It is never retried, and raises `closed` once the
         Connection is closed.
         """
 
@@ -96,6 +118,16 @@ class Connection(ABC):
         finished Run returns it as it ended. Raises `closed` once the
         Connection is closed.
         """
+
+    @abstractmethod
+    def call(
+        self,
+        operation: str,
+        params: Mapping[str, JsonValue] | None = None,
+        *,
+        timeout: timedelta | NotGiven | None = not_given,
+    ) -> JsonValue:
+        """Sends `operation` as `AsyncConnection.call` does; waits for its result."""
 
     @abstractmethod
     def close(self) -> None:

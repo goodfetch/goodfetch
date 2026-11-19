@@ -24,20 +24,24 @@ from goodfetch_collie_client.generated.connection import (
 )
 from goodfetch_collie_client.generated.errors import ERROR_CLASSES
 from goodfetch_collie_client.generated.models import Product
+from goodfetch_collie_client.handle import NotGiven, not_given
 from goodfetch_collie_client.portal import LoopStopped, PrivateLoop
 from goodfetch_collie_client.product_connection import (
     ProductPackage,
     open_attached,
     open_over,
 )
+from goodfetch_collie_client.raw_call import raw_params
 from goodfetch_collie_client.run import AsyncRun, Run
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Generator, Iterable, Mapping
+    from datetime import timedelta
 
     from anyio.abc import ByteStream
     from goodfetch_collie_client.connection import EngineInfo
     from goodfetch_collie_client.limits import Limits
+    from pydantic import JsonValue
 
 COLLIE = ProductPackage(
     needs=Product.collie,
@@ -123,6 +127,25 @@ class AsyncCollie(AsyncConnection):
                 Limits, never raises them (`limit_raise_refused`).
         """
         return await self._connection.start(run_id=run_id, tags=tags, limits=limits)
+
+    async def call(
+        self,
+        operation: str,
+        params: Mapping[str, JsonValue] | None = None,
+        *,
+        timeout: timedelta | NotGiven | None = not_given,
+    ) -> JsonValue:
+        """Sends `operation`, one acting on no value, as the wire's JSON (ADR 0099).
+
+        The way down to an operation the SDK does not generate, such as
+        Foxhound's `run.list` on a Foxhound engine. `params` are sent and
+        the result answered as on the wire, in snake_case. `timeout` is
+        sent as the operation's own; cancelling the task cancels the call.
+        It is never retried, and raises `closed` once the Connection is
+        closed.
+        """
+        sent = raw_params(operation, params, timeout)
+        return await self._connection.raw(operation, sent)
 
     async def close(self) -> None:
         """Closes the Connection; idempotent.
@@ -247,6 +270,22 @@ class Collie(Connection):
         except LoopStopped:
             raise closed_error("run.start") from None
         return Run(self._loop, run)
+
+    def call(
+        self,
+        operation: str,
+        params: Mapping[str, JsonValue] | None = None,
+        *,
+        timeout: timedelta | NotGiven | None = not_given,
+    ) -> JsonValue:
+        """Sends `operation`, as `AsyncCollie.call` does, and waits for its result."""
+        sent = raw_params(operation, params, timeout)
+        try:
+            return self._loop.call(
+                functools.partial(self._connection.raw, operation, sent)
+            )
+        except LoopStopped:
+            raise closed_error(operation) from None
 
     def close(self) -> None:
         """Closes the Connection and joins its thread; idempotent, from any thread.

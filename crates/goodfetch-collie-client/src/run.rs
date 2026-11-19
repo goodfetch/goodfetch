@@ -122,7 +122,8 @@ impl Run {
     /// # Errors
     ///
     /// What `run.abort` fails with, unless the Connection is closed: its
-    /// engine then stops the Run itself.
+    /// engine then stops the Run itself. [`Error::TimedOut`] once
+    /// `timeout.close` has run out, the value closed all the same.
     ///
     /// # Cancel safety
     ///

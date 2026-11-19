@@ -35,6 +35,7 @@ import type { JSONValue } from "./json.ts";
 import { limitList, type Limits } from "./limits.ts";
 import { logEngineEvent, logLevelOf, type Logger } from "./logger.ts";
 import { collieTimes } from "./generated/times.ts";
+import { rawCall, type RawCallOptions, type RawParams } from "./raw-call.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
 import { settingsOnWire, type RunSettings } from "./generated/settings.ts";
@@ -199,6 +200,7 @@ export class ClientConnection implements AsyncDisposable {
     this.#operations = new CollieOperations(calls);
     this.#runHost = {
       calls,
+      raw: (operation, params, callOptions) => this.#raw(operation, params, callOptions),
       reachable: () => !this.#ended,
       stream: (method, params, opened) => this.stream(method, params, opened),
       forget: (run) => this.#runs.delete(run),
@@ -400,6 +402,25 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   /**
+   * The raw catalog call on the Connection (ADR 0099): sends `operation`,
+   * one that acts on no value or whose params name every value, with
+   * `params` as the wire's JSON, and answers its result as the engine sent
+   * it, both in snake_case. Fails with `closed` once the Connection is.
+   */
+  call(
+    operation: string,
+    params: RawParams = {},
+    options: RawCallOptions = {},
+  ): Promise<JSONValue> {
+    return rawCall(
+      (name, sent, callOptions) => this.#raw(name, sent, callOptions),
+      operation,
+      params,
+      options,
+    );
+  }
+
+  /**
    * Sends `method`, which the engine answers once it has streamed what the
    * Client granted credits for; `notified` hears each notification.
    */
@@ -427,6 +448,12 @@ export class ClientConnection implements AsyncDisposable {
 
   async [Symbol.asyncDispose](): Promise<void> {
     await this.close();
+  }
+
+  /** Sends `operation` as the main path does, its params and result unconverted. */
+  #raw(operation: string, params: unknown, options: CallOptions): Promise<unknown> {
+    this.#openOrThrow(operation);
+    return this.#channel.call(operation, params, options);
   }
 
   #openOrThrow(operation: string): void {

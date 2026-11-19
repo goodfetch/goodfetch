@@ -27,7 +27,7 @@ fn a_call_that_finds_the_runs_limit_used_up_fails_and_the_run_ends_stopped_and_i
     let (process, endpoint) = scripted_daemon(&env, SCRIPT);
     let capped = RunId::parse("capped").unwrap();
     let limits = Limits::new().price(UsageKind::PROXY_BYTES, Money::new("1", "USD").unwrap());
-    let runtime = goodfetch_test_support::runtime();
+    let runtime = goodfetch_test_support::real_time_runtime();
     runtime.block_on(async {
         let (connection, _said) = ClientConnection::open(
             ConnectionRuntime::driven(tokio::runtime::Handle::current()),

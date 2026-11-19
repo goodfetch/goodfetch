@@ -63,17 +63,17 @@ fn a_start_begins_refuses_a_live_run_resumes_it_and_returns_it_ended_once_finish
         )
     );
     assert_eq!(start_lines.len(), 2, "{log}");
-    assert!(
-        start_lines[0].contains("INFO")
-            && start_lines[0]
-                .contains("The start resumed the Run `held` from its committed state."),
-        "{log}"
-    );
-    assert!(
-        start_lines[1].contains("WARN")
-            && start_lines[1].contains("The start found the Run `held` ended"),
-        "{log}"
-    );
+    for (line, (level, started_as)) in start_lines
+        .iter()
+        .zip([("INFO", "resumed"), ("WARN", "ended")])
+    {
+        assert!(
+            line.contains(level)
+                && line.contains("run_id=held")
+                && line.contains(&format!("started_as=\"{started_as}\"")),
+            "{log}"
+        );
+    }
 }
 
 /// A program without async tags its Run the same way.

@@ -224,7 +224,9 @@ impl<T: DeserializeOwned + Send + 'static> SaveFile<T> {
 pub struct Start(crate::Start, crate::Connection);
 
 impl Start {
-    /// Names the Run `run_id`, as [`crate::Start::run_id`] does.
+    /// Names the Run for good: a start with an existing Run ID resumes the
+    /// Run if it was interrupted, or returns it as it ended (ADR 0102), as
+    /// [`crate::Start::run_id`] says.
     pub fn run_id(self, run_id: &RunId) -> Self {
         Self(self.0.run_id(run_id), self.1)
     }

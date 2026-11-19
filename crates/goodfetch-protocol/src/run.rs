@@ -214,6 +214,12 @@ pub enum TagsInvalid {
 
 impl Tags {
     /// Reads `tags` as a Run's tags, in the order given.
+    ///
+    /// # Errors
+    ///
+    /// [`TagsInvalid::TooMany`] past [`MAX_TAGS`] tags, and
+    /// [`TagsInvalid::TooLong`] for a tag past [`MAX_TAG_CHARACTERS`]
+    /// characters.
     pub fn parse<S: Into<String>>(tags: impl IntoIterator<Item = S>) -> Result<Self, TagsInvalid> {
         Self::of(
             tags.into_iter()

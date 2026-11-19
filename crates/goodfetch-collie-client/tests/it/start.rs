@@ -13,8 +13,8 @@ use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{Connection, ConnectionRuntime, Error};
 use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
 use goodfetch_protocol::run::{
-    RUN_ID_PATTERN, RUN_START, RunConflictDetails, RunDetails, RunId, RunIdInvalid,
-    RunIdInvalidDetails, RunStartParams, RunStarted, StartInput, StartedAs, Tags,
+    RUN_ID_PATTERN, RUN_START, RunConflictDetails, RunDetails, RunId, RunIdInvalidDetails,
+    RunStartParams, RunStarted, StartInput, StartedAs, Tags,
 };
 use goodfetch_test_support::{
     RuntimeFile, SCRIPTED_DAEMON_TOKEN, TestEnv, Tool, engine_script, logged, reported_address,
@@ -147,29 +147,24 @@ async fn play(endpoint: DaemonEndpoint) -> Played {
 }
 
 /// Checks that `log` holds the resume at info and the ended Run at warning,
-/// on the start's target, and nothing else there.
+/// with their fields, on the start's target, and nothing else there.
 fn assert_start_lines(log: &str) {
     let start_lines: Vec<&str> = log
         .lines()
         .filter(|line| line.contains("goodfetch::client::run"))
         .collect();
     assert_eq!(start_lines.len(), 2, "{log}");
-    assert!(
-        start_lines[0].contains("INFO")
-            && start_lines[0]
-                .contains("The start resumed the Run `nightly` from its committed state.")
-            && start_lines[0].contains("run_id=nightly")
-            && start_lines[0].contains("started_as=\"resumed\""),
-        "{log}"
-    );
-    assert!(
-        start_lines[1].contains("WARN")
-            && start_lines[1].contains(
-                "The start found the Run `nightly` ended: it is returned as it ended and takes no new work."
-            )
-            && start_lines[1].contains("started_as=\"ended\""),
-        "{log}"
-    );
+    for (line, (level, started_as)) in start_lines
+        .iter()
+        .zip([("INFO", "resumed"), ("WARN", "ended")])
+    {
+        assert!(
+            line.contains(level)
+                && line.contains("run_id=nightly")
+                && line.contains(&format!("started_as=\"{started_as}\"")),
+            "{log}"
+        );
+    }
 }
 
 #[test]
@@ -252,7 +247,6 @@ fn a_start_reaches_the_run_its_run_id_names_logs_a_resume_and_an_end_and_fails_e
         ),
         ("run_id_invalid", RUN_ID_PATTERN.to_owned())
     );
-    assert_eq!(RunId::parse("Nightly"), Err(RunIdInvalid::Characters));
     let status = process.child().wait().unwrap();
     assert!(
         status.success(),

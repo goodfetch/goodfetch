@@ -1442,7 +1442,7 @@
     {
       "id": "error:hook_duplicate",
       "kind": "error",
-      "area": null,
+      "area": 7,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1452,17 +1452,18 @@
     {
       "id": "error:hook_failed",
       "kind": "error",
-      "area": null,
+      "area": 7,
       "milestone": null,
       "status": "active",
       "products": [
+        "collie",
         "foxhound"
       ]
     },
     {
       "id": "error:hook_ineffective",
       "kind": "error",
-      "area": null,
+      "area": 7,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1472,7 +1473,7 @@
     {
       "id": "error:hook_unknown",
       "kind": "error",
-      "area": null,
+      "area": 7,
       "milestone": null,
       "status": "active",
       "products": [

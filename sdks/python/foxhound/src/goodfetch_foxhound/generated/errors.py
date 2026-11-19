@@ -92,14 +92,6 @@ class HookDuplicateError(ProgramError):
         super().__init__(message, code="hook_duplicate", group="program", retryable=False, fix=fix, details=details)
 
 
-class HookFailedError(ProgramError):
-    """A Hook raised, so its work failed: an attempt commits nothing, and one that failed at the Record stage commits none of what it staged. The message always names the exception. The details name the stage, the Hook, the request's Label (`null` at a lifecycle stage), the exception's type, message and stack, and the Goodfetch code raised inside (`null` for the program's own exception). A wrapped code is retried when its own retryable flag says so; the program's own exception only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time. Either retry draws on `crawl.retry.max`."""
-
-    def __init__(self, message: str, *, fix: str | None = None, details: Mapping[str, object] | None = None) -> None:
-        """Takes the message the engine rendered, and what it carries."""
-        super().__init__(message, code="hook_failed", group="program", retryable=True, fix=fix, details=details)
-
-
 class HookIneffectiveError(ProgramError):
     """A Hook can never run, so nothing was done: its `labels` or `datasets` list is empty, which fails at once with no I/O, or, when the Run starts, it is a navigation Hook all of whose Labels force a tier that does not navigate (`http`, `discovered_api` or `browser_fetch`) through `fetch.tier`, so the Run was not started. The details name the Hook and its stage. Scope it to a Label or Dataset it can see, or let one of its Labels navigate."""
 
@@ -247,7 +239,6 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "handler_failed": HandlerFailedError,
     "handler_lost": HandlerLostError,
     "hook_duplicate": HookDuplicateError,
-    "hook_failed": HookFailedError,
     "hook_ineffective": HookIneffectiveError,
     "hook_unknown": HookUnknownError,
     "label_duplicate": LabelDuplicateError,

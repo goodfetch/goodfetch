@@ -5,7 +5,7 @@
 pub const COMMANDS: &[&str] = &["crawl.start", "dataset.list", "dataset.page", "dataset.query", "run.add-seed", "run.add-seeds", "run.export", "run.failed-requests", "run.outcomes", "run.records", "run.rejected-records", "run.retry-failed", "run.seeds", "sample.crawl"];
 
 /// The error codes only Foxhound carries.
-pub const ERROR_CODES: &[&str] = &["attempt_ended", "browser_required", "client_gone", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_failed", "hook_ineffective", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "sample_crawl_refused", "staging_full"];
+pub const ERROR_CODES: &[&str] = &["attempt_ended", "browser_required", "client_gone", "dataset_duplicate", "dataset_key_invalid", "dataset_unknown", "effect_staging_refused", "handler_failed", "handler_lost", "hook_duplicate", "hook_ineffective", "hook_unknown", "label_duplicate", "label_unhandled", "label_unknown", "lease_lost", "payload_invalid", "payload_schema_changed", "query_failed", "query_invalid", "query_memory_exceeded", "record_invalid", "response_not_document", "response_not_ok", "response_unavailable", "sample_crawl_refused", "staging_full"];
 
 /// The error groups only Foxhound carries.
 pub const ERROR_GROUPS: &[&str] = &[];

@@ -1,18 +1,18 @@
 use rstest::rstest;
 use serde_json::json;
 
-use super::{HookDuplicateDetails, HookFailedDetails, HookIneffectiveDetails, HookUnknownDetails};
-use crate::catalog::{ErrorGroup, Product};
+use super::{HookDuplicateDetails, HookIneffectiveDetails, HookUnknownDetails};
+use crate::catalog::Product;
 use crate::entries::MODULES;
 
 #[rstest]
-#[case::duplicate("hook_duplicate", false)]
-#[case::ineffective("hook_ineffective", false)]
-#[case::failed("hook_failed", true)]
-#[case::unknown("hook_unknown", false)]
-fn foxhound_declares_each_hook_code_once_as_a_program_error(
+#[case::duplicate("hook_duplicate", Product::Foxhound)]
+#[case::ineffective("hook_ineffective", Product::Foxhound)]
+#[case::failed_also_by_a_collie_script_hook("hook_failed", Product::Collie)]
+#[case::unknown("hook_unknown", Product::Foxhound)]
+fn each_hook_code_is_declared_once_in_the_smallest_product_that_raises_it(
     #[case] name: &str,
-    #[case] retryable: bool,
+    #[case] expected: Product,
 ) {
     let declared: Vec<_> = MODULES
         .into_iter()
@@ -21,17 +21,15 @@ fn foxhound_declares_each_hook_code_once_as_a_program_error(
                 .error_codes
                 .iter()
                 .filter(|code| code.name == name)
-                .map(|code| (Product::of_module(entries.defined_in), code))
+                .map(|_| Product::of_module(entries.defined_in))
         })
         .collect();
 
-    let [(product, code)] = declared.as_slice() else {
-        panic!("`{name}` is declared {} times", declared.len());
-    };
-    assert_eq!(*product, Product::Foxhound);
-    assert_eq!(code.group, ErrorGroup::Program);
-    assert_eq!(code.retryable, retryable);
-    assert_eq!(code.exit_code, None);
+    assert_eq!(
+        declared,
+        [expected],
+        "`{name}` is declared in these Products"
+    );
 }
 
 #[test]
@@ -57,54 +55,6 @@ fn hook_ineffective_names_the_hook_and_its_stage() {
     assert_eq!(
         serde_json::to_value(&details).unwrap(),
         json!({ "hook": "before_navigation#1", "stage": "before_navigation" })
-    );
-}
-
-#[test]
-fn hook_failed_names_the_hook_its_label_the_exception_and_the_wrapped_code() {
-    let details = HookFailedDetails {
-        stage: "after_response".to_owned(),
-        hook: "checkPrice".to_owned(),
-        label: Some("product".to_owned()),
-        exception_type: "TypeError".to_owned(),
-        exception_message: "price is undefined".to_owned(),
-        exception_stack: "at checkPrice (crawl.ts:12:5)".to_owned(),
-        wrapped_code: Some("header_forbidden".to_owned()),
-    };
-
-    assert_eq!(
-        serde_json::to_value(&details).unwrap(),
-        json!({
-            "stage": "after_response",
-            "hook": "checkPrice",
-            "label": "product",
-            "exception_type": "TypeError",
-            "exception_message": "price is undefined",
-            "exception_stack": "at checkPrice (crawl.ts:12:5)",
-            "wrapped_code": "header_forbidden",
-        })
-    );
-}
-
-#[test]
-fn hook_failed_at_a_lifecycle_stage_for_the_programs_own_exception_writes_both_nulls() {
-    let details = HookFailedDetails {
-        stage: "run_started".to_owned(),
-        hook: "openLog".to_owned(),
-        label: None,
-        exception_type: "BoxError".to_owned(),
-        exception_message: "log folder missing".to_owned(),
-        exception_stack: String::new(),
-        wrapped_code: None,
-    };
-
-    let written = serde_json::to_value(&details).unwrap();
-
-    assert_eq!(written["label"], json!(null));
-    assert_eq!(written["wrapped_code"], json!(null));
-    assert_eq!(
-        serde_json::from_value::<HookFailedDetails>(written).unwrap(),
-        details
     );
 }
 

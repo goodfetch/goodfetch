@@ -101,6 +101,30 @@ reason = "Declared for ADR 0069's exit-code table (#1188), but nothing raises it
 link = "https://github.com/goodfetch/goodfetch/issues/755"
 
 [[exception]]
+feature = "error:hook_duplicate"
+evidence = "none"
+reason = "Declared for ADR 0104's Hooks in code (#2339), but nothing raises it yet: a crawl's second Hook of one name fails its declaration with this code in #1481, whose test removes this exception."
+link = "https://github.com/goodfetch/goodfetch/issues/1481"
+
+[[exception]]
+feature = "error:hook_ineffective"
+evidence = "none"
+reason = "Declared for ADR 0104's Hooks in code (#2339), but nothing raises it yet: a Hook that can never run fails with this code in #1481, whose test removes this exception."
+link = "https://github.com/goodfetch/goodfetch/issues/1481"
+
+[[exception]]
+feature = "error:hook_failed"
+evidence = "none"
+reason = "Declared for ADRs 0051 and 0104 (#2339), but nothing raises it yet: a Hook that raises fails with this code in #1482 and #1483, whose tests remove this exception."
+link = "https://github.com/goodfetch/goodfetch/issues/1482"
+
+[[exception]]
+feature = "error:hook_unknown"
+evidence = "none"
+reason = "Declared for ADR 0105's `runHook` (#2339), but nothing raises it yet: the testing kit's `runHook` raises it for a Hook the crawl does not hold in #1502, whose test removes this exception."
+link = "https://github.com/goodfetch/goodfetch/issues/1502"
+
+[[exception]]
 feature = "error:secret_unbound"
 evidence = "none"
 reason = "Declared with the Secret-provider driver (#615), but nothing raises it yet: a Secret placeholder with no binding raises it once placeholders are bound to Secret references and domains, in #654, whose test removes this exception."

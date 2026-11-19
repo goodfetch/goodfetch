@@ -227,6 +227,8 @@ describe("Limits in code on an Attached engine", () => {
 function recordingLogger(): { readonly logger: Logger; readonly warned: string[] } {
   const warned: string[] = [];
   const logger: Logger = {
+    // It asks for none of the engine's log events: `hello` says `off`, as the script expects.
+    level: "off",
     debug: () => {},
     info: () => {},
     warn: (message) => {

@@ -49,8 +49,12 @@ export interface ConnectOverOptions {
   readonly limits?: Limits | undefined;
   /**
    * The host's logger, which gets a start that resumed a Run at info and
-   * one that found it ended at warning, and an Attached engine's stderr
-   * lines at warning. With none, the SDK is silent.
+   * one that found it ended at warning, an Attached engine's stderr lines
+   * at warning, and the engine's log events at their level, `trace` at
+   * `debug`. The engine sends those from the logger's `level` when it is
+   * one of `off`, `error`, `warn`, `info`, `debug` and `trace`, else from
+   * `info`, read at `connect()` and again when a Run starts. With none, the
+   * SDK is silent and the engine sends no log events.
    */
   readonly logger?: Logger | undefined;
 }

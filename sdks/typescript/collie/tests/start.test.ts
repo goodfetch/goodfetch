@@ -156,6 +156,8 @@ function recordingLogger(): {
   const logged: Logged[] = [];
   const stderr: string[] = [];
   const logger: Logger = {
+    // It asks for none of the engine's log events: `hello` says `off`, as the script expects.
+    level: "off",
     debug: () => {},
     info: (message, fields) => {
       logged.push(["info", message, fields]);

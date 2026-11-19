@@ -60,6 +60,10 @@ _Avoid_: client (for the Connection), engine (for the Connection), session (a Se
 What a developer writes and calls in a Goodfetch SDK: its objects, methods, types and errors, generated in part from the Operation catalog.
 _Avoid_: consumer API, public surface
 
+**Handle**:
+A value of the SDK API through which a program acts on one thing the engine runs or holds, such as a Run, a Session, a Page or a Locator: each of its methods sends an operation of that thing, the raw catalog call included. A Handle on a Locator stays that lazy Locator and is never bound to an element.
+_Avoid_: proxy, stub or wrapper (for a Handle), remote object, element handle and JS handle (Playwright's values bound to one element or one page value, which Collie does not have)
+
 **CLI**:
 The command-line interface of each Product's executable, through which a person or a script runs that Product's commands; Foxhound's keeps every command of Collie's.
 _Avoid_: shell, terminal, command-line tool
@@ -559,8 +563,8 @@ A call that sends input to a page or navigates it, such as a click, a key press 
 _Avoid_: interaction, command (for a gesture)
 
 **Locator**:
-What a page action looks for on a page, such as a CSS selector, resolved again at each use and never a handle on an element; an action needs it to match exactly one element.
-_Avoid_: element handle, query, selector (for the value)
+What a page action looks for on a page, such as a CSS selector, resolved again at each use and never bound to one element; an action needs it to match exactly one element. A program holds one through a Handle.
+_Avoid_: element handle (a value bound to one element, which Collie does not have), query, selector (for the value)
 
 **Guard**:
 The engine's check of each locator action: it waits until the target is unique and actionable (visible, enabled, stable and receiving the event, as the action needs), cancels a gesture that lands on another element and replays it, until the action's timeout.
@@ -690,7 +694,7 @@ _Avoid_: normalizer, converter, cast
 
 **Element reference**:
 A short name the engine gives an element in an AI accessibility snapshot of a page, such as `e12`, by which a model or a program acts on that element for as long as it stays in the page.
-_Avoid_: handle, element ID, node ID
+_Avoid_: handle (a Handle is a value of the SDK API, such as a Page or a Locator), element ID, node ID
 
 **Human pause**:
 The state of a Session's work while it waits for a person to complete a login, MFA, a CAPTCHA, a confirmation, a review or another step a program asks for.

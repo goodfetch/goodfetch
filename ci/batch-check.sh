@@ -5,6 +5,13 @@
 # can break the gate would otherwise first see. So this runs, against `base`
 # (`origin/main` by default):
 #
+# - the installs of the locked JavaScript and Python dependencies (`pnpm
+#   install --frozen-lockfile`, `uv sync --frozen --all-extras`), since a
+#   batch's worktree is new and has neither `node_modules` nor `.venv`
+#   (batches k and l, 2026-11-19: `just notices` red on a package not
+#   installed). The steps that read the installed packages, `just notices`,
+#   `just lint-documents`, `just lint-drift` and the Quick suite, come after
+#   both, and are skipped when one failed;
 # - the checks of the whole change's commits, which the gate's forms start
 #   with: sign-offs, subjects, the floor guard and the scan for secrets;
 # - the licence allowlist (`just notices`), the checks that read documents
@@ -40,13 +47,16 @@ source "$(dirname "${BASH_SOURCE[0]}")/output-value.sh"
 quoted_base=$(printf '%q' "$base")
 echo "The batch: HEAD against its merge base with $base."
 steps_begin batch-check
+step pnpm-install 'pnpm install --frozen-lockfile'
+step uv-sync 'uv sync --frozen --all-extras'
+installed=(--after pnpm-install --after uv-sync)
 step dco "just dco $quoted_base"
 step commit-messages "just commit-messages $quoted_base"
 step floor-guard "just floor-guard $quoted_base"
 step commit-leaks "just commit-leaks $quoted_base"
-step notices 'just notices'
-step lint-documents 'just lint-documents'
-step lint-drift 'just lint-drift'
+step "${installed[@]}" notices 'just notices'
+step "${installed[@]}" lint-documents 'just lint-documents'
+step "${installed[@]}" lint-drift 'just lint-drift'
 
 members_dir=$(mktemp -d)
 trap 'rm -rf "$members_dir"' EXIT
@@ -102,7 +112,7 @@ if ((branches > 1)); then
 fi
 if [[ -n $shared ]]; then
   echo "The members two or more of the batch's $branches branches reach: $shared."
-  step quick-suite "just test quick $shared"
+  step "${installed[@]}" quick-suite "just test quick $shared"
 else
   echo "No member is reached by two of the batch's $branches branches, so no suite runs: each branch's own \`just quick\` ran its tests."
 fi

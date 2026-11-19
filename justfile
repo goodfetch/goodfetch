@@ -994,11 +994,13 @@ quick-steps:
 
 # Before `just merge` of a batch branch (AGENTS.md, Merging), in its
 # worktree: what the batch's combined tree can break that each pull
-# request's own `just quick` did not read (ci/batch-check.sh). The checks of
-# the whole change's commits against `base`, the licence allowlist, the
-# checks that read documents and the drift checks (`just lint-drift`), then
-# the Quick suite over the members two or more of the batch's branches
-# reach. Every step runs even after one failed.
+# request's own `just quick` did not read (ci/batch-check.sh). The installs
+# of the locked JavaScript and Python dependencies, which the batch's fresh
+# worktree lacks, the checks of the whole change's commits against `base`,
+# the licence allowlist, the checks that read documents and the drift checks
+# (`just lint-drift`), then the Quick suite over the members two or more of
+# the batch's branches reach. Every step runs even after one failed, except
+# that a failed install skips the steps that read the installed packages.
 batch-check base="origin/main":
     PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/batch-check.sh {{ quote(base) }}
 

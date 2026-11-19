@@ -19,12 +19,17 @@ fn level_of(env: &TestEnv) -> String {
         .to_owned()
 }
 
+/// A program that ends once its input does and writes nothing on its stdout:
+/// Windows has no `true`, and `findstr` searches its input for its argument.
+const QUIET: &str = if cfg!(windows) { "findstr" } else { "true" };
+
 /// Whatever command a test starts the engine through, its stdout is read at
 /// the level that makes a stray log line show: a caller cannot forget it.
 #[test]
 fn a_command_started_for_a_test_logs_at_trace() {
     let env = TestEnv::new();
-    let mut command = env.process_command("true");
+    let mut command = env.process_command(QUIET);
+    command.arg(ATTACHED_ENGINE);
 
     let engine = Attached::spawned(&env, MESSAGE_DEADLINE, &mut command);
     let _ = engine.finished();
@@ -36,7 +41,7 @@ fn a_command_started_for_a_test_logs_at_trace() {
 fn a_level_a_test_asks_for_stays() {
     let env = TestEnv::new();
 
-    let engine = Attached::start_logging(&env, "true", MESSAGE_DEADLINE, "warn", |_| {});
+    let engine = Attached::start_logging(&env, QUIET, MESSAGE_DEADLINE, "warn", |_| {});
     let _ = engine.finished();
 
     assert_eq!(level_of(&env), r#"log.level = "warn""#);

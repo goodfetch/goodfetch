@@ -54,8 +54,12 @@ if [[ "${1:-}" == in-container ]]; then
 
   export GOODFETCH_TEST_SUITE=pre-merge
   # insta finds the workspace by running `cargo metadata`, which a test under
-  # Wine cannot start: Linux's Cargo is no Windows program.
-  export INSTA_WORKSPACE_ROOT="$PWD"
+  # Wine cannot start: Linux's Cargo is no Windows program. The root is Wine's
+  # drive path of the checkout: a Windows program reads a path with no drive
+  # as relative, and wrote a unit test's snapshots under a doubled folder.
+  # A failing snapshot writes no `.snap.new` into the checkout, which the
+  # Linux suites would then read as one to review.
+  export INSTA_WORKSPACE_ROOT="Z:$PWD" INSTA_UPDATE=no
   export GOODFETCH_TEST_TOOLS="$CARGO_TARGET_DIR/test-tools.json"
   # xtask builds with the tests' profile, so it shares their host-built
   # dependencies.

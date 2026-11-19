@@ -9,16 +9,22 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from goodfetch_collie_client.caller import result_of
+from goodfetch_collie_client.connection import ClientConnection
+from goodfetch_collie_client.generated.errors import ERROR_CLASSES
 from goodfetch_collie_client.generated.events import EVENTS
 from goodfetch_collie_client.generated.models import (
+    Product,
     RunId,
     RunListParams,
     RunProgress,
     RunProgressParams,
     TimeRange,
 )
-from goodfetch_collie_client.generated.operations import CollieOperations
-from goodfetch_test_support import EngineAnswering
+from goodfetch_collie_client.generated.operations import (
+    AsyncCollieOperations,
+    CollieOperations,
+)
+from goodfetch_test_support import EngineAnswering, Finished, play_script
 
 pytestmark = pytest.mark.covers("story:11-91")
 
@@ -90,19 +96,25 @@ def test_a_time_no_point_in_time_reads_is_kept_as_sent() -> None:
     assert sent == "2026-11-19T10:30:00"
 
 
-def test_a_sent_datetime_crosses_the_wire_as_rfc3339_in_utc() -> None:
-    """A `datetime` with any offset is sent as the same instant, written in UTC."""
-    engine = EngineAnswering({"runs": []})
+@pytest.mark.anyio
+async def test_a_sent_datetime_crosses_the_wire_as_rfc3339_in_utc() -> None:
+    """A `datetime` with any offset is sent as the same instant, written in UTC.
+
+    The script expects `run.list` with `started.from` as `2026-11-19T08:00:00Z`.
+    """
+    played = play_script("sdk-python/run/list-started-in-utc.json")
+    connection = await ClientConnection.open(
+        played.transport, needs=Product.collie, error_classes=ERROR_CLASSES
+    )
     paris = timezone(timedelta(hours=2))
 
-    CollieOperations(engine).run_list(
+    await AsyncCollieOperations(connection).run_list(
         RunListParams(
             started=TimeRange.model_validate(
                 {"from": datetime(2026, 11, 19, 10, tzinfo=paris)}
             )
         )
     )
+    await connection.close()
 
-    [params] = engine.sent
-    wire = params.model_dump(mode="json", by_alias=True, exclude_unset=True)
-    assert wire == {"started": {"from": "2026-11-19T08:00:00Z"}}
+    assert played.done() == Finished()

@@ -1,5 +1,5 @@
 {
-  "description": "A Collie Client starts a Run and closes while the Run's finish is in flight: the close aborts the Run first, then cancels the finish, and the Client then closes.",
+  "description": "A Collie Client starts a Run and closes while the Run's finish is in flight: the close aborts the Run first, then cancels the finish, and the Client then closes. The last step, a second Run's start, never comes, so the engine fails with unused_step as it ends, on its stderr: the Client's logger has that line once its close returns only when the close waited for the engine to exit.",
   "steps": [
     {
       "expect": {
@@ -94,6 +94,12 @@
         "params": {
           "id": 2
         }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {}
       }
     }
   ]

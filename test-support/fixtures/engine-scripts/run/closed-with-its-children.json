@@ -1,5 +1,5 @@
 {
-  "description": "A Collie Client starts a Run, opens a Session in it with a page, closes the Session, which closes its page, and opens a page on the Run: closing the Session's page sends nothing, and the Client's close aborts the Run, which closes its Session and page with it; the Client then closes.",
+  "description": "A Collie Client starts a Run, opens a Session in it with a page, closes the Session, which closes its page, and opens a page on the Run: closing the Session's page sends nothing, and the Connection's close aborts the Run, which closes its Session and page with it; the Client then closes.",
   "steps": [
     {
       "expect": {

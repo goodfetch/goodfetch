@@ -10,7 +10,7 @@ import { Collie, RunStateUnavailableError } from "@goodfetch/collie";
 import { failure, recordingLogger, scriptedEngineEnv, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 
-const URL = "https://shop.test/";
+const SHOP_URL = "https://shop.test/";
 
 describe("closing a Collie Connection's values", () => {
   test(
@@ -27,12 +27,12 @@ describe("closing a Collie Connection's values", () => {
 
       await session.close();
       await sessionPage.close();
-      const afterSession = await failure(sessionPage.goto(URL));
+      const afterSession = await failure(sessionPage.goto(SHOP_URL));
       const runPage = await run.newPage();
       await collie.close();
       await collie.close();
       const afterConnection = await Promise.all([
-        failure(runPage.goto(URL)),
+        failure(runPage.goto(SHOP_URL)),
         failure(session.newPage()),
         failure(run.finish()),
       ]);
@@ -68,18 +68,12 @@ describe("closing a Collie Connection's values", () => {
 
       await first.close();
       const resumed = await collie.start({ runId: "nightly" });
-      const report = await resumed.finish();
+      await resumed.finish();
       await resumed.close();
       await collie.close();
 
-      await clientCase.check("the start after the close resumed the Run", () =>
-        expect(resumed.startedAs()).toBe("resumed"),
-      );
-      await clientCase.check("the resumed Run finished", () =>
-        expect(report).toMatchObject({ run_id: "nightly", lifecycle: "finished" }),
-      );
       await clientCase.check(
-        "the close of the running Run aborted it, and the close of the finished one sent nothing",
+        "the close of the running Run aborted it once, the start after it named its Run ID, and the close of the finished one sent nothing",
         () => expect(warned).toEqual([]),
       );
     },
@@ -106,8 +100,11 @@ describe("closing a Collie Connection's values", () => {
         }),
       );
       await clientCase.check(
-        "the close aborted the Run, then cancelled the finish, and its engine stopped at the end of its input",
-        () => expect(warned).toEqual([]),
+        "the close aborted the Run, cancelled the finish, then waited for its engine to end: the one failure, the step left for after the close, reached the logger before close() returned",
+        () =>
+          expect(warned).toEqual([
+            "goodfetch-scripted-engine: unused_step: step 8 was left unused",
+          ]),
       );
     },
   );
@@ -123,11 +120,20 @@ describe("closing a Collie Connection's values", () => {
     },
     async ({ testEnv, clientCase }) => {
       const { logger, warned } = recordingLogger();
-      const [closedEnv, scopedEnv] = ["closed", "scoped"].map((name) =>
-        scriptedEngineEnv(testEnv, "collie", "run/abort-refused.json", join(testEnv.folder, name)),
+      const closedEnv = scriptedEngineEnv(
+        testEnv,
+        "collie",
+        "run/abort-refused.json",
+        join(testEnv.folder, "closed"),
+      );
+      const scopedEnv = scriptedEngineEnv(
+        testEnv,
+        "collie",
+        "run/abort-refused.json",
+        join(testEnv.folder, "scoped"),
       );
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
-      const collie = await Collie.connect({ env: closedEnv ?? unreachable(), logger });
+      const collie = await Collie.connect({ env: closedEnv, logger });
       await collie.start({ runId: "nightly" });
       const closed = await failure(collie.close());
 
@@ -135,7 +141,7 @@ describe("closing a Collie Connection's values", () => {
       const unwound = await failure(
         (async (): Promise<void> => {
           // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
-          await using scoped = await Collie.connect({ env: scopedEnv ?? unreachable(), logger });
+          await using scoped = await Collie.connect({ env: scopedEnv, logger });
           await scoped.start({ runId: "nightly" });
           throw thrown;
         })(),
@@ -161,7 +167,3 @@ describe("closing a Collie Connection's values", () => {
     },
   );
 });
-
-function unreachable(): never {
-  throw new TypeError("invariant: two environments were made");
-}

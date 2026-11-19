@@ -1,5 +1,5 @@
 {
-  "description": "A Collie Client starts a Run by its Run ID and closes it unfinished, and the engine refuses the Run's abort with run_state_unavailable: the Client's close fails with that error, and the Client then closes.",
+  "description": "A Collie Client starts a Run by its Run ID and closes it unfinished, and the engine refuses the Run's abort with run_state_unavailable: the Connection's close fails with that error, and the Client then closes.",
   "steps": [
     {
       "expect": {
@@ -53,11 +53,12 @@
       "reply": {
         "error": {
           "code": -32006,
-          "message": "The Run's state cannot be written at its location: the disk is full.",
+          "message": "The state of the Run `nightly` is unavailable: the disk is full.",
           "data": {
             "code": "run_state_unavailable",
             "retryable": false,
-            "path": "/home/goodfetch/0.0/runs/nightly/run.sqlite"
+            "run_id": "nightly",
+            "path": "/home/goodfetch/0.0/runs/nightly"
           }
         }
       }

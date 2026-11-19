@@ -24,6 +24,30 @@ to a body and closes it after. Its handles are cheap clones that are `Send`,
 `Sync` and `'static`, and its futures run on any executor. A program that
 does not use async calls the same names under `goodfetch_collie::blocking`.
 
+### Schemas
+
+A program types data with a schema in its own types (ADR 0082): a type
+deriving `JsonSchema`, through the `schemars` this crate re-exports, and
+serde's `Serialize` and `Deserialize`, or a JSON Schema written by hand
+(`Schema::json`), whose values are `serde_json::Value`. The engine receives
+the schema's deserialize side; a sent value must parse back as itself, and
+an answer is decoded by the type's own `Deserialize`. Only JSON crosses: a
+value that is not JSON (NaN, an infinity, a map key that is not a string)
+fails with `SchemaError::NotJson`, naming its path as a JSON Pointer.
+Results keep the fields this SDK does not know, readable through
+`Answer::raw`, and an input's builder has no setter for a field its
+operation does not take.
+
+Supported range, tested at its floor, which `Cargo.lock` pins. Each names
+one major in the SDK's types, so a new major of one is a new Goodfetch
+major:
+
+| Library | Versions |
+|---|---|
+| schemars | 1.2.3 and later 1.x |
+| serde | 1.0.229 and later 1.x |
+| serde_json | 1.0.154 and later 1.x |
+
 ## The executable
 
 The executable is behind the `executable` feature, so that a program

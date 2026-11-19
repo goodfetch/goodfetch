@@ -17,7 +17,9 @@
 # the Connection both Products' connections implement (ADRs 0095 and 0099),
 # and `blocking` its blocking twin. `markers` warns once per process of a
 # deprecated or Experimental entry `generated` calls, or `run` serves by
-# hand (ADRs 0030 and 0099).
+# hand (ADRs 0030 and 0099). `raw_call` is the raw catalog call on the
+# Connection and on every handle (ADR 0099, G8), which refuses what the
+# engine would before it sends it through `call`'s builder.
 # `connect_timeout` types how long `connection` waits for `hello`'s answer,
 # `timeout.connect` in its three states (ADR 0080). `logging` names the
 # crate's `tracing` targets, reads the level a Connection tells its engine,
@@ -26,22 +28,23 @@
 # (ADR 0081), with the credits it grants and the cancel its drop sends.
 # Event resumption joins as its own module with the ticket that adds it.
 [modules]
-blocking = ["call", "connection", "error", "event_stream", "field_values", "generated", "limits", "response", "run"]
+blocking = ["call", "connection", "error", "event_stream", "field_values", "generated", "limits", "raw_call", "response", "run"]
 call = ["error", "rpc"]
 connect_timeout = ["call", "error"]
-connection = ["call", "connect_timeout", "error", "file_saving", "handler", "logging", "rpc", "sync", "transport"]
-connection_type = ["error", "run"]
+connection = ["call", "connect_timeout", "error", "file_saving", "handler", "logging", "raw_call", "rpc", "sync", "transport"]
+connection_type = ["error", "raw_call", "run"]
 error = []
 event_stream = ["error", "rpc"]
 field_values = ["call", "error"]
 file_saving = ["error"]
 generated = ["call", "event_stream", "host", "markers", "response"]
 handler = ["error", "line", "sync"]
-host = ["call", "connection", "error", "event_stream", "sync"]
+host = ["call", "connection", "error", "event_stream", "raw_call", "sync"]
 limits = []
 line = []
 logging = ["sync"]
 markers = ["logging", "sync"]
+raw_call = ["call", "error", "rpc"]
 response = ["call", "connection", "error", "host"]
 rpc = ["error", "handler", "line", "logging", "transport"]
 run = ["connection", "error", "generated", "host", "limits", "logging", "markers"]

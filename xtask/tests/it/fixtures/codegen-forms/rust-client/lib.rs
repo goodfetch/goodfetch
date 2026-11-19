@@ -71,6 +71,10 @@ impl<T, P> Call<T, P> {
     }
 }
 
+/// A raw call of an operation, its params and its result the wire's JSON.
+#[must_use]
+pub struct RawCall;
+
 /// A question the engine answers at once.
 #[must_use]
 pub struct Query<T, P = Value> {
@@ -96,7 +100,7 @@ impl<T, P> Query<T, P> {
 }
 
 pub(crate) mod host {
-    use super::{Call, Connection, DeserializeOwned, PhantomData, Query, Serialize};
+    use super::{Call, Connection, DeserializeOwned, PhantomData, Query, RawCall, Serialize};
 
     /// What a handle reaches its engine through.
     #[derive(Clone, Debug)]
@@ -130,6 +134,18 @@ pub(crate) mod host {
                 params,
                 reply: PhantomData,
             }
+        }
+
+        pub(crate) fn raw(
+            &self,
+            _operation: &str,
+            _namespace: &'static str,
+            _param: &'static str,
+        ) -> RawCall
+        where
+            Id: Serialize,
+        {
+            RawCall
         }
 
         pub(crate) fn query<T, P>(&self, _method: &'static str, params: P) -> Query<T, P>
@@ -197,6 +213,18 @@ pub mod blocking {
         /// Sends the call and blocks until its reply.
         pub fn send(self) -> Result<T, Error> {
             Err(Error)
+        }
+    }
+
+    /// A raw call, sent by `send()`.
+    #[must_use]
+    pub struct RawCall {
+        raw: crate::RawCall,
+    }
+
+    impl RawCall {
+        pub(crate) fn new(raw: crate::RawCall, _connection: &Connection) -> Self {
+            Self { raw }
         }
     }
 

@@ -48,7 +48,7 @@ fn environment(env: &TestEnv, variables: &[(&str, &str)]) -> BTreeMap<OsString, 
 
 /// This SDK's `hello` to a Daemon whose token is `token`, at the level the
 /// calling thread's subscriber records for the engine.
-fn hello(token: &str) -> HelloParams {
+pub(super) fn hello(token: &str) -> HelloParams {
     HelloParams {
         needs: Some(Product::Collie),
         log_level: Some(engine_log_level()),
@@ -69,7 +69,12 @@ fn version() -> ProductVersion {
     clippy::disallowed_methods,
     reason = "the test writes the Scripted engine's script before any async worker runs"
 )]
-fn scripted(env: &TestEnv, script: &str, hello: &HelloParams, mode: &str) -> (Process, Value) {
+pub(super) fn scripted(
+    env: &TestEnv,
+    script: &str,
+    hello: &HelloParams,
+    mode: &str,
+) -> (Process, Value) {
     let mut played: Value =
         serde_json::from_slice(&std::fs::read(engine_script(script)).unwrap()).unwrap();
     played["steps"][0]["expect"]["params"] = serde_json::to_value(hello).unwrap();
@@ -102,7 +107,7 @@ fn listening(line: &Value) -> String {
 }
 
 /// Asserts that the Scripted engine played its script whole.
-fn played_whole(process: &Process) {
+pub(super) fn played_whole(process: &Process) {
     assert!(
         process.child().wait().unwrap().success(),
         "the Scripted engine played its script whole"

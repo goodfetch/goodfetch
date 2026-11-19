@@ -9,6 +9,7 @@
 use std::future::Future;
 
 use crate::error::Error;
+use crate::raw_call::RawCall;
 use crate::run::Start;
 
 /// A Client's open link to one engine, through which a program reaches its
@@ -30,6 +31,12 @@ pub trait Connection {
     /// Run resumes it, and one naming a finished Run returns it as it ended
     /// (ADR 0102).
     fn start(&self) -> Start;
+
+    /// The raw call of `operation` (ADR 0099, G8), the way down to an
+    /// operation the SDK does not generate: its params and its result are
+    /// the wire's JSON, in snake case. Awaiting sends it; it is never
+    /// retried, and once the connection is closed it fails with `closed`.
+    fn call(&self, operation: &str) -> RawCall;
 
     /// Closes the connection for every clone: first every Run it started
     /// that still runs, then its engine; returns once it has stopped. Any

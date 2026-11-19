@@ -19,6 +19,15 @@ impl Run {
         self.host.id()
     }
 
+    /// The raw call of `operation`, an operation of `run` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `run_id`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::RawCall {
+        self.host.raw(operation, "run", "run_id")
+    }
+
     /// Opens a page in the Run.
     ///
     /// # Errors
@@ -97,6 +106,15 @@ impl Page {
     #[must_use]
     pub fn id(&self) -> &::goodfetch_protocol::forms::PageId {
         self.host.id()
+    }
+
+    /// The raw call of `operation`, an operation of `page` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `page_id`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::RawCall {
+        self.host.raw(operation, "page", "page_id")
     }
 
     /// Its `keyboard`.
@@ -233,6 +251,15 @@ impl Locator {
     #[must_use]
     pub fn id(&self) -> &::goodfetch_protocol::forms::Locator {
         self.host.id()
+    }
+
+    /// The raw call of `operation`, an operation of `locator` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `locator`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::RawCall {
+        self.host.raw(operation, "locator", "locator")
     }
 
     /// Clicks what the locator finds.

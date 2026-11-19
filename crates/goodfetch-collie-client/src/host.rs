@@ -24,6 +24,7 @@ use crate::call::{Call, Query};
 use crate::connection::{ClientConnection, Closes, close_timeout};
 use crate::error::Error;
 use crate::event_stream::EventStream;
+use crate::raw_call::{RawCall, RawNote, RawValue};
 use crate::sync::{AtomicBool, Mutex, MutexGuard};
 
 /// What a handle reaches its engine through: the Run it belongs to and its
@@ -96,6 +97,34 @@ impl<Id> Host<Id> {
         } else {
             call
         }
+    }
+
+    /// The raw call of `operation` on the handle's value (ADR 0099), of
+    /// the namespace `namespace`, its ID filling `param`. Whether the value
+    /// is closed is read when it is awaited, and a reply that says the Run
+    /// ended notes it, as for [`Host::call`].
+    pub(crate) fn raw(
+        &self,
+        operation: &str,
+        namespace: &'static str,
+        param: &'static str,
+    ) -> RawCall
+    where
+        Id: Serialize,
+    {
+        let (run, value) = (Arc::clone(&self.run), self.value.clone());
+        let note = self.value.is_none().then(|| {
+            let run = Arc::clone(&self.run);
+            Box::new(move |reply: &Value| run.note(reply)) as RawNote
+        });
+        let value = RawValue {
+            namespace,
+            param,
+            id: serde_json::to_value(&self.id).map_err(Error::shape),
+            closed: Box::new(move || closed(&run, value.as_deref())),
+            note,
+        };
+        RawCall::new(self.connection().sender(), operation, Some(value))
     }
 
     /// The query of `method` with `params`, whose answer reads as `T`.

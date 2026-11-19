@@ -38,6 +38,7 @@ use crate::error::Error;
 use crate::file_saving::{self, FileSaving};
 use crate::handler::{HandlerRequests, Streams};
 use crate::logging;
+use crate::raw_call::RawCall;
 use crate::rpc::{self, Heard, Outgoing, Sender};
 use crate::sync::{AtomicBool, Mutex, MutexGuard};
 use crate::transport::{self, Endpoint, Network};
@@ -256,6 +257,12 @@ impl ClientConnection {
     /// The call of `method` with `params`, whose reply reads as `T`.
     pub fn call<T: DeserializeOwned>(&self, method: &str, params: &impl Serialize) -> Call<T> {
         Call::new(self.sender(), method, to_value(params))
+    }
+
+    /// The raw call of `operation` (ADR 0099), its params and its result
+    /// the wire's JSON, which awaiting sends: the Products' `call`.
+    pub fn raw_call(&self, operation: &str) -> RawCall {
+        RawCall::new(self.sender(), operation, None)
     }
 
     /// The query of `method` with `params`, whose answer reads as `T`.

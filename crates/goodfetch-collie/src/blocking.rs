@@ -7,7 +7,8 @@
 use goodfetch_collie_client::blocking;
 
 pub use goodfetch_collie_client::blocking::{
-    Call, Connection, EventIter, Exchange, Locator, Page, Query, Response, Run, Session, Start,
+    Call, Connection, EventIter, Exchange, Locator, Page, Query, RawCall, Response, Run, Session,
+    Start,
 };
 
 use crate::linked::{Composed, ConnectOptions, ProductConnection};
@@ -61,6 +62,12 @@ impl Collie {
         self.linked.engine()
     }
 
+    /// The raw call of `operation`, as [`crate::Collie::call`]'s, which
+    /// `send()` sends.
+    pub fn call(&self, operation: &str) -> RawCall {
+        self.connection.raw_call(operation)
+    }
+
     /// Leaving the scope or `close()` stops the Run with a Checkpoint;
     /// `finish()` ends it. The start of a Run the program drives
     /// (`run.start`), which `send()` sends.
@@ -87,13 +94,17 @@ impl blocking::Connection for Collie {
         Collie::start(self)
     }
 
+    fn call(&self, operation: &str) -> RawCall {
+        Collie::call(self, operation)
+    }
+
     fn close(&self) -> Result<(), Error> {
         Collie::close(self)
     }
 }
 
-/// The client crate's connection, the way down to its `call` (ADR 0099)
-/// until the public `call` joins the Connection with its own ticket.
+/// The client crate's connection, the way down to its typed `call` of a
+/// runtime method, which the raw `call` (ADR 0099) does not type.
 impl AsRef<blocking::ClientConnection> for Collie {
     fn as_ref(&self) -> &blocking::ClientConnection {
         &self.connection

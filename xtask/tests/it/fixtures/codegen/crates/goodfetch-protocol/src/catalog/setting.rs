@@ -376,14 +376,18 @@ pub enum HostList {
 }
 
 /// A scope a program's code opens with its own `settings` (ADR 0083): the
-/// connection, a Run, a Session or a page. A setting applies within the
-/// scopes that may set it, and everything opened beneath them inherits it.
+/// connection, a Run, a crawl's Label, a Session or a page. A setting
+/// applies within the scopes that may set it, and everything opened beneath
+/// them inherits it: a Label's, its requests.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SettingScope {
     /// `connect()`, whose settings are its Runs' defaults.
     Connection,
     /// Starting a Run.
     Run,
+    /// Declaring a crawl's Label, whose own settings its requests take over
+    /// their Run's (ADR 0093).
+    Label,
     /// Opening a Session.
     Session,
     /// Opening a page.
@@ -396,6 +400,7 @@ impl SettingScope {
         match self {
             Self::Connection => "connection",
             Self::Run => "run",
+            Self::Label => "label",
             Self::Session => "session",
             Self::Page => "page",
         }

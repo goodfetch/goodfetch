@@ -26,11 +26,11 @@ describe("a crawl's settings", () => {
   test("a crawl's Run settings, Collie's and Foxhound's, go on the wire by their snake_case keys", () => {
     expect(
       settingsOnWire({
-        crawl: { retry: { handlerFailed: true }, maxDepth: null },
+        crawl: { handler: { concurrency: 2 }, maxDepth: null },
         filterLists: { firstPartyScripts: true },
       }),
     ).toEqual({
-      crawl: { retry: { handler_failed: true }, max_depth: null },
+      crawl: { handler: { concurrency: 2 }, max_depth: null },
       filter_lists: { first_party_scripts: true },
     });
   });

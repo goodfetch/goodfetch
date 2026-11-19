@@ -148,7 +148,7 @@ pub(super) fn blocked(block: Block, response: &PageResponse, received: SystemTim
             cause: block.cause,
             url: response.url.clone(),
             status: Some(response.status),
-            retry_after,
+            retry_after: retry_after.map(SystemTime::from),
         },
     )
 }

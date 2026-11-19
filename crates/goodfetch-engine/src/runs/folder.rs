@@ -7,10 +7,11 @@
 use std::collections::BTreeMap;
 use std::io::{self, Read as _, Write as _};
 use std::path::Path;
+use std::time::SystemTime;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::{
-    Lifecycle, MAX_TAG_CHARACTERS, PointInTime, RunId, RunKind, RunReport, StartInput, Tags,
+    Lifecycle, MAX_TAG_CHARACTERS, RunId, RunKind, RunReport, StartInput, Tags,
 };
 use goodfetch_protocol::settings::WeakenedSetting;
 use rusqlite::{Connection, OptionalExtension as _};
@@ -20,6 +21,7 @@ use crate::durable;
 use crate::engine_context::CALLER;
 use crate::mask::{Masks, Scope};
 use crate::sqlite_store::{Access, File};
+use crate::stored_time::StoredTime;
 
 /// The Run's own row, written once when it begins.
 pub(super) struct RunRow {
@@ -28,7 +30,7 @@ pub(super) struct RunRow {
     pub(super) needs: Product,
     pub(super) epoch: u64,
     pub(super) inputs: String,
-    pub(super) started_at: PointInTime,
+    pub(super) started_at: SystemTime,
     pub(super) policy_version: Option<String>,
     pub(super) weakened: Vec<WeakenedSetting>,
     /// What binds it, as JSON.
@@ -52,7 +54,7 @@ impl RunRow {
                 i64::try_from(self.epoch).unwrap_or(i64::MAX),
                 &self.inputs,
                 Lifecycle::Running.as_str(),
-                self.started_at.as_str(),
+                StoredTime(self.started_at),
                 self.policy_version.as_deref(),
                 serde_json::to_string(&self.weakened)
                     .expect("invariant: setting limits encode"),
@@ -200,7 +202,7 @@ pub(super) struct Recorded {
     pub(super) needs: Product,
     pub(super) tags: Tags,
     pub(super) lifecycle: Lifecycle,
-    pub(super) started_at: PointInTime,
+    pub(super) started_at: SystemTime,
     pub(super) policy_version: Option<String>,
     pub(super) weakened: Vec<WeakenedSetting>,
     /// Its start's inputs, as canonical JSON.
@@ -230,7 +232,7 @@ pub(super) fn read_recorded(file: &Path, vfs: Option<&str>) -> rusqlite::Result<
                     parsed::<Product>(&row.get::<_, String>(2)?)?,
                     parsed::<Lifecycle>(&row.get::<_, String>(3)?)?,
                 ),
-                PointInTime::from_rfc3339(row.get(4)?),
+                row.get::<_, StoredTime>(4)?.0,
                 row.get::<_, Option<String>>(5)?,
                 (row.get::<_, String>(6)?, row.get::<_, String>(7)?),
                 row.get::<_, Option<String>>(8)?,
@@ -332,7 +334,7 @@ pub(super) fn write_end(connection: &Connection, report: &RunReport) -> rusqlite
             }),
             report.verdict.as_str(),
             report.completeness.as_str(),
-            report.ended_at.as_str(),
+            StoredTime(report.ended_at),
             serde_json::to_string(&kept).expect("invariant: a Run report encodes"),
         ))?;
     Ok(())

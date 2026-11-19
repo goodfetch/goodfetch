@@ -103,7 +103,7 @@ fn item(wall: &ConsentWallSeen) -> NeedsYouItem {
     NeedsYouItem {
         id: format!("{CONSENT_WALL}:{domain}"),
         kind: CONSENT_WALL.to_owned(),
-        since: wall.first_seen.clone(),
+        since: wall.first_seen,
         run: Some(wall.last_run.clone()),
         schedule: None,
         summary: format!(

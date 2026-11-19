@@ -211,7 +211,7 @@ fn a_start_reaches_the_run_its_run_id_names_logs_a_resume_and_an_end_and_fails_e
             reached.code(),
             serde_json::to_value(&reached_limit.scope).unwrap(),
             reached_limit.usage_kind.as_str(),
-            serde_json::to_value(&reached_limit.resets_at).unwrap(),
+            serde_json::to_value(reached_limit.resets_at).unwrap(),
         ),
         (
             ErrorCode::LIMIT_REACHED,

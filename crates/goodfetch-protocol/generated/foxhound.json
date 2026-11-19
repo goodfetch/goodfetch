@@ -5420,7 +5420,7 @@
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "Its settings, nested by key: today `fetch.tier`, `session.page_check`,\nwhich judges its pages in place of the Run's, and `session.source`,\nwhich gives the Label a Session pool of its own (ADR 0093), any other\nkey refused with `setting_not_applicable`.",
+          "description": "Its settings, nested by key: those whose scopes include `label`\n(ADR 0093), such as `fetch.tier`, `session.page_check`, which judges\nits pages in place of the Run's, and `session.source`, which gives\nthe Label a Session pool of its own; any other key is refused with\n`setting_not_applicable`.",
           "type": "object"
         }
       },
@@ -10185,6 +10185,7 @@
               "type": "null"
             }
           ],
+          "default": null,
           "description": "When it ended."
         },
         "kind": {
@@ -19830,6 +19831,7 @@
       "scopes": [
         "connection",
         "run",
+        "label",
         "session",
         "page"
       ],
@@ -19858,7 +19860,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "label"
       ],
       "value": {
         "items": {
@@ -19998,7 +20001,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "label"
       ],
       "value": {
         "type": "boolean"
@@ -20256,7 +20260,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "label"
       ],
       "value": {
         "type": "boolean"
@@ -21154,7 +21159,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "label"
       ],
       "value": {
         "type": "string"
@@ -21218,7 +21224,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "label"
       ],
       "value": {
         "enum": [
@@ -21243,7 +21250,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "label"
       ],
       "value": {
         "items": {
@@ -21396,7 +21404,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "label"
       ],
       "value": {
         "enum": [
@@ -23856,6 +23865,7 @@
       "scopes": [
         "connection",
         "run",
+        "label",
         "session"
       ],
       "value": {
@@ -24199,7 +24209,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "label"
       ],
       "value": {
         "description": "Where a Session's login comes from (ADR 0056): exactly one kind.",
@@ -25178,7 +25189,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "label"
       ],
       "value": {
         "description": "A duration in milliseconds.",

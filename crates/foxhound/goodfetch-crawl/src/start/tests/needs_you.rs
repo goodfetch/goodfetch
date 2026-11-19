@@ -13,7 +13,7 @@ use goodfetch_engine::needs_you::{
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::{Composition, Contribution, Engine};
 use goodfetch_protocol::needs_you::NeedsYouItem;
-use goodfetch_protocol::run::PointInTime;
+use goodfetch_protocol::point_in_time;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Map, json};
 
@@ -38,7 +38,7 @@ impl Primitives for Waiting {
             Ok(vec![NeedsYouItem {
                 id: format!("{KIND}:1"),
                 kind: KIND.to_owned(),
-                since: PointInTime::from_rfc3339("2026-10-24T08:00:00Z".to_owned()),
+                since: point_in_time::from_rfc3339("2026-10-24T08:00:00Z").unwrap(),
                 run: None,
                 schedule: None,
                 summary: "A crawl waits for a person.".to_owned(),

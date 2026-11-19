@@ -334,6 +334,7 @@
                 "type": "null"
               }
             ],
+            "default": null,
             "description": "When it ended."
           },
           "kind": {

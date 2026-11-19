@@ -37,7 +37,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::audit::{
@@ -47,7 +47,7 @@ use goodfetch_protocol::audit::{
 use goodfetch_protocol::catalog::{SharedType, SharedTypeValue};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::formats::{AUDIT_LOG, Compatibility};
-use goodfetch_protocol::run::{PointInTime, RunId};
+use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::SettingsLayer;
 use jiff::{SignedDuration, Timestamp};
 use rusqlite::{Connection, OptionalExtension as _};
@@ -544,13 +544,13 @@ impl Store {
         let connection = self.connection(&mut held.connection, &mut held.opened)?;
         let committed = self.immediate(connection, |transaction| {
             let mut tail = self.after_last(transaction, cached)?;
-            let time = PointInTime::from_rfc3339(now.to_string());
+            let time = SystemTime::from(now);
             let mut appended = Vec::with_capacity(entries.len());
             for (origin, kind, details, chained) in entries {
                 debug_assert_eq!(kind.shared_type, SharedType::AuditKind);
                 let entry = AuditEntry {
                     sequence: tail.next,
-                    time: time.clone(),
+                    time,
                     kind: kind.name.to_owned(),
                     actor: origin.actor,
                     surface: origin.surface,
@@ -607,7 +607,7 @@ impl Store {
                 return Ok(None);
             };
             let tail = self.after_last(transaction, cached)?;
-            let time = PointInTime::from_rfc3339(now.to_string());
+            let time = SystemTime::from(now);
             let anchor = anchor_entry(through, &last_pruned_hash, &time, layer);
             let anchor =
                 serde_json_canonicalizer::to_string(&anchor).map_err(|error| failed(&error))?;
@@ -1271,12 +1271,12 @@ fn anchor_of(sequence: i64, entry: &str, hash: &str) -> Option<(u64, Value, [u8;
 fn anchor_entry(
     through: u64,
     last_pruned_hash: &str,
-    time: &PointInTime,
+    time: &SystemTime,
     layer: Option<SettingsLayer>,
 ) -> AuditEntry {
     AuditEntry {
         sequence: through,
-        time: time.clone(),
+        time: *time,
         kind: AUDIT_LOG_ANCHOR.name.to_owned(),
         actor: Actor::Engine,
         surface: None,

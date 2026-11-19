@@ -13,6 +13,9 @@
 //! operations, their Error codes and the run-state formats they write change
 //! together (ADR 0066).
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use std::borrow::Cow;
 use std::fmt;
 
@@ -315,37 +318,6 @@ impl JsonSchema for ProgressMessage {
     }
 }
 
-/// A point in time, in UTC, written as RFC 3339 (ADR 0092).
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct PointInTime(String);
-
-impl PointInTime {
-    /// The point that `rfc3339` writes, which its writer formats.
-    pub fn from_rfc3339(rfc3339: String) -> Self {
-        Self(rfc3339)
-    }
-
-    /// Its RFC 3339 text.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl JsonSchema for PointInTime {
-    fn schema_name() -> Cow<'static, str> {
-        "PointInTime".into()
-    }
-
-    fn json_schema(_generator: &mut SchemaGenerator) -> Schema {
-        json_schema!({
-            "description": "A point in time in UTC, as RFC 3339.",
-            "type": "string",
-            "format": "date-time",
-        })
-    }
-}
-
 /// Where a Run is (ADR 0029).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -575,9 +547,13 @@ pub struct ReachedLimit {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub period: Option<Period>,
     /// When its period starts again; none for a Limit without one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub resets_at: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub resets_at: Option<SystemTime>,
 }
 
 /// What kind of Run it is: a Collie Run its program drives, or a crawl
@@ -789,8 +765,9 @@ pub struct Checkpoint {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub journal_position: u64,
     /// When it was taken.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub time: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub time: SystemTime,
 }
 
 /// A Run's three axes as they are now (ADR 0029): what
@@ -1209,9 +1186,13 @@ pub struct RunStateRow {
     /// Its Completeness, once it ended.
     pub completeness: Option<Completeness>,
     /// When it started.
-    pub started_at: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime")]
+    pub started_at: SystemTime,
     /// When it ended.
-    pub ended_at: Option<PointInTime>,
+    #[serde(default, with = "crate::point_in_time::nullable")]
+    #[schemars(with = "Option<PointInTime>")]
+    pub ended_at: Option<SystemTime>,
     /// The version of the Operator policy it ran under (ADR 0028).
     pub policy_version: Option<String>,
     /// The settings it ran with that weaken a guarantee or switch off a
@@ -1283,9 +1264,13 @@ pub struct RunIndexRow {
     /// Its Completeness, once it ended.
     pub completeness: Option<Completeness>,
     /// When it started.
-    pub started_at: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime")]
+    pub started_at: SystemTime,
     /// When it ended.
-    pub ended_at: Option<PointInTime>,
+    #[serde(default, with = "crate::point_in_time::nullable")]
+    #[schemars(with = "Option<PointInTime>")]
+    pub ended_at: Option<SystemTime>,
     /// While it is live, where the engine that owns it is reached: a
     /// Daemon's endpoint, or an Attached engine's private endpoint. An
     /// engine that cannot take the Run's writer lock forwards live actions

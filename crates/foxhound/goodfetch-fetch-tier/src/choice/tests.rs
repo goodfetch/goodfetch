@@ -6,10 +6,12 @@
 
 use std::collections::BTreeMap;
 
+use goodfetch_protocol::entries::MODULES;
 use goodfetch_protocol::foxhound::crawl::LabelDeclaration;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
+use goodfetch_protocol::setting_scopes;
 use goodfetch_protocol::settings::page_check::PageCheck;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::{
     Choosing, Forced, HttpFrom, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved,
@@ -138,6 +140,32 @@ fn a_label_setting_it_cannot_take_is_refused(
         ),
         (code, Some(key))
     );
+}
+
+/// A Label is refused exactly the settings the scope rule does not give a
+/// Label (ADR 0093), each with `setting_not_applicable`; one it gives is at
+/// most `setting_invalid` for a `null` it cannot take.
+#[test]
+fn a_label_takes_exactly_the_settings_whose_scopes_include_a_label() {
+    for setting in MODULES.iter().flat_map(|entries| entries.settings.iter()) {
+        let nested = setting
+            .name
+            .rsplit('.')
+            .fold(Value::Null, |inner, segment| {
+                Value::Object(Map::from_iter([(segment.to_owned(), inner)]))
+            });
+
+        let refused = LabelSettings::of(&declared(&[("list", nested)]))
+            .err()
+            .is_some_and(|error| error.code() == "setting_not_applicable");
+
+        assert_eq!(
+            refused,
+            !setting_scopes::label_sets(setting.name),
+            "{}",
+            setting.name
+        );
+    }
 }
 
 /// A Label sets `timeout.hook` and `crawl.retry.handler_failed` for its

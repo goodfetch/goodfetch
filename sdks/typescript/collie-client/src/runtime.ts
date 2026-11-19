@@ -27,6 +27,7 @@ export { alsoInNamespace } from "./raw-call.ts";
 export { type EntryMarkers, warnDeprecated, warnEntry, warnExperimental } from "./markers.ts";
 export { ensureRunOpen, pageOf, type RunHost } from "./run.ts";
 export { Sequence, type SequenceOptions } from "./sequence.ts";
+export { onWire, type SettingsOnWire, type Spelling } from "./settings.ts";
 export { idOfLocator } from "./generated/handles.ts";
 export { collieTimes, type CollieTimeType } from "./generated/times.ts";
 export { withTimes, type TimePath, type Times } from "./times.ts";

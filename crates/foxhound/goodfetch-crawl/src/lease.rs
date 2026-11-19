@@ -18,7 +18,7 @@
 //! `run_epoch` when a later writer holds the run file).
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_dataset::{Checked, Datasets};
@@ -35,7 +35,6 @@ use goodfetch_protocol::foxhound::crawl::{
 };
 use goodfetch_protocol::foxhound::provenance::RobotsTxtMark;
 use goodfetch_protocol::jsonrpc::RequestId;
-use goodfetch_protocol::run::PointInTime;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
@@ -271,7 +270,7 @@ pub(crate) struct Commit {
     /// Its answer's Records, checked against their Datasets on the page's
     /// task rather than on the writer's thread, or the first refusal.
     records: Result<Checked, CallError>,
-    ended_at: PointInTime,
+    ended_at: SystemTime,
 }
 
 impl Commit {
@@ -281,7 +280,7 @@ impl Commit {
     }
 
     /// When its work item's outcome ends.
-    pub(crate) fn ended_at(&self) -> &PointInTime {
+    pub(crate) fn ended_at(&self) -> &SystemTime {
         &self.ended_at
     }
 
@@ -630,7 +629,7 @@ impl WorkItemLease {
         state: &RunState,
         masks: &Masks,
         records: Vec<PushedRecord>,
-        ended_at: PointInTime,
+        ended_at: SystemTime,
     ) -> Result<Committed, CommitError> {
         let commit = self.committing(state, masks, records, ended_at)?;
         let written = state
@@ -651,7 +650,7 @@ impl WorkItemLease {
         state: &RunState,
         masks: &Masks,
         records: Vec<PushedRecord>,
-        ended_at: PointInTime,
+        ended_at: SystemTime,
     ) -> Result<Commit, CommitError> {
         let lease = self.0.state.borrow().lease;
         if self.check().is_err() {

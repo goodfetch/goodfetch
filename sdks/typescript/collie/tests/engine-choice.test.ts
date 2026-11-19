@@ -17,7 +17,19 @@ import {
   toolPath,
   type Canary,
 } from "@goodfetch/test-support";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect } from "vitest";
+
+/**
+ * Writes a runtime file in `home`'s per-major folder, `0.0` for the
+ * Scripted engine's version 0.0.0 (ADR 0030), as a Daemon publishes one.
+ */
+async function writeRuntimeFile(home: string, contents: string): Promise<void> {
+  const folder = join(home, "0.0");
+  await mkdir(folder, { recursive: true });
+  await writeFile(join(folder, "daemon.json"), contents, { mode: 0o600 });
+}
 
 /** The token `connect/reached-remote-with-a-canary-token.json` takes: a planted canary (ADR 0067). */
 const CANARY: Canary = {
@@ -319,6 +331,105 @@ describe("Collie.connect() finds the engine", () => {
     },
   );
 
+  test(
+    "reaches the Daemon whose runtime file names a loopback TCP address, as on Windows",
+    { tags: ["story:11-4"] },
+    async ({ testEnv, processes }) => {
+      const daemon = await startScriptedDaemon(
+        testEnv,
+        processes,
+        "connect/reached-daemon.json",
+        "tcp",
+      );
+      await writeRuntimeFile(
+        testEnv.home,
+        JSON.stringify({
+          endpoint: { tcp: daemon.address },
+          token: "scripted-daemon-token",
+          version: "0.0.0",
+          pid: 0,
+        }),
+      );
+      const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env });
+      const engine = collie.engine();
+      await collie.close();
+
+      expect(await daemon.exit).toMatchObject({ code: 0 });
+      expect(engine).toMatchObject({
+        kind: "daemon",
+        home: testEnv.home,
+        url: daemon.address,
+      });
+    },
+  );
+
+  test(
+    "takes a runtime file that holds no endpoint for a dead Daemon's, and starts an Attached engine",
+    { tags: ["story:11-4"] },
+    async ({ testEnv }) => {
+      await writeRuntimeFile(testEnv.home, "{ half-written");
+      const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env });
+      const engine = collie.engine();
+      await collie.close();
+
+      expect(engine).toMatchObject({ kind: "attached", url: null });
+    },
+  );
+
+  test(
+    "fails with engine_not_found naming the fix when engine daemon finds no Daemon and no executable",
+    { tags: ["story:11-2", "error:engine_not_found"] },
+    async ({ testEnv }) => {
+      const missing = join(testEnv.home, "no-collie-here");
+      const env = {
+        ...scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json"),
+        GOODFETCH_COLLIE_ENGINE_PATH: missing,
+      };
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env, engine: "daemon" }));
+
+      expect(error).toMatchObject({
+        code: "engine_not_found",
+        details: { path: missing },
+        fix: expect.stringContaining("GOODFETCH_COLLIE_ENGINE_PATH"),
+      });
+    },
+  );
+
+  test(
+    "refuses a GOODFETCH_URL holding a password or a query, which shows in no message",
+    { tags: ["story:11-5", "error:setting_invalid"] },
+    async ({ testEnv }) => {
+      const env = {
+        ...scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json"),
+        GOODFETCH_URL: `ws://user:${CANARY.value}@127.0.0.1:7878/?token=${CANARY.value}`,
+        GOODFETCH_TOKEN: "t",
+      };
+      const { logger, logged } = keepingLogger();
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env, logger }));
+
+      expect(error).toMatchObject({ code: "setting_invalid", details: { key: "GOODFETCH_URL" } });
+      expect(
+        searchCanaries(
+          [CANARY],
+          [
+            { name: "error", text: JSON.stringify(error, Object.getOwnPropertyNames(error)) },
+            { name: "logs", text: JSON.stringify(logged) },
+          ],
+        ),
+      ).toEqual([]);
+    },
+  );
+
   test.for([
     {
       case: "names no loopback address",
@@ -334,6 +445,12 @@ describe("Collie.connect() finds the engine", () => {
       case: "comes without GOODFETCH_TOKEN",
       variables: { GOODFETCH_URL: "ws://127.0.0.1:7878" },
       key: "GOODFETCH_TOKEN",
+    },
+    {
+      // The URL is judged first, as the CLI judges it.
+      case: "is no ws:// address and comes without GOODFETCH_TOKEN",
+      variables: { GOODFETCH_URL: "https://127.0.0.1:7878" },
+      key: "GOODFETCH_URL",
     },
   ])(
     "fails with setting_invalid before any engine starts when GOODFETCH_URL $case",

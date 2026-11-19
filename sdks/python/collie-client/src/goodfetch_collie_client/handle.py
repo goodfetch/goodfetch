@@ -16,6 +16,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Final, Literal, Protocol, TypeAlias, TypeVar, final
 
 from .generated.errors import SettingInvalidError
+from .generated.models import RunOrigin, SettingLimit, SettingsLayer
 
 if TYPE_CHECKING:
     from typing import Self
@@ -127,17 +128,13 @@ def timeout_of(timeout: object, setting: str) -> int | None:
     raise SettingInvalidError(
         f"The call's `timeout`, its `{setting}`: {reason}; {_TIMEOUT_FIX}.",
         fix=_TIMEOUT_FIX,
-        details={
-            "key": setting,
-            "layer": "run",
-            "reason": reason,
-            "limit": {
-                "key": setting,
-                "value": value,
-                "layer": "run",
-                "origin": "argument",
-            },
-        },
+        limit=SettingLimit(
+            key=setting,
+            value=value,
+            layer=SettingsLayer.run,
+            origin=RunOrigin.argument,
+        ),
+        details={"key": setting, "layer": "run", "reason": reason},
     )
 
 

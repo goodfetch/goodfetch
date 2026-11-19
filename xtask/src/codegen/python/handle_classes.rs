@@ -44,7 +44,7 @@ use serde_json::Value;
 use super::super::handles::{Builder, Form, Handle, HandleId, Member, Parameters};
 use super::super::layer::{Layer, Stability};
 use super::super::naming::{pascal, snake};
-use super::{CALLER_MODULE, deprecation_message, docstring, header};
+use super::{CALLER_MODULE, deprecated_decorator, docstring, header, markers_import, warnings};
 
 mod listeners;
 
@@ -107,6 +107,8 @@ struct Imports {
     /// Whether it names pydantic's `BaseModel`, as a listener's map of
     /// payloads does.
     base_model: bool,
+    /// The functions of the markers module its members call.
+    markers: BTreeSet<&'static str>,
     /// The names it imports from the handle module besides the hosts: the
     /// `not_given` sentinel when a member takes an optional parameter, and
     /// [`TIMEOUT_OF`] when a member takes its own `timeout`, a `timedelta`.
@@ -435,11 +437,7 @@ fn member(
     let mut text = String::new();
     if let Some(deprecated) = &operation.deprecated {
         imports.deprecated = true;
-        let _ = writeln!(
-            text,
-            "    @deprecated({:?})",
-            deprecation_message(deprecated)
-        );
+        text.push_str(&deprecated_decorator(deprecated));
     }
     let _ = writeln!(
         text,
@@ -459,6 +457,12 @@ fn member(
         &description,
         operation.stability,
         operation.deprecated.as_ref(),
+    ));
+    text.push_str(&warnings(
+        &operation.name,
+        operation.stability,
+        operation.deprecated.as_ref(),
+        &mut imports.markers,
     ));
     let sent = build(&signature, "params", &mut text);
     let call = format!("{awaits}self._host.call({:?}, {sent})", operation.name);
@@ -676,6 +680,7 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
         text,
         "\nfrom {CALLER_MODULE} import result_of\nfrom {HANDLE_MODULE} import AsyncHandleHost, HandleHost{handle}"
     );
+    text.push_str(&markers_import(&imports.markers));
     if imports.models {
         text.push_str("\nfrom . import models\n");
     }

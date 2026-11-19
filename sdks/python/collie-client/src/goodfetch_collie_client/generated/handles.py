@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost, AsyncListener, Listener, NotGiven, Subscription, not_given, timeout_of
+from goodfetch_collie_client.markers import warn_experimental
 
 from . import models
 
@@ -28,6 +29,7 @@ class AsyncRun:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.abort")
         params = models.RunAbortParams(run_id=self._host.id)
         if not isinstance(forwarded, NotGiven):
             params.forwarded = forwarded
@@ -38,6 +40,7 @@ class AsyncRun:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.checkpoint")
         params = models.RunCheckpointParams(run_id=self._host.id)
         if not isinstance(location, NotGiven):
             params.location = location
@@ -48,6 +51,7 @@ class AsyncRun:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.discard")
         return result_of(models.RunDiscarded, await self._host.call("run.discard", models.RunParams(run_id=self._host.id)))
 
     async def finish(self, *, timeout: timedelta | None | NotGiven = not_given) -> models.RunReport:
@@ -57,6 +61,7 @@ class AsyncRun:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.finish")
         params = models.RunFinishParams(run_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.run")
@@ -67,6 +72,7 @@ class AsyncRun:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.migrate")
         params = models.RunCheckpointParams(run_id=self._host.id)
         if not isinstance(location, NotGiven):
             params.location = location
@@ -77,6 +83,7 @@ class AsyncRun:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.new_page")
         params = models.NewPageParams(run_id=self._host.id)
         if not isinstance(settings, NotGiven):
             params.settings = settings
@@ -88,6 +95,7 @@ class AsyncRun:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.new_session")
         params = models.NewSessionParams(run_id=self._host.id)
         if not isinstance(settings, NotGiven):
             params.settings = settings
@@ -101,6 +109,7 @@ class AsyncRun:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.pause")
         return result_of(models.RunReport, await self._host.call("run.pause", models.RunParams(run_id=self._host.id)))
 
     async def progress(self, *, after: int | None | NotGiven = not_given) -> models.RunProgress:
@@ -108,6 +117,7 @@ class AsyncRun:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.progress")
         params = models.RunProgressParams(run_id=self._host.id)
         if not isinstance(after, NotGiven):
             params.after = after
@@ -118,6 +128,7 @@ class AsyncRun:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.report")
         return result_of(models.RunReport, await self._host.call("run.report", models.RunParams(run_id=self._host.id)))
 
     async def set_progress_message(self, message: str) -> models.RunProgress:
@@ -125,6 +136,7 @@ class AsyncRun:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.set_progress_message")
         return result_of(models.RunProgress, await self._host.call("run.set_progress_message", models.RunSetProgressMessageParams(run_id=self._host.id, message=models.ProgressMessage(message))))
 
     async def stop(self, *, timeout: timedelta | None | NotGiven = not_given) -> models.RunReport:
@@ -134,6 +146,7 @@ class AsyncRun:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.stop")
         params = models.RunStopParams(run_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.close")
@@ -144,6 +157,7 @@ class AsyncRun:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.usage")
         return result_of(models.RunUsage, await self._host.call("run.usage", models.RunParams(run_id=self._host.id)))
 
 
@@ -159,6 +173,7 @@ class AsyncSession:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.close")
         await self._host.close("session.close", models.SessionParams(session_id=self._host.id))
 
     async def new_page(self, *, settings: dict[str, Any] | NotGiven = not_given) -> AsyncPage:
@@ -166,6 +181,7 @@ class AsyncSession:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.new_page")
         params = models.NewSessionPageParams(session_id=self._host.id)
         if not isinstance(settings, NotGiven):
             params.settings = settings
@@ -177,6 +193,7 @@ class AsyncSession:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.pages")
         return result_of(models.SessionPages, await self._host.call("session.pages", models.SessionParams(session_id=self._host.id)))
 
     async def __aenter__(self) -> Self:
@@ -217,6 +234,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.close")
         params = models.PageCloseParams(page_id=self._host.id)
         if not isinstance(run_before_unload, NotGiven):
             params.run_before_unload = run_before_unload
@@ -227,6 +245,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.evaluate")
         params = models.EvaluateParams(page_id=self._host.id, function=function)
         if not isinstance(arg, NotGiven):
             params.arg = arg
@@ -239,6 +258,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.formats")
         return result_of(models.PageFormats, await self._host.call("page.formats", models.FormatsParams(page_id=self._host.id, formats=formats)))
 
     async def go_back(self) -> models.Navigated:
@@ -246,6 +266,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.go_back")
         return result_of(models.Navigated, await self._host.call("page.go_back", models.PageParams(page_id=self._host.id)))
 
     async def go_forward(self) -> models.Navigated:
@@ -253,6 +274,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.go_forward")
         return result_of(models.Navigated, await self._host.call("page.go_forward", models.PageParams(page_id=self._host.id)))
 
     async def goto(self, url: str, *, timeout: timedelta | None | NotGiven = not_given, wait_until: Literal["commit", "domcontentloaded", "load"] | None | NotGiven = not_given) -> models.Navigated:
@@ -262,6 +284,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.goto")
         params = models.GotoParams(page_id=self._host.id, url=url)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.navigation")
@@ -274,6 +297,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.read")
         return result_of(models.PageRead, await self._host.call("page.read", models.PageReadParams(page_id=self._host.id, fields=fields)))
 
     async def reload(self) -> models.Navigated:
@@ -281,6 +305,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.reload")
         return result_of(models.Navigated, await self._host.call("page.reload", models.PageParams(page_id=self._host.id)))
 
     async def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given) -> models.PageResponse:
@@ -288,6 +313,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.request")
         params = models.PageRequestParams(page_id=self._host.id, url=url)
         if not isinstance(headers, NotGiven):
             params.headers = headers
@@ -306,6 +332,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_function")
         params = models.WaitForFunctionParams(page_id=self._host.id, function=function)
         if not isinstance(arg, NotGiven):
             params.arg = arg
@@ -324,6 +351,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_load_state")
         params = models.WaitForLoadStateParams(page_id=self._host.id)
         if not isinstance(state, NotGiven):
             params.state = None if state is None else models.LoadState(state)
@@ -338,6 +366,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_request")
         params = models.WaitForExchangeParams(page_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
@@ -352,6 +381,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_request_finished")
         params = models.WaitForRequestFinishedParams(page_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
@@ -366,6 +396,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_response")
         params = models.WaitForExchangeParams(page_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
@@ -380,6 +411,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_url")
         params = models.WaitForUrlParams(page_id=self._host.id, url=url)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
@@ -428,6 +460,7 @@ class AsyncPage:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.on")
         listened, payload = _PAGE_EVENTS[event]
         return self._host.listen("page.on", models.PageOnParams(page_id=self._host.id, event=models.PageEventName(listened)), f"page.{listened}", payload, listener)
 
@@ -461,6 +494,7 @@ class AsyncLocator:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.click")
         return result_of(models.Acted, await self._host.call("locator.click", models.ClickParams(locator=self._host.id)))
 
     async def evaluate_all(self, function: str, *, arg: Any | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> models.Evaluated:
@@ -468,6 +502,7 @@ class AsyncLocator:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.evaluate_all")
         params = models.LocatorEvaluateAllParams(locator=self._host.id, function=function)
         if not isinstance(arg, NotGiven):
             params.arg = arg
@@ -480,6 +515,7 @@ class AsyncLocator:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.fill")
         return result_of(models.Acted, await self._host.call("locator.fill", models.FillParams(locator=self._host.id, value=value)))
 
     async def press(self, key: str) -> models.Acted:
@@ -487,6 +523,7 @@ class AsyncLocator:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.press")
         return result_of(models.Acted, await self._host.call("locator.press", models.PressParams(locator=self._host.id, key=key)))
 
     async def wait_for(self, *, state: Literal["attached", "detached", "visible", "hidden"] | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given) -> models.Reached:
@@ -496,6 +533,7 @@ class AsyncLocator:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.wait_for")
         params = models.LocatorWaitForParams(locator=self._host.id)
         if not isinstance(state, NotGiven):
             params.state = None if state is None else models.ElementState(state)
@@ -510,6 +548,7 @@ class AsyncLocator:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.wait_for_count")
         params = models.WaitForCountParams(locator=self._host.id, count=count)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
@@ -522,6 +561,7 @@ class AsyncLocator:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.wait_for_function")
         params = models.LocatorWaitForFunctionParams(locator=self._host.id, function=function)
         if not isinstance(arg, NotGiven):
             params.arg = arg
@@ -546,6 +586,7 @@ class Run:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.abort")
         params = models.RunAbortParams(run_id=self._host.id)
         if not isinstance(forwarded, NotGiven):
             params.forwarded = forwarded
@@ -556,6 +597,7 @@ class Run:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.checkpoint")
         params = models.RunCheckpointParams(run_id=self._host.id)
         if not isinstance(location, NotGiven):
             params.location = location
@@ -566,6 +608,7 @@ class Run:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.discard")
         return result_of(models.RunDiscarded, self._host.call("run.discard", models.RunParams(run_id=self._host.id)))
 
     def finish(self, *, timeout: timedelta | None | NotGiven = not_given) -> models.RunReport:
@@ -575,6 +618,7 @@ class Run:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.finish")
         params = models.RunFinishParams(run_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.run")
@@ -585,6 +629,7 @@ class Run:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.migrate")
         params = models.RunCheckpointParams(run_id=self._host.id)
         if not isinstance(location, NotGiven):
             params.location = location
@@ -595,6 +640,7 @@ class Run:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.new_page")
         params = models.NewPageParams(run_id=self._host.id)
         if not isinstance(settings, NotGiven):
             params.settings = settings
@@ -606,6 +652,7 @@ class Run:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.new_session")
         params = models.NewSessionParams(run_id=self._host.id)
         if not isinstance(settings, NotGiven):
             params.settings = settings
@@ -619,6 +666,7 @@ class Run:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.pause")
         return result_of(models.RunReport, self._host.call("run.pause", models.RunParams(run_id=self._host.id)))
 
     def progress(self, *, after: int | None | NotGiven = not_given) -> models.RunProgress:
@@ -626,6 +674,7 @@ class Run:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.progress")
         params = models.RunProgressParams(run_id=self._host.id)
         if not isinstance(after, NotGiven):
             params.after = after
@@ -636,6 +685,7 @@ class Run:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.report")
         return result_of(models.RunReport, self._host.call("run.report", models.RunParams(run_id=self._host.id)))
 
     def set_progress_message(self, message: str) -> models.RunProgress:
@@ -643,6 +693,7 @@ class Run:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.set_progress_message")
         return result_of(models.RunProgress, self._host.call("run.set_progress_message", models.RunSetProgressMessageParams(run_id=self._host.id, message=models.ProgressMessage(message))))
 
     def stop(self, *, timeout: timedelta | None | NotGiven = not_given) -> models.RunReport:
@@ -652,6 +703,7 @@ class Run:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.stop")
         params = models.RunStopParams(run_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.close")
@@ -662,6 +714,7 @@ class Run:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.usage")
         return result_of(models.RunUsage, self._host.call("run.usage", models.RunParams(run_id=self._host.id)))
 
 
@@ -677,6 +730,7 @@ class Session:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.close")
         self._host.close("session.close", models.SessionParams(session_id=self._host.id))
 
     def new_page(self, *, settings: dict[str, Any] | NotGiven = not_given) -> Page:
@@ -684,6 +738,7 @@ class Session:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.new_page")
         params = models.NewSessionPageParams(session_id=self._host.id)
         if not isinstance(settings, NotGiven):
             params.settings = settings
@@ -695,6 +750,7 @@ class Session:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.pages")
         return result_of(models.SessionPages, self._host.call("session.pages", models.SessionParams(session_id=self._host.id)))
 
     def __enter__(self) -> Self:
@@ -718,6 +774,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.close")
         params = models.PageCloseParams(page_id=self._host.id)
         if not isinstance(run_before_unload, NotGiven):
             params.run_before_unload = run_before_unload
@@ -728,6 +785,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.evaluate")
         params = models.EvaluateParams(page_id=self._host.id, function=function)
         if not isinstance(arg, NotGiven):
             params.arg = arg
@@ -740,6 +798,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.formats")
         return result_of(models.PageFormats, self._host.call("page.formats", models.FormatsParams(page_id=self._host.id, formats=formats)))
 
     def go_back(self) -> models.Navigated:
@@ -747,6 +806,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.go_back")
         return result_of(models.Navigated, self._host.call("page.go_back", models.PageParams(page_id=self._host.id)))
 
     def go_forward(self) -> models.Navigated:
@@ -754,6 +814,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.go_forward")
         return result_of(models.Navigated, self._host.call("page.go_forward", models.PageParams(page_id=self._host.id)))
 
     def goto(self, url: str, *, timeout: timedelta | None | NotGiven = not_given, wait_until: Literal["commit", "domcontentloaded", "load"] | None | NotGiven = not_given) -> models.Navigated:
@@ -763,6 +824,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.goto")
         params = models.GotoParams(page_id=self._host.id, url=url)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.navigation")
@@ -775,6 +837,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.read")
         return result_of(models.PageRead, self._host.call("page.read", models.PageReadParams(page_id=self._host.id, fields=fields)))
 
     def reload(self) -> models.Navigated:
@@ -782,6 +845,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.reload")
         return result_of(models.Navigated, self._host.call("page.reload", models.PageParams(page_id=self._host.id)))
 
     def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given) -> models.PageResponse:
@@ -789,6 +853,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.request")
         params = models.PageRequestParams(page_id=self._host.id, url=url)
         if not isinstance(headers, NotGiven):
             params.headers = headers
@@ -807,6 +872,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_function")
         params = models.WaitForFunctionParams(page_id=self._host.id, function=function)
         if not isinstance(arg, NotGiven):
             params.arg = arg
@@ -825,6 +891,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_load_state")
         params = models.WaitForLoadStateParams(page_id=self._host.id)
         if not isinstance(state, NotGiven):
             params.state = None if state is None else models.LoadState(state)
@@ -839,6 +906,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_request")
         params = models.WaitForExchangeParams(page_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
@@ -853,6 +921,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_request_finished")
         params = models.WaitForRequestFinishedParams(page_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
@@ -867,6 +936,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_response")
         params = models.WaitForExchangeParams(page_id=self._host.id)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
@@ -881,6 +951,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_url")
         params = models.WaitForUrlParams(page_id=self._host.id, url=url)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
@@ -929,6 +1000,7 @@ class Page:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.on")
         listened, payload = _PAGE_EVENTS[event]
         return self._host.listen("page.on", models.PageOnParams(page_id=self._host.id, event=models.PageEventName(listened)), f"page.{listened}", payload, listener)
 
@@ -962,6 +1034,7 @@ class Locator:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.click")
         return result_of(models.Acted, self._host.call("locator.click", models.ClickParams(locator=self._host.id)))
 
     def evaluate_all(self, function: str, *, arg: Any | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> models.Evaluated:
@@ -969,6 +1042,7 @@ class Locator:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.evaluate_all")
         params = models.LocatorEvaluateAllParams(locator=self._host.id, function=function)
         if not isinstance(arg, NotGiven):
             params.arg = arg
@@ -981,6 +1055,7 @@ class Locator:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.fill")
         return result_of(models.Acted, self._host.call("locator.fill", models.FillParams(locator=self._host.id, value=value)))
 
     def press(self, key: str) -> models.Acted:
@@ -988,6 +1063,7 @@ class Locator:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.press")
         return result_of(models.Acted, self._host.call("locator.press", models.PressParams(locator=self._host.id, key=key)))
 
     def wait_for(self, *, state: Literal["attached", "detached", "visible", "hidden"] | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given) -> models.Reached:
@@ -997,6 +1073,7 @@ class Locator:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.wait_for")
         params = models.LocatorWaitForParams(locator=self._host.id)
         if not isinstance(state, NotGiven):
             params.state = None if state is None else models.ElementState(state)
@@ -1011,6 +1088,7 @@ class Locator:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.wait_for_count")
         params = models.WaitForCountParams(locator=self._host.id, count=count)
         if not isinstance(timeout, NotGiven):
             params.timeout = timeout_of(timeout, "timeout.wait")
@@ -1023,6 +1101,7 @@ class Locator:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.wait_for_function")
         params = models.LocatorWaitForFunctionParams(locator=self._host.id, function=function)
         if not isinstance(arg, NotGiven):
             params.arg = arg

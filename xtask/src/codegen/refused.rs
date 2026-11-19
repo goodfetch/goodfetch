@@ -103,6 +103,10 @@ const BUILT_IN_ERRORS: [&str; 56] = [
     "ZeroDivisionError",
 ];
 
+/// What the SDKs declare beside the error classes under an `Error` name:
+/// the base class, and each Product's union of its errors (ADR 0079).
+const SDK_ERRORS: [&str; 3] = ["CollieError", "FoxhoundError", "GoodfetchError"];
+
 #[derive(Deserialize)]
 struct Named {
     name: String,
@@ -250,6 +254,11 @@ fn refusals(names: &Names) -> BTreeSet<String> {
                 "{what} `{name}`: its class `{class}` would shadow the built-in `{class}`"
             ));
         }
+        if SDK_ERRORS.contains(&class.as_str()) {
+            refused.insert(format!(
+                "{what} `{name}`: its class `{class}` would shadow the SDK's own `{class}`"
+            ));
+        }
         classes
             .entry(class)
             .or_default()
@@ -320,6 +329,31 @@ mod tests {
     #[case::a_code_named_as_its_own_group(json!([{ "name": "internal", "group": "internal" }]), vec![])]
     fn two_errors_of_one_class_are_refused(#[case] error_codes: Value, #[case] lines: Vec<String>) {
         assert_eq!(refused(&[], &error_codes), lines);
+    }
+
+    /// A code's class may not take a built-in's name, nor the name of what
+    /// the SDKs declare beside the classes: the base class and each
+    /// Product's union of its errors.
+    ///
+    /// Covers: story:11-176
+    #[rstest]
+    #[case::a_built_in(
+        "type",
+        "Error code `type`: its class `TypeError` would shadow the built-in `TypeError`"
+    )]
+    #[case::the_base_class(
+        "goodfetch",
+        "Error code `goodfetch`: its class `GoodfetchError` would shadow the SDK's own `GoodfetchError`"
+    )]
+    #[case::a_products_union(
+        "foxhound",
+        "Error code `foxhound`: its class `FoxhoundError` would shadow the SDK's own `FoxhoundError`"
+    )]
+    fn a_code_whose_class_is_taken_is_refused(#[case] code: &str, #[case] line: &str) {
+        assert_eq!(
+            refused(&[], &json!([{ "name": code, "group": "refused" }])),
+            vec![line.to_owned()]
+        );
     }
 
     /// Covers: story:11-176

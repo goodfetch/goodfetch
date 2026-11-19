@@ -33,6 +33,7 @@ from goodfetch_collie_client.generated.errors import (
     RunEndedError,
     RunIdInvalidError,
     RunInUseError,
+    RunStateUnavailableError,
     SettingInvalidError,
 )
 from goodfetch_collie_client.generated.models import (
@@ -80,6 +81,7 @@ __all__ = [
     "RunInUseError",
     "RunReport",
     "RunStarted",
+    "RunStateUnavailableError",
     "SettingInvalidError",
     "StartedAs",
     "Subscription",

@@ -15,8 +15,10 @@
 # body it reads and decodes (ADRs 0085 and 0119), and `field_values` reads a
 # page's fields into a program's type (ADR 0147). `connection_type` declares
 # the Connection both Products' connections implement (ADRs 0095 and 0099),
-# and `blocking` its blocking twin. Credits, cancellation and
-# event resumption join as their own modules with the tickets that add them.
+# and `blocking` its blocking twin. `markers` warns once per process of a
+# deprecated or Experimental entry `generated` calls (ADRs 0030 and 0099).
+# Credits, cancellation and event resumption join as their own modules with
+# the tickets that add them.
 [modules]
 blocking = ["call", "connection", "error", "field_values", "generated", "limits", "response", "run"]
 call = ["error", "rpc"]
@@ -25,11 +27,12 @@ connection_type = ["error", "run"]
 error = []
 field_values = ["call", "error"]
 file_saving = ["error"]
-generated = ["call", "host", "response"]
+generated = ["call", "host", "markers", "response"]
 handler = ["error", "line", "sync"]
 host = ["call", "connection", "error", "sync"]
 limits = []
 line = []
+markers = ["sync"]
 response = ["call", "connection", "error", "host"]
 rpc = ["error", "handler", "line", "transport"]
 run = ["connection", "error", "generated", "host", "limits"]

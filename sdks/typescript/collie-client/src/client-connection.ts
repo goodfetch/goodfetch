@@ -37,6 +37,7 @@ import { logEngineEvent, logLevelOf, type Logger } from "./logger.ts";
 import { collieTimes } from "./generated/times.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
+import { settingsOnWire, type RunSettings } from "./generated/settings.ts";
 import {
   Channel,
   type ChannelBounds,
@@ -53,9 +54,9 @@ const EXIT_GRACE = 2_000;
 /** The notification that carries one of the engine's log events, `goodfetch-protocol`'s `log::LOG`. */
 const LOG = "$/log";
 
-/** The engine a Connection reached, fixed when it opened (G6). */
+/** The engine a Connection reached, fixed when it opened (G6). It never holds a Daemon's token. */
 export interface EngineInfo {
-  /** How it is reached; an Attached engine is the one kind so far. */
+  /** How it is reached: an Attached engine the Connection started, the Daemon of this machine, or a remote Daemon. */
   readonly kind: "attached" | "daemon" | "remote";
   /** The engine's Product: `foxhound` serves a Collie Connection too (ADR 0095). A newer one is kept. */
   readonly product: Product | (string & {});
@@ -63,8 +64,31 @@ export interface EngineInfo {
   readonly version: string;
   /** The protocol version `major.minor` it speaks. */
   readonly protocolVersion: string;
+  /** The project file the engine read, or `null` when it read none. */
+  readonly projectFile: string | null;
+  /** The Goodfetch home the engine runs in, or `null` for a remote Daemon, or when none is known. */
+  readonly home: string | null;
   /** The executable started, or `null` when none was. */
   readonly enginePath: string | null;
+  /** Where a Daemon was reached: a remote one's URL, or this machine's socket path or loopback address; `null` for an Attached engine. */
+  readonly url: string | null;
+  /** Why `auto` ran another engine than the Daemon it found, and what to do; `null` when it ran the one it chose. */
+  readonly fallback: { readonly cause: string; readonly fix: string } | null;
+}
+
+/** How a Connection's engine was reached, which `engine()` reports. */
+export interface Reached {
+  readonly kind: EngineInfo["kind"];
+  readonly home: string | null;
+  readonly url: string | null;
+}
+
+/** What a Daemon's `hello` takes beyond an Attached engine's. */
+export interface DaemonHello {
+  /** The Daemon's token, which `hello` carries and nothing else holds. */
+  readonly token: string;
+  /** What fails the opening when the Daemon closes the Connection before it answers `hello`. */
+  readonly closedAtHello: () => Error;
 }
 
 /** What starting a Run takes (ADR 0102). */
@@ -87,6 +111,12 @@ export interface StartOptions {
    * before anything is sent.
    */
   readonly limits?: Limits | undefined;
+  /**
+   * The Run's own settings (ADR 0083), which its Sessions and pages
+   * inherit, nested by camelCase segment, such as
+   * `{ timeout: { navigation: 30_000 } }`.
+   */
+  readonly settings?: RunSettings | undefined;
 }
 
 /** What opening a Connection takes. */
@@ -95,6 +125,10 @@ export interface ClientConnectionOptions {
   readonly transport: Transport;
   /** The Attached engine whose stdio `transport` is, when the Connection started one. */
   readonly engine?: AttachedEngine | undefined;
+  /** How the engine was reached; an Attached engine with no home known when left out. */
+  readonly reached?: Reached | undefined;
+  /** The Daemon's token and what its closing at `hello` fails with, when the engine is a Daemon. */
+  readonly daemon?: DaemonHello | undefined;
   /** The Product the Client needs, which `hello` names. */
   readonly needs: Product;
   /** The error class of each code the Client's Product knows. */
@@ -136,12 +170,14 @@ export class ClientConnection implements AsyncDisposable {
   readonly #served = new Map<string, Served>();
   /** The level of the engine's logs the engine was last told, by `hello` or `connection.set_log_level`. */
   #logLevel: LogLevel;
+  readonly #reached: Reached;
   #info: EngineInfo | undefined;
   #ended = false;
   #closing: Promise<void> | undefined;
 
   private constructor(options: ClientConnectionOptions) {
     this.#engine = options.engine;
+    this.#reached = options.reached ?? { kind: "attached", home: null, url: null };
     this.#logger = options.logger;
     this.#logLevel = logLevelOf(options.logger);
     const { errorClasses } = options;
@@ -213,7 +249,7 @@ export class ClientConnection implements AsyncDisposable {
   static async open(options: ClientConnectionOptions): Promise<ClientConnection> {
     const connection = new ClientConnection(options);
     try {
-      await connection.#hello(options.needs, options.signal);
+      await connection.#hello(options.needs, options.daemon, options.signal);
       await connection.#setLimits(options.limits ?? [], options.signal);
     } catch (error) {
       await connection.#end();
@@ -237,10 +273,12 @@ export class ClientConnection implements AsyncDisposable {
    */
   async start(options: StartOptions = {}): Promise<Run> {
     const limits = limitList(options.limits);
+    const settings = settingsOnWire(options.settings);
     const params: RunStartParams = {
       ...(options.runId === undefined ? {} : { run_id: options.runId }),
       ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
       ...(limits.length === 0 ? {} : { limits }),
+      ...(settings === undefined ? {} : { settings }),
     };
     return this.startRun(
       "run.start",
@@ -410,15 +448,27 @@ export class ClientConnection implements AsyncDisposable {
     }
   }
 
-  async #hello(needs: Product, signal: AbortSignal | undefined): Promise<void> {
+  async #hello(
+    needs: Product,
+    daemon: DaemonHello | undefined,
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
     const params: HelloParams = {
       protocol_version: PROTOCOL_VERSION,
       surface: "sdk_typescript",
       needs,
       product_version: PRODUCT_VERSION,
       log_level: this.#logLevel,
+      ...(daemon === undefined ? {} : { token: daemon.token }),
     };
-    const answer = await this.#channel.call("hello", params, { signal });
+    let answer: unknown;
+    try {
+      answer = await this.#channel.call("hello", params, { signal });
+    } catch (error) {
+      throw daemon !== undefined && error instanceof EngineExitedError
+        ? daemon.closedAtHello()
+        : error;
+    }
     const spoken = protocolVersionOf(answer);
     if (spoken === undefined || !speaks(spoken)) {
       throw new ProtocolVersionUnsupportedError(
@@ -440,11 +490,15 @@ export class ClientConnection implements AsyncDisposable {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the one answer checked is the protocol version it speaks, above (STYLE.md).
     const result = answer as HelloResult;
     this.#info = {
-      kind: "attached",
+      kind: this.#reached.kind,
       product: result.product,
       version: result.product_version,
       protocolVersion: result.protocol_version,
+      projectFile: null,
+      home: this.#reached.home,
       enginePath: this.#engine?.path ?? null,
+      url: this.#reached.url,
+      fallback: null,
     };
   }
 
@@ -469,8 +523,8 @@ export class ClientConnection implements AsyncDisposable {
           group: "deadline_exceeded",
           retryable: true,
           fix: "Raise timeout.close, or find why the engine stopped answering in the engine's stderr, which the logger got.",
+          limit: { key: "timeout.close", value: CLOSE_TIMEOUT, layer: "default" },
           details: {
-            limit: { key: "timeout.close", value: CLOSE_TIMEOUT, layer: "default" },
             elapsed: Date.now() - startedAt,
             waited_for: "close",
           },

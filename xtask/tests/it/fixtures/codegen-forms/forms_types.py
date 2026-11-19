@@ -95,7 +95,7 @@ async def async_forms(
     # A sub-object is a property the program cannot replace.
     assert_type(page.keyboard, AsyncPageKeyboard)
     page.keyboard = other_keyboard  # type: ignore[misc]
-    assert_type(await page.keyboard.press("Enter"), Acted)
+    assert_type(await page.keyboard.press("Enter"), Acted)  # type: ignore[deprecated]
 
 
 def sync_forms(
@@ -119,7 +119,7 @@ def sync_forms(
     assert_type(page.wait_for_ready(timeout=timedelta(seconds=1)), Acted)
     assert_type(page.wait_for_ready(expected=None), Acted)
     assert_type(page.wait_for_ready(state="interactive"), Acted)
-    page.keyboard.press(1)  # type: ignore[arg-type]
+    page.keyboard.press(1)  # type: ignore[arg-type,deprecated]
 
     assert_type(run.new_page(), Page)
     with run.new_page() as opened:
@@ -133,4 +133,4 @@ def sync_forms(
 
     assert_type(page.keyboard, PageKeyboard)
     page.keyboard = other_keyboard  # type: ignore[misc]
-    assert_type(page.keyboard.press("Enter"), Acted)
+    assert_type(page.keyboard.press("Enter"), Acted)  # type: ignore[deprecated]

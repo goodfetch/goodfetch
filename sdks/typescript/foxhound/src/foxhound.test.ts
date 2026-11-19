@@ -82,7 +82,11 @@ describe("a Foxhound Connection", () => {
         product: "foxhound",
         version: "0.0.0",
         protocolVersion: "0.1",
+        projectFile: null,
+        home: null,
         enginePath: null,
+        url: null,
+        fallback: null,
       });
       expect(played.done()).toEqual({ kind: "finished" });
     },

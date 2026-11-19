@@ -6,6 +6,7 @@ expression: "workspace.read_text(&format!(\"{COLLIE_CLIENT}/src/generated/handle
 
 import { typedBy, type TypedBy } from "../field-values.ts";
 import { defined, timeoutOf, type HandleHost } from "../handle.ts";
+import { warnDeprecated, warnExperimental } from "../markers.ts";
 import type { CollieOperationTypes } from "./operations.ts";
 import type * as types from "./types.ts";
 
@@ -49,8 +50,13 @@ export class PageKeyboard {
 
   /**
    * Presses a key on the page.
+   *
+   * @experimental
+   * @deprecated Since 0.1: A fixture entry, which no program should call.
    */
   async press(key: types.KeyboardPressParams["key"], options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+    warnExperimental("page.keyboard.press");
+    warnDeprecated("page.keyboard.press", "Since 0.1: A fixture entry, which no program should call.");
     return this.#host.call("page.keyboard.press", { page_id: this.#host.id, key }, { signal: options.signal });
   }
 }

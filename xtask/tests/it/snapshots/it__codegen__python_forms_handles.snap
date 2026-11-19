@@ -12,8 +12,11 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any, Literal, Self
 
+from typing_extensions import deprecated
+
 from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost, NotGiven, not_given, timeout_of
+from goodfetch_collie_client.markers import warn_deprecated, warn_experimental
 
 from . import models
 
@@ -41,8 +44,16 @@ class AsyncPageKeyboard:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
 
+    @deprecated("Since 0.1: A fixture entry, which no program should call.", category=None)
     async def press(self, key: str) -> models.Acted:
-        """Presses a key on the page."""
+        """Presses a key on the page.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Deprecated since 0.1: A fixture entry, which no program should call.
+        """
+        warn_experimental("page.keyboard.press")
+        warn_deprecated("page.keyboard.press", "Since 0.1: A fixture entry, which no program should call.")
         return result_of(models.Acted, await self._host.call("page.keyboard.press", models.KeyboardPressParams(page_id=self._host.id, key=models.Key(key))))
 
 
@@ -146,8 +157,16 @@ class PageKeyboard:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
 
+    @deprecated("Since 0.1: A fixture entry, which no program should call.", category=None)
     def press(self, key: str) -> models.Acted:
-        """Presses a key on the page."""
+        """Presses a key on the page.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Deprecated since 0.1: A fixture entry, which no program should call.
+        """
+        warn_experimental("page.keyboard.press")
+        warn_deprecated("page.keyboard.press", "Since 0.1: A fixture entry, which no program should call.")
         return result_of(models.Acted, self._host.call("page.keyboard.press", models.KeyboardPressParams(page_id=self._host.id, key=models.Key(key))))
 
 

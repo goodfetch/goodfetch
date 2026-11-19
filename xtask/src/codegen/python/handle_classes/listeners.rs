@@ -11,7 +11,7 @@ use anyhow::{Result, bail};
 use super::super::super::handles::{Handle, Listener};
 use super::super::super::layer::Layer;
 use super::super::super::naming::snake;
-use super::super::docstring;
+use super::super::{deprecated_decorator, docstring, warnings};
 use super::{ASYNC, Imports, Mode, Wrapped, wrapped};
 
 /// The name of the map that names each of a handle's events: `_PAGE_EVENTS`
@@ -83,10 +83,18 @@ pub(super) fn member(
         .handle
         .extend(["AsyncListener", "Listener", "Subscription"]);
     let mut text = String::new();
+    let decorator = operation
+        .deprecated
+        .as_ref()
+        .map_or_else(String::new, |deprecated| {
+            imports.deprecated = true;
+            deprecated_decorator(deprecated)
+        });
+    // PEP 702 marks each overload, after its `@overload`.
     for (payload, names) in by_payload(listener) {
         let _ = write!(
             text,
-            "    @overload\n    def on(self, event: Literal[{}], listener: {listens}[{}]) -> Subscription: ...\n\n",
+            "    @overload\n{decorator}    def on(self, event: Literal[{}], listener: {listens}[{}]) -> Subscription: ...\n\n",
             names.join(", "),
             imports.model(payload)
         );
@@ -100,6 +108,12 @@ pub(super) fn member(
         &format!("{}\n\n{}", operation.description, event_list(listener)),
         operation.stability,
         operation.deprecated.as_ref(),
+    ));
+    text.push_str(&warnings(
+        &operation.name,
+        operation.stability,
+        operation.deprecated.as_ref(),
+        &mut imports.markers,
     ));
     let _ = writeln!(
         text,

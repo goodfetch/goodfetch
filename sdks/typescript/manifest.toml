@@ -493,7 +493,7 @@ package = "@goodfetch/collie-client/generated"
 receiver = "(module)"
 member = "GoodfetchError"
 entry = "none"
-reason = "The base of every error a Goodfetch SDK raises (ADR 0079), which each Error code's generated class extends through its group's: only the seven groups come from the catalog."
+reason = "The base of every error a Goodfetch SDK raises (ADR 0079), with the fields every error carries, which each Error code's generated class extends through its group's: only the seven groups and the codes' classes come from the catalog."
 words = ["goodfetch", "error"]
 form = "type"
 
@@ -505,3 +505,30 @@ entry = "none"
 reason = "The class of one Error code: its message, then what it carries (ADR 0079)."
 words = ["error", "class"]
 form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "(module)"
+member = "ErrorIdentity"
+entry = "none"
+reason = "What a generated class gives the base: the code, its group and retryable flag, and the class's name, which a minifier would otherwise rename (ADR 0079)."
+words = ["error", "identity"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "(module)"
+member = "ErrorLimit"
+entry = "none"
+reason = "The setting that decided an error's outcome, the generated `SettingLimit` with its value as any JSON (ADRs 0079 and 0083)."
+words = ["error", "limit"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "(module)"
+member = "isGoodfetchError"
+entry = "none"
+reason = "Whether a value is an error a Goodfetch SDK raised, from any copy of the package in one bundle, where `instanceof` fails (ADR 0079); each Product's own guard is generated."
+words = ["is", "goodfetch", "error"]
+form = "read"

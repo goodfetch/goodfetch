@@ -457,8 +457,8 @@ export class ClientConnection implements AsyncDisposable {
           group: "deadline_exceeded",
           retryable: true,
           fix: "Raise timeout.close, or find why the engine stopped answering in the engine's stderr, which the logger got.",
+          limit: { key: "timeout.close", value: CLOSE_TIMEOUT, layer: "default" },
           details: {
-            limit: { key: "timeout.close", value: CLOSE_TIMEOUT, layer: "default" },
             elapsed: Date.now() - startedAt,
             waited_for: "close",
           },

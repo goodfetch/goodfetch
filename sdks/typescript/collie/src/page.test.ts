@@ -133,11 +133,8 @@ describe("a Run's page", () => {
         code: "setting_invalid",
         group: "program",
         fix: expect.stringContaining("`timeout: null`"),
-        details: {
-          key: "timeout.navigation",
-          layer: "run",
-          limit: { key: "timeout.navigation", layer: "run", origin: "argument" },
-        },
+        limit: { key: "timeout.navigation", layer: "run", origin: "argument" },
+        details: { key: "timeout.navigation", layer: "run" },
       });
       await page.close();
       await run.finish();

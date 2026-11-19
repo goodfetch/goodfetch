@@ -478,7 +478,7 @@ fn errors(layer: &Layer) -> String {
         Product::Collie => {
             let _ = write!(
                 text,
-                ", Literal\n\nfrom {GOODFETCH_ERROR_MODULE} import ErrorClass, GoodfetchError\n\nErrorGroup = Literal["
+                ", Literal, Unpack\n\nfrom {GOODFETCH_ERROR_MODULE} import ErrorClass, ErrorFields, GoodfetchError\n\nErrorGroup = Literal["
             );
             text.push_str(
                 &layer
@@ -514,7 +514,7 @@ fn errors(layer: &Layer) -> String {
             let names: Vec<&String> = imported.iter().collect();
             let _ = writeln!(
                 text,
-                "\n\nfrom {CLIENT_PACKAGE}.errors import {}\nfrom {GOODFETCH_ERROR_MODULE} import ErrorClass",
+                ", Unpack\n\nfrom {CLIENT_PACKAGE}.errors import {}\nfrom {GOODFETCH_ERROR_MODULE} import ErrorClass, ErrorFields",
                 join(&names)
             );
         }
@@ -538,7 +538,7 @@ fn errors(layer: &Layer) -> String {
         ));
         let _ = write!(
             text,
-            "\n    def __init__(self, message: str, *, fix: str | None = None, details: Mapping[str, object] | None = None) -> None:\n        \"\"\"Takes the message the engine rendered, and what it carries.\"\"\"\n        super().__init__(message, code={:?}, group={:?}, retryable={}, fix=fix, details=details)\n",
+            "\n    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:\n        \"\"\"Takes the message the engine rendered, and what it carries.\"\"\"\n        super().__init__(message, code={:?}, group={:?}, retryable={}, **fields)\n",
             code.name,
             code.group,
             if code.retryable { "True" } else { "False" }

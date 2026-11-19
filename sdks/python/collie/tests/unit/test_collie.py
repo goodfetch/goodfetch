@@ -112,7 +112,7 @@ async def test_sends_none_as_null_and_leaves_out_a_parameter_not_given(
     assert played.done() == Finished()
 
 
-@pytest.mark.covers("story:11-40", "story:11-42")
+@pytest.mark.covers("story:11-28", "story:11-40", "story:11-42")
 @three_ways
 async def test_takes_a_timeout_as_a_timedelta_only(way: Way) -> None:
     """`timeout=30_000` is a type error, and refused before it is sent (ADR 0080).
@@ -129,7 +129,7 @@ async def test_takes_a_timeout_as_a_timedelta_only(way: Way) -> None:
 
     assert (
         type(refused),
-        refused.details.get("limit"),
+        refused.limit and refused.limit.model_dump(mode="json", exclude_none=True),
         "`timeout=None`" in (refused.fix or ""),
     ) == (
         SettingInvalidError,
@@ -334,8 +334,13 @@ async def test_gives_up_on_a_runs_abort_once_timeout_close_passes() -> None:
 
     assert isinstance(error, DeadlineExceededError)
     assert (error.code, error.group) == ("deadline_exceeded", "deadline_exceeded")
+    assert error.limit is not None
+    assert error.limit.model_dump(mode="json", exclude_none=True) == {
+        "key": "timeout.close",
+        "value": 30_000,
+        "layer": "default",
+    }
     assert error.details == {
-        "limit": {"key": "timeout.close", "value": 30_000, "layer": "default"},
         "elapsed": 30_000,
         "waited_for": "close",
     }

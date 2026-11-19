@@ -77,12 +77,8 @@ export function timeoutOf<Timeout extends number | null | undefined>(
     `The call's \`timeout\`, its \`${setting}\`: ${reason}; ${TIMEOUT_FIX}.`,
     {
       fix: TIMEOUT_FIX,
-      details: {
-        key: setting,
-        layer: "run",
-        reason,
-        limit: { key: setting, value: timeout, layer: "run", origin: "argument" },
-      },
+      limit: { key: setting, value: timeout, layer: "run", origin: "argument" },
+      details: { key: setting, layer: "run", reason },
     },
   );
 }

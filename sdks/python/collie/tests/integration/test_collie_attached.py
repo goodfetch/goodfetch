@@ -442,7 +442,8 @@ async def test_refuses_a_timeout_of_zero_or_less_before_sending_it(
         " and the null form"
     ):
         assert isinstance(refused, SettingInvalidError)
-        assert refused.details.get("limit") == {
+        assert refused.limit is not None
+        assert refused.limit.model_dump(mode="json", exclude_none=True) == {
             "key": "timeout.run",
             "value": value,
             "layer": "run",

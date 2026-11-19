@@ -275,9 +275,7 @@ describe("a Collie Connection on the Scripted engine as its Attached engine", ()
           expect(refused).toMatchObject({
             code: "setting_invalid",
             fix: expect.stringContaining("`timeout: null`"),
-            details: {
-              limit: { key: "timeout.run", value: timeout, layer: "run", origin: "argument" },
-            },
+            limit: { key: "timeout.run", value: timeout, layer: "run", origin: "argument" },
           }),
       );
       await clientCase.check("the script played to its end, so its engine wrote no failure", () =>

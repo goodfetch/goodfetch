@@ -1155,6 +1155,10 @@ fn workspace_with_the_forms_catalog() -> Workspace {
             &format!("[[area]]\nnumber = 1\nkind = \"operation\"\nprefix = \"{prefix}\"\n"),
         );
     }
+    workspace.append(
+        "features/areas.toml",
+        "[[area]]\nnumber = 1\nkind = \"event\"\nprefix = \"run.\"\n",
+    );
     workspace
 }
 

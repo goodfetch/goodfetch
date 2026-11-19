@@ -54,7 +54,7 @@ use std::time::Duration;
 use futures_util::FutureExt as _;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::audit::{Listener, RefusalReason};
-use goodfetch_protocol::catalog::{Product, Reach};
+use goodfetch_protocol::catalog::{Product, Reach, SettingScope};
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams,
     NETWORK_MAX_HELLO_SIZE, PERSON_REQUIRED, PanicEnded, PrivateEndpoint, StoppedBy, Surface,
@@ -63,6 +63,8 @@ use goodfetch_protocol::connection::{
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
 use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId};
+use goodfetch_protocol::settings::{RunOrigin, SettingsLayer};
+use serde_json::{Map, Value};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
@@ -93,8 +95,11 @@ use crate::log::{ConnectionLog, LogEvents};
 use crate::mask::{Masks, Scope};
 use crate::metrics::Metrics;
 use crate::product::{Identity, Requested};
+use crate::run::translated;
 use crate::runs::Runs;
-use crate::settings::get_or_default;
+use crate::settings::{
+    Opening as SettingsOpening, SettingsError, Values, check_scope, get_or_default,
+};
 use crate::tasks::{OwnerKind, TaskOwner};
 use crate::trace;
 use crate::transition::engine::{
@@ -489,6 +494,7 @@ async fn serve_carried(
         client,
         surface: OnceLock::new(),
         behind_gateway: OnceLock::new(),
+        settings: OnceLock::new(),
         drivers: Arc::clone(&dispatch.drivers),
         runs,
         events,
@@ -995,12 +1001,15 @@ impl Session<'_> {
             )
             .map(|accepted| {
                 let surface = accepted.surface;
-                (accepted, surface, hello.log_level)
+                (accepted, surface, hello.log_level, hello.settings)
             }),
             Err(error) => Err(handshake::Refused::Invalid(error)),
         };
         let answered = match answered {
-            Ok(accepted) => Ok(accepted),
+            Ok((accepted, surface, log_level, settings)) => self
+                .checked_settings(&settings, surface, accepted.behind_gateway)
+                .await
+                .map(|()| (accepted, surface, log_level, settings)),
             Err(refusal) => {
                 let handover = match &daemon {
                     Some(daemon) if refusal.by_product_or_version() => daemon.refusing().await,
@@ -1010,7 +1019,7 @@ impl Session<'_> {
             }
         };
         match answered {
-            Ok((mut accepted, surface, log_level)) => {
+            Ok((mut accepted, surface, log_level, settings)) => {
                 record(HELLO, None);
                 self.connection.log.set(log_level.unwrap_or_default());
                 if let Err(refused) = self.transition(ConnectionEvent::Accepted) {
@@ -1029,6 +1038,7 @@ impl Session<'_> {
                 let holding = accepted.holding;
                 self.opened_client = daemon.map(|daemon| daemon.opened(surface, holding));
                 let _ = self.connection.behind_gateway.set(accepted.behind_gateway);
+                let _ = self.connection.settings.set(settings);
                 if let Access::Attached(private_endpoint) = &self.access {
                     accepted
                         .result
@@ -1055,6 +1065,40 @@ impl Session<'_> {
     }
 
     /// Its `hello` was refused: it closes.
+    /// Checks `own`, the Connection's own settings as its `hello` gives
+    /// them, from `surface`: each key at the connection scope, then every
+    /// layer resolved over them as beneath a Run it starts, so a locked or
+    /// capped key is refused at the `hello` rather than at each start (ADR
+    /// 0083).
+    async fn checked_settings(
+        &self,
+        own: &Map<String, Value>,
+        surface: Surface,
+        behind_gateway: bool,
+    ) -> Result<(), CallError> {
+        if own.is_empty() {
+            return Ok(());
+        }
+        let identity = &self.dispatch.identity;
+        let refused = |error: SettingsError| translated(&error, identity, behind_gateway);
+        let values = Values::read(SettingsLayer::Run, own, identity.product).map_err(refused)?;
+        check_scope(&values, SettingScope::Connection).map_err(refused)?;
+        self.connection
+            .engine
+            .settings()
+            .open(SettingsOpening {
+                run: None,
+                project: None,
+                recipe: None,
+                settings: own.clone(),
+                origin: Some(RunOrigin::Settings),
+                acting_for_model: surface.acts_for_model(),
+            })
+            .await
+            .map(drop)
+            .map_err(refused)
+    }
+
     fn rejected(&mut self) -> Flow {
         if let Err(refused) = self.transition(ConnectionEvent::Rejected) {
             let _ = refused.logged();

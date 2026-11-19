@@ -3952,6 +3952,13 @@ class ConfigExplainParams(BaseModel):
     """
     project: ProjectSettings | None = None
     """The project configuration to explain with."""
+    run_id: str | None = None
+    """
+    The Run ID of a live Run of this Connection to explain, with the
+    settings it opened with, in place of `project` and `settings`; none
+    explains the Connection's own, the run values given set over them
+    (ADR 0083). One that is no Run ID fails with `run_id_invalid`.
+    """
     settings: dict[str, Any] | None = None
     """
     Run-layer values to explain with, as a Run's `settings` would give
@@ -4471,6 +4478,13 @@ class HelloParams(BaseModel):
     """The sender's own Product version."""
     protocol_version: ProtocolVersion
     """The protocol version the sender speaks."""
+    settings: dict[str, Any] | None = None
+    """
+    The Connection's own settings, nested by key: the run layer at the
+    connection scope, which every Run it starts inherits beneath its
+    own (ADR 0083). A key the connection scope does not take is refused
+    with `setting_not_applicable`, and the `hello` with it.
+    """
     surface: Surface
     """The surface it comes from."""
     token: str | None = None

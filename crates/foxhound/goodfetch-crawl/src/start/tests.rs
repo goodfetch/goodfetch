@@ -498,6 +498,26 @@ pub(crate) fn crawl_on<T>(
     dependencies: impl FnOnce() -> Dependencies,
     talk: impl AsyncFnOnce(&mut Client) -> T,
 ) -> (T, Vec<Value>) {
+    connected_on(engine, &json!({}), dependencies, talk)
+}
+
+/// [`crawl`], on a Connection whose `hello` sets `settings`, its own, which
+/// each crawl it starts takes beneath its own (ADR 0083).
+pub(crate) fn crawl_connected<T>(
+    settings: &Value,
+    dependencies: impl FnOnce() -> Dependencies,
+    talk: impl AsyncFnOnce(&mut Client) -> T,
+) -> T {
+    connected_on(&engine(), settings, dependencies, talk).0
+}
+
+/// [`crawl_on`], on a Connection whose `hello` sets `settings`.
+pub(crate) fn connected_on<T>(
+    engine: &Engine,
+    settings: &Value,
+    dependencies: impl FnOnce() -> Dependencies,
+    talk: impl AsyncFnOnce(&mut Client) -> T,
+) -> (T, Vec<Value>) {
     let (layer, transitions) = Transitions::new();
     let answer = goodfetch_test_support::runtime().block_on(async {
         let dependencies = dependencies();
@@ -528,6 +548,7 @@ pub(crate) fn crawl_on<T>(
                         "surface": "rust",
                         "needs": "foxhound",
                         "product_version": "1.4.0",
+                        "settings": settings,
                     }),
                     &mut |_| Reply::Silent,
                 )

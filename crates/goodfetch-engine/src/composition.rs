@@ -26,7 +26,7 @@ use goodfetch_protocol::daemon::{DaemonHealth, DaemonState, DaemonStopping};
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use tokio_util::sync::CancellationToken;
 
@@ -92,6 +92,10 @@ pub(crate) struct ConnectionContext {
     /// Whether its `hello` came from Goodfetch Cloud's gateway, which words
     /// `not_in_product` for it (ADR 0096); set with the surface.
     pub(crate) behind_gateway: OnceLock<bool>,
+    /// The Connection's own settings, which its `hello` gave and the
+    /// engine accepted: the run layer at the connection scope, beneath
+    /// each Run's own (ADR 0083); set with the surface.
+    pub(crate) settings: OnceLock<Map<String, Value>>,
     /// The driver of each kind of Run that has one, which a resume starts
     /// again.
     pub(crate) drivers: Arc<BTreeMap<RunKind, Driver>>,
@@ -216,6 +220,16 @@ impl CallContext {
             .get()
             .copied()
             .expect("invariant: a call runs only on a Connection whose `hello` was answered")
+    }
+
+    /// The Connection's own settings, nested by key, as its `hello` gave
+    /// them: none before it is answered, or when it gave none (ADR 0083).
+    pub fn connection_settings(&self) -> &Map<String, Value> {
+        static NONE: OnceLock<Map<String, Value>> = OnceLock::new();
+        self.connection
+            .settings
+            .get()
+            .unwrap_or_else(|| NONE.get_or_init(Map::new))
     }
 
     /// Whether the Connection's `hello` came from Goodfetch Cloud's gateway

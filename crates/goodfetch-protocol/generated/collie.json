@@ -841,6 +841,14 @@
           "arrived_in": "0.1",
           "description": "The project configuration to explain with."
         },
+        "run_id": {
+          "arrived_in": "0.1",
+          "description": "The Run ID of a live Run of this Connection to explain, with the\nsettings it opened with, in place of `project` and `settings`; none\nexplains the Connection's own, the run values given set over them\n(ADR 0083). One that is no Run ID fails with `run_id_invalid`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
@@ -12400,7 +12408,7 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
-      "description": "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's.",
+      "description": "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration, the project configuration given and the run layer: the Connection's own settings with the run values given over them, or a live Run's as it opened when `run_id` names one; and lists the keys only the other Product honours as that Product's.",
       "events": [],
       "kind": "round_trip",
       "name": "config.explain",

@@ -23,7 +23,7 @@ use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use goodfetch_test_client::{Attached, hello};
+use goodfetch_test_client::{Attached, Hello, hello};
 
 use crate::COLLIE;
 
@@ -114,15 +114,22 @@ fn without_goodfetch_home_a_run_goes_to_the_oss_usual_data_folder() {
 
 /// A Run past its `timeout.run` stops at its next safe point, at once for a
 /// Run its program drives, `stopped` and `incomplete` with the stop reason
-/// `timeout` and no Error code of its own; the test sets a short value, as
-/// every duration the engine waits on is a setting (ADR 0059).
+/// `timeout` and no Error code of its own; the test sets a short value on
+/// the Connection, the one scope that sets it (ADR 0083), as every duration
+/// the engine waits on is a setting (ADR 0059).
 ///
 /// Covers: story:3-52, setting:timeout.run, operation:events.subscribe, event:run.axes_changed
 #[test]
 fn a_run_past_a_short_run_timeout_stops_with_the_stop_reason_timeout() {
     let env = TestEnv::new();
     let mut engine = Attached::start(&env, COLLIE);
-    engine.send(&hello(Product::Collie));
+    let timed = Hello::needing(Product::Collie).with(|params| {
+        params.settings = json!({ "timeout": { "run": 200 } })
+            .as_object()
+            .cloned()
+            .unwrap();
+    });
+    engine.send(&timed.message());
     let _ = engine.next();
     engine.send(
         &json!({ "jsonrpc": "2.0", "id": "events", "method": "events.subscribe", "params": {} }),
@@ -130,7 +137,7 @@ fn a_run_past_a_short_run_timeout_stops_with_the_stop_reason_timeout() {
     engine.send(&json!({ "jsonrpc": "2.0", "method": "$/credit", "params": { "id": "events", "credits": 16 } }));
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "run.start",
-        "params": { "run_id": "timed", "settings": { "timeout": { "run": 200 } } },
+        "params": { "run_id": "timed" },
     }));
 
     let stopped = loop {

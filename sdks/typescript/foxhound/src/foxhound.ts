@@ -17,6 +17,7 @@ import type {
   RawCallOptions,
   RawParams,
   Run,
+  SettingsExplanation,
   StartOptions,
 } from "@goodfetch/collie-client";
 import { RunNotFoundError } from "@goodfetch/collie-client";
@@ -212,6 +213,19 @@ export class Foxhound implements Connection {
    */
   call(operation: string, params?: RawParams, options?: RawCallOptions): Promise<JSONValue> {
     return this.#connection.call(operation, params, options);
+  }
+
+  /**
+   * What the Connection runs with (ADR 0083): each setting under `keys`,
+   * each a key or a prefix of keys such as `timeout`, every one when left
+   * out, with its effective value, the layer and origin that set it and
+   * the layer that locked it, as `goodfetch config explain` shows them: the
+   * Connection's own `settings` over configuration and the Operator
+   * policy, which each Run it starts inherits. Fails with `closed` once
+   * the Connection is closed.
+   */
+  explainSettings(keys?: readonly string[]): Promise<SettingsExplanation> {
+    return this.#connection.explainSettings(keys);
   }
 
   /**

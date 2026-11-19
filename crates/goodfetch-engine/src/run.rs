@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use goodfetch_protocol::catalog::Operation;
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{Product, SettingScope};
 use goodfetch_protocol::checkpoint::{
     CHECKPOINT_INTERVAL, FILE_WRITE_FAILED, FORMAT_VERSION_UNSUPPORTED, FileWriteFailedDetails,
     FormatVersionUnsupportedDetails, RUN_CHECKPOINT, RUN_MIGRATE, RUN_PAUSE, RUN_RESUME,
@@ -49,6 +49,7 @@ use goodfetch_protocol::usage::{
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde_json::{Map, Value};
 
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::daemon::{DAEMON_DRAINING, DaemonDrainingDetails};
@@ -73,7 +74,9 @@ use crate::runs::{
     StorageExhausted,
 };
 use crate::secrets::SecretError;
-use crate::settings::{Opening, Resolved, RunSettings, SettingsError};
+use crate::settings::{
+    Opening, Resolved, RunSettings, SettingsError, Values, beneath_connection, check_scope,
+};
 
 /// The `run.*` handlers.
 pub(crate) fn handlers() -> [Handler; 14] {
@@ -350,6 +353,28 @@ pub fn settings_error(error: &SettingsError, context: &CallContext) -> CallError
     translated(error, context.identity(), context.behind_gateway())
 }
 
+/// The run layer of a Run that `context`'s Connection starts or resumes,
+/// from `own`, the settings its call gives: refused when one sets a key
+/// the Run scope does not take, such as `timeout.run`, which only the
+/// Connection sets; otherwise `own` over the Connection's own settings, key
+/// by key (ADR 0083).
+///
+/// # Errors
+///
+/// `setting_not_applicable` for a key outside the Run scope, and
+/// `setting_unknown`, `setting_invalid` or `not_in_product` as reading
+/// `own` refuses it.
+pub fn run_layer(
+    own: &Map<String, Value>,
+    context: &CallContext,
+) -> Result<Map<String, Value>, CallError> {
+    let engine = context.identity().product;
+    let refused = |error: SettingsError| settings_error(&error, context);
+    let values = Values::read(SettingsLayer::Run, own, engine).map_err(refused)?;
+    check_scope(&values, SettingScope::Run).map_err(refused)?;
+    beneath_connection(context.connection_settings(), own, engine).map_err(refused)
+}
+
 /// The failure a command of the executable itself answers with for a
 /// refused setting, outside any Connection: no gateway relays it, so a
 /// setting the engine's Product lacks names the install that carries it.
@@ -379,7 +404,11 @@ fn unbuilt(
 
 /// [`settings_error`]'s translation, for the engine `identity` names,
 /// behind Goodfetch Cloud's gateway or not.
-fn translated(error: &SettingsError, identity: &Identity, behind_gateway: bool) -> CallError {
+pub(crate) fn translated(
+    error: &SettingsError,
+    identity: &Identity,
+    behind_gateway: bool,
+) -> CallError {
     let message = error.to_string();
     match error {
         SettingsError::Unknown {
@@ -833,7 +862,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             run: Some(Product::Collie),
             project: params.project,
             recipe: None,
-            settings: params.settings,
+            settings: run_layer(&params.settings, &context)?,
             origin: Some(RunOrigin::Settings),
             acting_for_model: context.surface().acts_for_model(),
         })
@@ -1021,7 +1050,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             run: None,
             project: params.project,
             recipe: None,
-            settings: params.settings,
+            settings: run_layer(&params.settings, &context)?,
             origin: Some(RunOrigin::Settings),
             acting_for_model: context.surface().acts_for_model(),
         })

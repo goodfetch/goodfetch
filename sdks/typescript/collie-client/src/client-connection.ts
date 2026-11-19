@@ -31,6 +31,7 @@ import {
   type RunLimit,
   type RunStartParams,
   type RunStarted,
+  type SettingsExplanation,
   type UsageSetParams,
 } from "./generated/index.ts";
 import type { JSONValue } from "./json.ts";
@@ -42,6 +43,7 @@ import { warnEntry } from "./markers.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
 import { settingsOnWire, type RunSettings } from "./generated/settings.ts";
+import type { SettingsOnWire } from "./settings.ts";
 import { SharedSubscription } from "./shared-subscription.ts";
 import {
   Channel,
@@ -146,6 +148,8 @@ export interface ClientConnectionOptions {
   readonly signal?: AbortSignal | undefined;
   /** The Client connection's Limits, in the wire's form, set once `hello` is answered. */
   readonly limits?: readonly RunLimit[] | undefined;
+  /** The Connection's own settings (ADR 0083), in the wire's form, which `hello` carries. */
+  readonly settings?: SettingsOnWire | undefined;
   /**
    * How long `hello` waits for its answer, already checked by `timeoutOf`:
    * `timeout.connect`'s 30 s when left out, none for `null`.
@@ -267,7 +271,7 @@ export class ClientConnection implements AsyncDisposable {
   static async open(options: ClientConnectionOptions): Promise<ClientConnection> {
     const connection = new ClientConnection(options);
     try {
-      await connection.#hello(options.needs, options.daemon, options.signal, options.timeout);
+      await connection.#hello(options, options.daemon);
       await connection.#setLimits(options.limits ?? [], options.signal);
     } catch (error) {
       await connection.#end();
@@ -421,6 +425,18 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   /**
+   * What the Connection runs with (ADR 0083): each setting under `keys`,
+   * each a key or a prefix of keys such as `timeout`, every one when left
+   * out, with its effective value, the layer and origin that set it and
+   * the layer that locked it, as `goodfetch config explain` shows them.
+   * Fails with `closed` once the Connection is closed.
+   */
+  explainSettings(keys?: readonly string[]): Promise<SettingsExplanation> {
+    this.#openOrThrow("config.explain");
+    return this.#operations.configExplain(keys === undefined ? {} : { keys: [...keys] });
+  }
+
+  /**
    * The raw catalog call on the Connection (ADR 0099): sends `operation`,
    * one that acts on no value or whose params name every value, with
    * `params` as the wire's JSON, and answers its result as the engine sent
@@ -495,12 +511,8 @@ export class ClientConnection implements AsyncDisposable {
     }
   }
 
-  async #hello(
-    needs: Product,
-    daemon: DaemonHello | undefined,
-    signal: AbortSignal | undefined,
-    timeout: number | null | undefined,
-  ): Promise<void> {
+  async #hello(options: ClientConnectionOptions, daemon: DaemonHello | undefined): Promise<void> {
+    const { needs, signal, timeout, settings } = options;
     const params: HelloParams = {
       protocolVersion: PROTOCOL_VERSION,
       surface: "sdk_typescript",
@@ -508,6 +520,7 @@ export class ClientConnection implements AsyncDisposable {
       productVersion: PRODUCT_VERSION,
       logLevel: this.#logLevel,
       ...(daemon === undefined ? {} : { token: daemon.token }),
+      ...(settings === undefined ? {} : { settings }),
     };
     let answer: unknown;
     try {

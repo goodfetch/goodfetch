@@ -17,10 +17,12 @@ import {
   type Product,
   type RunLimit,
 } from "./generated/index.ts";
+import { settingsOnWire, type Settings } from "./generated/settings.ts";
 import { timeoutOf } from "./handle.ts";
 import { limitList, type Limits } from "./limits.ts";
 import type { Logger } from "./logger.ts";
 import { boundsOf, type ChannelBounds, type Transport } from "./rpc.ts";
+import type { SettingsOnWire } from "./settings.ts";
 
 /** Options of opening a Connection, over an Attached engine's stdio or a transport a test holds. */
 export interface ConnectOverOptions {
@@ -51,6 +53,15 @@ export interface ConnectOverOptions {
    * its error.
    */
   readonly limits?: Limits | undefined;
+  /**
+   * The Connection's own settings (ADR 0083), sent in `hello`, which every
+   * Run it starts inherits: a key left out inherits configuration, `null`
+   * clears a setting that can be cleared, and a value sets it. A Run's own
+   * `settings` win over them key by key, and `timeout.run` is set here
+   * only. A key the Connection does not take fails the opening with the
+   * engine's error, such as `setting_not_applicable` or `setting_locked`.
+   */
+  readonly settings?: Settings | undefined;
   /**
    * How long the opening waits for the engine to answer `hello`, in
    * milliseconds (ADRs 0080 and 0083): `timeout.connect`'s 30 s when left
@@ -278,6 +289,7 @@ interface Opening {
   readonly bounds: ChannelBounds;
   readonly signal: AbortSignal | undefined;
   readonly limits: readonly RunLimit[];
+  readonly settings: SettingsOnWire | undefined;
   readonly timeout: number | null | undefined;
   readonly logger: Logger | undefined;
 }
@@ -295,6 +307,7 @@ function opening(options: ConnectOverOptions): Opening {
     bounds: boundsOf({ maxPendingCalls, maxQueuedWriteBytes }),
     signal,
     limits: limitList(options.limits),
+    settings: settingsOnWire(options.settings),
     timeout: timeoutOf(options.timeout, "timeout.connect"),
     logger,
   };

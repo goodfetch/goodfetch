@@ -1760,6 +1760,13 @@ export interface ConfigExplainParams {
    */
   project?: ProjectSettings | null;
   /**
+   * The Run ID of a live Run of this Connection to explain, with the
+   * settings it opened with, in place of `project` and `settings`; none
+   * explains the Connection's own, the run values given set over them
+   * (ADR 0083). One that is no Run ID fails with `run_id_invalid`.
+   */
+  runId?: string | null;
+  /**
    * Run-layer values to explain with, as a Run's `settings` would give
    * them.
    */
@@ -3160,6 +3167,15 @@ export interface HelloParams {
    * The protocol version the sender speaks.
    */
   protocolVersion: ProtocolVersion;
+  /**
+   * The Connection's own settings, nested by key: the run layer at the
+   * connection scope, which every Run it starts inherits beneath its
+   * own (ADR 0083). A key the connection scope does not take is refused
+   * with `setting_not_applicable`, and the `hello` with it.
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
   /**
    * The surface it comes from.
    */

@@ -2,6 +2,7 @@
 // Product's Connection type (`Collie`, `Foxhound`) offers, so a helper typed
 // for it accepts either.
 import type { EngineInfo, StartOptions } from "./client-connection.ts";
+import type { SettingsExplanation } from "./generated/index.ts";
 import type { JSONValue } from "./json.ts";
 import type { RawCallOptions, RawParams } from "./raw-call.ts";
 import type { Run } from "./run.ts";
@@ -26,6 +27,16 @@ export interface Connection extends AsyncDisposable {
    * is closed, and is never retried.
    */
   call(operation: string, params?: RawParams, options?: RawCallOptions): Promise<JSONValue>;
+  /**
+   * What the Connection runs with (ADR 0083): each setting under `keys`,
+   * each a key or a prefix of keys such as `timeout`, every one when left
+   * out, with its effective value, the layer and origin that set it and
+   * the layer that locked it, as `goodfetch config explain` shows them: the
+   * Connection's own `settings` over configuration and the Operator
+   * policy, which each Run it starts inherits. Fails with `closed` once
+   * the Connection is closed.
+   */
+  explainSettings(keys?: readonly string[]): Promise<SettingsExplanation>;
   /**
    * Closes the Connection; idempotent. Closes every Run it opened first,
    * stopping one still running, cancels the calls in flight, and stops an

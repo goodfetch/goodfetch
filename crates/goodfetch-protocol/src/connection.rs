@@ -486,13 +486,20 @@ pub struct HelloParams {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub keep_daemon_alive: bool,
+    /// The Connection's own settings, nested by key: the run layer at the
+    /// connection scope, which every Run it starts inherits beneath its
+    /// own (ADR 0083). A key the connection scope does not take is refused
+    /// with `setting_not_applicable`, and the `hello` with it.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: serde_json::Map<String, serde_json::Value>,
 }
 
 impl HelloParams {
     /// The `hello` every Client builds on: the protocol version this
     /// crate speaks, `surface`, its own `product_version`, and every other
     /// field at its default, no form, token, Product, log level, relayed
-    /// surface or keep-alive, which a caller sets by struct update.
+    /// surface, keep-alive or settings, which a caller sets by struct update.
     pub fn new(surface: Surface, product_version: ProductVersion) -> Self {
         Self {
             protocol_version: PROTOCOL_VERSION,
@@ -504,6 +511,7 @@ impl HelloParams {
             log_level: None,
             client_surface: None,
             keep_daemon_alive: false,
+            settings: serde_json::Map::new(),
         }
     }
 }

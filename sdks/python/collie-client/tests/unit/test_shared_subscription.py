@@ -117,7 +117,7 @@ class _Listeners:
         self._engine = engine
         self._shared = SharedSubscription(engine)
         self._order = Order()
-        self.failures: list[Exception] = []
+        self.failures: list[Exception | BaseGoodfetchError] = []
         self.endings: list[BaseGoodfetchError] = []
 
     def listen(

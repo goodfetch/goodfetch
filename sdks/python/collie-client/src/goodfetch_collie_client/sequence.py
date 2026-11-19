@@ -198,8 +198,8 @@ class AsyncSequence(Generic[_Item]):
                 reading.
             GoodfetchError: The call failed, raised once every item it
                 carried is read.
-            BaseGoodfetchError: The call's attempt ended (`attempt_ended`,
-                ADR 0093), raised in the same way.
+            BaseGoodfetchError: Foxhound's `AttemptEndedError`: the call's
+                attempt ended (ADR 0093), raised in the same way.
         """
         reading = self._reading
         if self._handed_out:
@@ -270,8 +270,8 @@ class Sequence(Generic[_Item]):
             StopIteration: Every item is read, or the program stopped reading.
             GoodfetchError: The call failed, raised once every item it
                 carried is read.
-            BaseGoodfetchError: The call's attempt ended (`attempt_ended`,
-                ADR 0093), raised in the same way.
+            BaseGoodfetchError: Foxhound's `AttemptEndedError`: the call's
+                attempt ended (ADR 0093), raised in the same way.
         """
         try:
             return self._loop.call(self._sequence.__anext__)

@@ -162,8 +162,11 @@ class Listening(Generic[_Model]):
     """The model of the event's payload."""
     listener: AsyncListener[_Model]
     """The program's listener."""
-    failed: Callable[[Exception], None]
-    """Hears, once, what the listener threw, after it was removed for it."""
+    failed: Callable[[Exception | BaseGoodfetchError], None]
+    """Hears, once, what the listener threw, after it was removed for it.
+
+    `attempt_ended` included, whose class is outside `Exception` (ADR 0093).
+    """
     ended: Callable[[BaseGoodfetchError], None]
     """Hears the error that ended the call unasked, such as `page_events_lost`.
 
@@ -297,7 +300,7 @@ class _Subscribed(Generic[_Model]):
             await wait_for(self._previous)
             if not self._closed:
                 await self._listen()
-        except Exception:
+        except (Exception, BaseGoodfetchError):
             # A spawned task has no caller to raise to.
             logging.getLogger(CLIENT_LOGGER).exception(
                 "invariant: %s's subscription failed", self._method
@@ -406,7 +409,8 @@ class _Subscribed(Generic[_Model]):
                 returned = self._listening.listener(payload)
                 if inspect.isawaitable(returned):
                     await returned
-        except Exception as error:
+        except (Exception, BaseGoodfetchError) as error:
+            # `attempt_ended` included: a listener is no attempt (ADR 0093).
             self.close()
             self._listening.failed(error)
             return False

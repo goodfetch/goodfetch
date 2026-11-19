@@ -11,11 +11,13 @@ has none of it: a call there fails with `connection_forked` (ADR 0078).
 from __future__ import annotations
 
 import threading
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar
 
 import anyio
 from anyio.from_thread import BlockingPortal
 
+from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError
 from goodfetch_collie_client.opening_process import OpeningProcess
 
 if TYPE_CHECKING:
@@ -30,6 +32,13 @@ THREAD_NAME = "goodfetch-collie"
 
 class LoopStopped(Exception):
     """The private loop has stopped: its Connection is closed."""
+
+
+@dataclass(frozen=True)
+class _Raised:
+    """An error outside `Exception` a call raised, carried back as its result."""
+
+    error: BaseGoodfetchError
 
 
 class PrivateLoop:
@@ -59,26 +68,44 @@ class PrivateLoop:
 
         An exception raised in the waiting thread, such as Ctrl+C's
         `KeyboardInterrupt`, cancels the call, which sends `$/cancel`
-        without waiting, and propagates unchanged (ADR 0081).
+        without waiting, and propagates unchanged (ADR 0081). The portal
+        would raise an error outside `Exception` in the loop's thread too,
+        which ends it, so `attempt_ended`'s comes back as a value and is
+        raised here alone (ADR 0093).
 
         Raises:
             LoopStopped: The loop has stopped, so its Connection is closed.
             ConnectionForkedError: Another process than the one that started
                 the loop, such as a forked child, which has no loop thread,
                 made the call.
+            BaseGoodfetchError: Foxhound's `AttemptEndedError`: `function`
+                raised `attempt_ended`, whose class is outside `Exception`
+                (ADR 0093).
         """
         self._opener.ensure_current()
+
+        async def kept() -> _T | _Raised:
+            try:
+                return await function()
+            except BaseGoodfetchError as error:
+                if isinstance(error, Exception):
+                    raise
+                return _Raised(error)
+
         try:
-            future: concurrent.futures.Future[_T] = self._portal.start_task_soon(
-                function
+            future: concurrent.futures.Future[_T | _Raised] = (
+                self._portal.start_task_soon(kept)
             )
         except RuntimeError as stopped:
             raise LoopStopped from stopped
         try:
-            return future.result()
+            result = future.result()
         except BaseException:
             future.cancel()
             raise
+        if isinstance(result, _Raised):
+            raise result.error
+        return result
 
     def stop(self) -> None:
         """Ends the loop once its calls are done, and joins the thread.

@@ -83,14 +83,11 @@ const BASE_ERROR: &str = "BaseGoodfetchError";
 /// description, which every language shares.
 const ATTEMPT_ENDED_BASE: &str = "In Python it derives from `BaseException`, not `GoodfetchError`, as `asyncio.CancelledError` sits outside `Exception`, so a handler's `except Exception:` lets it through to what runs the attempt; it still carries its code and group (ADR 0093).";
 
-/// The class Python declares `code`'s class on: its group's, or for
-/// `attempt_ended`, which ends a crawl handler's attempt, `BaseGoodfetchError`.
-fn base_class(code: &ErrorCode) -> String {
-    if code.name == ATTEMPT_ENDED.name {
-        BASE_ERROR.to_owned()
-    } else {
-        group_class(&code.group)
-    }
+/// Whether Python declares `code`'s class outside `Exception`, on
+/// `BaseGoodfetchError` rather than its group's: only `attempt_ended`,
+/// which ends a crawl handler's attempt (ADR 0093).
+fn outside_exception(code: &ErrorCode) -> bool {
+    code.name == ATTEMPT_ENDED.name
 }
 
 /// How `xtask codegen` runs `datamodel-code-generator`.
@@ -631,15 +628,11 @@ fn foxhound_error_imports(layer: &Layer) -> String {
     let imported: BTreeSet<String> = layer
         .error_codes
         .iter()
-        .map(base_class)
-        .filter(|class| class != BASE_ERROR)
+        .filter(|code| !outside_exception(code))
+        .map(|code| group_class(&code.group))
         .collect();
     let names: Vec<&String> = imported.iter().collect();
-    let base = if layer
-        .error_codes
-        .iter()
-        .any(|code| base_class(code) == BASE_ERROR)
-    {
+    let base = if layer.error_codes.iter().any(outside_exception) {
         format!("{BASE_ERROR}, ")
     } else {
         String::new()
@@ -697,14 +690,16 @@ fn errors(layer: &Layer) -> String {
         if code.name == code.group {
             continue;
         }
-        let base = base_class(code);
         let class = format!("{}Error", pascal(&code.name));
-        let _ = write!(text, "\n\nclass {class}({base}):\n");
-        let description = if base == BASE_ERROR {
-            format!("{}\n\n{ATTEMPT_ENDED_BASE}", code.description)
+        let (base, description) = if outside_exception(code) {
+            (
+                BASE_ERROR.to_owned(),
+                format!("{}\n\n{ATTEMPT_ENDED_BASE}", code.description),
+            )
         } else {
-            code.description.clone()
+            (group_class(&code.group), code.description.clone())
         };
+        let _ = write!(text, "\n\nclass {class}({base}):\n");
         text.push_str(&docstring("    ", &description, Stability::Stable, None));
         let _ = write!(
             text,

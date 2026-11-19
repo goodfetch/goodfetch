@@ -161,8 +161,9 @@ class Channel:
         Raises:
             GoodfetchError: The engine answered with an error, or the
                 channel ended or was cancelled before the reply.
-            BaseGoodfetchError: The engine answered `attempt_ended`, whose
-                class is outside `Exception` (ADR 0093).
+            BaseGoodfetchError: Foxhound's `AttemptEndedError`: the engine
+                answered `attempt_ended`, whose class is outside `Exception`
+                (ADR 0093).
         """
         return await self.stream(method, params, None)
 
@@ -183,8 +184,9 @@ class Channel:
         Raises:
             GoodfetchError: The engine answered with an error, or the
                 channel ended or was cancelled before the reply.
-            BaseGoodfetchError: The engine answered `attempt_ended`, whose
-                class is outside `Exception` (ADR 0093).
+            BaseGoodfetchError: Foxhound's `AttemptEndedError`: the engine
+                answered `attempt_ended`, whose class is outside `Exception`
+                (ADR 0093).
         """
         if self._failure is not None:
             raise self._failure

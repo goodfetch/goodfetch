@@ -533,7 +533,7 @@ class _AsyncHost(Generic[_Id]):
             # The callback holds the scopes, never the host it watches.
             weakref.finalize(self, run.released, value).atexit = False
 
-        def failed(cause: Exception) -> None:
+        def failed(cause: Exception | BaseGoodfetchError) -> None:
             error = ListenerFailedError(
                 f"{operation}: the listener of `{event}` threw, so it was removed",
                 fix="Fix the listener, then listen again with `on`.",

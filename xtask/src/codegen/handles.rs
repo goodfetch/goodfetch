@@ -97,12 +97,13 @@ pub(super) enum Form {
 }
 
 /// A handle's `on`, which registers a listener for one of its events (ADR
-/// 0081): its call stays in flight and gets them. TypeScript and Python
-/// write it so far, Rust with issue 2933.
+/// 0081): its call stays in flight and gets them.
 pub(super) struct Listener<'a> {
     pub(super) operation: &'a Operation,
     /// The parameter that names the event listened to, such as `event`.
     pub(super) param: String,
+    /// Its type in the bundle, such as `PageEventName`.
+    pub(super) event_type: String,
     /// The events it listens to, in the order its parameter's type lists them.
     pub(super) events: Vec<Listened>,
 }
@@ -453,7 +454,8 @@ fn listener<'a>(
             operation.name
         );
     };
-    let values = referenced(&schema["properties"][event])
+    let event_type = referenced(&schema["properties"][event]);
+    let values = event_type
         .and_then(|type_name| layer.definitions.get(type_name))
         .and_then(|definition| definition["oneOf"].as_array())
         .and_then(|variants| {
@@ -462,7 +464,8 @@ fn listener<'a>(
                 .map(|variant| variant["const"].as_str())
                 .collect::<Option<Vec<_>>>()
         });
-    let Some(values) = values.filter(|values| !values.is_empty()) else {
+    let (Some(event_type), Some(values)) = (event_type, values.filter(|values| !values.is_empty()))
+    else {
         bail!(
             "operation `{}`: its `{event}` is a type of its own whose values name the events listened to (ADR 0081)",
             operation.name
@@ -489,6 +492,7 @@ fn listener<'a>(
     Ok(Listener {
         operation,
         param: event.clone(),
+        event_type: event_type.to_owned(),
         events,
     })
 }

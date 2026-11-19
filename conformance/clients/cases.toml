@@ -144,13 +144,17 @@ covers = ["story:11-77"]
 surfaces = ["sdk-typescript", "sdk-rust"]
 modes = ["attached", "linked"]
 
-# A page's listeners (issues 1277 and 2932, ADR 0081): the TypeScript and
-# Python SDKs; the Rust SDK joins with issue 2933.
+# A page's listeners (issues 1277, 2932 and 2933, ADR 0081): the TypeScript
+# and Python SDKs on an Attached engine, the Rust SDK `linked`. A Rust
+# program reads a page's `EventStream` itself, so no listener of its throws
+# and this case's `listener_failed` has no Rust form (a crawl context's
+# `for_each` raises it, ADR 0111): its test checks the console in order and
+# the page open once its stream is dropped.
 [[capability.case]]
 id = "listeners-in-order-and-a-thrower-raises-listener-failed"
 covers = ["story:11-61", "story:11-62", "story:11-63", "error:listener_failed"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 # A program's crawl (issue 1467): declared on a `Crawl` value, started on
 # Foxhound's executable, its handler served on the event loop, and its

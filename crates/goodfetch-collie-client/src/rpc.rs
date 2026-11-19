@@ -13,6 +13,8 @@ use std::collections::BTreeMap;
 use std::future::poll_fn;
 use std::time::Duration;
 
+use goodfetch_protocol::connection::{CANCEL, CancelParams};
+use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::jsonrpc::{Message, Notification, Request, RequestId, Version};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncWrite, AsyncWriteExt as _, BufReader};
@@ -89,6 +91,22 @@ impl Sender {
             method: method.to_owned(),
             params: Some(params),
         }));
+    }
+
+    /// Grants the streaming call `id` `credits` more items with
+    /// `$/credit`.
+    pub(crate) fn credit(&self, id: i64, credits: u32) {
+        if let Ok(params) = serde_json::to_value(CreditParams {
+            id: RequestId::Number(id),
+            credits,
+        }) {
+            self.notify(CREDIT, params);
+        }
+    }
+
+    /// Cancels the streaming call `id` with `$/cancel`.
+    pub(crate) fn cancel(&self, id: i64) {
+        let _closed = self.0.send(Command::Notify(cancelled(id)));
     }
 
     /// Ends the Connection without waiting.
@@ -179,19 +197,16 @@ async fn correlate(
                         continue;
                     }
                     let deadline = call.timeout.map(|timeout| deadlines.insert(id, timeout));
-                    if let Some(notified) = &call.notified {
-                        let _gone = notified.try_send(Heard::Sent(id));
+                    if let Some(notified) = &call.notified
+                        && let Err(mpsc::error::TrySendError::Closed(_)) = notified.try_send(Heard::Sent(id))
+                    {
+                        // Its caller stopped listening before it was sent,
+                        // so never learnt its id: the call is cancelled here.
+                        send(&cancelled(id), &lines);
                     }
                     pending.insert(id, Pending { reply: call.reply, deadline, notified: call.notified });
                 }
-                Some(Command::Notify(notification)) => {
-                    let Ok(mut line) = serde_json::to_vec(&notification) else {
-                        tracing::warn!(target: "goodfetch::client", method = %notification.method, "a notification that is no JSON was not sent");
-                        continue;
-                    };
-                    line.push(b'\n');
-                    let _closed = lines.send(line);
-                }
+                Some(Command::Notify(notification)) => send(&notification, &lines),
                 Some(Command::Close) | None => break,
             },
             Some(expired) = poll_fn(|context| deadlines.poll_expired(context)) => {
@@ -224,6 +239,28 @@ async fn correlate(
     for call in std::mem::take(&mut pending).into_values() {
         let _gone = call.reply.send(Err(Error::Closed));
     }
+}
+
+/// The `$/cancel` of the call `id`.
+fn cancelled(id: i64) -> Notification {
+    Notification {
+        jsonrpc: Version,
+        method: CANCEL.to_owned(),
+        params: serde_json::to_value(CancelParams {
+            id: RequestId::Number(id),
+        })
+        .ok(),
+    }
+}
+
+/// Sends `notification` through `lines`.
+fn send(notification: &Notification, lines: &mpsc::UnboundedSender<Vec<u8>>) {
+    let Ok(mut line) = serde_json::to_vec(notification) else {
+        tracing::warn!(target: "goodfetch::client", method = %notification.method, "a notification that is no JSON was not sent");
+        return;
+    };
+    line.push(b'\n');
+    let _closed = lines.send(line);
 }
 
 /// Resolves the call `line` answers, or hands the engine's request `line`

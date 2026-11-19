@@ -1228,10 +1228,31 @@ fn the_steps_beside_are_these_and_start_before_lint(#[case] form: Form) {
 fn the_quick_gate_runs_no_step_beside_and_no_suite_but_the_quick_one() {
     let list = entries(Form::Quick);
 
-    assert!(list.iter().all(|entry| entry.kind == Kind::Step));
+    let (codegen_tests, steps) = list.split_last().expect("the quick gate runs something");
+    assert!(steps.iter().all(|entry| entry.kind == Kind::Step));
     assert_eq!(
-        list.iter().map(|entry| entry.name).collect::<Vec<_>>(),
+        steps.iter().map(|entry| entry.name).collect::<Vec<_>>(),
         QUICK_STEPS
+    );
+    assert_eq!(
+        (codegen_tests.kind, codegen_tests.just.as_slice()),
+        (Kind::Command, ["codegen-tests"].as_slice())
+    );
+}
+
+/// Only the quick gate runs xtask's codegen tests on their own, when the
+/// change reaches what only they check (issue 2892): the full gate's
+/// Pre-merge suite runs them with every `tests/` test, and the docs gate
+/// takes no change they check.
+#[rstest]
+#[case::the_full_gate(Form::All)]
+#[case::its_steps_over_what_changed(Form::Changed)]
+#[case::the_docs_gate(Form::Docs)]
+fn no_other_gate_runs_the_codegen_tests_on_their_own(#[case] form: Form) {
+    assert!(
+        entries(form)
+            .iter()
+            .all(|entry| entry.name != "codegen-tests")
     );
 }
 

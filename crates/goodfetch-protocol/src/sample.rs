@@ -105,6 +105,8 @@ pub const ENTRIES: Entries = Entries {
         stability: Stability::Experimental,
         deprecated: Some(Deprecation {
             since: ARRIVED_IN,
+            replacement: None,
+            earliest_removal: ProtocolVersion { major: 1, minor: 0 },
             note: "A sample entry, which the real catalog replaces.",
         }),
         arrived_in: ARRIVED_IN,

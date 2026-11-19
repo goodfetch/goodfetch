@@ -425,10 +425,7 @@ fn doc(
         paragraphs.push(EXPERIMENTAL.to_owned());
     }
     if let Some(deprecated) = deprecated {
-        paragraphs.push(format!(
-            "Deprecated since {}: {}",
-            deprecated.since, deprecated.note
-        ));
+        paragraphs.push(format!("Deprecated. {}", deprecated.message()));
     }
     paragraphs.push(errors.to_owned());
     comment(&paragraphs.join("\n\n"))
@@ -639,7 +636,8 @@ fn member_model(
         deprecated: operation.deprecated.as_ref().map(|deprecated| {
             format!(
                 "#[deprecated(since = {:?}, note = {:?})]\n",
-                deprecated.since, deprecated.note
+                deprecated.since.to_string(),
+                deprecated.message()
             )
         }),
         form: match &member.form {

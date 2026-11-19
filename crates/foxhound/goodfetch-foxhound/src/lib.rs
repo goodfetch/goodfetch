@@ -52,6 +52,10 @@ pub use goodfetch_collie_client::{
     Limits, Locator, Money, MoneyError, Page, Query, Response, Run, Session, Start, UsageKind,
     events,
 };
+/// Foxhound's Error codes, each a value of [`ErrorCode`] (ADR 0099):
+/// `error_code::HANDLER_FAILED` equals the code of an error read from the
+/// engine.
+pub use goodfetch_protocol::foxhound::error_code;
 pub use goodfetch_protocol::page::events::PageRequest;
 pub use goodfetch_protocol::page::read::{
     FieldLocator, FieldMatch, FieldTransform, ListField, PageField, PageRead, RowsField,

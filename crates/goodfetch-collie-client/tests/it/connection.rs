@@ -21,8 +21,11 @@ use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, InMemoryDialer, InMemoryNetwork};
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::{HelloParams, ProductVersion, Surface};
+use goodfetch_protocol::connection::{
+    DeadlineExceededDetails, HelloParams, ProductVersion, Surface,
+};
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo, EngineInfoParams};
+use goodfetch_protocol::settings::SettingInvalidDetails;
 use tempfile::TempDir;
 
 /// The Product version both ends speak.
@@ -346,4 +349,114 @@ fn a_call_past_its_timeout_fails_and_a_late_reply_to_it_changes_nothing() {
         );
         assert_eq!(answered.unwrap().product, Product::Collie);
     });
+}
+
+/// Opens a Connection to a peer that reads `hello` and answers it after
+/// `answer_after`, or never, within `timeout`, on the paused clock; the
+/// opening's result, and every request the peer read after `hello`.
+fn open_within_against(
+    timeout: goodfetch_collie_client::ConnectTimeout,
+    answer_after: Option<Duration>,
+) -> (Result<(), Error>, Vec<serde_json::Value>) {
+    use tokio::io::AsyncWriteExt as _;
+    let (network, mut lines, mut writer) = scripted();
+    let said = serde_json::json!({
+        "protocol_version": "0.1",
+        "product": "collie",
+        "product_version": "0.0.0",
+        "engine_instance": "01J0000000000000000000000",
+    });
+    let runtime = goodfetch_test_support::runtime();
+    runtime.block_on(async {
+        let peer = async {
+            let hello = lines.next_line().await.unwrap().unwrap();
+            if let Some(after) = answer_after {
+                tokio::time::sleep(after).await;
+                writer.write_all(&reply(&hello, &said)).await.unwrap();
+            }
+            let mut read = Vec::new();
+            while let Some(line) = lines.next_line().await.unwrap() {
+                read.push(serde_json::from_str(&line).unwrap());
+            }
+            writer.shutdown().await.unwrap();
+            read
+        };
+        let client = async {
+            let opened = ClientConnection::open_within(
+                ConnectionRuntime::driven(tokio::runtime::Handle::current()),
+                &network,
+                &Endpoint::InMemory,
+                hello(),
+                timeout,
+            )
+            .await;
+            match opened {
+                Ok((connection, _)) => connection.close().await,
+                Err(error) => Err(error),
+            }
+        };
+        tokio::join!(client, peer)
+    })
+}
+
+/// The `deadline_exceeded` details of a failed opening.
+fn deadline_details(opened: Result<(), Error>) -> serde_json::Value {
+    let Err(error) = opened else {
+        panic!("the opening should fail with deadline_exceeded: {opened:?}");
+    };
+    assert_eq!(error.code(), ErrorCode::DEADLINE_EXCEEDED, "{error:?}");
+    serde_json::to_value(error.details::<DeadlineExceededDetails>().unwrap()).unwrap()
+}
+
+/// The Client conformance case `connect-timeout-three-states`, at the
+/// client: a `hello` the engine never answers fails the opening with
+/// `deadline_exceeded` once the connection's own `timeout` passes, naming
+/// `timeout.connect` at the run layer, given as an argument, and closes
+/// the Connection; left out, `timeout.connect`'s 30 s default ends it; with
+/// no timeout, an answer a minute late still opens it.
+/// Covers: setting:timeout.connect
+#[test]
+fn an_unanswered_hello_fails_the_opening_past_its_timeout_in_its_three_states() {
+    use goodfetch_collie_client::ConnectTimeout;
+
+    let (opened, read) = open_within_against(ConnectTimeout::After(Duration::from_secs(5)), None);
+    let details = deadline_details(opened);
+    assert_eq!(
+        details["limit"],
+        serde_json::json!({"key": "timeout.connect", "value": 5000, "layer": "run", "origin": "argument"})
+    );
+    assert_eq!(details["waited_for"], "hello");
+    assert_eq!(details["elapsed"], 5000);
+    assert!(
+        read.iter().all(|request| request["method"] != "hello"),
+        "nothing but closing follows `hello`: {read:?}"
+    );
+
+    let (opened, _) = open_within_against(ConnectTimeout::Default, None);
+    let details = deadline_details(opened);
+    assert_eq!(
+        details["limit"],
+        serde_json::json!({"key": "timeout.connect", "value": 30_000, "layer": "default"})
+    );
+
+    let (opened, _) = open_within_against(ConnectTimeout::Off, Some(Duration::from_secs(60)));
+    opened.unwrap();
+}
+
+/// A connection's own `timeout` of zero is refused before anything is
+/// sent, with `setting_invalid` naming the form with no timeout.
+/// Covers: setting:timeout.connect
+#[test]
+fn a_zero_connect_timeout_is_refused_before_hello() {
+    let refused = goodfetch_collie_client::ConnectTimeout::After(Duration::ZERO).check();
+    let Err(error) = refused else {
+        panic!("a zero timeout should be refused: {refused:?}");
+    };
+    assert_eq!(error.code(), ErrorCode::SETTING_INVALID);
+    let details: SettingInvalidDetails = error.details().unwrap();
+    assert_eq!(details.key, "timeout.connect");
+    assert_eq!(
+        details.fix.as_deref(),
+        Some("give at least 1 ms, or `.no_timeout()` for no timeout")
+    );
 }

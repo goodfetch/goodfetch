@@ -23,6 +23,7 @@ use serde_json::Value;
 use crate::call::{Call, Query};
 use crate::connection::{ClientConnection, Closes, close_timeout};
 use crate::error::Error;
+use crate::event_stream::EventStream;
 use crate::sync::{AtomicBool, Mutex, MutexGuard};
 
 /// What a handle reaches its engine through: the Run it belongs to and its
@@ -104,6 +105,25 @@ impl<Id> Host<Id> {
         P: Serialize + Send + 'static,
     {
         Query::new(self.connection().sender(), method, self.open(params))
+    }
+
+    /// The stream of the events named `event` the call of `method` with
+    /// `params` streams, which is sent now; once the value is closed it
+    /// sends nothing and the stream hands `closed` once.
+    pub(crate) fn listen<T, P>(
+        &self,
+        method: &str,
+        params: P,
+        event: &'static str,
+    ) -> EventStream<T>
+    where
+        T: DeserializeOwned,
+        P: Serialize,
+    {
+        let params = self
+            .open(params)
+            .and_then(|params| serde_json::to_value(params).map_err(Error::shape));
+        EventStream::open(self.connection().sender(), method, params, event)
     }
 
     /// The call of `method` that closes the handle's value, whose reply

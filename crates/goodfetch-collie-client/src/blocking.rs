@@ -211,6 +211,52 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> Query<T, P> {
     }
 }
 
+/// The events a handle's `events` reads, as an iterator that blocks the
+/// calling thread until the next one: the blocking face of
+/// [`crate::EventStream`], whose call is sent already. Dropping it cancels
+/// the call, without blocking and without a warning.
+#[must_use = "its call is sent when it is made; dropping it cancels the call"]
+#[derive(Debug)]
+pub struct EventIter<T> {
+    /// The stream, which a read takes to the Connection's runtime and
+    /// brings back; none once it ended or the runtime shut down.
+    stream: Option<crate::EventStream<T>>,
+    connection: crate::ClientConnection,
+}
+
+impl<T> EventIter<T> {
+    /// The blocking face of `stream`, read on `connection`'s runtime.
+    pub(crate) fn new(stream: crate::EventStream<T>, connection: &crate::ClientConnection) -> Self {
+        Self {
+            stream: Some(stream),
+            connection: connection.clone(),
+        }
+    }
+}
+
+impl<T: DeserializeOwned + Send + 'static> Iterator for EventIter<T> {
+    type Item = Result<T, Error>;
+
+    /// The next event, blocking until it comes, or `None` once the stream
+    /// ended; its items are [`crate::EventStream::next`]'s.
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut stream = self.stream.take()?;
+        match self.connection.wait(async move {
+            let item = stream.next().await;
+            Ok((item, stream))
+        }) {
+            Ok((item, stream)) => {
+                if item.is_some() {
+                    self.stream = Some(stream);
+                }
+                item
+            }
+            // The Connection's runtime shut down with the stream.
+            Err(error) => Some(Err(error)),
+        }
+    }
+}
+
 /// The save of a file to the program's path, whose reply reads as `T`.
 /// Nothing is sent until [`SaveFile::send`].
 #[must_use = "a save is sent only by send()"]

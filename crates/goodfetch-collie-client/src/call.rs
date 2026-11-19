@@ -316,10 +316,15 @@ fn set_wire_timeout(params: &mut Value, timeout: Timeout) {
             members.insert(WIRE_TIMEOUT.to_owned(), Value::Null);
         }
         Timeout::After(after) => {
-            let millis = u64::try_from(after.as_nanos().div_ceil(1_000_000)).unwrap_or(u64::MAX);
-            members.insert(WIRE_TIMEOUT.to_owned(), Value::from(millis));
+            members.insert(WIRE_TIMEOUT.to_owned(), Value::from(wire_millis(after)));
         }
     }
+}
+
+/// `after` in whole milliseconds, rounded up, as a timeout is sent and
+/// reported.
+pub(crate) fn wire_millis(after: Duration) -> u64 {
+    u64::try_from(after.as_nanos().div_ceil(1_000_000)).unwrap_or(u64::MAX)
 }
 
 /// C-SEND-SYNC: a call and a query, and the futures they become, move

@@ -23,6 +23,7 @@ import sys
 from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
+from typing import cast
 
 import anyio
 import pytest
@@ -31,6 +32,7 @@ from collie_tracer import Traced, start_and_finish
 from goodfetch_collie import (
     AsyncCollie,
     ClosedError,
+    DeadlineExceededError,
     EngineExitedError,
     EngineInfo,
     EngineOutputInvalidError,
@@ -57,6 +59,52 @@ PROGRAMS = Path(__file__).parents[1] / "programs"
 
 CLIENT_SOURCE = Path(__file__).parents[3] / "collie-client"
 """The Collie client package's source, whose wheel the tests build."""
+
+CATALOG = Path(__file__).parents[5] / "crates/goodfetch-protocol/generated/collie.json"
+"""Collie's catalog, whose markers are the documented ones (ADR 0030)."""
+
+
+def undocumented(heard: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Each warning `heard` that no marker of Collie's catalog documents.
+
+    A documented one is ADR 0030's run-time warning (ADR 0099): an
+    Experimental entry's whole text, or the start of a deprecated entry's,
+    whose own text follows.
+    """
+    catalog: dict[str, object] = json.loads(CATALOG.read_text("utf-8"))
+    marked: list[dict[str, object]] = [
+        entry
+        for section in catalog.values()
+        if isinstance(section, list)
+        for entry in cast("list[object]", section)
+        if isinstance(entry, dict)
+    ]
+    experimental = {
+        f"`{entry['name']}` is Experimental: outside semver until it is promoted "
+        "(ADR 0030)."
+        for entry in marked
+        if entry.get("stability") == "experimental"
+    }
+    deprecated = tuple(
+        f"`{entry['name']}` is deprecated. "
+        for entry in marked
+        if entry.get("deprecated") is not None
+    )
+    return [
+        warning
+        for warning in heard
+        if not (
+            (
+                warning["category"] == "ExperimentalWarning"
+                and warning["message"] in experimental
+            )
+            or (
+                warning["category"] == "DeprecationWarning"
+                and warning["message"].startswith(deprecated)
+            )
+        )
+    ]
+
 
 PROGRAM_DEADLINE_SECONDS = 60.0
 """How long a program the tests start may take, its engine's start included."""
@@ -117,7 +165,11 @@ async def test_starts_a_run_finishes_it_and_answers_its_run_report(
 def test_imports_connects_and_closes_as_a_guest(
     way: str, env: Mapping[str, str], test_env: TestEnv, client_case: ClientCaseRecord
 ) -> None:
-    """Nothing is read, patched or left running, by import, connect or close."""
+    """Nothing is read, patched or left running, by import, connect or close.
+
+    Nothing is written at import or connect, and after that only the
+    catalog's marker warnings, each once.
+    """
     out = test_env.folder / "guest.json"
 
     guest = subprocess.run(
@@ -130,11 +182,24 @@ def test_imports_connects_and_closes_as_a_guest(
     )
 
     with client_case.check("the program ended at once with exit code 0"):
-        assert (guest.returncode, guest.stderr.decode(errors="replace")) == (0, "")
+        assert guest.returncode == 0, guest.stderr.decode(errors="replace")
     with client_case.check("the SDK wrote nothing to stdout"):
         assert guest.stdout == b""
     seen = json.loads(out.read_text("utf-8"))
     client_case.message(seen)
+    heard: list[dict[str, str]] = seen["warnings"]
+    # The guest records each warning where Python's filters would show it.
+    with client_case.check(
+        "the SDK wrote nothing to stderr but the warnings it emitted"
+    ):
+        assert guest.stderr == b""
+    with client_case.check("no warning came at import or connect"):
+        assert [warning for warning in heard if warning["stage"] != "run"] == []
+    with client_case.check("after connect, only documented marker warnings, each once"):
+        assert undocumented(heard) == []
+        assert [
+            warning for index, warning in enumerate(heard) if warning in heard[:index]
+        ] == []
     with client_case.check("importing read no variable"):
         assert (seen["read_at_import"], seen["lifecycle"]) == ([], "finished")
     with client_case.check("no handler or hook was added at import or connect"):
@@ -377,6 +442,97 @@ async def test_sends_a_timeout_in_its_three_states(
         "the script played to its end, so its engine wrote no failure"
     ):
         assert engine_warnings(caplog) == []
+
+
+@pytest.mark.covers(
+    "story:11-41", "story:11-42", "setting:timeout.connect", "error:deadline_exceeded"
+)
+@pytest.mark.client_case(id="connect-timeout-three-states", mode="attached")
+@three_ways
+async def test_fails_a_connect_whose_hello_is_unanswered_past_its_timeout(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Past `connect()`'s own `timeout`, an unanswered `hello` fails the connect.
+
+    The first script never answers `hello`; with `timeout=None`, the second
+    answers it and the connect waits with no deadline (ADR 0083).
+    """
+    silent = scripted_engine_env(
+        test_env, product, "sdk-python/connect/hello-never-answered.json"
+    )
+    late = await failure(
+        open_collie(way, silent, connect_timeout=timedelta(milliseconds=200))
+    )
+    # The second script replaces the first in the home once its engine ended.
+    answering = scripted_engine_env(
+        test_env, product, "sdk-python/run/started-and-finished.json"
+    )
+    none = await open_collie(way, answering, connect_timeout=None)
+    await (await none.start()).finish()
+    await none.close()
+
+    with client_case.check(
+        "a hello unanswered past the connect's own timeout fails it, naming"
+        " timeout.connect given as an argument"
+    ):
+        assert isinstance(late, DeadlineExceededError)
+        assert late.limit is not None
+        assert (
+            late.limit.key,
+            late.limit.value,
+            late.limit.layer,
+            late.limit.origin,
+        ) == ("timeout.connect", 200, "run", "argument")
+        assert late.details["waited_for"] == "hello"
+    with client_case.check(
+        "both scripts played to their end, so no engine wrote a failure"
+    ):
+        assert engine_warnings(caplog) == []
+
+
+@pytest.mark.covers("story:11-42", "setting:timeout.connect")
+@pytest.mark.client_case(id="connect-timeout-three-states", mode="attached")
+@pytest.mark.parametrize(
+    ("given", "value"),
+    [
+        pytest.param(timedelta(0), 0, id="zero"),
+        pytest.param(timedelta(seconds=-1), -1000, id="negative"),
+    ],
+)
+@three_ways
+async def test_refuses_a_connect_timeout_of_zero_or_less_before_the_engine_starts(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    given: timedelta,
+    value: float,
+) -> None:
+    """The refused connect starts no engine, so its script plays nothing."""
+    env = scripted_engine_env(
+        test_env, product, "sdk-python/connect/hello-never-answered.json"
+    )
+
+    refused = await failure(open_collie(way, env, connect_timeout=given))
+
+    with client_case.check(
+        "a connect timeout of zero or less is refused, naming timeout.connect"
+        " and the null form"
+    ):
+        assert isinstance(refused, SettingInvalidError)
+        assert refused.limit is not None
+        assert (
+            refused.limit.key,
+            refused.limit.value,
+            refused.limit.layer,
+            refused.limit.origin,
+        ) == ("timeout.connect", value, "run", "argument")
+        assert refused.fix is not None
+        assert "`timeout=None`" in refused.fix
 
 
 @pytest.mark.covers("story:11-40", "story:11-42")

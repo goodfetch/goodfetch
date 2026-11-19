@@ -41,6 +41,132 @@ function stages(value: unknown): Stages {
   throw new TypeError("the guest program recorded no stages");
 }
 
+/** A process warning the guest program heard, and the stage it came at. */
+interface Heard {
+  readonly stage: string;
+  readonly name: string;
+  readonly code: unknown;
+  readonly message: string;
+}
+
+function isHeard(value: unknown): value is Heard {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "stage" in value &&
+    typeof value.stage === "string" &&
+    "name" in value &&
+    typeof value.name === "string" &&
+    "code" in value &&
+    "message" in value &&
+    typeof value.message === "string"
+  );
+}
+
+/** The guest program's file, with its process ID and the warnings it heard; a `TypeError` without them. */
+function guestRecord(
+  value: unknown,
+): object & { readonly pid: number; readonly warnings: Heard[] } {
+  if (typeof value === "object" && value !== null && "pid" in value && "warnings" in value) {
+    const { pid, warnings }: { pid: unknown; warnings: unknown } = value;
+    if (typeof pid === "number" && Array.isArray(warnings) && warnings.every(isHeard)) {
+      return { ...value, pid, warnings };
+    }
+  }
+  throw new TypeError("the guest program recorded no process ID or warnings");
+}
+
+/** Node's line on stderr for a warning (its `lib/internal/process/warning.js`). */
+function nodeLine(pid: number, warning: Heard): string {
+  const code = typeof warning.code === "string" ? `[${warning.code}] ` : "";
+  return `(node:${pid}) ${code}${warning.name}: ${warning.message}\n`;
+}
+
+/** `stderr` without the one hint Node prints after its first warning. */
+function withoutNodeHint(stderr: string): string {
+  return stderr.replace(
+    /^\(Use `\S+ --trace-(?:warnings|deprecation) \.\.\.` to show where the warning was created\)\n/m,
+    "",
+  );
+}
+
+/** Collie's catalog, whose markers are the documented ones (ADR 0030). */
+const CATALOG = join(
+  import.meta.dirname,
+  "..",
+  "..",
+  "..",
+  "..",
+  "crates",
+  "goodfetch-protocol",
+  "generated",
+  "collie.json",
+);
+
+/**
+ * The run-time warnings Collie's catalog documents (ADR 0030, ADR 0099): an
+ * Experimental entry's whole text, and the start of a deprecated entry's,
+ * whose own text follows.
+ */
+interface Markers {
+  readonly experimental: ReadonlySet<string>;
+  readonly deprecated: readonly string[];
+}
+
+function catalogMarkers(): Markers {
+  const catalog: unknown = JSON.parse(readFileSync(CATALOG, "utf8"));
+  const experimental = new Set<string>();
+  const deprecated: string[] = [];
+  for (const section of typeof catalog === "object" && catalog !== null
+    ? Object.values(catalog)
+    : []) {
+    const entries: unknown[] = Array.isArray(section) ? section : [];
+    for (const entry of entries) {
+      if (
+        typeof entry !== "object" ||
+        entry === null ||
+        !("name" in entry) ||
+        typeof entry.name !== "string"
+      ) {
+        continue;
+      }
+      if ("stability" in entry && entry.stability === "experimental") {
+        experimental.add(
+          `\`${entry.name}\` is Experimental: outside semver until it is promoted (ADR 0030).`,
+        );
+      }
+      if ("deprecated" in entry && entry.deprecated !== null) {
+        deprecated.push(`\`${entry.name}\` is deprecated. `);
+      }
+    }
+  }
+  return { experimental, deprecated };
+}
+
+/** Whether `warning` is one the catalog documents, sent through Node's channel by the SDK. */
+function documented(markers: Markers, warning: Heard): boolean {
+  if (warning.code === "GOODFETCH_EXPERIMENTAL") {
+    return warning.name === "ExperimentalWarning" && markers.experimental.has(warning.message);
+  }
+  if (warning.code === "GOODFETCH_DEPRECATED") {
+    return (
+      warning.name === "DeprecationWarning" &&
+      markers.deprecated.some((start) => warning.message.startsWith(start))
+    );
+  }
+  return false;
+}
+
+/** Each warning that repeats an earlier one's marker and entry. */
+function repeated(warnings: readonly Heard[]): Heard[] {
+  return warnings.filter(
+    (warning, index) =>
+      warnings.findIndex(
+        (other) => other.code === warning.code && other.message === warning.message,
+      ) !== index,
+  );
+}
+
 describe("a Collie Connection on an Attached engine", () => {
   test(
     "starts a Run, finishes it and answers its Run report",
@@ -94,7 +220,7 @@ describe("a Collie Connection on an Attached engine", () => {
   );
 
   test(
-    "imports, connects and closes as a guest: nothing written, read or patched",
+    "imports, connects and closes as a guest: nothing written, read or patched at import or connect, then only marker warnings",
     { tags: ["client_case/nothing-at-import-or-connect", "attached"] },
     async ({ env, testEnv, processes, clientCase }) => {
       const out = join(testEnv.folder, "guest.json");
@@ -112,16 +238,26 @@ describe("a Collie Connection on an Attached engine", () => {
       const exit = await guest.exit;
 
       await clientCase.check("the program ended at once with exit code 0", () =>
-        expect({ exit, stderr: Buffer.concat(stderr).toString() }).toEqual({
-          exit: { code: 0, signal: null },
-          stderr: "",
-        }),
+        expect(exit).toEqual({ code: 0, signal: null }),
       );
       await clientCase.check("the SDK wrote nothing to stdout", () =>
         expect(Buffer.concat(stdout).toString()).toBe(""),
       );
-      const seen: unknown = JSON.parse(readFileSync(out, "utf8"));
+      const seen = guestRecord(JSON.parse(readFileSync(out, "utf8")));
       clientCase.message(seen);
+      await clientCase.check("the SDK wrote nothing to stderr but the warnings it emitted", () =>
+        expect(withoutNodeHint(Buffer.concat(stderr).toString())).toBe(
+          seen.warnings.map((warning) => nodeLine(seen.pid, warning)).join(""),
+        ),
+      );
+      await clientCase.check("no warning came at import or connect", () =>
+        expect(seen.warnings.filter((warning) => warning.stage !== "run")).toEqual([]),
+      );
+      const markers = catalogMarkers();
+      await clientCase.check("after connect, only documented marker warnings, each once", () => {
+        expect(seen.warnings.filter((warning) => !documented(markers, warning))).toEqual([]);
+        expect(repeated(seen.warnings)).toEqual([]);
+      });
       await clientCase.check("importing read no variable", () =>
         expect(seen).toMatchObject({ readAtImport: [], lifecycle: "finished" }),
       );
@@ -288,6 +424,78 @@ describe("a Collie Connection on the Scripted engine as its Attached engine", ()
       );
       await clientCase.check("the script played to its end, so its engine wrote no failure", () =>
         expect(warned).toEqual([]),
+      );
+    },
+  );
+
+  test(
+    "fails a connect whose hello is unanswered past its timeout, and waits with none",
+    {
+      tags: [
+        "client_case/connect-timeout-three-states",
+        "attached",
+        "story:11-41",
+        "story:11-42",
+        "setting:timeout.connect",
+        "error:deadline_exceeded",
+      ],
+    },
+    async ({ testEnv, clientCase }) => {
+      const { logger, warned } = recordingLogger();
+      // The first engine never answers `hello`; the second, whose script
+      // replaces the first's in the home once the first has ended, answers it.
+      const silent = scriptedEngineEnv(testEnv, "collie", "connect/hello-never-answered.json");
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const late = await failure(Collie.connect({ env: silent, logger, timeout: 200 }));
+      const answering = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const none = await Collie.connect({ env: answering, logger, timeout: null });
+      await none.close();
+
+      await clientCase.check(
+        "a hello unanswered past the connect's own timeout fails it, naming timeout.connect given as an argument",
+        () =>
+          expect(late).toMatchObject({
+            code: "deadline_exceeded",
+            limit: { key: "timeout.connect", value: 200, layer: "run", origin: "argument" },
+            details: { waited_for: "hello" },
+          }),
+      );
+      await clientCase.check("both scripts played to their end, so no engine wrote a failure", () =>
+        expect(warned).toEqual([]),
+      );
+    },
+  );
+
+  test.for([
+    { name: "0", timeout: 0 },
+    { name: "a negative", timeout: -1 },
+    { name: "an infinite", timeout: Number.POSITIVE_INFINITY },
+  ])(
+    "refuses a connect timeout of $name before the engine starts",
+    {
+      tags: [
+        "client_case/connect-timeout-three-states",
+        "attached",
+        "story:11-42",
+        "setting:timeout.connect",
+        "error:setting_invalid",
+      ],
+    },
+    async ({ timeout }, { testEnv, clientCase }) => {
+      const env = scriptedEngineEnv(testEnv, "collie", "connect/hello-never-answered.json");
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const refused = await failure(Collie.connect({ env, timeout }));
+
+      await clientCase.check(
+        "a connect timeout of 0 or less, or not finite, is refused, naming timeout.connect and the null form",
+        () =>
+          expect(refused).toMatchObject({
+            code: "setting_invalid",
+            fix: expect.stringContaining("`timeout: null`"),
+            limit: { key: "timeout.connect", value: timeout, layer: "run", origin: "argument" },
+          }),
       );
     },
   );

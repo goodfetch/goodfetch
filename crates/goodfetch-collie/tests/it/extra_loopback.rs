@@ -251,7 +251,7 @@ fn webrtc_sends_no_udp_around_a_session_with_a_local_address() {
         "{loaded}"
     );
     assert_eq!(sources, vec![control]);
-    assert!(to_turn.iter().all(|source| source == BOUND), "{to_turn:?}");
+    assert_eq!(to_turn, BTreeSet::from([BOUND.to_owned()]));
 }
 
 /// The local addresses the egress relay of each Session of the Run `run_id`

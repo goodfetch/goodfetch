@@ -40,14 +40,18 @@ impl Collie {
     /// executor. The engine reads `options`' environment, or the process's,
     /// for its Goodfetch home and the machine's settings.
     /// It sets `options`' Limits on the connection before it returns
-    /// ([`ConnectOptions::limits`]).
+    /// ([`ConnectOptions::limits`]), and waits for `hello`'s answer within
+    /// `options`' `timeout`, `timeout.connect`'s 30 s when left out
+    /// ([`ConnectOptions::timeout`]).
     ///
     /// # Errors
     ///
     /// `engine_exited` when the linked engine cannot start, with no
-    /// Goodfetch home among others, what `hello` fails with, and what
-    /// `usage.set` fails with for a Limit the engine refuses, the
-    /// connection closed then.
+    /// Goodfetch home among others, `setting_invalid` for a zero `timeout`,
+    /// `deadline_exceeded` naming `timeout.connect` when `hello` is not
+    /// answered within it, what `hello` fails with, and what `usage.set`
+    /// fails with for a Limit the engine refuses, the connection closed
+    /// then.
     ///
     /// # Cancel safety
     ///
@@ -174,6 +178,7 @@ impl Collie {
             Composed::COLLIE.product,
             dependencies,
             goodfetch_collie_client::Limits::new(),
+            goodfetch_collie_client::ConnectTimeout::Default,
         )
         .await?;
         Ok(Self { linked })

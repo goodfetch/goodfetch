@@ -36,6 +36,22 @@ export interface HandleHost<Id, Types extends Record<keyof Types, OperationTypes
     event: string,
     listener: Listener<Payload>,
   ): Subscription;
+  /**
+   * Registers `listener` for `event` through `operation`, the handle's `on`
+   * whose events the engine publishes on its event stream (ADR 0081), such
+   * as `session.on`: the Connection's Subscription is sent first when none
+   * is in flight, then the call, which stays in flight until the
+   * `Subscription` closes or the value goes. The listener gets each `event`
+   * of the Connection's Subscription whose payload names the handle by
+   * `param`.
+   */
+  listenPublished<Name extends keyof Types & string, Payload>(
+    operation: Name,
+    params: Types[Name]["params"],
+    event: string,
+    param: string,
+    listener: Listener<Payload>,
+  ): Subscription;
 }
 
 /**

@@ -163,7 +163,7 @@ export type Completeness = "complete" | "incomplete" | "unverified";
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "RunOrigin".
  */
-export type RunOrigin = "argument" | "settings" | "flag" | "form";
+export type RunOrigin = "argument" | "settings" | "flag" | "form" | "registered";
 /**
  * A social network whose profiles the page links to.
  *

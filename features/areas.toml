@@ -212,6 +212,18 @@ number = 7
 kind = "error"
 prefix = "hook_"
 
+# A process Plugin that crashed, and one the host cannot confine (ADR 0033,
+# spec #596).
+[[area]]
+number = 7
+kind = "error"
+prefix = "plugin_crashed"
+
+[[area]]
+number = 7
+kind = "error"
+prefix = "confinement_unavailable"
+
 [[area]]
 number = 3
 kind = "operation"
@@ -1287,6 +1299,12 @@ number = 5
 kind = "error"
 prefix = "browser_host_outdated"
 
+# A hosted Browser host whose link is lost (spec #594, decision 4; #756).
+[[area]]
+number = 5
+kind = "error"
+prefix = "browser_host_unreachable"
+
 # Area 12 (spec #592).
 # Foxhound's Datasets screen (#1211, spec #593): `dataset.list` and
 # `dataset.page`, which the Records grid reads.
@@ -1421,6 +1439,12 @@ prefix = "signing_key."
 number = 8
 kind = "command"
 prefix = "signing-key."
+
+# A Challenge the ladder ended without passing (spec #598, ADR 0088).
+[[area]]
+number = 8
+kind = "error"
+prefix = "challenge_unsolved"
 
 # Area 6, Collection, Foxhound (specs #581 and #582): what the Frontier
 # answers each seed and a handler's enqueue (#828), and the call on an

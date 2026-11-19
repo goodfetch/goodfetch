@@ -13369,6 +13369,11 @@
           "const": "form",
           "description": "An Integration's form.",
           "type": "string"
+        },
+        {
+          "const": "registered",
+          "description": "A program's only SDK handler of a kind that one setting chooses,\nregistered on its connection: the lowest of the run layer's origins,\nwhich every other replaces and configuration does not. A lock wins\nover it with no refusal, since the program never wrote the key (ADR\n0104's amendment of ADR 0083).",
+          "type": "string"
         }
       ]
     },
@@ -19028,6 +19033,11 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "connect": {
+                    "description": "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "dataset_query": {
                     "description": "How long one `dataset.query` may run before it is stopped and fails with `deadline_exceeded`: 30 s.",
                     "minimum": 0,
@@ -21872,6 +21882,11 @@
                   },
                   "close": {
                     "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "connect": {
+                    "description": "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -24835,6 +24850,11 @@
                   },
                   "close": {
                     "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "connect": {
+                    "description": "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -27814,6 +27834,11 @@
                   },
                   "close": {
                     "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "connect": {
+                    "description": "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
                     "minimum": 0,
                     "type": "integer"
                   },

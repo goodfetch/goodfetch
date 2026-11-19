@@ -365,6 +365,10 @@ enum Command {
     /// naming a member the generator writes, and a member another SDK lacks
     /// on a receiver both list unless its line says why (ADR 0099).
     SdkManifests,
+    /// Fails on a public hand-written member an SDK exports that its
+    /// manifest does not list, and on a line naming no hand-written member
+    /// the SDK exports (ADRs 0069, 0099).
+    SdkExports,
     /// Reference screenshots (ADR 0073).
     Screenshots {
         #[command(subcommand)]
@@ -626,6 +630,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Compare { command } => compare::run(command, environment),
         Command::Rss { command } => rss::run(command, environment),
         Command::SdkManifests => Ok(check::report(&sdk_manifests::check(root)?)),
+        Command::SdkExports => Ok(check::report(&sdk_manifests::exports::check(root)?)),
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::Runtimes => Ok(check::report(&runtimes::check(root)?)),
         Command::SelfHosted { command } => self_hosted::run(command, environment),

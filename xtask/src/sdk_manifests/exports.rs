@@ -1,0 +1,178 @@
+//! `xtask sdk-exports`, in the Quick suite: each SDK's manifest lists every
+//! public hand-written member its packages export, and no member they do not
+//! export or the generator writes (ADRs 0069, 0099). A member is listed when
+//! a line names it on any entry that exports it, so a member that several
+//! entries re-export, or a subclass inherits, is listed once. TypeScript's
+//! members are read by TypeScript's checker (`typescript-exports.mjs` says
+//! which); Python's and Rust's join with their own readers (issue 2920).
+#![expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
+)]
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+use std::process::Command;
+
+use anyhow::{Context as _, Result, bail};
+use serde::Deserialize;
+
+use super::{Language, MANIFESTS, Member};
+use crate::check::Finding;
+
+/// Prints the members the TypeScript packages of the SDK's folder export.
+const TYPESCRIPT_EXPORTS: &str = include_str!("typescript-exports.mjs");
+
+/// One member an SDK's entry exports.
+#[derive(Deserialize)]
+struct Exported {
+    /// The entry exporting it: an npm package and its subpath.
+    entry: String,
+    receiver: String,
+    member: String,
+    /// The same for every entry exporting one declaration.
+    id: String,
+    /// The folder of the package whose entry exports it.
+    home: String,
+    /// The folder of the package declaring it, `None` for the language
+    /// library's.
+    package: Option<String>,
+    generated: bool,
+    /// Declared by the language's library, such as `Disposable`'s
+    /// `[Symbol.dispose]`: a line may name it and none has to.
+    library: bool,
+}
+
+pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
+    let mut findings = Vec::new();
+    for (manifest, language) in MANIFESTS {
+        let Some(exported) = exports(root, manifest, language)? else {
+            continue;
+        };
+        compare(
+            manifest,
+            &super::read(root, manifest)?,
+            &exported,
+            &mut findings,
+        );
+    }
+    Ok(findings)
+}
+
+/// The members the SDK of `manifest` exports, or `None` for a language
+/// whose reader has not joined yet.
+fn exports(root: &Path, manifest: &str, language: Language) -> Result<Option<Vec<Exported>>> {
+    let Language::TypeScript = language else {
+        return Ok(None);
+    };
+    let sdk = Path::new(manifest)
+        .parent()
+        .context("a manifest sits in its SDK's folder")?;
+    let output = Command::new("node")
+        .args(["--input-type=module", "--eval", TYPESCRIPT_EXPORTS])
+        .arg(root.join(sdk))
+        .current_dir(root)
+        .output()
+        .context("running node to read the TypeScript SDK's exports")?;
+    if !output.status.success() {
+        bail!(
+            "reading the TypeScript SDK's exports failed ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    serde_json::from_slice(&output.stdout)
+        .context("parsing the TypeScript SDK's exports")
+        .map(Some)
+}
+
+/// Fails each line of `manifest` naming no hand-written member its SDK
+/// exports, and each hand-written member no line lists.
+fn compare(manifest: &str, members: &[Member], exported: &[Exported], findings: &mut Vec<Finding>) {
+    let mut by_key: BTreeMap<(&str, &str, &str), Vec<&Exported>> = BTreeMap::new();
+    for member in exported {
+        by_key
+            .entry((&member.entry, &member.receiver, &member.member))
+            .or_default()
+            .push(member);
+    }
+    let listed: BTreeSet<(&str, &str, &str)> = members
+        .iter()
+        .map(|member| {
+            (
+                member.package.as_str(),
+                member.receiver.as_str(),
+                member.name.as_str(),
+            )
+        })
+        .collect();
+    for member in members {
+        let subject = super::subject(manifest, member);
+        let message = match by_key.get(&(&member.package, &member.receiver, &member.name)) {
+            None => format!(
+                "`{}` exports no `{}.{}`; remove the line, or correct its package, receiver or member (ADR 0099)",
+                member.package, member.receiver, member.name
+            ),
+            Some(found) if found.iter().all(|found| found.generated) => format!(
+                "the generator writes `{}.{}` of `{}`; remove the line (ADR 0099)",
+                member.receiver, member.name, member.package
+            ),
+            Some(_) => continue,
+        };
+        findings.push(Finding::new("unused-line", subject, message));
+    }
+    // Each entry's receivers, and the members it lists on `(module)`.
+    let names: BTreeSet<(&str, &str)> = members
+        .iter()
+        .flat_map(|member| {
+            [
+                (member.package.as_str(), member.receiver.as_str()),
+                (member.package.as_str(), member.name.as_str()),
+            ]
+        })
+        .collect();
+    let mut declarations: BTreeMap<&str, Vec<&Exported>> = BTreeMap::new();
+    let mut order = Vec::new();
+    for member in exported
+        .iter()
+        .filter(|member| !member.generated && !member.library)
+    {
+        let held = declarations.entry(&member.id).or_default();
+        if held.is_empty() {
+            order.push(member.id.as_str());
+        }
+        held.push(member);
+    }
+    for id in order {
+        let held = &declarations[id];
+        if held.iter().any(|member| {
+            listed.contains(&(
+                member.entry.as_str(),
+                member.receiver.as_str(),
+                member.member.as_str(),
+            ))
+        }) {
+            continue;
+        }
+        // An entry whose lines already name the receiver, else the
+        // declaring package's own entry, the shortest first.
+        let shown = held
+            .iter()
+            .min_by_key(|member| {
+                (
+                    !names.contains(&(member.entry.as_str(), member.receiver.as_str())),
+                    member.package.as_deref() != Some(member.home.as_str()),
+                    member.entry.len(),
+                )
+            })
+            .expect("invariant: each declaration groups at least one export");
+        findings.push(Finding::new(
+            "unlisted",
+            format!("{manifest} {}.{}", shown.receiver, shown.member),
+            format!(
+                "`{}` exports it and no line lists it; add a `[[member]]` line with package = \"{}\", receiver = \"{}\", member = \"{}\", the entry it serves or entry = \"none\" with its reason, its words and its form (ADR 0099)",
+                shown.entry, shown.entry, shown.receiver, shown.member
+            ),
+        ));
+    }
+}

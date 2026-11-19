@@ -231,7 +231,9 @@ fn a_pinned_host_whose_key_changed_stops_the_session_and_receives_nothing() {
         (
             code,
             &details["host"],
-            details["pinned_spki_sha256"] != details["presented_spki_sha256"]
+            details["pinned_spki_sha256"].is_string()
+                && details["presented_spki_sha256"].is_string()
+                && details["pinned_spki_sha256"] != details["presented_spki_sha256"]
         ),
         (json!("certificate_changed"), &json!(host), true),
         "{details}"

@@ -102,6 +102,7 @@ mod rss;
 mod runtimes;
 mod scan;
 mod screenshots;
+mod sdk_exports;
 mod sdk_manifests;
 mod self_hosted;
 mod size;

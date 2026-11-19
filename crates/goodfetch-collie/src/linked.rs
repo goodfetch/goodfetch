@@ -18,7 +18,7 @@ use std::sync::{Arc, OnceLock, mpsc};
 use std::time::Duration;
 
 use goodfetch_collie_client::transport::{Dial, Endpoint, Link, Network};
-use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, Limits};
+use goodfetch_collie_client::{ClientConnection, ConnectTimeout, ConnectionRuntime, Error, Limits};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -43,6 +43,7 @@ use crate::runtime::{self, Threads};
 pub struct ConnectOptions {
     environment: Option<BTreeMap<OsString, OsString>>,
     limits: Limits,
+    timeout: ConnectTimeout,
 }
 
 impl ConnectOptions {
@@ -64,17 +65,36 @@ impl ConnectOptions {
         self
     }
 
+    /// Fails the connect if the engine has not answered `hello` within
+    /// `timeout`, with `deadline_exceeded` naming `timeout.connect` at the
+    /// run layer, given as an argument (ADR 0083); left out, the connect
+    /// waits `timeout.connect`'s 30 s. A zero `timeout` is refused with
+    /// `setting_invalid` before the engine starts.
+    #[must_use]
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = ConnectTimeout::After(timeout);
+        self
+    }
+
+    /// Waits for the engine to answer `hello` as long as it takes.
+    #[must_use]
+    pub fn no_timeout(mut self) -> Self {
+        self.timeout = ConnectTimeout::Off;
+        self
+    }
+
     /// The environment the linked engine reads, the one set or the
-    /// process's, and the connection's Limits.
+    /// process's, the connection's Limits and its `timeout`, once checked.
     #[expect(
         clippy::disallowed_methods,
         reason = "the SDK's connect(), given no environment map, reads the process environment once, the one reader besides main (ADR 0083)"
     )]
-    fn into_parts(self) -> (BTreeMap<OsString, OsString>, Limits) {
+    fn into_parts(self) -> Result<(BTreeMap<OsString, OsString>, Limits, ConnectTimeout), Error> {
+        self.timeout.check()?;
         let environment = self
             .environment
             .unwrap_or_else(|| std::env::vars_os().collect());
-        (environment, self.limits)
+        Ok((environment, self.limits, self.timeout))
     }
 }
 
@@ -136,8 +156,11 @@ impl LinkedConnection {
     /// # Errors
     ///
     /// `engine_exited` when the linked engine cannot start, with no
-    /// Goodfetch home among others, what `hello` fails with, and what
-    /// `usage.set` fails with for a Limit the engine refuses, such as
+    /// Goodfetch home among others, `setting_invalid` for a zero `timeout`
+    /// ([`ConnectOptions::timeout`]), `deadline_exceeded` naming
+    /// `timeout.connect` when `hello` is not answered within it, what
+    /// `hello` fails with, and what `usage.set` fails with for a Limit the
+    /// engine refuses, such as
     /// `not_in_product` for a Usage kind its Product does not count; the
     /// connection is closed then.
     ///
@@ -157,7 +180,7 @@ impl LinkedConnection {
         needs: Product,
         options: ConnectOptions,
     ) -> Result<Self, Error> {
-        let (environment, limits) = options.into_parts();
+        let (environment, limits, timeout) = options.into_parts()?;
         let (runtime, dependencies) = production(engine.product, environment)?;
         let handle = runtime.handle().clone();
         Self::open(
@@ -167,6 +190,7 @@ impl LinkedConnection {
             needs,
             dependencies,
             limits,
+            timeout,
         )
         .await
     }
@@ -179,7 +203,7 @@ impl LinkedConnection {
     ///
     /// As [`LinkedConnection::connect`].
     pub fn connect_blocking(engine: Composed, options: ConnectOptions) -> Result<Self, Error> {
-        let (environment, limits) = options.into_parts();
+        let (environment, limits, timeout) = options.into_parts()?;
         let (runtime, dependencies) = production(engine.product, environment)?;
         let handle = runtime.handle().clone();
         let on = handle.clone();
@@ -191,6 +215,7 @@ impl LinkedConnection {
                 engine.product,
                 dependencies,
                 limits,
+                timeout,
             )
             .await
         })
@@ -246,9 +271,10 @@ impl LinkedConnection {
 
     /// A connection on `runtime` whose `hello` needs `needs`, to a linked
     /// `engine` that runs on `handle`, that runtime's handle, with
-    /// `dependencies`, and with `limits` set on it. When `hello` fails, the
-    /// engine is left to stop at the end of its input, unwaited; when a
-    /// Limit is refused, the connection is closed.
+    /// `dependencies`, and with `limits` set on it once `hello` is answered
+    /// within `timeout`. When `hello` fails, the engine is left to stop at
+    /// the end of its input, unwaited; when a Limit is refused, the
+    /// connection is closed.
     pub(crate) async fn open(
         runtime: ConnectionRuntime,
         handle: Handle,
@@ -256,6 +282,7 @@ impl LinkedConnection {
         needs: Product,
         dependencies: Dependencies,
         limits: Limits,
+        timeout: ConnectTimeout,
     ) -> Result<Self, Error> {
         let (linked, network) = LinkedEngine::start(&handle, engine, dependencies)?;
         let hello = HelloParams {
@@ -263,7 +290,8 @@ impl LinkedConnection {
             ..HelloParams::new(Surface::Rust, version())
         };
         let (connection, _said) =
-            ClientConnection::open(runtime, &network, &Endpoint::InMemory, hello).await?;
+            ClientConnection::open_within(runtime, &network, &Endpoint::InMemory, hello, timeout)
+                .await?;
         let opened = Self {
             connection,
             engine: Arc::new(linked),

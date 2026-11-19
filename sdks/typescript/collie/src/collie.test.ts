@@ -202,6 +202,34 @@ describe("a Collie Connection", () => {
   );
 
   test(
+    "fails connect() with deadline_exceeded once timeout.connect's default passes with hello unanswered",
+    { tags: ["story:11-41", "story:11-42", "setting:timeout.connect", "error:deadline_exceeded"] },
+    async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      try {
+        const played = playScript("connect/hello-never-answered.json");
+
+        const connected = failure(connectOver(played.transport));
+        await vi.advanceTimersByTimeAsync(30_000);
+        const error = await connected;
+
+        expect(error).toMatchObject({
+          code: "deadline_exceeded",
+          group: "deadline_exceeded",
+          limit: { key: "timeout.connect", value: 30_000, layer: "default" },
+          details: {
+            elapsed: 30_000,
+            waited_for: "hello",
+          },
+        });
+        expect(played.done()).toEqual({ kind: "finished" });
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  test(
     "gives up waiting for a Run's abort once timeout.close passes, failing the close with deadline_exceeded",
     { tags: ["story:11-2", "story:11-43", "error:deadline_exceeded"] },
     async () => {

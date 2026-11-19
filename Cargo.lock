@@ -1078,6 +1078,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "connection-library"
+version = "0.1.0"
+dependencies = [
+ "goodfetch-collie-client",
+ "goodfetch-protocol",
+]
+
+[[package]]
 name = "conpty"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2392,6 +2400,7 @@ version = "0.0.0"
 dependencies = [
  "data-encoding",
  "encoding_rs",
+ "futures-core",
  "goodfetch-encoding",
  "goodfetch-engine",
  "goodfetch-protocol",
@@ -2708,6 +2717,7 @@ dependencies = [
  "arrow-schema",
  "bytes",
  "clap",
+ "connection-library",
  "csv",
  "data-encoding",
  "flate2",

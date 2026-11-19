@@ -36,6 +36,11 @@ impl ErrorCode {
     /// The Browser host the engine reached is of a version this engine cannot drive. Upgrade the Browser host, which either Product's executable runs as its `browser-host` command.
     pub const BROWSER_HOST_OUTDATED: Self = ErrorCode::from_static("browser_host_outdated");
 
+    /// `browser_host_unreachable`, in the `unavailable` group, retryable.
+    ///
+    /// The link to the hosted Browser host that runs the Session's browser is lost: the call fails, as does each later call until the link returns, and the Session stays open; while the Session is opening, the lost link is the open's failure. A person's own Browser host never raises it: its Session goes offline and the Run waits in a Human pause until the host is back.
+    pub const BROWSER_HOST_UNREACHABLE: Self = ErrorCode::from_static("browser_host_unreachable");
+
     /// `browser_launch_failed`, in the `unavailable` group, not retryable.
     ///
     /// The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended.
@@ -76,10 +81,20 @@ impl ErrorCode {
     /// A host's certificate failed verification and no exception covers its domain, so nothing was sent to it. The details name the host, the failure (`expired`, `not_yet_valid`, `unknown_issuer`, `name_mismatch`, `self_signed`, `revoked`, or another failure as text) and, in `fix`, the setting that makes an exception for that domain.
     pub const CERTIFICATE_INVALID: Self = ErrorCode::from_static("certificate_invalid");
 
+    /// `challenge_unsolved`, in the `page` group, not retryable.
+    ///
+    /// The page met a Challenge that every step of the ladder ended without passing: a timed wait for an invisible challenge, the Challenge solver when `challenge.solve` is on, and a Human pause when a person can answer and `session.recovery.human_pause` is on. Only the Page check declares a Challenge passed. The Session stays open with its cookies; an Agent's page gets it as its action's outcome. The details name the Block cause, `challenge` or `captcha`, the URL, the status and `steps`, each step tried with why it ended.
+    pub const CHALLENGE_UNSOLVED: Self = ErrorCode::from_static("challenge_unsolved");
+
     /// `closed`, in the `program` group, not retryable.
     ///
     /// The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID.
     pub const CLOSED: Self = ErrorCode::from_static("closed");
+
+    /// `confinement_unavailable`, in the `refused` group, not retryable.
+    ///
+    /// The host cannot confine the Plugin as it must run: it has no seccomp at all (WSL1), or neither user namespaces nor Landlock ABI 6 (a container under Docker's default seccomp profile on a kernel before 6.12), or it cannot provide the network level the Plugin's manifest declares, which is never silently weakened. A third-party Plugin is always refused; a first-party one, shipped in the engine's own release, too, unless the Operator policy's `plugins.<name>.reduced_confinement` lets it run with the confinement the host offers. A Bridge Sink is refused with it under a container runtime that runs as root.
+    pub const CONFINEMENT_UNAVAILABLE: Self = ErrorCode::from_static("confinement_unavailable");
 
     /// `connection_lost`, in the `unavailable` group, retryable.
     ///
@@ -301,6 +316,11 @@ impl ErrorCode {
     /// Only a person gives this answer: no agent surface, SDK, script or command run under `--json` or without a terminal may. Run the Operation's command in a terminal, where the CLI has one, or answer it in the Kennel where the Kennel offers the Operation.
     pub const PERSON_REQUIRED: Self = ErrorCode::from_static("person_required");
 
+    /// `plugin_crashed`, in the `unavailable` group, retryable.
+    ///
+    /// The process Plugin crashed while it held the call, and restarts with backoff. A read or an idempotent write fails with it and is retried under its lease; an Effect with no check is never retried blindly, but reported uncertain for Reconciliation instead. Repeated crashes quarantine the Plugin.
+    pub const PLUGIN_CRASHED: Self = ErrorCode::from_static("plugin_crashed");
+
     /// `policy_conflict`, in the `refused` group, not retryable.
     ///
     /// The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again.
@@ -492,5 +512,5 @@ impl ErrorCode {
     pub const VALUE_INVALID: Self = ErrorCode::from_static("value_invalid");
 
     /// Every Error code of Collie's catalog, in the catalog's order.
-    pub const COLLIE: &[Self] = &[Self::ADDRESS_FAMILY_UNAVAILABLE, Self::ARTIFACT_DOWNLOAD_FAILED, Self::ARTIFACT_UNAVAILABLE_OFFLINE, Self::BLOCKED, Self::BODY_NOT_FOUND, Self::BODY_UNAVAILABLE, Self::BROWSER_HOST_OUTDATED, Self::BROWSER_LAUNCH_FAILED, Self::BROWSER_NOT_INSTALLED, Self::BROWSER_SANDBOX_UNAVAILABLE, Self::CALL_CANCELLED, Self::CAPABILITY_UNAVAILABLE, Self::CDP_URL_NOT_ALLOWED, Self::CERTIFICATE_CHANGED, Self::CERTIFICATE_INVALID, Self::CLOSED, Self::CONNECTION_LOST, Self::CONNECTION_OVERLOADED, Self::DAEMON_DRAINING, Self::DAEMON_UNREACHABLE, Self::DEADLINE_EXCEEDED, Self::DIALOG_ALREADY_HANDLED, Self::EFFECT_KEY_INVALID, Self::EFFECT_KEY_REUSED, Self::EFFECT_OUTPUT_INVALID, Self::EFFECT_UNCERTAIN, Self::EGRESS_REFUSED, Self::ENGINE_EXITED, Self::ENGINE_NOT_FOUND, Self::ENGINE_OUTPUT_INVALID, Self::ENGINE_PANICKED, Self::EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL, Self::FILE_WRITE_FAILED, Self::FORMAT_VERSION_UNSUPPORTED, Self::HEADER_VALUE_INVALID, Self::HOOK_FAILED, Self::INTERNAL, Self::LIMIT_NOT_UNDERSTOOD, Self::LIMIT_RAISE_REFUSED, Self::LIMIT_REACHED, Self::LISTENER_FAILED, Self::LOCAL_ADDRESS_UNAVAILABLE, Self::LOGGED_OUT, Self::NAME_LOOKUP_FAILED, Self::NAME_NOT_RESOLVED, Self::NAVIGATION_FAILED, Self::NAVIGATION_INTERRUPTED, Self::NOT_A_DAEMON, Self::NOT_IN_PRODUCT, Self::PAGE_CHECK_FAILED, Self::PAGE_CRASHED, Self::PAGE_EVENTS_LOST, Self::PAGE_FUNCTION_FAILED, Self::PAGE_HANDLER_FAILED, Self::PAGE_MEMORY_EXCEEDED, Self::PAGE_VALUE_INVALID, Self::PATH_NOT_WRITABLE, Self::PATH_UNSAFE, Self::PATTERN_UNSUPPORTED, Self::PERSON_REQUIRED, Self::POLICY_CONFLICT, Self::PROTOCOL_VERSION_UNSUPPORTED, Self::PROXY_AUTH_FAILED, Self::PROXY_PROVIDER_UNAVAILABLE, Self::PROXY_RELAY_UNAVAILABLE, Self::PROXY_UNAVAILABLE, Self::RESOURCES_EXHAUSTED, Self::RESPONSE_LIMIT_EXCEEDED, Self::RESPONSE_NOT_JSON, Self::RESPONSE_TRUNCATED, Self::ROUTE_ALREADY_HANDLED, Self::RUN_BUSY, Self::RUN_CONFLICT, Self::RUN_ENDED, Self::RUN_ID_INVALID, Self::RUN_IN_USE, Self::RUN_INTERRUPTED, Self::RUN_KEY_MISMATCH, Self::RUN_LIVE, Self::RUN_NOT_FOUND, Self::RUN_NOT_OWNED, Self::RUN_STATE_UNAVAILABLE, Self::SAMPLE_REFUSED, Self::SECRET_DOMAIN_NOT_ALLOWED, Self::SECRET_INPUT_REFUSED, Self::SECRET_UNAVAILABLE, Self::SECRET_UNBOUND, Self::SESSION_BOUND_TO_MACHINE, Self::SETTING_INVALID, Self::SETTING_LOCKED, Self::SETTING_NOT_APPLICABLE, Self::SETTING_UNKNOWN, Self::SITE_PREFERENCES_REFUSED, Self::TARGET_NOT_UNIQUE, Self::TOO_MANY_CALLS, Self::TOO_MANY_REDIRECTS, Self::UPGRADE_SOURCE_UNSUPPORTED, Self::VALUE_INVALID];
+    pub const COLLIE: &[Self] = &[Self::ADDRESS_FAMILY_UNAVAILABLE, Self::ARTIFACT_DOWNLOAD_FAILED, Self::ARTIFACT_UNAVAILABLE_OFFLINE, Self::BLOCKED, Self::BODY_NOT_FOUND, Self::BODY_UNAVAILABLE, Self::BROWSER_HOST_OUTDATED, Self::BROWSER_HOST_UNREACHABLE, Self::BROWSER_LAUNCH_FAILED, Self::BROWSER_NOT_INSTALLED, Self::BROWSER_SANDBOX_UNAVAILABLE, Self::CALL_CANCELLED, Self::CAPABILITY_UNAVAILABLE, Self::CDP_URL_NOT_ALLOWED, Self::CERTIFICATE_CHANGED, Self::CERTIFICATE_INVALID, Self::CHALLENGE_UNSOLVED, Self::CLOSED, Self::CONFINEMENT_UNAVAILABLE, Self::CONNECTION_LOST, Self::CONNECTION_OVERLOADED, Self::DAEMON_DRAINING, Self::DAEMON_UNREACHABLE, Self::DEADLINE_EXCEEDED, Self::DIALOG_ALREADY_HANDLED, Self::EFFECT_KEY_INVALID, Self::EFFECT_KEY_REUSED, Self::EFFECT_OUTPUT_INVALID, Self::EFFECT_UNCERTAIN, Self::EGRESS_REFUSED, Self::ENGINE_EXITED, Self::ENGINE_NOT_FOUND, Self::ENGINE_OUTPUT_INVALID, Self::ENGINE_PANICKED, Self::EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL, Self::FILE_WRITE_FAILED, Self::FORMAT_VERSION_UNSUPPORTED, Self::HEADER_VALUE_INVALID, Self::HOOK_FAILED, Self::INTERNAL, Self::LIMIT_NOT_UNDERSTOOD, Self::LIMIT_RAISE_REFUSED, Self::LIMIT_REACHED, Self::LISTENER_FAILED, Self::LOCAL_ADDRESS_UNAVAILABLE, Self::LOGGED_OUT, Self::NAME_LOOKUP_FAILED, Self::NAME_NOT_RESOLVED, Self::NAVIGATION_FAILED, Self::NAVIGATION_INTERRUPTED, Self::NOT_A_DAEMON, Self::NOT_IN_PRODUCT, Self::PAGE_CHECK_FAILED, Self::PAGE_CRASHED, Self::PAGE_EVENTS_LOST, Self::PAGE_FUNCTION_FAILED, Self::PAGE_HANDLER_FAILED, Self::PAGE_MEMORY_EXCEEDED, Self::PAGE_VALUE_INVALID, Self::PATH_NOT_WRITABLE, Self::PATH_UNSAFE, Self::PATTERN_UNSUPPORTED, Self::PERSON_REQUIRED, Self::PLUGIN_CRASHED, Self::POLICY_CONFLICT, Self::PROTOCOL_VERSION_UNSUPPORTED, Self::PROXY_AUTH_FAILED, Self::PROXY_PROVIDER_UNAVAILABLE, Self::PROXY_RELAY_UNAVAILABLE, Self::PROXY_UNAVAILABLE, Self::RESOURCES_EXHAUSTED, Self::RESPONSE_LIMIT_EXCEEDED, Self::RESPONSE_NOT_JSON, Self::RESPONSE_TRUNCATED, Self::ROUTE_ALREADY_HANDLED, Self::RUN_BUSY, Self::RUN_CONFLICT, Self::RUN_ENDED, Self::RUN_ID_INVALID, Self::RUN_IN_USE, Self::RUN_INTERRUPTED, Self::RUN_KEY_MISMATCH, Self::RUN_LIVE, Self::RUN_NOT_FOUND, Self::RUN_NOT_OWNED, Self::RUN_STATE_UNAVAILABLE, Self::SAMPLE_REFUSED, Self::SECRET_DOMAIN_NOT_ALLOWED, Self::SECRET_INPUT_REFUSED, Self::SECRET_UNAVAILABLE, Self::SECRET_UNBOUND, Self::SESSION_BOUND_TO_MACHINE, Self::SETTING_INVALID, Self::SETTING_LOCKED, Self::SETTING_NOT_APPLICABLE, Self::SETTING_UNKNOWN, Self::SITE_PREFERENCES_REFUSED, Self::TARGET_NOT_UNIQUE, Self::TOO_MANY_CALLS, Self::TOO_MANY_REDIRECTS, Self::UPGRADE_SOURCE_UNSUPPORTED, Self::VALUE_INVALID];
 }

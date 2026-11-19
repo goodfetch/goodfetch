@@ -7,6 +7,7 @@
 use std::collections::BTreeSet;
 use std::sync::PoisonError;
 
+use crate::logging;
 use crate::sync::Mutex;
 
 /// Which of an entry's markers a warning is for.
@@ -27,6 +28,7 @@ static WARNED: Mutex<BTreeSet<(Marker, &'static str)>> = Mutex::new(BTreeSet::ne
 pub(crate) fn warn(name: &'static str, experimental: bool, deprecation: Option<&'static str>) {
     if experimental && first(Marker::Experimental, name) {
         tracing::warn!(
+            target: logging::CLIENT,
             entry = name,
             "`{name}` is Experimental: outside semver until it is promoted (ADR 0030)."
         );
@@ -34,7 +36,7 @@ pub(crate) fn warn(name: &'static str, experimental: bool, deprecation: Option<&
     if let Some(text) = deprecation
         && first(Marker::Deprecated, name)
     {
-        tracing::warn!(entry = name, "`{name}` is deprecated. {text}");
+        tracing::warn!(target: logging::CLIENT, entry = name, "`{name}` is deprecated. {text}");
     }
 }
 

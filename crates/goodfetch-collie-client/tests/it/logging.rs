@@ -133,7 +133,9 @@ fn a_refused_level_lets_the_start_go_on_and_is_told_again_at_the_next_start() {
     let warned = String::from_utf8(warned.written()).unwrap();
     let refusals: Vec<&str> = warned
         .lines()
-        .filter(|line| line.contains(&format!(" {}:", logging::CLIENT)))
+        .filter(|line| {
+            line.contains(&format!(" {}:", logging::CLIENT)) && line.contains("log_level=")
+        })
         .collect();
     assert_eq!(refusals.len(), 1, "{warned}");
     assert!(refusals[0].contains("WARN"), "{warned}");

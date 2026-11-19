@@ -112,10 +112,17 @@ pub(crate) fn start(
     let (commands, commands_in) = mpsc::unbounded_channel();
     let (lines, lines_in) = mpsc::unbounded_channel();
     tracker.spawn_on(write(writer, lines_in), runtime);
-    tracker.spawn_on(
-        correlate(reader, commands_in, lines, streams).with_current_subscriber(),
-        runtime,
-    );
+    let correlating = correlate(reader, commands_in, lines, streams);
+    // The engine's `$/log` events reach the subscriber of the program that
+    // opened the Connection; with none set then, they reach the global one,
+    // which a program may install later.
+    let opened_under = tracing::dispatcher::get_default(|dispatch| {
+        (!dispatch.is::<tracing::subscriber::NoSubscriber>()).then(|| dispatch.clone())
+    });
+    match opened_under {
+        Some(dispatch) => tracker.spawn_on(correlating.with_subscriber(dispatch), runtime),
+        None => tracker.spawn_on(correlating, runtime),
+    };
     Sender(commands)
 }
 

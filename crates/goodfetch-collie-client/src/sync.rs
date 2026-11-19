@@ -1,7 +1,8 @@
 //! The crate's locks and atomics (ADR 0060), the one place
 //! `disallowed-types` lets them be named: a Connection's list of its Runs,
-//! its streams of the engine's requests, a Run's state and the names
-//! `markers` has warned of, each held only to read or write a few words,
+//! its streams of the engine's requests and the log level it told the
+//! engine, a Run's state, the names `markers` has warned of and the
+//! callsites `logging` keeps, each held only to read or write a few words,
 //! never across an `.await`, and whether a value a Run holds is closed.
 #![expect(
     clippy::disallowed_types,

@@ -243,7 +243,7 @@ impl ClientConnection {
                     target: logging::CLIENT,
                     log_level = level.as_str(),
                     %error,
-                    "The engine refused the log level `{}`; it keeps sending its logs at `{}`.",
+                    "The engine did not take the log level `{}`; it keeps sending its logs at `{}`.",
                     level.as_str(),
                     told.as_str(),
                 );

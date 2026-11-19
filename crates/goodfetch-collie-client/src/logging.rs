@@ -53,21 +53,34 @@ static FIELDS: [&str; 4] = ["message", "target", "fields", "dropped"];
 /// The highest level the program's subscriber records for [`ENGINE`] on
 /// the calling thread, which the engine is told to send its logs at:
 /// `off` when it records none of them, or when there is no subscriber.
+///
+/// # Examples
+///
+/// ```
+/// use goodfetch_collie_client::logging::engine_log_level;
+/// use goodfetch_protocol::log::LogLevel;
+///
+/// // With no subscriber, nothing is recorded, so the engine sends nothing.
+/// assert_eq!(engine_log_level(), LogLevel::Off);
+/// ```
 #[must_use]
 pub fn engine_log_level() -> LogLevel {
-    let probes = [
-        LogLevel::Trace,
-        LogLevel::Debug,
-        LogLevel::Info,
-        LogLevel::Warn,
-        LogLevel::Error,
-    ]
-    .into_iter()
-    .filter_map(|told| {
-        let level = level_of(told)?;
-        (level <= STATIC_MAX_LEVEL).then(|| (told, relayed(ENGINE.to_owned(), level).kept()))
-    })
-    .collect::<Vec<_>>();
+    static PROBES: OnceLock<Vec<(LogLevel, &'static Metadata<'static>)>> = OnceLock::new();
+    let probes = PROBES.get_or_init(|| {
+        [
+            LogLevel::Trace,
+            LogLevel::Debug,
+            LogLevel::Info,
+            LogLevel::Warn,
+            LogLevel::Error,
+        ]
+        .into_iter()
+        .filter_map(|told| {
+            let level = level_of(told)?;
+            (level <= STATIC_MAX_LEVEL).then(|| (told, relayed("", level).kept()))
+        })
+        .collect()
+    });
     dispatcher::get_default(|dispatch| {
         probes
             .iter()
@@ -106,7 +119,7 @@ pub(crate) fn relay(params: Option<Value>) {
     if level > STATIC_MAX_LEVEL || level > LevelFilter::current() {
         return;
     }
-    let metadata = relayed(engine_target(&event.target), level).metadata();
+    let metadata = relayed(&event.target, level).metadata();
     let names = metadata.fields();
     let [Some(message), Some(target), Some(fields), Some(dropped)] =
         FIELDS.map(|name| names.field(name))
@@ -178,28 +191,33 @@ fn is_identifier(segment: &str) -> bool {
         && chars.all(|next| next.is_ascii_alphanumeric() || next == '_')
 }
 
-/// The callsite of the engine's events of `target` at `level`, registered
-/// with `tracing` the first time and kept for the process: `tracing`'s
-/// macros need a target known when the program is compiled, an engine's
-/// is known only when its event arrives.
-fn relayed(target: String, level: Level) -> &'static Relayed {
-    static KEPT: Mutex<BTreeMap<(String, Level), &'static Relayed>> = Mutex::new(BTreeMap::new());
+/// The callsite of the engine's events of the engine's own `target` at
+/// `level`, re-emitted under [`engine_target`]'s, registered with `tracing`
+/// the first time and kept for the process: `tracing`'s macros need a
+/// target known when the program is compiled, an engine's is known only
+/// when its event arrives. A kept callsite is found without allocating.
+fn relayed(target: &str, level: Level) -> &'static Relayed {
+    static KEPT: Mutex<BTreeMap<String, Vec<(Level, &'static Relayed)>>> =
+        Mutex::new(BTreeMap::new());
     let mut kept = KEPT.lock().unwrap_or_else(PoisonError::into_inner);
-    let key = if kept.len() < TARGETS_KEPT || kept.contains_key(&(target.clone(), level)) {
-        (target, level)
+    let key = if kept.len() < TARGETS_KEPT || kept.contains_key(target) {
+        target
     } else {
-        (ENGINE.to_owned(), level)
+        ""
     };
-    if let Some(found) = kept.get(&key) {
+    let found = kept
+        .get(key)
+        .and_then(|levels| levels.iter().find(|&&(at, _)| at == level));
+    if let Some(&(_, found)) = found {
         return found;
     }
     let made: &'static Relayed = Box::leak(Box::new(Relayed {
         metadata: OnceLock::new(),
     }));
-    let target: &'static str = Box::leak(key.0.clone().into_boxed_str());
+    let shown: &'static str = Box::leak(engine_target(key).into_boxed_str());
     let _set = made.metadata.set(Metadata::new(
         "$/log",
-        target,
+        shown,
         level,
         None,
         None,
@@ -208,7 +226,7 @@ fn relayed(target: String, level: Level) -> &'static Relayed {
         Kind::EVENT,
     ));
     callsite::register(made);
-    kept.insert(key, made);
+    kept.entry(key.to_owned()).or_default().push((level, made));
     made
 }
 

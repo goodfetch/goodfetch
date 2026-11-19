@@ -14,12 +14,13 @@ use tracing::subscriber::with_default;
 use super::options;
 
 /// Installs, as the process's global subscriber, one that records the
-/// engine's own events and the SDK's at every level, and none under
-/// `goodfetch::engine`, and returns what it writes.
+/// engine's own events, the SDK's and those under `goodfetch::engine` at
+/// every level, and returns what it writes.
 fn global_log() -> CapturedLog {
     let (subscriber, log) = capturing(&[
         ("goodfetch::rpc", Level::TRACE),
         ("goodfetch::client", Level::TRACE),
+        ("goodfetch::engine", Level::TRACE),
     ]);
     tracing::subscriber::set_global_default(subscriber).unwrap();
     log
@@ -37,7 +38,8 @@ fn lines_with(log: &CapturedLog, text: &str) -> Vec<String> {
 
 /// The `engine-logs-reach-the-logger` client conformance case in `linked`
 /// mode: the linked engine's events reach the program's subscriber under
-/// their own targets, and none is re-emitted under `goodfetch::engine`.
+/// their own targets, and none is re-emitted under `goodfetch::engine`,
+/// though the subscriber records it at every level.
 /// Covers: story:11-25
 #[test]
 fn the_linked_engines_own_events_reach_the_programs_subscriber_once() {
@@ -65,7 +67,7 @@ fn the_linked_engines_own_events_reach_the_programs_subscriber_once() {
             .any(|line| line.contains("method=\"run.start\"")),
         "{answered:#?}"
     );
-    assert_eq!(lines_with(&log, "goodfetch::engine"), Vec::<String>::new());
+    assert_eq!(lines_with(&log, " goodfetch::engine"), Vec::<String>::new());
 }
 
 /// The `log-level-follows-the-logger` client conformance case in `linked`
@@ -128,4 +130,29 @@ fn a_start_tells_the_linked_engine_the_level_only_when_it_changed() {
         ],
         "{answered:#?}"
     );
+}
+
+/// The SDK installs no subscriber: after a program with none connects,
+/// starts a Run and closes, none was ever set in the process, so what it
+/// and the linked engine log goes nowhere, not to stdout or stderr.
+/// Covers: story:11-25
+#[test]
+fn the_sdk_installs_no_subscriber() {
+    let env = TestEnv::new();
+    let first = RunId::parse("first").unwrap();
+
+    real_time_runtime().block_on(async {
+        let collie = Collie::connect(options(&env)).await.unwrap();
+        collie
+            .start()
+            .run_id(&first)
+            .await
+            .unwrap()
+            .finish()
+            .await
+            .unwrap();
+        collie.close().await.unwrap();
+    });
+
+    assert!(!tracing::dispatcher::has_been_set());
 }

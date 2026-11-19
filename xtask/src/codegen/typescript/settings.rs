@@ -5,41 +5,63 @@
 //! misspelled one or a wrong value fails to compile, and the spelling the
 //! hand-written walker sends each segment with.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 use anyhow::{Context as _, Result, bail, ensure};
 use serde_json::{Map, Value};
 
+use goodfetch_protocol::catalog::SettingScope;
+
+use super::super::handles::{Form, Handle, Member};
 use super::super::layer::Setting;
 use super::super::naming::camel;
 use super::HEADER;
+
+/// The optional parameter that holds a scope's own settings (ADR 0083).
+pub(super) const SETTINGS: &str = "settings";
+
+/// What sends a scope's settings by their wire spelling, which the
+/// generated settings module declares.
+pub(super) const SETTINGS_ON_WIRE: &str = "settingsOnWire";
 
 /// The hand-written module that walks a scope's settings onto the wire.
 const SETTINGS_MODULE: &str = "../settings.ts";
 
 /// The scopes a program's code opens with its own `settings`, outermost
-/// first, with the type each one's option takes.
-const SCOPES: [(&str, &str); 4] = [
-    ("connection", "Settings"),
-    ("run", "RunSettings"),
-    ("session", "SessionSettings"),
-    ("page", "PageSettings"),
+/// first.
+const SCOPES: [SettingScope; 4] = [
+    SettingScope::Connection,
+    SettingScope::Run,
+    SettingScope::Session,
+    SettingScope::Page,
 ];
 
-/// What each scope's option is for, its type's `TSDoc`.
-fn scope_doc(scope: &str) -> &'static str {
+/// The type `scope`'s option takes.
+fn type_name(scope: SettingScope) -> &'static str {
     match scope {
-        "connection" => {
+        SettingScope::Connection => "Settings",
+        SettingScope::Run => "RunSettings",
+        SettingScope::Session => "SessionSettings",
+        SettingScope::Page => "PageSettings",
+    }
+}
+
+/// What each scope's option is for, its type's `TSDoc`.
+fn scope_doc(scope: SettingScope) -> &'static str {
+    match scope {
+        SettingScope::Connection => {
             "The settings `connect()` takes, which every Run it starts inherits (ADR 0083)."
         }
-        "run" => {
+        SettingScope::Run => {
             "The settings starting a Run takes, which its Sessions and pages inherit (ADR 0083)."
         }
-        "session" => {
+        SettingScope::Session => {
             "The settings opening a Session takes, over its Run's, which its pages inherit (ADR 0083)."
         }
-        _ => "The settings opening a page takes, over its Session's and its Run's (ADR 0083).",
+        SettingScope::Page => {
+            "The settings opening a page takes, over its Session's and its Run's (ADR 0083)."
+        }
     }
 }
 
@@ -66,11 +88,11 @@ enum Node<'a> {
 }
 
 /// The settings tree of those `settings` that `scope` sets, by wire segment.
-fn tree<'a>(settings: &'a [Setting], scope: Option<&str>) -> Result<BTreeMap<String, Node<'a>>> {
+fn tree(settings: &[Setting], scope: Option<SettingScope>) -> Result<BTreeMap<String, Node<'_>>> {
     let mut root = BTreeMap::new();
     for setting in settings {
         let applies = match scope {
-            Some(scope) => setting.scopes.iter().any(|named| named == scope),
+            Some(scope) => setting.scopes.iter().any(|named| named == scope.as_str()),
             None => !setting.scopes.is_empty(),
         };
         if !applies {
@@ -128,12 +150,13 @@ pub(super) fn settings_module(settings: &[Setting]) -> Result<String> {
     let mut text = format!(
         "{HEADER}\nimport {{ onWire, type SettingsOnWire, type Spelling }} from \"{SETTINGS_MODULE}\";\n"
     );
-    for (scope, type_name) in SCOPES {
+    for scope in SCOPES {
         let level = tree(settings, Some(scope))?;
         let _ = write!(
             text,
-            "\n/**\n * {}\n *\n * A key left out inherits, `null` clears a setting that can be cleared,\n * and a value sets it; the program needs `exactOptionalPropertyTypes`, so\n * that `undefined` is never a value.\n */\nexport interface {type_name} ",
-            scope_doc(scope)
+            "\n/**\n * {}\n *\n * A key left out inherits, `null` clears a setting that can be cleared,\n * and a value sets it; the program needs `exactOptionalPropertyTypes`, so\n * that `undefined` is never a value.\n */\nexport interface {} ",
+            scope_doc(scope),
+            type_name(scope)
         );
         text.push_str(&area_type(&level, "")?);
         text.push('\n');
@@ -151,12 +174,51 @@ pub(super) fn settings_module(settings: &[Setting]) -> Result<String> {
 }
 
 /// The type name of the settings `opened`'s option takes.
-pub(super) fn scope_type(opened: &str) -> Result<String> {
+pub(super) fn scope_type(opened: &str) -> Result<&'static str> {
     SCOPES
-        .iter()
-        .find(|(scope, _)| *scope == opened)
-        .map(|(_, type_name)| (*type_name).to_owned())
+        .into_iter()
+        .find(|scope| scope.as_str() == opened)
+        .map(type_name)
         .with_context(|| format!("`{opened}` opens no scope that takes settings"))
+}
+
+/// The settings type of the scope `member` opens, when it takes `settings`;
+/// an error when the scope it opens takes none.
+pub(super) fn scope_settings(member: &Member<'_>) -> Result<Option<&'static str>> {
+    match &member.form {
+        Form::Opens(opened)
+            if member
+                .parameters
+                .optional
+                .iter()
+                .any(|name| name == SETTINGS) =>
+        {
+            scope_type(opened).map(Some)
+        }
+        _ => Ok(None),
+    }
+}
+
+/// The import of the settings types `handles`' members take, and of
+/// `settingsOnWire`; empty when none takes settings.
+pub(super) fn handles_import(handles: &[Handle<'_>]) -> Result<String> {
+    let mut scoped = BTreeSet::new();
+    for member in handles.iter().flat_map(|handle| {
+        handle
+            .members
+            .iter()
+            .chain(handle.sub_objects.iter().flat_map(|held| &held.members))
+    }) {
+        scoped.extend(scope_settings(member)?);
+    }
+    if scoped.is_empty() {
+        return Ok(String::new());
+    }
+    let imported: Vec<String> = scoped.iter().map(|name| format!("type {name}")).collect();
+    Ok(format!(
+        "import {{ {SETTINGS_ON_WIRE}, {} }} from \"./settings.ts\";\n",
+        imported.join(", ")
+    ))
 }
 
 /// An area's object type, its members indented under `indent`.

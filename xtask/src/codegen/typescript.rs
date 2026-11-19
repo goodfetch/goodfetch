@@ -74,7 +74,7 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         files.push(("shared-types.ts", shared_types(layer)));
     }
     if !handles.is_empty() {
-        files.push(("handles.ts", handle_classes(layer, &handles)));
+        files.push(("handles.ts", handle_classes(layer, &handles)?));
     }
     // Collie's client package types each scope's `settings` (ADR 0083),
     // which Foxhound's package takes from it.
@@ -600,13 +600,6 @@ const FIELDS: &str = "Fields";
 /// A call's own optional parameter that bounds it (ADR 0080).
 const TIMEOUT: &str = "timeout";
 
-/// The optional parameter that holds a scope's own settings (ADR 0083).
-const SETTINGS: &str = "settings";
-
-/// What sends a scope's settings by their wire spelling, which the
-/// generated settings module declares.
-const SETTINGS_ON_WIRE: &str = "settingsOnWire";
-
 /// The hand-written function of [`HANDLE_MODULE`] that refuses a call's
 /// own `timeout` no deadline can be before it is sent (ADR 0080).
 const TIMEOUT_OF: &str = "timeoutOf";
@@ -720,9 +713,9 @@ fn signature(
     }
     for name in &parameters.optional {
         let given = format!("options.{}", camel(name));
-        if let Some(settings) = settings_type.filter(|_| name == SETTINGS) {
+        if let Some(settings) = settings_type.filter(|_| name == settings::SETTINGS) {
             options.push(format!("readonly {}?: {settings} | undefined", camel(name)));
-            entries.push(format!("{name}: {SETTINGS_ON_WIRE}({given})"));
+            entries.push(format!("{name}: {}({given})", settings::SETTINGS_ON_WIRE));
         } else {
             options.push(format!(
                 "readonly {}?: types.{type_name}[{name:?}] | undefined",
@@ -785,25 +778,8 @@ fn answer(member: &Member<'_>, call: &str) -> String {
     }
 }
 
-/// The settings type of the scope `member` opens, when it takes `settings`
-/// and opens a scope that has one.
-fn scope_settings(member: &Member<'_>) -> Option<String> {
-    match &member.form {
-        Form::Opens(opened)
-            if member
-                .parameters
-                .optional
-                .iter()
-                .any(|name| name == SETTINGS) =>
-        {
-            settings::scope_type(opened).ok()
-        }
-        _ => None,
-    }
-}
-
 /// One member, a method of the class that holds `host`.
-fn member(member: &Member<'_>, id: &HandleId) -> String {
+fn member(member: &Member<'_>, id: &HandleId) -> Result<String> {
     let operation = member.operation;
     let (params, result) = (&operation.params.0, &operation.result.0);
     let typed = member.typed_by.as_ref();
@@ -814,7 +790,7 @@ fn member(member: &Member<'_>, id: &HandleId) -> String {
         &id.param,
         typed.map(|typed| typed.param.as_str()),
         member.timeout_setting.as_deref(),
-        scope_settings(member).as_deref(),
+        settings::scope_settings(member)?,
     );
     let call_options = if operation.cancellable {
         "{ signal: options.signal }"
@@ -869,12 +845,12 @@ fn member(member: &Member<'_>, id: &HandleId) -> String {
             );
         }
     }
-    text
+    Ok(text)
 }
 
 /// The handles module's header and imports: the field values' types only
 /// when a member's result is typed by the fields it declares (ADR 0147).
-fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> String {
+fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> Result<String> {
     let typed = handles.iter().any(|handle| {
         handle
             .members
@@ -899,36 +875,18 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> String {
     } else {
         String::new()
     };
-    let scoped: BTreeSet<String> = handles
-        .iter()
-        .flat_map(|handle| {
-            handle
-                .members
-                .iter()
-                .chain(handle.sub_objects.iter().flat_map(|held| &held.members))
-        })
-        .filter_map(scope_settings)
-        .collect();
-    let settings = if scoped.is_empty() {
-        String::new()
-    } else {
-        let imported: Vec<String> = scoped.iter().map(|name| format!("type {name}")).collect();
-        format!(
-            "import {{ {SETTINGS_ON_WIRE}, {} }} from \"./settings.ts\";\n",
-            imported.join(", ")
-        )
-    };
-    format!(
+    let settings = settings::handles_import(handles)?;
+    Ok(format!(
         "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost }} from \"{HANDLE_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\n{settings}import type * as types from \"./types.ts\";\n"
-    )
+    ))
 }
 
 /// The handles of Collie's client package (ADR 0099): one class a
 /// namespace, with its members in the form their kind gives them, the
 /// values it builds without a call and its sub-objects.
-fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
+fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
     let operation_types = format!("{}OperationTypes", layer.product.name());
-    let mut text = handles_imports(handles, &operation_types);
+    let mut text = handles_imports(handles, &operation_types)?;
     for handle in handles {
         let class = pascal(handle.namespace);
         let host = format!(
@@ -944,7 +902,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
             );
             for held in &sub_object.members {
                 text.push('\n');
-                text.push_str(&member(held, &handle.id));
+                text.push_str(&member(held, &handle.id)?);
             }
             text.push_str("}\n");
         }
@@ -986,7 +944,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
         text.push_str("  }\n");
         for held in &handle.members {
             text.push('\n');
-            text.push_str(&member(held, &handle.id));
+            text.push_str(&member(held, &handle.id)?);
         }
         for builder in &handle.builders {
             let built = pascal(&builder.builds);
@@ -1023,5 +981,5 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
         }
         text.push_str("}\n");
     }
-    text
+    Ok(text)
 }

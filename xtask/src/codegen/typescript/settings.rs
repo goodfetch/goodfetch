@@ -1,9 +1,11 @@
 //! The TypeScript types of each scope's `settings` option (ADR 0083):
 //! `Settings` for `connect()`, `RunSettings`, `SessionSettings` and
-//! `PageSettings`, each nesting the settings a program's code sets there by
-//! their camelCase segments (ADR 0099), so that a key outside its scope, a
-//! misspelled one or a wrong value fails to compile, and the spelling the
-//! hand-written walker sends each segment with.
+//! `PageSettings` in Collie's client package, `CrawlSettings` and
+//! `LabelSettings` in Foxhound's (ADR 0093), each nesting the settings a
+//! program's code sets there by their camelCase segments (ADR 0099), so
+//! that a key outside its scope, a misspelled one or a wrong value fails to
+//! compile, and the spelling the hand-written walker sends each segment
+//! with.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -25,44 +27,66 @@ pub(super) const SETTINGS: &str = "settings";
 /// generated settings module declares.
 pub(super) const SETTINGS_ON_WIRE: &str = "settingsOnWire";
 
-/// The hand-written module that walks a scope's settings onto the wire.
-const SETTINGS_MODULE: &str = "../settings.ts";
+/// Where Collie's client package's generated settings module takes the
+/// hand-written walker of a scope's settings onto the wire from.
+const COLLIE_WALKER: &str = "../settings.ts";
 
-/// The scopes a program's code opens with its own `settings`, outermost
-/// first.
-const SCOPES: [SettingScope; 4] = [
-    SettingScope::Connection,
-    SettingScope::Run,
-    SettingScope::Session,
-    SettingScope::Page,
-];
+/// Where Foxhound's package's generated settings module takes it from: the
+/// client package's runtime.
+const FOXHOUND_WALKER: &str = "@goodfetch/collie-client/runtime";
 
-/// The type `scope`'s option takes.
-fn type_name(scope: SettingScope) -> &'static str {
-    match scope {
-        SettingScope::Connection => "Settings",
-        SettingScope::Run => "RunSettings",
-        SettingScope::Session => "SessionSettings",
-        SettingScope::Page => "PageSettings",
-    }
+/// A scope's settings type: the scope, its type's name and its `TSDoc`.
+struct ScopeType {
+    scope: SettingScope,
+    name: &'static str,
+    doc: &'static str,
 }
 
-/// What each scope's option is for, its type's `TSDoc`.
-fn scope_doc(scope: SettingScope) -> &'static str {
-    match scope {
-        SettingScope::Connection => {
-            "The settings `connect()` takes, which every Run it starts inherits (ADR 0083)."
-        }
-        SettingScope::Run => {
-            "The settings starting a Run takes, which its Sessions and pages inherit (ADR 0083)."
-        }
-        SettingScope::Session => {
-            "The settings opening a Session takes, over its Run's, which its pages inherit (ADR 0083)."
-        }
-        SettingScope::Page => {
-            "The settings opening a page takes, over its Session's and its Run's (ADR 0083)."
-        }
-    }
+/// The scopes a Collie program's code opens with its own `settings`,
+/// outermost first, which Collie's client package types.
+const COLLIE_SCOPES: [ScopeType; 4] = [
+    ScopeType {
+        scope: SettingScope::Connection,
+        name: "Settings",
+        doc: "The settings `connect()` takes, which every Run it starts inherits (ADR 0083).",
+    },
+    ScopeType {
+        scope: SettingScope::Run,
+        name: "RunSettings",
+        doc: "The settings starting a Run takes, which its Sessions and pages inherit (ADR 0083).",
+    },
+    ScopeType {
+        scope: SettingScope::Session,
+        name: "SessionSettings",
+        doc: "The settings opening a Session takes, over its Run's, which its pages inherit (ADR 0083).",
+    },
+    ScopeType {
+        scope: SettingScope::Page,
+        name: "PageSettings",
+        doc: "The settings opening a page takes, over its Session's and its Run's (ADR 0083).",
+    },
+];
+
+/// The scopes a crawl opens with its own `settings`, outermost first,
+/// which Foxhound's package types: its Run's, Collie's and Foxhound's
+/// keys, and each Label's (ADR 0093).
+const FOXHOUND_SCOPES: [ScopeType; 2] = [
+    ScopeType {
+        scope: SettingScope::Run,
+        name: "CrawlSettings",
+        doc: "The settings starting a crawl takes, Collie's and Foxhound's, which its Labels and requests inherit (ADRs 0083 and 0093).",
+    },
+    ScopeType {
+        scope: SettingScope::Label,
+        name: "LabelSettings",
+        doc: "The settings a crawl's Label takes, over its Run's, which its requests inherit (ADR 0093); a Label is refused every other key.",
+    },
+];
+
+/// The names of the settings types Foxhound's package generates, which its
+/// generated index exports.
+pub(super) fn foxhound_types() -> Vec<&'static str> {
+    FOXHOUND_SCOPES.iter().map(|scope| scope.name).collect()
 }
 
 /// The JSON Schema keywords a setting's value schema may carry that type
@@ -147,16 +171,31 @@ fn spelled<'a, 'b>(
 /// The settings module of Collie's client package: each scope's type, and
 /// `settingsOnWire`, which sends a scope's settings by their wire spelling.
 pub(super) fn settings_module(settings: &[Setting]) -> Result<String> {
+    module(settings, &COLLIE_SCOPES, COLLIE_WALKER)
+}
+
+/// The settings module of Foxhound's package: a crawl's and a Label's
+/// types, and `settingsOnWire`, which sends either by its wire spelling.
+pub(super) fn foxhound_settings_module(settings: &[Setting]) -> Result<String> {
+    module(settings, &FOXHOUND_SCOPES, FOXHOUND_WALKER)
+}
+
+/// A settings module: each of `scopes`' types, and `settingsOnWire`, which
+/// takes the outermost's, with the walker imported from `walker`.
+fn module(settings: &[Setting], scopes: &[ScopeType], walker: &str) -> Result<String> {
+    let outermost = scopes
+        .first()
+        .context("a settings module types one scope at least")?
+        .name;
     let mut text = format!(
-        "{HEADER}\nimport {{ onWire, type SettingsOnWire, type Spelling }} from \"{SETTINGS_MODULE}\";\n"
+        "{HEADER}\nimport {{ onWire, type SettingsOnWire, type Spelling }} from \"{walker}\";\n"
     );
-    for scope in SCOPES {
-        let level = tree(settings, Some(scope))?;
+    for scope in scopes {
+        let level = tree(settings, Some(scope.scope))?;
         let _ = write!(
             text,
             "\n/**\n * {}\n *\n * A key left out inherits, `null` clears a setting that can be cleared,\n * and a value sets it; the program needs `exactOptionalPropertyTypes`, so\n * that `undefined` is never a value.\n */\nexport interface {} ",
-            scope_doc(scope),
-            type_name(scope)
+            scope.doc, scope.name
         );
         text.push_str(&area_type(&level, "")?);
         text.push('\n');
@@ -167,18 +206,19 @@ pub(super) fn settings_module(settings: &[Setting]) -> Result<String> {
         "\n/** Each segment's wire spelling, by its camelCase one. */\nconst SPELLING: Spelling = {};\n",
         spelling(&every, "")?
     );
-    text.push_str(
-        "\n/** @internal A scope's `settings` as the wire takes them; `undefined` when left out. */\nexport function settingsOnWire(settings: Settings | undefined): SettingsOnWire | undefined {\n  return onWire(settings, SPELLING);\n}\n",
+    let _ = write!(
+        text,
+        "\n/** @internal A scope's `settings` as the wire takes them; `undefined` when left out. */\nexport function settingsOnWire(settings: {outermost} | undefined): SettingsOnWire | undefined {{\n  return onWire(settings, SPELLING);\n}}\n",
     );
     Ok(text)
 }
 
 /// The type name of the settings `opened`'s option takes.
 pub(super) fn scope_type(opened: &str) -> Result<&'static str> {
-    SCOPES
-        .into_iter()
-        .find(|scope| scope.as_str() == opened)
-        .map(type_name)
+    COLLIE_SCOPES
+        .iter()
+        .find(|scope| scope.scope.as_str() == opened)
+        .map(|scope| scope.name)
         .with_context(|| format!("`{opened}` opens no scope that takes settings"))
 }
 

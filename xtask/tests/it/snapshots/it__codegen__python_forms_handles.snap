@@ -46,16 +46,16 @@ class AsyncPageKeyboard:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
 
-    @deprecated("Since 0.1: A fixture entry, which no program should call.", category=None)
+    @deprecated("Since 0.1, removed no earlier than 1.0: A fixture entry, which no program should call.", category=None)
     async def press(self, key: str) -> models.Acted:
         """Presses a key on the page.
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
-        Deprecated since 0.1: A fixture entry, which no program should call.
+        Deprecated. Since 0.1, removed no earlier than 1.0: A fixture entry, which no program should call.
         """
         warn_experimental("page.keyboard.press")
-        warn_deprecated("page.keyboard.press", "Since 0.1: A fixture entry, which no program should call.")
+        warn_deprecated("page.keyboard.press", "Since 0.1, removed no earlier than 1.0: A fixture entry, which no program should call.")
         return result_of(models.Acted, await self._host.call("page.keyboard.press", models.KeyboardPressParams(page_id=self._host.id, key=models.Key(key))))
 
 
@@ -162,16 +162,16 @@ class PageKeyboard:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
 
-    @deprecated("Since 0.1: A fixture entry, which no program should call.", category=None)
+    @deprecated("Since 0.1, removed no earlier than 1.0: A fixture entry, which no program should call.", category=None)
     def press(self, key: str) -> models.Acted:
         """Presses a key on the page.
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
-        Deprecated since 0.1: A fixture entry, which no program should call.
+        Deprecated. Since 0.1, removed no earlier than 1.0: A fixture entry, which no program should call.
         """
         warn_experimental("page.keyboard.press")
-        warn_deprecated("page.keyboard.press", "Since 0.1: A fixture entry, which no program should call.")
+        warn_deprecated("page.keyboard.press", "Since 0.1, removed no earlier than 1.0: A fixture entry, which no program should call.")
         return result_of(models.Acted, self._host.call("page.keyboard.press", models.KeyboardPressParams(page_id=self._host.id, key=models.Key(key))))
 
 

@@ -22,7 +22,7 @@ pub use journal::{Report, TABLES};
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::audit::Actor;
 use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
@@ -32,7 +32,7 @@ use goodfetch_protocol::effect::{
     EffectOpenParams, EffectOpened, EffectOutcome, KEY_MAX_CODE_POINTS, UncertainReason,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::run::{PointInTime, RUN_NOT_FOUND, RunDetails, RunId, UncertainEffect};
+use goodfetch_protocol::run::{RUN_NOT_FOUND, RunDetails, RunId, UncertainEffect};
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, MutexGuard, Notify};
 
@@ -95,7 +95,7 @@ struct Body {
     key: String,
     repeatable: bool,
     /// The first command sent for it, and when, once one was.
-    sent: Option<(String, PointInTime)>,
+    sent: Option<(String, SystemTime)>,
     owner: Owner,
 }
 
@@ -342,9 +342,10 @@ impl Effects {
                 let performed_at = run.point_in_time();
                 let output =
                     output.map(|output| run.secrets().mask().masks().json(&output, Scope::Kept));
-                let at = performed_at.as_str().to_owned();
                 run.state()
-                    .write(move |connection| done(connection, number, output.as_deref(), &at))
+                    .write(move |connection| {
+                        done(connection, number, output.as_deref(), performed_at)
+                    })
                     .await
                     .map(|()| EffectClosed::Done { performed_at })
                     .map_err(|error| unwritten(&run, &error, context))
@@ -424,14 +425,14 @@ impl Effects {
         }
         let since = run.point_in_time();
         let entries: Vec<i64> = marked.iter().map(|&at| book.bodies[at].entry).collect();
-        let (first_command, at) = (command.to_owned(), since.as_str().to_owned());
+        let first_command = command.to_owned();
         run.state()
             .write_with(Syncing::Sent, move |connection| {
-                mark_sent(connection, &entries, &first_command, &at)
+                mark_sent(connection, &entries, &first_command, since)
             })
             .await?;
         for at in marked {
-            book.bodies[at].sent = Some((command.to_owned(), since.clone()));
+            book.bodies[at].sent = Some((command.to_owned(), since));
         }
         Ok(())
     }
@@ -459,11 +460,11 @@ impl Effects {
             return Ok(Reconciled::NotUncertain);
         }
         let by = context.person();
-        let at = run.point_in_time().as_str().to_owned();
+        let at = run.point_in_time();
         let answered = {
             let by = by.clone();
             run.state()
-                .write(move |connection| answer_about(connection, number, answer, &by, &at))
+                .write(move |connection| answer_about(connection, number, answer, &by, at))
                 .await
                 .map_err(|error| unwritten(run, &error, context))?
         };
@@ -667,7 +668,7 @@ fn journal_answer(declared: Declared, key: &str) -> Result<EffectOpened, CallErr
             .transpose()
             .map(|output| EffectOpened::Journal {
                 output,
-                performed_at: PointInTime::from_rfc3339(performed_at),
+                performed_at,
             })
             .map_err(|error| {
                 CallError::protocol(
@@ -677,7 +678,7 @@ fn journal_answer(declared: Declared, key: &str) -> Result<EffectOpened, CallErr
             }),
         Declared::Reconciled { by, at } => Ok(EffectOpened::Reconciled {
             reconciled_by: by,
-            reconciled_at: PointInTime::from_rfc3339(at),
+            reconciled_at: at,
         }),
         Declared::Uncertain(effect) => Err(uncertain(&effect)),
         Declared::Refused(refused) => Err(refusal(refused)),
@@ -724,7 +725,9 @@ async fn closed_before(
         .map_err(|error| unwritten(run, &error, context))?;
     match found {
         Some(row) if row.state == "done" => Ok(EffectClosed::Done {
-            performed_at: PointInTime::from_rfc3339(row.performed_at.unwrap_or_default()),
+            performed_at: row
+                .performed_at
+                .expect("invariant: the journal's CHECK keeps a done entry's time"),
         }),
         Some(row) if row.state == "uncertain" => Ok(EffectClosed::Uncertain {
             effect: row.uncertain(),

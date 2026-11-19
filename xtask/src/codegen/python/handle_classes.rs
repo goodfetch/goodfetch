@@ -59,6 +59,10 @@ const HANDLE_MODULE: &str = "goodfetch_collie_client.handle";
 /// call on its value (ADR 0099).
 const RAW_CALL_MODULE: &str = "goodfetch_collie_client.raw_call";
 
+/// The markers module's function a listener warns of its event's markers
+/// with, read from the events module's registries.
+const WARN_ENTRY: &str = "warn_entry";
+
 /// A call's own optional parameter that bounds it (ADR 0080).
 const TIMEOUT: &str = "timeout";
 
@@ -118,7 +122,8 @@ struct Imports {
     /// Whether it names pydantic's `BaseModel`, as a listener's map of
     /// payloads does.
     base_model: bool,
-    /// The functions of the markers module its members call.
+    /// The functions of the markers module its members call: a listener's
+    /// `warn_entry` reads the events' markers besides.
     markers: BTreeSet<&'static str>,
     /// The names it imports from the handle module besides the hosts: the
     /// `not_given` sentinel when a member takes an optional parameter, and
@@ -723,8 +728,15 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
             "from {SETTINGS_ON_WIRE_MODULE} import {SETTINGS_ON_WIRE}"
         );
     }
+    let events = imports.markers.contains(WARN_ENTRY);
+    if imports.models || events || !imports.settings.is_empty() {
+        text.push('\n');
+    }
     if imports.models {
-        text.push_str("\nfrom . import models\n");
+        text.push_str("from . import models\n");
+    }
+    if events {
+        text.push_str("from .events import DEPRECATED_EVENTS, EXPERIMENTAL_EVENTS\n");
     }
     if !imports.settings.is_empty() {
         let types: Vec<&str> = imports.settings.iter().copied().collect();

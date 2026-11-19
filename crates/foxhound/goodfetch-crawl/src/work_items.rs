@@ -23,6 +23,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, LazyLock, OnceLock};
+use std::time::SystemTime;
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_dataset::{Checked, Committing};
@@ -46,7 +47,6 @@ use goodfetch_protocol::foxhound::provenance::{
 };
 use goodfetch_protocol::foxhound::report::SitemapReport;
 use goodfetch_protocol::page::read::{TransformProvenance, UnreadField};
-use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::{Map, Value};
 
@@ -1333,7 +1333,7 @@ pub(crate) struct Committed<'a> {
     pub(crate) fetched: &'a Fetched,
     pub(crate) fields: &'a FieldsRead,
     pub(crate) masks: &'a Masks,
-    pub(crate) ended_at: &'a PointInTime,
+    pub(crate) ended_at: &'a SystemTime,
     /// Each request the attempt staged that the commit did not add.
     pub(crate) not_added: &'a [NotAddedAtCommit],
     /// Where its Records' work is counted (F4, ADR 0140).
@@ -1440,7 +1440,7 @@ fn commit_records(
     (records, fetched, fields): (&Checked, &Fetched, &FieldsRead),
     masks: &Masks,
     clean_up_rules: &CleanUpRules,
-    ended_at: &PointInTime,
+    ended_at: &SystemTime,
     work: &CountedWork,
 ) -> rusqlite::Result<Vec<DatasetRecords>> {
     let url = url_of(connection, id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
@@ -1479,7 +1479,7 @@ pub(crate) fn end(
     id: &str,
     lease_epoch: u64,
     unsuccessful: Unsuccessful,
-    ended_at: &PointInTime,
+    ended_at: &SystemTime,
     changed: &mut Changed,
 ) -> rusqlite::Result<bool> {
     if !still_leased(connection, id, lease_epoch)? {
@@ -1534,7 +1534,7 @@ pub(crate) fn end(
 pub(crate) fn end_merged(
     connection: &Connection,
     ids: &BTreeSet<String>,
-    ended_at: &PointInTime,
+    ended_at: &SystemTime,
     changed: &mut Changed,
 ) -> rusqlite::Result<Vec<(String, String, Option<String>)>> {
     let mut members = Vec::with_capacity(ids.len());
@@ -1630,7 +1630,7 @@ fn keep_error(
 fn write_outcome(
     connection: &Connection,
     id: &str,
-    ended_at: &PointInTime,
+    ended_at: &SystemTime,
     ending: Ending,
     changed: &mut Changed,
 ) -> rusqlite::Result<()> {
@@ -1688,7 +1688,7 @@ fn write_outcome(
         },
         attempts,
         errors,
-        ended_at: ended_at.clone(),
+        ended_at: *ended_at,
         ending,
     };
     connection
@@ -2057,7 +2057,7 @@ pub(crate) fn recover_leases(
     connection: &Connection,
     failure: &Failure,
     retry_max: u32,
-    ended_at: &PointInTime,
+    ended_at: &SystemTime,
     changed: &mut Changed,
 ) -> rusqlite::Result<()> {
     let lost = connection

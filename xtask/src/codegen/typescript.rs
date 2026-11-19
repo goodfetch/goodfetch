@@ -26,7 +26,9 @@ mod markers;
 mod settings;
 mod times;
 
-use markers::{CLIENT_RUNTIME, MARKERS_MODULE, markers_import, warnings};
+use markers::{
+    CLIENT_RUNTIME, ENTRY_MARKERS, MARKERS_MODULE, WARN_ENTRY, markers_import, warnings,
+};
 
 /// Where Foxhound's layer imports Collie's generated layer from.
 const CLIENT_PACKAGE: &str = "@goodfetch/collie-client/generated";
@@ -76,11 +78,15 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
     if !handles.is_empty() {
         files.push(("handles.ts", handle_classes(layer, &handles)?));
     }
-    // Collie's client package types each scope's `settings` (ADR 0083),
-    // which Foxhound's package takes from it.
-    if layer.product == Product::Collie {
-        files.push(("settings.ts", settings::settings_module(&layer.settings)?));
-    }
+    // Collie's client package types each scope's `settings` (ADR 0083);
+    // Foxhound's types a crawl's and a Label's (ADR 0093).
+    files.push((
+        "settings.ts",
+        match layer.product {
+            Product::Collie => settings::settings_module(&layer.settings)?,
+            Product::Foxhound => settings::foxhound_settings_module(&layer.settings)?,
+        },
+    ));
     Ok(Generated {
         files,
         types: TypesFile {
@@ -189,8 +195,15 @@ fn index(layer: &Layer, handles: &[Handle<'_>]) -> String {
     if !handles.is_empty() {
         text.push_str("export * from \"./handles.ts\";\n");
     }
-    if layer.product == Product::Collie {
-        text.push_str("export type { PageSettings, RunSettings, SessionSettings, Settings } from \"./settings.ts\";\n");
+    match layer.product {
+        Product::Collie => text.push_str("export type { PageSettings, RunSettings, SessionSettings, Settings } from \"./settings.ts\";\n"),
+        Product::Foxhound => {
+            let _ = writeln!(
+                text,
+                "export type {{ {} }} from \"./settings.ts\";",
+                settings::foxhound_types().join(", ")
+            );
+        }
     }
     text
 }
@@ -304,7 +317,11 @@ fn operations(layer: &Layer) -> String {
                 text,
                 "import type {{ CallOptions, Caller }} from \"{CALLER_MODULE}\";"
             );
-            text.push_str(&markers_import(&layer.operations, MARKERS_MODULE));
+            text.push_str(&markers_import(
+                &layer.operations,
+                MARKERS_MODULE,
+                &[ENTRY_MARKERS],
+            ));
             text.push_str(&type_imports(layer, &types));
             let _ = writeln!(
                 text,
@@ -316,7 +333,11 @@ fn operations(layer: &Layer) -> String {
                 text,
                 "import type {{ CallOptions, Caller }} from \"{CLIENT_PACKAGE}\";"
             );
-            text.push_str(&markers_import(&layer.operations, CLIENT_RUNTIME));
+            text.push_str(&markers_import(
+                &layer.operations,
+                CLIENT_RUNTIME,
+                &[ENTRY_MARKERS],
+            ));
             text.push_str(&type_imports(layer, &types));
         }
     }
@@ -333,7 +354,20 @@ fn operations(layer: &Layer) -> String {
     }
     let _ = write!(
         text,
-        "}}\n\n/** {product}'s operations, each an async method. */\nexport class {product}Operations {{\n  readonly #caller: Caller<{product}OperationTypes>;\n\n  constructor(caller: Caller<{product}OperationTypes>) {{\n    this.#caller = caller;\n  }}\n"
+        "}}\n\n/** The registry of {product}'s operations, with their markers, which a hand-written member serving one warns of through `warnEntry` (ADR 0099). */\nexport const {}Operations: Readonly<Record<keyof {product}OperationTypes, EntryMarkers>> = {{\n",
+        product.to_lowercase()
+    );
+    for operation in &layer.operations {
+        let _ = writeln!(
+            text,
+            "  {:?}: {},",
+            operation.name,
+            entry_markers(operation.stability, operation.deprecated.as_ref())
+        );
+    }
+    let _ = write!(
+        text,
+        "}};\n\n/** {product}'s operations, each an async method. */\nexport class {product}Operations {{\n  readonly #caller: Caller<{product}OperationTypes>;\n\n  constructor(caller: Caller<{product}OperationTypes>) {{\n    this.#caller = caller;\n  }}\n"
     );
     for operation in &layer.operations {
         text.push('\n');
@@ -364,6 +398,18 @@ fn operations(layer: &Layer) -> String {
     text
 }
 
+/// An entry's `EntryMarkers` in a generated registry.
+fn entry_markers(stability: Stability, deprecated: Option<&Deprecation>) -> String {
+    let deprecated = deprecated.map_or_else(
+        || "undefined".to_owned(),
+        |deprecated| format!("{:?}", deprecated.message()),
+    );
+    format!(
+        "{{ experimental: {}, deprecated: {deprecated} }}",
+        stability == Stability::Experimental
+    )
+}
+
 fn events(layer: &Layer) -> String {
     let product = layer.product.name();
     let lower = product.to_lowercase();
@@ -375,16 +421,11 @@ fn events(layer: &Layer) -> String {
     let mut text = format!("{HEADER}\n");
     match layer.product {
         Product::Collie => {
+            text.push_str(&markers_import([], MARKERS_MODULE, &[ENTRY_MARKERS]));
             text.push_str(&type_imports(layer, &types));
-            text.push_str(
-                "\n/** An event's markers. */\nexport interface EventMarkers {\n  readonly experimental: boolean;\n  readonly deprecated: string | undefined;\n}\n",
-            );
         }
         Product::Foxhound => {
-            let _ = writeln!(
-                text,
-                "import type {{ EventMarkers }} from \"{CLIENT_PACKAGE}\";"
-            );
+            text.push_str(&markers_import([], CLIENT_RUNTIME, &[ENTRY_MARKERS]));
             text.push_str(&type_imports(layer, &types));
         }
     }
@@ -403,18 +444,14 @@ fn events(layer: &Layer) -> String {
     }
     let _ = write!(
         text,
-        "}}\n\n/** The registry of {product}'s events, with their markers. */\nexport const {lower}Events: Readonly<Record<keyof {product}EventPayloads, EventMarkers>> = {{\n"
+        "}}\n\n/** The registry of {product}'s events, with their markers. */\nexport const {lower}Events: Readonly<Record<keyof {product}EventPayloads, EntryMarkers>> = {{\n"
     );
     for event in &layer.events {
-        let deprecated = event.deprecated.as_ref().map_or_else(
-            || "undefined".to_owned(),
-            |deprecated| format!("{:?}", deprecated.message()),
-        );
         let _ = writeln!(
             text,
-            "  {:?}: {{ experimental: {}, deprecated: {deprecated} }},",
+            "  {:?}: {},",
             event.name,
-            event.stability == Stability::Experimental,
+            entry_markers(event.stability, event.deprecated.as_ref())
         );
     }
     text.push_str("};\n");
@@ -727,8 +764,9 @@ fn member(member: &Member<'_>, id: &HandleId) -> Result<String> {
 }
 
 /// The handles module's header and imports: the field values' types only
-/// when a member's result is typed by the fields it declares (ADR 0147).
-fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> Result<String> {
+/// when a member's result is typed by the fields it declares (ADR 0147),
+/// and the `events` registry only when a handle listens.
+fn handles_imports(handles: &[Handle<'_>], operation_types: &str, events: &str) -> Result<String> {
     let typed = handles.iter().any(|handle| {
         handle
             .members
@@ -753,6 +791,9 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> Result<Stri
     } else {
         String::new()
     };
+    let listens = handles
+        .iter()
+        .any(|handle| handle.listener.is_some() || handle.published_listener.is_some());
     let markers = markers_import(
         handles.iter().flat_map(|handle| {
             handle
@@ -769,18 +810,19 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> Result<Stri
                 )
         }),
         MARKERS_MODULE,
+        if listens { &[WARN_ENTRY] } else { &[] },
     );
-    let listens = if handles
-        .iter()
-        .any(|handle| handle.listener.is_some() || handle.published_listener.is_some())
-    {
-        ", type Listener, type Subscription"
+    let (listener_types, registry) = if listens {
+        (
+            ", type Listener, type Subscription",
+            format!("import {{ {events} }} from \"./events.ts\";\n"),
+        )
     } else {
-        ""
+        ("", String::new())
     };
     let settings = settings::handles_import(handles)?;
     Ok(format!(
-        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost{listens} }} from \"{HANDLE_MODULE}\";\n{markers}import {{ Handle }} from \"{RAW_CALL_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\n{settings}import type * as types from \"./types.ts\";\n"
+        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost{listener_types} }} from \"{HANDLE_MODULE}\";\n{markers}import {{ Handle }} from \"{RAW_CALL_MODULE}\";\n{registry}import type {{ {operation_types} }} from \"./operations.ts\";\n{settings}import type * as types from \"./types.ts\";\n"
     ))
 }
 
@@ -809,7 +851,8 @@ fn sub_object_classes(class: &str, host: &str, handle: &Handle<'_>) -> Result<St
 /// values it builds without a call and its sub-objects.
 fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
     let operation_types = format!("{}OperationTypes", layer.product.name());
-    let mut text = handles_imports(handles, &operation_types)?;
+    let events = format!("{}Events", layer.product.name().to_lowercase());
+    let mut text = handles_imports(handles, &operation_types, &events)?;
     for handle in handles {
         let class = pascal(handle.namespace);
         let host = format!(
@@ -822,7 +865,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
         } else {
             ""
         };
-        let (listened, on) = listeners::emit(&class, handle, &host);
+        let (listened, on) = listeners::emit(&class, handle, &host, &events);
         text.push_str(&listened);
         let id_type = format!("types.{}", handle.id.type_name);
         let _ = write!(

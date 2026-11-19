@@ -23,7 +23,7 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn new_page(&self) -> crate::Call<Page, ::goodfetch_protocol::forms::NewPageParams> {
         let host = self.host.clone();
         let call: crate::Call<
@@ -53,12 +53,15 @@ impl PageKeyboard {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
-    /// Deprecated since 0.1: A fixture entry, which no program should call.
+    /// Deprecated. Since 0.1, removed no earlier than 1.0: A fixture entry, which no program should call.
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
-    #[deprecated(since = "0.1", note = "A fixture entry, which no program should call.")]
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    #[deprecated(
+        since = "0.1",
+        note = "Since 0.1, removed no earlier than 1.0: A fixture entry, which no program should call."
+    )]
     pub fn press(
         &self,
         key: ::goodfetch_protocol::forms::Key,
@@ -69,7 +72,9 @@ impl PageKeyboard {
         crate::markers::warn(
             "page.keyboard.press",
             true,
-            Some("Since 0.1: A fixture entry, which no program should call."),
+            Some(
+                "Since 0.1, removed no earlier than 1.0: A fixture entry, which no program should call.",
+            ),
         );
         self.host.call(
             "page.keyboard.press",
@@ -106,7 +111,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn close(&self) -> crate::Call<(), ::goodfetch_protocol::forms::PageParams> {
         self.host.close(
             "page.close",
@@ -120,7 +125,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn goto(
         &self,
         url: impl Into<String>,
@@ -146,7 +151,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, and [`crate::Error::Shape`] when its answer does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, and `internal` when its answer does not fit its type.
     pub fn is_ready(&self) -> crate::Query<bool, ::goodfetch_protocol::forms::PageParams> {
         let query: crate::Query<
             ::goodfetch_protocol::forms::Readiness,
@@ -164,7 +169,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, and [`crate::Error::Shape`] when its answer does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, and `internal` when its answer does not fit its type.
     pub fn read(
         &self,
         fields: ::std::collections::BTreeMap<String, ::goodfetch_protocol::forms::PageField>,
@@ -183,7 +188,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_ready(
         &self,
     ) -> crate::Call<
@@ -234,7 +239,7 @@ impl Locator {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn click(
         &self,
     ) -> crate::Call<::goodfetch_protocol::forms::Acted, ::goodfetch_protocol::forms::ClickParams>

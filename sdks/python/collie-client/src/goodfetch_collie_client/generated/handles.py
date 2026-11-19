@@ -12,11 +12,12 @@ from pydantic import BaseModel
 
 from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost, AsyncListener, Listener, NotGiven, Subscription, not_given, timeout_of
-from goodfetch_collie_client.markers import warn_experimental
+from goodfetch_collie_client.markers import warn_entry, warn_experimental
 from goodfetch_collie_client.raw_call import AsyncHandle, Handle
 from goodfetch_collie_client.settings import settings_on_wire
 
 from . import models
+from .events import DEPRECATED_EVENTS, EXPERIMENTAL_EVENTS
 from .settings import PageSettings, SessionSettings
 
 
@@ -468,6 +469,7 @@ class AsyncPage(AsyncHandle):
         """
         warn_experimental("page.on")
         listened, payload = _PAGE_EVENTS[event]
+        warn_entry(f"page.{listened}", EXPERIMENTAL_EVENTS, DEPRECATED_EVENTS)
         return self._host.listen("page.on", models.PageOnParams(page_id=self._host.id, event=models.PageEventName(listened)), f"page.{listened}", payload, listener)
 
     def locator(self, selector: str) -> AsyncLocator:
@@ -1012,6 +1014,7 @@ class Page(Handle):
         """
         warn_experimental("page.on")
         listened, payload = _PAGE_EVENTS[event]
+        warn_entry(f"page.{listened}", EXPERIMENTAL_EVENTS, DEPRECATED_EVENTS)
         return self._host.listen("page.on", models.PageOnParams(page_id=self._host.id, event=models.PageEventName(listened)), f"page.{listened}", payload, listener)
 
     def locator(self, selector: str) -> Locator:

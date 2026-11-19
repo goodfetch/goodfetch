@@ -209,11 +209,7 @@ fn docstring(
         paragraphs.push(EXPERIMENTAL.to_owned());
     }
     if let Some(deprecated) = deprecated {
-        paragraphs.push(format!(
-            "Deprecated since {}: {}",
-            deprecated.since,
-            escape(&deprecated.note)
-        ));
+        paragraphs.push(format!("Deprecated. {}", escape(&deprecated.message())));
     }
     if let [one] = paragraphs.as_slice()
         && !one.contains('\n')
@@ -404,7 +400,7 @@ fn operations(layer: &Layer) -> String {
     let mut text = header(&format!(
         "{product}'s operations, each an async method and a sync one (ADR 0038)."
     ));
-    text.push('\n');
+    text.push_str("\nfrom collections.abc import Mapping\nfrom typing import Final\n\n");
     let returns = !layer.operations.is_empty();
     if deprecates {
         text.push_str("from typing_extensions import deprecated\n\n");
@@ -462,6 +458,47 @@ fn operations(layer: &Layer) -> String {
         text.push_str(&imports);
     }
     text.push_str(&body);
+    text.push_str(&registries(
+        "operations",
+        layer.operations.iter().map(|operation| {
+            (
+                operation.name.as_str(),
+                operation.stability,
+                operation.deprecated.as_ref(),
+            )
+        }),
+    ));
+    text
+}
+
+/// The registries of a section's markers, `EXPERIMENTAL_<SECTION>` and
+/// `DEPRECATED_<SECTION>`, which a hand-written member serving an entry, or
+/// a listener of an event, warns of through `warn_entry` (ADR 0099).
+fn registries<'a>(
+    section: &str,
+    entries: impl Iterator<Item = (&'a str, Stability, Option<&'a Deprecation>)> + Clone,
+) -> String {
+    let upper = section.to_uppercase();
+    let mut text = format!("\nEXPERIMENTAL_{upper}: Final[frozenset[str]] = frozenset({{\n");
+    for (name, stability, _) in entries.clone() {
+        if stability == Stability::Experimental {
+            let _ = writeln!(text, "    {name:?},");
+        }
+    }
+    let _ = write!(
+        text,
+        "}})\n\"\"\"The {section} outside semver until they are promoted (ADR 0030).\"\"\"\n\nDEPRECATED_{upper}: Final[Mapping[str, str]] = {{\n"
+    );
+    for (name, _, deprecated) in entries {
+        if let Some(deprecated) = deprecated {
+            let _ = writeln!(text, "    {name:?}: {:?},", deprecated.message());
+        }
+    }
+    let singular = section.trim_end_matches('s');
+    let _ = writeln!(
+        text,
+        "}}\n\"\"\"Each deprecated {singular}, with its deprecation's one text.\"\"\""
+    );
     text
 }
 
@@ -498,22 +535,16 @@ fn events(layer: &Layer) -> String {
         }
         text.push_str("\"\"\"\n");
     }
-    text.push_str("\nEXPERIMENTAL_EVENTS: Final[frozenset[str]] = frozenset({\n");
-    for event in &layer.events {
-        if event.stability == Stability::Experimental {
-            let _ = writeln!(text, "    {:?},", event.name);
-        }
-    }
-    text.push_str(
-        "})\n\"\"\"The events outside semver until they are promoted (ADR 0030).\"\"\"\n",
-    );
-    text.push_str("\nDEPRECATED_EVENTS: Final[Mapping[str, str]] = {\n");
-    for event in &layer.events {
-        if let Some(deprecated) = &event.deprecated {
-            let _ = writeln!(text, "    {:?}: {:?},", event.name, deprecated.message());
-        }
-    }
-    text.push_str("}\n\"\"\"Each deprecated event, with its deprecation.\"\"\"\n");
+    text.push_str(&registries(
+        "events",
+        layer.events.iter().map(|event| {
+            (
+                event.name.as_str(),
+                event.stability,
+                event.deprecated.as_ref(),
+            )
+        }),
+    ));
     text
 }
 

@@ -31,6 +31,40 @@ operations.sample_echo(SampleEchoParams(text="two"))
 """
 
 
+HAND_WRITTEN_TWICE = """
+from goodfetch_collie_client.generated.operations import (
+    DEPRECATED_OPERATIONS,
+    EXPERIMENTAL_OPERATIONS,
+)
+from goodfetch_collie_client.markers import warn_entry
+
+
+def echo():
+    warn_entry("sample.echo", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+
+
+echo()
+echo()
+"""
+
+
+LISTENED_TWICE = """
+from goodfetch_collie_client.generated.handles import Page
+
+
+class Host:
+    id = "page-1"
+
+    def listen(self, operation, params, event, payload, listener):
+        return None
+
+
+page = Page(Host())
+page.on("console", print)
+page.on("console", print)
+"""
+
+
 def shown(program: str) -> list[str]:
     """The warning lines Python shows while `program` runs in its own process."""
     ran = subprocess.run(
@@ -52,5 +86,39 @@ def test_a_deprecated_experimental_member_warns_once_of_each_per_process() -> No
         "<string>:12: ExperimentalWarning: `sample.echo` is Experimental: "
         "outside semver until it is promoted (ADR 0030).",
         "<string>:12: DeprecationWarning: `sample.echo` is deprecated. "
-        "Since 0.1: A sample entry, which the real catalog replaces.",
+        "Since 0.1, removed no earlier than 1.0: A sample entry, which the real "
+        "catalog replaces.",
+    ]
+
+
+@pytest.mark.covers("story:11-184")
+def test_a_hand_written_member_warns_of_its_entry_markers_once_per_process() -> None:
+    """A hand-written member reads its entry's markers from the registries.
+
+    It warns once of each, at its caller's line, as a generated one does.
+    """
+    lines = shown(HAND_WRITTEN_TWICE)
+
+    assert lines == [
+        "<string>:13: ExperimentalWarning: `sample.echo` is Experimental: "
+        "outside semver until it is promoted (ADR 0030).",
+        "<string>:13: DeprecationWarning: `sample.echo` is deprecated. "
+        "Since 0.1, removed no earlier than 1.0: A sample entry, which the real "
+        "catalog replaces.",
+    ]
+
+
+@pytest.mark.covers("story:11-184")
+def test_a_listener_warns_of_its_events_markers_once_per_process() -> None:
+    """Listening twice to an Experimental event warns once, at the caller's line.
+
+    `page.on` itself is Experimental too, which its generated member warns of.
+    """
+    lines = shown(LISTENED_TWICE)
+
+    assert lines == [
+        "<string>:13: ExperimentalWarning: `page.on` is Experimental: "
+        "outside semver until it is promoted (ADR 0030).",
+        "<string>:13: ExperimentalWarning: `page.console` is Experimental: "
+        "outside semver until it is promoted (ADR 0030).",
     ]

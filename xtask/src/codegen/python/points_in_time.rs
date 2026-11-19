@@ -8,7 +8,7 @@ use anyhow::{Result, bail};
 use schemars::JsonSchema as _;
 use serde_json::{Map, Value};
 
-use goodfetch_protocol::run::PointInTime;
+use goodfetch_protocol::point_in_time::PointInTime;
 
 /// The client package's point in time, which `result_of` builds from the
 /// engine's text.

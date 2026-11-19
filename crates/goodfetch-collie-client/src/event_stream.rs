@@ -79,7 +79,7 @@ impl<T> fmt::Debug for EventStream<T> {
 impl<T: DeserializeOwned> EventStream<T> {
     /// Sends the call of `method` with `params`, which streams `event`
     /// among others, and returns its stream; `params` that are an error,
-    /// such as [`Error::Closed`] for a closed value, send nothing, and the
+    /// such as `closed` for a closed value, send nothing, and the
     /// stream hands that error once.
     pub(crate) fn open(
         sender: Sender,
@@ -122,10 +122,9 @@ impl<T: DeserializeOwned> EventStream<T> {
     ///
     /// # Errors
     ///
-    /// An item is [`Error::Shape`] when an event does not fit its type,
-    /// after which the stream goes on; [`Error::Closed`] when the value or
-    /// the Connection is closed, and [`Error::Failed`] with the engine's
-    /// error when the call fails, after which it ends.
+    /// An item is `internal` when an event does not fit its type, after
+    /// which the stream goes on; `closed` when the value or the Connection
+    /// is closed, and the engine's error when the call fails, after which it ends.
     ///
     /// # Cancel safety
     ///
@@ -148,7 +147,7 @@ impl<T: DeserializeOwned> EventStream<T> {
                 self.read_one();
                 if envelope.event == self.event {
                     return Poll::Ready(Some(
-                        serde_json::from_value(envelope.data).map_err(Error::Shape),
+                        serde_json::from_value(envelope.data).map_err(Error::shape),
                     ));
                 }
             }
@@ -210,7 +209,7 @@ impl<T: DeserializeOwned> EventStream<T> {
         match replied {
             Ok(Ok(_)) => Poll::Ready(None),
             Ok(Err(error)) => Poll::Ready(Some(Err(error))),
-            Err(_) => Poll::Ready(Some(Err(Error::Closed))),
+            Err(_) => Poll::Ready(Some(Err(Error::closed()))),
         }
     }
 

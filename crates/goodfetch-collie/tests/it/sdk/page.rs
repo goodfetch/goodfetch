@@ -10,8 +10,8 @@
 use std::collections::BTreeMap;
 
 use goodfetch_collie::{
-    Collie, Error, FieldLocator, FieldTransform, PageField, Response, UnreadField, UnreadReason,
-    ValueField, blocking,
+    Collie, Error, ErrorCode, FieldLocator, FieldTransform, PageField, Response, UnreadField,
+    UnreadReason, ValueField, blocking,
 };
 use goodfetch_protocol::page::route::UrlMatcher;
 use goodfetch_protocol::page::{FormatsRequest, MarkdownContent, MarkdownFormat, MarkdownOptions};
@@ -63,15 +63,12 @@ fn reaching(proving_ground: &ProvingGroundDescription) -> String {
     )
 }
 
-/// The Error code and the details of the engine's failure `result` is.
-fn failure<T: std::fmt::Debug>(result: Result<T, Error>) -> (String, BTreeMap<String, Value>) {
-    let Err(Error::Failed(failure)) = result else {
+/// The Error code of the engine's failure `result` is, and the failure.
+fn failure<T: std::fmt::Debug>(result: Result<T, Error>) -> (String, Error) {
+    let Err(failure) = result else {
         panic!("{result:?}");
     };
-    (
-        failure.data.code,
-        failure.data.details.into_iter().collect(),
-    )
+    (failure.code().to_string(), failure)
 }
 
 /// A value field of the element the CSS selector `selector` finds, read
@@ -312,7 +309,7 @@ fn page_read_answers_the_declared_fields_typed_through_blocking() {
 
 /// The `closed-page-raises-closed` client conformance case, linked: a
 /// closed page, and a Locator built on it before, refuse their calls with
-/// [`Error::Closed`] before sending them.
+/// `closed` before sending them.
 /// Covers: story:11-77, story:11-17
 #[test]
 fn a_closed_page_and_its_locators_refuse_their_calls_with_closed() {
@@ -332,8 +329,14 @@ fn a_closed_page_and_its_locators_refuse_their_calls_with_closed() {
         run.finish().await.unwrap();
         collie.close().await.unwrap();
 
-        assert!(matches!(navigation, Err(Error::Closed)), "{navigation:?}");
-        assert!(matches!(click, Err(Error::Closed)), "{click:?}");
+        assert!(
+            matches!(&navigation, Err(error) if error.code() == ErrorCode::CLOSED),
+            "{navigation:?}"
+        );
+        assert!(
+            matches!(&click, Err(error) if error.code() == ErrorCode::CLOSED),
+            "{click:?}"
+        );
     });
 }
 
@@ -399,7 +402,7 @@ fn text_honours_a_legacy_charset_and_json_ignores_a_bom() {
         assert_eq!(japanese.unwrap(), "日本語");
         assert_eq!(json.unwrap(), json!({ "bom": true }));
         assert!(
-            matches!(&not_json, Err(Error::ResponseNotJson { url, .. }) if *url == shift_jis),
+            matches!(&not_json, Err(error) if error.code() == ErrorCode::RESPONSE_NOT_JSON && error.url() == Some(shift_jis.as_str())),
             "{not_json:?}"
         );
     });
@@ -486,16 +489,13 @@ fn a_dropped_body_raises_body_unavailable_naming_the_waiter() {
 
         let left = page.goto(&first).await.unwrap().expect("a document");
         page.goto(&then).await.unwrap();
-        let (code, details) = failure(left.text().await);
+        let (code, error) = failure(left.text().await);
         run.finish().await.unwrap();
         collie.close().await.unwrap();
 
         assert_eq!(code, "body_unavailable");
-        let fix = details
-            .get("fix")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        assert!(fix.contains("wait_for_request_finished"), "{details:?}");
+        let fix = error.fix().unwrap_or_default();
+        assert!(fix.contains("wait_for_request_finished"), "{error:?}");
     });
 }
 

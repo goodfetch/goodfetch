@@ -3,6 +3,7 @@
     reason = "a test's own statements, on no Shared path (ADR 0140)"
 )]
 
+use goodfetch_protocol::point_in_time;
 use std::cell::RefCell;
 use std::path::Path;
 
@@ -120,7 +121,6 @@ fn a_commit_counts_each_records_work_and_a_commit_of_none_counts_nothing() {
     use goodfetch_protocol::foxhound::crawl::PushedRecord;
     use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
     use goodfetch_protocol::foxhound::provenance::RecordProvenance;
-    use goodfetch_protocol::run::PointInTime;
     use serde_json::json;
 
     let env = TestEnv::new();
@@ -141,7 +141,7 @@ fn a_commit_counts_each_records_work_and_a_commit_of_none_counts_nothing() {
         .collect();
     let checked = datasets.check(records, &work).unwrap();
     let (at, masks) = (
-        PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned()),
+        point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap(),
         Masks::new(),
     );
     let provenance = RecordProvenance {

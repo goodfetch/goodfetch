@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_clean_up_rules::rules::{FilterLists, ListTexts};
 use goodfetch_engine::clock::Clock;
@@ -59,7 +59,7 @@ fn the_sources_state_is_replaced_whole_through_a_partial_file_that_does_not_stay
 #[test]
 fn a_version_goes_stale_14_days_after_its_date_on_any_calendar() {
     let embedded = Version::embedded();
-    let published = embedded.manifest.published_at;
+    let published = jiff::Timestamp::try_from(embedded.manifest.published_at).unwrap();
     let stale_from = published + jiff::SignedDuration::from_hours(14 * 24);
     let second = jiff::SignedDuration::from_secs(1);
 
@@ -104,8 +104,8 @@ async fn expired_version(sources: &Sources, now: jiff::Timestamp) -> Version {
     let manifest = CleanUpRulesManifest {
         format_version: CLEAN_UP_RULES.version,
         source: RulesSource::Upstream,
-        published_at: now - jiff::SignedDuration::from_hours(48),
-        expires_at: Some(now - jiff::SignedDuration::from_hours(24)),
+        published_at: SystemTime::from(now - jiff::SignedDuration::from_hours(48)),
+        expires_at: Some(SystemTime::from(now - jiff::SignedDuration::from_hours(24))),
         lists: RulesLists {
             ads: "easylist.txt".to_owned(),
             trackers: "easyprivacy.txt".to_owned(),

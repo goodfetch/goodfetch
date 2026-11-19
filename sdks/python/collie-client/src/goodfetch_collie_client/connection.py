@@ -46,7 +46,11 @@ from goodfetch_collie_client.generated.models import (
     Surface,
     UsageSetParams,
 )
-from goodfetch_collie_client.generated.operations import AsyncCollieOperations
+from goodfetch_collie_client.generated.operations import (
+    DEPRECATED_OPERATIONS,
+    EXPERIMENTAL_OPERATIONS,
+    AsyncCollieOperations,
+)
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
 from goodfetch_collie_client.handle import NotGiven, not_given
 from goodfetch_collie_client.host_logging import (
@@ -56,6 +60,7 @@ from goodfetch_collie_client.host_logging import (
     log_level,
 )
 from goodfetch_collie_client.limits import Limits, limit_list
+from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.once import Once
 from goodfetch_collie_client.rpc import Channel, InvalidLine, ReadFailed, WriteFailed
 from goodfetch_collie_client.run import AsyncRun
@@ -240,6 +245,7 @@ class ClientConnection:
         of `goodfetch.engine` changed since the engine was last told, the
         start tells it first with `connection.set_log_level`.
         """
+        warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         self.ensure_open("run.start")
         fields: dict[str, object] = {}
         if run_id is not None:

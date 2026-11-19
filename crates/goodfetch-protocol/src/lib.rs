@@ -24,6 +24,8 @@ pub mod effect;
 pub mod egress;
 pub mod engine;
 pub mod entries;
+pub mod error_code;
+mod error_details;
 pub mod events;
 pub mod executables;
 pub mod formats;

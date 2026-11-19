@@ -158,9 +158,9 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> Call<T, P> {
     ///
     /// # Errors
     ///
-    /// [`Error::Closed`] once its handle or the Connection is closed,
-    /// [`Error::Failed`] with the engine's error, [`Error::TimedOut`] once
-    /// its timeout runs out, and [`Error::Shape`] when its reply does not
+    /// `closed` once its handle or the Connection is closed,
+    /// the engine's error, `deadline_exceeded` once
+    /// its timeout runs out, and `internal` when its reply does not
     /// fit `T`.
     pub fn send(self) -> Result<T, Error> {
         self.connection.wait(self.call.into_future())
@@ -203,8 +203,8 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> Query<T, P> {
     ///
     /// # Errors
     ///
-    /// [`Error::Closed`] once its handle or the Connection is closed,
-    /// [`Error::Failed`] with the engine's error, and [`Error::Shape`] when
+    /// `closed` once its handle or the Connection is closed,
+    /// the engine's error, and `internal` when
     /// its answer does not fit `T`.
     pub fn send(self) -> Result<T, Error> {
         self.connection.wait(self.query.into_future())
@@ -220,7 +220,7 @@ pub struct SaveFile<T> {
 }
 
 impl<T: DeserializeOwned + Send + 'static> SaveFile<T> {
-    /// Fails the save with [`Error::TimedOut`] if its reply has not come
+    /// Fails the save with `deadline_exceeded` if its reply has not come
     /// within `timeout`, the file it was writing removed.
     pub fn timeout(self, timeout: Duration) -> Self {
         Self {
@@ -290,7 +290,7 @@ impl Query<PageRead, PageReadParams> {
     ///
     /// # Errors
     ///
-    /// Once sent, [`Error::Shape`] when the values do not fit `T`, and
+    /// Once sent, `internal` when the values do not fit `T`, and
     /// the errors of the read.
     pub fn typed<T: DeserializeOwned + Send + 'static>(
         self,
@@ -395,7 +395,7 @@ impl Response {
     /// # Errors
     ///
     /// As [`crate::Response::json`]: `response_truncated` for a body that
-    /// broke off, and [`Error::ResponseNotJson`] for one that is not JSON.
+    /// broke off, and `response_not_json` for one that is not JSON.
     pub fn json<T: DeserializeOwned + Send + 'static>(&self) -> Result<T, Error> {
         self.inner.connection().wait(self.inner.json())
     }

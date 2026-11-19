@@ -135,7 +135,7 @@ impl LinkedConnection {
     ///
     /// # Errors
     ///
-    /// [`Error::Engine`] when the linked engine cannot start, with no
+    /// `engine_exited` when the linked engine cannot start, with no
     /// Goodfetch home among others, what `hello` fails with, and what
     /// `usage.set` fails with for a Limit the engine refuses, such as
     /// `not_in_product` for a Usage kind its Product does not count; the
@@ -205,13 +205,13 @@ impl LinkedConnection {
     /// Closes the connection for every clone: first every Run it started
     /// that still runs, then the linked engine, which checkpoints and
     /// stops; returns once it has stopped, or once `timeout.close` has run
-    /// out. Any later call fails with [`Error::Closed`]. Closing again
+    /// out. Any later call fails with `closed`. Closing again
     /// does nothing.
     ///
     /// # Errors
     ///
-    /// What closing a Run fails with, [`Error::Engine`] when the linked
-    /// engine failed, and [`Error::TimedOut`] when `timeout.close` ran out
+    /// What closing a Run fails with, `engine_exited` when the linked
+    /// engine failed, and `deadline_exceeded` when `timeout.close` ran out
     /// first, the engine then stopping on its own.
     ///
     /// # Cancel safety
@@ -230,7 +230,7 @@ impl LinkedConnection {
             let _entered = self.handle.enter();
             tokio::time::timeout(close_timeout(), closing)
         };
-        bounded.await.unwrap_or(Err(Error::TimedOut))
+        bounded.await.unwrap_or_else(|_| Err(Error::timed_out()))
     }
 
     /// Closes the connection as [`LinkedConnection::close`] does, blocking
@@ -335,9 +335,9 @@ fn production(
     environment: BTreeMap<OsString, OsString>,
 ) -> Result<(Runtime, Dependencies), Error> {
     let home = home(&environment).ok_or_else(|| {
-        Error::Engine("no Goodfetch home: set GOODFETCH_HOME, or a home folder the OS knows".into())
+        Error::engine_failed("no Goodfetch home: set GOODFETCH_HOME, or a home folder the OS knows")
     })?;
-    let entropy = Entropy::from_os().map_err(|error| Error::Engine(Box::new(error)))?;
+    let entropy = Entropy::from_os().map_err(Error::engine_failed)?;
     let settings = SettingsFiles::of(&home, &version()).machine_settings(product);
     // Built last, as nothing after it fails: dropping a runtime inside
     // another one panics.
@@ -372,7 +372,7 @@ fn wait<T: Send + 'static>(
     );
     tasks.close();
     // The task ends without sending only when the runtime shut down.
-    ended.recv().unwrap_or(Err(Error::Closed))
+    ended.recv().unwrap_or_else(|_| Err(Error::closed()))
 }
 
 /// A linked engine serving one Connection on its runtime.
@@ -395,8 +395,8 @@ impl LinkedEngine {
             product_version: version(),
             channel: Channel::CratesIo,
         };
-        let engine = Engine::new(identity, &(engine.composition)())
-            .map_err(|error| Error::Engine(Box::new(error)))?;
+        let engine =
+            Engine::new(identity, &(engine.composition)()).map_err(Error::engine_failed)?;
         let (network, dialer) = transport::in_memory();
         let tasks = TaskTracker::new();
         let failure = Arc::new(OnceLock::new());
@@ -423,11 +423,11 @@ impl LinkedEngine {
     ///
     /// # Errors
     ///
-    /// [`Error::Engine`] when the engine failed.
+    /// `engine_exited` when the engine failed.
     async fn stopped(&self) -> Result<(), Error> {
         self.tasks.wait().await;
         match self.failure.get() {
-            Some(failure) => Err(Error::Engine(Box::new(Arc::clone(failure)))),
+            Some(failure) => Err(Error::engine_failed(Arc::clone(failure))),
             None => Ok(()),
         }
     }

@@ -21,7 +21,7 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn abort(
         &self,
     ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunAbortParams>
@@ -42,7 +42,7 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn checkpoint(
         &self,
     ) -> crate::Call<
@@ -65,7 +65,7 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn discard(
         &self,
     ) -> crate::Call<::goodfetch_protocol::run::RunId, ::goodfetch_protocol::run::RunParams> {
@@ -88,7 +88,7 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn finish(
         &self,
     ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunFinishParams>
@@ -111,7 +111,7 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn migrate(
         &self,
     ) -> crate::Call<
@@ -134,7 +134,7 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn new_page(&self) -> crate::Call<Page, ::goodfetch_protocol::page::NewPageParams> {
         crate::markers::warn("run.new_page", true, None);
         let host = self.host.clone();
@@ -159,7 +159,7 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn new_session(
         &self,
     ) -> crate::Call<Session, ::goodfetch_protocol::page::session::NewSessionParams> {
@@ -187,7 +187,7 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn pause(
         &self,
     ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunParams>
@@ -207,7 +207,7 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn progress(
         &self,
     ) -> crate::Call<
@@ -230,7 +230,7 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn report(
         &self,
     ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunParams>
@@ -250,7 +250,7 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn set_progress_message(
         &self,
         message: ::goodfetch_protocol::run::ProgressMessage,
@@ -274,7 +274,7 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn stop(
         &self,
     ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunStopParams>
@@ -297,7 +297,7 @@ impl Run {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn usage(
         &self,
     ) -> crate::Call<::goodfetch_protocol::run::RunUsage, ::goodfetch_protocol::run::RunParams>
@@ -331,7 +331,7 @@ impl Session {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn close(&self) -> crate::Call<(), ::goodfetch_protocol::page::session::SessionParams> {
         crate::markers::warn("session.close", true, None);
         self.host.close(
@@ -348,7 +348,7 @@ impl Session {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn new_page(
         &self,
     ) -> crate::Call<Page, ::goodfetch_protocol::page::session::NewSessionPageParams> {
@@ -375,7 +375,7 @@ impl Session {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn pages(
         &self,
     ) -> crate::Call<
@@ -415,7 +415,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn close(
         &self,
     ) -> crate::Call<(), ::goodfetch_protocol::page::session_pages::PageCloseParams> {
@@ -435,7 +435,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn evaluate(
         &self,
         function: impl Into<String>,
@@ -465,7 +465,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn formats(
         &self,
         formats: ::goodfetch_protocol::page::FormatsRequest,
@@ -489,7 +489,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn go_back(
         &self,
     ) -> crate::Call<Option<crate::Response>, ::goodfetch_protocol::page::PageParams> {
@@ -517,7 +517,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn go_forward(
         &self,
     ) -> crate::Call<Option<crate::Response>, ::goodfetch_protocol::page::PageParams> {
@@ -545,7 +545,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn goto(
         &self,
         url: impl Into<String>,
@@ -577,7 +577,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, and [`crate::Error::Shape`] when its answer does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, and `internal` when its answer does not fit its type.
     pub fn read(
         &self,
         fields: ::std::collections::BTreeMap<String, ::goodfetch_protocol::page::read::PageField>,
@@ -601,7 +601,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn reload(
         &self,
     ) -> crate::Call<Option<crate::Response>, ::goodfetch_protocol::page::PageParams> {
@@ -629,7 +629,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn request(
         &self,
         url: impl Into<String>,
@@ -659,7 +659,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_function(
         &self,
         function: impl Into<String>,
@@ -691,7 +691,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_load_state(
         &self,
     ) -> crate::Call<
@@ -717,7 +717,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_request(
         &self,
     ) -> crate::Call<
@@ -743,7 +743,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_request_finished(
         &self,
     ) -> crate::Call<
@@ -773,7 +773,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_response(
         &self,
     ) -> crate::Call<crate::Exchange, ::goodfetch_protocol::page::waits::WaitForExchangeParams>
@@ -801,7 +801,7 @@ impl Page {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_url(
         &self,
         url: ::goodfetch_protocol::page::route::UrlMatcher,
@@ -858,7 +858,7 @@ impl Locator {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn click(
         &self,
     ) -> crate::Call<::goodfetch_protocol::page::Acted, ::goodfetch_protocol::page::ClickParams>
@@ -878,7 +878,7 @@ impl Locator {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn evaluate_all(
         &self,
         function: impl Into<String>,
@@ -908,7 +908,7 @@ impl Locator {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn fill(
         &self,
         value: impl Into<String>,
@@ -930,7 +930,7 @@ impl Locator {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn press(
         &self,
         key: impl Into<String>,
@@ -952,7 +952,7 @@ impl Locator {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for(
         &self,
     ) -> crate::Call<
@@ -978,7 +978,7 @@ impl Locator {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_count(
         &self,
         count: ::goodfetch_protocol::page::waits::Count,
@@ -1004,7 +1004,7 @@ impl Locator {
     ///
     /// # Errors
     ///
-    /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn wait_for_function(
         &self,
         function: impl Into<String>,

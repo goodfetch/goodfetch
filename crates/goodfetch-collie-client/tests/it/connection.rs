@@ -10,7 +10,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use goodfetch_collie_client::transport::{Dial, Endpoint, Link, Network};
-use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error};
+use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorCode};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -130,7 +130,10 @@ fn a_connection_says_hello_calls_and_closes_on_the_paused_runtime() {
         let after: Result<EngineInfo, Error> = connection
             .call(ENGINE_INFO.name, &EngineInfoParams::default())
             .await;
-        assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+        assert!(
+            matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+            "{after:?}"
+        );
     });
 }
 
@@ -337,7 +340,10 @@ fn a_call_past_its_timeout_fails_and_a_late_reply_to_it_changes_nothing() {
         };
         let ((expired, answered), ()) = tokio::join!(client, peer);
 
-        assert!(matches!(expired, Err(Error::TimedOut)), "{expired:?}");
+        assert!(
+            matches!(&expired, Err(error) if error.code() == ErrorCode::DEADLINE_EXCEEDED),
+            "{expired:?}"
+        );
         assert_eq!(answered.unwrap().product, Product::Collie);
     });
 }

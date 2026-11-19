@@ -195,17 +195,17 @@ describe("a Session's Access mode", () => {
       const { collie, played } = await collieOn("page/access-mode-refused.json");
       const run = await collie.start();
 
-      const item = await failure(run.newSession({ settings: { stealth: { human_input: true } } }));
+      const item = await failure(run.newSession({ settings: { stealth: { humanInput: true } } }));
       const beside = await failure(
         run.newSession({
           settings: {
-            browser: { access_mode: "standard" },
-            stealth: { fingerprint_method: "basic" },
+            browser: { accessMode: "standard" },
+            stealth: { fingerprintMethod: "basic" },
           },
         }),
       );
       const unbuilt = await failure(
-        run.newSession({ settings: { stealth: { fingerprint_method: "engine" } } }),
+        run.newSession({ settings: { stealth: { fingerprintMethod: "engine" } } }),
       );
 
       expect(item).toMatchObject({

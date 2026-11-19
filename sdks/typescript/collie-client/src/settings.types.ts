@@ -1,0 +1,43 @@
+// What a program can and cannot write in a scope's `settings` (ADR 0083):
+// `tsc` fails on a wrong one, as the package's typecheck runs it.
+import type { PageSettings, RunSettings, SessionSettings, Settings } from "./generated/settings.ts";
+import type { Run } from "./run.ts";
+
+declare const run: Run;
+
+// Each segment in camelCase, nested as the wire nests the dotted key.
+export const runSettings: RunSettings = {
+  timeout: { navigation: 30_000 },
+  filterLists: { firstPartyScripts: true },
+};
+export const sessionSettings: SessionSettings = { browser: { accessMode: "stealth" } };
+export const pageSettings: PageSettings = { content: { extractor: "trafilatura" } };
+// The connection's settings hold a Run's own timeout, as its Runs' default.
+export const connectionSettings: Settings = { timeout: { run: 60_000 } };
+// `null` clears a setting that can be cleared.
+export const cleared: SessionSettings = { proxy: { server: null } };
+
+// @ts-expect-error a Run's own timeout is its start's `timeout`, never its settings
+export const runTimeout: RunSettings = { timeout: { run: 60_000 } };
+// @ts-expect-error a Session's Access mode is chosen as it opens, never on its page
+export const pageAccessMode: PageSettings = { browser: { accessMode: "stealth" } };
+// @ts-expect-error a key the catalog does not have
+export const unknownKey: RunSettings = { timeout: { navigationDelay: 1 } };
+// @ts-expect-error the wire's snake_case is not the TypeScript spelling
+export const snake: RunSettings = { filterLists: { first_party_scripts: true } };
+// @ts-expect-error a value outside the setting's own
+export const wrongValue: SessionSettings = { browser: { accessMode: "fast" } };
+// @ts-expect-error `undefined` is never a value: leave the key out
+export const notAValue: RunSettings = { timeout: { navigation: undefined } };
+// @ts-expect-error `null` clears only a setting that can be cleared
+export const notClearable: RunSettings = { timeout: { navigation: null } };
+// @ts-expect-error configuration alone sets the proxy providers
+export const configurationOnly: RunSettings = { proxy: { providers: {} } };
+
+// Opening a Session or a page takes its own scope's settings.
+export async function opened(): Promise<void> {
+  const session = await run.newSession({ settings: { browser: { accessMode: "standard" } } });
+  await session.newPage({ settings: { content: { extractor: "dom_smoothie" } } });
+  // @ts-expect-error a Session's page takes no Access mode
+  await session.newPage({ settings: { browser: { accessMode: "standard" } } });
+}

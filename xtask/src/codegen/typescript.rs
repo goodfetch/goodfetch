@@ -20,6 +20,8 @@ use super::layer::{Deprecation, Layer, Stability};
 use super::naming::{camel, pascal};
 use super::{Generated, TypesFile};
 
+mod settings;
+
 /// Where Foxhound's layer imports Collie's generated layer from.
 const CLIENT_PACKAGE: &str = "@goodfetch/collie-client/generated";
 
@@ -70,6 +72,11 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
     }
     if !handles.is_empty() {
         files.push(("handles.ts", handle_classes(layer, &handles)));
+    }
+    // Collie's client package types each scope's `settings` (ADR 0083),
+    // which Foxhound's package takes from it.
+    if layer.product == Product::Collie {
+        files.push(("settings.ts", settings::settings_module(&layer.settings)?));
     }
     Ok(Generated {
         files,
@@ -179,6 +186,9 @@ fn index(layer: &Layer, handles: &[Handle<'_>]) -> String {
     }
     if !handles.is_empty() {
         text.push_str("export * from \"./handles.ts\";\n");
+    }
+    if layer.product == Product::Collie {
+        text.push_str("export type { PageSettings, RunSettings, SessionSettings, Settings } from \"./settings.ts\";\n");
     }
     text
 }
@@ -587,6 +597,13 @@ const FIELDS: &str = "Fields";
 /// A call's own optional parameter that bounds it (ADR 0080).
 const TIMEOUT: &str = "timeout";
 
+/// The optional parameter that holds a scope's own settings (ADR 0083).
+const SETTINGS: &str = "settings";
+
+/// What sends a scope's settings by their wire spelling, which the
+/// generated settings module declares.
+const SETTINGS_ON_WIRE: &str = "settingsOnWire";
+
 /// The hand-written function of [`HANDLE_MODULE`] that refuses a call's
 /// own `timeout` no deadline can be before it is sent (ADR 0080).
 const TIMEOUT_OF: &str = "timeoutOf";
@@ -663,7 +680,9 @@ fn positional_name(name: &str) -> String {
 /// are declared by, `typed`, which is the member's type parameter. A call's
 /// own `timeout` goes through `timeoutOf`, which refuses before sending a
 /// value no deadline can be, naming its setting, `timeout_setting`
-/// (ADR 0080).
+/// (ADR 0080). A scope's own `settings` take that scope's settings type,
+/// `settings_type`, and go through `settingsOnWire`, which sends them by
+/// their wire spelling (ADR 0083).
 fn signature(
     parameters: &Parameters,
     type_name: &str,
@@ -671,6 +690,7 @@ fn signature(
     id: &str,
     typed: Option<&str>,
     timeout_setting: Option<&str>,
+    settings_type: Option<&str>,
 ) -> (String, String) {
     let mut declared = Vec::new();
     let mut entries = vec![format!("{id}: this.#host.id")];
@@ -696,15 +716,23 @@ fn signature(
         entries.push(format!("{name}: options.{}", camel(name)));
     }
     for name in &parameters.optional {
-        options.push(format!(
-            "readonly {}?: types.{type_name}[{name:?}] | undefined",
-            camel(name)
-        ));
         let given = format!("options.{}", camel(name));
-        entries.push(match timeout_setting.filter(|_| name == TIMEOUT) {
-            Some(setting) => format!("{name}: {TIMEOUT_OF}({given}, {setting:?})"),
-            None => format!("{name}: {given}"),
-        });
+        match settings_type.filter(|_| name == SETTINGS) {
+            Some(settings) => {
+                options.push(format!("readonly {}?: {settings} | undefined", camel(name)));
+                entries.push(format!("{name}: {SETTINGS_ON_WIRE}({given})"));
+            }
+            None => {
+                options.push(format!(
+                    "readonly {}?: types.{type_name}[{name:?}] | undefined",
+                    camel(name)
+                ));
+                entries.push(match timeout_setting.filter(|_| name == TIMEOUT) {
+                    Some(setting) => format!("{name}: {TIMEOUT_OF}({given}, {setting:?})"),
+                    None => format!("{name}: {given}"),
+                });
+            }
+        }
     }
     if cancellable {
         options.push("readonly signal?: AbortSignal | undefined".to_owned());
@@ -757,6 +785,23 @@ fn answer(member: &Member<'_>, call: &str) -> String {
     }
 }
 
+/// The settings type of the scope `member` opens, when it takes `settings`
+/// and opens a scope that has one.
+fn scope_settings(member: &Member<'_>) -> Option<String> {
+    match &member.form {
+        Form::Opens(opened)
+            if member
+                .parameters
+                .optional
+                .iter()
+                .any(|name| name == SETTINGS) =>
+        {
+            settings::scope_type(opened).ok()
+        }
+        _ => None,
+    }
+}
+
 /// One member, a method of the class that holds `host`.
 fn member(member: &Member<'_>, id: &HandleId) -> String {
     let operation = member.operation;
@@ -769,6 +814,7 @@ fn member(member: &Member<'_>, id: &HandleId) -> String {
         &id.param,
         typed.map(|typed| typed.param.as_str()),
         member.timeout_setting.as_deref(),
+        scope_settings(member).as_deref(),
     );
     let call_options = if operation.cancellable {
         "{ signal: options.signal }"
@@ -853,8 +899,27 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> String {
     } else {
         String::new()
     };
+    let scoped: BTreeSet<String> = handles
+        .iter()
+        .flat_map(|handle| {
+            handle
+                .members
+                .iter()
+                .chain(handle.sub_objects.iter().flat_map(|held| &held.members))
+        })
+        .filter_map(scope_settings)
+        .collect();
+    let settings = if scoped.is_empty() {
+        String::new()
+    } else {
+        let types: Vec<String> = scoped.iter().map(|name| format!("type {name}")).collect();
+        format!(
+            "import {{ {SETTINGS_ON_WIRE}, {} }} from \"./settings.ts\";\n",
+            types.join(", ")
+        )
+    };
     format!(
-        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost }} from \"{HANDLE_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\nimport type * as types from \"./types.ts\";\n"
+        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost }} from \"{HANDLE_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\n{settings}import type * as types from \"./types.ts\";\n"
     )
 }
 
@@ -930,6 +995,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
                 &builder.type_name,
                 false,
                 &handle.id.param,
+                None,
                 None,
                 None,
             );

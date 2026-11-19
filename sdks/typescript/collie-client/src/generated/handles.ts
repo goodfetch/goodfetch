@@ -3,6 +3,7 @@
 import { typedBy, type TypedBy } from "../field-values.ts";
 import { defined, timeoutOf, type HandleHost } from "../handle.ts";
 import type { CollieOperationTypes } from "./operations.ts";
+import { settingsOnWire, type PageSettings, type SessionSettings } from "./settings.ts";
 import type * as types from "./types.ts";
 
 let idInRun: (handle: Run) => types.RunId;
@@ -75,8 +76,8 @@ export class Run {
    *
    * @experimental
    */
-  async newPage(options: { readonly settings?: types.NewPageParams["settings"] | undefined } = {}): Promise<Page> {
-    const opened = await this.#host.call("run.new_page", defined({ run_id: this.#host.id, settings: options.settings }), {});
+  async newPage(options: { readonly settings?: PageSettings | undefined } = {}): Promise<Page> {
+    const opened = await this.#host.call("run.new_page", defined({ run_id: this.#host.id, settings: settingsOnWire(options.settings) }), {});
     return new Page(this.#host.child(opened.page_id));
   }
 
@@ -85,8 +86,8 @@ export class Run {
    *
    * @experimental
    */
-  async newSession(options: { readonly settings?: types.NewSessionParams["settings"] | undefined; readonly source?: types.NewSessionParams["source"] | undefined } = {}): Promise<Session> {
-    const opened = await this.#host.call("run.new_session", defined({ run_id: this.#host.id, settings: options.settings, source: options.source }), {});
+  async newSession(options: { readonly settings?: SessionSettings | undefined; readonly source?: types.NewSessionParams["source"] | undefined } = {}): Promise<Session> {
+    const opened = await this.#host.call("run.new_session", defined({ run_id: this.#host.id, settings: settingsOnWire(options.settings), source: options.source }), {});
     return new Session(this.#host.child(opened.session_id));
   }
 
@@ -179,8 +180,8 @@ export class Session implements AsyncDisposable {
    *
    * @experimental
    */
-  async newPage(options: { readonly settings?: types.NewSessionPageParams["settings"] | undefined } = {}): Promise<Page> {
-    const opened = await this.#host.call("session.new_page", defined({ session_id: this.#host.id, settings: options.settings }), {});
+  async newPage(options: { readonly settings?: PageSettings | undefined } = {}): Promise<Page> {
+    const opened = await this.#host.call("session.new_page", defined({ session_id: this.#host.id, settings: settingsOnWire(options.settings) }), {});
     return new Page(this.#host.child(opened.page_id));
   }
 

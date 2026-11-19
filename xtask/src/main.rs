@@ -69,6 +69,7 @@ mod quarantine;
 mod rate;
 mod received_requests;
 mod register;
+mod release;
 mod release_suite;
 mod repeat;
 mod results;
@@ -330,6 +331,12 @@ enum Command {
     /// through `ReceivedRequests`, which says whether a count keeps the
     /// engine's robots.txt reads and the browser's icons (ADRs 0064 and 0086).
     ReceivedRequests,
+    /// A release's preparation (spec #130): the Product version in every
+    /// released manifest of both Products.
+    Release {
+        #[command(subcommand)]
+        command: release::Command,
+    },
     /// The Release suite's manual-dispatch runs while the repository is
     /// private (ADR 0108).
     ReleaseSuite {
@@ -609,6 +616,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Quarantine { command } => quarantine::run(command, environment),
         Command::ReceivedRequests => Ok(check::report(&received_requests::check(root)?)),
         Command::Register { command } => register::run(&command, environment, &Cli::command()),
+        Command::Release { command } => release::run(command, environment),
         Command::ReleaseSuite { command } => release_suite::run(command, environment),
         Command::Repeat(arguments) => repeat::run(arguments, environment),
         Command::Results { command } => run_results(command, environment),

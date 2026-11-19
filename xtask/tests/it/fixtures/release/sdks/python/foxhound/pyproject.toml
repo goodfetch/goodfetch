@@ -1,0 +1,7 @@
+[project]
+name = "goodfetch-foxhound"
+version = "0.0.0"
+dependencies = ["goodfetch-collie-client"]
+
+[tool.uv.sources]
+goodfetch-collie-client = { workspace = true }

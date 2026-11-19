@@ -5,7 +5,7 @@
 //! its currency; a Limit the engine refuses fails the connect; and a start
 //! that names a Run again lowers its Limits and never raises them.
 
-use goodfetch_collie::linked::{Composed, LinkedConnection};
+use goodfetch_collie::linked::{Composed, ProductConnection};
 use goodfetch_collie::{Collie, ErrorCode, Limits, Money, RunId, StartedAs, UsageKind, blocking};
 use goodfetch_collie_client::ClientConnection;
 use goodfetch_protocol::run::ReachedLimit;
@@ -52,7 +52,7 @@ fn limits_reach_the_engine_at_connect_and_at_a_runs_start_with_each_price_in_mil
         Money::new("1.000001", "EUR").unwrap(),
     );
     real_time_runtime().block_on(async {
-        let linked = LinkedConnection::connect(Composed::COLLIE, options(&env).limits(connect))
+        let linked = ProductConnection::connect(Composed::COLLIE, options(&env).limits(connect))
             .await
             .unwrap();
 
@@ -132,7 +132,7 @@ fn a_start_naming_a_run_again_lowers_its_limits_and_never_raises_them() {
     let nightly = RunId::parse("nightly").unwrap();
     let requests = |amount| Limits::new().count(UsageKind::REQUESTS, amount);
     real_time_runtime().block_on(async {
-        let linked = LinkedConnection::connect(Composed::COLLIE, options(&env))
+        let linked = ProductConnection::connect(Composed::COLLIE, options(&env))
             .await
             .unwrap();
         let start = |amount| {

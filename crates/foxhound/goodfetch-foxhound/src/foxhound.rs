@@ -2,10 +2,11 @@
 //! Rust program opens to drive Foxhound, and the scope that opens and
 //! closes it around a body. Each connection starts its own linked engine,
 //! the Foxhound engine this crate composes, in the program's own process
-//! (ADRs 0024 and 0087), through Collie's crate's linked connection.
+//! (ADRs 0024 and 0087), through Collie's crate's linked connection, or
+//! reaches a Daemon ([`crate::EngineChoice`]).
 
-use goodfetch_collie::ConnectOptions;
-use goodfetch_collie::linked::{Composed, LinkedConnection};
+use goodfetch_collie::linked::{Composed, ProductConnection};
+use goodfetch_collie::{ConnectOptions, EngineInfo};
 use goodfetch_collie_client::{ClientConnection, Connection, Error, Start, UsageKind};
 use goodfetch_protocol::catalog::Product;
 
@@ -45,15 +46,19 @@ pub const PAID_FETCHES: UsageKind =
 /// ```
 #[derive(Clone, Debug)]
 pub struct Foxhound {
-    linked: LinkedConnection,
+    linked: ProductConnection,
 }
 
 impl Foxhound {
-    /// Opens a connection to a linked Foxhound engine of its own, which
-    /// runs on a runtime the connection owns, so the connection works from
-    /// any executor; it returns once `hello` is answered. The engine reads
-    /// `options`' environment, or the process's, for its Goodfetch home and
-    /// the machine's settings, and never an engine-path variable.
+    /// Opens a connection to the engine `options` choose
+    /// ([`ConnectOptions::engine`]): at `Auto`, the remote Daemon
+    /// `GOODFETCH_URL` names, else the Daemon running in the Goodfetch
+    /// home, else a linked Foxhound engine of its own. The connection runs
+    /// on a runtime it owns, so it works from any executor, and returns
+    /// once `hello` is answered. It reads `options`' environment, or the
+    /// process's, for its Goodfetch home, a remote Daemon and the machine's
+    /// settings, and never an engine-path variable; it logs the engine it
+    /// reached at info.
     /// It sets `options`' Limits on the connection before it returns
     /// ([`ConnectOptions::limits`]), and waits for `hello`'s answer within
     /// `options`' `timeout`, `timeout.connect`'s 30 s when left out
@@ -62,8 +67,11 @@ impl Foxhound {
     /// # Errors
     ///
     /// `engine_exited` when the linked engine cannot start, with no
-    /// Goodfetch home among others, `setting_invalid` for a zero `timeout`,
-    /// `deadline_exceeded` naming `timeout.connect` when `hello` is not
+    /// Goodfetch home among others, `setting_invalid` for a zero `timeout`
+    /// or a remote Daemon's URL that names no loopback `ws://` address, or
+    /// `GOODFETCH_URL` without `GOODFETCH_TOKEN`, `daemon_unreachable` when
+    /// the Daemon chosen cannot be reached, which `Daemon` never starts
+    /// (ADR 0098), `deadline_exceeded` naming `timeout.connect` when `hello` is not
     /// answered within it, what `hello` fails with, and what `usage.set`
     /// fails with for a Limit the engine refuses, the connection closed
     /// then.
@@ -73,7 +81,7 @@ impl Foxhound {
     /// Dropping the future before it completes stops the linked engine it
     /// started.
     pub async fn connect(options: ConnectOptions) -> Result<Self, Error> {
-        let linked = LinkedConnection::connect(ENGINE, options).await?;
+        let linked = ProductConnection::connect(ENGINE, options).await?;
         Ok(Self { linked })
     }
 
@@ -117,6 +125,13 @@ impl Foxhound {
         let closed = foxhound.close().await;
         let value = result?;
         closed.map(|()| value)
+    }
+
+    /// The engine the connection reached, fixed when it opened: the linked
+    /// engine or a Daemon ([`crate::EngineChoice`]). It never holds a
+    /// Daemon's token.
+    pub fn engine(&self) -> &EngineInfo {
+        self.linked.engine()
     }
 
     /// The start of a Run the program drives (`run.start`), which awaiting

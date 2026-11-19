@@ -15,12 +15,13 @@ use goodfetch_protocol::checkpoint::{
 use goodfetch_protocol::connection::{
     CLOSED, CONNECTION_LOST, DEADLINE_EXCEEDED, ENGINE_EXITED, INTERNAL,
 };
+use goodfetch_protocol::daemon::DAEMON_UNREACHABLE;
 use goodfetch_protocol::entries;
 use goodfetch_protocol::error_code::{ErrorCode, ErrorDetails};
 use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject, ProtocolFailure};
 use goodfetch_protocol::page::RESPONSE_NOT_JSON;
 use goodfetch_protocol::page::events::BODY_UNAVAILABLE;
-use goodfetch_protocol::settings::SettingLimit;
+use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingLimit};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -210,6 +211,27 @@ impl Error {
             format!("the linked engine failed: {source}"),
         )
         .caused_by(source)
+    }
+
+    /// No Daemon could be reached where a Product crate's connection looked
+    /// for one: `daemon_unreachable`, with `fix` saying what to do.
+    #[must_use]
+    pub fn daemon_unreachable(message: String, fix: String) -> Self {
+        let mut error = Self::of(&DAEMON_UNREACHABLE, message);
+        error.0.data.insert("fix".to_owned(), fix.into());
+        error
+    }
+
+    /// A value a Product crate's connection reads before it reaches an
+    /// engine, such as a remote Daemon's URL, is refused:
+    /// `setting_invalid`, with `details`.
+    #[must_use]
+    pub fn setting_invalid(message: String, details: &SettingInvalidDetails) -> Self {
+        let mut error = Self::of(&SETTING_INVALID, message);
+        if let Ok(Value::Object(details)) = serde_json::to_value(details) {
+            error.0.data.extend(details);
+        }
+        error
     }
 
     /// The error the engine answered a call with.

@@ -81,7 +81,6 @@ receiver = "Foxhound"
 member = "engine"
 entry = "none"
 reason = "Answered from the engine's reply to `hello` (ADR 0095), with no round trip; `Collie.engine`'s member under the same name."
-only = "Rust's `Foxhound` does not answer the engine's reply to `hello` yet; nor does Rust's `Collie`."
 words = ["engine"]
 form = "read"
 

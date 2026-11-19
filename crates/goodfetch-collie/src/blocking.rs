@@ -1,6 +1,6 @@
 //! Collie for a program that does not use async (ADR 0081), under the same
-//! names: a call ends in `send()`. The connection owns the runtime its
-//! linked engine runs on; each call is handed to it, and the calling thread
+//! names: a call ends in `send()`. The connection owns the runtime it and
+//! its linked engine, if any, run on; each call is handed to it, and the calling thread
 //! waits for its end on a channel. Nothing here enters a runtime, so it
 //! works inside one too, where it blocks only the thread that calls it.
 
@@ -10,8 +10,8 @@ pub use goodfetch_collie_client::blocking::{
     Call, Connection, EventIter, Exchange, Locator, Page, Query, Response, Run, Session, Start,
 };
 
-use crate::Error;
-use crate::linked::{Composed, ConnectOptions, LinkedConnection};
+use crate::linked::{Composed, ConnectOptions, ProductConnection};
+use crate::{EngineInfo, Error};
 
 /// A connection to Collie whose calls block: `collie.start().send()`
 /// starts a Run. Cloning it is cheap and every clone is the same
@@ -35,12 +35,12 @@ use crate::linked::{Composed, ConnectOptions, LinkedConnection};
 /// ```
 #[derive(Clone, Debug)]
 pub struct Collie {
-    linked: LinkedConnection,
+    linked: ProductConnection,
     connection: blocking::ClientConnection,
 }
 
 impl Collie {
-    /// Opens a connection to a linked engine of its own, as
+    /// Opens a connection to the engine `options` choose, as
     /// [`crate::Collie::connect`] does, and blocks the calling thread until
     /// it is open.
     ///
@@ -48,11 +48,17 @@ impl Collie {
     ///
     /// As [`crate::Collie::connect`].
     pub fn connect(options: ConnectOptions) -> Result<Self, Error> {
-        let linked = LinkedConnection::connect_blocking(Composed::COLLIE, options)?;
+        let linked = ProductConnection::connect_blocking(Composed::COLLIE, options)?;
         Ok(Self {
             connection: blocking::ClientConnection::from(linked.connection().clone()),
             linked,
         })
+    }
+
+    /// The engine the connection reached, as [`crate::Collie::engine`]
+    /// reports it.
+    pub fn engine(&self) -> &EngineInfo {
+        self.linked.engine()
     }
 
     /// Leaving the scope or `close()` stops the Run with a Checkpoint;
@@ -63,7 +69,7 @@ impl Collie {
     }
 
     /// Closes the connection for every clone, as [`crate::Collie::close`]
-    /// does, and returns once its linked engine has stopped.
+    /// does, and returns once its linked engine, if any, has stopped.
     ///
     /// # Errors
     ///

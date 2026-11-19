@@ -194,17 +194,17 @@ modes = ["attached"]
 
 # `connect()` finds the engine (ADRs 0024, 0078 and 0083; issue 1259): with
 # `engine` at `auto`, the Daemon running in the Goodfetch home, else an
-# Attached engine; `engine()` reports the kind, Product, versions, project
-# file, home, engine path and address, and the choice is logged at info.
-# TypeScript and Python (issue 2962) run it; Rust joins in the next part
-# of issue 1259.
+# Attached engine, or in Rust the linked one; `engine()` reports the kind,
+# Product, versions, project file, home, engine path and address, and the
+# choice is logged at info. TypeScript, Python (issue 2962) and Rust
+# (issue 2963) run it.
 [[capability]]
 name = "connecting"
 
 [[capability.case]]
 id = "connect-finds-the-engine"
 covers = ["story:11-2", "story:11-4", "story:11-5", "story:11-8"]
-surfaces = ["sdk-typescript", "sdk-python"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 
 [[capability]]
 name = "product-conformance"

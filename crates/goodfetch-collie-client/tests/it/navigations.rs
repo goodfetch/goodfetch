@@ -10,7 +10,7 @@ use goodfetch_collie_client::{Connection, ConnectionRuntime};
 use goodfetch_test_support::TestEnv;
 use serde_json::json;
 
-use crate::limits::{daemon_hello, scripted_daemon};
+use crate::scripted_daemon::{daemon_hello, scripted_daemon};
 
 #[test]
 fn a_navigation_answers_its_response_or_none_and_an_evaluation_its_value() {

@@ -1213,6 +1213,11 @@ fn workspace_with_the_forms_catalog() -> Workspace {
     "pub struct PageOpened {\n    /// The page.\n    #[schemars(extend(\"typed_by\" = \"run_id\"))]\n",
     "operation `run.new_page`"
 )]
+#[case::typed_by_on_a_result_of_one_property(
+    "    /// The names of the fields the page did not give.\n    pub unread: Vec<String>,\n",
+    "",
+    "operation `page.read`: its result's one property"
+)]
 #[case::a_handle_id_without_a_type(
     "pub page_id: PageId,\n    /// The URL to navigate to.",
     "pub page_id: String,\n    /// The URL to navigate to.",

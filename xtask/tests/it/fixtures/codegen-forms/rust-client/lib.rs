@@ -73,6 +73,16 @@ impl<T, P> Query<T, P> {
         edit(&mut self.params);
         self
     }
+
+    pub(crate) fn map<U>(self, _map: impl FnOnce(T) -> U + Send + 'static) -> Query<U, P>
+    where
+        T: 'static,
+    {
+        Query {
+            params: self.params,
+            reply: PhantomData,
+        }
+    }
 }
 
 pub(crate) mod host {

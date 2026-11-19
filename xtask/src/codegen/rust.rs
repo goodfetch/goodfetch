@@ -33,6 +33,7 @@
 
 mod index;
 mod listeners;
+mod raw_call;
 mod settings;
 
 use std::collections::BTreeMap;
@@ -849,18 +850,8 @@ impl Module {
             "    /// Its ID, which names it to the engine.\n    #[must_use]\n    pub fn id(&self) -> &{} {{\n        {id}\n    }}\n",
             model.id
         );
-        let raw = match self.twin {
-            Twin::Async => format!(
-                "crate::RawCall {{\n        self.host.raw(operation, \"{}\", \"{}\")",
-                model.namespace, model.param
-            ),
-            Twin::Blocking => "crate::blocking::RawCall {\n        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.connection())".to_owned(),
-        };
-        let _ = write!(
-            self.body,
-            "\n    /// The raw call of `operation`, an operation of `{}` the SDK may not\n    /// generate (ADR 0099), its params and its result the wire's JSON in\n    /// snake case: its ID fills `{}`. An operation of another namespace\n    /// fails with `invalid_params` before it is sent, as a call on a\n    /// closed value does with `closed`. It is never retried.\n    pub fn call(&self, operation: &str) -> {raw}\n    }}\n",
-            model.namespace, model.param
-        );
+        self.body
+            .push_str(&raw_call::member(self.twin, model.namespace, &model.param));
         for sub_object in &model.sub_objects {
             let held = match self.twin {
                 Twin::Async => "host: self.host.clone()",

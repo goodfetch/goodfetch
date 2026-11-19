@@ -15,6 +15,7 @@ use crate::error::Error;
 use crate::generated::handles::Run;
 use crate::host::{HeldRun, Host};
 use crate::limits::Limits;
+use crate::logging::{self, engine_log_level};
 
 /// The start of a Run (`run.start`), which awaiting sends. Nothing is sent
 /// until it is awaited.
@@ -64,8 +65,13 @@ impl IntoFuture for Start {
     type Output = Result<Run, Error>;
     type IntoFuture = Pin<Box<dyn Future<Output = Result<Run, Error>> + Send + 'static>>;
 
+    /// Reads the level the program's subscriber records for the engine
+    /// on the calling thread, which the start tells the engine first when
+    /// it changed (ADR 0078).
     fn into_future(self) -> Self::IntoFuture {
+        let log_level = engine_log_level();
         Box::pin(async move {
+            self.connection.follow_log_level(log_level).await?;
             let started: RunStarted = self
                 .connection
                 .call(RUN_START.name, &self.params)
@@ -93,13 +99,13 @@ fn log_start(started: &RunStarted) {
     match started.started_as {
         StartedAs::New => {}
         StartedAs::Resumed => tracing::info!(
-            target: "goodfetch::client::run",
+            target: logging::RUN,
             %run_id,
             started_as = "resumed",
             "The start resumed the Run `{run_id}` from its committed state."
         ),
         StartedAs::Ended => tracing::warn!(
-            target: "goodfetch::client::run",
+            target: logging::RUN,
             %run_id,
             started_as = "ended",
             "The start found the Run `{run_id}` ended: it is returned as it ended and takes no new work."

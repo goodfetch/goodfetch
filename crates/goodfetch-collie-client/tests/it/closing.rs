@@ -15,7 +15,8 @@ use std::time::Duration;
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error};
-use goodfetch_protocol::connection::DaemonEndpoint;
+use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
+use goodfetch_protocol::log::LogLevel;
 use goodfetch_protocol::run::{RunId, Tags};
 use goodfetch_test_support::{TestEnv, logged};
 use serde_json::{Value, json};
@@ -391,7 +392,12 @@ fn dropping_an_unclosed_value_sends_its_close_without_waiting_and_warns() {
                     ConnectionRuntime::driven(tokio::runtime::Handle::current()),
                     &network,
                     &Endpoint::InMemory,
-                    hello(),
+                    // The `trace` that `logged` records, so the start
+                    // tells the engine no other level.
+                    HelloParams {
+                        log_level: Some(LogLevel::Trace),
+                        ..hello()
+                    },
                 )
                 .await
                 .unwrap();

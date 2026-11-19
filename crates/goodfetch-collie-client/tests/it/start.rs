@@ -12,6 +12,7 @@
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error};
 use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
+use goodfetch_protocol::log::LogLevel;
 use goodfetch_protocol::run::{RunConflictDetails, RunDetails, RunId, StartInput, StartedAs, Tags};
 use goodfetch_test_support::{
     RuntimeFile, SCRIPTED_DAEMON_TOKEN, TestEnv, Tool, engine_script, logged, reported_address,
@@ -24,10 +25,13 @@ use crate::connection::hello;
 /// The corpus's script of the case.
 const SCRIPT: &str = "run/start-reaches-its-run.json";
 
-/// This crate's `hello` to a Daemon, carrying the Scripted engine's token.
+/// This crate's `hello` to a Daemon, carrying the Scripted engine's token
+/// and the `trace` that `logged` records, so a start tells the engine no
+/// other level.
 fn daemon_hello() -> HelloParams {
     HelloParams {
         token: Some(SCRIPTED_DAEMON_TOKEN.to_owned()),
+        log_level: Some(LogLevel::Trace),
         ..hello()
     }
 }

@@ -21,17 +21,27 @@ pub(crate) fn daemon_hello() -> HelloParams {
 /// Starts the Scripted engine as the Daemon of `env`'s home, playing
 /// `script` of the corpus with this crate's `hello` in place of the
 /// TypeScript SDK's, and returns it with where it listens.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the test writes the Scripted engine's script and reads its runtime file before any async worker runs"
-)]
 pub(crate) fn scripted_daemon(
     env: &TestEnv,
     script: &str,
 ) -> (goodfetch_test_support::Process, DaemonEndpoint) {
+    scripted_daemon_hearing(env, script, &daemon_hello())
+}
+
+/// Starts the Scripted engine as [`scripted_daemon`] does, expecting
+/// `hello` in place of the TypeScript SDK's.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test writes the Scripted engine's script and reads its runtime file before any async worker runs"
+)]
+pub(crate) fn scripted_daemon_hearing(
+    env: &TestEnv,
+    script: &str,
+    hello: &HelloParams,
+) -> (goodfetch_test_support::Process, DaemonEndpoint) {
     let mut played: Value =
         serde_json::from_slice(&std::fs::read(engine_script(script)).unwrap()).unwrap();
-    played["steps"][0]["expect"]["params"] = serde_json::to_value(daemon_hello()).unwrap();
+    played["steps"][0]["expect"]["params"] = serde_json::to_value(hello).unwrap();
     let path = env.folder().join("script.json");
     std::fs::write(&path, serde_json::to_vec(&played).unwrap()).unwrap();
     let scripted = tools()

@@ -175,7 +175,7 @@ impl Collie {
             goodfetch_collie_client::ConnectionRuntime::driven(handle.clone()),
             handle,
             Composed::COLLIE,
-            Composed::COLLIE.product,
+            LinkedConnection::hello(Composed::COLLIE.product),
             dependencies,
             goodfetch_collie_client::Limits::new(),
             goodfetch_collie_client::ConnectTimeout::Default,

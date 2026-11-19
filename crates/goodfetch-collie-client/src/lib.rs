@@ -28,6 +28,7 @@ mod handler;
 mod host;
 mod limits;
 mod line;
+pub mod logging;
 mod markers;
 mod response;
 mod rpc;

@@ -404,6 +404,9 @@ toml = { version = "1.1.8", default-features = false, features = ["std", "parse"
 # (ADR 0099): a boolean as a positional argument, a timeout on a query.
 trybuild = { version = "1.0.125", default-features = false }
 tracing = { version = "0.1.44", default-features = false, features = ["std", "attributes"] }
+# The callsites the client crate re-emits an engine's `$/log` events
+# through, whose target is known only when the event arrives (ADR 0078).
+tracing-core = { version = "0.1.36", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt"] }
 # The executables' opt-in OTLP export of the engine's spans (RT-18, ADR
 # 0132): tracing-opentelemetry turns spans into OpenTelemetry's, which the

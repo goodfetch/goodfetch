@@ -18,6 +18,7 @@ use serde_json::json;
 
 mod closing;
 mod limits;
+mod logging;
 mod page;
 mod public_items;
 mod start;

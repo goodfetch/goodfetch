@@ -94,15 +94,17 @@ use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::{Run, run_trace};
 use goodfetch_engine::{CallError, CallStream};
 use goodfetch_protocol::catalog::Event;
-use goodfetch_protocol::connection::{Surface, WaitedFor};
+use goodfetch_protocol::connection::{Form, WaitedFor};
 use goodfetch_protocol::events::Position;
 use goodfetch_protocol::jsonrpc::ErrorData;
+use goodfetch_protocol::naming;
 use goodfetch_protocol::page::events::{
     BODY_UNAVAILABLE, BodyUnavailableDetails, PAGE_CONSOLE, PAGE_DOM_CONTENT_LOADED,
     PAGE_EVENTS_LOST, PAGE_LOAD, PAGE_PAGE_ERROR, PAGE_REQUEST, PAGE_REQUEST_FAILED,
-    PAGE_REQUEST_FINISHED, PAGE_RESPONSE, PAGE_WEB_SOCKET, PageEventName, PageExchange, PageFired,
-    PageRequest, PageWebSocket, RequestFailure, WEB_SOCKET_CLOSE, WEB_SOCKET_FRAME_RECEIVED,
-    WEB_SOCKET_FRAME_SENT, WebSocketClosed, WebSocketFrame,
+    PAGE_REQUEST_FINISHED, PAGE_RESPONSE, PAGE_WAIT_FOR_REQUEST_FINISHED, PAGE_WEB_SOCKET,
+    PageEventName, PageExchange, PageFired, PageRequest, PageWebSocket, RequestFailure,
+    WEB_SOCKET_CLOSE, WEB_SOCKET_FRAME_RECEIVED, WEB_SOCKET_FRAME_SENT, WebSocketClosed,
+    WebSocketFrame,
 };
 use goodfetch_protocol::page::{
     BodyHandle, PageId, PageResponse, RESPONSE_TRUNCATED, ResponseTruncatedDetails,
@@ -398,9 +400,9 @@ enum Ended {
 /// A `page.wait_for_request_finished` call's waiter.
 struct Waiter {
     pattern: Option<UrlPattern>,
-    /// The surface of the waiting call's Client, whose spelling its errors
+    /// The form of the waiting call's Client, whose spelling its errors
     /// take.
-    surface: Surface,
+    form: Form,
     answer: oneshot::Sender<Result<PageExchange, CallError>>,
 }
 
@@ -765,11 +767,11 @@ impl PageEvents {
     /// Arms a waiter for the next request whose URL `pattern` matches, any
     /// when none, to finish; it answers the request and its response,
     /// whose body it kept, unless `deadline` passes first;
-    /// its errors are spelled for `surface`.
+    /// its errors are spelled in `form`.
     pub(crate) fn wait_for_request_finished(
         &self,
         pattern: Option<UrlPattern>,
-        surface: Surface,
+        form: Form,
         deadline: WaitDeadline,
     ) -> impl Future<Output = Result<PageExchange, CallError>> + use<> {
         let (answer, answered) = oneshot::channel();
@@ -778,7 +780,7 @@ impl PageEvents {
         state.waiters.retain(|waiter| !waiter.answer.is_closed());
         state.waiters.push(Waiter {
             pattern,
-            surface,
+            form,
             answer,
         });
         drop(state);
@@ -814,30 +816,23 @@ impl PageEvents {
     /// # Errors
     ///
     /// `body_unavailable` when the browser no longer holds it, or the page
-    /// never sent the request, its fix spelled for `surface`,
+    /// never sent the request, its fix spelled in `form`,
     /// `response_truncated` when it broke off, and `deadline_exceeded` when
     /// it had not ended by the deadline.
     pub(crate) async fn body(
         &self,
         request_id: &str,
-        surface: Surface,
+        form: Form,
         deadline: WaitDeadline,
     ) -> Result<BodyHandle, CallError> {
         deadline
-            .within(
-                WaitedFor::RESPONSE_BODY,
-                self.ended_body(request_id, surface),
-            )
+            .within(WaitedFor::RESPONSE_BODY, self.ended_body(request_id, form))
             .await?
     }
 
     /// The body of the response to the request `request_id`, once it
     /// ended, as [`body`](Self::body) answers it, with no deadline.
-    async fn ended_body(
-        &self,
-        request_id: &str,
-        surface: Surface,
-    ) -> Result<BodyHandle, CallError> {
+    async fn ended_body(&self, request_id: &str, form: Form) -> Result<BodyHandle, CallError> {
         let shared = &self.shared;
         let mut waits = false;
         let (url, ended, received, expected) = loop {
@@ -855,7 +850,7 @@ impl PageEvents {
                     .get(browser_id(request_id))
                     .filter(|tracked| tracked.request.request_id == request_id)
                 else {
-                    return Err(unavailable("", request_id, surface));
+                    return Err(unavailable("", request_id, form));
                 };
                 if let Some(ended) = &tracked.ended {
                     break (
@@ -892,12 +887,12 @@ impl PageEvents {
             Ended::Failed(error) if responded && cut_by(&error) => {
                 Err(cut(&url, received, expected))
             }
-            Ended::Failed(_) => Err(unavailable(&url, request_id, surface)),
+            Ended::Failed(_) => Err(unavailable(&url, request_id, form)),
             Ended::Finished => {
                 match read_body(shared, request_id, &url, (received, expected)).await {
                     Ok(handle) => Ok(handle),
                     Err(Unread::PastLimit(exceeded)) => Err(exceeded),
-                    Err(Unread::Gone) => Err(unavailable(&url, request_id, surface)),
+                    Err(Unread::Gone) => Err(unavailable(&url, request_id, form)),
                 }
             }
         }
@@ -1048,19 +1043,9 @@ fn observe(shared: &Arc<Shared>, response: &PageResponse, received: Option<u64>)
 }
 
 /// `body_unavailable` for the request `request_id` to `url`, its fix
-/// spelled for `surface`.
-fn unavailable(url: &str, request_id: &str, surface: Surface) -> CallError {
-    let waiter = match surface {
-        Surface::SdkTypescript => "page.waitForRequestFinished",
-        Surface::SdkPython
-        | Surface::Rust
-        | Surface::Cli
-        | Surface::Mcp
-        | Surface::Kennel
-        | Surface::Cloud
-        | Surface::BrowserHost
-        | Surface::Worker => "page.wait_for_request_finished",
-    };
+/// spelled in `form`.
+fn unavailable(url: &str, request_id: &str, form: Form) -> CallError {
+    let waiter = naming::operation(form, PAGE_WAIT_FOR_REQUEST_FINISHED.name);
     let fix = format!(
         "obtain the response through `{waiter}`, `route.fetch` or `page.request`, whose bodies the engine keeps"
     );
@@ -1628,7 +1613,7 @@ fn answer_waiters(
             // A body past the limits is no body the browser dropped: the
             // request finished, and `response.body` raises the limit.
             let answer = if gone {
-                Err(unavailable(&request.url, &request_id, waiter.surface))
+                Err(unavailable(&request.url, &request_id, waiter.form))
             } else {
                 Ok(PageExchange {
                     request: request.clone(),

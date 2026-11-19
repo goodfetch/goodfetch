@@ -119,6 +119,21 @@ impl Surface {
         }
     }
 
+    /// The form a Client of this surface writes names in when its `hello`
+    /// declares none (ADR 0099): an SDK's own language, the CLI's and the
+    /// MCP server's, TypeScript for a Script sandbox worker, which runs Code
+    /// mode, and the catalog's for every other surface.
+    pub fn form(self) -> Form {
+        match self {
+            Self::SdkTypescript | Self::Worker => Form::Typescript,
+            Self::SdkPython => Form::Python,
+            Self::Rust => Form::Rust,
+            Self::Cli => Form::Cli,
+            Self::Mcp => Form::Tool,
+            Self::Kennel | Self::Cloud | Self::BrowserHost => Form::Catalog,
+        }
+    }
+
     /// Whether a person drives a Client of this surface, so the engine
     /// admits from it the operations only a person may call
     /// (`Reach::PersonOnly`): the CLI and the Kennel.
@@ -446,8 +461,8 @@ pub struct HelloParams {
     /// The surface it comes from.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub surface: Surface,
-    /// The form its user writes names in (ADR 0099); none until each
-    /// surface names its own.
+    /// The form its user writes names in (ADR 0099), which every SDK
+    /// declares; without one, the engine takes its surface's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub form: Option<Form>,

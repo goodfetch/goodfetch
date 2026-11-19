@@ -57,7 +57,7 @@ use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::{CallContext, CallError, Contribution, Enclose, Guard, Handler};
 use goodfetch_extractor::{BuiltIn, Serialization};
-use goodfetch_protocol::connection::{Surface, WaitedFor};
+use goodfetch_protocol::connection::{Form, Surface, WaitedFor};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::dialog::{
     DIALOG_ACCEPT, DIALOG_DISMISS, DialogAcceptParams, DialogAnswered, DialogDismissParams,
@@ -280,7 +280,7 @@ fn with_function_handlers(contribution: Contribution, pages: &Pages) -> Contribu
                             &params.page_id,
                             (&expression, params.world),
                             (Injection::Evaluate, PAGE_EVALUATE.name),
-                            context.surface(),
+                            context.form(),
                         )
                         .await
                 }
@@ -301,7 +301,7 @@ fn with_function_handlers(contribution: Contribution, pages: &Pages) -> Contribu
                             &params.locator.page_id,
                             (&expression, params.world),
                             (Injection::EvaluateAll, LOCATOR_EVALUATE_ALL.name),
-                            context.surface(),
+                            context.form(),
                         )
                         .await
                 }
@@ -400,10 +400,13 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                 let armed = waiting.get(&params.page_id).and_then(|events| {
                     let pattern = params.url.as_ref().map(pattern_of).transpose()?;
                     let deadline = events.wait_deadline(params.timeout)?;
-                    Ok(events.wait_for_request_finished(pattern, context.surface(), deadline))
+                    Ok(events.wait_for_request_finished(pattern, context.form(), deadline))
                 });
                 let pages = finishing.clone();
-                async move { pages.waited(&params.page_id, armed?).await }
+                in_call(
+                    (PAGE_WAIT_FOR_REQUEST_FINISHED.name, context.form()),
+                    async move { pages.waited(&params.page_id, armed?).await },
+                )
             },
         ))
         .with_handler(Handler::new(
@@ -413,7 +416,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok((events, deadline))
                 });
-                let (surface, pages) = (context.surface(), reading_pages.clone());
+                let (form, pages) = (context.form(), reading_pages.clone());
                 // A body the engine kept reads from the Run's folder, even on
                 // a crashed page (ADR 0085); any other read is a call on the
                 // page, as its waits are: a page that ends under it raises
@@ -423,7 +426,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                     if let Some(kept) = events.kept(&params.request_id) {
                         return kept;
                     }
-                    let body = Box::pin(events.body(&params.request_id, surface, deadline));
+                    let body = Box::pin(events.body(&params.request_id, form, deadline));
                     pages.waited(&params.page_id, body).await
                 }
             },
@@ -815,6 +818,17 @@ fn with_page_read_handlers(contribution: Contribution, pages: &Pages) -> Contrib
         ))
 }
 
+/// Answers `call`, a call of the operation named first, from a Client
+/// writing names in the form named second: its failure headed by the
+/// operation in that form, with `operation` its canonical name (ADRs 0079
+/// and 0099).
+async fn in_call<T>(
+    (operation, form): (&'static str, Form),
+    call: impl Future<Output = Result<T, CallError>>,
+) -> Result<T, CallError> {
+    call.await.map_err(|error| error.in_call(operation, form))
+}
+
 /// Adds the handlers of the locator actions.
 fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
     let (clicking, filling, pressing) = (pages.clone(), pages.clone(), pages.clone());
@@ -823,7 +837,7 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
             &LOCATOR_CLICK,
             move |params: ClickParams, context: CallContext| {
                 let pages = clicking.clone();
-                async move {
+                in_call((LOCATOR_CLICK.name, context.form()), async move {
                     pages
                         .act(
                             LOCATOR_CLICK.name,
@@ -832,14 +846,14 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
                             &context,
                         )
                         .await
-                }
+                })
             },
         ))
         .with_handler(Handler::new(
             &LOCATOR_FILL,
             move |params: FillParams, context: CallContext| {
                 let pages = filling.clone();
-                async move {
+                in_call((LOCATOR_FILL.name, context.form()), async move {
                     pages
                         .act(
                             LOCATOR_FILL.name,
@@ -848,19 +862,19 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
                             &context,
                         )
                         .await
-                }
+                })
             },
         ))
         .with_handler(Handler::new(
             &LOCATOR_PRESS,
             move |params: PressParams, context: CallContext| {
                 let pages = pressing.clone();
-                async move {
+                in_call((LOCATOR_PRESS.name, context.form()), async move {
                     let action = Action::press(&params.key);
                     pages
                         .act(LOCATOR_PRESS.name, params.locator, action, &context)
                         .await
-                }
+                })
             },
         ))
 }
@@ -1288,7 +1302,7 @@ impl Pages {
                 duration,
                 spent,
             },
-            surface: context.surface(),
+            form: context.form(),
             hiding: Hidden {
                 live: page.hiding.as_deref(),
                 sheets: &page.sheets,
@@ -1391,14 +1405,14 @@ impl Pages {
     /// it, on the page `page_id`, in `world`, the main world when absent,
     /// for the operation `operation`, and answers its JSON; a main-world
     /// call marks the Session in Provenance as `injection`. Its errors are
-    /// spelled for `surface`.
+    /// spelled in `form`.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %page_id.0, operation = operation, run_id = tracing::field::Empty))]
     async fn evaluate(
         &self,
         page_id: &PageId,
         (expression, world): (&str, Option<World>),
         (injection, operation): (Injection, &'static str),
-        surface: Surface,
+        form: Form,
     ) -> Result<Evaluated, CallError> {
         let (page, _) = self
             .open(page_id, |page| {
@@ -1419,7 +1433,7 @@ impl Pages {
                 page.driver.evaluate(expression, world, operation),
             )
             .await?;
-        page_functions::answered(returns, (surface, operation))
+        page_functions::answered(returns, (form, operation))
     }
 
     /// Registers the init script `params` names on its page, `pending`

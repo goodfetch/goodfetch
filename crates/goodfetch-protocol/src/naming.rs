@@ -2,7 +2,10 @@
 //! initialisms from its closed list are capitals in TypeScript names and
 //! Python class names, and lowercase where they open a camelCase name, and
 //! one word in Rust; a Python keyword takes a trailing underscore, and a Rust
-//! keyword is a raw identifier.
+//! keyword is a raw identifier. The one naming rule, which `xtask codegen`
+//! writes the SDKs with and the engine renders its messages' names in.
+
+use crate::connection::Form;
 
 /// ADR 0099's closed list of initialisms.
 const INITIALISMS: [&str; 16] = [
@@ -45,12 +48,12 @@ fn capitalized(word: &str) -> String {
 }
 
 /// A class or type name: `page_check_failed` gives `PageCheckFailed`.
-pub(crate) fn pascal(name: &str) -> String {
+pub fn pascal(name: &str) -> String {
     words(name).map(capitalized).collect()
 }
 
 /// A TypeScript member name: `page.wait_for_url` gives `pageWaitForURL`.
-pub(crate) fn camel(name: &str) -> String {
+pub fn camel(name: &str) -> String {
     let mut words = words(name);
     let first = words.next().unwrap_or_default().to_owned();
     words.fold(first, |mut text, word| {
@@ -61,7 +64,7 @@ pub(crate) fn camel(name: &str) -> String {
 
 /// A Python member name: `page.wait_for_url` gives `page_wait_for_url`, and
 /// a keyword gets a trailing underscore.
-pub(super) fn snake(name: &str) -> String {
+pub fn snake(name: &str) -> String {
     let text = words(name).collect::<Vec<_>>().join("_");
     if PYTHON_KEYWORDS.contains(&text.as_str()) {
         format!("{text}_")
@@ -73,7 +76,7 @@ pub(super) fn snake(name: &str) -> String {
 /// A Rust member name: `page.wait_for_url` gives `page_wait_for_url`, and a
 /// keyword is a raw identifier, `r#continue`. `None` when Rust cannot make
 /// the name raw (`self`, `super`, `crate`).
-pub(crate) fn rust_snake(name: &str) -> Option<String> {
+pub fn rust_snake(name: &str) -> Option<String> {
     let text = words(name).collect::<Vec<_>>().join("_");
     if RUST_UNRAW.contains(&text.as_str()) {
         None
@@ -86,7 +89,7 @@ pub(crate) fn rust_snake(name: &str) -> Option<String> {
 
 /// A Rust type name, an initialism being one word: `cdp_session` gives
 /// `CdpSession`. `None` when the name is `Self`, which Rust cannot make raw.
-pub(crate) fn rust_type(name: &str) -> Option<String> {
+pub fn rust_type(name: &str) -> Option<String> {
     let text: String = words(name)
         .map(|word| {
             let mut characters = word.chars();
@@ -98,12 +101,27 @@ pub(crate) fn rust_type(name: &str) -> Option<String> {
     (text != "Self").then_some(text)
 }
 
+/// An operation's name as `form`'s user writes the call, each dotted part
+/// by its language's rule: `page.wait_for_url` gives `page.waitForURL` in
+/// TypeScript and stays `page.wait_for_url` in Python and Rust. The CLI, the
+/// tools and the catalog keep the catalog's name, their renderings being
+/// their own designs (ADR 0079); so does a part Rust cannot spell.
+pub fn operation(form: Form, name: &str) -> String {
+    let spell = |part: &str| match form {
+        Form::Typescript => camel(part),
+        Form::Python => snake(part),
+        Form::Rust => rust_snake(part).unwrap_or_else(|| part.to_owned()),
+        Form::Cli | Form::Tool | Form::Catalog => part.to_owned(),
+    };
+    name.split('.').map(spell).collect::<Vec<_>>().join(".")
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
     use rstest::rstest;
 
-    use super::{INITIALISMS, camel, pascal, rust_snake, rust_type, snake};
+    use super::{Form, INITIALISMS, camel, operation, pascal, rust_snake, rust_type, snake};
 
     /// A word of a catalog name: an initialism, or two to eight characters
     /// that start with a letter. A single letter or a leading digit after
@@ -330,5 +348,31 @@ mod tests {
     #[test]
     fn rust_cannot_spell_the_self_type() {
         assert_eq!(rust_type("self"), None);
+    }
+
+    /// An operation reads as its caller writes the call, each dotted part
+    /// by the form's rule; a form with no language of its own keeps the
+    /// catalog's name.
+    #[rstest]
+    #[case::typescript(Form::Typescript, "page.wait_for_url", "page.waitForURL")]
+    #[case::python(Form::Python, "page.wait_for_url", "page.wait_for_url")]
+    #[case::rust(Form::Rust, "page.wait_for_url", "page.wait_for_url")]
+    #[case::cli(Form::Cli, "page.wait_for_url", "page.wait_for_url")]
+    #[case::tool(Form::Tool, "page.wait_for_url", "page.wait_for_url")]
+    #[case::catalog(Form::Catalog, "page.wait_for_url", "page.wait_for_url")]
+    #[case::typescript_receiver(
+        Form::Typescript,
+        "key_value_store.get_value",
+        "keyValueStore.getValue"
+    )]
+    #[case::python_keyword(Form::Python, "route.continue", "route.continue_")]
+    #[case::rust_keyword(Form::Rust, "route.continue", "route.r#continue")]
+    #[case::rust_unraw(Form::Rust, "page.self", "page.self")]
+    fn an_operation_spells_by_its_callers_form(
+        #[case] form: Form,
+        #[case] name: &str,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(operation(form, name), expected);
     }
 }

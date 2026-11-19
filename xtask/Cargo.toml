@@ -53,8 +53,6 @@ goodfetch-counted-work.workspace = true
 # The test tool manifest's Proving ground, for `journeys tasks`' tests.
 goodfetch-test-support.workspace = true
 insta.workspace = true
-# The naming rule's property tests (ADR 0099).
-proptest.workspace = true
 rstest.workspace = true
 
 # Its tests run the Proving ground and both Products' executables through

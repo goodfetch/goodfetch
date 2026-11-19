@@ -3135,8 +3135,8 @@ export interface HelloParams {
    */
   clientSurface?: Surface | null;
   /**
-   * The form its user writes names in (ADR 0099); none until each
-   * surface names its own.
+   * The form its user writes names in (ADR 0099), which every SDK
+   * declares; without one, the engine takes its surface's.
    */
   form?: Form | null;
   /**

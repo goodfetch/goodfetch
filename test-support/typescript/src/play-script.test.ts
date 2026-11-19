@@ -10,6 +10,7 @@ const encoder = new TextEncoder();
 const collieHello = {
   protocol_version: "0.1",
   surface: "sdk_typescript",
+  form: "typescript",
   needs: "collie",
   product_version: "0.1.0",
 };

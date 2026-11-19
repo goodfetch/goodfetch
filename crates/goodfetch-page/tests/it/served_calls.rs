@@ -142,6 +142,25 @@ fn called(method: &str, params: &Value) -> (Value, u64) {
 
 /// [`called`], its pages `product`'s.
 fn called_on(product: impl HandlerPages + 'static, method: &str, params: &Value) -> (Value, u64) {
+    called_in(None, product, method, params)
+}
+
+/// [`called_on`], its `hello` declaring `form` when one is given.
+fn called_in(
+    form: Option<&str>,
+    product: impl HandlerPages + 'static,
+    method: &str,
+    params: &Value,
+) -> (Value, u64) {
+    let mut hello = json!({
+        "protocol_version": "0.1",
+        "surface": "rust",
+        "needs": "collie",
+        "product_version": "1.4.0",
+    });
+    if let Some(form) = form {
+        hello["form"] = json!(form);
+    }
     let env = TestEnv::new();
     let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
@@ -189,17 +208,7 @@ fn called_on(product: impl HandlerPages + 'static, method: &str, params: &Value)
                     }
                 }
             };
-            let hello = reply(
-                0,
-                "hello",
-                &json!({
-                    "protocol_version": "0.1",
-                    "surface": "rust",
-                    "needs": "collie",
-                    "product_version": "1.4.0",
-                }),
-            )
-            .await;
+            let hello = reply(0, "hello", &hello).await;
             assert_eq!(hello["result"]["product"], "collie");
             let before = work.read(Row::MessageDecodes);
             let answer = reply(1, method, params).await;
@@ -266,6 +275,51 @@ fn a_call_on_an_enclosed_page_ends_at_the_enclosing_calls_end(
             "waited_for": "answer",
             "ended_by": { "operation": "crawl_request.handle", "call_id": 3 },
         }),
+        "{reply}"
+    );
+}
+
+/// The same failed call heads its message with its operation in the form
+/// the Client's `hello` declares, and names it canonically in `operation`
+/// (ADRs 0079 and 0099): a locator action and the page and locator waits,
+/// each on a page that is gone. A `hello` that declares no form takes
+/// its surface's, here Rust's.
+#[rstest]
+#[case::action_typescript(Some("typescript"), "locator.click", "locator.click")]
+#[case::action_python(Some("python"), "locator.click", "locator.click")]
+#[case::action_rust(Some("rust"), "locator.click", "locator.click")]
+#[case::page_wait_typescript(Some("typescript"), "page.wait_for_url", "page.waitForURL")]
+#[case::page_wait_python(Some("python"), "page.wait_for_url", "page.wait_for_url")]
+#[case::page_wait_rust(Some("rust"), "page.wait_for_url", "page.wait_for_url")]
+#[case::locator_wait_typescript(Some("typescript"), "locator.wait_for", "locator.waitFor")]
+#[case::locator_wait_python(Some("python"), "locator.wait_for", "locator.wait_for")]
+#[case::locator_wait_rust(Some("rust"), "locator.wait_for", "locator.wait_for")]
+#[case::page_wait_undeclared(None, "page.wait_for_url", "page.wait_for_url")]
+fn a_failed_call_names_its_operation_in_the_declared_form(
+    #[case] form: Option<&str>,
+    #[case] method: &str,
+    #[case] spelled: &str,
+) {
+    let params = match method {
+        "page.wait_for_url" => {
+            json!({ "page_id": "gone", "url": { "kind": "glob", "pattern": "**/next" } })
+        }
+        _ => json!({ "locator": { "selector": "#go", "page_id": "gone" } }),
+    };
+
+    let (reply, _) = called_in(form, Served, method, &params);
+
+    assert_eq!(
+        (
+            &reply["error"]["message"],
+            &reply["error"]["data"]["operation"]
+        ),
+        (
+            &json!(format!(
+                "{spelled}: the page `gone` is closed, or its Run ended"
+            )),
+            &json!(method),
+        ),
         "{reply}"
     );
 }

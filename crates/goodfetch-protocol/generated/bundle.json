@@ -6116,7 +6116,7 @@
             }
           ],
           "arrived_in": "0.1",
-          "description": "The form its user writes names in (ADR 0099); none until each\nsurface names its own."
+          "description": "The form its user writes names in (ADR 0099), which every SDK\ndeclares; without one, the engine takes its surface's."
         },
         "keep_daemon_alive": {
           "arrived_in": "0.1",

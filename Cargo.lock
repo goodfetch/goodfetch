@@ -2868,6 +2868,7 @@ name = "goodfetch-protocol"
 version = "0.0.0"
 dependencies = [
  "data-encoding",
+ "goodfetch-test-support",
  "jiff",
  "jsonschema",
  "proptest",
@@ -8380,7 +8381,6 @@ dependencies = [
  "jsonschema",
  "libc",
  "proc-macro2",
- "proptest",
  "quick-xml 0.41.0",
  "quote",
  "regex",

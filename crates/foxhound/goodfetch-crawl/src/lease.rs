@@ -408,7 +408,8 @@ impl WorkItemLease {
 
     /// Sets aside what its attempt staged so far, its run that commits,
     /// while a run whose staging is discarded runs after it (a sample's
-    /// `discovered_api` run); `None` once the attempt ended.
+    /// `discovered_api` run, or the Record stage's Hooks); `None` once the
+    /// attempt ended.
     pub(crate) fn set_aside(&self) -> Option<SetAside> {
         let epoch = self.0.state.borrow().lease.epoch();
         self.0.leases.staging.set_aside(&self.0.work_item, epoch)

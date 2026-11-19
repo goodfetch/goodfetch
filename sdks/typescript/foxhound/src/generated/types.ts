@@ -25,6 +25,21 @@ export type CertificateExceptionKind = "trust_on_first_use" | "any";
  */
 export type HttpBody = string;
 /**
+ * A stage whose answer changes the work, where a crawl's Hooks in code
+ * run (ADR 0104), by the catalog's name. The observe-only stages reach
+ * Plugins and Script Hooks only.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "CrawlHookStage".
+ */
+export type CrawlHookStage =
+  | "before_request"
+  | "after_response"
+  | "before_navigation"
+  | "after_navigation"
+  | "page_ready"
+  | "before_record_commit";
+/**
  * A tier that fetches a crawl request's document (ADR 0020), from the
  * cheapest up.
  *
@@ -599,12 +614,143 @@ export interface CrawlExtraction {
   formats: FormatsRequest;
 }
 /**
+ * One Hook in code a crawl declares, in `crawl.start`'s `hooks`, which
+ * list them in the order declared: per stage, they run in that order,
+ * after the Hooks named in settings (ADR 0104).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "CrawlHookDeclaration".
+ */
+export interface CrawlHookDeclaration {
+  /**
+   * At `before_record_commit`, the Datasets whose Records it runs for;
+   * absent for every Dataset.
+   */
+  datasets?: string[] | null;
+  /**
+   * The Labels whose requests it runs for; absent for every Label.
+   */
+  labels?: string[] | null;
+  /**
+   * Its name, which `crawl_hook.handle` and `hook_failed` carry.
+   */
+  name: string;
+  /**
+   * The stage it runs at.
+   */
+  stage:
+    | "before_request"
+    | "after_response"
+    | "before_navigation"
+    | "after_navigation"
+    | "page_ready"
+    | "before_record_commit";
+}
+/**
+ * What `crawl_hook.handle` gives the program: one call of one Hook, for
+ * one attempt of a work item, under its lease.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "CrawlHookHandleParams".
+ */
+export interface CrawlHookHandleParams {
+  /**
+   * Which attempt this is, from 1.
+   */
+  attempt: number;
+  crawl_request: CrawlRequest;
+  /**
+   * The Hook's name, as the crawl declared it.
+   */
+  hook: string;
+  /**
+   * The lease's epoch, which only goes up (ADR 0003).
+   */
+  lease_epoch: number;
+  /**
+   * At `before_record_commit`, the Record about to commit and its
+   * Dataset.
+   */
+  record?: PushedRecord | null;
+  /**
+   * The crawl's Run.
+   */
+  run_id: RunId;
+  /**
+   * The stage it runs at.
+   */
+  stage:
+    | "before_request"
+    | "after_response"
+    | "before_navigation"
+    | "after_navigation"
+    | "page_ready"
+    | "before_record_commit";
+}
+/**
+ * The work item.
+ */
+export interface CrawlRequest {
+  /**
+   * The body it is sent with, if any.
+   */
+  body?: HttpBody | null;
+  /**
+   * Its ID within the Run.
+   */
+  id: string;
+  /**
+   * Its Label.
+   */
+  label: string;
+  /**
+   * The method it is sent with.
+   */
+  method: string;
+  /**
+   * Its Payload.
+   */
+  payload?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Its URL.
+   */
+  url: string;
+}
+/**
+ * One Record a handler pushed into a Dataset (ADR 0103).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "PushedRecord".
+ */
+export interface PushedRecord {
+  /**
+   * The Record.
+   */
+  data: {
+    [k: string]: unknown;
+  };
+  /**
+   * The Dataset's name.
+   */
+  dataset: string;
+}
+/**
+ * What a Hook answers once it returned: nothing yet, the work going on
+ * unchanged.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "CrawlHookHandled".
+ */
+export interface CrawlHookHandled {}
+/**
  * One work item of a crawl as its handler receives it (ADR 0093).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "CrawlRequest".
  */
-export interface CrawlRequest {
+export interface CrawlRequest1 {
   /**
    * The body it is sent with, if any.
    */
@@ -789,7 +935,7 @@ export interface CrawlRequestHandleParams {
    * Which attempt this is, from 1.
    */
   attempt: number;
-  crawl_request: CrawlRequest1;
+  crawl_request: CrawlRequest2;
   /**
    * The lease's epoch, which only goes up (ADR 0003).
    */
@@ -821,7 +967,7 @@ export interface CrawlRequestHandleParams {
 /**
  * The work item.
  */
-export interface CrawlRequest1 {
+export interface CrawlRequest2 {
   /**
    * The body it is sent with, if any.
    */
@@ -884,24 +1030,6 @@ export interface CrawlRequestHandled {
    * `handler`, and the attempt's Records are discarded.
    */
   skipped?: HandlerSkip | null;
-}
-/**
- * One Record a handler pushed into a Dataset (ADR 0103).
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "PushedRecord".
- */
-export interface PushedRecord {
-  /**
-   * The Record.
-   */
-  data: {
-    [k: string]: unknown;
-  };
-  /**
-   * The Dataset's name.
-   */
-  dataset: string;
 }
 /**
  * A handler's skip of its request: `ctx.skip(message)` (ADR 0093).
@@ -1497,6 +1625,12 @@ export interface CrawlStartParams {
    * requests.
    */
   extraction?: CrawlExtraction | null;
+  /**
+   * The crawl's Hooks in code, in the order declared (ADR 0104). Never
+   * kept in the Run's state: a start that resumes the Run declares them
+   * again.
+   */
+  hooks?: CrawlHookDeclaration[];
   /**
    * The crawl's Labels, by name, each with its Payload's JSON Schema or
    * none, and its own settings (ADRs 0082 and 0093): a scope between the

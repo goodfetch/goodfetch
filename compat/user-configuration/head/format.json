@@ -399,7 +399,7 @@
                     "type": "boolean"
                   },
                   "handler_failed": {
-                    "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+                    "description": "Whether a work item whose handler failed with `handler_failed`, or whose Hook in code failed with `hook_failed` on the program's own exception, is tried again: `false`. A Label may set it for its requests.",
                     "type": "boolean"
                   },
                   "max": {
@@ -2806,7 +2806,7 @@
                 "type": "integer"
               },
               "hook": {
-                "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+                "description": "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
                 "minimum": 0,
                 "type": "integer"
               },

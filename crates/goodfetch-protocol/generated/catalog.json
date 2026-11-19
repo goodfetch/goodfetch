@@ -1757,6 +1757,20 @@
     {
       "arrived_in": "0.1",
       "deprecated": null,
+      "description": "Asks the program to run one of the crawl's Hooks in code at its stage, for one attempt of a work item under its lease; a stage none of the crawl's Hooks is scoped to sends none. Per stage, the Hooks run in the order the crawl declared them, each after the one before answered. `timeout.hook`, which a Label may set for its requests, bounds each call: past it, the engine sends `$/cancel` for the request and the attempt fails with `deadline_exceeded`, whose `limit` names `timeout.hook` and whose `waited_for` names the stage. A failure fails the attempt with `hook_failed`, naming the stage, the Hook and the request's Label, the program's exception carried as its type, message and stack, and a Goodfetch Error code raised inside as `wrapped_code`; the program's own exception is retried only under `crawl.retry.handler_failed`, a wrapped code as its retryable flag says, and both draw on `crawl.retry.max` with the handler's failures. At `before_record_commit`, a failure discards everything the attempt staged, so it commits nothing. A failure with the Error code `call_cancelled` by the program with nothing closed gives the request back, as for `crawl_request.handle`.",
+      "name": "crawl_hook.handle",
+      "params": {
+        "$ref": "#/$defs/CrawlHookHandleParams"
+      },
+      "product": "foxhound",
+      "result": {
+        "$ref": "#/$defs/CrawlHookHandled"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "deprecated": null,
       "description": "Asks the program's handler to process one attempt of a work item under its lease. Its answer carries the Records the attempt staged, committed once while the lease holds, or the handler's skip, which ends the request `skipped`; a failure, or no answer before the lease ends, commits nothing, and the work item is retried under the Run's policy, while a failure with the Error code `blocked` ends it `blocked` with the Block cause its details name. A failure with the Error code `call_cancelled` by the program with nothing closed (details `{\"by\": \"program\"}`) gives the request back, the program's own stop (ADR 0093): it returns to pending with no attempt counted and is delivered again. When the lease ends first, the engine sends `$/cancel` for the request; an answer that still comes is a late commit, refused with `lease_lost`.",
       "name": "crawl_request.handle",
       "params": {
@@ -5302,7 +5316,7 @@
       "authority": "every",
       "clearable": false,
       "default": false,
-      "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+      "description": "Whether a work item whose handler failed with `handler_failed`, or whose Hook in code failed with `hook_failed` on the program's own exception, is tried again: `false`. A Label may set it for its requests.",
       "name": "crawl.retry.handler_failed",
       "product": "foxhound",
       "products": [
@@ -9405,7 +9419,7 @@
       "authority": "every",
       "clearable": false,
       "default": 10000,
-      "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+      "description": "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
       "name": "timeout.hook",
       "product": "collie",
       "products": [

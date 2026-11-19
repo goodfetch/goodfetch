@@ -17493,7 +17493,7 @@
       "authority": "every",
       "clearable": false,
       "default": 10000,
-      "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+      "description": "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
       "name": "timeout.hook",
       "product": "collie",
       "products": [

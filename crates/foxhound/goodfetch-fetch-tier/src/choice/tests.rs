@@ -122,6 +122,8 @@ fn a_labels_tier_forces_its_own_requests_over_the_runs(
 #[case::an_access_mode(json!({ "browser": { "access_mode": "stealth" } }), "setting_not_applicable", "browser.access_mode")]
 /// Covers: setting:stealth.fingerprint_method
 #[case::a_stealth_item(json!({ "stealth": { "fingerprint_method": "engine" } }), "setting_not_applicable", "stealth.fingerprint_method")]
+#[case::a_hook_timeout_not_a_duration(json!({ "timeout": { "hook": "fast" } }), "setting_invalid", "timeout.hook")]
+#[case::a_retry_not_a_boolean(json!({ "crawl": { "retry": { "handler_failed": "yes" } } }), "setting_invalid", "crawl.retry.handler_failed")]
 fn a_label_setting_it_cannot_take_is_refused(
     #[case] settings: Value,
     #[case] code: &str,
@@ -135,6 +137,30 @@ fn a_label_setting_it_cannot_take_is_refused(
             error.details().and_then(|details| details["key"].as_str())
         ),
         (code, Some(key))
+    );
+}
+
+/// A Label sets `timeout.hook` and `crawl.retry.handler_failed` for its
+/// own requests' Hooks and handler (ADR 0104); a Label that sets neither
+/// leaves both to the Run.
+#[test]
+fn a_label_sets_its_own_hook_deadline_and_handler_retry() {
+    let settings = LabelSettings::of(&declared(&[
+        (
+            "detail",
+            json!({ "timeout": { "hook": 250 }, "crawl": { "retry": { "handler_failed": true } } }),
+        ),
+        ("list", json!({})),
+    ]))
+    .unwrap();
+
+    assert_eq!(
+        (
+            settings.hook_timeouts().collect::<Vec<_>>(),
+            settings.retries_handler_failed("detail"),
+            settings.retries_handler_failed("list"),
+        ),
+        (vec![("detail", 250)], Some(true), None)
     );
 }
 

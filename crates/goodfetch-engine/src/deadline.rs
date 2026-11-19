@@ -57,6 +57,22 @@ impl Deadline {
         }
     }
 
+    /// The deadline of `millis` the run layer sets for the timeout
+    /// `setting` from `origin`, outside the settings a Run resolved: a
+    /// crawl Label's own value, which its requests wait under in place of
+    /// the Run's (ADR 0104).
+    pub fn set(setting: &Setting, millis: u64, origin: RunOrigin) -> Self {
+        Self {
+            limit: SettingLimit {
+                key: setting.name.to_owned(),
+                value: millis.into(),
+                layer: SettingsLayer::Run,
+                origin: Some(origin),
+            },
+            duration: Duration::from_millis(millis),
+        }
+    }
+
     /// The deadline of a call's own `timeout` of `millis`, the timeout
     /// `setting` for that call alone: that setting at the run layer, from
     /// the call's argument (ADRs 0080 and 0083).

@@ -4,7 +4,8 @@
 //! from the Run's resolved settings (`timeout.handler`, `crawl.retry.max`,
 //! `crawl.retry.handler_failed`, `crawl.retry.engine_panicked`,
 //! `crawl.handler.concurrency`), resolved once
-//! as the Run opens (ADR 0138); and the Run's domain policy, which its
+//! as the Run opens (ADR 0138), a Label's own `crawl.retry.handler_failed`
+//! replacing the Run's for its requests (ADR 0104); and the Run's domain policy, which its
 //! Frontier judges each seed and enqueue by.
 
 use std::time::Duration;
@@ -54,7 +55,17 @@ impl CrawlPolicy {
     /// A work item's lease: the handler's timeout plus a margin of the
     /// larger of 10 s and a tenth of it (spec #213).
     pub(crate) fn lease_length(&self) -> Duration {
-        self.handler_timeout + (self.handler_timeout / 10).max(Duration::from_secs(10))
+        lease_for(self.handler_timeout)
+    }
+
+    /// The policy of a request whose Label sets `crawl.retry.handler_failed`
+    /// to `retries_handler_failed`, or leaves it to the Run, `None` (ADR
+    /// 0104).
+    pub(crate) fn under_label(self, retries_handler_failed: Option<bool>) -> Self {
+        Self {
+            retry_handler_failed: retries_handler_failed.unwrap_or(self.retry_handler_failed),
+            ..self
+        }
     }
 
     /// Whether a work item tried `attempts` times may be tried again.
@@ -100,6 +111,12 @@ pub(crate) fn resumed_domain_policy(resolved: &Resolved, run_id: &RunId) -> Poli
     })
 }
 
+/// A lease that holds through a wait of `wait`: the wait plus a margin of
+/// the larger of 10 s and a tenth of it (spec #213).
+pub(crate) fn lease_for(wait: Duration) -> Duration {
+    wait + (wait / 10).max(Duration::from_secs(10))
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -130,6 +147,16 @@ mod tests {
         };
 
         assert_eq!(policy.lease_length(), lease);
+    }
+
+    #[rstest]
+    #[case::the_labels_own(Some(true), true)]
+    #[case::the_runs(None, false)]
+    fn a_labels_handler_retry_replaces_the_runs(
+        #[case] label: Option<bool>,
+        #[case] retried: bool,
+    ) {
+        assert_eq!(POLICY.under_label(label).retry_handler_failed, retried);
     }
 
     #[rstest]

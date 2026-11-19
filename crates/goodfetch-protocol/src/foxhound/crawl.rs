@@ -21,6 +21,7 @@ use crate::catalog::{
 use crate::foxhound::dataset::DatasetDeclaration;
 use crate::foxhound::fetch::FetchTier;
 use crate::foxhound::frontier::{HttpBody, HttpMethod};
+use crate::foxhound::hook::CrawlHookDeclaration;
 use crate::foxhound::report::CrawlRunReport;
 use crate::foxhound::session_pool::ServingSession;
 use crate::page::read::PageField;
@@ -293,6 +294,12 @@ pub struct CrawlStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub extraction: Option<CrawlExtraction>,
+    /// The crawl's Hooks in code, in the order declared (ADR 0104). Never
+    /// kept in the Run's state: a start that resumes the Run declares them
+    /// again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub hooks: Vec<CrawlHookDeclaration>,
     /// The Run's settings, nested by key: the run layer (ADR 0083).
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -688,7 +695,7 @@ fn ten_thousand() -> Value {
 /// `crawl.retry.handler_failed` (ADR 0093).
 pub const CRAWL_RETRY_HANDLER_FAILED: Setting = Setting {
     name: "crawl.retry.handler_failed",
-    description: "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+    description: "Whether a work item whose handler failed with `handler_failed`, or whose Hook in code failed with `hook_failed` on the program's own exception, is tried again: `false`. A Label may set it for its requests.",
     kind: ValueKind::Boolean,
     default: no,
     clearable: false,

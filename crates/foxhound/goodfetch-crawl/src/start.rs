@@ -60,6 +60,7 @@ use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 use crate::code_free::{self, CodeFree};
 use crate::delivery;
 use crate::enqueue;
+use crate::hooks;
 use crate::invariants::Invariants;
 use crate::labels;
 use crate::outcomes;
@@ -139,8 +140,16 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                 let (redeclared, crawls, tiers) =
                     (redeclaring.clone(), resuming.clone(), tiers.clone());
                 Box::pin(async move {
-                    redeclared.record(&run).await;
-                    delivery::resume(run, context, settings, crawls, tiers).await;
+                    let hooks = redeclared.record(&run).await;
+                    // Boxed: the resumed delivery's future is large.
+                    Box::pin(delivery::resume(
+                        run,
+                        context,
+                        settings,
+                        (crawls, tiers),
+                        hooks,
+                    ))
+                    .await;
                 })
             }),
             DRIVING,
@@ -219,6 +228,7 @@ async fn start(
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
+    hooks::check(&params.hooks)?;
     let label_settings = goodfetch_fetch_tier::LabelSettings::of(&params.labels)?;
     servable::check(settings.resolved(), &label_settings)?;
     let fragments = labels::Fragments::of(settings.resolved(), &label_settings);
@@ -244,6 +254,7 @@ async fn start(
     let (declared, opening, serving) = (params.labels, datasets.clone(), invariants.clone());
     let admitted = code_free::admitted(params.extraction.as_ref(), checked);
     let (recording, extraction) = (params.extraction.clone(), params.extraction);
+    let hooks = params.hooks;
     let started = context
         .runs()
         .start(Start {
@@ -285,7 +296,7 @@ async fn start(
                 crawls.open(&run, egress, serving, opening).await,
                 crawls,
                 settings,
-                (tiers, labels, TierChoices::default(), code_free),
+                (tiers, labels, TierChoices::default(), (code_free, hooks)),
             ));
             Ok(started)
         }
@@ -293,12 +304,12 @@ async fn start(
         // checked (ADR 0102), its driver recording them.
         Started::Interrupted(run_id) => {
             let kept = (opening, serving.payloads().clone(), extraction);
-            redeclared.keep(&run_id, kept, &crawls).await;
+            redeclared.keep(&run_id, kept, hooks, &crawls).await;
             resume_run(&context, run_id, None, settings).await
         }
         Started::Ended(ended) => {
             let kept = (opening, serving.payloads().clone(), extraction);
-            redeclared.keep(&ended.run_id, kept, &crawls).await;
+            redeclared.keep(&ended.run_id, kept, hooks, &crawls).await;
             Ok(ended)
         }
     }

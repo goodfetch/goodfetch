@@ -90,19 +90,29 @@ export interface CheckedBounds {
  * more: such a bound would refuse every call, or none.
  */
 export function boundsOf(bounds: ChannelBounds): CheckedBounds {
-  const bound = (name: keyof ChannelBounds, fallback: number): number => {
-    const value = bounds[name] ?? fallback;
-    if (!Number.isSafeInteger(value) || value < 1) {
-      throw new SettingInvalidError(`${name} is ${value}, which is no whole number of 1 or more`, {
-        fix: `Pass ${name} a whole number of 1 or more, or leave it out for its default of ${fallback}.`,
-      });
-    }
-    return value;
-  };
   return {
-    maxPendingCalls: bound("maxPendingCalls", MAX_PENDING_CALLS),
-    maxQueuedWriteBytes: bound("maxQueuedWriteBytes", MAX_QUEUED_WRITE_BYTES),
+    maxPendingCalls: wholeBound("maxPendingCalls", bounds.maxPendingCalls, MAX_PENDING_CALLS),
+    maxQueuedWriteBytes: wholeBound(
+      "maxQueuedWriteBytes",
+      bounds.maxQueuedWriteBytes,
+      MAX_QUEUED_WRITE_BYTES,
+    ),
   };
+}
+
+/**
+ * The Connection's bound `name`, `given` or `fallback` when left out.
+ *
+ * @throws {SettingInvalidError} when it is no whole number of 1 or more.
+ */
+export function wholeBound(name: string, given: number | undefined, fallback: number): number {
+  const value = given ?? fallback;
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new SettingInvalidError(`${name} is ${value}, which is no whole number of 1 or more`, {
+      fix: `Pass ${name} a whole number of 1 or more, or leave it out for its default of ${fallback}.`,
+    });
+  }
+  return value;
 }
 
 interface Waiting {

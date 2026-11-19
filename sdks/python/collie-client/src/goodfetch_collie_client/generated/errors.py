@@ -370,6 +370,14 @@ class LimitReachedError(RefusedError):
         super().__init__(message, code="limit_reached", group="refused", retryable=False, **fields)
 
 
+class ListenerEventsLostError(UnavailableError):
+    """A listener the program registered with `on` on a value whose events the engine publishes on its event stream, such as a Session's, held more events than its queue takes, the Connection's `maxListenerQueue`, 1,024 by default, so the SDK removed it once it got the events it held. Only that listener loses events: the Connection's Subscription and its other listeners go on. Its details name the event and how many events the listener lost: make the listener return sooner, or raise the bound, and listen again."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="listener_events_lost", group="unavailable", retryable=False, **fields)
+
+
 class ListenerFailedError(ProgramError):
     """A listener the program registered with `on` threw, or its awaitable failed, so the SDK removed it. Raised once, by the next call on the value it listened to, which is not sent and leaves the value open, or by the `close()` that closes that value, its own or one above it, after closing it; when the value is released first, the SDK logs it at error instead. Its details name the event, and its cause is the listener's exception: fix the listener and listen again."""
 
@@ -916,6 +924,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "limit_not_understood": LimitNotUnderstoodError,
     "limit_raise_refused": LimitRaiseRefusedError,
     "limit_reached": LimitReachedError,
+    "listener_events_lost": ListenerEventsLostError,
     "listener_failed": ListenerFailedError,
     "local_address_unavailable": LocalAddressUnavailableError,
     "logged_out": LoggedOutError,

@@ -10690,6 +10690,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A listener the program registered with `on` on a value whose events the engine publishes on its event stream, such as a Session's, held more events than its queue takes, the Connection's `maxListenerQueue`, 1,024 by default, so the SDK removed it once it got the events it held. Only that listener loses events: the Connection's Subscription and its other listeners go on. Its details name the event and how many events the listener lost: make the listener return sooner, or raise the bound, and listen again.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "listener_events_lost",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A listener the program registered with `on` threw, or its awaitable failed, so the SDK removed it. Raised once, by the next call on the value it listened to, which is not sent and leaves the value open, or by the `close()` that closes that value, its own or one above it, after closing it; when the value is released first, the SDK logs it at error instead. Its details name the event, and its cause is the listener's exception: fix the listener and listen again.",
       "exit_code": null,
       "group": "program",

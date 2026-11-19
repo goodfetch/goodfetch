@@ -205,7 +205,7 @@ The moment a Run asked to stop can stop without losing or repeating work: it adm
 _Avoid_: checkpoint (for the moment), graceful stop, barrier
 
 **Subscription**:
-One Client's stream of an engine's events, each at a position that only goes up within its Engine instance, sent no faster than the credits the Client grants; one whose queue of lossless events is full falls behind to an `events.resync` of the current state, so no producer and no other Subscription waits for it, and a telemetry event replaces the unsent one of its kind, counting it as dropped. A value's `on` returns one in TypeScript and Python (ADR 0081): a page's listener's events come on the `on` call itself, under the same credits, and a Session's on the Connection's own Subscription, which its listeners share, sent before the first `on` and cancelled once the last leaves; its `close()` cancels that call.
+One Client's stream of an engine's events, each at a position that only goes up within its Engine instance, sent no faster than the credits the Client grants; one whose queue of lossless events is full falls behind to an `events.resync` of the current state, so no producer and no other Subscription waits for it, and a telemetry event replaces the unsent one of its kind, counting it as dropped. A value's `on` returns one in TypeScript and Python (ADR 0081): a page's listener's events come on the `on` call itself, under the same credits, and a Session's on the Connection's own Subscription, which its listeners share, each through its own queue of at most `maxListenerQueue` events, sent before the first `on` and cancelled once the last leaves; its `close()` cancels that call.
 _Avoid_: listener (for the engine's side), feed, channel
 
 **Body handle**:

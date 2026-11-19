@@ -204,13 +204,24 @@ pub const LISTENER_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A program's listener of a published event that fell too far behind
+/// (ADR 0081), raised by the SDK runtime itself, as `listener_failed` is.
+pub const LISTENER_EVENTS_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "listener_events_lost",
+    description: "A listener the program registered with `on` on a value whose events the engine publishes on its event stream, such as a Session's, held more events than its queue takes, the Connection's `maxListenerQueue`, 1,024 by default, so the SDK removed it once it got the events it held. Only that listener loses events: the Connection's Subscription and its other listeners go on. Its details name the event and how many events the listener lost: make the listener return sooner, or raise the bound, and listen again.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[EVENTS_SUBSCRIBE],
     events: &[RESYNC],
     handler_requests: &[],
-    error_codes: &[LISTENER_FAILED],
+    error_codes: &[LISTENER_FAILED, LISTENER_EVENTS_LOST],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[],

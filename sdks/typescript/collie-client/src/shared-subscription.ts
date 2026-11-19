@@ -2,9 +2,11 @@
 // `events.subscribe`, sent when the first listener whose events the engine
 // publishes on its event stream joins, such as a Session's, and cancelled
 // once the last leaves. Each event goes to the readers that take it, and its
-// credit goes back once each of them is through with it, so a slow listener
-// slows the stream; the engine then falls behind to `events.resync` rather
-// than wait, and the events in between are gone, which is logged.
+// credit goes back once each of them is through with it. A listener's reader
+// is through with an event once its own queue holds it (`listeners.ts`), so
+// a slow listener slows no other; should the stream still fall behind, the
+// engine sends `events.resync` rather than wait, and the events in between
+// are gone, which is logged.
 import type { Stream } from "./client-connection.ts";
 import { CREDITS, once, regranting } from "./listeners.ts";
 import type { Logger } from "./logger.ts";
@@ -34,14 +36,24 @@ interface Open {
 
 /** One Connection's Subscription, shared by the listeners that read it. */
 export class SharedSubscription {
+  /** How many events each listener's own queue holds, the one it has included: `maxListenerQueue`. */
+  readonly listenerQueue: number;
   readonly #open: (options: ChannelOpenOptions) => Stream;
   readonly #logger: Logger | undefined;
   #readers = new Set<Reader>();
   #current: Open | undefined;
 
-  /** `open` sends `events.subscribe`; `logger` hears that the stream fell behind. */
-  constructor(open: (options: ChannelOpenOptions) => Stream, logger: Logger | undefined) {
+  /**
+   * `open` sends `events.subscribe`; `logger` hears that the stream fell
+   * behind; `listenerQueue` bounds each listener's own queue.
+   */
+  constructor(
+    open: (options: ChannelOpenOptions) => Stream,
+    logger: Logger | undefined,
+    listenerQueue: number,
+  ) {
     this.#open = open;
+    this.listenerQueue = listenerQueue;
     this.#logger = logger;
   }
 

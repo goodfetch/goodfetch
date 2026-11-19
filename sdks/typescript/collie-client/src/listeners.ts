@@ -4,11 +4,15 @@
 // on the Connection's own Subscription, which every such listener shares,
 // and its call only arms the listener in the engine. The listener gets the
 // events one at a time, in order, and an awaitable it returns is awaited
-// before the next; a credit goes back only once it settled, so a slow
-// listener slows a lossless producer. One that throws is removed: its call
-// is cancelled and its value hears the failure, which nothing here lets
-// reach the host as an unhandled rejection.
+// before the next. On its own call, a credit goes back only once it
+// settled, so a slow listener slows a lossless producer; on the shared
+// Subscription, its own queue takes each event and gives its credit back at
+// once, so a slow listener slows no other, and one whose queue is full is
+// removed once it got what it held, with `listener_events_lost`. One that
+// throws is removed: its call is cancelled and its value hears the failure,
+// which nothing here lets reach the host as an unhandled rejection.
 import type { Stream } from "./client-connection.ts";
+import { ListenerEventsLostError } from "./generated/errors.ts";
 import type { Listener, Subscription } from "./handle.ts";
 import type { ChannelOpenOptions } from "./rpc.ts";
 import type { SharedSubscription } from "./shared-subscription.ts";
@@ -19,6 +23,9 @@ export const CREDITS = 16;
 
 /** How many events its listener gets through before the subscription grants as many again. */
 export const REGRANT = 8;
+
+/** How many events a listener of published events holds in its own queue when `maxListenerQueue` is left out: as many as the engine holds for a `page.on` call. */
+export const MAX_LISTENER_QUEUE = 1_024;
 
 /** What a subscription listens to, and what it tells its value. */
 export interface Listening<Payload> {
@@ -187,7 +194,11 @@ export function subscribe<Payload>(
  * Registers `listening` on `shared`, the Connection's Subscription, for
  * the events `mine` says are its value's, then sends the call `open` opens,
  * which arms it in the engine; the `Subscription` returned cancels that
- * call and leaves `shared`.
+ * call and leaves `shared`. The listener's own queue holds at most
+ * `shared.listenerQueue` events, the one it has included, and gives each
+ * event's credit back as it takes it. Past that bound, it loses each event
+ * it would take until it got those it held, then it is removed, and
+ * `listening` hears `listener_events_lost` naming how many it lost.
  */
 export function subscribePublished<Payload>(
   open: (options: ChannelOpenOptions) => Stream,
@@ -197,10 +208,29 @@ export function subscribePublished<Payload>(
 ): Subscription {
   const cancel = new AbortController();
   const delivery = new Delivery(listening, close);
+  const bound = shared.listenerQueue;
+  /** The events its queue holds, the one its listener has included. */
+  let held = 0;
+  /** The events it lost since its queue was full. */
+  let lost = 0;
   // First, so that the Subscription is in flight before the engine arms the listener.
   const leave = shared.join({
     takes: (event) => event.event === listening.event && mine(event.data),
-    take: (event, settled) => delivery.take(event, settled),
+    take: (event, settled) => {
+      // The queue holds it, or it is lost: either way the stream need not wait.
+      settled();
+      if (lost > 0 || held >= bound) {
+        lost += 1;
+        return;
+      }
+      held += 1;
+      delivery.take(event, () => {
+        held -= 1;
+        if (held === 0 && lost > 0) {
+          fellBehind();
+        }
+      });
+    },
     ended: (failure) => {
       close();
       if (failure !== undefined) {
@@ -227,6 +257,23 @@ export function subscribePublished<Payload>(
       leave();
       delivery.stop();
     }
+  }
+
+  /** The listener got what it held while its queue was full: it is removed, and hears what it lost. */
+  function fellBehind(): void {
+    if (cancel.signal.aborted) {
+      return;
+    }
+    close();
+    listening.ended(
+      new ListenerEventsLostError(
+        `the listener of \`${listening.event}\` held ${bound} events, as many as its queue takes, so it was removed and lost ${lost} more`,
+        {
+          fix: "Make the listener return sooner, or raise connect()'s maxListenerQueue, then listen again with `on`.",
+          details: { event: listening.event, lost },
+        },
+      ),
+    );
   }
 
   return { close, [Symbol.dispose]: close };

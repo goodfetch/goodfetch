@@ -243,21 +243,36 @@ struct Projection {
     definitions: Map<String, Value>,
 }
 
-/// A setting of the projection's settings section, of which the SDK layers
-/// read the default.
-#[derive(Deserialize)]
-struct Setting {
-    name: String,
+/// A setting of the projection's settings section: the SDK layers read its
+/// default, and type each scope's `settings` option with those a program's
+/// code sets (ADR 0083).
+#[derive(Clone, Deserialize)]
+pub(super) struct Setting {
+    /// Its key, a dotted `snake_case` path.
+    pub(super) name: String,
+    /// What it shapes.
+    #[serde(default)]
+    pub(super) description: String,
+    /// The JSON Schema of its values.
+    #[serde(default)]
+    pub(super) value: Value,
     /// Its value when no layer sets it, `null` for a setting with none.
     #[serde(default)]
-    default: Value,
+    pub(super) default: Value,
+    /// Whether `null` clears it.
+    #[serde(default)]
+    pub(super) clearable: bool,
+    /// The scopes whose own `settings` set it, outermost first: none for a
+    /// setting only configuration or an Operator policy sets.
+    #[serde(default)]
+    pub(super) scopes: Vec<String>,
 }
 
 /// Each setting's default, by name.
-fn setting_defaults(settings: Vec<Setting>) -> BTreeMap<String, Value> {
+fn setting_defaults(settings: &[Setting]) -> BTreeMap<String, Value> {
     settings
-        .into_iter()
-        .map(|setting| (setting.name, setting.default))
+        .iter()
+        .map(|setting| (setting.name.clone(), setting.default.clone()))
         .collect()
 }
 
@@ -317,6 +332,9 @@ pub(super) struct Layer {
     /// Each setting's default, by name, which the Python handles document
     /// a call's own `timeout` with (ADR 0080).
     pub(super) setting_defaults: BTreeMap<String, Value>,
+    /// The settings this layer's Product honours, which its scopes'
+    /// `settings` options are typed with.
+    pub(super) settings: Vec<Setting>,
 }
 
 impl Layer {
@@ -375,7 +393,8 @@ impl Layer {
                     definitions,
                     collie_types: BTreeSet::new(),
                     collie_definitions: Map::new(),
-                    setting_defaults: setting_defaults(collie.settings),
+                    setting_defaults: setting_defaults(&collie.settings),
+                    settings: collie.settings,
                 })
             }
             Product::Foxhound => Self::foxhound(&collie, foxhound, product_version),
@@ -449,7 +468,8 @@ impl Layer {
                 .filter(|(name, _)| own_types.contains(name))
                 .collect(),
             collie_types,
-            setting_defaults: setting_defaults(all.settings),
+            setting_defaults: setting_defaults(&all.settings),
+            settings: all.settings,
         })
     }
 

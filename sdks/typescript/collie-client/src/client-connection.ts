@@ -37,6 +37,7 @@ import { logEngineEvent, logLevelOf, type Logger } from "./logger.ts";
 import { collieTimes } from "./generated/times.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
+import { settingsOnWire, type RunSettings } from "./generated/settings.ts";
 import {
   Channel,
   type ChannelBounds,
@@ -87,6 +88,12 @@ export interface StartOptions {
    * before anything is sent.
    */
   readonly limits?: Limits | undefined;
+  /**
+   * The Run's own settings (ADR 0083), which its Sessions and pages
+   * inherit, nested by camelCase segment, such as
+   * `{ timeout: { navigation: 30_000 } }`.
+   */
+  readonly settings?: RunSettings | undefined;
 }
 
 /** What opening a Connection takes. */
@@ -237,10 +244,12 @@ export class ClientConnection implements AsyncDisposable {
    */
   async start(options: StartOptions = {}): Promise<Run> {
     const limits = limitList(options.limits);
+    const settings = settingsOnWire(options.settings);
     const params: RunStartParams = {
       ...(options.runId === undefined ? {} : { run_id: options.runId }),
       ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
       ...(limits.length === 0 ? {} : { limits }),
+      ...(settings === undefined ? {} : { settings }),
     };
     return this.startRun(
       "run.start",

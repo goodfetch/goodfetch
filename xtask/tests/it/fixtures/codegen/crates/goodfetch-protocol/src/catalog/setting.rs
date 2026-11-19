@@ -375,5 +375,32 @@ pub enum HostList {
     Blocks,
 }
 
+/// A scope a program's code opens with its own `settings` (ADR 0083): the
+/// connection, a Run, a Session or a page. A setting applies within the
+/// scopes that may set it, and everything opened beneath them inherits it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SettingScope {
+    /// `connect()`, whose settings are its Runs' defaults.
+    Connection,
+    /// Starting a Run.
+    Run,
+    /// Opening a Session.
+    Session,
+    /// Opening a page.
+    Page,
+}
+
+impl SettingScope {
+    /// Its name in the catalog.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Connection => "connection",
+            Self::Run => "run",
+            Self::Session => "session",
+            Self::Page => "page",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;

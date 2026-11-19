@@ -314,6 +314,15 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
+member = "onWire"
+entry = "none"
+reason = "Turns a Product's generated `settings` types, written in camelCase, into the snake_case keys the wire takes, by the Product's generated spelling table, such as Foxhound's crawl and Label settings (ADRs 0083 and 0093)."
+words = ["on", "wire"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
 member = "openOver"
 entry = "none"
 reason = "What each Product's `connectOver` is: the common Connection opened over a transport a test holds, `hello` naming the Product (ADRs 0069 and 0095)."
@@ -1775,6 +1784,24 @@ member = "SequenceOptions"
 entry = "none"
 reason = "What a Product's sequence reads, and how, which `Sequence`'s maker takes."
 words = ["sequence", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "SettingsOnWire"
+entry = "none"
+reason = "A scope's `settings` as the wire takes them, which `onWire` gives."
+words = ["settings", "on", "wire"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "Spelling"
+entry = "none"
+reason = "A Product's generated table of each settings segment's wire spelling, which `onWire` reads."
+words = ["spelling"]
 form = "type"
 
 [[member]]

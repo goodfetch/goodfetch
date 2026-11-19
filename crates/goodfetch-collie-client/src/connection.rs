@@ -21,6 +21,7 @@ use std::time::Duration;
 use data_encoding::BASE64;
 use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult};
 use goodfetch_protocol::error_code::ErrorCode;
+use goodfetch_protocol::log::{CONNECTION_SET_LOG_LEVEL, LogLevel, LogLevelSet, SetLogLevelParams};
 use goodfetch_protocol::page::{BodyHandle, CHUNK, Chunk};
 use goodfetch_protocol::settings::TIMEOUT_CLOSE;
 use serde::Serialize;
@@ -36,6 +37,7 @@ use crate::connect_timeout::{self, ConnectTimeout};
 use crate::error::Error;
 use crate::file_saving::{self, FileSaving};
 use crate::handler::{HandlerRequests, Streams};
+use crate::logging;
 use crate::rpc::{self, Heard, Outgoing, Sender};
 use crate::sync::{AtomicBool, Mutex, MutexGuard};
 use crate::transport::{self, Endpoint, Network};
@@ -116,6 +118,9 @@ struct Inner {
     /// The Runs it started, which `close()` closes first. A Run holds its
     /// Connection, so the Connection only refers to it.
     runs: Mutex<Vec<Weak<dyn Closes>>>,
+    /// The level its engine was last told to send its logs at (ADR 0078):
+    /// `hello`'s, then each one a start told it.
+    log_level: Mutex<LogLevel>,
     /// Whether a close has returned, after which closing again does
     /// nothing, even when that close timed out with a task still running.
     closed: AtomicBool,
@@ -179,6 +184,7 @@ impl ClientConnection {
             tasks,
             handed: TaskTracker::new(),
             runs: Mutex::new(Vec::new()),
+            log_level: Mutex::new(hello.log_level.unwrap_or_default()),
             closed: AtomicBool::new(false),
             _runtime: owned,
         }));
@@ -201,6 +207,48 @@ impl ClientConnection {
                     }
                     (error, _) => error,
                 })
+            }
+        }
+    }
+
+    /// Tells the engine `level`, which the program's subscriber records
+    /// for [`logging::ENGINE`], with `connection.set_log_level` when it is
+    /// not the level the engine was last told, and sends nothing when it
+    /// is (ADR 0078). An engine that refuses it keeps sending its logs at
+    /// the level it had, which the crate warns of under
+    /// [`logging::CLIENT`]: the engine's logs are telemetry, so the
+    /// refusal fails nothing, and the next start tells it again.
+    ///
+    /// # Errors
+    ///
+    /// `closed` when the Connection is closed.
+    pub(crate) async fn follow_log_level(&self, level: LogLevel) -> Result<(), Error> {
+        let told = std::mem::replace(&mut *self.log_level(), level);
+        if told == level {
+            return Ok(());
+        }
+        let params = SetLogLevelParams { log_level: level };
+        match self
+            .call::<LogLevelSet>(CONNECTION_SET_LOG_LEVEL.name, &params)
+            .await
+        {
+            Ok(LogLevelSet {}) => Ok(()),
+            Err(error) if error.code() == ErrorCode::CLOSED => Err(error),
+            Err(error) => {
+                let mut current = self.log_level();
+                if *current == level {
+                    *current = told;
+                }
+                drop(current);
+                tracing::warn!(
+                    target: logging::CLIENT,
+                    log_level = level.as_str(),
+                    %error,
+                    "The engine did not take the log level `{}`; it keeps sending its logs at `{}`.",
+                    level.as_str(),
+                    told.as_str(),
+                );
+                Ok(())
             }
         }
     }
@@ -502,6 +550,14 @@ impl ClientConnection {
         );
         // The task ends without sending only when the runtime shut down.
         ended.recv().unwrap_or_else(|_| Err(Error::closed()))
+    }
+
+    /// The level its engine was last told, held.
+    fn log_level(&self) -> MutexGuard<'_, LogLevel> {
+        self.0
+            .log_level
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The Runs it started, which a panic elsewhere leaves as they were.

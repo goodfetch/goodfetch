@@ -20,6 +20,7 @@ use serde_json::json;
 mod closing;
 mod events;
 mod limits;
+mod logging;
 mod page;
 mod public_items;
 mod start;

@@ -19,7 +19,9 @@
 # deprecated or Experimental entry `generated` calls, or `run` serves by
 # hand (ADRs 0030 and 0099).
 # `connect_timeout` types how long `connection` waits for `hello`'s answer,
-# `timeout.connect` in its three states (ADR 0080).
+# `timeout.connect` in its three states (ADR 0080). `logging` names the
+# crate's `tracing` targets, reads the level a Connection tells its engine,
+# and re-emits the engine's `$/log` events (ADR 0078).
 # `event_stream` is the stream of a listener's events, read by meaning
 # (ADR 0081), with the credits it grants and the cancel its drop sends.
 # Event resumption joins as its own module with the ticket that adds it.
@@ -27,7 +29,7 @@
 blocking = ["call", "connection", "error", "event_stream", "field_values", "generated", "limits", "response", "run"]
 call = ["error", "rpc"]
 connect_timeout = ["call", "error"]
-connection = ["call", "connect_timeout", "error", "file_saving", "handler", "rpc", "sync", "transport"]
+connection = ["call", "connect_timeout", "error", "file_saving", "handler", "logging", "rpc", "sync", "transport"]
 connection_type = ["error", "run"]
 error = []
 event_stream = ["error", "rpc"]
@@ -38,9 +40,10 @@ handler = ["error", "line", "sync"]
 host = ["call", "connection", "error", "event_stream", "sync"]
 limits = []
 line = []
-markers = ["sync"]
+logging = ["sync"]
+markers = ["logging", "sync"]
 response = ["call", "connection", "error", "host"]
-rpc = ["error", "handler", "line", "transport"]
-run = ["connection", "error", "generated", "host", "limits", "markers"]
+rpc = ["error", "handler", "line", "logging", "transport"]
+run = ["connection", "error", "generated", "host", "limits", "logging", "markers"]
 sync = []
 transport = []

@@ -17,6 +17,7 @@ use std::pin::Pin;
 use std::sync::{Arc, OnceLock, mpsc};
 use std::time::Duration;
 
+use goodfetch_collie_client::logging::engine_log_level;
 use goodfetch_collie_client::transport::{Dial, Endpoint, Link, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectTimeout, ConnectionRuntime, Error, Limits};
 use goodfetch_engine::clock::Clock;
@@ -180,6 +181,7 @@ impl LinkedConnection {
         needs: Product,
         options: ConnectOptions,
     ) -> Result<Self, Error> {
+        let hello = Self::hello(needs);
         let (environment, limits, timeout) = options.into_parts()?;
         let (runtime, dependencies) = production(engine.product, environment)?;
         let handle = runtime.handle().clone();
@@ -187,7 +189,7 @@ impl LinkedConnection {
             ConnectionRuntime::owned(runtime),
             handle,
             engine,
-            needs,
+            hello,
             dependencies,
             limits,
             timeout,
@@ -203,6 +205,7 @@ impl LinkedConnection {
     ///
     /// As [`LinkedConnection::connect`].
     pub fn connect_blocking(engine: Composed, options: ConnectOptions) -> Result<Self, Error> {
+        let hello = Self::hello(engine.product);
         let (environment, limits, timeout) = options.into_parts()?;
         let (runtime, dependencies) = production(engine.product, environment)?;
         let handle = runtime.handle().clone();
@@ -212,7 +215,7 @@ impl LinkedConnection {
                 ConnectionRuntime::owned(runtime),
                 on,
                 engine,
-                engine.product,
+                hello,
                 dependencies,
                 limits,
                 timeout,
@@ -269,26 +272,34 @@ impl LinkedConnection {
         wait(&self.handle, async move { linked.close().await })
     }
 
-    /// A connection on `runtime` whose `hello` needs `needs`, to a linked
-    /// `engine` that runs on `handle`, that runtime's handle, with
-    /// `dependencies`, and with `limits` set on it once `hello` is answered
-    /// within `timeout`. When `hello` fails, the engine is left to stop at
-    /// the end of its input, unwaited; when a Limit is refused, the
-    /// connection is closed.
+    /// The `hello` of a connection that needs `needs`, carrying the level
+    /// the program's subscriber records for the engine on the calling
+    /// thread (ADR 0078). The linked engine's own events reach that
+    /// subscriber directly, under their own targets, so it sends no
+    /// `$/log` and the level changes nothing it does.
+    pub(crate) fn hello(needs: Product) -> HelloParams {
+        HelloParams {
+            needs: Some(needs),
+            log_level: Some(engine_log_level()),
+            ..HelloParams::new(Surface::Rust, version())
+        }
+    }
+
+    /// A connection on `runtime` saying `hello`, to a linked `engine` that
+    /// runs on `handle`, that runtime's handle, with `dependencies`, and
+    /// with `limits` set on it once `hello` is answered within `timeout`.
+    /// When `hello` fails, the engine is left to stop at the end of its
+    /// input, unwaited; when a Limit is refused, the connection is closed.
     pub(crate) async fn open(
         runtime: ConnectionRuntime,
         handle: Handle,
         engine: Composed,
-        needs: Product,
+        hello: HelloParams,
         dependencies: Dependencies,
         limits: Limits,
         timeout: ConnectTimeout,
     ) -> Result<Self, Error> {
         let (linked, network) = LinkedEngine::start(&handle, engine, dependencies)?;
-        let hello = HelloParams {
-            needs: Some(needs),
-            ..HelloParams::new(Surface::Rust, version())
-        };
         let (connection, _said) =
             ClientConnection::open_within(runtime, &network, &Endpoint::InMemory, hello, timeout)
                 .await?;

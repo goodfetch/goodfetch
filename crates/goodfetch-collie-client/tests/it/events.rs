@@ -180,12 +180,12 @@ fn page_events_subscribes_on_call_hands_events_in_order_and_its_drop_cancels_wit
             ("$/cancel", &json!({"id": id})),
         ]
     );
-    // The Experimental entries' own warnings aside (ADR 0030), nothing
-    // warns.
+    // The Experimental entries' own warnings aside (ADR 0030), which name
+    // their `entry`, nothing warns.
     let log = String::from_utf8(log).unwrap();
     let warnings: Vec<&str> = log
         .lines()
-        .filter(|line| line.contains("WARN") && !line.contains("goodfetch_collie_client::markers"))
+        .filter(|line| line.contains("WARN") && !line.contains(" entry=\""))
         .collect();
     assert!(warnings.is_empty(), "{log}");
 }

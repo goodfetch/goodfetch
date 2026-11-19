@@ -20,6 +20,7 @@ mod file_saving;
 mod forms;
 mod handler_requests;
 mod limits;
+mod logging;
 mod navigations;
 mod points_in_time;
 mod scripted_daemon;

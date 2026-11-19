@@ -391,18 +391,22 @@ modes = ["attached"]
 # `hello` and again by `connection.set_log_level` when a Run starts and the
 # level changed, never by polling; and each `$/log` event reaches the logger
 # at its level. TypeScript leads; Python (issue 2903) and Rust (issue 2904)
-# join by adding their surfaces.
+# join by adding their surfaces. Rust also plays both cases' scripts as a
+# Daemon's client (`goodfetch-collie-client`'s `logging` tests): Rust's
+# `daemon` mode, which these cases' other surfaces do not list yet. In
+# `linked` mode the engine's own events reach the program's subscriber
+# directly, under their own targets, and none is re-emitted.
 [[capability]]
 name = "logging"
 
 [[capability.case]]
 id = "log-level-follows-the-logger"
 covers = ["story:11-26"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "engine-logs-reach-the-logger"
 covers = ["story:11-25"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]

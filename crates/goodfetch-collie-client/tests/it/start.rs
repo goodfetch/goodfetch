@@ -12,6 +12,7 @@
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorCode};
 use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
+use goodfetch_protocol::log::LogLevel;
 use goodfetch_protocol::run::{
     ReachedLimit, RunConflictDetails, RunDetails, RunId, StartInput, StartedAs, Tags,
 };
@@ -26,10 +27,13 @@ use crate::connection::hello;
 /// The corpus's script of the case.
 const SCRIPT: &str = "run/start-reaches-its-run.json";
 
-/// This crate's `hello` to a Daemon, carrying the Scripted engine's token.
+/// This crate's `hello` to a Daemon, carrying the Scripted engine's token
+/// and the `trace` that `logged` records, so a start tells the engine no
+/// other level.
 fn daemon_hello() -> HelloParams {
     HelloParams {
         token: Some(SCRIPTED_DAEMON_TOKEN.to_owned()),
+        log_level: Some(LogLevel::Trace),
         ..hello()
     }
 }
@@ -207,7 +211,7 @@ fn a_start_reaches_the_run_its_run_id_names_logs_a_resume_and_an_end_and_fails_e
             reached.code(),
             serde_json::to_value(&reached_limit.scope).unwrap(),
             reached_limit.usage_kind.as_str(),
-            serde_json::to_value(reached_limit.resets_at).unwrap(),
+            serde_json::to_value(&reached_limit).unwrap()["resets_at"].clone(),
         ),
         (
             ErrorCode::LIMIT_REACHED,

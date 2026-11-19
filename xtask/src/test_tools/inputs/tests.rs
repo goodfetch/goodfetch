@@ -171,6 +171,37 @@ fn a_watched_folder_is_recorded_with_every_file_under_it() {
     );
 }
 
+/// A folder's size is the OS's own count, which Linux and Windows make
+/// differently, so a record made on Linux and read under Wine would find
+/// every watched folder changed (issue 2767): a folder is recorded with
+/// none.
+#[test]
+fn a_watched_folder_is_recorded_with_no_size() {
+    let built = Built::new(
+        &["src/main.rs", "rules/list.txt"],
+        &["src/main.rs", "rules"],
+    );
+
+    let record = built
+        .record(SystemTime::now() + Duration::from_secs(60))
+        .unwrap();
+
+    let sizes: Vec<Value> = record["inputs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|input| json!([input[0], input[1]]))
+        .collect();
+    assert_eq!(
+        sizes,
+        [
+            json!(["rules", 0]),
+            json!(["rules/list.txt", 4]),
+            json!(["src/main.rs", 4])
+        ]
+    );
+}
+
 /// A record without the tool's sources would pass tools of any age.
 #[test]
 fn a_tool_whose_dep_info_names_no_source_of_the_workspace_fails() {

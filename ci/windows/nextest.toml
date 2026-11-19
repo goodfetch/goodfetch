@@ -1,0 +1,6 @@
+# nextest's settings for `just windows` beneath the repository's
+# .config/nextest.toml (issue 2767): its store sits in the container's build
+# folder, since nextest puts it under the workspace's `target/` by default,
+# which in a slot is a link to a folder the container does not mount.
+[store]
+dir = "/var/tmp/target/nextest"

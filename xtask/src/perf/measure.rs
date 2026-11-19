@@ -794,4 +794,5 @@ impl StatusChecked for Command {
 }
 
 #[cfg(test)]
+#[cfg(unix)]
 mod tests;

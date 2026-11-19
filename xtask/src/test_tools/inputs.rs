@@ -160,7 +160,10 @@ fn under(folder: &Path, source: &Path, sources: &mut BTreeSet<PathBuf>) -> Resul
     Ok(())
 }
 
-/// `source`, a path from `folder`, with its size and modification time.
+/// `source`, a path from `folder`, with its size and modification time; a
+/// folder with no size, since Linux and Windows count a folder's size each
+/// their own way, and Windows' reading of a record made on Linux would find
+/// every watched folder changed (issue 2767).
 fn stamp(folder: &Path, source: PathBuf, started: SystemTime) -> Result<Input> {
     let path = folder.join(&source);
     let metadata =
@@ -179,7 +182,8 @@ fn stamp(folder: &Path, source: PathBuf, started: SystemTime) -> Result<Input> {
         .ok()
         .and_then(|since| u64::try_from(since.as_nanos()).ok())
         .with_context(|| format!("{}'s modification time is out of range", path.display()))?;
-    Ok(Input(source, metadata.len(), nanoseconds))
+    let size = if metadata.is_dir() { 0 } else { metadata.len() };
+    Ok(Input(source, size, nanoseconds))
 }
 
 #[cfg(test)]

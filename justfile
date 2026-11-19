@@ -1009,8 +1009,9 @@ batch-check base="origin/main":
 # proofs (`all`: the whole workspace). The checks that need Linux run beside
 # the other steps, each in its own container, with their lines marked:
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
-# projects in the pinned Playwright image, ADR 0073); TLC, Miri and loom
-# run beside them too, on the host, in folders of their own. The suite waits for
+# projects in the pinned Playwright image, ADR 0073) and `windows` (the
+# workspace built for Windows and tested under Wine, in its own image); TLC,
+# Miri and loom run beside them too, on the host, in folders of their own. The suite waits for
 # them and fails when one fails (ci/pre-merge.sh). A red step ends no form:
 # every other step still runs, and the end names each red step. `quick` runs only the
 # checks every change needs, for a change no test reads (ADR 0135). `all`
@@ -1426,6 +1427,15 @@ perf base="":
 # either (ci/linux.sh).
 linux:
     ci/linux.sh
+
+# The workspace built for Windows x64 (x86_64-pc-windows-msvc) with
+# cargo-xwin, clippy over it, and the Pre-merge suite's Rust tests under
+# Wine but those ci/windows/skips.toml lists, in the pinned image of
+# ci/windows/Containerfile through Docker or Podman, in
+# `target/windows/`; listed as skipped without either (ci/windows.sh,
+# issue 2767). Named packages narrow it to theirs.
+windows *packages:
+    ci/windows.sh {{ packages }}
 
 # The visual projects in the pinned Playwright image (ADR 0073), through
 # Docker or Podman, comparing every Reference screenshot; a host with

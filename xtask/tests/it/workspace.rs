@@ -436,6 +436,7 @@ impl Workspace {
     /// `just`, run in the workspace on the repository's justfile, with the
     /// programs in `shims` found first on the path: stand-ins for those the
     /// recipe under test calls.
+    #[cfg(unix)]
     pub(crate) fn just(&self, shims: &Path) -> Command {
         let path = std::env::join_paths(
             std::iter::once(shims.to_owned())

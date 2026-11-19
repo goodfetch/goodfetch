@@ -73,9 +73,17 @@ async def async_forms(
     assert_type(await page.wait_for_ready(timeout=timedelta(seconds=1)), Acted)
     assert_type(await page.wait_for_ready(expected={"ready": [1, "a"]}), Acted)
     assert_type(await page.wait_for_ready(state="complete"), Acted)
-    await page.wait_for_ready(state="loaded")  # type: ignore[arg-type]
+    await page.wait_for_ready(state="ready")  # type: ignore[call-overload]
     # A wrapped choice that admits null takes `None` unwrapped.
     assert_type(await page.wait_for_ready(state=None), Acted)
+    # A deprecated keyword and a deprecated value each have an overload of
+    # their own, which PEP 702 marks: a checker reports a call that passes
+    # them, and no other (ADR 0099).
+    assert_type(await page.wait_for_ready(poll=100), Acted)  # type: ignore[deprecated]
+    assert_type(await page.wait_for_ready(state="loaded"), Acted)  # type: ignore[deprecated]
+    assert_type(
+        await page.wait_for_ready(state="complete", timeout=timedelta(seconds=1)), Acted
+    )
 
     # A `new` member returns the value it opens, which an `async with`
     # block closes.
@@ -119,6 +127,9 @@ def sync_forms(
     assert_type(page.wait_for_ready(timeout=timedelta(seconds=1)), Acted)
     assert_type(page.wait_for_ready(expected=None), Acted)
     assert_type(page.wait_for_ready(state="interactive"), Acted)
+    assert_type(page.wait_for_ready(poll=100, state=None), Acted)  # type: ignore[deprecated]
+    assert_type(page.wait_for_ready(state="loaded"), Acted)  # type: ignore[deprecated]
+    page.wait_for_ready(poll="often")  # type: ignore[call-overload]
     page.keyboard.press(1)  # type: ignore[arg-type,deprecated]
 
     assert_type(run.new_page(), Page)

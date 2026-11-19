@@ -1,5 +1,6 @@
 // What a program can and cannot write against the handles `xtask codegen`
-// generates from the forms catalog (ADR 0099): `tsc` fails on a wrong one.
+// generates from the forms catalog (ADR 0099): `tsc` fails on a wrong one,
+// and oxlint's `no-deprecated` on a deprecated use without its directive.
 import { expectTypeOf } from "vitest";
 import type { Locator, Page, PageKeyboard, Run } from "./generated/handles.ts";
 import type { Acted, Navigated, PageField, Readiness } from "./generated/types.ts";
@@ -51,7 +52,21 @@ expectTypeOf(page.read({ field })).resolves.toHaveProperty("values").toEqualType
 void page.read({ title: { selector: 1 } });
 
 // A waiter keeps its timeout.
+// oxlint reads a method with a deprecated overload, named without a call,
+// as deprecated.
+// oxlint-disable-next-line typescript/no-deprecated
 expectTypeOf(page.waitForReady).toBeCallableWith({ timeout: 1 });
+
+// A deprecated option and a deprecated value each have an overload of their
+// own, which TSDoc marks: oxlint's `no-deprecated` reports a call that passes
+// them, and no other (ADR 0099), since `tsc` reports no deprecation.
+void page.waitForReady({ state: "complete", timeout: 1 });
+// oxlint-disable-next-line typescript/no-deprecated
+void page.waitForReady({ poll: 100, state: null });
+// oxlint-disable-next-line typescript/no-deprecated
+void page.waitForReady({ state: "loaded" });
+// @ts-expect-error a deprecated option keeps its type
+void page.waitForReady({ poll: "often" });
 
 // A `new` member returns the value it opens, which closes with its scope.
 expectTypeOf(run.newPage).returns.toEqualTypeOf<Promise<Page>>();
@@ -69,6 +84,7 @@ expectTypeOf(page.locator("button").click).returns.toEqualTypeOf<Promise<Acted>>
 expectTypeOf(page.keyboard).toEqualTypeOf<PageKeyboard>();
 // @ts-expect-error a sub-object is read-only
 page.keyboard = otherKeyboard;
+// oxlint-disable-next-line typescript/no-deprecated
 expectTypeOf(page.keyboard.press).parameters.toEqualTypeOf<
   [key: string, options?: { readonly signal?: AbortSignal | undefined } | undefined]
 >();

@@ -10,7 +10,7 @@
 //! Covers: story:11-126, story:11-127
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
-use goodfetch_collie_client::{Connection, ConnectionRuntime, Error};
+use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error};
 use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
 use goodfetch_protocol::run::{RunConflictDetails, RunDetails, RunId, StartInput, StartedAs, Tags};
 use goodfetch_test_support::{
@@ -95,7 +95,7 @@ struct Played {
 /// Plays the script's steps on a Connection to the Daemon at `endpoint`.
 async fn play(endpoint: DaemonEndpoint) -> Played {
     let id = |text: &str| RunId::parse(text).unwrap();
-    let (connection, _said) = Connection::open(
+    let (connection, _said) = ClientConnection::open(
         ConnectionRuntime::driven(tokio::runtime::Handle::current()),
         &Network::Os,
         &Endpoint::Daemon(endpoint),

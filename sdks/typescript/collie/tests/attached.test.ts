@@ -20,6 +20,9 @@ import { startAndFinish } from "./programs/tracer.ts";
 
 const RUN_ID = /^[0-9a-z]{26}$/;
 
+/** The line the crashing engine's script writes 40 times to its stderr, 81,000 bytes. */
+const CRASH_LINE = `thread 'main' panicked: ${"é".repeat(1000)}`;
+
 /** What the guest program recorded of its process at each stage. */
 interface Stages {
   readonly beforeImport: unknown;
@@ -576,21 +579,58 @@ describe("a Collie Connection on the Scripted engine as its Attached engine", ()
   );
 
   test(
-    "fails the call in flight with the engine's exit code when the engine exits mid-call",
-    { tags: ["error:engine_exited"] },
-    async ({ testEnv }) => {
+    "fails the call in flight with the engine's exit code and crash output when the engine exits mid-call",
+    { tags: ["client_case/engine-exited-carries-its-evidence", "attached", "error:engine_exited"] },
+    async ({ testEnv, processes, clientCase }) => {
       const env = scriptedEngineEnv(testEnv, "collie", "connect/exit-during-a-call.json");
+      const { logger, warned } = recordingLogger();
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
-      const collie = await Collie.connect({ env });
-
+      const collie = await Collie.connect({ env, logger });
       const error = await failure(collie.start());
       await collie.close();
+      // The same crash in a program of its own, whose stdout and stderr
+      // hold only what the SDK writes there.
+      const program = processes.spawn(
+        process.execPath,
+        ["--no-warnings", join(import.meta.dirname, "fixtures", "crashed.ts")],
+        { env },
+      );
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      program.child.stdout.on("data", (bytes: Buffer) => stdout.push(bytes));
+      program.child.stderr.on("data", (bytes: Buffer) => stderr.push(bytes));
+      program.child.stdin.end();
+      const exit = await program.exit;
 
-      expect(error).toMatchObject({
-        code: "engine_exited",
-        group: "unavailable",
-        details: { exit_code: 101, signal: null, stderr_tail: "" },
-      });
+      await clientCase.check(
+        "the call in flight fails with engine_exited, unavailable and not retryable",
+        () =>
+          expect(error).toMatchObject({
+            code: "engine_exited",
+            group: "unavailable",
+            retryable: false,
+          }),
+      );
+      await clientCase.check("its details carry the exit code and no signal", () =>
+        expect(error).toMatchObject({ details: { exit_code: 101, signal: null } }),
+      );
+      await clientCase.check(
+        "its stderr tail is the output's last 64 KiB, cut where a character starts",
+        () =>
+          expect(error).toMatchObject({
+            details: { stderr_tail: `${"é".repeat(367)}\n${`${CRASH_LINE}\n`.repeat(32)}` },
+          }),
+      );
+      await clientCase.check("each line of its stderr reached the host's logger at warning", () =>
+        expect(warned).toEqual(Array.from({ length: 40 }, () => CRASH_LINE)),
+      );
+      await clientCase.check("the SDK wrote nothing to its own stdout or stderr", () =>
+        expect({
+          exit,
+          stdout: Buffer.concat(stdout).toString(),
+          stderr: Buffer.concat(stderr).toString(),
+        }).toEqual({ exit: { code: 0, signal: null }, stdout: "", stderr: "" }),
+      );
     },
   );
 

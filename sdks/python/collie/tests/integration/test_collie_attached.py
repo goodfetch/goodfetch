@@ -671,11 +671,25 @@ async def test_connects_again_after_a_close(
         assert engine_warnings(caplog) == []
 
 
+CRASH_LINE = "thread 'main' panicked: " + "é" * 1000
+"""The line the crashing engine's script writes 40 times to its stderr, 81,000 bytes."""
+
+
+@pytest.mark.client_case(id="engine-exited-carries-its-evidence", mode="attached")
 @three_ways
-async def test_fails_the_call_in_flight_with_the_engines_exit_code(
-    way: Way, test_env: TestEnv, product: ToolProduct
+async def test_fails_the_call_in_flight_with_the_engines_exit_code_and_crash_output(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    caplog: pytest.LogCaptureFixture,
+    capfd: pytest.CaptureFixture[str],
 ) -> None:
-    """An engine that exits mid-call fails it with `engine_exited`."""
+    """An engine that exits mid-call fails it with `engine_exited` and its evidence.
+
+    Its exit code, no signal, and the last 64 KiB of the crash output it
+    wrote to its stderr, cut where a character starts.
+    """
     env = scripted_engine_env(
         test_env, product, "sdk-python/connect/exit-during-a-call.json"
     )
@@ -684,12 +698,27 @@ async def test_fails_the_call_in_flight_with_the_engines_exit_code(
     error = await failure(collie.start())
     await collie.close()
 
-    assert isinstance(error, EngineExitedError)
-    assert (error.code, error.group, error.details) == (
-        "engine_exited",
-        "unavailable",
-        {"exit_code": 101, "signal": None, "stderr_tail": ""},
-    )
+    with client_case.check(
+        "the call in flight fails with engine_exited, unavailable and not retryable"
+    ):
+        assert isinstance(error, EngineExitedError)
+        assert (error.code, error.group, error.retryable) == (
+            "engine_exited",
+            "unavailable",
+            False,
+        )
+    with client_case.check("its details carry the exit code and no signal"):
+        assert (error.details["exit_code"], error.details["signal"]) == (101, None)
+    with client_case.check(
+        "its stderr tail is the output's last 64 KiB, cut where a character starts"
+    ):
+        assert error.details["stderr_tail"] == "é" * 367 + "\n" + f"{CRASH_LINE}\n" * 32
+    with client_case.check(
+        "each line of its stderr reached the host's logger at warning"
+    ):
+        assert engine_warnings(caplog) == [CRASH_LINE] * 40
+    with client_case.check("the SDK wrote nothing to its own stdout or stderr"):
+        assert capfd.readouterr() == ("", "")
 
 
 @three_ways

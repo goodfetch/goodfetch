@@ -10,7 +10,7 @@ use std::io::{self, BufRead, Write};
 
 use serde_json::{Value, json};
 
-use crate::script::{Call, Reply, Script, Sent, Step};
+use crate::script::{Call, Exit, Reply, Script, Sent, Step};
 use crate::strict_stdout::is_json_rpc;
 
 /// Where an Attached engine started as an SDK starts one,
@@ -24,14 +24,14 @@ pub const ATTACHED_SCRIPT: &str = "scripted-engine/script.json";
 pub const ATTACHED_RECORD: &str = "scripted-engine/record.jsonl";
 
 /// How a script that played to its end ends.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ending {
     /// The Client closed its end after the last step.
     Finished,
     /// The script closed the connection.
     Closed,
-    /// The script exits its process with this code.
-    Exit(u8),
+    /// The script exits its process as this step says.
+    Exit(Exit),
 }
 
 /// Plays `script` to the Client that writes `client` and reads `engine`,
@@ -163,7 +163,7 @@ impl<C: BufRead, E: Write, R: Write> Player<C, E, R> {
                     .map_err(PlayError::ClientGone)?;
                 self.note(&json!({ "from": "engine", "raw": raw.text }))?;
             }
-            Step::Exit(exit) => return Ok(Some(Ending::Exit(exit.code))),
+            Step::Exit(exit) => return Ok(Some(Ending::Exit(exit.clone()))),
         }
         Ok(None)
     }

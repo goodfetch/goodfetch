@@ -93,6 +93,44 @@ covers = ["story:11-20"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
+# An Attached engine that ends before its Connection's close (ADRs 0078, 0079
+# and 0122; issue 1267): the call in flight fails with `engine_exited`, not
+# retryable, carrying the exit code, the signal and the last 64 KiB of the
+# engine's stderr, cut where a character starts; each stderr line reached
+# the host's logger at warning, and the SDK wrote nothing to its own stdout
+# or stderr. Rust's Attached transport and linked engine thread join with
+# issue 3029.
+[[capability.case]]
+id = "engine-exited-carries-its-evidence"
+covers = ["story:11-24", "story:11-27", "error:engine_exited"]
+surfaces = ["sdk-typescript", "sdk-python"]
+modes = ["attached"]
+
+# Ctrl+C reaches only the host (ADRs 0078 and 0093; issue 1267): the
+# Attached engine runs in a process group of its own, so SIGINT sent to the
+# host's group leaves it running, and the host's unwinding, Python's
+# `KeyboardInterrupt` or the handler a TypeScript program installs, closes
+# the running Run, which stops with a Checkpoint, then the Connection. Its
+# test sends SIGINT; the Windows half, CTRL_C_EVENT, has no test yet.
+[[capability.case]]
+id = "interrupt-reaches-only-the-host"
+covers = ["story:11-22"]
+surfaces = ["sdk-typescript", "sdk-python"]
+modes = ["attached"]
+platforms = ["unix"]
+
+# A Connection, and every value under it, belongs to the process that
+# opened it (ADR 0078; issue 1267): used in a child created by `fork`, it
+# fails with `connection_forked` and the fix "connect in the child process",
+# and writes nothing to the parent's engine, while a Connection the child
+# opens works. Node has no `fork`; Rust joins with issue 3029.
+[[capability.case]]
+id = "connection-used-after-fork"
+covers = ["story:11-23", "error:connection_forked"]
+surfaces = ["sdk-python"]
+modes = ["attached"]
+platforms = ["unix"]
+
 # The catalog's operations reach the engine through the members generated
 # from them (ADR 0099; issues 2399, 1233 and 2793): attached in TypeScript
 # and Python, linked in Rust, each surface taking the modes it has.

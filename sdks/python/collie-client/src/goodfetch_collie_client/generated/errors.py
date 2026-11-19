@@ -194,6 +194,14 @@ class ConfinementUnavailableError(RefusedError):
         super().__init__(message, code="confinement_unavailable", group="refused", retryable=False, **fields)
 
 
+class ConnectionForkedError(ProgramError):
+    """The call was made in another process than the one that opened its Connection, such as a child created by `fork`: a Connection and every Run, Session or Page under it belong to the process that opened them. Connect in the child process."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="connection_forked", group="program", retryable=False, **fields)
+
+
 class ConnectionLostError(UnavailableError):
     """The Connection to the engine dropped before the call was answered, so whether it took effect is unknown. The Client connects again by itself; make the call again once it has, after checking that an Effect did not happen."""
 
@@ -902,6 +910,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "challenge_unsolved": ChallengeUnsolvedError,
     "closed": ClosedError,
     "confinement_unavailable": ConfinementUnavailableError,
+    "connection_forked": ConnectionForkedError,
     "connection_lost": ConnectionLostError,
     "connection_overloaded": ConnectionOverloadedError,
     "daemon_draining": DaemonDrainingError,

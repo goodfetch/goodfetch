@@ -62,6 +62,7 @@ from goodfetch_collie_client.host_logging import (
 from goodfetch_collie_client.limits import Limits, limit_list
 from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.once import Once
+from goodfetch_collie_client.opening_process import OpeningProcess
 from goodfetch_collie_client.rpc import Channel, InvalidLine, ReadFailed, WriteFailed
 from goodfetch_collie_client.run import AsyncRun
 from goodfetch_collie_client.settings import settings_on_wire
@@ -201,6 +202,7 @@ class ClientConnection:
         """
         self._engine = engine
         self._reached = reached
+        self._opener = OpeningProcess()
         self._channel = Channel(transport, self, error_classes)
         self._operations = AsyncCollieOperations(self)
         self._runs: dict[AsyncRun, None] = {}
@@ -268,6 +270,7 @@ class ClientConnection:
         The engine's answers are not validated beyond `hello`'s protocol
         version (STYLE.md), nor are the params, which the engine checks.
         """
+        self._opener.ensure_current(operation)
         wire = params.model_dump(
             mode="json", by_alias=True, exclude_unset=True, warnings=False
         )
@@ -278,6 +281,7 @@ class ClientConnection:
 
         Its params and its result are the wire's JSON, unconverted.
         """
+        self._opener.ensure_current(operation)
         self.ensure_open(operation)
         result = await self._channel.call(operation, params)
         # Engine answers are not validated beyond `hello`'s protocol version
@@ -298,11 +302,13 @@ class ClientConnection:
         `$/chunk`, on the reading task, so it must not block; `sent` is told
         that id once the call is written, for the credits `notify` grants.
         """
+        self._opener.ensure_current(method)
         self.ensure_open(method)
         return await self._channel.stream(method, params, notified, sent=sent)
 
     async def notify(self, method: str, params: Mapping[str, object]) -> None:
         """Sends the engine the notification `method`, such as `$/credit`."""
+        self._opener.ensure_current(method)
         await self._channel.notify(method, params)
 
     async def start(
@@ -324,6 +330,7 @@ class ClientConnection:
         start tells it first with `connection.set_log_level`.
         """
         warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        self._opener.ensure_current("run.start")
         self.ensure_open("run.start")
         fields: dict[str, object] = {}
         if run_id is not None:
@@ -375,7 +382,11 @@ class ClientConnection:
             DeadlineExceededError: The close outlasted its timeout, so the
                 engine was killed.
             GoodfetchError: Closing a Run failed; the first failure is raised.
+            ConnectionForkedError: Another process than the one that opened
+                it, such as a forked child, closed it, which leaves the
+                opener's engine untouched.
         """
+        self._opener.ensure_current()
         await self._closing.run(self._close, shield=True)
 
     async def ended(self, end: TransportEnd) -> GoodfetchError:

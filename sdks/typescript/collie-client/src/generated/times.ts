@@ -3,8 +3,46 @@
 import type { Times } from "../times.ts";
 import type { CollieOperationTypes } from "./operations.ts";
 
+/** The names of the types Collie's table holds. */
+export type CollieTimeType =
+  | "AppliedLimit"
+  | "AuditExported"
+  | "CertificatePin"
+  | "CertsListed"
+  | "Checkpoint"
+  | "DatasetRecord"
+  | "EffectClosed"
+  | "EffectOpened"
+  | "ExportedAuditEntry"
+  | "HumanPause"
+  | "LimitUsage"
+  | "ModelAllowance"
+  | "NeedsYouChange"
+  | "NeedsYouItem"
+  | "NeedsYouList"
+  | "NothingDone"
+  | "ReachedLimit"
+  | "RecordProvenance"
+  | "RecordRead"
+  | "RecordingReport"
+  | "ResponseOrigin"
+  | "Resync"
+  | "RunIndexRow"
+  | "RunList"
+  | "RunListParams"
+  | "RunProgress"
+  | "RunReport"
+  | "RunStopping"
+  | "RunUsage"
+  | "SigningKeyDirectory"
+  | "StopReason"
+  | "TimeRange"
+  | "TransformProvenance"
+  | "UncertainEffect"
+  | "UsageListResult";
+
 /** Where Collie's types and operation results hold points in time, which a result reads as `Date`s (ADRs 0092 and 0099). */
-export const collieTimes: Times<keyof CollieOperationTypes & string> = {
+export const collieTimes: Times<keyof CollieOperationTypes & string, CollieTimeType> = {
   types: {
     "AppliedLimit": { fields: { "resets_at": "time" } },
     "AuditExported": { fields: { "entries": { items: { type: "ExportedAuditEntry" } } } },

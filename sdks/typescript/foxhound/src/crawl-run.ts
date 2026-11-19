@@ -290,7 +290,7 @@ export function handleRequest(
 function recordOf(method: string, params: unknown): DatasetRecord | undefined {
   if (method !== "$/record" || typeof params !== "object" || params === null) return undefined;
   if (!("record" in params)) return undefined;
-  const record = withTimes(params.record, { type: "DatasetRecord" }, foxhoundTimes.types);
+  const record = withTimes(params.record, foxhoundTimes.types.DatasetRecord, foxhoundTimes.types);
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine messages are not validated beyond `hello`'s protocol version (STYLE.md): a `$/record` carries a Dataset's Record, its points in time read as `Date`s.
   return record as DatasetRecord;
 }

@@ -388,12 +388,24 @@ pub(super) fn file(layer: &Layer) -> Result<String> {
     match layer.product {
         Product::Collie => text.push_str("import type { Times } from \"../times.ts\";\n"),
         Product::Foxhound => text.push_str(
-            "import { collieTimes, type Times } from \"@goodfetch/collie-client/runtime\";\n",
+            "import { collieTimes, type CollieTimeType, type Times } from \"@goodfetch/collie-client/runtime\";\n",
         ),
     }
     let _ = writeln!(
         text,
         "import type {{ {product}OperationTypes }} from \"./operations.ts\";\n"
+    );
+    let mut names: Vec<String> = table.types.keys().map(|name| literal(name)).collect();
+    if layer.product == Product::Foxhound {
+        names.insert(0, "CollieTimeType".to_owned());
+    }
+    if names.is_empty() {
+        names.push("never".to_owned());
+    }
+    let _ = writeln!(
+        text,
+        "/** The names of the types {product}'s table holds. */\nexport type {product}TimeType =\n  | {};\n",
+        names.join("\n  | ")
     );
     let _ = writeln!(
         text,
@@ -401,7 +413,7 @@ pub(super) fn file(layer: &Layer) -> Result<String> {
     );
     let _ = writeln!(
         text,
-        "export const {}: Times<keyof {product}OperationTypes & string> = {{",
+        "export const {}: Times<keyof {product}OperationTypes & string, {product}TimeType> = {{",
         table_name(layer.product)
     );
     text.push_str("  types: {\n");

@@ -13,3 +13,4 @@ export * from "./errors.ts";
 export * from "./plugins.ts";
 export type * from "./shared-types.ts";
 export * from "./handles.ts";
+export type { PageSettings, RunSettings, SessionSettings, Settings } from "./settings.ts";

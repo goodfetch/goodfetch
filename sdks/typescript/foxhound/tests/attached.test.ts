@@ -32,7 +32,11 @@ describe("Foxhound.connect() on an Attached engine", () => {
         product: "foxhound",
         version: "0.0.0",
         protocolVersion: "0.1",
+        projectFile: null,
+        home: env["GOODFETCH_HOME"],
         enginePath: env["GOODFETCH_FOXHOUND_ENGINE_PATH"],
+        url: null,
+        fallback: null,
       });
       expect(traced.report).toMatchObject({ lifecycle: "finished", verdict: "verified" });
       expect([whileOpen, processHandlers()]).toEqual([before, before]);

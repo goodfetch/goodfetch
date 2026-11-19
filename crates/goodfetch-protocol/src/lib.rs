@@ -52,6 +52,7 @@ pub mod sample;
 pub mod secret_reference;
 pub mod secrets;
 pub mod security;
+pub mod setting_scopes;
 pub mod settings;
 pub mod site_preferences;
 pub mod storage;

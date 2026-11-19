@@ -13,7 +13,9 @@
 export type { Connection } from "./connection.ts";
 export type { EngineInfo, StartOptions } from "./client-connection.ts";
 export type { ConnectOptions, ConnectOverOptions } from "./product-connection.ts";
+export type { EngineChoice, RemoteDaemon } from "./engine-choice.ts";
 export type { Limits, Money } from "./limits.ts";
+export type { PageSettings, RunSettings, SessionSettings, Settings } from "./generated/settings.ts";
 export type { Logger } from "./logger.ts";
 export { Run } from "./run.ts";
 export { Locator, Page, Session, type PageEvents } from "./generated/handles.ts";

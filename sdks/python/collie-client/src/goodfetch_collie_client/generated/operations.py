@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing_extensions import deprecated
 
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
+from goodfetch_collie_client.markers import warn_deprecated, warn_experimental
 
 from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 
@@ -24,6 +25,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("audit.export")
         return result_of(AuditExported, await self._caller.call("audit.export", params))
 
     async def audit_verify(self, params: AuditVerifyParams) -> AuditVerified:
@@ -31,6 +33,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("audit.verify")
         return result_of(AuditVerified, await self._caller.call("audit.verify", params))
 
     async def certs_list(self, params: CertsListParams) -> CertsListed:
@@ -38,6 +41,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("certs.list")
         return result_of(CertsListed, await self._caller.call("certs.list", params))
 
     async def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
@@ -49,6 +53,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("connection.set_log_level")
         return result_of(LogLevelSet, await self._caller.call("connection.set_log_level", params))
 
     async def daemon_health(self, params: DaemonParams) -> DaemonHealth:
@@ -68,6 +73,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("dialog.accept")
         return result_of(DialogAnswered, await self._caller.call("dialog.accept", params))
 
     async def dialog_dismiss(self, params: DialogDismissParams) -> DialogAnswered:
@@ -75,6 +81,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("dialog.dismiss")
         return result_of(DialogAnswered, await self._caller.call("dialog.dismiss", params))
 
     async def download_save_as(self, params: DownloadSaveAsParams) -> DownloadSaved:
@@ -82,6 +89,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("download.save_as")
         return result_of(DownloadSaved, await self._caller.call("download.save_as", params))
 
     async def effect_close(self, params: EffectCloseParams) -> EffectClosed:
@@ -89,6 +97,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("effect.close")
         return result_of(EffectClosed, await self._caller.call("effect.close", params))
 
     async def effect_open(self, params: EffectOpenParams) -> EffectOpened:
@@ -96,6 +105,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("effect.open")
         return result_of(EffectOpened, await self._caller.call("effect.open", params))
 
     async def engine_info(self, params: EngineInfoParams) -> EngineInfo:
@@ -107,6 +117,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("events.subscribe")
         return result_of(SubscriptionEnded, await self._caller.call("events.subscribe", params))
 
     async def key_value_store_delete(self, params: KeyValueStoreKeyParams) -> KeyValueStoreDeleted:
@@ -114,6 +125,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("key_value_store.delete")
         return result_of(KeyValueStoreDeleted, await self._caller.call("key_value_store.delete", params))
 
     async def key_value_store_get(self, params: KeyValueStoreKeyParams) -> KeyValueStoreValue:
@@ -121,6 +133,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("key_value_store.get")
         return result_of(KeyValueStoreValue, await self._caller.call("key_value_store.get", params))
 
     async def key_value_store_get_bytes(self, params: KeyValueStoreKeyParams) -> KeyValueStoreBytesValue:
@@ -128,6 +141,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("key_value_store.get_bytes")
         return result_of(KeyValueStoreBytesValue, await self._caller.call("key_value_store.get_bytes", params))
 
     async def key_value_store_keys(self, params: KeyValueStoreKeysParams) -> KeyValueStoreKeysEnded:
@@ -135,6 +149,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("key_value_store.keys")
         return result_of(KeyValueStoreKeysEnded, await self._caller.call("key_value_store.keys", params))
 
     async def key_value_store_set(self, params: KeyValueStoreSetParams) -> KeyValueStoreSet:
@@ -142,6 +157,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("key_value_store.set")
         return result_of(KeyValueStoreSet, await self._caller.call("key_value_store.set", params))
 
     async def key_value_store_set_bytes(self, params: KeyValueStoreSetBytesParams) -> KeyValueStoreSet:
@@ -149,6 +165,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("key_value_store.set_bytes")
         return result_of(KeyValueStoreSet, await self._caller.call("key_value_store.set_bytes", params))
 
     async def locator_click(self, params: ClickParams) -> Acted:
@@ -156,6 +173,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.click")
         return result_of(Acted, await self._caller.call("locator.click", params))
 
     async def locator_evaluate_all(self, params: LocatorEvaluateAllParams) -> Evaluated:
@@ -163,6 +181,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.evaluate_all")
         return result_of(Evaluated, await self._caller.call("locator.evaluate_all", params))
 
     async def locator_fill(self, params: FillParams) -> Acted:
@@ -170,6 +189,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.fill")
         return result_of(Acted, await self._caller.call("locator.fill", params))
 
     async def locator_press(self, params: PressParams) -> Acted:
@@ -177,6 +197,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.press")
         return result_of(Acted, await self._caller.call("locator.press", params))
 
     async def locator_wait_for(self, params: LocatorWaitForParams) -> Reached:
@@ -184,6 +205,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.wait_for")
         return result_of(Reached, await self._caller.call("locator.wait_for", params))
 
     async def locator_wait_for_count(self, params: WaitForCountParams) -> Counted:
@@ -191,6 +213,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.wait_for_count")
         return result_of(Counted, await self._caller.call("locator.wait_for_count", params))
 
     async def locator_wait_for_function(self, params: LocatorWaitForFunctionParams) -> Evaluated:
@@ -198,6 +221,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.wait_for_function")
         return result_of(Evaluated, await self._caller.call("locator.wait_for_function", params))
 
     async def needs_you_dismiss(self, params: NeedsYouDismissParams) -> NeedsYouDismissed:
@@ -205,6 +229,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("needs_you.dismiss")
         return result_of(NeedsYouDismissed, await self._caller.call("needs_you.dismiss", params))
 
     async def needs_you_list(self, params: NeedsYouListParams) -> NeedsYouList:
@@ -212,6 +237,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("needs_you.list")
         return result_of(NeedsYouList, await self._caller.call("needs_you.list", params))
 
     async def page_add_init_script(self, params: AddInitScriptParams) -> InitScriptEnded:
@@ -219,6 +245,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.add_init_script")
         return result_of(InitScriptEnded, await self._caller.call("page.add_init_script", params))
 
     async def page_body(self, params: PageBodyParams) -> PageBodyRead:
@@ -226,6 +253,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.body")
         return result_of(PageBodyRead, await self._caller.call("page.body", params))
 
     async def page_close(self, params: PageCloseParams) -> PageClosed:
@@ -233,6 +261,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.close")
         return result_of(PageClosed, await self._caller.call("page.close", params))
 
     async def page_evaluate(self, params: EvaluateParams) -> Evaluated:
@@ -240,6 +269,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.evaluate")
         return result_of(Evaluated, await self._caller.call("page.evaluate", params))
 
     async def page_formats(self, params: FormatsParams) -> PageFormats:
@@ -247,6 +277,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.formats")
         return result_of(PageFormats, await self._caller.call("page.formats", params))
 
     async def page_go_back(self, params: PageParams) -> Navigated:
@@ -254,6 +285,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.go_back")
         return result_of(Navigated, await self._caller.call("page.go_back", params))
 
     async def page_go_forward(self, params: PageParams) -> Navigated:
@@ -261,6 +293,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.go_forward")
         return result_of(Navigated, await self._caller.call("page.go_forward", params))
 
     async def page_goto(self, params: GotoParams) -> Navigated:
@@ -268,6 +301,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.goto")
         return result_of(Navigated, await self._caller.call("page.goto", params))
 
     async def page_on(self, params: PageOnParams) -> PageOnEnded:
@@ -275,6 +309,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.on")
         return result_of(PageOnEnded, await self._caller.call("page.on", params))
 
     async def page_on_dialog(self, params: PageOnDialogParams) -> DialogsEnded:
@@ -282,6 +317,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.on_dialog")
         return result_of(DialogsEnded, await self._caller.call("page.on_dialog", params))
 
     async def page_read(self, params: PageReadParams) -> PageRead:
@@ -289,6 +325,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.read")
         return result_of(PageRead, await self._caller.call("page.read", params))
 
     async def page_reload(self, params: PageParams) -> Navigated:
@@ -296,6 +333,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.reload")
         return result_of(Navigated, await self._caller.call("page.reload", params))
 
     async def page_request(self, params: PageRequestParams) -> PageResponse:
@@ -303,6 +341,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.request")
         return result_of(PageResponse, await self._caller.call("page.request", params))
 
     async def page_route(self, params: PageRouteParams) -> RouteEnded:
@@ -310,6 +349,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.route")
         return result_of(RouteEnded, await self._caller.call("page.route", params))
 
     async def page_wait_for_function(self, params: WaitForFunctionParams) -> Evaluated:
@@ -317,6 +357,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_function")
         return result_of(Evaluated, await self._caller.call("page.wait_for_function", params))
 
     async def page_wait_for_load_state(self, params: WaitForLoadStateParams) -> Reached:
@@ -324,6 +365,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_load_state")
         return result_of(Reached, await self._caller.call("page.wait_for_load_state", params))
 
     async def page_wait_for_request(self, params: WaitForExchangeParams) -> PageRequest:
@@ -331,6 +373,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_request")
         return result_of(PageRequest, await self._caller.call("page.wait_for_request", params))
 
     async def page_wait_for_request_finished(self, params: WaitForRequestFinishedParams) -> PageExchange:
@@ -338,6 +381,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_request_finished")
         return result_of(PageExchange, await self._caller.call("page.wait_for_request_finished", params))
 
     async def page_wait_for_response(self, params: WaitForExchangeParams) -> PageExchange:
@@ -345,6 +389,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_response")
         return result_of(PageExchange, await self._caller.call("page.wait_for_response", params))
 
     async def page_wait_for_url(self, params: WaitForUrlParams) -> Reached:
@@ -352,6 +397,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_url")
         return result_of(Reached, await self._caller.call("page.wait_for_url", params))
 
     async def response_body(self, params: ResponseBodyParams) -> BodyHandle:
@@ -359,6 +405,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("response.body")
         return result_of(BodyHandle, await self._caller.call("response.body", params))
 
     async def route_abort(self, params: RouteAbortParams) -> RouteAnswered:
@@ -366,6 +413,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("route.abort")
         return result_of(RouteAnswered, await self._caller.call("route.abort", params))
 
     async def route_continue(self, params: RouteOverridesParams) -> RouteAnswered:
@@ -373,6 +421,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("route.continue")
         return result_of(RouteAnswered, await self._caller.call("route.continue", params))
 
     async def route_fallback(self, params: RouteOverridesParams) -> RouteAnswered:
@@ -380,6 +429,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("route.fallback")
         return result_of(RouteAnswered, await self._caller.call("route.fallback", params))
 
     async def route_fetch(self, params: RouteOverridesParams) -> RouteFetched:
@@ -387,6 +437,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("route.fetch")
         return result_of(RouteFetched, await self._caller.call("route.fetch", params))
 
     async def route_fulfill(self, params: RouteFulfillParams) -> RouteAnswered:
@@ -394,6 +445,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("route.fulfill")
         return result_of(RouteAnswered, await self._caller.call("route.fulfill", params))
 
     async def run_abort(self, params: RunAbortParams) -> RunReport:
@@ -401,6 +453,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.abort")
         return result_of(RunReport, await self._caller.call("run.abort", params))
 
     async def run_checkpoint(self, params: RunCheckpointParams) -> Checkpoint:
@@ -408,6 +461,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.checkpoint")
         return result_of(Checkpoint, await self._caller.call("run.checkpoint", params))
 
     async def run_discard(self, params: RunParams) -> RunDiscarded:
@@ -415,6 +469,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.discard")
         return result_of(RunDiscarded, await self._caller.call("run.discard", params))
 
     async def run_finish(self, params: RunFinishParams) -> RunReport:
@@ -422,6 +477,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.finish")
         return result_of(RunReport, await self._caller.call("run.finish", params))
 
     async def run_list(self, params: RunListParams) -> RunList:
@@ -429,6 +485,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.list")
         return result_of(RunList, await self._caller.call("run.list", params))
 
     async def run_migrate(self, params: RunCheckpointParams) -> RunReport:
@@ -436,6 +493,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.migrate")
         return result_of(RunReport, await self._caller.call("run.migrate", params))
 
     async def run_new_page(self, params: NewPageParams) -> PageOpened:
@@ -443,6 +501,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.new_page")
         return result_of(PageOpened, await self._caller.call("run.new_page", params))
 
     async def run_new_session(self, params: NewSessionParams) -> SessionOpened:
@@ -450,6 +509,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.new_session")
         return result_of(SessionOpened, await self._caller.call("run.new_session", params))
 
     async def run_pause(self, params: RunParams) -> RunReport:
@@ -457,6 +517,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.pause")
         return result_of(RunReport, await self._caller.call("run.pause", params))
 
     async def run_progress(self, params: RunProgressParams) -> RunProgress:
@@ -464,6 +525,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.progress")
         return result_of(RunProgress, await self._caller.call("run.progress", params))
 
     async def run_report(self, params: RunParams) -> RunReport:
@@ -471,6 +533,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.report")
         return result_of(RunReport, await self._caller.call("run.report", params))
 
     async def run_resume(self, params: RunResumeParams) -> RunStarted:
@@ -478,6 +541,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.resume")
         return result_of(RunStarted, await self._caller.call("run.resume", params))
 
     async def run_set_progress_message(self, params: RunSetProgressMessageParams) -> RunProgress:
@@ -485,6 +549,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.set_progress_message")
         return result_of(RunProgress, await self._caller.call("run.set_progress_message", params))
 
     async def run_start(self, params: RunStartParams) -> RunStarted:
@@ -492,6 +557,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.start")
         return result_of(RunStarted, await self._caller.call("run.start", params))
 
     async def run_stop(self, params: RunStopParams) -> RunReport:
@@ -499,6 +565,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.stop")
         return result_of(RunReport, await self._caller.call("run.stop", params))
 
     async def run_usage(self, params: RunParams) -> RunUsage:
@@ -506,9 +573,10 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.usage")
         return result_of(RunUsage, await self._caller.call("run.usage", params))
 
-    @deprecated("Since 0.1: A sample entry, which the real catalog replaces.")
+    @deprecated("Since 0.1: A sample entry, which the real catalog replaces.", category=None)
     async def sample_echo(self, params: SampleEchoParams) -> SampleEchoResult:
         """Repeats a text back to the caller.
 
@@ -516,6 +584,8 @@ class AsyncCollieOperations:
 
         Deprecated since 0.1: A sample entry, which the real catalog replaces.
         """
+        warn_experimental("sample.echo")
+        warn_deprecated("sample.echo", "Since 0.1: A sample entry, which the real catalog replaces.")
         return result_of(SampleEchoResult, await self._caller.call("sample.echo", params))
 
     async def session_close(self, params: SessionParams) -> SessionClosed:
@@ -523,6 +593,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.close")
         return result_of(SessionClosed, await self._caller.call("session.close", params))
 
     async def session_new_page(self, params: NewSessionPageParams) -> PageOpened:
@@ -530,6 +601,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.new_page")
         return result_of(PageOpened, await self._caller.call("session.new_page", params))
 
     async def session_on(self, params: SessionOnParams) -> SessionOnEnded:
@@ -537,6 +609,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.on")
         return result_of(SessionOnEnded, await self._caller.call("session.on", params))
 
     async def session_pages(self, params: SessionParams) -> SessionPages:
@@ -544,6 +617,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.pages")
         return result_of(SessionPages, await self._caller.call("session.pages", params))
 
     async def session_route(self, params: SessionRouteParams) -> RouteEnded:
@@ -551,6 +625,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.route")
         return result_of(RouteEnded, await self._caller.call("session.route", params))
 
     async def signing_key_create(self, params: SigningKeyCreateParams) -> SigningKeyCreated:
@@ -558,6 +633,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("signing_key.create")
         return result_of(SigningKeyCreated, await self._caller.call("signing_key.create", params))
 
     async def signing_key_directory(self, params: SigningKeyDirectoryParams) -> SigningKeyDirectory:
@@ -565,6 +641,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("signing_key.directory")
         return result_of(SigningKeyDirectory, await self._caller.call("signing_key.directory", params))
 
     async def usage_list(self, params: UsageListParams) -> UsageListResult:
@@ -572,6 +649,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("usage.list")
         return result_of(UsageListResult, await self._caller.call("usage.list", params))
 
     async def usage_set(self, params: UsageSetParams) -> LimitUsage:
@@ -579,6 +657,7 @@ class AsyncCollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("usage.set")
         return result_of(LimitUsage, await self._caller.call("usage.set", params))
 
 
@@ -594,6 +673,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("audit.export")
         return result_of(AuditExported, self._caller.call("audit.export", params))
 
     def audit_verify(self, params: AuditVerifyParams) -> AuditVerified:
@@ -601,6 +681,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("audit.verify")
         return result_of(AuditVerified, self._caller.call("audit.verify", params))
 
     def certs_list(self, params: CertsListParams) -> CertsListed:
@@ -608,6 +689,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("certs.list")
         return result_of(CertsListed, self._caller.call("certs.list", params))
 
     def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
@@ -619,6 +701,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("connection.set_log_level")
         return result_of(LogLevelSet, self._caller.call("connection.set_log_level", params))
 
     def daemon_health(self, params: DaemonParams) -> DaemonHealth:
@@ -638,6 +721,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("dialog.accept")
         return result_of(DialogAnswered, self._caller.call("dialog.accept", params))
 
     def dialog_dismiss(self, params: DialogDismissParams) -> DialogAnswered:
@@ -645,6 +729,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("dialog.dismiss")
         return result_of(DialogAnswered, self._caller.call("dialog.dismiss", params))
 
     def download_save_as(self, params: DownloadSaveAsParams) -> DownloadSaved:
@@ -652,6 +737,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("download.save_as")
         return result_of(DownloadSaved, self._caller.call("download.save_as", params))
 
     def effect_close(self, params: EffectCloseParams) -> EffectClosed:
@@ -659,6 +745,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("effect.close")
         return result_of(EffectClosed, self._caller.call("effect.close", params))
 
     def effect_open(self, params: EffectOpenParams) -> EffectOpened:
@@ -666,6 +753,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("effect.open")
         return result_of(EffectOpened, self._caller.call("effect.open", params))
 
     def engine_info(self, params: EngineInfoParams) -> EngineInfo:
@@ -677,6 +765,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("events.subscribe")
         return result_of(SubscriptionEnded, self._caller.call("events.subscribe", params))
 
     def key_value_store_delete(self, params: KeyValueStoreKeyParams) -> KeyValueStoreDeleted:
@@ -684,6 +773,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("key_value_store.delete")
         return result_of(KeyValueStoreDeleted, self._caller.call("key_value_store.delete", params))
 
     def key_value_store_get(self, params: KeyValueStoreKeyParams) -> KeyValueStoreValue:
@@ -691,6 +781,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("key_value_store.get")
         return result_of(KeyValueStoreValue, self._caller.call("key_value_store.get", params))
 
     def key_value_store_get_bytes(self, params: KeyValueStoreKeyParams) -> KeyValueStoreBytesValue:
@@ -698,6 +789,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("key_value_store.get_bytes")
         return result_of(KeyValueStoreBytesValue, self._caller.call("key_value_store.get_bytes", params))
 
     def key_value_store_keys(self, params: KeyValueStoreKeysParams) -> KeyValueStoreKeysEnded:
@@ -705,6 +797,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("key_value_store.keys")
         return result_of(KeyValueStoreKeysEnded, self._caller.call("key_value_store.keys", params))
 
     def key_value_store_set(self, params: KeyValueStoreSetParams) -> KeyValueStoreSet:
@@ -712,6 +805,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("key_value_store.set")
         return result_of(KeyValueStoreSet, self._caller.call("key_value_store.set", params))
 
     def key_value_store_set_bytes(self, params: KeyValueStoreSetBytesParams) -> KeyValueStoreSet:
@@ -719,6 +813,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("key_value_store.set_bytes")
         return result_of(KeyValueStoreSet, self._caller.call("key_value_store.set_bytes", params))
 
     def locator_click(self, params: ClickParams) -> Acted:
@@ -726,6 +821,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.click")
         return result_of(Acted, self._caller.call("locator.click", params))
 
     def locator_evaluate_all(self, params: LocatorEvaluateAllParams) -> Evaluated:
@@ -733,6 +829,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.evaluate_all")
         return result_of(Evaluated, self._caller.call("locator.evaluate_all", params))
 
     def locator_fill(self, params: FillParams) -> Acted:
@@ -740,6 +837,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.fill")
         return result_of(Acted, self._caller.call("locator.fill", params))
 
     def locator_press(self, params: PressParams) -> Acted:
@@ -747,6 +845,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.press")
         return result_of(Acted, self._caller.call("locator.press", params))
 
     def locator_wait_for(self, params: LocatorWaitForParams) -> Reached:
@@ -754,6 +853,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.wait_for")
         return result_of(Reached, self._caller.call("locator.wait_for", params))
 
     def locator_wait_for_count(self, params: WaitForCountParams) -> Counted:
@@ -761,6 +861,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.wait_for_count")
         return result_of(Counted, self._caller.call("locator.wait_for_count", params))
 
     def locator_wait_for_function(self, params: LocatorWaitForFunctionParams) -> Evaluated:
@@ -768,6 +869,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("locator.wait_for_function")
         return result_of(Evaluated, self._caller.call("locator.wait_for_function", params))
 
     def needs_you_dismiss(self, params: NeedsYouDismissParams) -> NeedsYouDismissed:
@@ -775,6 +877,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("needs_you.dismiss")
         return result_of(NeedsYouDismissed, self._caller.call("needs_you.dismiss", params))
 
     def needs_you_list(self, params: NeedsYouListParams) -> NeedsYouList:
@@ -782,6 +885,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("needs_you.list")
         return result_of(NeedsYouList, self._caller.call("needs_you.list", params))
 
     def page_add_init_script(self, params: AddInitScriptParams) -> InitScriptEnded:
@@ -789,6 +893,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.add_init_script")
         return result_of(InitScriptEnded, self._caller.call("page.add_init_script", params))
 
     def page_body(self, params: PageBodyParams) -> PageBodyRead:
@@ -796,6 +901,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.body")
         return result_of(PageBodyRead, self._caller.call("page.body", params))
 
     def page_close(self, params: PageCloseParams) -> PageClosed:
@@ -803,6 +909,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.close")
         return result_of(PageClosed, self._caller.call("page.close", params))
 
     def page_evaluate(self, params: EvaluateParams) -> Evaluated:
@@ -810,6 +917,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.evaluate")
         return result_of(Evaluated, self._caller.call("page.evaluate", params))
 
     def page_formats(self, params: FormatsParams) -> PageFormats:
@@ -817,6 +925,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.formats")
         return result_of(PageFormats, self._caller.call("page.formats", params))
 
     def page_go_back(self, params: PageParams) -> Navigated:
@@ -824,6 +933,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.go_back")
         return result_of(Navigated, self._caller.call("page.go_back", params))
 
     def page_go_forward(self, params: PageParams) -> Navigated:
@@ -831,6 +941,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.go_forward")
         return result_of(Navigated, self._caller.call("page.go_forward", params))
 
     def page_goto(self, params: GotoParams) -> Navigated:
@@ -838,6 +949,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.goto")
         return result_of(Navigated, self._caller.call("page.goto", params))
 
     def page_on(self, params: PageOnParams) -> PageOnEnded:
@@ -845,6 +957,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.on")
         return result_of(PageOnEnded, self._caller.call("page.on", params))
 
     def page_on_dialog(self, params: PageOnDialogParams) -> DialogsEnded:
@@ -852,6 +965,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.on_dialog")
         return result_of(DialogsEnded, self._caller.call("page.on_dialog", params))
 
     def page_read(self, params: PageReadParams) -> PageRead:
@@ -859,6 +973,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.read")
         return result_of(PageRead, self._caller.call("page.read", params))
 
     def page_reload(self, params: PageParams) -> Navigated:
@@ -866,6 +981,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.reload")
         return result_of(Navigated, self._caller.call("page.reload", params))
 
     def page_request(self, params: PageRequestParams) -> PageResponse:
@@ -873,6 +989,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.request")
         return result_of(PageResponse, self._caller.call("page.request", params))
 
     def page_route(self, params: PageRouteParams) -> RouteEnded:
@@ -880,6 +997,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.route")
         return result_of(RouteEnded, self._caller.call("page.route", params))
 
     def page_wait_for_function(self, params: WaitForFunctionParams) -> Evaluated:
@@ -887,6 +1005,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_function")
         return result_of(Evaluated, self._caller.call("page.wait_for_function", params))
 
     def page_wait_for_load_state(self, params: WaitForLoadStateParams) -> Reached:
@@ -894,6 +1013,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_load_state")
         return result_of(Reached, self._caller.call("page.wait_for_load_state", params))
 
     def page_wait_for_request(self, params: WaitForExchangeParams) -> PageRequest:
@@ -901,6 +1021,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_request")
         return result_of(PageRequest, self._caller.call("page.wait_for_request", params))
 
     def page_wait_for_request_finished(self, params: WaitForRequestFinishedParams) -> PageExchange:
@@ -908,6 +1029,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_request_finished")
         return result_of(PageExchange, self._caller.call("page.wait_for_request_finished", params))
 
     def page_wait_for_response(self, params: WaitForExchangeParams) -> PageExchange:
@@ -915,6 +1037,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_response")
         return result_of(PageExchange, self._caller.call("page.wait_for_response", params))
 
     def page_wait_for_url(self, params: WaitForUrlParams) -> Reached:
@@ -922,6 +1045,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("page.wait_for_url")
         return result_of(Reached, self._caller.call("page.wait_for_url", params))
 
     def response_body(self, params: ResponseBodyParams) -> BodyHandle:
@@ -929,6 +1053,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("response.body")
         return result_of(BodyHandle, self._caller.call("response.body", params))
 
     def route_abort(self, params: RouteAbortParams) -> RouteAnswered:
@@ -936,6 +1061,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("route.abort")
         return result_of(RouteAnswered, self._caller.call("route.abort", params))
 
     def route_continue(self, params: RouteOverridesParams) -> RouteAnswered:
@@ -943,6 +1069,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("route.continue")
         return result_of(RouteAnswered, self._caller.call("route.continue", params))
 
     def route_fallback(self, params: RouteOverridesParams) -> RouteAnswered:
@@ -950,6 +1077,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("route.fallback")
         return result_of(RouteAnswered, self._caller.call("route.fallback", params))
 
     def route_fetch(self, params: RouteOverridesParams) -> RouteFetched:
@@ -957,6 +1085,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("route.fetch")
         return result_of(RouteFetched, self._caller.call("route.fetch", params))
 
     def route_fulfill(self, params: RouteFulfillParams) -> RouteAnswered:
@@ -964,6 +1093,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("route.fulfill")
         return result_of(RouteAnswered, self._caller.call("route.fulfill", params))
 
     def run_abort(self, params: RunAbortParams) -> RunReport:
@@ -971,6 +1101,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.abort")
         return result_of(RunReport, self._caller.call("run.abort", params))
 
     def run_checkpoint(self, params: RunCheckpointParams) -> Checkpoint:
@@ -978,6 +1109,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.checkpoint")
         return result_of(Checkpoint, self._caller.call("run.checkpoint", params))
 
     def run_discard(self, params: RunParams) -> RunDiscarded:
@@ -985,6 +1117,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.discard")
         return result_of(RunDiscarded, self._caller.call("run.discard", params))
 
     def run_finish(self, params: RunFinishParams) -> RunReport:
@@ -992,6 +1125,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.finish")
         return result_of(RunReport, self._caller.call("run.finish", params))
 
     def run_list(self, params: RunListParams) -> RunList:
@@ -999,6 +1133,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.list")
         return result_of(RunList, self._caller.call("run.list", params))
 
     def run_migrate(self, params: RunCheckpointParams) -> RunReport:
@@ -1006,6 +1141,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.migrate")
         return result_of(RunReport, self._caller.call("run.migrate", params))
 
     def run_new_page(self, params: NewPageParams) -> PageOpened:
@@ -1013,6 +1149,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.new_page")
         return result_of(PageOpened, self._caller.call("run.new_page", params))
 
     def run_new_session(self, params: NewSessionParams) -> SessionOpened:
@@ -1020,6 +1157,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.new_session")
         return result_of(SessionOpened, self._caller.call("run.new_session", params))
 
     def run_pause(self, params: RunParams) -> RunReport:
@@ -1027,6 +1165,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.pause")
         return result_of(RunReport, self._caller.call("run.pause", params))
 
     def run_progress(self, params: RunProgressParams) -> RunProgress:
@@ -1034,6 +1173,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.progress")
         return result_of(RunProgress, self._caller.call("run.progress", params))
 
     def run_report(self, params: RunParams) -> RunReport:
@@ -1041,6 +1181,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.report")
         return result_of(RunReport, self._caller.call("run.report", params))
 
     def run_resume(self, params: RunResumeParams) -> RunStarted:
@@ -1048,6 +1189,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.resume")
         return result_of(RunStarted, self._caller.call("run.resume", params))
 
     def run_set_progress_message(self, params: RunSetProgressMessageParams) -> RunProgress:
@@ -1055,6 +1197,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.set_progress_message")
         return result_of(RunProgress, self._caller.call("run.set_progress_message", params))
 
     def run_start(self, params: RunStartParams) -> RunStarted:
@@ -1062,6 +1205,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.start")
         return result_of(RunStarted, self._caller.call("run.start", params))
 
     def run_stop(self, params: RunStopParams) -> RunReport:
@@ -1069,6 +1213,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.stop")
         return result_of(RunReport, self._caller.call("run.stop", params))
 
     def run_usage(self, params: RunParams) -> RunUsage:
@@ -1076,9 +1221,10 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("run.usage")
         return result_of(RunUsage, self._caller.call("run.usage", params))
 
-    @deprecated("Since 0.1: A sample entry, which the real catalog replaces.")
+    @deprecated("Since 0.1: A sample entry, which the real catalog replaces.", category=None)
     def sample_echo(self, params: SampleEchoParams) -> SampleEchoResult:
         """Repeats a text back to the caller.
 
@@ -1086,6 +1232,8 @@ class CollieOperations:
 
         Deprecated since 0.1: A sample entry, which the real catalog replaces.
         """
+        warn_experimental("sample.echo")
+        warn_deprecated("sample.echo", "Since 0.1: A sample entry, which the real catalog replaces.")
         return result_of(SampleEchoResult, self._caller.call("sample.echo", params))
 
     def session_close(self, params: SessionParams) -> SessionClosed:
@@ -1093,6 +1241,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.close")
         return result_of(SessionClosed, self._caller.call("session.close", params))
 
     def session_new_page(self, params: NewSessionPageParams) -> PageOpened:
@@ -1100,6 +1249,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.new_page")
         return result_of(PageOpened, self._caller.call("session.new_page", params))
 
     def session_on(self, params: SessionOnParams) -> SessionOnEnded:
@@ -1107,6 +1257,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.on")
         return result_of(SessionOnEnded, self._caller.call("session.on", params))
 
     def session_pages(self, params: SessionParams) -> SessionPages:
@@ -1114,6 +1265,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.pages")
         return result_of(SessionPages, self._caller.call("session.pages", params))
 
     def session_route(self, params: SessionRouteParams) -> RouteEnded:
@@ -1121,6 +1273,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("session.route")
         return result_of(RouteEnded, self._caller.call("session.route", params))
 
     def signing_key_create(self, params: SigningKeyCreateParams) -> SigningKeyCreated:
@@ -1128,6 +1281,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("signing_key.create")
         return result_of(SigningKeyCreated, self._caller.call("signing_key.create", params))
 
     def signing_key_directory(self, params: SigningKeyDirectoryParams) -> SigningKeyDirectory:
@@ -1135,6 +1289,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("signing_key.directory")
         return result_of(SigningKeyDirectory, self._caller.call("signing_key.directory", params))
 
     def usage_list(self, params: UsageListParams) -> UsageListResult:
@@ -1142,6 +1297,7 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("usage.list")
         return result_of(UsageListResult, self._caller.call("usage.list", params))
 
     def usage_set(self, params: UsageSetParams) -> LimitUsage:
@@ -1149,4 +1305,5 @@ class CollieOperations:
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
+        warn_experimental("usage.set")
         return result_of(LimitUsage, self._caller.call("usage.set", params))

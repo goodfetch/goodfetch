@@ -63,6 +63,7 @@ use goodfetch_protocol::page::Chunk;
 use goodfetch_protocol::releases::ReleasesFile;
 use goodfetch_protocol::result_document::ResultDocument;
 use goodfetch_protocol::run::RunsReindexOutput;
+use goodfetch_protocol::setting_scopes;
 use goodfetch_protocol::settings::SettingsExplanation;
 use goodfetch_protocol::versions::FilesUpgraded;
 
@@ -80,7 +81,7 @@ pub(super) struct Emitted {
 /// Emits the bundle and catalog of every entry `goodfetch-protocol` defines.
 pub(super) fn emit() -> Emitted {
     let mut generator = SchemaSettings::draft2020_12().into_generator();
-    let mut sections = Sections::default();
+    let mut sections = Sections::new(setting_scopes::of);
     for entries in MODULES {
         sections.add(entries, &mut generator);
     }

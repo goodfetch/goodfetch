@@ -81,7 +81,11 @@ describe("a Collie Connection", () => {
       product: "foxhound",
       version: "0.0.0",
       protocolVersion: "0.1",
+      projectFile: null,
+      home: null,
       enginePath: null,
+      url: null,
+      fallback: null,
     });
     expect(played.done()).toEqual({ kind: "finished" });
   });
@@ -213,8 +217,8 @@ describe("a Collie Connection", () => {
         expect(error).toMatchObject({
           code: "deadline_exceeded",
           group: "deadline_exceeded",
+          limit: { key: "timeout.close", value: 30_000, layer: "default" },
           details: {
-            limit: { key: "timeout.close", value: 30_000, layer: "default" },
             elapsed: 30_000,
             waited_for: "close",
           },

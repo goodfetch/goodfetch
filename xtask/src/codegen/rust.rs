@@ -181,6 +181,8 @@ struct MemberModel {
     ident: String,
     doc: String,
     deprecated: Option<String>,
+    /// ADR 0030's run-time warning of its markers, which it opens with.
+    warning: Option<String>,
     form: Form,
     method: String,
     params: String,
@@ -419,6 +421,23 @@ fn doc(
     comment(&paragraphs.join("\n\n"))
 }
 
+/// The statement a member of the entry `name` opens with: ADR 0030's
+/// run-time warning of each marker it carries, once per process, or `None`
+/// for a stable entry that is not deprecated.
+fn warning(name: &str, stability: Stability, deprecated: Option<&Deprecation>) -> Option<String> {
+    let experimental = stability == Stability::Experimental;
+    if !experimental && deprecated.is_none() {
+        return None;
+    }
+    let deprecation = deprecated.map_or_else(
+        || "None".to_owned(),
+        |deprecated| format!("Some({:?})", deprecated.message()),
+    );
+    Some(format!(
+        "crate::markers::warn({name:?}, {experimental}, {deprecation});"
+    ))
+}
+
 /// `text` as `///` lines.
 fn comment(text: &str) -> String {
     text.lines().fold(String::new(), |mut comment, line| {
@@ -598,6 +617,11 @@ fn member_model(
                 Builds::Call => CALL_ERRORS,
                 Builds::Query => QUERY_ERRORS,
             },
+        ),
+        warning: warning(
+            &operation.name,
+            operation.stability,
+            operation.deprecated.as_ref(),
         ),
         deprecated: operation.deprecated.as_ref().map(|deprecated| {
             format!(
@@ -879,6 +903,9 @@ impl Module {
                 )
             }
         };
+        if let (Twin::Async, Some(warning)) = (self.twin, &member.warning) {
+            let _ = writeln!(self.body, "        {warning}");
+        }
         let _ = writeln!(self.body, "        {body}\n    }}");
     }
 

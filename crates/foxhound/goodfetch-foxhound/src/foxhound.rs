@@ -6,7 +6,7 @@
 
 use goodfetch_collie::ConnectOptions;
 use goodfetch_collie::linked::{Composed, LinkedConnection};
-use goodfetch_collie_client::{Connection, Error, Start, UsageKind};
+use goodfetch_collie_client::{ClientConnection, Connection, Error, Start, UsageKind};
 use goodfetch_protocol::catalog::Product;
 
 /// Foxhound's linked engine: Foxhound, of [`crate::composition`].
@@ -140,11 +140,23 @@ impl Foxhound {
     }
 }
 
-/// The Connection, the type a helper written for either Product takes
-/// (ADR 0095): `helper(foxhound.as_ref())`, until
-/// ADR 0099's `Connection` trait lands (#1257).
-impl AsRef<Connection> for Foxhound {
-    fn as_ref(&self) -> &Connection {
+/// The Connection both Products' connections implement (ADRs 0095 and
+/// 0099), so a helper taking `&impl Connection` takes a `Foxhound`; its
+/// members are the inherent ones above.
+impl Connection for Foxhound {
+    fn start(&self) -> Start {
+        Foxhound::start(self)
+    }
+
+    async fn close(&self) -> Result<(), Error> {
+        Foxhound::close(self).await
+    }
+}
+
+/// The client crate's connection, the way down to its `call` (ADR 0099)
+/// until the public `call` joins the Connection with its own ticket.
+impl AsRef<ClientConnection> for Foxhound {
+    fn as_ref(&self) -> &ClientConnection {
         self.linked.connection()
     }
 }

@@ -195,7 +195,7 @@ describe("a Crawl", () => {
   );
 
   test(
-    "fails a records() read with closed once its Run is closed, sending nothing",
+    "throws closed from records() once its Run is closed, sending nothing",
     { tags: ["story:11-1015", "error:closed"] },
     async () => {
       const played = playScript("run/foxhound-crawl-records-after-close.json");
@@ -206,9 +206,7 @@ describe("a Crawl", () => {
         runId: "nightly",
       });
       await run.close();
-      const read = run.records(products).next();
-
-      await expect(read).rejects.toBeInstanceOf(ClosedError);
+      expect(() => run.records(products)).toThrow(ClosedError);
       await foxhound.close();
       expect(played.done()).toEqual({ kind: "finished" });
     },

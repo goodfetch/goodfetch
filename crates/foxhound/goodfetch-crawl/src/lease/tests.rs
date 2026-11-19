@@ -12,9 +12,14 @@ mod model;
 use std::time::Duration;
 
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::lease::{LeaseCheck as _, LeaseEnded};
+use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
+use goodfetch_protocol::jsonrpc::RequestId;
+use goodfetch_protocol::settings::TIMEOUT_ACTION;
 use proptest::prelude::*;
+use serde_json::{Value, json};
 use tokio::time::Instant;
 
 use super::{Lease, Leases};
@@ -154,5 +159,93 @@ fn a_command_withheld_after_the_lease_ended_raises_attempt_ended() {
             (error.code(), error.retryable()),
             (ATTEMPT_ENDED.name, ATTEMPT_ENDED.retryable)
         );
+    });
+}
+
+/// A page call made inside a crawl handler ends at the handler's own end,
+/// its `timeout.handler` (ADR 0080), not at its own 30 s `timeout.action`,
+/// and its `deadline_exceeded` names the handler call as `ended_by`.
+///
+/// Covers: story:11-41, story:11-43
+#[test]
+fn a_handler_page_call_ends_at_the_handlers_timeout_and_names_it() {
+    on_paused_clock(async |leases, clock| {
+        let start = clock.now();
+        let lease = leases.grant("1", 1, DEFAULT_LEASE);
+        lease.handler_sent(RequestId::Number(4));
+        let handler = lease.enclosing().expect("a handler call was sent");
+        clock.sleep(Duration::from_secs(55)).await;
+
+        let ended = handler
+            .bound(
+                &clock,
+                Deadline::declared(&TIMEOUT_ACTION).within(
+                    &clock,
+                    WaitedFor::BROWSER_ANSWER,
+                    std::future::pending::<()>(),
+                ),
+                || Some("a navigation under way on page `p-1`".to_owned()),
+            )
+            .await;
+
+        let error = ended.expect_err("the handler's end came first");
+        assert_eq!(
+            (
+                clock.now().duration_since(start),
+                error.code(),
+                error.details().cloned().map(Value::Object)
+            ),
+            (
+                Duration::from_secs(60),
+                "deadline_exceeded",
+                Some(json!({
+                    "limit": { "key": "timeout.handler", "value": 60_000, "layer": "default" },
+                    "elapsed": 5_000,
+                    "waited_for": "answer",
+                    "ended_by": { "operation": "crawl_request.handle", "call_id": 4 },
+                    "observed": "a navigation under way on page `p-1`",
+                }))
+            )
+        );
+    });
+}
+
+/// Before the handler call is sent, and in a code-free crawl, which sends
+/// none, nothing encloses the attempt's page calls.
+#[test]
+fn no_handler_call_sent_encloses_nothing() {
+    on_paused_clock(async |leases, _clock| {
+        let lease = leases.grant("1", 1, DEFAULT_LEASE);
+
+        assert!(lease.enclosing().is_none());
+    });
+}
+
+/// A handler's wait for a navigation-gate permit renews its lease (ADR
+/// 0093), and the renewal moves the handler's end later, so the wait does
+/// not count toward `timeout.handler`.
+///
+/// Covers: story:11-41
+#[test]
+fn a_renewal_during_a_permit_wait_moves_the_handlers_end_later() {
+    on_paused_clock(async |leases, clock| {
+        let lease = leases.grant("1", 1, DEFAULT_LEASE);
+        lease.handler_sent(RequestId::Number(4));
+        let handler = lease.enclosing().expect("a handler call was sent");
+        let waiting_for_a_permit = async {
+            clock.sleep(Duration::from_secs(50)).await;
+            lease.renew(DEFAULT_LEASE);
+        };
+        let answered = async {
+            clock.sleep(Duration::from_secs(100)).await;
+            Ok("clicked")
+        };
+
+        let ((), answer) = tokio::join!(
+            waiting_for_a_permit,
+            handler.bound(&clock, answered, || None)
+        );
+
+        assert_eq!(answer.ok(), Some("clicked"));
     });
 }

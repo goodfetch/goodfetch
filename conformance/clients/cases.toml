@@ -131,6 +131,14 @@ covers = ["story:11-77"]
 surfaces = ["sdk-typescript", "sdk-rust"]
 modes = ["attached", "linked"]
 
+# A page's listeners (issue 1277, ADR 0081): TypeScript leads; the Python
+# SDK joins with issue 2932 and the Rust SDK with issue 2933.
+[[capability.case]]
+id = "listeners-in-order-and-a-thrower-raises-listener-failed"
+covers = ["story:11-61", "story:11-62", "story:11-63", "error:listener_failed"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
 # A program's crawl (issue 1467): declared on a `Crawl` value, started on
 # Foxhound's executable, its handler served on the event loop, and its
 # Records judged by the Proving ground's oracle. TypeScript leads; the

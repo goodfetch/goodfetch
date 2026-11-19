@@ -16,7 +16,7 @@ use serde::{Deserialize as _, Serialize};
 use serde_json::Value;
 
 use crate::call::{Call, Query};
-use crate::connection::{Closes, Connection};
+use crate::connection::{ClientConnection, Closes};
 use crate::error::Error;
 use crate::sync::{Mutex, MutexGuard};
 
@@ -56,7 +56,7 @@ impl<Id> Host<Id> {
     }
 
     /// The Connection the handle's calls go through.
-    pub(crate) fn connection(&self) -> &Connection {
+    pub(crate) fn connection(&self) -> &ClientConnection {
         &self.run.connection
     }
 
@@ -116,7 +116,7 @@ impl<Id> Host<Id> {
 /// A Run a program holds, which every handle of it shares.
 #[derive(Debug)]
 pub(crate) struct HeldRun {
-    connection: Connection,
+    connection: ClientConnection,
     run_id: RunId,
     started_as: StartedAs,
     state: Mutex<State>,
@@ -136,7 +136,7 @@ enum State {
 impl HeldRun {
     /// The Run `run.start` answered, on `connection`.
     pub(crate) fn new(
-        connection: Connection,
+        connection: ClientConnection,
         run_id: RunId,
         started_as: StartedAs,
         lifecycle: Lifecycle,

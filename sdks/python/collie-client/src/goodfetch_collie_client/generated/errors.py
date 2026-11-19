@@ -346,6 +346,14 @@ class LimitReachedError(RefusedError):
         super().__init__(message, code="limit_reached", group="refused", retryable=False, **fields)
 
 
+class ListenerFailedError(ProgramError):
+    """A listener the program registered with `on` threw, or its awaitable failed, so the SDK removed it. Raised once, by the next call on the value it listened to, which is not sent and leaves the value open, or by the `close()` that closes that value, its own or one above it, after closing it; when the value is released first, the SDK logs it at error instead. Its details name the event, and its cause is the listener's exception: fix the listener and listen again."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="listener_failed", group="program", retryable=False, **fields)
+
+
 class LocalAddressUnavailableError(UnavailableError):
     """`egress.local_addresses` yields no address this host can send from: a listed address the host does not hold, an interface it does not have or that holds no address, or an IPv6 prefix with none of the host's addresses in it and, on Linux, not routed locally with `net.ipv6.ip_nonlocal_bind` on; or a Session whose browser this engine does not launch on this machine (a Borrowed browser, a third-party CDP browser, a Browser host's) or whose `https://` proxy the egress relay does not chain through. The binding is never ignored: assign the address, correct the value, route the prefix to the host, or open the Session on a browser the engine launches here."""
 
@@ -873,6 +881,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "limit_not_understood": LimitNotUnderstoodError,
     "limit_raise_refused": LimitRaiseRefusedError,
     "limit_reached": LimitReachedError,
+    "listener_failed": ListenerFailedError,
     "local_address_unavailable": LocalAddressUnavailableError,
     "logged_out": LoggedOutError,
     "name_lookup_failed": NameLookupFailedError,

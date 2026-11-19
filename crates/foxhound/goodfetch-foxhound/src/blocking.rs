@@ -7,7 +7,7 @@
 
 use goodfetch_collie::ConnectOptions;
 use goodfetch_collie::linked::LinkedConnection;
-use goodfetch_collie_client::Error;
+use goodfetch_collie_client::{Error, blocking};
 
 pub use goodfetch_collie_client::blocking::{
     Call, Connection, Exchange, Locator, Page, Query, Response, Run, Session, Start,
@@ -38,7 +38,7 @@ use crate::foxhound::ENGINE;
 #[derive(Clone, Debug)]
 pub struct Foxhound {
     linked: LinkedConnection,
-    connection: Connection,
+    connection: blocking::ClientConnection,
 }
 
 impl Foxhound {
@@ -52,7 +52,7 @@ impl Foxhound {
     pub fn connect(options: ConnectOptions) -> Result<Self, Error> {
         let linked = LinkedConnection::connect_blocking(ENGINE, options)?;
         Ok(Self {
-            connection: Connection::from(linked.connection().clone()),
+            connection: blocking::ClientConnection::from(linked.connection().clone()),
             linked,
         })
     }
@@ -75,11 +75,23 @@ impl Foxhound {
     }
 }
 
-/// The blocking Connection, the type a helper written for either Product
-/// takes (ADR 0095): `helper(foxhound.as_ref())`, until
-/// ADR 0099's `Connection` trait lands (#1257).
-impl AsRef<Connection> for Foxhound {
-    fn as_ref(&self) -> &Connection {
+/// The blocking Connection both Products' blocking connections implement
+/// (ADRs 0095 and 0099), so a helper taking `&impl blocking::Connection`
+/// takes a `Foxhound`; its members are the inherent ones above.
+impl Connection for Foxhound {
+    fn start(&self) -> Start {
+        Foxhound::start(self)
+    }
+
+    fn close(&self) -> Result<(), Error> {
+        Foxhound::close(self)
+    }
+}
+
+/// The client crate's connection, the way down to its `call` (ADR 0099)
+/// until the public `call` joins the Connection with its own ticket.
+impl AsRef<blocking::ClientConnection> for Foxhound {
+    fn as_ref(&self) -> &blocking::ClientConnection {
         &self.connection
     }
 }

@@ -658,6 +658,8 @@ fn at_deadline(asked: Asked<'_>, last: Seen, elapsed: Duration) -> CallError {
             limit,
             elapsed,
             waited_for: step.waited_for(),
+            ended_by: None,
+            observed: None,
         },
     )
 }

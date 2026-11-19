@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from goodfetch_collie_client.connection import ClientConnection, closed_error
+from goodfetch_collie_client.connection_type import AsyncConnection, Connection
 from goodfetch_collie_client.generated.connection import (
     COLLIE_ENGINE_PATH_VARIABLE,
     COLLIE_EXECUTABLE,
@@ -33,7 +34,6 @@ from goodfetch_collie_client.run import AsyncRun, Run
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Generator, Iterable, Mapping
-    from typing import Self
 
     from anyio.abc import ByteStream
     from goodfetch_collie_client.connection import EngineInfo
@@ -54,12 +54,12 @@ The Product its `hello` names, its executable and the one variable it reads.
 """
 
 
-class AsyncCollie:
+class AsyncCollie(AsyncConnection):
     """A Connection to an engine: the entry point of the async API.
 
     The engine is Collie's or Foxhound's (ADR 0095).
     Each one is independent, and many may be open in one process. Opened by
-    `connect()`, never constructed directly.
+    `connect()`, never constructed directly; `async with` closes it.
     """
 
     def __init__(self, connection: ClientConnection) -> None:
@@ -133,14 +133,6 @@ class AsyncCollie:
         """
         await self._connection.close()
 
-    async def __aenter__(self) -> Self:
-        """Holds the Connection for an `async with` block, which closes it."""
-        return self
-
-    async def __aexit__(self, *_: object) -> None:
-        """Closes the Connection."""
-        await self.close()
-
 
 class Connecting:
     """An `AsyncCollie` being opened: await it, or open it with `async with`."""
@@ -168,7 +160,7 @@ class Connecting:
         return AsyncCollie(await self._opening())
 
 
-class Collie:
+class Collie(Connection):
     """A Connection to an engine: the entry point of the sync API.
 
     The engine is Collie's or Foxhound's (ADR 0095).
@@ -176,7 +168,8 @@ class Collie:
     event loop, so it works in a notebook cell, in Streamlit and in a sync
     tool's thread; called from `async def`, it blocks that loop, where
     `AsyncCollie` does not. Any number of threads may share it and its Runs
-    (ADR 0081). Opened by `connect()`, never constructed directly.
+    (ADR 0081). Opened by `connect()`, never constructed directly; `with`
+    closes it.
     """
 
     def __init__(self, loop: PrivateLoop, connection: ClientConnection) -> None:
@@ -277,14 +270,6 @@ class Collie:
                     self._loop.stop()
         if self._close_failure is not None:
             raise self._close_failure
-
-    def __enter__(self) -> Self:
-        """Holds the Connection for a `with` block, which closes it."""
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        """Closes the Connection."""
-        self.close()
 
 
 def async_connect_over(transport: ByteStream) -> Connecting:

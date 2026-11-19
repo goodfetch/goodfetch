@@ -26,6 +26,36 @@ export interface HandleHost<
     operation: Name,
     params: Types[Name]["params"],
   ): Promise<void>;
+  /**
+   * Registers `listener` for `event` through `operation`, the handle's `on`
+   * (ADR 0081), whose call is sent now and stays in flight until the
+   * `Subscription` closes or the value goes.
+   */
+  listen<Name extends keyof Types & string, Payload>(
+    operation: Name,
+    params: Types[Name]["params"],
+    event: string,
+    listener: Listener<Payload>,
+  ): Subscription;
+}
+
+/**
+ * A program's listener of a value's event (ADR 0081). It gets the event's
+ * payload and how many telemetry events of its scope the engine replaced
+ * since the last one sent, 0 for a lossless event; its events come one at a
+ * time, in order, and an awaitable it returns is awaited before the next.
+ * One that throws, or whose awaitable fails, is removed, and the next call
+ * on its value, or the `close()` that closes that value, raises
+ * `listener_failed`.
+ */
+export type Listener<Payload> = (payload: Payload, dropped: number) => unknown;
+
+/**
+ * What `on` returns (ADR 0081): it closes synchronously, since nothing
+ * waits, and removes the listener; closing it again changes nothing.
+ */
+export interface Subscription extends Disposable {
+  close(): void;
 }
 
 /** `Params` without the entries a caller left out. */

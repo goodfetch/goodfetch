@@ -21,7 +21,7 @@ use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
 use goodfetch_protocol::catalog::{Operation, Setting, SharedTypeValue};
-use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::connection::{Form, Surface};
 use goodfetch_protocol::daemon::{DaemonHealth, DaemonState, DaemonStopping};
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use serde::Serialize;
@@ -89,6 +89,9 @@ pub(crate) struct ConnectionContext {
     pub(crate) identity: Arc<Identity>,
     pub(crate) client: Client,
     pub(crate) surface: OnceLock<Surface>,
+    /// The form its `hello` declared, or its surface's (ADR 0099); set
+    /// with the surface.
+    pub(crate) form: OnceLock<Form>,
     /// Whether its `hello` came from Goodfetch Cloud's gateway, which words
     /// `not_in_product` for it (ADR 0096); set with the surface.
     pub(crate) behind_gateway: OnceLock<bool>,
@@ -213,6 +216,17 @@ impl CallContext {
     pub fn surface(&self) -> Surface {
         self.connection
             .surface
+            .get()
+            .copied()
+            .expect("invariant: a call runs only on a Connection whose `hello` was answered")
+    }
+
+    /// The form the Connection's Client writes names in, which the engine
+    /// spells an operation's name in at the head of its errors (ADRs 0079
+    /// and 0099).
+    pub fn form(&self) -> Form {
+        self.connection
+            .form
             .get()
             .copied()
             .expect("invariant: a call runs only on a Connection whose `hello` was answered")

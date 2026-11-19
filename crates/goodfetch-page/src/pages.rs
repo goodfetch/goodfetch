@@ -57,7 +57,7 @@ use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::{CallContext, CallError, Contribution, Enclose, Guard, Handler};
 use goodfetch_extractor::{BuiltIn, Serialization};
-use goodfetch_protocol::connection::{Surface, WaitedFor};
+use goodfetch_protocol::connection::{Form, Surface, WaitedFor};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::dialog::{
     DIALOG_ACCEPT, DIALOG_DISMISS, DialogAcceptParams, DialogAnswered, DialogDismissParams,
@@ -403,7 +403,10 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                     Ok(events.wait_for_request_finished(pattern, context.surface(), deadline))
                 });
                 let pages = finishing.clone();
-                async move { pages.waited(&params.page_id, armed?).await }
+                in_call(
+                    (PAGE_WAIT_FOR_REQUEST_FINISHED.name, context.form()),
+                    async move { pages.waited(&params.page_id, armed?).await },
+                )
             },
         ))
         .with_handler(Handler::new(
@@ -815,6 +818,17 @@ fn with_page_read_handlers(contribution: Contribution, pages: &Pages) -> Contrib
         ))
 }
 
+/// Answers `call`, a call of the operation named first, from a Client
+/// writing names in the form named second: its failure headed by the
+/// operation in that form, with `operation` its canonical name (ADRs 0079
+/// and 0099).
+pub(super) async fn in_call<T>(
+    (operation, form): (&'static str, Form),
+    call: impl Future<Output = Result<T, CallError>>,
+) -> Result<T, CallError> {
+    call.await.map_err(|error| error.in_call(operation, form))
+}
+
 /// Adds the handlers of the locator actions.
 fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
     let (clicking, filling, pressing) = (pages.clone(), pages.clone(), pages.clone());
@@ -823,7 +837,7 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
             &LOCATOR_CLICK,
             move |params: ClickParams, context: CallContext| {
                 let pages = clicking.clone();
-                async move {
+                in_call((LOCATOR_CLICK.name, context.form()), async move {
                     pages
                         .act(
                             LOCATOR_CLICK.name,
@@ -832,14 +846,14 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
                             &context,
                         )
                         .await
-                }
+                })
             },
         ))
         .with_handler(Handler::new(
             &LOCATOR_FILL,
             move |params: FillParams, context: CallContext| {
                 let pages = filling.clone();
-                async move {
+                in_call((LOCATOR_FILL.name, context.form()), async move {
                     pages
                         .act(
                             LOCATOR_FILL.name,
@@ -848,19 +862,19 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
                             &context,
                         )
                         .await
-                }
+                })
             },
         ))
         .with_handler(Handler::new(
             &LOCATOR_PRESS,
             move |params: PressParams, context: CallContext| {
                 let pages = pressing.clone();
-                async move {
+                in_call((LOCATOR_PRESS.name, context.form()), async move {
                     let action = Action::press(&params.key);
                     pages
                         .act(LOCATOR_PRESS.name, params.locator, action, &context)
                         .await
-                }
+                })
             },
         ))
 }
@@ -1288,7 +1302,7 @@ impl Pages {
                 duration,
                 spent,
             },
-            surface: context.surface(),
+            form: context.form(),
             hiding: Hidden {
                 live: page.hiding.as_deref(),
                 sheets: &page.sheets,

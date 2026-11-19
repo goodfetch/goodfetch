@@ -121,6 +121,7 @@ impl TinyClient {
             &json!({
                 "protocol_version": protocol_version,
                 "surface": "sdk_typescript",
+                "form": "typescript",
                 "needs": self.product,
                 "product_version": product_version,
             }),
@@ -372,6 +373,7 @@ fn a_hello_without_the_jsonrpc_member_fails_the_engine() {
         "params": {
             "protocol_version": "0.1",
             "surface": "sdk_typescript",
+            "form": "typescript",
             "needs": "collie",
             "product_version": "0.1.0",
         },

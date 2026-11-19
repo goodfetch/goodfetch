@@ -4445,8 +4445,8 @@ class HelloParams(BaseModel):
     """
     form: Form | None = None
     """
-    The form its user writes names in (ADR 0099); none until each
-    surface names its own.
+    The form its user writes names in (ADR 0099), which every SDK
+    declares; without one, the engine takes its surface's.
     """
     keep_daemon_alive: bool | None = None
     """

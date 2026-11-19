@@ -35,7 +35,7 @@ use goodfetch_cdp::generated::runtime::ExecutionContextId;
 use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
-use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails, Surface};
+use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails, Form};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::waits::{Count, ElementState};
 use goodfetch_protocol::page::{TARGET_NOT_UNIQUE, TargetMatch, TargetNotUniqueDetails};
@@ -132,8 +132,8 @@ pub(crate) struct Request<'a> {
     pub(crate) action: Action,
     /// How long it may wait.
     pub(crate) window: Window,
-    /// The Client's surface, in whose language its errors show targets.
-    pub(crate) surface: Surface,
+    /// The Client's form, in which its errors show targets.
+    pub(crate) form: Form,
     /// What hides elements on the page, which the guard lifts from the
     /// target: its live hiding and the Consent prompt runner's rules.
     pub(crate) hiding: Hidden<'a>,
@@ -170,9 +170,8 @@ pub(crate) async fn act(
 ) -> Result<(), CallError> {
     let started = clock.now();
     let asked = Asked {
-        operation: request.operation,
         selector: request.selector,
-        surface: request.surface,
+        form: request.form,
         limit: request.window.limit.clone(),
     };
     // A check answers within its slice of the deadline, so the guard's own
@@ -209,9 +208,8 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
         if remaining.is_zero() {
             let elapsed = clock.now() - started + request.window.spent;
             let asked = Asked {
-                operation: request.operation,
                 selector: request.selector,
-                surface: request.surface,
+                form: request.form,
                 limit: request.window.limit,
             };
             return Err(at_deadline(asked, last, elapsed));
@@ -495,8 +493,8 @@ pub(crate) struct Wait<'a> {
     /// How long it may wait: its call's own `timeout`, else
     /// `timeout.wait`; none for a call whose `timeout` is `null`.
     pub(crate) window: Option<Window>,
-    /// The Client's surface, in whose language its errors show targets.
-    pub(crate) surface: Surface,
+    /// The Client's form, in which its errors show targets.
+    pub(crate) form: Form,
 }
 
 /// Waits on `page` until the matches of `wait`'s locator are as it waits
@@ -536,9 +534,8 @@ pub(crate) async fn wait(
         {
             let elapsed = clock.now() - started + window.spent;
             let asked = Asked {
-                operation: wait.operation,
                 selector: wait.selector,
-                surface: wait.surface,
+                form: wait.form,
                 limit: window.limit,
             };
             return Err(at_deadline(asked, last, elapsed));
@@ -581,12 +578,12 @@ pub(crate) async fn wait(
 /// it checks again.
 const RECHECK: Duration = Duration::from_millis(20);
 
-/// What a call at its deadline asked: its operation, its locator's
-/// selector, the Client's surface and the setting whose time passed.
+/// What a call at its deadline asked: its locator's selector, the
+/// Client's form and the setting whose time passed. The call's handler
+/// heads the error with its operation.
 struct Asked<'a> {
-    operation: &'static str,
     selector: &'a str,
-    surface: Surface,
+    form: Form,
     limit: SettingLimit,
 }
 
@@ -594,7 +591,7 @@ struct Asked<'a> {
 /// `last` its last observation.
 fn at_deadline(asked: Asked<'_>, last: Seen, elapsed: Duration) -> CallError {
     let elapsed = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
-    let target = target::render(asked.surface, asked.selector, None);
+    let target = target::render(asked.form, asked.selector, None);
     let limit = asked.limit;
     let (step, observed, matches) = match last {
         Seen::Waiting {
@@ -614,7 +611,7 @@ fn at_deadline(asked: Asked<'_>, last: Seen, elapsed: Duration) -> CallError {
             .enumerate()
             .map(|(index, element)| TargetMatch {
                 element,
-                locator: target::render(asked.surface, asked.selector, Some(index)),
+                locator: target::render(asked.form, asked.selector, Some(index)),
             })
             .collect();
         let listed = matches
@@ -625,8 +622,7 @@ fn at_deadline(asked: Asked<'_>, last: Seen, elapsed: Duration) -> CallError {
         return CallError::new(
             &TARGET_NOT_UNIQUE,
             format!(
-                "`{}` on {target}: {} elements still matched when `{}` ({} ms, {}) passed: {listed}. Make the locator match one element, or pick one with `nth()`.",
-                asked.operation,
+                "{target} still matched {} elements when `{}` ({} ms, {}) passed: {listed}. Make the locator match one element, or pick one with `nth()`.",
                 matches.len(),
                 limit.key,
                 limit.value,
@@ -643,8 +639,7 @@ fn at_deadline(asked: Asked<'_>, last: Seen, elapsed: Duration) -> CallError {
     CallError::new(
         &DEADLINE_EXCEEDED,
         format!(
-            "`{}` on {target}: `{}` ({} ms, {}) passed while it waited for its target to be {}: {observed}.",
-            asked.operation,
+            "`{}` ({} ms, {}) passed while it waited for {target} to be {}: {observed}.",
             limit.key,
             limit.value,
             limit.layer.as_str(),

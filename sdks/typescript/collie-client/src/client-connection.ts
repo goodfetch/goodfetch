@@ -504,6 +504,7 @@ export class ClientConnection implements AsyncDisposable {
     const params: HelloParams = {
       protocolVersion: PROTOCOL_VERSION,
       surface: "sdk_typescript",
+      form: "typescript",
       needs,
       productVersion: PRODUCT_VERSION,
       logLevel: this.#logLevel,

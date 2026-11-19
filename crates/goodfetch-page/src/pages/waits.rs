@@ -21,7 +21,7 @@ use goodfetch_protocol::page::waits::{
 };
 use goodfetch_protocol::page::{Locator, PageId};
 
-use super::{Pages, pattern_of};
+use super::{Pages, in_call, pattern_of};
 use crate::guard::{self, Awaited, Wait, Waited, Window};
 use crate::page_events::WaitDeadline;
 use crate::page_functions::{self, Injection, Matches};
@@ -48,43 +48,43 @@ fn with_armed_handlers(contribution: Contribution, pages: &Pages) -> Contributio
     contribution
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_REQUEST,
-            move |params: WaitForExchangeParams, _context: CallContext| {
+            move |params: WaitForExchangeParams, context: CallContext| {
                 let pages = requesting.clone();
                 let armed = pages.events.get(&params.page_id).and_then(|events| {
                     let pattern = params.url.as_ref().map(pattern_of).transpose()?;
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok(events.wait_for_request(pattern, deadline))
                 });
-                async move {
+                in_call((PAGE_WAIT_FOR_REQUEST.name, context.form()), async move {
                     let request = Box::pin(pages.waited(&params.page_id, armed?)).await?;
                     pages
                         .judge_waited(&params.page_id, PAGE_WAIT_FOR_REQUEST.name)
                         .await?;
                     Ok::<_, CallError>(request)
-                }
+                })
             },
         ))
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_RESPONSE,
-            move |params: WaitForExchangeParams, _context: CallContext| {
+            move |params: WaitForExchangeParams, context: CallContext| {
                 let pages = responding.clone();
                 let armed = pages.events.get(&params.page_id).and_then(|events| {
                     let pattern = params.url.as_ref().map(pattern_of).transpose()?;
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok(events.wait_for_response(pattern, deadline))
                 });
-                async move {
+                in_call((PAGE_WAIT_FOR_RESPONSE.name, context.form()), async move {
                     let response = Box::pin(pages.waited(&params.page_id, armed?)).await?;
                     pages
                         .judge_waited(&params.page_id, PAGE_WAIT_FOR_RESPONSE.name)
                         .await?;
                     Ok::<_, CallError>(response)
-                }
+                })
             },
         ))
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_URL,
-            move |params: WaitForUrlParams, _context: CallContext| {
+            move |params: WaitForUrlParams, context: CallContext| {
                 let pages = locating.clone();
                 let armed = pages.events.get(&params.page_id).and_then(|events| {
                     let pattern = pattern_of(&params.url)?;
@@ -98,30 +98,33 @@ fn with_armed_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                 // The document the navigation it waited for reached is
                 // judged for its Block cause, raised by this call (ADR
                 // 0092).
-                async move {
+                in_call((PAGE_WAIT_FOR_URL.name, context.form()), async move {
                     let reached = Box::pin(pages.waited(&params.page_id, armed?)).await?;
                     pages
                         .judge_waited(&params.page_id, PAGE_WAIT_FOR_URL.name)
                         .await?;
                     Ok::<_, CallError>(reached)
-                }
+                })
             },
         ))
         .with_handler(Handler::new(
             &PAGE_WAIT_FOR_LOAD_STATE,
-            move |params: WaitForLoadStateParams, _context: CallContext| {
+            move |params: WaitForLoadStateParams, context: CallContext| {
                 let pages = loading.clone();
                 let armed = pages.events.get(&params.page_id).and_then(|events| {
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok(events.wait_for_load_state(params.state.unwrap_or_default(), deadline))
                 });
-                async move {
-                    let reached = Box::pin(pages.waited(&params.page_id, armed?)).await?;
-                    pages
-                        .judge_waited(&params.page_id, PAGE_WAIT_FOR_LOAD_STATE.name)
-                        .await?;
-                    Ok::<_, CallError>(reached)
-                }
+                in_call(
+                    (PAGE_WAIT_FOR_LOAD_STATE.name, context.form()),
+                    async move {
+                        let reached = Box::pin(pages.waited(&params.page_id, armed?)).await?;
+                        pages
+                            .judge_waited(&params.page_id, PAGE_WAIT_FOR_LOAD_STATE.name)
+                            .await?;
+                        Ok::<_, CallError>(reached)
+                    },
+                )
             },
         ))
 }
@@ -136,7 +139,7 @@ fn with_checking_handlers(contribution: Contribution, pages: &Pages) -> Contribu
             &PAGE_WAIT_FOR_FUNCTION,
             move |params: WaitForFunctionParams, context: CallContext| {
                 let pages = functioning.clone();
-                async move {
+                in_call((PAGE_WAIT_FOR_FUNCTION.name, context.form()), async move {
                     let expression =
                         page_functions::expression(&params.function, params.arg.as_ref());
                     let wait = FunctionWait {
@@ -148,32 +151,35 @@ fn with_checking_handlers(contribution: Contribution, pages: &Pages) -> Contribu
                         by: (Injection::WaitForFunction, PAGE_WAIT_FOR_FUNCTION.name),
                     };
                     Box::pin(pages.wait_for_function(wait, context.surface())).await
-                }
+                })
             },
         ))
         .with_handler(Handler::new(
             &LOCATOR_WAIT_FOR_FUNCTION,
             move |params: LocatorWaitForFunctionParams, context: CallContext| {
                 let pages = locating.clone();
-                async move {
-                    let expression = page_functions::on_locator(
-                        &params.function,
-                        params.arg.as_ref(),
-                        (&params.locator.selector, Matches::One),
-                    );
-                    let wait = FunctionWait {
-                        page_id: &params.locator.page_id,
-                        expression: &expression,
-                        world: params.world,
-                        polling_interval: params.polling_interval,
-                        timeout: params.timeout,
-                        by: (
-                            Injection::LocatorWaitForFunction,
-                            LOCATOR_WAIT_FOR_FUNCTION.name,
-                        ),
-                    };
-                    Box::pin(pages.wait_for_function(wait, context.surface())).await
-                }
+                in_call(
+                    (LOCATOR_WAIT_FOR_FUNCTION.name, context.form()),
+                    async move {
+                        let expression = page_functions::on_locator(
+                            &params.function,
+                            params.arg.as_ref(),
+                            (&params.locator.selector, Matches::One),
+                        );
+                        let wait = FunctionWait {
+                            page_id: &params.locator.page_id,
+                            expression: &expression,
+                            world: params.world,
+                            polling_interval: params.polling_interval,
+                            timeout: params.timeout,
+                            by: (
+                                Injection::LocatorWaitForFunction,
+                                LOCATOR_WAIT_FOR_FUNCTION.name,
+                            ),
+                        };
+                        Box::pin(pages.wait_for_function(wait, context.surface())).await
+                    },
+                )
             },
         ))
         .with_handler(Handler::new(
@@ -181,7 +187,7 @@ fn with_checking_handlers(contribution: Contribution, pages: &Pages) -> Contribu
             move |params: LocatorWaitForParams, context: CallContext| {
                 let pages = waiting.clone();
                 let awaited = Awaited::State(params.state.unwrap_or_default());
-                async move {
+                in_call((LOCATOR_WAIT_FOR.name, context.form()), async move {
                     let deadline = pages
                         .events
                         .get(&params.locator.page_id)?
@@ -195,14 +201,14 @@ fn with_checking_handlers(contribution: Contribution, pages: &Pages) -> Contribu
                         )
                         .await?;
                     Ok::<Reached, CallError>(Reached {})
-                }
+                })
             },
         ))
         .with_handler(Handler::new(
             &LOCATOR_WAIT_FOR_COUNT,
             move |params: WaitForCountParams, context: CallContext| {
                 let pages = counting.clone();
-                async move {
+                in_call((LOCATOR_WAIT_FOR_COUNT.name, context.form()), async move {
                     let count = count_of(params.count)?;
                     let deadline = pages
                         .events
@@ -223,7 +229,7 @@ fn with_checking_handlers(contribution: Contribution, pages: &Pages) -> Contribu
                             "a count wait reached a state, not a count",
                         )),
                     }
-                }
+                })
             },
         ))
 }
@@ -359,7 +365,7 @@ impl Pages {
                 duration: deadline.duration(),
                 spent,
             }),
-            surface: context.surface(),
+            form: context.form(),
         };
         page.life
             .call(

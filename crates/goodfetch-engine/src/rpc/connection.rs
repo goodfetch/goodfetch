@@ -488,6 +488,7 @@ async fn serve_carried(
         identity: Arc::clone(&dispatch.identity),
         client,
         surface: OnceLock::new(),
+        form: OnceLock::new(),
         behind_gateway: OnceLock::new(),
         drivers: Arc::clone(&dispatch.drivers),
         runs,
@@ -995,7 +996,8 @@ impl Session<'_> {
             )
             .map(|accepted| {
                 let surface = accepted.surface;
-                (accepted, surface, hello.log_level)
+                let form = hello.form.unwrap_or(surface.form());
+                (accepted, surface, form, hello.log_level)
             }),
             Err(error) => Err(handshake::Refused::Invalid(error)),
         };
@@ -1010,7 +1012,7 @@ impl Session<'_> {
             }
         };
         match answered {
-            Ok((mut accepted, surface, log_level)) => {
+            Ok((mut accepted, surface, form, log_level)) => {
                 record(HELLO, None);
                 self.connection.log.set(log_level.unwrap_or_default());
                 if let Err(refused) = self.transition(ConnectionEvent::Accepted) {
@@ -1019,6 +1021,7 @@ impl Session<'_> {
                 }
                 // A Connection answers one `hello`: the first sets it.
                 let _ = self.connection.surface.set(surface);
+                let _ = self.connection.form.set(form);
                 // Each CLI command is a Connection of its own, and the Runs
                 // it starts on the Daemon outlive it (ADRs 0024 and 0088);
                 // so do those a person starts or resumes from the Kennel

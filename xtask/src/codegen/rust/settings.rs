@@ -10,16 +10,22 @@
 //! for a whole number, `bool`, `String`, an enum of its own for a choice of
 //! words (`content::Extractor`, an array's items `…Item`, a map's values
 //! `…Entry`, and a name Rust's prelude takes `…Choice`, as
-//! `run_state::batch::SyncChoice`), `Vec` and `BTreeMap` of those, `Option`
-//! for a nullable value, and `serde_json::Value` for a shape these do not
-//! spell, as an object of named properties or a union of other kinds. A
-//! key that can be cleared takes an `Option`, whose `None` sends null.
+//! `run_state::batch::SyncChoice`), the protocol's own type for a shape it
+//! defines once (`session.page_check`'s `PageCheck`), `Vec` and `BTreeMap`
+//! of those, and `Option` for a nullable value. A key that can be cleared
+//! takes an `Option`, whose `None` sends null. A schema none of these spell
+//! fails the generation, naming its key, so no key takes untyped JSON.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
 use anyhow::{Context as _, Result, bail, ensure};
-use goodfetch_protocol::catalog::ValueKind;
+use goodfetch_protocol::catalog::{ValueKind, ValueShape};
+use goodfetch_protocol::egress::LOCAL_ADDRESSES_SHAPE;
+use goodfetch_protocol::run::durability::BATCH_THRESHOLD_SHAPE;
+use goodfetch_protocol::settings::page_check::PAGE_CHECK_SHAPE;
+use goodfetch_protocol::settings::session_source::SESSION_SOURCE_SHAPE;
+use goodfetch_protocol::tls::CLIENT_CERTIFICATE_SHAPE;
 use serde_json::Value;
 
 use super::super::handles::Member;
@@ -28,14 +34,38 @@ use super::super::naming::{rust_snake, rust_type};
 use super::super::settings_tree::{Node, SETTINGS, opened_scope, tree};
 use super::{Setter, comment};
 
-/// A JSON value, for a shape the module does not type.
-const JSON: &str = "::serde_json::Value";
+/// The protocol's type of each shape a key of the crate takes (ADR 0028's
+/// `ValueKind::Shape`), by the shape: rustc checks the path when the crate
+/// builds, and the shape's own `check` reads that type. A new shape a key
+/// takes fails the generation until it is listed here.
+const SHAPES: [(&ValueShape, &str); 5] = [
+    (
+        &LOCAL_ADDRESSES_SHAPE,
+        "::goodfetch_protocol::egress::LocalAddresses",
+    ),
+    (
+        &BATCH_THRESHOLD_SHAPE,
+        "::goodfetch_protocol::run::durability::BatchThreshold",
+    ),
+    (
+        &PAGE_CHECK_SHAPE,
+        "::goodfetch_protocol::settings::page_check::PageCheck",
+    ),
+    (
+        &SESSION_SOURCE_SHAPE,
+        "::goodfetch_protocol::settings::session_source::SessionSource",
+    ),
+    (
+        &CLIENT_CERTIFICATE_SHAPE,
+        "::goodfetch_protocol::tls::ClientCertificateConfiguration",
+    ),
+];
 
 /// The names an enum of a choice does not take, which `…Choice` names
 /// instead: the types and traits of Rust's prelude, which a public type of
 /// the same name would make rustc spell in full in every message that
 /// names them (`std::marker::Sync`), and the `settings` module's own.
-const TAKEN: [&str; 30] = [
+const TAKEN: [&str; 31] = [
     "AsMut",
     "AsRef",
     "Box",
@@ -52,6 +82,7 @@ const TAKEN: [&str; 30] = [
     "FromIterator",
     "Into",
     "IntoIterator",
+    "IntoSettingValue",
     "Iterator",
     "Option",
     "Ord",
@@ -94,19 +125,38 @@ pub(super) fn setter(
     }))
 }
 
-/// The module's constants and enums, `xtask codegen`'s header first: the
-/// text the crate's `settings` module includes.
+/// The module's constants and enums, `xtask codegen`'s header first, then
+/// how each protocol type the keys take goes on the wire: the text the
+/// crate's `settings` module includes.
 pub(super) fn module(header: &str, settings: &[Setting]) -> Result<String> {
     let root = tree(settings, None)?;
     let mut text = format!("{header}\n");
-    level(&mut text, &root, "")?;
+    let mut shapes = BTreeSet::new();
+    level(&mut text, &mut shapes, &root, "")?;
+    for shape in shapes {
+        let _ = write!(
+            text,
+            "\n{}impl crate::settings::sealed::Wire for {shape} {{\n    fn into_wire(self) -> ::serde_json::Value {{\n        ::serde_json::to_value(self).expect(\"invariant: a value of the protocol's shapes is JSON\")\n    }}\n}}\n\nimpl crate::settings::SettingValue for {shape} {{}}\n",
+            comment("The protocol's own JSON of the value.")
+        );
+    }
     Ok(text)
 }
 
 /// The items of one level of the tree at `path`: its settings' constants
-/// and enums, then a module for each of its areas.
-fn level(text: &mut String, level: &BTreeMap<String, Node<'_>>, path: &str) -> Result<()> {
-    let mut enums = Enums::default();
+/// and enums, then a module for each of its areas. `shapes` gathers the
+/// protocol's types their values take.
+fn level(
+    text: &mut String,
+    shapes: &mut BTreeSet<&'static str>,
+    level: &BTreeMap<String, Node<'_>>,
+    path: &str,
+) -> Result<()> {
+    let mut enums = Enums {
+        names: BTreeSet::new(),
+        text: String::new(),
+        shapes,
+    };
     for (segment, node) in level {
         if let Node::Setting(setting) = node {
             constant(text, &mut enums, segment, setting)
@@ -114,6 +164,7 @@ fn level(text: &mut String, level: &BTreeMap<String, Node<'_>>, path: &str) -> R
         }
     }
     text.push_str(&enums.text);
+    let shapes = enums.shapes;
     for (segment, node) in level {
         if let Node::Area(children) = node {
             let at = if path.is_empty() {
@@ -129,7 +180,7 @@ fn level(text: &mut String, level: &BTreeMap<String, Node<'_>>, path: &str) -> R
                 "\n{}pub mod {ident} {{\n",
                 comment(&format!("The `{at}.*` settings."))
             );
-            self::level(text, children, &at)?;
+            self::level(text, shapes, children, &at)?;
             text.push_str("}\n");
         }
     }
@@ -152,7 +203,9 @@ fn constant(text: &mut String, enums: &mut Enums, segment: &str, setting: &Setti
         "`{segment}` is no segment Rust can name a constant"
     );
     let hint = rust_type(segment).with_context(|| format!("`{segment}` names no Rust type"))?;
-    let mut ty = enums.value_type(&setting.value, &hint)?;
+    let mut ty = enums
+        .value_type(&setting.value, &hint)?
+        .with_context(|| format!("its values have no Rust type: {}", setting.value))?;
     if setting.clearable && !ty.starts_with("Option<") {
         ty = format!("Option<{ty}>");
     }
@@ -190,19 +243,25 @@ fn constant(text: &mut String, enums: &mut Enums, segment: &str, setting: &Setti
     Ok(())
 }
 
-/// The enums of one module's choices, by name, and their text.
-#[derive(Default)]
-struct Enums {
+/// The enums of one module's choices, by name, and their text, and the
+/// protocol's types the whole tree's values take.
+struct Enums<'shapes> {
     names: BTreeSet<String>,
     text: String,
+    shapes: &'shapes mut BTreeSet<&'static str>,
 }
 
-impl Enums {
-    /// The Rust type of the values `schema` accepts; a choice of words is
-    /// the enum `hint`, which this module then defines.
-    fn value_type(&mut self, schema: &Value, hint: &str) -> Result<String> {
+impl Enums<'_> {
+    /// The Rust type of the values `schema` accepts, `None` for a schema
+    /// it has none for; a choice of words is the enum `hint`, which this
+    /// module then defines.
+    fn value_type(&mut self, schema: &Value, hint: &str) -> Result<Option<String>> {
         if *schema == ValueKind::Duration.schema() {
-            return Ok("::std::time::Duration".to_owned());
+            return Ok(Some("::std::time::Duration".to_owned()));
+        }
+        if let Some((_, ty)) = SHAPES.iter().find(|(shape, _)| (shape.schema)() == *schema) {
+            self.shapes.insert(ty);
+            return Ok(Some((*ty).to_owned()));
         }
         if let Some(alternatives) = schema
             .get("anyOf")
@@ -210,8 +269,10 @@ impl Enums {
             .and_then(Value::as_array)
         {
             return Ok(match nullable(alternatives) {
-                Some(value) => format!("Option<{}>", self.value_type(value, hint)?),
-                None => JSON.to_owned(),
+                Some(value) => self
+                    .value_type(value, hint)?
+                    .map(|ty| format!("Option<{ty}>")),
+                None => None,
             });
         }
         if let Some(words) = schema.get("enum").and_then(Value::as_array) {
@@ -225,41 +286,44 @@ impl Enums {
                     [one, "null"] | ["null", one] => {
                         let mut alone = schema.clone();
                         alone["type"] = Value::from(*one);
-                        format!("Option<{}>", self.value_type(&alone, hint)?)
+                        self.value_type(&alone, hint)?
+                            .map(|ty| format!("Option<{ty}>"))
                     }
-                    _ => JSON.to_owned(),
+                    _ => None,
                 });
             }
-            _ => return Ok(JSON.to_owned()),
+            _ => return Ok(None),
         };
         Ok(match ty {
-            "boolean" => "bool".to_owned(),
-            "integer" => "u64".to_owned(),
-            "string" => "String".to_owned(),
+            "boolean" => Some("bool".to_owned()),
+            "integer" => Some("u64".to_owned()),
+            "string" => Some("String".to_owned()),
             "array" => match schema.get("items") {
-                Some(items) => format!("Vec<{}>", self.value_type(items, &format!("{hint}Item"))?),
-                None => format!("Vec<{JSON}>"),
+                Some(items) => self
+                    .value_type(items, &format!("{hint}Item"))?
+                    .map(|ty| format!("Vec<{ty}>")),
+                None => None,
             },
             "object" => match schema.get("additionalProperties") {
-                Some(entry @ Value::Object(_)) if schema.get("properties").is_none() => format!(
-                    "::std::collections::BTreeMap<String, {}>",
-                    self.value_type(entry, &format!("{hint}Entry"))?
-                ),
-                _ => JSON.to_owned(),
+                Some(entry @ Value::Object(_)) if schema.get("properties").is_none() => self
+                    .value_type(entry, &format!("{hint}Entry"))?
+                    .map(|ty| format!("::std::collections::BTreeMap<String, {ty}>")),
+                _ => None,
             },
-            _ => JSON.to_owned(),
+            _ => None,
         })
     }
 
     /// The enum `name` of a choice of `words`, each a variant named after
-    /// it, which turns into its word on the wire.
-    fn choice(&mut self, words: &[Value], name: &str) -> Result<String> {
+    /// it, which turns into its word on the wire; `None` when a word is no
+    /// text.
+    fn choice(&mut self, words: &[Value], name: &str) -> Result<Option<String>> {
         let Some(words) = words
             .iter()
             .map(Value::as_str)
             .collect::<Option<Vec<&str>>>()
         else {
-            return Ok(JSON.to_owned());
+            return Ok(None);
         };
         let name = if TAKEN.contains(&name) {
             format!("{name}Choice")
@@ -297,7 +361,7 @@ impl Enums {
             "\n{}#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\npub enum {name} {{\n{body}}}\n\nimpl crate::settings::sealed::Wire for {name} {{\n    fn into_wire(self) -> ::serde_json::Value {{\n        ::serde_json::Value::from(match self {{\n{arms}        }})\n    }}\n}}\n\nimpl crate::settings::SettingValue for {name} {{}}\n",
             comment("A word a setting of this module takes, as the catalog spells it.")
         );
-        Ok(name.to_owned())
+        Ok(Some(name.to_owned()))
     }
 }
 

@@ -146,6 +146,16 @@ impl BatchThreshold {
     }
 }
 
+/// The value [`BatchThreshold::read`] reads it back from.
+impl serde::Serialize for BatchThreshold {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::At(at) => serializer.serialize_u64(at.get()),
+            Self::Never => serializer.serialize_str(NO_THRESHOLD),
+        }
+    }
+}
+
 /// A value of `run_state.batch.pages`, `.interval` or `.bytes`.
 pub const BATCH_THRESHOLD_SHAPE: ValueShape = ValueShape {
     name: "BatchThreshold",

@@ -311,7 +311,7 @@ impl<T> EventIter<T> {
     }
 }
 
-impl<T: DeserializeOwned + Send + 'static> Iterator for EventIter<T> {
+impl<T: Send + 'static> Iterator for EventIter<T> {
     type Item = Result<T, Error>;
 
     /// The next event, blocking until it comes, or `None` once the stream

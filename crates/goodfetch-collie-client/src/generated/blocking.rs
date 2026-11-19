@@ -302,6 +302,27 @@ impl Session {
     > {
         crate::blocking::Call::new(self.inner.pages(), self.inner.host.connection())
     }
+
+    /// Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.
+    ///
+    /// In Rust, the marker type of `event`, from [`crate::events`], names the event read, and the stream answered, its call already sent, hands its events in order. It reads them from the Connection's own Subscription, which the first such stream sends before its call and the last one dropped cancels; an event it has not read holds one of the Subscription's credits. Dropping the stream cancels its call without blocking and without a warning.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Its stream hands `closed` when its handle or the Connection is closed, the engine's error, and `internal` for an event that does not fit its type.
+    pub fn events<E: crate::events::SessionEvent>(
+        &self,
+        event: E,
+    ) -> crate::blocking::EventIter<E::BlockingData> {
+        crate::blocking::EventIter::new(
+            self.inner
+                .events(event)
+                .map(<E as crate::events::sealed::SessionEvent>::blocking),
+            self.inner.host.connection(),
+        )
+    }
 }
 
 /// A `page` a program holds: the members the catalog gives it (ADR 0099).

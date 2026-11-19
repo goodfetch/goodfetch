@@ -31,6 +31,7 @@ mod limits;
 mod line;
 pub mod logging;
 mod markers;
+mod published;
 mod raw_call;
 mod response;
 mod rpc;

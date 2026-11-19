@@ -11,6 +11,7 @@
 
 use std::collections::BTreeMap;
 use std::future::poll_fn;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use goodfetch_protocol::connection::{CANCEL, CancelParams};
@@ -63,12 +64,35 @@ pub(crate) enum Heard {
     },
 }
 
+/// A streaming call's id, which the Connection notes as it sends the call,
+/// so that one who cannot wait to hear it can still cancel the call in
+/// order.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CallId(Arc<OnceLock<i64>>);
+
+impl CallId {
+    /// Its id, once the call was sent.
+    pub(crate) fn get(&self) -> Option<i64> {
+        self.0.get().copied()
+    }
+}
+
+/// The credits a streaming call is granted once sent, and where its id is
+/// noted.
+struct Granted {
+    credits: u32,
+    id: CallId,
+}
+
 /// What the Connection's correlating task acts on.
 enum Command {
-    /// Sends a call.
-    Call(Outgoing),
+    /// Sends a call, then grants it the credits named, if any, with
+    /// `$/credit`, before anything sent after it.
+    Call(Outgoing, Option<Granted>),
     /// Sends a notification.
     Notify(Notification),
+    /// Cancels a streaming call sent before it, once its id is noted.
+    CancelSent(CallId),
     /// Ends the Connection: no more calls, the output closed, every call
     /// in flight failed as closed.
     Close,
@@ -81,35 +105,50 @@ pub(crate) struct Sender(mpsc::UnboundedSender<Command>);
 impl Sender {
     /// Sends `call`; its reply fails as closed when the Connection is.
     pub(crate) fn call(&self, call: Outgoing) {
-        if let Err(mpsc::error::SendError(Command::Call(call))) = self.0.send(Command::Call(call)) {
-            let _closed = call.reply.send(Err(Error::closed()));
-        }
+        self.send_call(call, None);
     }
 
-    /// Sends the notification `method` with `params`; one sent once the
-    /// Connection is closed goes nowhere.
-    pub(crate) fn notify(&self, method: &str, params: Value) {
-        let _closed = self.0.send(Command::Notify(Notification {
-            jsonrpc: Version,
-            method: method.to_owned(),
-            params: Some(params),
-        }));
+    /// Sends the streaming call `call` and grants it `credits` with
+    /// `$/credit` right after it, before any message sent after this one,
+    /// whose caller cannot wait to hear its id first. Its caller cancels it
+    /// with [`Sender::cancel_sent`], even when it stopped listening before
+    /// it was sent.
+    pub(crate) fn call_granting(&self, call: Outgoing, credits: u32) -> CallId {
+        let id = CallId::default();
+        self.send_call(
+            call,
+            Some(Granted {
+                credits,
+                id: id.clone(),
+            }),
+        );
+        id
+    }
+
+    fn send_call(&self, call: Outgoing, granted: Option<Granted>) {
+        if let Err(mpsc::error::SendError(Command::Call(call, _))) =
+            self.0.send(Command::Call(call, granted))
+        {
+            let _closed = call.reply.send(Err(Error::closed()));
+        }
     }
 
     /// Grants the streaming call `id` `credits` more items with
     /// `$/credit`.
     pub(crate) fn credit(&self, id: i64, credits: u32) {
-        if let Ok(params) = serde_json::to_value(CreditParams {
-            id: RequestId::Number(id),
-            credits,
-        }) {
-            self.notify(CREDIT, params);
-        }
+        let _closed = self.0.send(Command::Notify(credited(id, credits)));
     }
 
     /// Cancels the streaming call `id` with `$/cancel`.
     pub(crate) fn cancel(&self, id: i64) {
         let _closed = self.0.send(Command::Notify(cancelled(id)));
+    }
+
+    /// Cancels the streaming call `call`, sent before this, with
+    /// `$/cancel`, after it and before anything sent after this, whether or
+    /// not its id was heard yet; one never sent is not cancelled.
+    pub(crate) fn cancel_sent(&self, call: &CallId) {
+        let _closed = self.0.send(Command::CancelSent(call.clone()));
     }
 
     /// Ends the Connection without waiting.
@@ -189,7 +228,7 @@ async fn correlate(
     loop {
         tokio::select! {
             command = commands.recv() => match command {
-                Some(Command::Call(call)) => {
+                Some(Command::Call(call, granted)) => {
                     next_id += 1;
                     let id = next_id;
                     let request = Request {
@@ -210,9 +249,14 @@ async fn correlate(
                         continue;
                     }
                     let deadline = call.timeout.map(|timeout| deadlines.insert(id, timeout));
-                    if let Some(notified) = &call.notified
-                        && let Err(mpsc::error::TrySendError::Closed(_)) = notified.try_send(Heard::Sent(id))
-                    {
+                    let unheard = call.notified.as_ref().is_some_and(|notified| {
+                        matches!(notified.try_send(Heard::Sent(id)), Err(mpsc::error::TrySendError::Closed(_)))
+                    });
+                    if let Some(granted) = granted {
+                        // Its caller cancels it with `CancelSent`.
+                        let _noted = granted.id.0.set(id);
+                        send(&credited(id, granted.credits), &lines);
+                    } else if unheard {
                         // Its caller stopped listening before it was sent,
                         // so never learnt its id: the call is cancelled here.
                         send(&cancelled(id), &lines);
@@ -220,6 +264,11 @@ async fn correlate(
                     pending.insert(id, Pending { reply: call.reply, deadline, notified: call.notified });
                 }
                 Some(Command::Notify(notification)) => send(&notification, &lines),
+                Some(Command::CancelSent(call)) => {
+                    if let Some(id) = call.get() {
+                        send(&cancelled(id), &lines);
+                    }
+                }
                 Some(Command::Close) | None => break,
             },
             Some(expired) = poll_fn(|context| deadlines.poll_expired(context)) => {
@@ -245,7 +294,7 @@ async fn correlate(
     streams.end();
     commands.close();
     while let Ok(command) = commands.try_recv() {
-        if let Command::Call(call) = command {
+        if let Command::Call(call, _) = command {
             let _gone = call.reply.send(Err(Error::closed()));
         }
     }
@@ -261,6 +310,19 @@ fn cancelled(id: i64) -> Notification {
         method: CANCEL.to_owned(),
         params: serde_json::to_value(CancelParams {
             id: RequestId::Number(id),
+        })
+        .ok(),
+    }
+}
+
+/// The `$/credit` that grants the call `id` `credits` more items.
+fn credited(id: i64, credits: u32) -> Notification {
+    Notification {
+        jsonrpc: Version,
+        method: CREDIT.to_owned(),
+        params: serde_json::to_value(CreditParams {
+            id: RequestId::Number(id),
+            credits,
         })
         .ok(),
     }

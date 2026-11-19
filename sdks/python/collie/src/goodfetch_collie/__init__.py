@@ -6,7 +6,8 @@ holds `AsyncCollie` and the sync `Collie`; the Collie client package,
 errors, a listener's `Subscription`, a sequence's iterators (`AsyncSequence`
 and `Sequence`), a Run's Key-value store (`AsyncKeyValueStore` and
 `KeyValueStore`), each scope's settings types
-(`Settings`, `RunSettings`, `SessionSettings`, `PageSettings`), the
+(`Settings`, `RunSettings`, `SessionSettings`, `PageSettings`) and what
+explaining them answers (`SettingsExplanation`), the
 JSON values and the schema written by hand of ADR 0082 (`JSONValue`,
 `JSONObject`, `JSONSchema`), and `AsyncConnection` and
 `Connection`, which both Products' Connections extend, all of which this
@@ -45,9 +46,14 @@ from goodfetch_collie_client.generated.errors import (
     SettingInvalidError,
 )
 from goodfetch_collie_client.generated.models import (
+    ExplainedSetting,
     Product,
+    RunOrigin,
     RunReport,
     RunStarted,
+    SettingsExplanation,
+    SettingsFile,
+    SettingsLayer,
     StartedAs,
 )
 from goodfetch_collie_client.generated.settings import (
@@ -87,6 +93,7 @@ __all__ = [
     "EngineInfo",
     "EngineNotFoundError",
     "EngineOutputInvalidError",
+    "ExplainedSetting",
     "GoodfetchError",
     "JSONObject",
     "JSONSchema",
@@ -108,6 +115,7 @@ __all__ = [
     "RunEndedError",
     "RunIdInvalidError",
     "RunInUseError",
+    "RunOrigin",
     "RunReport",
     "RunSettings",
     "RunStarted",
@@ -116,6 +124,9 @@ __all__ = [
     "SessionSettings",
     "SettingInvalidError",
     "Settings",
+    "SettingsExplanation",
+    "SettingsFile",
+    "SettingsLayer",
     "StartedAs",
     "Subscription",
 ]

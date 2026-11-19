@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 
     from goodfetch_collie_client.engine_choice import DaemonReach, EngineChoice
     from goodfetch_collie_client.generated.models import Product, RunLimit
+    from goodfetch_collie_client.generated.settings import Settings
     from goodfetch_collie_client.goodfetch_error import ErrorClass
     from goodfetch_collie_client.limits import Limits
 
@@ -115,6 +116,7 @@ async def open_engine(
     close_timeout: float = CLOSE_TIMEOUT,
     limits: Limits | None = None,
     connect_timeout: timedelta | NotGiven | None = not_given,
+    settings: Settings | None = None,
 ) -> ClientConnection:
     """Reaches the engine `engine` chooses for `product`, then `hello` and `limits`.
 
@@ -133,7 +135,9 @@ async def open_engine(
     (`not_in_product`) or version, or a refused Limit raises here, with a
     `fix`, leaving no Attached engine behind. The engine reached is logged
     at info on the `goodfetch.client` logger, its `EngineInfo` as the
-    record's `engine`.
+    record's `engine`. `settings`, the Connection's own (ADR 0083), go in
+    `hello`, and a key the engine refuses fails the opening with its error,
+    such as `setting_not_applicable`.
     """
     connection_limits = limit_list(limits)
     checked = (
@@ -147,11 +151,22 @@ async def open_engine(
     )
     if isinstance(reach, AttachedReach):
         connection = await _open_attached(
-            product, environment, reach.home, close_timeout, connection_limits, checked
+            product,
+            environment,
+            reach.home,
+            close_timeout,
+            connection_limits,
+            checked,
+            settings=settings,
         )
     else:
         connection = await _open_daemon(
-            product, reach, close_timeout, connection_limits, checked
+            product,
+            reach,
+            close_timeout,
+            connection_limits,
+            checked,
+            settings=settings,
         )
     info = connection.engine
     logging.getLogger(CLIENT_LOGGER).info(
@@ -167,6 +182,8 @@ async def _open_attached(
     close_timeout: float,
     limits: Sequence[RunLimit],
     connect_timeout: int | NotGiven | None,
+    *,
+    settings: Settings | None,
 ) -> ClientConnection:
     """Starts `product`'s engine as an Attached engine with `env`, then `hello`."""
     location = locate_engine(env, product)
@@ -180,6 +197,7 @@ async def _open_attached(
         close_timeout=close_timeout,
         limits=limits,
         connect_timeout=connect_timeout,
+        settings=settings,
     )
 
 
@@ -189,6 +207,8 @@ async def _open_daemon(
     close_timeout: float,
     limits: Sequence[RunLimit],
     connect_timeout: int | NotGiven | None,
+    *,
+    settings: Settings | None,
 ) -> ClientConnection:
     """Finishes `hello` with a Daemon, its token in it.
 
@@ -204,6 +224,7 @@ async def _open_daemon(
         close_timeout=close_timeout,
         limits=limits,
         connect_timeout=connect_timeout,
+        settings=settings,
     )
 
 

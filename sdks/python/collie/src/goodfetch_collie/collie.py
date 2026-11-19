@@ -46,7 +46,8 @@ if TYPE_CHECKING:
     from anyio.abc import ByteStream
     from goodfetch_collie_client.connection import EngineInfo
     from goodfetch_collie_client.engine_choice import EngineChoice
-    from goodfetch_collie_client.generated.settings import RunSettings
+    from goodfetch_collie_client.generated.models import SettingsExplanation
+    from goodfetch_collie_client.generated.settings import RunSettings, Settings
     from goodfetch_collie_client.limits import Limits
     from pydantic import JsonValue
 
@@ -84,6 +85,7 @@ class AsyncCollie(AsyncConnection):
         engine: EngineChoice = "auto",
         limits: Limits | None = None,
         timeout: timedelta | NotGiven | None = not_given,
+        settings: Settings | None = None,
     ) -> Connecting:
         """Reaches Collie's engine and finishes `hello`.
 
@@ -109,6 +111,14 @@ class AsyncCollie(AsyncConnection):
         Attached engine behind; so does a cancelled opening. The engine
         sends its logs from the effective level of `goodfetch.engine`, read
         here (ADR 0078).
+
+        `settings` are the Connection's own, sent in `hello`, which every
+        Run it starts inherits (ADR 0083): a key left out inherits
+        configuration, `None` clears one that can be cleared, a duration is
+        a `timedelta`, sent in whole milliseconds, and a Run's own
+        `settings` win over them key by key. A key the Connection does not
+        take fails the opening with the engine's error, such as
+        `setting_not_applicable` or `setting_locked`.
         """
         return Connecting(
             functools.partial(
@@ -118,6 +128,7 @@ class AsyncCollie(AsyncConnection):
                 engine=engine,
                 limits=limits,
                 connect_timeout=timeout,
+                settings=settings,
             )
         )
 
@@ -187,6 +198,20 @@ class AsyncCollie(AsyncConnection):
         sent = raw_params(operation, params, timeout)
         return await self._connection.raw(operation, sent)
 
+    async def explain_settings(
+        self, keys: Iterable[str] | None = None
+    ) -> SettingsExplanation:
+        """What the Connection runs with (ADR 0083), as `config explain` shows it.
+
+        Each setting under `keys`, each a key or a prefix of keys such as
+        `timeout`, every one when left out, with its effective value, the
+        layer and origin that set it and the layer that locked it: the
+        Connection's own `settings` over configuration and the Operator
+        policy, which each Run it starts inherits. Raises `closed` once the
+        Connection is closed.
+        """
+        return await self._connection.explain_settings(keys)
+
     async def close(self) -> None:
         """Closes the Connection; idempotent.
 
@@ -250,6 +275,7 @@ class Collie(Connection):
         engine: EngineChoice = "auto",
         limits: Limits | None = None,
         timeout: timedelta | NotGiven | None = not_given,
+        settings: Settings | None = None,
     ) -> Collie:
         """Reaches Collie's engine and finishes `hello`.
 
@@ -275,6 +301,14 @@ class Collie(Connection):
         neither Attached engine nor thread behind. The engine sends its
         logs from the effective level of `goodfetch.engine`, read here
         (ADR 0078).
+
+        `settings` are the Connection's own, sent in `hello`, which every
+        Run it starts inherits (ADR 0083): a key left out inherits
+        configuration, `None` clears one that can be cleared, a duration is
+        a `timedelta`, sent in whole milliseconds, and a Run's own
+        `settings` win over them key by key. A key the Connection does not
+        take fails the opening with the engine's error, such as
+        `setting_not_applicable` or `setting_locked`.
         """
         return _open_sync(
             functools.partial(
@@ -284,6 +318,7 @@ class Collie(Connection):
                 engine=engine,
                 limits=limits,
                 connect_timeout=timeout,
+                settings=settings,
             )
         )
 
@@ -358,6 +393,18 @@ class Collie(Connection):
             )
         except LoopStopped:
             raise closed_error(operation) from None
+
+    def explain_settings(
+        self, keys: Iterable[str] | None = None
+    ) -> SettingsExplanation:
+        """What the Connection runs with, as `AsyncCollie.explain_settings` says."""
+        explaining = functools.partial(
+            self._connection.explain_settings, None if keys is None else list(keys)
+        )
+        try:
+            return self._loop.call(explaining)
+        except LoopStopped:
+            raise closed_error("config.explain") from None
 
     def close(self) -> None:
         """Closes the Connection and joins its thread; idempotent, from any thread.

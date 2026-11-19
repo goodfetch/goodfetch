@@ -10,9 +10,9 @@
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{
-    ClientConnection, ConnectionRuntime, Error, Limits, Money, UsageKind,
+    ClientConnection, ConnectionRuntime, ErrorCode, Limits, Money, UsageKind,
 };
-use goodfetch_protocol::run::{Completeness, Lifecycle, RunId, StopReason};
+use goodfetch_protocol::run::{Completeness, Lifecycle, ReachedLimit, RunId, StopReason};
 use goodfetch_test_support::TestEnv;
 use serde_json::json;
 
@@ -49,23 +49,23 @@ fn a_call_that_finds_the_runs_limit_used_up_fails_and_the_run_ends_stopped_and_i
         let report = run.finish().await.unwrap();
         connection.close().await.unwrap();
 
-        let Err(Error::Failed(failure)) = refused else {
+        let Err(failure) = &refused else {
             panic!("{refused:?}");
         };
-        let details = &failure.data.details;
+        let details: ReachedLimit = failure.details().unwrap();
         assert_eq!(
             (
-                failure.data.code.as_str(),
-                &details["scope"],
-                &details["usage_kind"],
-                &details["currency"],
-                details["fix"].is_string(),
+                failure.code(),
+                serde_json::to_value(&details.scope).unwrap(),
+                details.usage_kind.as_str(),
+                details.currency.as_deref(),
+                failure.fix().is_some(),
             ),
             (
-                "limit_reached",
-                &json!({ "kind": "run", "id": "capped" }),
-                &json!("proxy_bytes"),
-                &json!("USD"),
+                ErrorCode::LIMIT_REACHED,
+                json!({ "kind": "run", "id": "capped" }),
+                "proxy_bytes",
+                Some("USD"),
                 true,
             )
         );

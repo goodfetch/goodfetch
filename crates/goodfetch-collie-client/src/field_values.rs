@@ -31,7 +31,7 @@ impl Query<PageRead, PageReadParams> {
     ///
     /// # Errors
     ///
-    /// Once sent, [`Error::Shape`] when the values do not fit `T`, and
+    /// Once sent, `internal` when the values do not fit `T`, and
     /// the errors of the read.
     pub fn typed<T: DeserializeOwned + Send + 'static>(
         self,
@@ -42,7 +42,7 @@ impl Query<PageRead, PageReadParams> {
 
 /// `read`'s values read into `T`.
 fn typed<T: DeserializeOwned>(read: PageRead) -> Result<FieldValues<T>, Error> {
-    let values = serde_json::from_value(Value::Object(read.values)).map_err(Error::Shape)?;
+    let values = serde_json::from_value(Value::Object(read.values)).map_err(Error::shape)?;
     Ok(FieldValues {
         values,
         unread: read.unread,

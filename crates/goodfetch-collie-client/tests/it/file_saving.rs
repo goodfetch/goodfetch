@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_collie_client::Error;
 use goodfetch_collie_client::file_saving::FileSaving;
+use goodfetch_protocol::checkpoint::{FileWriteFailedDetails, PathNotWritableDetails, WriteSide};
 
 /// The call a failure's fix names.
 const CALL: &str = "download.saveAs";
@@ -29,13 +30,63 @@ fn names(folder: &Path) -> Vec<String> {
     names
 }
 
-/// The failure `error` carries, and whether it is the path's.
-fn failure(error: &Error) -> (&goodfetch_collie_client::FileFailure, bool) {
-    match error {
-        Error::PathNotWritable(failure) => (failure, true),
-        Error::FileWriteFailed(failure) => (failure, false),
-        other => panic!("not a file failure: {other:?}"),
+/// What a file failure details, either code's, read as one shape.
+struct Failure {
+    reason: String,
+    os_code: Option<String>,
+    side: Option<&'static str>,
+    path: PathBuf,
+    fix: String,
+}
+
+impl Failure {
+    fn reason(&self) -> &str {
+        &self.reason
     }
+
+    fn os_code(&self) -> Option<&str> {
+        self.os_code.as_deref()
+    }
+
+    fn side(&self) -> Option<&str> {
+        self.side
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn fix(&self) -> &str {
+        &self.fix
+    }
+}
+
+/// The failure `error` carries, and whether it is the path's.
+fn failure(error: &Error) -> (Failure, bool) {
+    if let Some(details) = error.details::<PathNotWritableDetails>() {
+        let failure = Failure {
+            reason: details.reason,
+            os_code: details.os_code,
+            side: None,
+            path: details.path.into(),
+            fix: details.fix,
+        };
+        return (failure, true);
+    }
+    let Some(details) = error.details::<FileWriteFailedDetails>() else {
+        panic!("not a file failure: {error:?}");
+    };
+    let failure = Failure {
+        reason: details.reason,
+        os_code: details.os_code,
+        side: Some(match details.side {
+            WriteSide::Engine => "engine",
+            WriteSide::Program => "program",
+        }),
+        path: details.path.unwrap_or_default().into(),
+        fix: error.fix().unwrap_or_default().to_owned(),
+    };
+    (failure, false)
 }
 
 #[test]
@@ -284,7 +335,7 @@ mod saver {
     use std::time::Duration;
 
     use goodfetch_collie_client::transport::{Endpoint, Network};
-    use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error};
+    use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, ErrorCode};
     use goodfetch_protocol::catalog::Product;
     use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams, ProductVersion, Surface};
     use serde_json::{Value, json};
@@ -529,7 +580,10 @@ mod saver {
             },
         );
 
-        assert!(matches!(saved, Err(Error::Failed(_))), "{saved:?}");
+        assert!(
+            matches!(&saved, Err(error) if error.code() == ErrorCode::PAGE_CRASHED),
+            "{saved:?}"
+        );
         assert_eq!(std::fs::read(&path).unwrap(), b"before");
         assert_eq!(names(folder.path()), ["report.csv"]);
     }
@@ -599,7 +653,10 @@ mod saver {
             },
         );
 
-        assert!(matches!(saved, Err(Error::TimedOut)), "{saved:?}");
+        assert!(
+            matches!(&saved, Err(error) if error.code() == ErrorCode::DEADLINE_EXCEEDED),
+            "{saved:?}"
+        );
         assert_eq!(names(folder.path()), Vec::<String>::new());
         assert_eq!(
             cancel,

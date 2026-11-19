@@ -11,8 +11,9 @@
 
 use std::time::Duration;
 
-use goodfetch_collie::{Collie, ConnectOptions, Error, RunId, StartedAs, blocking};
+use goodfetch_collie::{Collie, ConnectOptions, ErrorCode, RunId, StartedAs, blocking};
 use goodfetch_protocol::run::{Lifecycle, ProgressMessage};
+use goodfetch_protocol::settings::SettingInvalidDetails;
 use goodfetch_test_support::{TestEnv, real_time_runtime};
 use serde_json::json;
 
@@ -47,7 +48,10 @@ fn a_program_connects_starts_a_run_finishes_it_and_closes_on_a_single_threaded_r
         assert_eq!(report.run_id, first);
         assert_eq!(report.lifecycle, Lifecycle::Finished);
         let after = collie.start().await;
-        assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+        assert!(
+            matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+            "{after:?}"
+        );
     });
 }
 
@@ -66,7 +70,10 @@ fn a_scope_lends_its_connection_to_the_body_and_closes_it_after() {
 
     assert_eq!(report.lifecycle, Lifecycle::Finished);
     let after = real_time_runtime().block_on(async { kept.start().await });
-    assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+    assert!(
+        matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+        "{after:?}"
+    );
 }
 
 /// Covers: story:11-3
@@ -83,7 +90,10 @@ fn a_program_without_async_connects_starts_a_run_finishes_it_and_closes() {
     assert_eq!(run.id(), &first);
     assert_eq!(report.lifecycle, Lifecycle::Finished);
     let after = collie.start().send();
-    assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+    assert!(
+        matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+        "{after:?}"
+    );
 }
 
 /// `blocking` inside an async runtime hands each call to the connection's
@@ -136,7 +146,10 @@ fn the_members_generated_from_the_catalog_reach_the_engine() {
             (run.id(), Lifecycle::Finished)
         );
         let after = run.report().await;
-        assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+        assert!(
+            matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+            "{after:?}"
+        );
     });
 }
 
@@ -186,20 +199,21 @@ fn a_zero_duration_is_refused_naming_the_setting_and_the_null_form() {
         let refused = run.stop().timeout(Duration::ZERO).await;
         collie.close().await.unwrap();
 
-        let Err(Error::Failed(failure)) = refused else {
+        let Err(failure) = &refused else {
             panic!("{refused:?}");
         };
+        let details: SettingInvalidDetails = failure.details().unwrap();
         assert_eq!(
             (
-                failure.data.code.as_str(),
-                &failure.data.details["limit"],
-                failure.data.details["fix"]
-                    .as_str()
+                failure.code(),
+                serde_json::to_value(&details.limit).unwrap(),
+                failure
+                    .fix()
                     .is_some_and(|fix| fix.contains("`timeout: null`")),
             ),
             (
-                "setting_invalid",
-                &json!({ "key": "timeout.close", "value": 0, "layer": "run", "origin": "argument" }),
+                ErrorCode::SETTING_INVALID,
+                json!({ "key": "timeout.close", "value": 0, "layer": "run", "origin": "argument" }),
                 true,
             )
         );
@@ -244,19 +258,19 @@ fn connect_takes_its_timeout_left_out_given_or_none_and_refuses_zero() {
         }
 
         let refused = Collie::connect(options(&env).timeout(Duration::ZERO)).await;
-        let Err(Error::Failed(failure)) = refused else {
+        let Err(failure) = refused else {
             panic!("{refused:?}");
         };
         assert_eq!(
             (
-                failure.data.code.as_str(),
-                &failure.data.details["limit"],
-                failure.data.details["fix"]
-                    .as_str()
+                failure.code(),
+                &serde_json::to_value(failure.limit()).unwrap(),
+                failure
+                    .fix()
                     .is_some_and(|fix| fix.contains("`.no_timeout()`")),
             ),
             (
-                "setting_invalid",
+                ErrorCode::SETTING_INVALID,
                 &json!({ "key": "timeout.connect", "value": 0, "layer": "run", "origin": "argument" }),
                 true,
             )
@@ -280,5 +294,8 @@ fn blocking_repeats_the_members_generated_from_the_catalog() {
     assert_eq!(progress_set.message, Some(message));
     assert_eq!(finished.lifecycle, Lifecycle::Finished);
     let after = run.report().send();
-    assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+    assert!(
+        matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+        "{after:?}"
+    );
 }

@@ -46,7 +46,7 @@ impl Collie {
     ///
     /// # Errors
     ///
-    /// [`Error::Engine`] when the linked engine cannot start, with no
+    /// `engine_exited` when the linked engine cannot start, with no
     /// Goodfetch home among others, `setting_invalid` for a zero `timeout`,
     /// `deadline_exceeded` naming `timeout.connect` when `hello` is not
     /// answered within it, what `hello` fails with, and what `usage.set`
@@ -147,13 +147,13 @@ impl Collie {
     /// Closes the connection for every clone: first every Run it started
     /// that still runs, then the linked engine, which checkpoints and stops;
     /// returns once it has stopped, or once `timeout.close` has run out.
-    /// Any later call fails with [`Error::Closed`]. Closing again does
+    /// Any later call fails with `closed`. Closing again does
     /// nothing.
     ///
     /// # Errors
     ///
-    /// What closing a Run fails with, [`Error::Engine`] when the linked
-    /// engine failed, and [`Error::TimedOut`] when `timeout.close` ran out
+    /// What closing a Run fails with, `engine_exited` when the linked
+    /// engine failed, and `deadline_exceeded` when `timeout.close` ran out
     /// first.
     ///
     /// # Cancel safety

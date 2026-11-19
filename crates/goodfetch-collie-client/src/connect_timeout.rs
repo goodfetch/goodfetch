@@ -41,7 +41,7 @@ impl ConnectTimeout {
     ///
     /// # Errors
     ///
-    /// [`Error::Failed`] with `setting_invalid` for a zero duration, its
+    /// `setting_invalid` for a zero duration, its
     /// `limit` naming `timeout.connect` at the run layer, given as an
     /// argument, and its `fix` the form with no timeout.
     pub fn check(self) -> Result<(), Error> {
@@ -127,7 +127,7 @@ fn failed(code: &ErrorCodeDefinition, message: String, details: &impl Serialize)
     let details: Map<String, Value> = serde_json::to_value(details)
         .and_then(serde_json::from_value)
         .expect("invariant: an Error code's details serialize as an object");
-    Error::Failed(Box::new(ErrorObject {
+    Error::answered(ErrorObject {
         code: code.group.json_rpc_class(),
         message,
         data: ErrorData {
@@ -135,5 +135,5 @@ fn failed(code: &ErrorCodeDefinition, message: String, details: &impl Serialize)
             retryable: code.retryable,
             details,
         },
-    }))
+    })
 }

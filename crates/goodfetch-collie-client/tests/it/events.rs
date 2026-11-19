@@ -6,7 +6,7 @@
 //! play the `linked` side against a real page.
 
 use goodfetch_collie_client::transport::Endpoint;
-use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, events};
+use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, ErrorCode, events};
 use goodfetch_test_support::logged;
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt as _;
@@ -336,10 +336,10 @@ fn a_failed_calls_stream_hands_its_error_once_then_ends() {
         tokio::join!(client, engine)
     });
 
-    let (Some(Err(Error::Failed(failure))), None) = items else {
+    let (Some(Err(failure)), None) = items else {
         panic!("{items:?}");
     };
-    assert_eq!(failure.data.code, "page_events_lost");
+    assert_eq!(failure.code().as_str(), "page_events_lost");
 }
 
 /// A stream dropped before the Connection sent its call cancels the call
@@ -366,7 +366,7 @@ fn a_stream_dropped_before_its_call_is_sent_cancels_it() {
 }
 
 /// A closed page's `events` sends nothing: its stream hands
-/// [`Error::Closed`] once, then `None`.
+/// `closed` once, then `None`.
 #[test]
 fn a_closed_pages_events_hand_closed_once_and_send_nothing() {
     let (network, mut lines, mut writer) = scripted();
@@ -406,7 +406,7 @@ fn a_closed_pages_events_hand_closed_once_and_send_nothing() {
     });
 
     assert!(
-        matches!(items, (Some(Err(Error::Closed)), None)),
+        matches!(&items, (Some(Err(error)), None) if error.code() == ErrorCode::CLOSED),
         "{items:?}"
     );
     assert_eq!(

@@ -6,8 +6,9 @@
 //! that names a Run again lowers its Limits and never raises them.
 
 use goodfetch_collie::linked::{Composed, LinkedConnection};
-use goodfetch_collie::{Collie, Error, Limits, Money, RunId, StartedAs, UsageKind, blocking};
+use goodfetch_collie::{Collie, ErrorCode, Limits, Money, RunId, StartedAs, UsageKind, blocking};
 use goodfetch_collie_client::ClientConnection;
+use goodfetch_protocol::run::ReachedLimit;
 use goodfetch_protocol::usage::{
     LimitRaiseRefusedDetails, USAGE_LIST, UsageListParams, UsageListResult,
 };
@@ -87,16 +88,17 @@ fn a_connection_limit_with_nothing_left_refuses_a_runs_start() {
     let refused = collie.start().send();
     collie.close().unwrap();
 
-    let Err(Error::Failed(failure)) = refused else {
+    let Err(failure) = &refused else {
         panic!("{refused:?}");
     };
+    let details: ReachedLimit = failure.details().unwrap();
     assert_eq!(
         (
-            failure.data.code.as_str(),
-            &failure.data.details["scope"]["kind"],
-            &failure.data.details["usage_kind"],
+            failure.code(),
+            serde_json::to_value(&details.scope).unwrap()["kind"].clone(),
+            details.usage_kind.as_str(),
         ),
-        ("limit_reached", &json!("connection"), &json!("requests"))
+        (ErrorCode::LIMIT_REACHED, json!("connection"), "requests")
     );
 }
 
@@ -111,10 +113,10 @@ fn a_connection_limit_the_engine_refuses_fails_the_connect() {
     real_time_runtime().block_on(async {
         let refused = Collie::connect(options(&env).limits(paid_fetches)).await;
 
-        let Err(Error::Failed(failure)) = refused else {
+        let Err(failure) = &refused else {
             panic!("{refused:?}");
         };
-        assert_eq!(failure.data.code, "not_in_product");
+        assert_eq!(failure.code(), ErrorCode::NOT_IN_PRODUCT);
         let next = Collie::connect(options(&env)).await.unwrap();
         next.close().await.unwrap();
     });
@@ -161,15 +163,14 @@ fn a_start_naming_a_run_again_lowers_its_limits_and_never_raises_them() {
                 ],
             )
         );
-        let Err(Error::Failed(failure)) = raised else {
+        let Err(failure) = &raised else {
             panic!("{raised:?}");
         };
-        let details: LimitRaiseRefusedDetails =
-            serde_json::from_value(failure.data.details.clone().into()).unwrap();
+        let details: LimitRaiseRefusedDetails = failure.details().unwrap();
         assert_eq!(
-            (failure.data.code.as_str(), details),
+            (failure.code(), details),
             (
-                "limit_raise_refused",
+                ErrorCode::LIMIT_RAISE_REFUSED,
                 LimitRaiseRefusedDetails {
                     usage_kind: "requests".to_owned(),
                     currency: None,

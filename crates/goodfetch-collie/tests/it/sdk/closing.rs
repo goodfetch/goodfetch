@@ -1,12 +1,12 @@
 //! Closing the tree a Rust program holds (ADR 0078, issue 2928), the
 //! lifecycle client conformance cases in Rust's `linked` mode: each value
 //! closes its children with it, a closed value refuses every later call
-//! with [`Error::Closed`] before sending it, a second close does nothing,
+//! with `closed` before sending it, a second close does nothing,
 //! a running Run's close stops it resumable, and the Connection's close
 //! stops its linked engine. The Scripted engine's Daemon plays the same
 //! cases, and a failed close, in `goodfetch-collie-client`'s tests.
 
-use goodfetch_collie::{Collie, Error, RunId, StartedAs};
+use goodfetch_collie::{Collie, ErrorCode, RunId, StartedAs};
 use goodfetch_test_support::{TestEnv, browser_cache_in_home, real_time_runtime};
 
 use super::options;
@@ -17,7 +17,7 @@ const SHOP: &str = "https://shop.test/";
 /// The `children-close-with-their-parent` case: a Session's close closes
 /// its page, whose own close then does nothing, and the Connection's
 /// closes its Run, its Sessions and their pages, which refuse every later
-/// call with [`Error::Closed`].
+/// call with `closed`.
 /// Covers: story:11-16
 #[test]
 fn children_close_with_their_parent_and_refuse_every_later_call() {
@@ -44,13 +44,14 @@ fn children_close_with_their_parent_and_refuse_every_later_call() {
         assert!(page_closed.is_ok(), "{page_closed:?}");
         assert!(closed_again.is_ok(), "{closed_again:?}");
         assert!(
-            matches!(after_session, Err(Error::Closed)),
+            matches!(&after_session, Err(error) if error.code() == ErrorCode::CLOSED),
             "{after_session:?}"
         );
         assert!(
             matches!(
-                after_connection,
-                (Err(Error::Closed), Err(Error::Closed), Err(Error::Closed))
+                &after_connection,
+                (Err(a), Err(b), Err(c))
+                    if [a, b, c].iter().all(|error| error.code() == ErrorCode::CLOSED)
             ),
             "{after_connection:?}"
         );
@@ -59,7 +60,7 @@ fn children_close_with_their_parent_and_refuse_every_later_call() {
 
 /// The `closed-after-close` case: a Run and a Connection each closed
 /// twice, after which the Run's finish and a start fail with
-/// [`Error::Closed`].
+/// `closed`.
 /// Covers: story:11-17
 #[test]
 fn a_closed_run_and_connection_close_again_and_refuse_every_later_call() {
@@ -77,8 +78,14 @@ fn a_closed_run_and_connection_close_again_and_refuse_every_later_call() {
 
         assert!(run_closed_again.is_ok(), "{run_closed_again:?}");
         assert!(closed_again.is_ok(), "{closed_again:?}");
-        assert!(matches!(finished, Err(Error::Closed)), "{finished:?}");
-        assert!(matches!(started, Err(Error::Closed)), "{started:?}");
+        assert!(
+            matches!(&finished, Err(error) if error.code() == ErrorCode::CLOSED),
+            "{finished:?}"
+        );
+        assert!(
+            matches!(&started, Err(error) if error.code() == ErrorCode::CLOSED),
+            "{started:?}"
+        );
     });
 }
 
@@ -107,7 +114,7 @@ fn a_closed_running_run_resumes_and_a_finished_one_closes() {
 
 /// The `connection-close-stops-its-engine` case: the Connection's close
 /// stops its running Run and its linked engine, after which the Run
-/// refuses its finish with [`Error::Closed`], and a new Connection on the
+/// refuses its finish with `closed`, and a new Connection on the
 /// same Goodfetch home resumes the Run.
 /// Covers: story:11-19
 #[test]
@@ -125,7 +132,10 @@ fn a_connection_close_stops_its_run_and_its_linked_engine() {
         resumed.finish().await.unwrap();
         again.close().await.unwrap();
 
-        assert!(matches!(finished, Err(Error::Closed)), "{finished:?}");
+        assert!(
+            matches!(&finished, Err(error) if error.code() == ErrorCode::CLOSED),
+            "{finished:?}"
+        );
         assert_eq!(resumed.started_as(), StartedAs::Resumed);
     });
 }

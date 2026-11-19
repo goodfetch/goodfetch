@@ -17,12 +17,17 @@ export type { Limits, Money } from "./limits.ts";
 export type { Logger } from "./logger.ts";
 export { Run } from "./run.ts";
 export { Locator, Page, Session } from "./generated/handles.ts";
-export {
-  KeyValueStore,
-  type JsonValue,
-  type StoredBytes,
-  type StoredValue,
-} from "./key-value-store.ts";
+export { KeyValueStore, type StoredBytes, type StoredValue } from "./key-value-store.ts";
+export type { JSONObject, JSONValue } from "./json.ts";
+export type {
+  JSONSchema,
+  Schema,
+  SchemaInput,
+  SchemaOutput,
+  StandardJSONSchemaV1,
+  StandardSchemaV1,
+  TypedSchema,
+} from "./schema.ts";
 export * from "./generated/errors.ts";
 export type { FieldValue, FieldValues } from "./field-values.ts";
 export type {

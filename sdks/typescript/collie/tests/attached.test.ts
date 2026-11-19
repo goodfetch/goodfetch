@@ -6,8 +6,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { once } from "node:events";
 import { Worker } from "node:worker_threads";
-import { Collie, type Logger } from "@goodfetch/collie";
-import { scriptedEngineEnv, test, type Exit, type ProcessRecord } from "@goodfetch/test-support";
+import { Collie } from "@goodfetch/collie";
+import {
+  recordingLogger,
+  scriptedEngineEnv,
+  test,
+  type Exit,
+  type ProcessRecord,
+} from "@goodfetch/test-support";
 import { Schema } from "@goodfetch/test-support/protocol-contract";
 import { describe, expect } from "vitest";
 import { startAndFinish } from "./programs/tracer.ts";
@@ -561,22 +567,6 @@ describe("a worker_threads worker", () => {
     },
   );
 });
-
-/** A host logger that keeps each warning, where the engine's stderr lines go. */
-function recordingLogger(): { readonly logger: Logger; readonly warned: string[] } {
-  const warned: string[] = [];
-  const logger: Logger = {
-    // It asks for none of the engine's log events: `hello` says `off`, as the script expects.
-    level: "off",
-    debug: () => {},
-    info: () => {},
-    warn: (message) => {
-      warned.push(message);
-    },
-    error: () => {},
-  };
-  return { logger, warned };
-}
 
 function unreachable(): never {
   throw new TypeError("invariant: each environment map opened one Connection");

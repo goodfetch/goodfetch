@@ -7,3 +7,15 @@ The TypeScript Collie client package, which both Products' SDKs share (ADR 0095)
 - `./generated`: the layer `xtask codegen` writes from Collie's catalog, with the Connection's messages, `PROTOCOL_VERSION` and `PRODUCT_VERSION`, the workspace's version; never edited by hand. Its `handles.ts` holds the members of `Run`, `Session`, `Page` and `Locator`, each in the form its operation's kind gives it (ADR 0099). It re-exports what its methods and classes build on, which is hand-written beside it: `Caller` and `CallOptions` (`caller.ts`) and `GoodfetchError` (`goodfetch-error.ts`); its handles reach the engine through `HandleHost` (`handle.ts`).
 
 Engine answers are not validated beyond `hello`'s protocol version (STYLE.md). Each module imports its siblings with `.ts`, so Node runs the source as it is.
+
+## Schemas
+
+A program types data with a schema in its own types (ADR 0082): any schema that implements both Standard Schema and Standard JSON Schema, or a JSON Schema written by hand (`JSONSchema`), whose values are `JSONValue` and `JSONObject`. `SchemaInput<S>` is what a program sends under `S` and `SchemaOutput<S>` what it receives, built by the schema's own parse. The interfaces' types are copied from `@standard-schema/spec` 1.1.0, so the package depends on no schema library. Only JSON crosses: a value that is not JSON fails from the call that sent it with `value_invalid`, naming its path as a JSON Pointer.
+
+Supported ranges, each tested at its floor:
+
+| Library | Versions |
+|---|---|
+| Zod | 4.2 and later 4.x |
+| ArkType | 2.1.28 and later 2.x |
+| Valibot | 1.2 and later 1.x, through `toStandardJsonSchema` of `@valibot/to-json-schema` 1.5 and later |

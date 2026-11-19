@@ -31,7 +31,7 @@ import {
   type RunStarted,
   type UsageSetParams,
 } from "./generated/index.ts";
-import type { JsonValue } from "./key-value-store.ts";
+import type { JSONValue } from "./json.ts";
 import { limitList, type Limits } from "./limits.ts";
 import { logEngineEvent, logLevelOf, type Logger } from "./logger.ts";
 import { holdInRealm } from "./realm.ts";
@@ -166,7 +166,7 @@ export class ClientConnection implements AsyncDisposable {
         get: async (runId, key) => {
           const { value } = await this.#operations.keyValueStoreGet({ run_id: runId, key });
           // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): a stored value is JSON.
-          return value as JsonValue;
+          return value as JSONValue;
         },
         set: async (runId, key, value) => {
           // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the generated layer types a schemaless JSON value as an object; any JSON value but null is the engine's to take.

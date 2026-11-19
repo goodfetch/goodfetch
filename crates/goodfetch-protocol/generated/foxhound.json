@@ -1886,6 +1886,7 @@
           "type": "object"
         }
       ],
+      "open": true,
       "properties": {
         "attempts": {
           "arrived_in": "0.1",
@@ -13245,7 +13246,8 @@
           ],
           "type": "object"
         }
-      ]
+      ],
+      "open": true
     },
     "StoppedBy": {
       "description": "Who stopped a call (ADR 0113).",

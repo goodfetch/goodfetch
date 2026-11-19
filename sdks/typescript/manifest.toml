@@ -1900,6 +1900,15 @@ form = "type"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
+member = "WireUnion"
+entry = "none"
+reason = "An open tagged union of a `WirePath`: its tag, the members it knows, and where its members and the fields they share hold more, which `fromWire` reads a newer member by (ADR 0079)."
+words = ["wire", "union"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
 member = "openEngine"
 entry = "none"
 reason = "What each Product's `connect()` is: it reaches the engine its options choose and finishes `hello`, naming the Product (ADR 0078)."

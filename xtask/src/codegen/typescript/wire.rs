@@ -10,8 +10,10 @@
 //! named in the table only when it holds a field to rename or a point in
 //! time, directly or through the types it references; a type that is a
 //! point in time itself, such as `PointInTime`, is written as `"time"`
-//! where it is referenced. Foxhound's table adds its own types to
-//! Collie's.
+//! where it is referenced. An open tagged union (ADR 0079) is always named,
+//! with its tag and the members it knows, so that the runtime reads a
+//! member a newer engine adds as its `unknown` member. Foxhound's table
+//! adds its own types to Collie's.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -22,6 +24,7 @@ use serde_json::{Map, Value};
 
 use super::super::layer::Layer;
 use super::super::naming::camel;
+use super::super::open_values::OpenUnion;
 use super::HEADER;
 
 /// The format a point in time takes in the catalog's schemas.
@@ -71,6 +74,15 @@ pub(super) enum WirePath {
     Items(Box<WirePath>),
     /// Each value of the map.
     Values(Box<WirePath>),
+    /// An open tagged union: the field that tags it, the members it knows,
+    /// where its members hold something, and where the fields every member
+    /// shares do, which a member it does not know is read by.
+    Union {
+        tag: String,
+        known: Vec<String>,
+        path: Option<Box<WirePath>>,
+        common: Option<Box<WirePath>>,
+    },
 }
 
 /// A layer's table.
@@ -99,6 +111,12 @@ enum Found {
     Fields(BTreeMap<String, Option<Found>>),
     Items(Box<Found>),
     Values(Box<Found>),
+    Union {
+        tag: String,
+        known: Vec<String>,
+        path: Option<Box<Found>>,
+        common: Option<Box<Found>>,
+    },
 }
 
 impl Found {
@@ -123,6 +141,17 @@ impl Found {
             }
             Self::Items(found) => found.path().map(|path| WirePath::Items(Box::new(path))),
             Self::Values(found) => found.path().map(|path| WirePath::Values(Box::new(path))),
+            Self::Union {
+                tag,
+                known,
+                path,
+                common,
+            } => Some(WirePath::Union {
+                tag: tag.clone(),
+                known: known.clone(),
+                path: path.as_ref().and_then(|found| found.path()).map(Box::new),
+                common: common.as_ref().and_then(|found| found.path()).map(Box::new),
+            }),
         }
     }
 }
@@ -163,6 +192,9 @@ fn holds(schema: &Value, holding: &BTreeSet<String>, times_only: bool) -> bool {
         _ => return false,
     };
     if is_time(schema) || referenced(schema).is_some_and(|name| holding.contains(name)) {
+        return true;
+    }
+    if !times_only && OpenUnion::of(schema).is_some() {
         return true;
     }
     object.iter().any(|(keyword, value)| {
@@ -235,11 +267,33 @@ impl<'a> Walk<'a> {
             Found::Type(name) => self.timed.contains(name),
             Found::Fields(fields) => fields.values().flatten().any(|found| self.timed(found)),
             Found::Items(found) | Found::Values(found) => self.timed(found),
+            Found::Union { path, .. } => path.as_ref().is_some_and(|found| self.timed(found)),
         }
     }
 
-    /// What `schema` holds.
+    /// What `schema` holds: an open tagged union with what its members hold
+    /// and what the fields they all share hold, or as `shape` finds.
     fn found(&self, schema: &Value) -> Result<Option<Found>> {
+        let Some(OpenUnion { tag, known }) = OpenUnion::of(schema) else {
+            return self.shape(schema);
+        };
+        if camel(&tag) != tag {
+            bail!("the open union's tag `{tag}` is spelled otherwise in TypeScript");
+        }
+        let mut shared = schema.clone();
+        if let Some(object) = shared.as_object_mut() {
+            object.remove("oneOf");
+        }
+        Ok(Some(Found::Union {
+            tag,
+            known,
+            path: self.shape(schema)?.map(Box::new),
+            common: self.shape(&shared)?.map(Box::new),
+        }))
+    }
+
+    /// What `schema` holds, by its fields, items, values and variants.
+    fn shape(&self, schema: &Value) -> Result<Option<Found>> {
         let Some(object) = schema.as_object() else {
             // `true` lets any value through: its keys are data.
             return Ok((schema == &Value::Bool(true)).then_some(Found::Opaque));
@@ -542,6 +596,26 @@ pub(super) fn path_value(path: &WirePath) -> String {
         }
         WirePath::Items(path) => format!("{{ items: {} }}", path_value(path)),
         WirePath::Values(path) => format!("{{ values: {} }}", path_value(path)),
+        WirePath::Union {
+            tag,
+            known,
+            path,
+            common,
+        } => {
+            let known: Vec<String> = known.iter().map(|name| literal(name)).collect();
+            let entry = |name: &str, path: &Option<Box<WirePath>>| {
+                path.as_ref()
+                    .map(|path| format!(", {name}: {}", path_value(path)))
+                    .unwrap_or_default()
+            };
+            format!(
+                "{{ union: {{ tag: {}, known: [{}]{}{} }} }}",
+                literal(tag),
+                known.join(", "),
+                entry("path", path),
+                entry("common", common)
+            )
+        }
     }
 }
 

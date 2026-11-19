@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::{OpenValues, open_definitions};
+use super::{OpenUnion, OpenValues, open_definitions};
 
 fn verdict(open: bool) -> serde_json::Value {
     let mut schema = json!({
@@ -80,4 +80,114 @@ fn only_the_open_definitions_are_listed() {
         .collect();
 
     assert_eq!(names, ["Verdict"]);
+}
+
+/// A tagged union of two members, `abort` with a field and `pause`.
+fn stop_reason(open: bool) -> serde_json::Value {
+    let mut schema = json!({
+        "description": "Why a Run stopped.",
+        "oneOf": [
+            {
+                "properties": {
+                    "by": { "type": "string" },
+                    "kind": { "const": "abort", "type": "string" }
+                },
+                "required": ["kind", "by"],
+                "type": "object"
+            },
+            {
+                "properties": { "kind": { "const": "pause", "type": "string" } },
+                "required": ["kind"],
+                "type": "object"
+            }
+        ]
+    });
+    if open {
+        schema["open"] = json!(true);
+    }
+    schema
+}
+
+#[test]
+fn a_tagged_union_marked_open_gives_its_tag_and_its_members_in_order() {
+    let union = OpenUnion::of(&stop_reason(true)).unwrap();
+
+    assert_eq!(
+        (union.tag.as_str(), union.known),
+        ("kind", vec!["abort".to_owned(), "pause".to_owned()])
+    );
+}
+
+#[rstest::rstest]
+#[case::a_tagged_union_not_marked_open(stop_reason(false))]
+#[case::an_open_enumeration(verdict(true))]
+fn is_no_open_union(#[case] schema: serde_json::Value) {
+    let union = OpenUnion::of(&schema);
+
+    assert!(union.is_none());
+}
+
+#[test]
+fn an_open_union_gets_an_unknown_member_keeping_the_tag_and_the_rest() {
+    let mut input =
+        json!({ "$defs": { "StopReason": stop_reason(true), "Closed": stop_reason(false) } });
+
+    super::unknown_members(&mut input, None).unwrap();
+
+    let members = input["$defs"]["StopReason"]["oneOf"].as_array().unwrap();
+    assert_eq!(members.len(), 3);
+    let unknown = &members[2];
+    assert_eq!(
+        (
+            &unknown["properties"]["kind"],
+            &unknown["properties"]["tag"]["type"],
+            &unknown["required"],
+            &unknown["additionalProperties"],
+        ),
+        (
+            &json!({ "const": "unknown", "type": "string" }),
+            &json!("string"),
+            &json!(["kind", "tag"]),
+            &json!(true),
+        )
+    );
+    assert!(unknown.get("customBasePath").is_none());
+    assert_eq!(input["$defs"]["Closed"], stop_reason(false));
+}
+
+#[test]
+fn python_builds_the_unknown_member_on_the_runtimes_base() {
+    let mut input = json!({ "$defs": { "StopReason": stop_reason(true) } });
+
+    super::unknown_members(&mut input, Some("package.unknown_member.UnknownMember")).unwrap();
+
+    assert_eq!(
+        input["$defs"]["StopReason"]["oneOf"][2]["customBasePath"],
+        "package.unknown_member.UnknownMember"
+    );
+}
+
+#[rstest::rstest]
+#[case::a_member_named_unknown("/oneOf/1/properties", "kind", json!({ "const": "unknown" }))]
+#[case::a_member_with_a_field_tag("/oneOf/0/properties", "tag", json!({ "type": "string" }))]
+#[case::a_field_tag_every_member_shares("", "properties", json!({ "tag": { "type": "string" } }))]
+fn an_open_union_whose_unknown_member_would_collide_is_refused(
+    #[case] parent: &str,
+    #[case] key: &str,
+    #[case] value: serde_json::Value,
+) {
+    let mut schema = stop_reason(true);
+    schema.pointer_mut(parent).unwrap()[key] = value;
+    let mut input = json!({ "$defs": { "StopReason": schema } });
+
+    let refused = super::unknown_members(&mut input, None);
+
+    assert!(refused.is_err());
+}
+
+#[test]
+fn a_schema_marked_open_that_is_neither_an_enumeration_nor_a_tagged_union_is_refused() {
+    let mut input = json!({ "$defs": { "Odd": { "open": true, "type": "object" } } });
+
+    assert!(super::unknown_members(&mut input, None).is_err());
 }

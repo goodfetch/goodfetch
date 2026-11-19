@@ -74,6 +74,10 @@ fn open_values_module(layer: &Layer, open: &[(String, OpenValues)]) -> String {
 /// base of every exception class, which every layer's classes extend.
 const GOODFETCH_ERROR_MODULE: &str = "goodfetch_collie_client.goodfetch_error";
 
+/// The hand-written base of every open tagged union's `unknown` member
+/// (ADR 0079), which `caller.py` builds a member it does not know as.
+const UNKNOWN_MEMBER_BASE: &str = "goodfetch_collie_client.unknown_member.UnknownMember";
+
 /// How `xtask codegen` runs `datamodel-code-generator`.
 pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 19] = [
     "--input-file-type",
@@ -136,6 +140,7 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         ("customTypePath", path)
     });
     points_in_time::use_client_type(&mut input)?;
+    open_values::unknown_members(&mut input, Some(UNKNOWN_MEMBER_BASE))?;
     let open = open_values::python_input(
         &mut input,
         &format!("{}.{OPEN_VALUES}", own_package(layer.product)),

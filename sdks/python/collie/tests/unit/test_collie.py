@@ -582,6 +582,33 @@ async def test_fails_connect_when_its_engine_path_is_set_but_empty(
     }
 
 
+@pytest.mark.covers("story:11-2", "error:setting_invalid")
+@three_ways
+async def test_fails_connect_when_its_listener_queue_takes_no_event(
+    way: Way,
+) -> None:
+    """A bound under 1 fails before any engine starts, naming the option."""
+    error = await failure(
+        way.open(
+            lambda: AsyncCollie.connect(env={}, max_listener_queue=0),
+            lambda: Collie.connect(env={}, max_listener_queue=0),
+        )
+    )
+
+    assert summary(error) == {
+        "code": "setting_invalid",
+        "group": "program",
+        "fix": (
+            "Pass max_listener_queue a whole number of 1 or more, or leave it "
+            "out for its default of 1024."
+        ),
+        "details": {
+            "key": "max_listener_queue",
+            "reason": "0 is no whole number of 1 or more",
+        },
+    }
+
+
 @pytest.mark.anyio
 @pytest.mark.covers("story:11-181")
 async def test_cancels_a_raw_call_with_the_task_it_runs_in() -> None:

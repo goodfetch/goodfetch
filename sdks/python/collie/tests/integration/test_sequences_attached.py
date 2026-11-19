@@ -44,37 +44,40 @@ async def read_to_the_end(way: Way, run: "AsyncRun") -> list[str]:
 
 
 async def read_one_then_stop(way: Way, run: "AsyncRun", stop: Stop) -> list[str]:
-    """The first key under `PREFIX`, then what reading on gives once `stop` ran."""
+    """The first key under `PREFIX`, then what reading on gives once `stop` ran.
+
+    A bare loop's `break` releases the iterator, leaving nothing to read on.
+    """
     if way is Way.SYNC:
         return await anyio.to_thread.run_sync(
             functools.partial(_sync_read_one_then_stop, sync_run(run), stop)
         )
     read: list[str] = []
-    keys: AsyncSequence[str] = run.key_value_store.keys(prefix=PREFIX)
     if stop == "break":
-        async for key in keys:
+        async for key in run.key_value_store.keys(prefix=PREFIX):
             read.append(key)
             break
+        return read
+    keys: AsyncSequence[str] = run.key_value_store.keys(prefix=PREFIX)
+    read.append(await anext(keys))
+    if stop == "aclose":
+        await keys.aclose()
     else:
-        read.append(await anext(keys))
-        if stop == "aclose":
-            await keys.aclose()
-        else:
-            keys.close()
+        keys.close()
     read.extend([key async for key in keys])
     return read
 
 
 def _sync_read_one_then_stop(run: "Run", stop: Stop) -> list[str]:
     read: list[str] = []
-    keys: Sequence[str] = run.key_value_store.keys(prefix=PREFIX)
     if stop == "break":
-        for key in keys:
+        for key in run.key_value_store.keys(prefix=PREFIX):
             read.append(key)
             break
-    else:
-        read.append(next(keys))
-        keys.close()
+        return read
+    keys: Sequence[str] = run.key_value_store.keys(prefix=PREFIX)
+    read.append(next(keys))
+    keys.close()
     read.extend(keys)
     return read
 

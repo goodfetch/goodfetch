@@ -205,6 +205,90 @@ pub(crate) fn reply(line: &str, result: &serde_json::Value) -> Vec<u8> {
     reply
 }
 
+/// A call's `timeout` left out is not sent, `no_timeout` sends null, and a
+/// duration its milliseconds rounded up (ADR 0080): the wire side of the
+/// `call-timeout-three-states` case.
+///
+/// Covers: story:11-40, story:11-42
+#[test]
+fn a_call_sends_its_timeout_left_out_null_or_in_milliseconds_rounded_up() {
+    use tokio::io::AsyncWriteExt as _;
+    let (network, mut lines, mut writer) = scripted();
+    let said = serde_json::json!({
+        "protocol_version": "0.1",
+        "product": "collie",
+        "product_version": "0.0.0",
+        "engine_instance": "01J0000000000000000000000",
+    });
+    let started = serde_json::json!({"run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc", "lifecycle": "running", "needs": "collie", "started_as": "new"});
+    let report = serde_json::json!({
+        "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+        "lifecycle": "finished",
+        "verdict": "verified",
+        "completeness": "complete",
+        "started_at": "2026-01-01T00:00:00Z",
+        "ended_at": "2026-01-01T00:00:00Z",
+        "usage": {
+            "model": {"calls": 0, "tokens": 0, "input_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "price": null},
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0,
+        },
+    });
+    let runtime = goodfetch_test_support::runtime();
+    let sent = runtime.block_on(async {
+        let peer = async {
+            let hello = lines.next_line().await.unwrap().unwrap();
+            writer.write_all(&reply(&hello, &said)).await.unwrap();
+            let start = lines.next_line().await.unwrap().unwrap();
+            writer.write_all(&reply(&start, &started)).await.unwrap();
+            // Every later request, the four finishes and what closing
+            // sends, is answered with the Run's report.
+            let mut sent = Vec::new();
+            while let Some(line) = lines.next_line().await.unwrap() {
+                writer.write_all(&reply(&line, &report)).await.unwrap();
+                let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+                if request["method"] == "run.finish" {
+                    sent.push(request["params"].get("timeout").cloned());
+                }
+            }
+            writer.shutdown().await.unwrap();
+            sent
+        };
+        let client = async {
+            let (connection, _) = Connection::open(
+                ConnectionRuntime::driven(tokio::runtime::Handle::current()),
+                &network,
+                &Endpoint::InMemory,
+                hello(),
+            )
+            .await
+            .unwrap();
+            let run = connection.start().await.unwrap();
+            run.finish().await.unwrap();
+            run.finish().no_timeout().await.unwrap();
+            run.finish().timeout(Duration::from_secs(30)).await.unwrap();
+            run.finish()
+                .timeout(Duration::from_micros(1500))
+                .await
+                .unwrap();
+            connection.close().await.unwrap();
+        };
+        let ((), sent) = tokio::join!(client, peer);
+        sent
+    });
+
+    assert_eq!(
+        sent,
+        [
+            None,
+            Some(serde_json::Value::Null),
+            Some(serde_json::json!(30_000)),
+            Some(serde_json::json!(2)),
+        ]
+    );
+}
+
 #[test]
 fn a_call_past_its_timeout_fails_and_a_late_reply_to_it_changes_nothing() {
     use tokio::io::AsyncWriteExt as _;

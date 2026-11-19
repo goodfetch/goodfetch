@@ -7,7 +7,8 @@
 //! `codegen` workspace takes this module when a test asks what each
 //! language's generator writes for them. It declares `setting_invalid`,
 //! which an SDK raises before sending a call's own `timeout` it refuses
-//! (ADR 0080).
+//! (ADR 0080), and the settings the calls' own `timeout` sets, whose defaults a
+//! Python docstring states.
 
 use std::collections::BTreeMap;
 
@@ -16,8 +17,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
-    ProtocolVersion, Reach, Stability, schema_of,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -340,7 +341,32 @@ pub const ENTRIES: Entries = Entries {
     }],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[],
+    settings: &[
+        Setting {
+            name: "timeout.navigation",
+            description: "How long a navigation may take: 30 s.",
+            kind: ValueKind::Duration,
+            default: || serde_json::json!(30_000),
+            clearable: false,
+            authority: Authority::Every,
+            weakens: None,
+            fixed_for_run: false,
+            unbuilt: None,
+            arrived_in: ARRIVED_IN,
+        },
+        Setting {
+            name: "timeout.wait",
+            description: "How long a wait may take: 30 s.",
+            kind: ValueKind::Duration,
+            default: || serde_json::json!(30_000),
+            clearable: false,
+            authority: Authority::Every,
+            weakens: None,
+            fixed_for_run: false,
+            unbuilt: None,
+            arrived_in: ARRIVED_IN,
+        },
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

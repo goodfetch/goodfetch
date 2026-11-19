@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "15"
+version = "16"
 
 [[capability]]
 name = "lifecycle"
@@ -150,6 +150,18 @@ modes = ["attached"]
 # Its test sends SIGINT; the Windows half, CTRL_BREAK_EVENT, has no test yet
 # (spec #326's review, SP-3).
 platforms = ["unix"]
+
+# A call's own `timeout` in its three states (ADR 0080; issue 2827): left
+# out it is not sent, so the setting's default applies, null sends null, no
+# timeout, and a duration sends its milliseconds; one of zero or less is
+# refused with `setting_invalid`, its `limit` given as an argument and its
+# `fix` naming the null form. Attached in TypeScript and Python, linked in
+# Rust, each surface taking the modes it has.
+[[capability.case]]
+id = "call-timeout-three-states"
+covers = ["story:11-40", "story:11-42"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability]]
 name = "catalog-mapping"

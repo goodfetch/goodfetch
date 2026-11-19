@@ -25,6 +25,7 @@ import {
   type StartedAs,
 } from "./generated/index.ts";
 import { Page } from "./generated/handles.ts";
+import { runtimeMessage, spelledOperation, type OperationNames } from "./goodfetch-error.ts";
 import { collieWire } from "./generated/wire.ts";
 import type { HandleHost, Listener, Subscription } from "./handle.ts";
 import { KeyValueStore, type KeyValueStoreHost } from "./key-value-store.ts";
@@ -51,6 +52,8 @@ export interface RunHost {
   readonly published: SharedSubscription;
   /** Forgets a closed Run. */
   forget(run: Run): void;
+  /** Each operation's name in TypeScript form, which heads a call's `closed` (ADR 0079). */
+  readonly operationNames: OperationNames;
   /** Its Key-value store's calls. */
   readonly keyValueStore: KeyValueStoreHost;
   /** The host's logger, which gets a failed listener its value never raised. */
@@ -67,9 +70,11 @@ interface ListenerFailure {
   readonly error: ListenerFailedError;
 }
 
-/** What a Run and the calls made through it share: its ID, where it stands, and its listeners that failed. */
+/** What a Run and the calls made through it share: its ID, the operations' names its `closed` is headed with, where it stands, and its listeners that failed. */
 interface RunScope {
   readonly id: string;
+  /** Each operation's name in TypeScript form, which heads a call's `closed`. */
+  readonly operationNames: OperationNames;
   state: "running" | "ended" | "closed";
   readonly failures: ListenerFailure[];
 }
@@ -93,13 +98,29 @@ function valueIn(parent: ValueScope | undefined): ValueScope {
   return { parent, closed: false, closing: undefined, watched: false, released: false };
 }
 
+/** The `closed` a call `operation` fails with, in ADR 0079's layout. */
+function closedIn(
+  scope: RunScope,
+  operation: string,
+  whatFailed: string,
+  fix: string,
+): ClosedError {
+  return new ClosedError(
+    runtimeMessage(whatFailed, {
+      operation: spelledOperation(scope.operationNames, operation),
+      fix,
+    }),
+    { operation, fix },
+  );
+}
+
 function ensureOpen(scope: RunScope, operation: string): void {
   if (scope.state === "closed") {
-    throw new ClosedError(
-      `${operation}: the Run ${scope.id} is closed; start it again by its Run ID`,
-      {
-        fix: "Start the Run again by its Run ID to reach it.",
-      },
+    throw closedIn(
+      scope,
+      operation,
+      `the Run ${scope.id} is closed`,
+      "Start the Run again by its Run ID to reach it.",
     );
   }
 }
@@ -216,9 +237,11 @@ function hostIn<Id>(
   const ensureCallable = (operation: string): void => {
     ensureOpen(run, operation);
     if (isClosed(value)) {
-      throw new ClosedError(
-        `${operation}: the value it is called on is closed, or the one that opened it is`,
-        { fix: "Open another from its Run: a closed value never reopens." },
+      throw closedIn(
+        run,
+        operation,
+        "the value it is called on is closed, or the one that opened it is",
+        "Open another from its Run: a closed value never reopens.",
       );
     }
     const [failed] = takeFailures(
@@ -461,6 +484,7 @@ export class Run extends RunMembers implements AsyncDisposable {
   constructor(host: RunHost, started: RunStarted) {
     const scope: RunScope = {
       id: started.runId,
+      operationNames: host.operationNames,
       state: started.lifecycle === "running" ? "running" : "ended",
       failures: [],
     };

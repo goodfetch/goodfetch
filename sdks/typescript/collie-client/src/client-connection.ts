@@ -9,7 +9,12 @@ import { Buffer } from "node:buffer";
 import { AttachedEngine, type EngineExit } from "./attached-engine.ts";
 import type { CallOptions, Caller, OperationTypes } from "./caller.ts";
 import { errorOfReply, type ErrorClasses } from "./errors.ts";
-import type { ErrorLimit } from "./goodfetch-error.ts";
+import {
+  runtimeMessage,
+  spelledOperation,
+  type ErrorLimit,
+  type OperationNames,
+} from "./goodfetch-error.ts";
 import {
   CallCancelledError,
   ClosedError,
@@ -63,6 +68,12 @@ const CLOSE_TIMEOUT = 30_000;
 const EXIT_GRACE = 2_000;
 /** The notification that carries one of the engine's log events, `goodfetch-protocol`'s `log::LOG`. */
 const LOG = "$/log";
+/** What failed for a call on a closed Connection (ADR 0079's layout). */
+const CLOSED = "this Connection is closed";
+/** What failed for a call a Daemon's dropped Connection ended (ADR 0079's layout). */
+const DROPPED = "the engine ended the Connection before it answered";
+/** The fix of a call on a closed or dropped Connection. */
+const CONNECT_AGAIN = "Connect again: a closed Connection never reopens.";
 
 /** The engine a Connection reached, fixed when it opened (G6). It never holds a Daemon's token. */
 export interface EngineInfo {
@@ -143,6 +154,11 @@ export interface ClientConnectionOptions {
   readonly needs: Product;
   /** The error class of each code the Client's Product knows. */
   readonly errorClasses: ErrorClasses;
+  /**
+   * Each of the Client's Product's operations' names in TypeScript form,
+   * which heads the runtime's own errors of a call (ADR 0079).
+   */
+  readonly operationNames: OperationNames;
   /** What the Connection lets wait before it refuses a new call; the defaults when left out. */
   readonly bounds?: ChannelBounds | undefined;
   /** How many events each listener of published events holds in its own queue, already checked: `MAX_LISTENER_QUEUE` when left out. */
@@ -190,6 +206,7 @@ export class ClientConnection implements AsyncDisposable {
   /** The level of the engine's logs the engine was last told, by `hello` or `connection.set_log_level`. */
   #logLevel: LogLevel;
   readonly #reached: Reached;
+  readonly #operationNames: OperationNames;
   #info: EngineInfo | undefined;
   #ended = false;
   #closing: Promise<void> | undefined;
@@ -199,12 +216,14 @@ export class ClientConnection implements AsyncDisposable {
     this.#reached = options.reached ?? { kind: "attached", home: null, url: null };
     this.#logger = options.logger;
     this.#logLevel = logLevelOf(options.logger);
-    const { errorClasses } = options;
+    const { errorClasses, operationNames } = options;
+    this.#operationNames = operationNames;
     this.#channel = new Channel(
       options.transport,
       {
         ended: (end) => this.#endedWith(end),
         failure: (error) => errorOfReply(error, errorClasses),
+        operationNames,
         serve: (method, params, signal) => this.#served.get(method)?.(params, signal),
         notified: (method, params) => {
           if (method === LOG) {
@@ -227,6 +246,7 @@ export class ClientConnection implements AsyncDisposable {
         options.listenerQueue ?? MAX_LISTENER_QUEUE,
       ),
       forget: (run) => this.#runs.delete(run),
+      operationNames,
       logger: this.#logger,
       keyValueStore: {
         get: async (runId, key) => {
@@ -497,9 +517,13 @@ export class ClientConnection implements AsyncDisposable {
 
   #openOrThrow(operation: string): void {
     if (this.#closing !== undefined) {
-      throw new ClosedError(`${operation}: this Connection is closed; connect again`, {
-        fix: "Connect again: a closed Connection never reopens.",
-      });
+      throw new ClosedError(
+        runtimeMessage(CLOSED, {
+          operation: spelledOperation(this.#operationNames, operation),
+          fix: CONNECT_AGAIN,
+        }),
+        { operation, fix: CONNECT_AGAIN },
+      );
     }
   }
 
@@ -536,7 +560,8 @@ export class ClientConnection implements AsyncDisposable {
       );
       answer = await this.#answerWithin(this.#channel.call("hello", sent, { signal }), timeout);
     } catch (error) {
-      throw daemon !== undefined && error instanceof EngineExitedError
+      throw daemon !== undefined &&
+        (error instanceof EngineExitedError || error instanceof ClosedError)
         ? daemon.closedAtHello()
         : error;
     }
@@ -681,9 +706,18 @@ export class ClientConnection implements AsyncDisposable {
         { details: { line: end.line } },
       );
     }
+    // Each call it fails gets a copy headed by its operation (`inCall`).
     if (this.#closing !== undefined) {
-      return new ClosedError("this Connection is closed; connect again", {
-        fix: "Connect again: a closed Connection never reopens.",
+      return new ClosedError(runtimeMessage(CLOSED, { fix: CONNECT_AGAIN }), {
+        fix: CONNECT_AGAIN,
+      });
+    }
+    // A Daemon, this machine's or a remote one, outlives the Connection it
+    // drops: the Connection is closed, not its engine ended (as in Rust).
+    if (this.#reached.kind !== "attached") {
+      return new ClosedError(runtimeMessage(DROPPED, { fix: CONNECT_AGAIN }), {
+        fix: CONNECT_AGAIN,
+        cause: end.kind === "ended" ? undefined : end.cause,
       });
     }
     const exit = await this.#exitOfEngine();

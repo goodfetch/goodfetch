@@ -126,3 +126,56 @@ export function isGoodfetchError(value: unknown): value is GoodfetchError {
 
 /** The class of one Error code: its message, then what it carries. */
 export type ErrorClass = new (message: string, fields?: ErrorFields) => GoodfetchError;
+
+/** Each operation's name in TypeScript form, by its catalog name, which a Product generates. */
+export type OperationNames = Readonly<Record<string, string>>;
+
+/** `operation`'s name in TypeScript form, or its catalog name when `names` holds none, as a raw call's. */
+export function spelledOperation(names: OperationNames, operation: string): string {
+  return names[operation] ?? operation;
+}
+
+/**
+ * The message of an error the runtime raises itself, in ADR 0079's layout:
+ * the operation in TypeScript form, what failed, then the fix. It never
+ * holds a chained cause's text, which the error's `cause` keeps.
+ */
+export function runtimeMessage(
+  whatFailed: string,
+  { operation, fix }: { readonly operation?: string; readonly fix?: string } = {},
+): string {
+  const head = operation === undefined ? whatFailed : `${operation}: ${whatFailed}`;
+  return fix === undefined ? head : `${head}. ${fix}`;
+}
+
+/**
+ * `error`, raised by the runtime, as the call `operation` fails with it: a
+ * copy whose message is headed by the operation in TypeScript form and
+ * whose `operation` holds its catalog name, unless it already names one.
+ * Each call gets its own copy, so one end of a Connection reads as each
+ * call it failed; the copy keeps the error's class, fields and cause.
+ */
+export function inCall<Failure extends GoodfetchError>(
+  error: Failure,
+  operation: string,
+  names: OperationNames,
+): Failure {
+  if (error.operation !== undefined) {
+    return error;
+  }
+  const message = runtimeMessage(error.message, { operation: spelledOperation(names, operation) });
+  // The stack is read as text, which V8 may hold behind an accessor of the
+  // original alone, and keeps its frames under the new message.
+  const header = `${error.name}: ${error.message}`;
+  const stack = error.stack?.startsWith(header)
+    ? `${error.name}: ${message}${error.stack.slice(header.length)}`
+    : error.stack;
+  const hidden = { writable: true, configurable: true, enumerable: false };
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a copy of `error`'s own properties on its prototype is an instance of its class.
+  return Object.create(Object.getPrototypeOf(error), {
+    ...Object.getOwnPropertyDescriptors(error),
+    message: { ...hidden, value: message },
+    stack: { ...hidden, value: stack },
+    operation: { writable: true, configurable: true, enumerable: true, value: operation },
+  }) as Failure;
+}

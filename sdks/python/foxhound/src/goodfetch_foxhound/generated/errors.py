@@ -9,11 +9,14 @@ from collections.abc import Mapping
 from typing import Final, Unpack
 
 from goodfetch_collie_client.generated.errors import PageError, ProgramError, RefusedError, UnavailableError
-from goodfetch_collie_client.goodfetch_error import ErrorClass, ErrorFields
+from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError, ErrorClass, ErrorFields
 
 
-class AttemptEndedError(ProgramError):
-    """The call names an attempt that already ended: its handler returned, it failed or was skipped, its lease ended, or its Run stopped. Nothing it asked for was done, so a forgotten `await` never silently loses a link."""
+class AttemptEndedError(BaseGoodfetchError):
+    """The call names an attempt that already ended: its handler returned, it failed or was skipped, its lease ended, or its Run stopped. Nothing it asked for was done, so a forgotten `await` never silently loses a link.
+
+    In Python it derives from `BaseException`, not `GoodfetchError`, as `asyncio.CancelledError` sits outside `Exception`, so a handler's `except Exception:` lets it through to what runs the attempt; it still carries its code and group (ADR 0093).
+    """
 
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""

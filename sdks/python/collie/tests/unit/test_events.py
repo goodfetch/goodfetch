@@ -28,6 +28,7 @@ from goodfetch_collie import (
 )
 from goodfetch_collie.testing import async_connect_over, connect_over
 from goodfetch_collie_client.generated.models import ConsoleMessage
+from goodfetch_foxhound.generated.errors import AttemptEndedError
 from goodfetch_test_support import (
     Finished,
     PlayedMessage,
@@ -94,9 +95,9 @@ def times_sent(played: PlayedScript, method: str) -> int:
 class Throwing:
     """A listener that throws on its first message, and whether it did."""
 
-    def __init__(self) -> None:
-        """Has not thrown yet."""
-        self.bug = ValueError("the listener's bug")
+    def __init__(self, bug: BaseException | None = None) -> None:
+        """Has not thrown yet; throws `bug`, or a `ValueError`."""
+        self.bug = ValueError("the listener's bug") if bug is None else bug
         self.threw = False
 
     def __call__(self, _: object) -> None:
@@ -224,6 +225,29 @@ async def test_raises_a_thrown_listeners_failure_once_from_the_next_call_unsent(
         "program",
         {"event": "page.console"},
     )
+    assert refused.__cause__ is failing.bug
+    assert played.done() == Finished()
+
+
+@pytest.mark.covers("story:11-63", "error:listener_failed")
+@three_ways
+async def test_raises_a_listeners_attempt_ended_as_its_failure(way: Way) -> None:
+    """`attempt_ended`, outside `Exception` (ADR 0093), fails a listener as any bug."""
+    collie, played = await collie_on(way, "page/listener-failed.json")
+    run = await collie.start()
+    page = await run.new_page()
+    failing = Throwing(
+        AttemptEndedError("Attempt 1 of crawl request `7` already ended.")
+    )
+
+    page.on("console", failing)
+    await until(lambda: sent(played, "$/cancel"), "the listener's removal")
+    refused = await failure(page.evaluate("1"))
+    await page.close()
+    await run.finish()
+    await collie.close()
+
+    assert isinstance(refused, ListenerFailedError)
     assert refused.__cause__ is failing.bug
     assert played.done() == Finished()
 

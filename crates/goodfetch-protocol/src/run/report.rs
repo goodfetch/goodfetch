@@ -6,6 +6,9 @@
 //! uncertain Effects), its warnings, and what a crawl adds, kept as the
 //! engine sent it so that a Collie reader keeps a crawl's parts.
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use std::collections::BTreeMap;
 
 use schemars::JsonSchema;
@@ -15,7 +18,7 @@ use serde_json::{Map, Value};
 use crate::model::ModelTokens;
 use crate::settings::{ExplainedSetting, SettingLimit, WeakenedSetting};
 
-use super::{Checkpoint, Completeness, Lifecycle, LimitScope, Period, PointInTime, RunId};
+use super::{Checkpoint, Completeness, Lifecycle, LimitScope, Period, RunId};
 use super::{StopReason, Verdict};
 
 /// What a Run states about itself when it ends (ADR 0102). A part no area
@@ -47,11 +50,13 @@ pub struct RunReport {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub completeness_reasons: Vec<AxisReason>,
     /// When it started.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub started_at: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub started_at: SystemTime,
     /// When it ended.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub ended_at: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub ended_at: SystemTime,
     /// What it used, as the Usage ledger charged it, with the Limits that
     /// apply to it (ADR 0101).
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -267,9 +272,13 @@ pub struct ModelAllowance {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub remains: u64,
     /// When a model call was first refused under it; none until then.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub reached_at: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub reached_at: Option<SystemTime>,
     /// The setting that set it, its value and its layer.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub source: SettingLimit,
@@ -366,9 +375,13 @@ pub struct AppliedLimit {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub period: Option<Period>,
     /// When its period starts again; none for a Limit without one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub resets_at: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub resets_at: Option<SystemTime>,
     /// What it allows per period: a count, or millionths of the currency.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub amount: u64,
@@ -463,13 +476,21 @@ pub struct RecordingReport {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub responses_used: u64,
     /// When the oldest of them was fetched.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub recorded_from: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub recorded_from: Option<SystemTime>,
     /// When the newest of them was fetched.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub recorded_to: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub recorded_to: Option<SystemTime>,
     /// The engine that wrote them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -487,8 +508,9 @@ pub enum NothingDone {
     /// The start found the Run ended.
     AlreadyEnded {
         /// When it ended.
-        #[schemars(extend("arrived_in" = "0.1"))]
-        ended_at: PointInTime,
+        #[serde(with = "crate::point_in_time")]
+        #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+        ended_at: SystemTime,
     },
     /// No seed reached a handler: each was refused when added or ended
     /// before its handler ran, counted by why.
@@ -542,6 +564,7 @@ pub struct UncertainEffect {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub first_command: Option<String>,
     /// Since when it is uncertain.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub since: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub since: SystemTime,
 }

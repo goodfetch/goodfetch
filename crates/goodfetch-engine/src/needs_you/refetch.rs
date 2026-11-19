@@ -206,7 +206,7 @@ fn item(stop: &RefetchStopped, layer: SettingsLayer, file: &str, only_star: bool
     NeedsYouItem {
         id: format!("{WALL_REFETCH_STOPPED}:{domain}"),
         kind: WALL_REFETCH_STOPPED.to_owned(),
-        since: stop.first_stopped.clone(),
+        since: stop.first_stopped,
         run: Some(stop.last_run.clone()),
         schedule: None,
         summary: format!(

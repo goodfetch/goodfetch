@@ -13014,6 +13014,7 @@
               "type": "null"
             }
           ],
+          "default": null,
           "description": "When it ended."
         },
         "kind": {
@@ -14273,6 +14274,7 @@
               "type": "null"
             }
           ],
+          "default": null,
           "description": "When it ended."
         },
         "epoch": {

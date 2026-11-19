@@ -20,5 +20,6 @@ mod forms;
 mod handler_requests;
 mod limits;
 mod navigations;
+mod points_in_time;
 mod scripted_daemon;
 mod start;

@@ -12,14 +12,18 @@
 //! when a person dismisses it. The source reads both again at each storage
 //! sample, as the storage entries do.
 
+use std::time::SystemTime;
+
 use goodfetch_protocol::checkpoint::RUN_RESUME;
 use goodfetch_protocol::needs_you::{NeedsYouItem, RUN_STOPPED_BY_LIMIT};
-use goodfetch_protocol::run::{PointInTime, RECIPE_TAG, ReachedLimit, RunIndexRow, StopReason};
+use goodfetch_protocol::run::{RECIPE_TAG, ReachedLimit, RunIndexRow, StopReason};
 use goodfetch_protocol::usage::USAGE_RAISE;
+
 use jiff::Timestamp;
 use serde_json::{Map, Value, json};
 
 use super::{Answering, Changes, NeedsYouSource, Primitives, SourceContext, SourceError};
+use crate::clock;
 use crate::ledger::{Ledger, LedgerError, StoredLimit};
 
 /// Each Run stopped by a Limit that still holds it.
@@ -74,19 +78,17 @@ fn still_stopped(
         let Some(StopReason::Limit(reached)) = &row.stop_reason else {
             continue;
         };
-        let restarted = timestamp(reached.resets_at.as_ref().map(PointInTime::as_str))
-            .is_some_and(|resets_at| now >= resets_at);
+        let restarted = reached
+            .resets_at
+            .is_some_and(|resets_at| SystemTime::from(now) >= resets_at);
         if restarted {
             continue;
         }
-        let stopped_at = timestamp(Some(
-            row.ended_at.as_ref().unwrap_or(&row.started_at).as_str(),
-        ));
+        let stopped_at = row.ended_at.unwrap_or(row.started_at);
         let mut holding = None;
         for stored in limits.iter().filter(|stored| names(stored, reached)) {
-            let set_since = timestamp(Some(&stored.set_at))
-                .zip(stopped_at)
-                .is_some_and(|(set_at, stopped_at)| set_at > stopped_at);
+            let set_since = timestamp(&stored.set_at)
+                .is_some_and(|set_at| SystemTime::from(set_at) > stopped_at);
             if !set_since || ledger.left(stored, now)? == 0 {
                 holding = Some(stored);
                 break;
@@ -100,8 +102,8 @@ fn still_stopped(
 }
 
 /// The point in time `text` names, if it names one.
-fn timestamp(text: Option<&str>) -> Option<Timestamp> {
-    text?.parse().ok()
+fn timestamp(text: &str) -> Option<Timestamp> {
+    text.parse().ok()
 }
 
 /// Whether `stored` is the Limit `reached` names: its scope, Usage kind,
@@ -116,10 +118,7 @@ fn names(stored: &StoredLimit, reached: &ReachedLimit) -> bool {
 /// The item of the Run `row` names, stopped by `reached`, which allows
 /// `amount` per period now.
 fn stopped(row: &RunIndexRow, reached: &ReachedLimit, amount: u64) -> NeedsYouItem {
-    let since = row
-        .ended_at
-        .clone()
-        .unwrap_or_else(|| row.started_at.clone());
+    let since = row.ended_at.unwrap_or(row.started_at);
     let run_id = row.run_id.as_str();
     let recipe = row.tags.reserved(RECIPE_TAG);
     let mut details = Map::new();
@@ -142,7 +141,7 @@ fn stopped(row: &RunIndexRow, reached: &ReachedLimit, amount: u64) -> NeedsYouIt
         ),
     };
     NeedsYouItem {
-        id: format!("{RUN_STOPPED_BY_LIMIT}:{run_id}:{}", since.as_str()),
+        id: format!("{RUN_STOPPED_BY_LIMIT}:{run_id}:{}", clock::rfc3339(since)),
         kind: RUN_STOPPED_BY_LIMIT.to_owned(),
         since,
         run: Some(row.run_id.clone()),

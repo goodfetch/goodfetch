@@ -18,6 +18,9 @@
 //! The declaration's types live here, on Collie's side of the protocol, and
 //! Foxhound's code-free crawl takes the same in its `extraction.fields`.
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use std::collections::BTreeMap;
 
 use schemars::JsonSchema;
@@ -26,7 +29,6 @@ use serde_json::{Map, Value};
 
 use super::{ARRIVED_IN, PageId};
 use crate::catalog::{Operation, OperationClass, OperationKind, Reach, Stability, schema_of};
-use crate::run::PointInTime;
 
 /// One named field (ADR 0147): a value field, a list or rows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -292,9 +294,13 @@ pub struct TransformProvenance {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub pattern: Option<String>,
     /// A relative time's anchor: the fetch time of the page's document.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub anchor: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub anchor: Option<SystemTime>,
 }
 
 /// One of the engine's closed list of Value transforms (ADR 0123).

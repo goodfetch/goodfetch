@@ -1,6 +1,7 @@
 // Settings in code (ADR 0083): a scope's `settings`, written in camelCase,
 // sent with each segment in its wire spelling, and nothing the program
 // left out.
+import * as fc from "fast-check";
 import { describe, expect, test } from "vitest";
 import { onWire, type Spelling } from "./settings.ts";
 
@@ -10,7 +11,26 @@ const SPELLING: Spelling = {
   paidFetch: ["paid_fetch", { exchangeRates: "exchange_rates" }],
 };
 
+/** A segment no spelling knows, `__proto__` and its kin included. */
+const unknownSegment = fc
+  .oneof(fc.constantFrom("__proto__", "constructor", "toString", ""), fc.string())
+  .filter((segment) => !Object.hasOwn(SPELLING, segment) && segment !== "navigation");
+
+/** Settings of segments no spelling knows, each holding any JSON value. */
+const unknownSettings = fc.dictionary(unknownSegment, fc.jsonValue(), { maxKeys: 4 });
+
 describe("onWire", () => {
+  test("sends what it does not know unchanged, at the top and in an area, `__proto__` included", () => {
+    fc.assert(
+      fc.property(unknownSettings, (settings) => {
+        expect(JSON.stringify(onWire(settings, SPELLING))).toBe(JSON.stringify(settings));
+        expect(JSON.stringify(onWire({ timeout: settings }, SPELLING))).toBe(
+          JSON.stringify({ timeout: settings }),
+        );
+      }),
+    );
+  });
+
   test("spells each segment as the wire does, nested as written", () => {
     expect(
       onWire(

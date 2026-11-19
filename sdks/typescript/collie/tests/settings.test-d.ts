@@ -1,7 +1,6 @@
 // What a program can and cannot write in a scope's `settings` (ADR 0083):
 // `tsc` fails on a wrong one, as the package's typecheck runs it.
-import type { PageSettings, RunSettings, SessionSettings, Settings } from "./generated/settings.ts";
-import type { Run } from "./run.ts";
+import type { PageSettings, Run, RunSettings, SessionSettings, Settings } from "@goodfetch/collie";
 
 declare const run: Run;
 

@@ -34,15 +34,25 @@ function spelled(settings: object, spelling: Spelling): SettingsOnWire {
     }
     const known = Object.hasOwn(spelling, segment) ? spelling[segment] : undefined;
     if (known === undefined) {
-      wire[segment] = value;
+      put(wire, segment, value);
     } else if (typeof known === "string") {
-      wire[known] = value;
+      put(wire, known, value);
     } else {
       const [name, inner] = known;
-      wire[name] = isTable(value) ? spelled(value, inner) : value;
+      put(wire, name, isTable(value) ? spelled(value, inner) : value);
     }
   }
   return wire;
+}
+
+/** Sets `wire`'s own `segment`, which an assignment to `__proto__` would not. */
+function put(wire: SettingsOnWire, segment: string, value: unknown): void {
+  Object.defineProperty(wire, segment, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
 }
 
 /** Whether `value` is a table of segments, not a setting's value an area cannot take. */

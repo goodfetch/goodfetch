@@ -29,6 +29,11 @@ export function productEnv(
 /** The shared corpus of engine scripts (ADR 0069). */
 const corpus = new URL("../../fixtures/engine-scripts/", import.meta.url);
 
+/** The file of the corpus's script `script`, such as `connect/reached-daemon.json`. */
+export function corpusScript(script: string): URL {
+  return new URL(script, corpus);
+}
+
 /**
  * The environment map under which an SDK of `product` starts
  * `goodfetch-scripted-engine` as its Attached engine, playing the corpus's
@@ -45,7 +50,7 @@ export function scriptedEngineEnv(
 ): Readonly<Record<string, string>> {
   const engine = toolPath(description.tools, "scripted_engine");
   mkdirSync(join(home, "scripted-engine"), { recursive: true });
-  copyFileSync(new URL(script, corpus), join(home, "scripted-engine", "script.json"));
+  copyFileSync(corpusScript(script), join(home, "scripted-engine", "script.json"));
   return {
     ...description.env,
     GOODFETCH_HOME: home,

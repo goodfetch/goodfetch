@@ -86,10 +86,15 @@ extend-exclude = ["rnd", "ci/proofs", "**/generated", "**/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C4", "ARG", "T20", "TID251", "PERF", "RUF", "ANN", "PYI", "TC", "ASYNC", "D"]
+ignore = ["D206", "D300"]
+
 # ASYNC109 asks async functions for no `timeout` parameter, which ADR 0080
 # gives every SDK call that takes one: the operation's own timeout, sent for
 # the engine to apply, as the generated calls take it.
-ignore = ["D206", "D300", "ASYNC109"]
+[tool.ruff.lint.per-file-ignores]
+"sdks/python/collie-client/src/goodfetch_collie_client/connection_type.py" = ["ASYNC109"]
+"sdks/python/collie-client/src/goodfetch_collie_client/raw_call.py" = ["ASYNC109"]
+"sdks/python/collie/src/goodfetch_collie/collie.py" = ["ASYNC109"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

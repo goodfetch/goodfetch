@@ -1,5 +1,17 @@
 use super::*;
 
+/// `xtask compare run`'s arguments as `just compare` gives them: the
+/// recipe's own, then `given`, as its caller gives them after the profile.
+pub(crate) fn recipe_arguments(given: &[&str]) -> RunArguments {
+    parsed(
+        "target/compare/test-tools.json",
+        "target/compare-spider",
+        "release",
+        given,
+    )
+    .expect("the test's arguments parse")
+}
+
 #[test]
 fn each_crawl_scenario_can_be_asked_for_by_its_own_name() {
     for scenario in Scenario::ALL {

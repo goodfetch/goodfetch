@@ -1,9 +1,8 @@
 use std::path::Path;
 
 use super::{
-    Executables, Options, chromiumoxide_executable, counted_output, crawlberg_executable,
-    crawlee_rs_executable, fastcrw_executable, openspider_executable, order, pagesift_executable,
-    profile_folder, run, set_aside, size_points, spider_executable,
+    Executables, Options, counted_output, order, profile_folder, run, set_aside, side_executable,
+    size_points, spider_executable,
 };
 use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
 use crate::compare::trials::{
@@ -58,63 +57,32 @@ fn each_callgrind_run_keeps_its_output_under_its_scenario_cell_and_number() {
     );
 }
 
-/// crawlee-rs's side runs the executable Cargo left in its own folder
-/// among the Rust sides' builds, under the profile's.
+/// Each other Rust side runs the executable Cargo left in the folder of its
+/// name among the Rust sides' builds, under the profile's, named after its
+/// side's package (#2216, #2217, #2218, issue 2444).
 #[test]
-fn crawlee_rs_runs_the_executable_built_in_its_folder() {
-    assert_eq!(
-        crawlee_rs_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/crawlee-rs/release/goodfetch-compare-crawlee-rs")
-    );
-}
+fn each_other_rust_side_runs_the_executable_built_in_its_folder() {
+    let executable = |folder| side_executable(Path::new("/t/compare-spider"), folder, "release");
 
-/// pagesift's side runs the executable Cargo left in its own folder among
-/// the Rust sides' builds, under the profile's.
-#[test]
-fn pagesift_runs_the_executable_built_in_its_folder() {
     assert_eq!(
-        pagesift_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/pagesift/release/goodfetch-compare-pagesift")
-    );
-}
-
-/// OpenSpider's side runs the executable Cargo left in its own folder
-/// among the Rust sides' builds, under the profile's (#2216).
-#[test]
-fn openspider_runs_the_executable_built_in_its_folder() {
-    assert_eq!(
-        openspider_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/openspider/release/goodfetch-compare-openspider")
-    );
-}
-
-/// fastCRW's side runs the executable Cargo left in its own folder among
-/// the Rust sides' builds, under the profile's (#2217).
-#[test]
-fn fastcrw_runs_the_executable_built_in_its_folder() {
-    assert_eq!(
-        fastcrw_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/fastcrw/release/goodfetch-compare-fastcrw")
-    );
-}
-
-/// crawlberg's side runs the executable Cargo left in its own folder among
-/// the Rust sides' builds, under the profile's (#2218).
-#[test]
-fn crawlberg_runs_the_executable_built_in_its_folder() {
-    assert_eq!(
-        crawlberg_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/crawlberg/release/goodfetch-compare-crawlberg")
-    );
-}
-
-/// chromiumoxide's side runs the executable Cargo left in its own folder
-/// among the Rust sides' builds, under the profile's (issue 2444).
-#[test]
-fn chromiumoxide_runs_the_executable_built_in_its_folder() {
-    assert_eq!(
-        chromiumoxide_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/chromiumoxide/release/goodfetch-compare-chromiumoxide")
+        [
+            matrix::CRAWLEE_RS_FOLDER,
+            matrix::PAGESIFT_FOLDER,
+            matrix::OPENSPIDER_FOLDER,
+            matrix::FASTCRW_FOLDER,
+            matrix::CRAWLBERG_FOLDER,
+            matrix::CHROMIUMOXIDE_FOLDER,
+        ]
+        .map(executable),
+        [
+            "/t/compare-spider/crawlee-rs/release/goodfetch-compare-crawlee-rs",
+            "/t/compare-spider/pagesift/release/goodfetch-compare-pagesift",
+            "/t/compare-spider/openspider/release/goodfetch-compare-openspider",
+            "/t/compare-spider/fastcrw/release/goodfetch-compare-fastcrw",
+            "/t/compare-spider/crawlberg/release/goodfetch-compare-crawlberg",
+            "/t/compare-spider/chromiumoxide/release/goodfetch-compare-chromiumoxide",
+        ]
+        .map(|path| Path::new(path).to_owned())
     );
 }
 
@@ -384,7 +352,7 @@ fn handed_over(
     let options = Options {
         scenarios,
         ..crate::compare::options(
-            &crate::compare::recipe_arguments(&given),
+            &crate::compare::tests::recipe_arguments(&given),
             &crate::environment::Environment::of(&[]),
         )
         .expect("invariant: the test's cells are the matrix's")

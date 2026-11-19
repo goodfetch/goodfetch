@@ -27,7 +27,6 @@ use crate::catalog::{
 mod deployment;
 pub mod edit;
 pub mod page_check;
-pub mod scope;
 pub mod session_source;
 
 pub use deployment::{

@@ -360,7 +360,10 @@ enum Command {
     },
     /// Fails on a member of an SDK's manifest that serves no catalog
     /// operation, or one only a person may call, such as `usage.raise`
-    /// (ADRs 0041, 0080, 0099).
+    /// (ADRs 0041, 0080), two members of one receiver for one entry, a
+    /// member with no entry not spelled from its words and form, a line
+    /// naming a member the generator writes, and a member another SDK lacks
+    /// on the same receiver unless its line says why (ADR 0099).
     SdkManifests,
     /// Reference screenshots (ADR 0073).
     Screenshots {

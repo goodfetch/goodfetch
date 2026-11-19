@@ -19,9 +19,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::catalog::{
-    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Operation,
-    OperationClass, OperationKind, ProtocolVersion, Reach, Setting, Stability, ValueKind,
-    schema_of,
+    Authority, Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass,
+    Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Setting, Stability,
+    ValueKind, schema_of,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -364,6 +364,11 @@ pub const ENTRIES: Entries = Entries {
         ),
         Operation {
             params: schema_of::<KeyboardPressParams>,
+            stability: Stability::Experimental,
+            deprecated: Some(Deprecation {
+                since: ARRIVED_IN,
+                note: "A fixture entry, which no program should call.",
+            }),
             ..operation(
                 "page.keyboard.press",
                 "Presses a key on the page.",

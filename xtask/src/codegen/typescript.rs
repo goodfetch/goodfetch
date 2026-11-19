@@ -22,8 +22,11 @@ use super::{Generated, TypesFile};
 
 mod errors;
 mod listeners;
+mod markers;
 mod settings;
 mod times;
+
+use markers::{CLIENT_RUNTIME, MARKERS_MODULE, markers_import, warnings};
 
 /// Where Foxhound's layer imports Collie's generated layer from.
 const CLIENT_PACKAGE: &str = "@goodfetch/collie-client/generated";
@@ -129,9 +132,8 @@ fn doc(
     }
     if let Some(deprecated) = deprecated {
         lines.push(format!(
-            "@deprecated Since {}: {}",
-            deprecated.since,
-            deprecated.note.replace("*/", "*\\/")
+            "@deprecated {}",
+            deprecated.message().replace("*/", "*\\/")
         ));
     }
     let mut text = format!("{indent}/**\n");
@@ -302,6 +304,7 @@ fn operations(layer: &Layer) -> String {
                 text,
                 "import type {{ CallOptions, Caller }} from \"{CALLER_MODULE}\";"
             );
+            text.push_str(&markers_import(&layer.operations, MARKERS_MODULE));
             text.push_str(&type_imports(layer, &types));
             let _ = writeln!(
                 text,
@@ -313,6 +316,7 @@ fn operations(layer: &Layer) -> String {
                 text,
                 "import type {{ CallOptions, Caller }} from \"{CLIENT_PACKAGE}\";"
             );
+            text.push_str(&markers_import(&layer.operations, CLIENT_RUNTIME));
             text.push_str(&type_imports(layer, &types));
         }
     }
@@ -341,16 +345,17 @@ fn operations(layer: &Layer) -> String {
         ));
         let method = camel(&operation.name);
         let (params, result) = (&operation.params.0, &operation.result.0);
+        let warn = warnings(operation);
         if operation.cancellable {
             let _ = write!(
                 text,
-                "  {method}(params: {params}, options: CallOptions = {{}}): Promise<{result}> {{\n    return this.#caller.call({:?}, params, options);\n  }}\n",
+                "  {method}(params: {params}, options: CallOptions = {{}}): Promise<{result}> {{\n{warn}    return this.#caller.call({:?}, params, options);\n  }}\n",
                 operation.name
             );
         } else {
             let _ = write!(
                 text,
-                "  {method}(params: {params}): Promise<{result}> {{\n    return this.#caller.call({:?}, params, {{}});\n  }}\n",
+                "  {method}(params: {params}): Promise<{result}> {{\n{warn}    return this.#caller.call({:?}, params, {{}});\n  }}\n",
                 operation.name
             );
         }
@@ -403,12 +408,7 @@ fn events(layer: &Layer) -> String {
     for event in &layer.events {
         let deprecated = event.deprecated.as_ref().map_or_else(
             || "undefined".to_owned(),
-            |deprecated| {
-                format!(
-                    "{:?}",
-                    format!("Since {}: {}", deprecated.since, deprecated.note)
-                )
-            },
+            |deprecated| format!("{:?}", deprecated.message()),
         );
         let _ = writeln!(
             text,
@@ -681,12 +681,13 @@ fn member(member: &Member<'_>, id: &HandleId) -> Result<String> {
         operation.deprecated.as_ref(),
     );
     let name = camel(member.name);
+    let warn = warnings(operation);
     match &member.form {
         Form::RoundTrip | Form::Query | Form::Waiter => match typed {
             None => {
                 let _ = write!(
                     text,
-                    "  async {name}({declared}): Promise<{}> {{\n    return {};\n  }}\n",
+                    "  async {name}({declared}): Promise<{}> {{\n{warn}    return {};\n  }}\n",
                     answered(member, result),
                     answer(member, &call)
                 );
@@ -698,7 +699,7 @@ fn member(member: &Member<'_>, id: &HandleId) -> Result<String> {
                     format!("TypedBy<types.{result}, {:?}, {FIELDS}>", typed.property);
                 let _ = write!(
                     text,
-                    "  async {name}<const {FIELDS} extends types.{params}[{:?}]>({declared}): Promise<{typed_result}> {{\n    return typedBy<types.{result}, {:?}, {FIELDS}>(await {call});\n  }}\n",
+                    "  async {name}<const {FIELDS} extends types.{params}[{:?}]>({declared}): Promise<{typed_result}> {{\n{warn}    return typedBy<types.{result}, {:?}, {FIELDS}>(await {call});\n  }}\n",
                     typed.param, typed.property
                 );
             }
@@ -707,13 +708,13 @@ fn member(member: &Member<'_>, id: &HandleId) -> Result<String> {
             let class = pascal(opened);
             let _ = write!(
                 text,
-                "  async {name}({declared}): Promise<{class}> {{\n    const opened = await {call};\n    return new {class}(this.#host.child(opened.{opened}_id));\n  }}\n"
+                "  async {name}({declared}): Promise<{class}> {{\n{warn}    const opened = await {call};\n    return new {class}(this.#host.child(opened.{opened}_id));\n  }}\n"
             );
         }
         Form::Closes => {
             let _ = write!(
                 text,
-                "  async {name}({declared}): Promise<void> {{\n    await this.#host.close({:?}, {sent});\n  }}\n",
+                "  async {name}({declared}): Promise<void> {{\n{warn}    await this.#host.close({:?}, {sent});\n  }}\n",
                 operation.name
             );
         }
@@ -748,6 +749,16 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> Result<Stri
     } else {
         String::new()
     };
+    let markers = markers_import(
+        handles.iter().flat_map(|handle| {
+            handle
+                .members
+                .iter()
+                .chain(handle.sub_objects.iter().flat_map(|held| &held.members))
+                .map(|member| member.operation)
+        }),
+        MARKERS_MODULE,
+    );
     let listens = if handles.iter().any(|handle| handle.listener.is_some()) {
         ", type Listener, type Subscription"
     } else {
@@ -755,7 +766,7 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> Result<Stri
     };
     let settings = settings::handles_import(handles)?;
     Ok(format!(
-        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost{listens} }} from \"{HANDLE_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\n{settings}import type * as types from \"./types.ts\";\n"
+        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost{listens} }} from \"{HANDLE_MODULE}\";\n{markers}import type {{ {operation_types} }} from \"./operations.ts\";\n{settings}import type * as types from \"./types.ts\";\n"
     ))
 }
 

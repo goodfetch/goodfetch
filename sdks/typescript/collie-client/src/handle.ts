@@ -3,15 +3,14 @@
 // builds. Hand-written, since no catalog entry shapes it; the client
 // package's runtime implements it.
 import type { Caller, OperationTypes } from "./caller.ts";
+import type { RawHost } from "./raw-call.ts";
 // The errors module itself, not the package index, which re-exports the
 // handles that import this module.
 import { SettingInvalidError } from "./generated/errors.ts";
 
 /** What a handle of ID `Id` reaches its engine through. */
-export interface HandleHost<
-  Id,
-  Types extends Record<keyof Types, OperationTypes>,
-> extends Caller<Types> {
+export interface HandleHost<Id, Types extends Record<keyof Types, OperationTypes>>
+  extends Caller<Types>, RawHost {
   /** The ID each of the handle's calls carries. */
   readonly id: Id;
   /** The host of a handle this one opens or builds, whose calls carry `id`. */

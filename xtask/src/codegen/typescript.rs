@@ -463,6 +463,10 @@ fn plugins(layer: &Layer) -> String {
 /// generated handle reaches its engine through.
 const HANDLE_MODULE: &str = "../handle.ts";
 
+/// The hand-written module of Collie's client package that declares the
+/// base of every handle, which holds its raw call (ADR 0099).
+const RAW_CALL_MODULE: &str = "../raw-call.ts";
+
 /// The hand-written module of Collie's client package that types a result
 /// by the fields its call declares (ADR 0147).
 const FIELD_VALUES_MODULE: &str = "../field-values.ts";
@@ -766,8 +770,28 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> Result<Stri
     };
     let settings = settings::handles_import(handles)?;
     Ok(format!(
-        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost{listens} }} from \"{HANDLE_MODULE}\";\n{markers}import type {{ {operation_types} }} from \"./operations.ts\";\n{settings}import type * as types from \"./types.ts\";\n"
+        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost{listens} }} from \"{HANDLE_MODULE}\";\n{markers}import {{ Handle }} from \"{RAW_CALL_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\n{settings}import type * as types from \"./types.ts\";\n"
     ))
+}
+
+/// The classes of `handle`'s sub-objects (ADR 0099), each holding the
+/// host of the `class` it belongs to.
+fn sub_object_classes(class: &str, host: &str, handle: &Handle<'_>) -> Result<String> {
+    let mut text = String::new();
+    for sub_object in &handle.sub_objects {
+        let sub_class = format!("{class}{}", pascal(sub_object.name));
+        let _ = write!(
+            text,
+            "\n/** The `{}` of a `{class}` (ADR 0099). */\nexport class {sub_class} {{\n  readonly #host: {host};\n\n  /** @internal A `{class}` holds its own; a program never constructs one. */\n  constructor(host: {host}) {{\n    this.#host = host;\n  }}\n",
+            camel(sub_object.name)
+        );
+        for held in &sub_object.members {
+            text.push('\n');
+            text.push_str(&member(held, &handle.id)?);
+        }
+        text.push_str("}\n");
+    }
+    Ok(text)
 }
 
 /// The handles of Collie's client package (ADR 0099): one class a
@@ -782,19 +806,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
             "HandleHost<types.{}, {operation_types}>",
             handle.id.type_name
         );
-        for sub_object in &handle.sub_objects {
-            let sub_class = format!("{class}{}", pascal(sub_object.name));
-            let _ = write!(
-                text,
-                "\n/** The `{}` of a `{class}` (ADR 0099). */\nexport class {sub_class} {{\n  readonly #host: {host};\n\n  /** @internal A `{class}` holds its own; a program never constructs one. */\n  constructor(host: {host}) {{\n    this.#host = host;\n  }}\n",
-                camel(sub_object.name)
-            );
-            for held in &sub_object.members {
-                text.push('\n');
-                text.push_str(&member(held, &handle.id)?);
-            }
-            text.push_str("}\n");
-        }
+        text.push_str(&sub_object_classes(&class, &host, handle)?);
         let implements = if handle.closes() {
             " implements AsyncDisposable"
         } else {
@@ -809,7 +821,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
         );
         let _ = write!(
             text,
-            "\n/** A `{}` a program holds: the members the catalog gives it (ADR 0099). */\nexport class {class}{implements} {{\n  static {{\n    idIn{class} = (handle) => handle.#host.id;\n  }}\n\n  readonly #host: {host};\n",
+            "\n/** A `{}` a program holds: the members the catalog gives it (ADR 0099). */\nexport class {class} extends Handle{implements} {{\n  static {{\n    idIn{class} = (handle) => handle.#host.id;\n  }}\n\n  readonly #host: {host};\n",
             handle.namespace
         );
         for sub_object in &handle.sub_objects {
@@ -822,7 +834,8 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
         }
         let _ = write!(
             text,
-            "\n  /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */\n  constructor(host: {host}) {{\n    this.#host = host;\n"
+            "\n  /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */\n  constructor(host: {host}) {{\n    super(host, {:?}, {:?});\n    this.#host = host;\n",
+            handle.namespace, handle.id.param
         );
         for sub_object in &handle.sub_objects {
             let _ = writeln!(

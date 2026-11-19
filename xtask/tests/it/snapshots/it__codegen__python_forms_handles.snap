@@ -17,16 +17,18 @@ from typing_extensions import deprecated
 from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost, NotGiven, not_given, timeout_of
 from goodfetch_collie_client.markers import warn_deprecated, warn_experimental
+from goodfetch_collie_client.raw_call import AsyncHandle, Handle
 
 from . import models
 
 
-class AsyncRun:
+class AsyncRun(AsyncHandle):
     """A `run` a program holds: the members the catalog gives it (ADR 0099)."""
 
     def __init__(self, host: AsyncHandleHost[models.RunId]) -> None:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
+        super().__init__(host, "run", "run_id")
 
     async def new_page(self, *, viewport: str | None | NotGiven = not_given) -> AsyncPage:
         """Opens a page in the Run."""
@@ -57,12 +59,13 @@ class AsyncPageKeyboard:
         return result_of(models.Acted, await self._host.call("page.keyboard.press", models.KeyboardPressParams(page_id=self._host.id, key=models.Key(key))))
 
 
-class AsyncPage:
+class AsyncPage(AsyncHandle):
     """A `page` a program holds: the members the catalog gives it (ADR 0099)."""
 
     def __init__(self, host: AsyncHandleHost[models.PageId]) -> None:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
+        super().__init__(host, "page", "page_id")
         self._keyboard = AsyncPageKeyboard(host)
 
     @property
@@ -122,24 +125,26 @@ class AsyncPage:
         await self.close()
 
 
-class AsyncLocator:
+class AsyncLocator(AsyncHandle):
     """A `locator` a program holds: the members the catalog gives it (ADR 0099)."""
 
     def __init__(self, host: AsyncHandleHost[models.Locator]) -> None:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
+        super().__init__(host, "locator", "locator")
 
     async def click(self) -> models.Acted:
         """Clicks what the locator finds."""
         return result_of(models.Acted, await self._host.call("locator.click", models.ClickParams(locator=self._host.id)))
 
 
-class Run:
+class Run(Handle):
     """A `run` a program holds: the members the catalog gives it (ADR 0099)."""
 
     def __init__(self, host: HandleHost[models.RunId]) -> None:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
+        super().__init__(host, "run", "run_id")
 
     def new_page(self, *, viewport: str | None | NotGiven = not_given) -> Page:
         """Opens a page in the Run."""
@@ -170,12 +175,13 @@ class PageKeyboard:
         return result_of(models.Acted, self._host.call("page.keyboard.press", models.KeyboardPressParams(page_id=self._host.id, key=models.Key(key))))
 
 
-class Page:
+class Page(Handle):
     """A `page` a program holds: the members the catalog gives it (ADR 0099)."""
 
     def __init__(self, host: HandleHost[models.PageId]) -> None:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
+        super().__init__(host, "page", "page_id")
         self._keyboard = PageKeyboard(host)
 
     @property
@@ -235,12 +241,13 @@ class Page:
         self.close()
 
 
-class Locator:
+class Locator(Handle):
     """A `locator` a program holds: the members the catalog gives it (ADR 0099)."""
 
     def __init__(self, host: HandleHost[models.Locator]) -> None:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
+        super().__init__(host, "locator", "locator")
 
     def click(self) -> models.Acted:
         """Clicks what the locator finds."""

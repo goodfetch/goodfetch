@@ -45,10 +45,10 @@ from goodfetch_collie_client.once import Once
 from goodfetch_collie_client.portal import LoopStopped
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable, Mapping
     from typing import Self
 
-    from pydantic import BaseModel
+    from pydantic import BaseModel, JsonValue
 
     from goodfetch_collie_client.generated.models import RunStarted, StartedAs
     from goodfetch_collie_client.goodfetch_error import GoodfetchError
@@ -63,6 +63,7 @@ if TYPE_CHECKING:
 _Id = TypeVar("_Id")
 _ChildId = TypeVar("_ChildId")
 _Model = TypeVar("_Model", bound="BaseModel")
+_Result = TypeVar("_Result")
 
 _logger = logging.getLogger(CLIENT_LOGGER)
 
@@ -72,6 +73,10 @@ class RunHost(Streams, Protocol):
 
     async def call(self, operation: str, params: BaseModel) -> object:
         """Sends one call and returns its result as the engine sent it."""
+        ...
+
+    async def raw(self, operation: str, params: Mapping[str, object]) -> JsonValue:
+        """Sends the raw call `operation`, its params and result as on the wire."""
         ...
 
     def reachable(self) -> bool:
@@ -331,9 +336,26 @@ class _AsyncHost(Generic[_Id]):
 
     async def call(self, operation: str, params: BaseModel) -> object:
         """Sends one call, unless the Run or value is closed, after what `on` sent."""
+        return await self._sent(
+            operation, functools.partial(self._connection.call, operation, params)
+        )
+
+    async def raw(self, operation: str, params: Mapping[str, object]) -> JsonValue:
+        """Sends the raw call `operation`, unless the Run or value is closed."""
+        return await self._sent(
+            operation, functools.partial(self._connection.raw, operation, params)
+        )
+
+    async def _sent(
+        self, operation: str, send: Callable[[], Awaitable[_Result]]
+    ) -> _Result:
+        """Sends `operation` through `send` after what `on` sent, unless refused.
+
+        `_ensure_callable` refuses it: a closed value, or a failed listener.
+        """
         self._ensure_callable(operation)
         await self.run.order.settled()
-        result = await self._connection.call(operation, params)
+        result = await send()
         if self._value is None and self.run.state == "running" and _says_ended(result):
             self.run.state = "ended"
         return result
@@ -464,6 +486,14 @@ class _SyncHost(Generic[_Id]):
             return self._loop.call(
                 functools.partial(self._host.call, operation, params)
             )
+        except LoopStopped:
+            # Its Connection closed the Run before stopping the loop.
+            raise self._host.run.closed_error(operation) from None
+
+    def raw(self, operation: str, params: Mapping[str, object]) -> JsonValue:
+        """Sends the raw call on the private loop and waits for its result."""
+        try:
+            return self._loop.call(functools.partial(self._host.raw, operation, params))
         except LoopStopped:
             # Its Connection closed the Run before stopping the loop.
             raise self._host.run.closed_error(operation) from None

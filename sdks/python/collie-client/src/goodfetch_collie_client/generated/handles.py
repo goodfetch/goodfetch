@@ -13,16 +13,18 @@ from pydantic import BaseModel
 from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost, AsyncListener, Listener, NotGiven, Subscription, not_given, timeout_of
 from goodfetch_collie_client.markers import warn_experimental
+from goodfetch_collie_client.raw_call import AsyncHandle, Handle
 
 from . import models
 
 
-class AsyncRun:
+class AsyncRun(AsyncHandle):
     """A `run` a program holds: the members the catalog gives it (ADR 0099)."""
 
     def __init__(self, host: AsyncHandleHost[models.RunId]) -> None:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
+        super().__init__(host, "run", "run_id")
 
     async def abort(self, *, forwarded: bool | NotGiven = not_given) -> models.RunReport:
         """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
@@ -161,12 +163,13 @@ class AsyncRun:
         return result_of(models.RunUsage, await self._host.call("run.usage", models.RunParams(run_id=self._host.id)))
 
 
-class AsyncSession:
+class AsyncSession(AsyncHandle):
     """A `session` a program holds: the members the catalog gives it (ADR 0099)."""
 
     def __init__(self, host: AsyncHandleHost[models.SessionId]) -> None:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
+        super().__init__(host, "session", "session_id")
 
     async def close(self) -> None:
         """Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.
@@ -222,12 +225,13 @@ _PAGE_EVENTS: dict[str, tuple[str, type[BaseModel]]] = {
 """Each event `page.on` listens to, under Playwright's name (ADR 0081): its name on the wire, and the model of what its listener gets."""
 
 
-class AsyncPage:
+class AsyncPage(AsyncHandle):
     """A `page` a program holds: the members the catalog gives it (ADR 0099)."""
 
     def __init__(self, host: AsyncHandleHost[models.PageId]) -> None:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
+        super().__init__(host, "page", "page_id")
 
     async def close(self, *, run_before_unload: bool | None | NotGiven = not_given) -> None:
         """Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that.
@@ -482,12 +486,13 @@ class AsyncPage:
         await self.close()
 
 
-class AsyncLocator:
+class AsyncLocator(AsyncHandle):
     """A `locator` a program holds: the members the catalog gives it (ADR 0099)."""
 
     def __init__(self, host: AsyncHandleHost[models.Locator]) -> None:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
+        super().__init__(host, "locator", "locator")
 
     async def click(self) -> models.Acted:
         """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes. A click that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).
@@ -574,12 +579,13 @@ class AsyncLocator:
         return result_of(models.Evaluated, await self._host.call("locator.wait_for_function", params))
 
 
-class Run:
+class Run(Handle):
     """A `run` a program holds: the members the catalog gives it (ADR 0099)."""
 
     def __init__(self, host: HandleHost[models.RunId]) -> None:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
+        super().__init__(host, "run", "run_id")
 
     def abort(self, *, forwarded: bool | NotGiven = not_given) -> models.RunReport:
         """Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
@@ -718,12 +724,13 @@ class Run:
         return result_of(models.RunUsage, self._host.call("run.usage", models.RunParams(run_id=self._host.id)))
 
 
-class Session:
+class Session(Handle):
     """A `session` a program holds: the members the catalog gives it (ADR 0099)."""
 
     def __init__(self, host: HandleHost[models.SessionId]) -> None:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
+        super().__init__(host, "session", "session_id")
 
     def close(self) -> None:
         """Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.
@@ -762,12 +769,13 @@ class Session:
         self.close()
 
 
-class Page:
+class Page(Handle):
     """A `page` a program holds: the members the catalog gives it (ADR 0099)."""
 
     def __init__(self, host: HandleHost[models.PageId]) -> None:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
+        super().__init__(host, "page", "page_id")
 
     def close(self, *, run_before_unload: bool | None | NotGiven = not_given) -> None:
         """Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that.
@@ -1022,12 +1030,13 @@ class Page:
         self.close()
 
 
-class Locator:
+class Locator(Handle):
     """A `locator` a program holds: the members the catalog gives it (ADR 0099)."""
 
     def __init__(self, host: HandleHost[models.Locator]) -> None:
         """Takes what it reaches its engine through; a program never constructs one."""
         self._host = host
+        super().__init__(host, "locator", "locator")
 
     def click(self) -> models.Acted:
         """Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes. A click that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).

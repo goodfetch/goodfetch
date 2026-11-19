@@ -27,6 +27,9 @@
 //!   gives the default of the setting it sets for the call alone, as a
 //!   `timedelta` (ADR 0080).
 //!
+//! - A handle's listener is its `on`, overloaded once a payload so each
+//!   event's listener is typed (`listeners`, ADR 0081).
+//!
 //! Each parameter's annotation is read from its schema; one the generator
 //! cannot spell fails `xtask codegen` with the operation named, and the
 //! repository's type checkers check each against the model's own, which
@@ -43,9 +46,14 @@ use super::super::layer::{Layer, Stability};
 use super::super::naming::{pascal, snake};
 use super::{CALLER_MODULE, deprecated_decorator, docstring, header, markers_import, warnings};
 
+mod listeners;
+
 /// The hand-written module of Collie's client package that declares what a
 /// generated handle reaches its engine through.
 const HANDLE_MODULE: &str = "goodfetch_collie_client.handle";
+/// The module of the hand-written base each handle class extends: the raw
+/// call on its value (ADR 0099).
+const RAW_CALL_MODULE: &str = "goodfetch_collie_client.raw_call";
 
 /// A call's own optional parameter that bounds it (ADR 0080).
 const TIMEOUT: &str = "timeout";
@@ -61,6 +69,8 @@ struct Mode {
     prefix: &'static str,
     /// The host type the class takes.
     host: &'static str,
+    /// The hand-written class each handle extends, which gives its raw call.
+    base: &'static str,
     /// `async ` or nothing, before `def`.
     asynchronous: &'static str,
     /// `await ` or nothing, before a call.
@@ -75,6 +85,7 @@ struct Mode {
 const ASYNC: Mode = Mode {
     prefix: "Async",
     host: "AsyncHandleHost",
+    base: "AsyncHandle",
     asynchronous: "async ",
     awaits: "await ",
     enter: "__aenter__",
@@ -85,6 +96,7 @@ const ASYNC: Mode = Mode {
 const SYNC: Mode = Mode {
     prefix: "",
     host: "HandleHost",
+    base: "Handle",
     asynchronous: "",
     awaits: "",
     enter: "__enter__",
@@ -99,6 +111,9 @@ struct Imports {
     typing: BTreeSet<&'static str>,
     models: bool,
     deprecated: bool,
+    /// Whether it names pydantic's `BaseModel`, as a listener's map of
+    /// payloads does.
+    base_model: bool,
     /// The functions of the markers module its members call.
     markers: BTreeSet<&'static str>,
     /// The names it imports from the handle module besides the hosts: the
@@ -566,6 +581,10 @@ fn classes(
         "\n    def __init__(self, host: {host}) -> None:\n        \"\"\"Takes what it reaches its engine through; a program never constructs one.\"\"\"\n        self._host = host\n"
     );
     let mut text = String::new();
+    // The async classes come first, so the listener's map precedes both.
+    if mode.prefix == ASYNC.prefix {
+        text.push_str(&listeners::declarations(handle, imports));
+    }
     for sub_object in &handle.sub_objects {
         let _ = write!(
             text,
@@ -581,11 +600,13 @@ fn classes(
     }
     let _ = write!(
         text,
-        "\n\nclass {class}:\n    \"\"\"A `{}` a program holds: the members the catalog gives it (ADR 0099).\"\"\"\n{}",
+        "\n\nclass {class}({}):\n    \"\"\"A `{}` a program holds: the members the catalog gives it (ADR 0099).\"\"\"\n{}\n        super().__init__(host, {:?}, {:?})\n",
+        mode.base,
         handle.namespace,
-        constructor.trim_end()
+        constructor.trim_end(),
+        handle.namespace,
+        handle.id.param
     );
-    text.push('\n');
     for sub_object in &handle.sub_objects {
         let _ = writeln!(
             text,
@@ -605,6 +626,10 @@ fn classes(
     for held in &handle.members {
         text.push('\n');
         text.push_str(&member(layer, held, &handle.id, mode, imports)?);
+    }
+    if handle.listener.is_some() {
+        text.push('\n');
+        text.push_str(&listeners::member(layer, handle, mode, imports)?);
     }
     for built in &handle.builders {
         text.push('\n');
@@ -647,8 +672,14 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
     imports.typing.insert("Self");
     let typing: Vec<&str> = imports.typing.into_iter().collect();
     let _ = writeln!(text, "from typing import {}", typing.join(", "));
+    if imports.deprecated || imports.base_model {
+        text.push('\n');
+    }
+    if imports.base_model {
+        text.push_str("from pydantic import BaseModel\n");
+    }
     if imports.deprecated {
-        text.push_str("\nfrom typing_extensions import deprecated\n");
+        text.push_str("from typing_extensions import deprecated\n");
     }
     let handle = imports
         .handle
@@ -659,6 +690,7 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
         "\nfrom {CALLER_MODULE} import result_of\nfrom {HANDLE_MODULE} import AsyncHandleHost, HandleHost{handle}"
     );
     text.push_str(&markers_import(&imports.markers));
+    let _ = writeln!(text, "from {RAW_CALL_MODULE} import AsyncHandle, Handle");
     if imports.models {
         text.push_str("\nfrom . import models\n");
     }

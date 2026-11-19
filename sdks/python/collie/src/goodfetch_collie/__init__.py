@@ -3,8 +3,9 @@
 Where the main types live (ADR 0117): this package, `goodfetch_collie`,
 holds `AsyncCollie` and the sync `Collie`; the Collie client package,
 `goodfetch_collie_client`, holds `AsyncRun` and `Run`, the results, the
-errors, and `AsyncConnection` and `Connection`, which both Products'
-Connections extend, all of which this package re-exports;
+errors, a listener's `Subscription`, and `AsyncConnection` and
+`Connection`, which both Products' Connections extend, all of which this
+package re-exports;
 `goodfetch_foxhound` holds Foxhound's.
 `goodfetch_collie.testing` opens a Connection over a transport a test holds.
 
@@ -25,6 +26,7 @@ from goodfetch_collie_client.generated.errors import (
     EngineOutputInvalidError,
     LimitRaiseRefusedError,
     LimitReachedError,
+    ListenerFailedError,
     NotInProductError,
     ProtocolVersionUnsupportedError,
     RunConflictError,
@@ -41,6 +43,7 @@ from goodfetch_collie_client.generated.models import (
     StartedAs,
 )
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
+from goodfetch_collie_client.handle import Subscription
 from goodfetch_collie_client.limits import Limits, Money, Prices
 from goodfetch_collie_client.run import AsyncRun, Run
 
@@ -65,6 +68,7 @@ __all__ = [
     "LimitRaiseRefusedError",
     "LimitReachedError",
     "Limits",
+    "ListenerFailedError",
     "Money",
     "NotInProductError",
     "Prices",
@@ -80,4 +84,5 @@ __all__ = [
     "RunStateUnavailableError",
     "SettingInvalidError",
     "StartedAs",
+    "Subscription",
 ]

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 import anyio
 
@@ -62,7 +62,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
 
     from anyio.abc import ByteStream
-    from pydantic import BaseModel
+    from pydantic import BaseModel, JsonValue
 
     from goodfetch_collie_client.attached_engine import AttachedEngine
     from goodfetch_collie_client.generated.models import RunLimit, RunStarted
@@ -175,6 +175,17 @@ class ClientConnection:
             mode="json", by_alias=True, exclude_unset=True, warnings=False
         )
         return await self._channel.call(operation, wire)
+
+    async def raw(self, operation: str, params: Mapping[str, object]) -> JsonValue:
+        """Sends the raw call `operation` (ADR 0099), unless the Connection is closed.
+
+        Its params and its result are the wire's JSON, unconverted.
+        """
+        self.ensure_open(operation)
+        result = await self._channel.call(operation, params)
+        # Engine answers are not validated beyond `hello`'s protocol version
+        # (STYLE.md): a result is the JSON the channel decoded.
+        return cast("JsonValue", result)
 
     async def stream(
         self,

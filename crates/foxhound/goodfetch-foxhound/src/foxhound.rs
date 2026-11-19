@@ -123,13 +123,15 @@ impl Foxhound {
 
     /// Closes the connection for every clone: first every Run it started
     /// that still runs, then the linked engine, which checkpoints and
-    /// stops; returns once it has stopped. Any later call fails with
-    /// [`Error::Closed`]. Closing again does nothing.
+    /// stops; returns once it has stopped, or once `timeout.close` has run
+    /// out. Any later call fails with [`Error::Closed`]. Closing again
+    /// does nothing.
     ///
     /// # Errors
     ///
-    /// What closing a Run fails with, and [`Error::Engine`] when the linked
-    /// engine failed.
+    /// What closing a Run fails with, [`Error::Engine`] when the linked
+    /// engine failed, and [`Error::TimedOut`] when `timeout.close` ran out
+    /// first.
     ///
     /// # Cancel safety
     ///

@@ -459,9 +459,6 @@ impl std::fmt::Debug for HandlerLease {
     }
 }
 
-/// How often a permit's wait renews its lease, as a share of its length.
-const RENEWALS_PER_LENGTH: u32 = 4;
-
 impl LeaseCheck for HandlerLease {
     fn check(&self) -> Result<(), LeaseEnded> {
         self.lease.check()
@@ -472,22 +469,13 @@ impl LeaseCheck for HandlerLease {
     }
 
     fn permit_wait(&self, _url: &str) -> PermitWait {
-        let (stop, mut stopped) = oneshot::channel::<()>();
+        let (stop, stopped) = oneshot::channel::<()>();
         let waiting = self.clone();
         self.of_run.run.spawn(self.watch.over(async move {
             let id = &waiting.request_id;
             let run = &waiting.of_run.run;
             waiting.in_flight.lock().await.permit_wait_began(run, id);
-            let (length, clock) = (waiting.lease.length(), run.clock());
-            loop {
-                waiting.lease.renew(length);
-                tokio::select! {
-                    _ = &mut stopped => break,
-                    () = clock.sleep(length / RENEWALS_PER_LENGTH) => {}
-                }
-            }
-            // The handler's timeout runs again from the wait's end.
-            waiting.lease.renew(length);
+            waiting.lease.held_through_permit_wait(stopped).await;
             waiting.in_flight.lock().await.permit_wait_ended(run, id);
         }));
         PermitWait::holding(stop)

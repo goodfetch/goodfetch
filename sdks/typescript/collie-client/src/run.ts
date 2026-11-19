@@ -27,6 +27,7 @@ import type { HandleHost, Listener, Subscription } from "./handle.ts";
 import { KeyValueStore, type KeyValueStoreHost } from "./key-value-store.ts";
 import { subscribe } from "./listeners.ts";
 import type { Logger } from "./logger.ts";
+import type { RawSend } from "./raw-call.ts";
 import { holdInRealm } from "./realm.ts";
 import type { ChannelOpenOptions } from "./rpc.ts";
 
@@ -34,6 +35,8 @@ import type { ChannelOpenOptions } from "./rpc.ts";
 export interface RunHost {
   /** The Connection's calls. */
   readonly calls: Caller<CollieOperationTypes>;
+  /** The Connection's raw calls (ADR 0099), whose params and results it leaves as sent. */
+  readonly raw: RawSend;
   /** Whether the Connection can still reach the engine. */
   reachable(): boolean;
   /** Sends a call the engine streams to, such as a listener's `on`. */
@@ -47,7 +50,7 @@ export interface RunHost {
 }
 
 /** What the handles of a Run reach the engine through: its host's calls, streams and logger. */
-type HandlesHost = Pick<RunHost, "calls" | "stream" | "logger">;
+type HandlesHost = Pick<RunHost, "calls" | "raw" | "stream" | "logger">;
 
 /** A listener that threw, which `listener_failed` has not yet raised. */
 interface ListenerFailure {
@@ -218,20 +221,26 @@ function hostIn<Id>(
       throw failed;
     }
   };
+  // The Run's own calls also read their answer, since a Run report says when the Run ended.
+  const sent = async <Result>(operation: string, send: () => Promise<Result>): Promise<Result> => {
+    ensureCallable(operation);
+    const result = await send();
+    if (value === undefined && run.state === "running" && saysEnded(result)) {
+      run.state = "ended";
+    }
+    return result;
+  };
   const host: HandleHost<Id, CollieOperationTypes> = {
     id,
-    async call<Name extends keyof CollieOperationTypes>(
+    call<Name extends keyof CollieOperationTypes>(
       operation: Name,
       params: CollieOperationTypes[Name]["params"],
       options: CallOptions,
     ): Promise<CollieOperationTypes[Name]["result"]> {
-      ensureCallable(operation);
-      const result = await calls.call(operation, params, options);
-      if (value === undefined && run.state === "running" && saysEnded(result)) {
-        run.state = "ended";
-      }
-      return result;
+      return sent(operation, () => calls.call(operation, params, options));
     },
+    raw: (operation, params, options) =>
+      sent(operation, () => reach.raw(operation, params, options)),
     child: <ChildId>(childId: ChildId) => hostIn(reach, run, valueIn(value), childId),
     async close<Name extends keyof CollieOperationTypes>(
       operation: Name,
@@ -309,6 +318,11 @@ function hostIn<Id>(
   return host;
 }
 
+/** What stops a call given `given`, its own signal, that also stops when `signal` aborts. */
+function alsoStoppedBy(given: AbortSignal | undefined, signal: AbortSignal): AbortSignal {
+  return given === undefined ? signal : AbortSignal.any([given, signal]);
+}
+
 /** `calls`, each of which also stops when `signal` aborts. */
 function signalled<Types extends Record<keyof Types, OperationTypes>>(
   calls: Caller<Types>,
@@ -320,9 +334,7 @@ function signalled<Types extends Record<keyof Types, OperationTypes>>(
       params: Types[Name]["params"],
       options: CallOptions,
     ): Promise<Types[Name]["result"]> {
-      const stops =
-        options.signal === undefined ? signal : AbortSignal.any([options.signal, signal]);
-      return calls.call(operation, params, { signal: stops });
+      return calls.call(operation, params, { signal: alsoStoppedBy(options.signal, signal) });
     },
   };
 }
@@ -359,11 +371,12 @@ export class Run extends RunMembers implements AsyncDisposable {
         hostIn(
           {
             calls: signalled(run.#host.calls, signal),
+            raw: (operation, params, options) =>
+              run.#host.raw(operation, params, { signal: alsoStoppedBy(options.signal, signal) }),
             stream: (method, params, options) =>
               run.#host.stream(method, params, {
                 ...options,
-                signal:
-                  options.signal === undefined ? signal : AbortSignal.any([options.signal, signal]),
+                signal: alsoStoppedBy(options.signal, signal),
               }),
             logger: run.#host.logger,
           },

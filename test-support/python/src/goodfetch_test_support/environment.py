@@ -102,6 +102,7 @@ class TestEnv:
         *,
         proving_ground_seed: int | None = None,
         daemon: Product | None = None,
+        browser: bool = False,
         teardown_deadline: float = TEARDOWN_DEADLINE_SECONDS,
     ) -> Self:
         """Starts `goodfetch-test-env` for the test named `test_name`.
@@ -112,6 +113,8 @@ class TestEnv:
             proving_ground_seed: The seed of a Proving ground to start beside
                 the setup, if any.
             daemon: The Product whose Daemon to start in the test's home, if any.
+            browser: Whether to lay out the home's Browser cache and reach the
+                Proving ground's hosts, for an engine that opens a page.
             teardown_deadline: How many seconds teardown waits for
                 `goodfetch-test-env` to end once its stdin closes; 10 unless a
                 test sets a shorter one.
@@ -128,8 +131,16 @@ class TestEnv:
             else ["--proving-ground", str(proving_ground_seed)]
         )
         daemon_flag = [] if daemon is None else [f"--daemon={daemon.value}"]
+        browser_flag = ["--browser"] if browser else []
         process = subprocess.Popen(
-            [executable, "--test-name", test_name, *proving_ground, *daemon_flag],
+            [
+                executable,
+                "--test-name",
+                test_name,
+                *proving_ground,
+                *daemon_flag,
+                *browser_flag,
+            ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             env=dict(environ),

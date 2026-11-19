@@ -211,11 +211,12 @@ fn leaks(canaries: &Canaries, env: &TestEnv, received: &[Value]) -> Vec<String> 
     leaks
 }
 
+/// `output` from the test's folder, with `/` between its names on every OS.
 fn relative(env: &TestEnv, output: &str) -> String {
     output
         .strip_prefix(&env.folder().display().to_string())
         .unwrap_or(output)
-        .to_owned()
+        .replace(std::path::MAIN_SEPARATOR, "/")
 }
 
 /// Covers: story:4-56, setting:run_state.key_reference

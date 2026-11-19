@@ -22,6 +22,7 @@ dom_query.workspace = true
 encoding_rs.workspace = true
 http-body-util.workspace = true
 goodfetch-counted-work.workspace = true
+goodfetch-encoding.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-extractor.workspace = true
 goodfetch-frontier.workspace = true

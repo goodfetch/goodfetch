@@ -119,6 +119,8 @@ jsonschema.workspace = true
 # The settings flags' duration reader, over generated durations.
 proptest.workspace = true
 rstest.workspace = true
+# The program's type a page's fields are read into (tests/it/sdk/page.rs).
+serde.workspace = true
 # The corpus writers' dumps of run state and the Run index (examples/compat-run-index.rs).
 rusqlite.workspace = true
 serde_json.workspace = true

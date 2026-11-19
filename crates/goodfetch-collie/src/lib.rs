@@ -55,8 +55,13 @@ mod sample;
 pub use collie::Collie;
 pub use composition::{composition, composition_with};
 pub use goodfetch_collie_client::{
-    Call, Connection, Error, Limits, Locator, Money, MoneyError, Page, Query, Run, Session, Start,
-    UsageKind,
+    Call, Connection, Error, Exchange, FieldValues, Limits, Locator, Money, MoneyError, Page,
+    Query, Response, Run, Session, Start, UsageKind,
+};
+pub use goodfetch_protocol::page::events::PageRequest;
+pub use goodfetch_protocol::page::read::{
+    FieldLocator, FieldMatch, FieldTransform, ListField, PageField, PageRead, RowsField,
+    UnreadField, UnreadReason, ValueField,
 };
 pub use goodfetch_protocol::run::{RunId, RunReport, StartedAs, Tags};
 pub use linked::ConnectOptions;

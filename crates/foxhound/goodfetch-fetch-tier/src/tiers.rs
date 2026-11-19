@@ -37,6 +37,7 @@ use bytes::Bytes;
 use bytestring::ByteString;
 use encoding_rs::Encoding;
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_encoding::Kind;
 use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::happy_eyeballs::Delays;
@@ -97,7 +98,7 @@ use crate::canonical::canonical;
 use crate::chain::{
     Followed, Following, HopRead, Reading, Redirected, Skip, Stop, Unfollowed, follow_reading,
 };
-use crate::charset::{Kind, Read, Text};
+use crate::charset::{Read, Text};
 use crate::choice::{
     ENCODING_CALL, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unsendable, unserved,
 };

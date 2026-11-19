@@ -17,6 +17,7 @@ use goodfetch_test_support::{TestEnv, real_time_runtime};
 use serde_json::json;
 
 mod limits;
+mod page;
 mod public_items;
 mod start;
 

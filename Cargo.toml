@@ -169,6 +169,9 @@ goodfetch-collie-client = { path = "crates/goodfetch-collie-client" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
 # Counted work (ADR 0140): the counts, and each primitive's counted function.
 goodfetch-counted-work = { path = "crates/goodfetch-counted-work" }
+# The Encoding a document's own bytes declare, read as Chrome reads it (ADR
+# 0119), which the fetch tiers and Collie's client crate both read.
+goodfetch-encoding = { path = "crates/goodfetch-encoding" }
 # The conformance harness; the Stub gateway's tests run its gateway cases.
 goodfetch-conformance = { path = "crates/goodfetch-conformance" }
 # Foxhound's crawl; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).

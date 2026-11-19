@@ -9,6 +9,7 @@
 
 use std::fmt::Debug;
 use std::future::{Future, IntoFuture};
+use std::io;
 use std::marker::PhantomData;
 use std::panic;
 use std::path::{Path, PathBuf};
@@ -20,7 +21,7 @@ use data_encoding::BASE64;
 use goodfetch_protocol::connection::{CANCEL, CancelParams, HELLO, HelloParams, HelloResult};
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::jsonrpc::RequestId;
-use goodfetch_protocol::page::{CHUNK, Chunk};
+use goodfetch_protocol::page::{BodyHandle, CHUNK, Chunk};
 use serde::Serialize;
 use serde::de::{DeserializeOwned, Error as _};
 use serde_json::Value;
@@ -313,6 +314,36 @@ impl Connection {
         })?;
         self.0.sender.notify(CREDIT, params);
         Ok(())
+    }
+
+    /// The bytes of the page body `handle` names, read from the file the
+    /// engine keeps it in, which a Client on the same machine reads (ADR
+    /// 0118).
+    pub(crate) async fn read_body(&self, handle: BodyHandle) -> Result<Vec<u8>, Error> {
+        self.blocking(move || {
+            let path = PathBuf::from(handle.path);
+            let unreadable = |source| Error::BodyUnreadable {
+                path: path.clone(),
+                source,
+            };
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "a blocking task on the Connection's tracker reads the file"
+            )]
+            let bytes = std::fs::read(&path).map_err(unreadable)?;
+            if u64::try_from(bytes.len()).ok() != Some(handle.size) {
+                return Err(unreadable(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "the file holds {} bytes where the body has {}",
+                        bytes.len(),
+                        handle.size
+                    ),
+                )));
+            }
+            Ok(bytes)
+        })
+        .await
     }
 
     /// Runs the blocking `work` on the Connection's tracker. Dropping the

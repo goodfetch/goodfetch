@@ -63,20 +63,28 @@ def test_maps_each_effective_level_of_the_engine_logger_to_the_engines_level(
 
 
 @pytest.mark.covers("story:11-25")
-def test_names_the_logger_of_an_event_after_its_targets_area() -> None:
-    """The segment after the crate's, or `goodfetch.engine` without a valid one."""
+def test_names_the_logger_of_an_event_after_its_targets_path() -> None:
+    """Without a leading `goodfetch`, or `goodfetch.engine` without a valid path."""
     targets = [
         "goodfetch::rpc::dispatch",
         "goodfetch::page",
+        "goodfetch_frontier::robots_txt",
+        "goodfetch_engine::robots_txt",
         "goodfetch",
         "goodfetch::",
-        "goodfetch::not an area",
+        "goodfetch::rpc::",
+        "goodfetch::not a path",
+        "site.test:443",
         "",
     ]
 
     assert [engine_logger_name(target) for target in targets] == [
-        "goodfetch.engine.rpc",
+        "goodfetch.engine.rpc.dispatch",
         "goodfetch.engine.page",
+        "goodfetch.engine.goodfetch_frontier.robots_txt",
+        "goodfetch.engine.goodfetch_engine.robots_txt",
+        "goodfetch.engine",
+        "goodfetch.engine",
         "goodfetch.engine",
         "goodfetch.engine",
         "goodfetch.engine",
@@ -85,29 +93,37 @@ def test_names_the_logger_of_an_event_after_its_targets_area() -> None:
 
 
 @pytest.mark.covers("story:11-25")
-def test_drops_an_event_it_cannot_log_and_one_a_hosts_filter_refuses(
+def test_drops_an_event_it_cannot_log_and_one_a_hosts_filter_raises_on(
     engine_logger: logging.Logger, caplog: pytest.LogCaptureFixture
 ) -> None:
     """`off`, an unknown level, a missing target or message, and a raising filter."""
     caplog.set_level(1, logger=ENGINE_LOGGER)
-    event = {"level": "warn", "target": "goodfetch::page", "message": "Slow."}
-
+    event = {"level": "warn", "target": "goodfetch", "message": "Slow."}
     unloggable: list[object] = [
         None,
         [],
         {**event, "level": "off"},
         {**event, "level": "fatal"},
         {"level": "warn", "message": "Slow."},
-        {"level": "warn", "target": "goodfetch::page"},
+        {"level": "warn", "target": "goodfetch"},
     ]
-    for params in unloggable:
-        log_engine_event(params)
+    refused: list[str] = []
 
     def refuse(record: logging.LogRecord) -> bool:
+        refused.append(record.getMessage())
         raise RuntimeError(record.getMessage())
 
+    log_engine_event(event)
+    for params in unloggable:
+        log_engine_event(params)
+    # A target without a path logs on `goodfetch.engine`, whose filter runs.
     engine_logger.addFilter(refuse)
-    # A target without an area logs on `goodfetch.engine`, whose filter runs.
-    log_engine_event({**event, "target": "goodfetch"})
+    log_engine_event({**event, "message": "Refused."})
 
-    assert caplog.records == []
+    assert (
+        [
+            (record.name, record.levelno, record.getMessage())
+            for record in caplog.records
+        ],
+        refused,
+    ) == ([(ENGINE_LOGGER, logging.WARNING, "Slow.")], ["Refused."])

@@ -5,7 +5,8 @@ and nothing else; no handler, level or root logger is touched. The names
 below are SDK API under semver, listed in the SDK's manifest; message text
 is not. The level of the engine's logs a Connection receives follows the
 effective level of `goodfetch.engine`, and each `$/log` event goes to a
-`goodfetch.engine.<area>` logger at its level. TypeScript's `logger.ts` is
+`goodfetch.engine.<area>` logger at its level, the area being its target's
+path. TypeScript's `logger.ts` is
 its twin.
 """
 
@@ -14,8 +15,9 @@ from __future__ import annotations
 import logging
 from typing import Final
 
+from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.framing import object_members
-from goodfetch_collie_client.generated.models import LogLevel
+from goodfetch_collie_client.generated.models import LogEvent, LogLevel
 
 CLIENT_LOGGER: Final = "goodfetch.client"
 """The SDK's runtime: the engine's stderr lines and a refused log level, at warning."""
@@ -69,55 +71,52 @@ def log_level() -> LogLevel:
 def engine_logger_name(target: str) -> str:
     """The logger an event of the engine's `target` goes to.
 
-    `goodfetch.engine.<area>`, where the area is the target's second path
-    segment, its first after the crate: `goodfetch::rpc::dispatch` goes to
-    `goodfetch.engine.rpc`. A target with no such segment goes to
-    `goodfetch.engine`. Targets are Experimental (ADR 0132), so the areas
-    are too; `goodfetch.engine` and the pattern are not.
+    `goodfetch.engine` followed by the target's path, each `::` a dot and a
+    leading `goodfetch` segment dropped: `goodfetch::rpc::dispatch` goes to
+    `goodfetch.engine.rpc.dispatch`, and a module's default target such as
+    `goodfetch_frontier::robots_txt` to
+    `goodfetch.engine.goodfetch_frontier.robots_txt`, so a host configures a
+    whole area by its prefix. A target with no segment, or one that is no
+    identifier, goes to `goodfetch.engine`. Targets are Experimental (ADR
+    0132), so the names below `goodfetch.engine` are too; `goodfetch.engine`
+    and the pattern are not.
     """
     segments = target.split("::")
-    area = segments[1] if len(segments) > 1 else ""
-    if not area or not area.isidentifier():
+    if segments[0] == "goodfetch":
+        segments = segments[1:]
+    if not segments or not all(segment.isidentifier() for segment in segments):
         return ENGINE_LOGGER
-    return f"{ENGINE_LOGGER}.{area}"
+    return ".".join((ENGINE_LOGGER, *segments))
 
 
 def log_engine_event(params: object) -> None:
     """Logs one of the engine's log events, a `$/log` notification's params.
 
     At its level, with `source`, `target`, `fields` and `dropped` as the
-    record's attributes. Params that are no log event, or a host's filter
-    that raises, lose the event alone: engine messages are not validated
-    (STYLE.md), and the Connection goes on.
+    record's attributes. The event is built as its model without being
+    validated (STYLE.md): one this SDK cannot log, such as one at a level it
+    does not know, or one a host's filter raises on, is lost alone, and the
+    reading task, which every call of the Connection waits on, goes on.
     """
-    event = object_members(params)
-    if event is None:
+    members = object_members(params)
+    if members is None:
         return
-    name = event.get("level")
     try:
-        level = _LEVELS[LogLevel(name)] if isinstance(name, str) else None
-    except (ValueError, KeyError):
-        # `off`, or a level this SDK does not know.
-        return
-    target = event.get("target")
-    message = event.get("message")
-    fields = object_members(event.get("fields")) or {}
-    dropped = event.get("dropped")
-    if level is None or not isinstance(target, str) or not isinstance(message, str):
-        return
-    extra = {
-        "source": "engine",
-        "target": target,
-        "fields": fields,
-        "dropped": dropped
-        if isinstance(dropped, int) and not isinstance(dropped, bool)
-        else 0,
-    }
-    try:
-        logging.getLogger(engine_logger_name(target)).log(
-            level, "%s", message, extra=extra
+        event = result_of(LogEvent, members)
+        level = _LEVELS.get(event.level)
+        if level is None:
+            # `off`, which no event carries, or a level this SDK does not know.
+            return
+        logging.getLogger(engine_logger_name(event.target)).log(
+            level,
+            "%s",
+            event.message,
+            extra={
+                "source": "engine",
+                "target": event.target,
+                "fields": event.fields or {},
+                "dropped": event.dropped or 0,
+            },
         )
     except Exception:
-        # A host's filter raised: the event is lost, and the reading task,
-        # which every call of the Connection waits on, goes on.
         return

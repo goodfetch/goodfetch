@@ -2,13 +2,15 @@
 # STYLE.md, Protocol and SDKs). Its members join with area 11's catalog
 # mapping ticket, as TypeScript's did; until then it lists the SDK's logger
 # names (ADR 0078), which are SDK API under semver as names, checked as such
-# by `griffe check` (#148) through the constants of
+# by `griffe check` once #148 adds it, through the constants of
 # `goodfetch_collie_client.host_logging`. Message text is not. `xtask
 # sdk-manifests` reads it from its first member on.
 #
 # Each logger sits under `goodfetch`, which alone carries a handler, a
-# `NullHandler`; `<area>` is the second segment of an engine log event's
-# target, and the areas are Experimental as the targets are (ADR 0132).
+# `NullHandler`; `<area>` is an engine log event's target as a dotted path,
+# without a leading `goodfetch` segment (`goodfetch::rpc::dispatch` gives
+# `goodfetch.engine.rpc.dispatch`), and the areas are Experimental as the
+# targets are (ADR 0132).
 
 [[logger]]
 package = "goodfetch-collie-client"

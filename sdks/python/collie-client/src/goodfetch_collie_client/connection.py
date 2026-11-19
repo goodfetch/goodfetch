@@ -331,8 +331,9 @@ class ClientConnection:
         is sent when it did not change, and nothing polls it. The engine's
         logs are telemetry, so a refusal fails no start: it goes to the
         `goodfetch.client` logger at warning, and the level the engine kept
-        stays the one told, so the next Run's start tells it again. A
-        Connection that ended or is closing fails with its own error.
+        stays the one told, so the next Run's start tells it again, as after
+        a cancelled call. A Connection that ended or is closing fails with
+        its own error.
         """
         level = log_level()
         before = self._log_level
@@ -343,11 +344,17 @@ class ClientConnection:
             await self._operations.connection_set_log_level(
                 SetLogLevelParams(log_level=level)
             )
-        except GoodfetchError as error:
-            # A start begun meanwhile may have told the engine a newer level.
+        except BaseException as error:
+            # Refused, failed or cancelled: the engine may keep the level it
+            # had, so the next start tells it again, unless a start begun
+            # meanwhile told it a newer one.
             if self._log_level == level:
                 self._log_level = before
-            if self._ended or self._closing.started:
+            if (
+                not isinstance(error, GoodfetchError)
+                or self._ended
+                or self._closing.started
+            ):
                 raise
             logging.getLogger(CLIENT_LOGGER).warning(
                 "The engine refused the log level `%s`; it keeps sending its logs "

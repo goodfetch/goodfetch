@@ -1,11 +1,13 @@
 //! The connection, which is the Product (ADRs 0078, 0090 and 0095): what a
 //! Rust program opens to drive Collie, and the scope that opens and closes
 //! it around a body. Each connection starts its own linked engine, the
-//! engine this crate composes, in the program's own process (ADR 0087).
+//! engine this crate composes, in the program's own process (ADR 0087), or
+//! reaches a Daemon ([`crate::EngineChoice`]).
 
 use goodfetch_collie_client::{ClientConnection, Connection, Error, Start};
 
-use crate::linked::{Composed, ConnectOptions, LinkedConnection};
+use crate::EngineInfo;
+use crate::linked::{Composed, ConnectOptions, ProductConnection};
 
 /// A connection to Collie, which is the Product: `collie.start()` starts a
 /// Run. Cloning it is cheap and every clone is the same connection;
@@ -31,14 +33,18 @@ use crate::linked::{Composed, ConnectOptions, LinkedConnection};
 /// ```
 #[derive(Clone, Debug)]
 pub struct Collie {
-    linked: LinkedConnection,
+    linked: ProductConnection,
 }
 
 impl Collie {
-    /// Opens a connection to a linked engine of its own, which runs on a
-    /// runtime the connection owns, so the connection works from any
-    /// executor. The engine reads `options`' environment, or the process's,
-    /// for its Goodfetch home and the machine's settings.
+    /// Opens a connection to the engine `options` choose
+    /// ([`ConnectOptions::engine`]): at `Auto`, the remote Daemon
+    /// `GOODFETCH_URL` names, else the Daemon running in the Goodfetch
+    /// home, else a linked engine of its own. The connection runs on a
+    /// runtime it owns, so it works from any executor, and reads
+    /// `options`' environment, or the process's, for its Goodfetch home, a
+    /// remote Daemon and the machine's settings; it logs the engine it
+    /// reached at info.
     /// It sets `options`' Limits on the connection before it returns
     /// ([`ConnectOptions::limits`]), and waits for `hello`'s answer within
     /// `options`' `timeout`, `timeout.connect`'s 30 s when left out
@@ -47,8 +53,11 @@ impl Collie {
     /// # Errors
     ///
     /// `engine_exited` when the linked engine cannot start, with no
-    /// Goodfetch home among others, `setting_invalid` for a zero `timeout`,
-    /// `deadline_exceeded` naming `timeout.connect` when `hello` is not
+    /// Goodfetch home among others, `setting_invalid` for a zero `timeout`
+    /// or a remote Daemon's URL that names no loopback `ws://` address, or
+    /// `GOODFETCH_URL` without `GOODFETCH_TOKEN`, `daemon_unreachable` when
+    /// the Daemon chosen cannot be reached, which `Daemon` never starts
+    /// (ADR 0098), `deadline_exceeded` naming `timeout.connect` when `hello` is not
     /// answered within it, what `hello` fails with, and what `usage.set`
     /// fails with for a Limit the engine refuses, the connection closed
     /// then.
@@ -58,7 +67,7 @@ impl Collie {
     /// Dropping the future before it completes stops the linked engine it
     /// started.
     pub async fn connect(options: ConnectOptions) -> Result<Self, Error> {
-        let linked = LinkedConnection::connect(Composed::COLLIE, options).await?;
+        let linked = ProductConnection::connect(Composed::COLLIE, options).await?;
         Ok(Self { linked })
     }
 
@@ -136,6 +145,13 @@ impl Collie {
         closed.map(|()| value)
     }
 
+    /// The engine the connection reached, fixed when it opened: the linked
+    /// engine or a Daemon ([`crate::EngineChoice`]). It never holds a
+    /// Daemon's token.
+    pub fn engine(&self) -> &EngineInfo {
+        self.linked.engine()
+    }
+
     /// Leaving the scope or `close()` stops the Run with a Checkpoint;
     /// `finish()` ends it. The start of a Run the program drives
     /// (`run.start`), which awaiting sends: a resume is logged at info and
@@ -171,11 +187,11 @@ impl Collie {
         handle: tokio::runtime::Handle,
         dependencies: goodfetch_engine::Dependencies,
     ) -> Result<Self, Error> {
-        let linked = LinkedConnection::open(
+        let linked = ProductConnection::open(
             goodfetch_collie_client::ConnectionRuntime::driven(handle.clone()),
             handle,
             Composed::COLLIE,
-            LinkedConnection::hello(Composed::COLLIE.product),
+            ProductConnection::hello(Composed::COLLIE.product),
             dependencies,
             goodfetch_collie_client::Limits::new(),
             goodfetch_collie_client::ConnectTimeout::Default,

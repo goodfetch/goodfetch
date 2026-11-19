@@ -46,7 +46,9 @@ mod sample;
 
 pub use composition::{composition, composition_with};
 pub use foxhound::{Foxhound, PAID_FETCHES};
-pub use goodfetch_collie::ConnectOptions;
+pub use goodfetch_collie::{
+    ConnectOptions, EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon,
+};
 pub use goodfetch_collie_client::{
     BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange, FieldValues,
     Limits, Locator, Money, MoneyError, Page, Query, Response, Run, Session, Start, UsageKind,

@@ -10,8 +10,8 @@ pub use goodfetch_collie_client::blocking::{
     Call, Connection, EventIter, Exchange, Locator, Page, Query, Response, Run, Session, Start,
 };
 
-use crate::Error;
-use crate::linked::{Composed, ConnectOptions, LinkedConnection};
+use crate::linked::{Composed, ConnectOptions, ProductConnection};
+use crate::{EngineInfo, Error};
 
 /// A connection to Collie whose calls block: `collie.start().send()`
 /// starts a Run. Cloning it is cheap and every clone is the same
@@ -35,7 +35,7 @@ use crate::linked::{Composed, ConnectOptions, LinkedConnection};
 /// ```
 #[derive(Clone, Debug)]
 pub struct Collie {
-    linked: LinkedConnection,
+    linked: ProductConnection,
     connection: blocking::ClientConnection,
 }
 
@@ -48,11 +48,17 @@ impl Collie {
     ///
     /// As [`crate::Collie::connect`].
     pub fn connect(options: ConnectOptions) -> Result<Self, Error> {
-        let linked = LinkedConnection::connect_blocking(Composed::COLLIE, options)?;
+        let linked = ProductConnection::connect_blocking(Composed::COLLIE, options)?;
         Ok(Self {
             connection: blocking::ClientConnection::from(linked.connection().clone()),
             linked,
         })
+    }
+
+    /// The engine the connection reached, as [`crate::Collie::engine`]
+    /// reports it.
+    pub fn engine(&self) -> &EngineInfo {
+        self.linked.engine()
     }
 
     /// Leaving the scope or `close()` stops the Run with a Checkpoint;

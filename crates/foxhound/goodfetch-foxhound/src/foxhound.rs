@@ -4,8 +4,8 @@
 //! the Foxhound engine this crate composes, in the program's own process
 //! (ADRs 0024 and 0087), through Collie's crate's linked connection.
 
-use goodfetch_collie::ConnectOptions;
-use goodfetch_collie::linked::{Composed, LinkedConnection};
+use goodfetch_collie::linked::{Composed, ProductConnection};
+use goodfetch_collie::{ConnectOptions, EngineInfo};
 use goodfetch_collie_client::{ClientConnection, Connection, Error, Start, UsageKind};
 use goodfetch_protocol::catalog::Product;
 
@@ -45,7 +45,7 @@ pub const PAID_FETCHES: UsageKind =
 /// ```
 #[derive(Clone, Debug)]
 pub struct Foxhound {
-    linked: LinkedConnection,
+    linked: ProductConnection,
 }
 
 impl Foxhound {
@@ -73,7 +73,7 @@ impl Foxhound {
     /// Dropping the future before it completes stops the linked engine it
     /// started.
     pub async fn connect(options: ConnectOptions) -> Result<Self, Error> {
-        let linked = LinkedConnection::connect(ENGINE, options).await?;
+        let linked = ProductConnection::connect(ENGINE, options).await?;
         Ok(Self { linked })
     }
 
@@ -117,6 +117,13 @@ impl Foxhound {
         let closed = foxhound.close().await;
         let value = result?;
         closed.map(|()| value)
+    }
+
+    /// The engine the connection reached, fixed when it opened: the linked
+    /// engine or a Daemon ([`crate::EngineChoice`]). It never holds a
+    /// Daemon's token.
+    pub fn engine(&self) -> &EngineInfo {
+        self.linked.engine()
     }
 
     /// The start of a Run the program drives (`run.start`), which awaiting

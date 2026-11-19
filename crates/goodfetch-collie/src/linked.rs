@@ -2,9 +2,11 @@
 //! Rust SDK composes, which each connection starts in the program's own
 //! process and reaches over area 3's in-memory network. It serves its one
 //! Connection as an Attached engine does, and stops at the end of its
-//! input, which closing the Connection gives it.
+//! input, which closing the Connection gives it. A connection reaches a
+//! Daemon in its place when [`EngineChoice`] says so
+//! ([`crate::engine_choice`]).
 //!
-//! [`LinkedConnection`] is the one way both Products' SDKs open such a
+//! [`ProductConnection`] is the one way both Products' SDKs open a
 //! connection: [`Collie`](crate::Collie) with [`Composed::COLLIE`], and
 //! Foxhound's crate with its own composition, which starts from Collie's
 //! (ADR 0087). It names no Product's entries, so Foxhound's stay out of
@@ -12,12 +14,14 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::fmt;
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock, mpsc};
 use std::time::Duration;
 
-use goodfetch_collie_client::logging::engine_log_level;
+use goodfetch_collie_client::logging::{CLIENT, engine_log_level};
 use goodfetch_collie_client::transport::{Dial, Endpoint, Link, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectTimeout, ConnectionRuntime, Error, Limits};
 use goodfetch_engine::clock::Clock;
@@ -31,25 +35,53 @@ use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, InMemoryDialer};
 use goodfetch_engine::{AttachedFailure, Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::{HelloParams, ProductVersion, Surface};
+use goodfetch_protocol::connection::{HelloParams, HelloResult, ProductVersion, Surface};
 use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, HOME_VARIABLE, TIMEOUT_CLOSE};
 use goodfetch_protocol::usage::{self, LimitUsage, USAGE_SET, UsageSetParams};
 use tokio::runtime::{Handle, Runtime};
 use tokio_util::task::TaskTracker;
 
+use crate::engine_choice::{self, DaemonReach, EngineChoice, EngineInfo, EngineKind, Reach};
 use crate::runtime::{self, Threads};
 
-/// What a connection opens with, in either Product's SDK.
-#[derive(Clone, Debug, Default)]
+/// What a connection opens with, in either Product's SDK. Its `Debug`
+/// output names the environment's variables without their values, which
+/// may hold a token such as `GOODFETCH_TOKEN`'s (ADR 0067).
+#[derive(Clone, Default)]
 pub struct ConnectOptions {
     environment: Option<BTreeMap<OsString, OsString>>,
     limits: Limits,
     timeout: ConnectTimeout,
+    engine: EngineChoice,
+}
+
+impl fmt::Debug for ConnectOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ConnectOptions")
+            .field(
+                "environment",
+                &self.environment.as_ref().map(BTreeMap::keys),
+            )
+            .field("limits", &self.limits)
+            .field("timeout", &self.timeout)
+            .field("engine", &self.engine)
+            .finish()
+    }
 }
 
 impl ConnectOptions {
-    /// The environment variables the linked engine reads, such as
-    /// `GOODFETCH_HOME`, in place of the process's own.
+    /// The engine the connection reaches, in place of
+    /// [`EngineChoice::Auto`], whatever `GOODFETCH_URL` says.
+    #[must_use]
+    pub fn engine(mut self, engine: EngineChoice) -> Self {
+        self.engine = engine;
+        self
+    }
+
+    /// The environment variables the connection and its linked engine
+    /// read, such as `GOODFETCH_HOME` and `GOODFETCH_URL`, in place of the
+    /// process's own.
     #[must_use]
     pub fn environment(mut self, environment: BTreeMap<OsString, OsString>) -> Self {
         self.environment = Some(environment);
@@ -84,19 +116,33 @@ impl ConnectOptions {
         self
     }
 
-    /// The environment the linked engine reads, the one set or the
-    /// process's, the connection's Limits and its `timeout`, once checked.
+    /// The environment the connection reads, the one set or the
+    /// process's, the connection's Limits, its `timeout`, once checked, and
+    /// its engine.
     #[expect(
         clippy::disallowed_methods,
         reason = "the SDK's connect(), given no environment map, reads the process environment once, the one reader besides main (ADR 0083)"
     )]
-    fn into_parts(self) -> Result<(BTreeMap<OsString, OsString>, Limits, ConnectTimeout), Error> {
+    fn into_parts(self) -> Result<Parts, Error> {
         self.timeout.check()?;
         let environment = self
             .environment
             .unwrap_or_else(|| std::env::vars_os().collect());
-        Ok((environment, self.limits, self.timeout))
+        Ok(Parts {
+            environment,
+            limits: self.limits,
+            timeout: self.timeout,
+            engine: self.engine,
+        })
     }
+}
+
+/// What a connection opens with, once checked.
+struct Parts {
+    environment: BTreeMap<OsString, OsString>,
+    limits: Limits,
+    timeout: ConnectTimeout,
+    engine: EngineChoice,
 }
 
 /// The engine a connection links: its Product and that Product's
@@ -117,19 +163,19 @@ impl Composed {
     };
 }
 
-/// A connection to a linked engine of its own, which a Product's
-/// connection wraps. Cloning it is cheap and every clone is the same
-/// connection.
+/// A connection to the engine [`ConnectOptions::engine`] chooses: a
+/// linked engine of its own, or a Daemon. A Product's connection wraps it.
+/// Cloning it is cheap and every clone is the same connection.
 ///
 /// ```
 /// use goodfetch_collie::ConnectOptions;
-/// use goodfetch_collie::linked::{Composed, LinkedConnection};
+/// use goodfetch_collie::linked::{Composed, ProductConnection};
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # let home = tempfile::tempdir()?;
 /// # let options = ConnectOptions::default()
 /// #     .environment([("GOODFETCH_HOME".into(), home.path().into())].into());
-/// let linked = LinkedConnection::connect_blocking(Composed::COLLIE, options)?;
+/// let linked = ProductConnection::connect_blocking(Composed::COLLIE, options)?;
 /// # goodfetch_runtime::current_thread().enable_all().build()?.block_on(async {
 /// let report = linked.connection().start().await?.finish().await?;
 /// println!("{} ended {:?}", report.run_id, report.lifecycle);
@@ -140,25 +186,31 @@ impl Composed {
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct LinkedConnection {
+pub struct ProductConnection {
     connection: ClientConnection,
-    engine: Arc<LinkedEngine>,
+    /// The linked engine it started; `None` for a Daemon.
+    engine: Option<Arc<LinkedEngine>>,
     handle: Handle,
+    info: Arc<EngineInfo>,
 }
 
-impl LinkedConnection {
-    /// Opens a connection to a linked `engine` of its own, whose `hello`
-    /// needs that engine's Product. The engine runs on a runtime the
-    /// connection owns, so the connection works from any executor, and
-    /// reads `options`' environment, or the process's, for its Goodfetch
-    /// home and the machine's settings. It sets `options`' Limits on the
-    /// connection before it returns.
+impl ProductConnection {
+    /// Opens a connection to the engine `options` chooses, whose `hello`
+    /// needs `engine`'s Product: a linked `engine` of its own, or a Daemon
+    /// ([`EngineChoice`]). The connection runs on a runtime it owns, so it
+    /// works from any executor, and reads `options`' environment, or the
+    /// process's, for its Goodfetch home, a remote Daemon and the
+    /// machine's settings. It logs the engine it reached at info, and sets
+    /// `options`' Limits on the connection before it returns.
     ///
     /// # Errors
     ///
     /// `engine_exited` when the linked engine cannot start, with no
     /// Goodfetch home among others, `setting_invalid` for a zero `timeout`
-    /// ([`ConnectOptions::timeout`]), `deadline_exceeded` naming
+    /// ([`ConnectOptions::timeout`]) or a remote Daemon's URL that names no
+    /// loopback `ws://` address, or `GOODFETCH_URL` without
+    /// `GOODFETCH_TOKEN`, `daemon_unreachable` when the Daemon chosen
+    /// cannot be reached, `deadline_exceeded` naming
     /// `timeout.connect` when `hello` is not answered within it, what
     /// `hello` fails with, and what `usage.set` fails with for a Limit the
     /// engine refuses, such as
@@ -168,12 +220,12 @@ impl LinkedConnection {
     /// # Cancel safety
     ///
     /// Dropping the future before it completes stops the linked engine it
-    /// started.
+    /// started, or leaves the Daemon.
     pub async fn connect(engine: Composed, options: ConnectOptions) -> Result<Self, Error> {
         Self::connect_needing(engine, engine.product, options).await
     }
 
-    /// Opens a connection as [`LinkedConnection::connect`] does, whose
+    /// Opens a connection as [`ProductConnection::connect`] does, whose
     /// `hello` needs `needs`: it fails with `not_in_product` when `engine`
     /// does not contain `needs`.
     async fn connect_needing(
@@ -181,47 +233,20 @@ impl LinkedConnection {
         needs: Product,
         options: ConnectOptions,
     ) -> Result<Self, Error> {
-        let hello = Self::hello(needs);
-        let (environment, limits, timeout) = options.into_parts()?;
-        let (runtime, dependencies) = production(engine.product, environment)?;
-        let handle = runtime.handle().clone();
-        Self::open(
-            ConnectionRuntime::owned(runtime),
-            handle,
-            engine,
-            hello,
-            dependencies,
-            limits,
-            timeout,
-        )
-        .await
+        Opening::of(engine, needs, options)?.open().await
     }
 
-    /// Opens a connection as [`LinkedConnection::connect`] does, blocking
+    /// Opens a connection as [`ProductConnection::connect`] does, blocking
     /// the calling thread until it is open. It never enters a runtime, so
     /// it works inside one too.
     ///
     /// # Errors
     ///
-    /// As [`LinkedConnection::connect`].
+    /// As [`ProductConnection::connect`].
     pub fn connect_blocking(engine: Composed, options: ConnectOptions) -> Result<Self, Error> {
-        let hello = Self::hello(engine.product);
-        let (environment, limits, timeout) = options.into_parts()?;
-        let (runtime, dependencies) = production(engine.product, environment)?;
-        let handle = runtime.handle().clone();
-        let on = handle.clone();
-        wait(&handle, async move {
-            Self::open(
-                ConnectionRuntime::owned(runtime),
-                on,
-                engine,
-                hello,
-                dependencies,
-                limits,
-                timeout,
-            )
-            .await
-        })
+        let opening = Opening::of(engine, engine.product, options)?;
+        let handle = opening.runtime.handle().clone();
+        wait(&handle, opening.open())
     }
 
     /// The client crate's connection, which each Product's connection
@@ -230,10 +255,16 @@ impl LinkedConnection {
         &self.connection
     }
 
+    /// The engine the connection reached, fixed when it opened. It never
+    /// holds a Daemon's token.
+    pub fn engine(&self) -> &EngineInfo {
+        &self.info
+    }
+
     /// Closes the connection for every clone: first every Run it started
     /// that still runs, then the linked engine, which checkpoints and
     /// stops; returns once it has stopped, or once `timeout.close` has run
-    /// out. Any later call fails with `closed`. Closing again
+    /// out. A Daemon is left running. Any later call fails with `closed`. Closing again
     /// does nothing.
     ///
     /// # Errors
@@ -249,7 +280,10 @@ impl LinkedConnection {
     pub async fn close(&self) -> Result<(), Error> {
         let closing = async {
             let closed = self.connection.close().await;
-            let stopped = self.engine.stopped().await;
+            let stopped = match &self.engine {
+                Some(engine) => engine.stopped().await,
+                None => Ok(()),
+            };
             closed.and(stopped)
         };
         // The timer is the engine's runtime's, so the close runs on any
@@ -261,12 +295,12 @@ impl LinkedConnection {
         bounded.await.unwrap_or_else(|_| Err(Error::timed_out()))
     }
 
-    /// Closes the connection as [`LinkedConnection::close`] does, blocking
-    /// the calling thread until its linked engine has stopped.
+    /// Closes the connection as [`ProductConnection::close`] does, blocking
+    /// the calling thread until its linked engine, if any, has stopped.
     ///
     /// # Errors
     ///
-    /// As [`LinkedConnection::close`].
+    /// As [`ProductConnection::close`].
     pub fn close_blocking(&self) -> Result<(), Error> {
         let linked = self.clone();
         wait(&self.handle, async move { linked.close().await })
@@ -299,15 +333,65 @@ impl LinkedConnection {
         limits: Limits,
         timeout: ConnectTimeout,
     ) -> Result<Self, Error> {
+        let home = dependencies.home.root().to_owned();
         let (linked, network) = LinkedEngine::start(&handle, engine, dependencies)?;
-        let (connection, _said) =
+        let (connection, said) =
             ClientConnection::open_within(runtime, &network, &Endpoint::InMemory, hello, timeout)
                 .await?;
         let opened = Self {
             connection,
-            engine: Arc::new(linked),
+            engine: Some(Arc::new(linked)),
             handle,
+            info: Arc::new(info(EngineKind::Linked, None, said, Some(home))),
         };
+        opened.limited(limits).await
+    }
+
+    /// A connection on `runtime`, whose handle is `handle`, saying `hello`
+    /// with the token of the Daemon `daemon` names, the one of `home`
+    /// unless it is remote, and with `limits` set on it once `hello` is
+    /// answered within `timeout`.
+    async fn open_daemon(
+        runtime: ConnectionRuntime,
+        handle: Handle,
+        daemon: DaemonReach,
+        home: Option<Home>,
+        hello: HelloParams,
+        limits: Limits,
+        timeout: ConnectTimeout,
+    ) -> Result<Self, Error> {
+        let hello = HelloParams {
+            token: Some(daemon.token.expose().to_owned()),
+            ..hello
+        };
+        let endpoint = Endpoint::Daemon(daemon.endpoint.clone());
+        let (connection, said) =
+            ClientConnection::open_within(runtime, &Network::Os, &endpoint, hello, timeout)
+                .await
+                .map_err(|error| daemon.unreached(error, home.as_ref()))?;
+        let home = match daemon.kind() {
+            EngineKind::Daemon => home.map(|home| home.root().to_owned()),
+            EngineKind::Linked | EngineKind::Remote => None,
+        };
+        let opened = Self {
+            connection,
+            engine: None,
+            handle,
+            info: Arc::new(info(daemon.kind(), Some(daemon.url()), said, home)),
+        };
+        opened.limited(limits).await
+    }
+
+    /// The connection, opened, once it logged the engine it reached and
+    /// set each of `limits`; when a Limit is refused, it is closed.
+    async fn limited(self, limits: Limits) -> Result<Self, Error> {
+        let opened = self;
+        tracing::info!(
+            target: CLIENT,
+            url = opened.info.url,
+            "connect() reached the {} engine",
+            opened.info.kind
+        );
         if let Err(refused) = opened.set(limits).await {
             if let Err(error) = opened.close().await {
                 tracing::warn!(
@@ -343,7 +427,7 @@ impl LinkedConnection {
 /// them and outlives the borrow that made it (ADR 0081).
 const _: () = {
     const fn send_sync_static<T: Send + Sync + 'static>() {}
-    send_sync_static::<LinkedConnection>();
+    send_sync_static::<ProductConnection>();
     send_sync_static::<ConnectOptions>();
 };
 
@@ -364,6 +448,124 @@ pub(crate) fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
     Some(home.with_browsers_path(
         deployment_variable(environment, BROWSERS_PATH_VARIABLE).map(Into::into),
     ))
+}
+
+/// What `engine()` reports of an engine of `kind`, reached at `url`, which
+/// answered `hello` with `said` and runs in `home`.
+fn info(
+    kind: EngineKind,
+    url: Option<String>,
+    said: HelloResult,
+    home: Option<PathBuf>,
+) -> EngineInfo {
+    EngineInfo {
+        kind,
+        product: said.product,
+        version: said.product_version,
+        protocol_version: said.protocol_version,
+        project_file: None,
+        home,
+        engine_path: None,
+        url,
+        fallback: None,
+    }
+}
+
+/// A connection whose engine is chosen, ready to open: the runtime it runs
+/// on, its `hello`, how its engine is reached, its Limits and `timeout`.
+struct Opening {
+    runtime: Runtime,
+    engine: Composed,
+    hello: HelloParams,
+    target: Target,
+    limits: Limits,
+    timeout: ConnectTimeout,
+}
+
+/// How an opening connection's engine is reached.
+enum Target {
+    /// The linked engine it starts, with what it runs on.
+    Linked(Box<Dependencies>),
+    /// A Daemon, the one of `home` unless it is remote.
+    Daemon {
+        daemon: DaemonReach,
+        home: Option<Home>,
+    },
+}
+
+impl Opening {
+    /// The connection `options` open, whose `hello` needs `needs`, to the
+    /// engine they choose, `engine` when it is the linked one.
+    fn of(engine: Composed, needs: Product, options: ConnectOptions) -> Result<Self, Error> {
+        let hello = ProductConnection::hello(needs);
+        let Parts {
+            environment,
+            limits,
+            timeout,
+            engine: choice,
+        } = options.into_parts()?;
+        let found = home(&environment);
+        let reach = engine_choice::reach(
+            choice,
+            &environment,
+            found.as_ref(),
+            engine.product,
+            &version(),
+        )?;
+        let (runtime, target) = match reach {
+            Reach::Linked => {
+                let (runtime, dependencies) = production(engine.product, environment)?;
+                (runtime, Target::Linked(Box::new(dependencies)))
+            }
+            Reach::Daemon(daemon) => (
+                runtime::multi_thread(Threads::of(None)),
+                Target::Daemon {
+                    daemon,
+                    home: found,
+                },
+            ),
+        };
+        Ok(Self {
+            runtime,
+            engine,
+            hello,
+            target,
+            limits,
+            timeout,
+        })
+    }
+
+    /// Opens the connection on its runtime.
+    async fn open(self) -> Result<ProductConnection, Error> {
+        let handle = self.runtime.handle().clone();
+        let runtime = ConnectionRuntime::owned(self.runtime);
+        match self.target {
+            Target::Linked(dependencies) => {
+                ProductConnection::open(
+                    runtime,
+                    handle,
+                    self.engine,
+                    self.hello,
+                    *dependencies,
+                    self.limits,
+                    self.timeout,
+                )
+                .await
+            }
+            Target::Daemon { daemon, home } => {
+                ProductConnection::open_daemon(
+                    runtime,
+                    handle,
+                    daemon,
+                    home,
+                    self.hello,
+                    self.limits,
+                    self.timeout,
+                )
+                .await
+            }
+        }
+    }
 }
 
 /// The runtime a production linked engine of `product` and its connection

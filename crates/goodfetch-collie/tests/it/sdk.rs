@@ -18,6 +18,7 @@ use goodfetch_test_support::{TestEnv, real_time_runtime};
 use serde_json::json;
 
 mod closing;
+mod engine_choice;
 mod events;
 mod limits;
 mod logging;

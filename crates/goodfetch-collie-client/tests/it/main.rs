@@ -6,6 +6,8 @@
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
 )]
 
+#[cfg(unix)]
+mod attached;
 mod closing;
 mod connection;
 mod connection_type;

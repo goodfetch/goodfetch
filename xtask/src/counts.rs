@@ -34,6 +34,7 @@ mod register;
 mod strace;
 
 use std::collections::BTreeMap;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
@@ -41,7 +42,7 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use crate::check::{self, Finding};
-use crate::environment::Environment;
+use crate::environment::{CALLGRIND_AT_ONCE_VARIABLE, Environment};
 use crate::output;
 use crate::perf::{self, Figure, Measured};
 use crate::products;
@@ -1257,6 +1258,11 @@ pub(crate) struct Arguments {
     /// (`open`, `directory`, `sync`) beside its counted function.
     #[arg(long, requires = "strace", conflicts_with = "prove")]
     bypass: Option<String>,
+    /// Lets each benchmark run at most this many Callgrind processes at
+    /// once, below its own bound of half the cores, at most eight; without
+    /// it, `GOODFETCH_COUNTS_CALLGRIND_AT_ONCE` sets it.
+    #[arg(long, value_name = "N")]
+    callgrind_at_once: Option<NonZeroUsize>,
 }
 
 /// The cell that runs with every default feature on.
@@ -1284,6 +1290,8 @@ struct Cell {
 }
 
 pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
+    // A cap that is no whole number of 1 or more fails before anything runs.
+    callgrind_at_once(arguments, environment)?;
     if arguments.strace {
         return strace::run(arguments, environment);
     }
@@ -1477,10 +1485,11 @@ fn family_cells(
     arguments: &Arguments,
     environment: &Environment,
 ) -> Result<Vec<Cell>> {
+    let at_once = callgrind_at_once(arguments, environment)?;
     if !arguments.valgrind {
-        cells(&executables[family], plant, false)
+        cells(&executables[family], plant, false, at_once)
     } else if let Some(executable) = executables.get(family) {
-        cells(executable, plant, true)
+        cells(executable, plant, true, at_once)
     } else {
         valgrind_cells(family, rows, plant, environment)
     }
@@ -1718,7 +1727,12 @@ fn build(family: &Family, optimized: bool, environment: &Environment) -> Result<
 
 /// What `executable` counted, each extra unit of `plant` done: its rows
 /// read under Valgrind when `valgrind`, its counted rows else.
-fn cells(executable: &Path, plant: Option<&str>, valgrind: bool) -> Result<Vec<Cell>> {
+fn cells(
+    executable: &Path,
+    plant: Option<&str>,
+    valgrind: bool,
+    at_once: Option<NonZeroUsize>,
+) -> Result<Vec<Cell>> {
     let mut command = Command::new(executable);
     if valgrind {
         command.arg("--valgrind");
@@ -1726,11 +1740,42 @@ fn cells(executable: &Path, plant: Option<&str>, valgrind: bool) -> Result<Vec<C
     if let Some(plant) = plant {
         command.args(["--plant", plant]);
     }
-    printed_cells(command, executable)
+    printed_cells(command, executable, at_once)
 }
 
-/// What `command`, which runs `executable`, printed of each cell.
-fn printed_cells(mut command: Command, executable: &Path) -> Result<Vec<Cell>> {
+/// The cap on the Callgrind processes a benchmark runs at once:
+/// `--callgrind-at-once`, else `GOODFETCH_COUNTS_CALLGRIND_AT_ONCE`, else
+/// none. Read before anything runs, so a value that is no whole number of 1
+/// or more fails the run before it starts.
+fn callgrind_at_once(
+    arguments: &Arguments,
+    environment: &Environment,
+) -> Result<Option<NonZeroUsize>> {
+    if arguments.callgrind_at_once.is_some() {
+        return Ok(arguments.callgrind_at_once);
+    }
+    let Some(value) = &environment.callgrind_at_once else {
+        return Ok(None);
+    };
+    match value.to_str().and_then(|text| text.parse().ok()) {
+        Some(cap) => Ok(Some(cap)),
+        None => bail!(
+            "{CALLGRIND_AT_ONCE_VARIABLE} is `{}`, not a whole number of 1 or more",
+            value.to_string_lossy()
+        ),
+    }
+}
+
+/// What `command`, which runs `executable` with at most `at_once` Callgrind
+/// processes at once, printed of each cell.
+fn printed_cells(
+    mut command: Command,
+    executable: &Path,
+    at_once: Option<NonZeroUsize>,
+) -> Result<Vec<Cell>> {
+    if let Some(at_once) = at_once {
+        command.env(CALLGRIND_AT_ONCE_VARIABLE, at_once.to_string());
+    }
     let output = command
         .stderr(Stdio::inherit())
         .output()

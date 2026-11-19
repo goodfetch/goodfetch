@@ -1,6 +1,4 @@
-use super::{
-    Calls, MOST_AT_ONCE, bounded, calls_beneath_in, calls_in, entered_in, most_at_once, total_in,
-};
+use super::{Calls, bounded, calls_beneath_in, calls_in, entered_in, total_in};
 
 /// A piece of what Callgrind writes: two callers of the symbol, a call of
 /// another symbol between them, and the symbol's own cost line.
@@ -75,9 +73,9 @@ fn the_calls_beneath_an_owner_are_its_own_and_its_left_out_callers_are_not() {
     );
 }
 
-/// However many threads start a Callgrind child at once, [`bounded`] runs at
-/// most half the machine's cores of them together, and never more than
-/// [`MOST_AT_ONCE`], each one's result answered as it was.
+/// However many threads start a Callgrind child at once, [`bounded`] runs
+/// never more than eight of them together, each one's result
+/// answered as it was.
 #[test]
 #[expect(
     clippy::disallowed_methods,
@@ -87,14 +85,13 @@ fn the_calls_beneath_an_owner_are_its_own_and_its_left_out_callers_are_not() {
     clippy::disallowed_types,
     reason = "the test reads how many run at once from the threads it starts"
 )]
-fn bounded_runs_at_most_half_the_cores_at_once_and_answers_each() {
+fn bounded_runs_at_most_eight_at_once_and_answers_each() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    let most = most_at_once();
     let (running, highest) = (AtomicUsize::new(0), AtomicUsize::new(0));
 
     let answers: Vec<usize> = std::thread::scope(|scope| {
-        let threads: Vec<_> = (0..3 * MOST_AT_ONCE)
+        let threads: Vec<_> = (0..24)
             .map(|child| {
                 let (running, highest) = (&running, &highest);
                 scope.spawn(move || {
@@ -114,11 +111,11 @@ fn bounded_runs_at_most_half_the_cores_at_once_and_answers_each() {
             .collect()
     });
 
-    assert_eq!(answers, (0..3 * MOST_AT_ONCE).collect::<Vec<_>>());
+    assert_eq!(answers, (0..24).collect::<Vec<_>>());
     let highest = highest.load(Ordering::SeqCst);
     assert!(
-        (1..=most).contains(&highest),
-        "{highest} ran at once, at most {most}"
+        (1..=8).contains(&highest),
+        "{highest} ran at once, at most 8"
     );
 }
 

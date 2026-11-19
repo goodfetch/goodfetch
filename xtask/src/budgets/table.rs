@@ -1,6 +1,7 @@
-//! TESTING.md's table of time budgets (ADR 0061), read from its "Time
-//! budgets" section: one row per suite and place, each budget a phrase such
-//! as `each job ≤ 45 min` or `≤ 60 min per group`.
+//! TESTING.md's table of time budgets (ADR 0061), read from the "Time
+//! budgets" section of its file for "Suites, commands and time budgets": one
+//! row per suite and place, each budget a phrase such as `each job ≤ 45 min`
+//! or `≤ 60 min per group`.
 
 /// What one budget of a row measures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,7 +40,7 @@ const SECTION: &str = "### Time budgets";
 const HEADER: &str = "| Suite | Where | Budget |";
 
 impl Table {
-    /// The table in TESTING.md's `text`; empty when the section or its table
+    /// The table in that file's `text`; empty when the section or its table
     /// is missing.
     pub(crate) fn read(text: &str) -> Self {
         let rows = text

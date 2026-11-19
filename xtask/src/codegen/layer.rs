@@ -119,6 +119,14 @@ pub(super) struct ErrorGroup {
     pub(super) exit_code: Option<u8>,
 }
 
+/// A failure of the protocol itself: the JSON-RPC code JSON-RPC 2.0
+/// predefines that it takes, and the group an SDK raises it in (ADR 0079).
+#[derive(Debug, Deserialize)]
+struct ProtocolFailure {
+    json_rpc_code: i64,
+    group: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub(super) struct ErrorCode {
     pub(super) name: String,
@@ -215,6 +223,9 @@ struct Projection {
     events: Vec<Event>,
     error_groups: Vec<ErrorGroup>,
     error_codes: Vec<ErrorCode>,
+    /// Absent from the codegen fixture's.
+    #[serde(default)]
+    protocol_failures: Vec<ProtocolFailure>,
     /// ADR 0069's exit-code table; absent from the codegen fixture's.
     #[serde(default)]
     exit_codes: Vec<ExitCodeRow>,
@@ -258,6 +269,25 @@ struct ExitCodeRow {
     code: u8,
 }
 
+/// The group of each JSON-RPC code `failures` take: one group per code,
+/// since an SDK reads no more than the code when a reply carries no Error
+/// code.
+fn protocol_failure_groups(failures: &[ProtocolFailure]) -> Result<BTreeMap<i64, String>> {
+    let mut groups = BTreeMap::new();
+    for failure in failures {
+        let group = groups
+            .entry(failure.json_rpc_code)
+            .or_insert_with(|| failure.group.clone());
+        anyhow::ensure!(
+            *group == failure.group,
+            "the protocol failures of code {} fall in two groups, `{group}` and `{}`",
+            failure.json_rpc_code,
+            failure.group
+        );
+    }
+    Ok(groups)
+}
+
 /// One SDK package's layer.
 pub(super) struct Layer {
     pub(super) product: Product,
@@ -270,6 +300,9 @@ pub(super) struct Layer {
     pub(super) events: Vec<Event>,
     /// The seven groups, generated once, in Collie's client package.
     pub(super) error_groups: Vec<ErrorGroup>,
+    /// The group of each JSON-RPC code a protocol failure takes, generated
+    /// once, in Collie's client package, beside the groups.
+    pub(super) protocol_failure_groups: BTreeMap<i64, String>,
     pub(super) error_codes: Vec<ErrorCode>,
     pub(super) plugin_kinds: Vec<PluginKind>,
     /// The types both Products share that this layer adds values to.
@@ -332,6 +365,7 @@ impl Layer {
                         .collect(),
                     events: collie.events,
                     error_groups: collie.error_groups,
+                    protocol_failure_groups: protocol_failure_groups(&collie.protocol_failures)?,
                     error_codes: collie.error_codes,
                     plugin_kinds: collie.plugin_kinds,
                     shared_types,
@@ -395,6 +429,7 @@ impl Layer {
             operations,
             events,
             error_groups: Vec::new(),
+            protocol_failure_groups: BTreeMap::new(),
             error_codes,
             plugin_kinds,
             shared_types,

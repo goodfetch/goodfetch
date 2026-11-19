@@ -66,6 +66,9 @@ const RESET_CASES: &str = include_str!("../../../conformance/reset/cases.toml");
 /// The start table's case list, embedded the same way.
 const RUN_START_CASES: &str = include_str!("../../../conformance/run-start/cases.toml");
 
+/// The start table's crawl rows, embedded the same way.
+const RUN_START_CRAWL_CASES: &str = include_str!("../../../conformance/run-start-crawl/cases.toml");
+
 /// A protocol suite: its declared case list, and the Product whose
 /// executable it runs on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -117,6 +120,13 @@ impl ProtocolSuite {
     /// under a Run ID reaching the Run it names.
     pub fn run_start() -> Self {
         Self::read(RUN_START_CASES).expect("invariant: the embedded case list is valid")
+    }
+
+    /// `conformance/run-start-crawl/cases.toml`: ADR 0102's start table
+    /// rows a crawl reaches, `run_conflict` and `limit_reached`, on
+    /// Foxhound's executable.
+    pub fn run_start_crawl() -> Self {
+        Self::read(RUN_START_CRAWL_CASES).expect("invariant: the embedded case list is valid")
     }
 
     /// Reads a protocol suite's case list.

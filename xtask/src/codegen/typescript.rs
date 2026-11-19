@@ -447,6 +447,12 @@ fn errors(layer: &Layer) -> String {
                 let _ = writeln!(text, "  [{}]: {:?},", group.json_rpc_class, group.name);
             }
             text.push_str(
+                "};\n\n/** The group of each JSON-RPC code a failure of the protocol itself takes, which JSON-RPC 2.0 predefines (ADRs 0038 and 0079). */\nexport const errorGroupOfProtocolFailure: Readonly<Record<number, ErrorGroup>> = {\n",
+            );
+            for (code, group) in &layer.protocol_failure_groups {
+                let _ = writeln!(text, "  [{code}]: {group:?},");
+            }
+            text.push_str(
                 "};\n\n/** The class of each group, which raises a code the SDK does not know, keeping the code (ADR 0079). */\nexport const errorGroupClasses: Readonly<Record<ErrorGroup, typeof GoodfetchError>> = {\n",
             );
             for group in &layer.error_groups {

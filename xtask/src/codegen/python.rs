@@ -551,6 +551,11 @@ fn errors(layer: &Layer) -> String {
             let _ = writeln!(text, "    {}: {:?},", group.json_rpc_class, group.name);
         }
         text.push_str("}\n\"\"\"The group of each JSON-RPC error code the engine answers with, its wire class (ADR 0038).\"\"\"\n");
+        text.push_str("\nERROR_GROUP_OF_PROTOCOL_FAILURE: Final[Mapping[int, ErrorGroup]] = {\n");
+        for (code, group) in &layer.protocol_failure_groups {
+            let _ = writeln!(text, "    {code}: {group:?},");
+        }
+        text.push_str("}\n\"\"\"The group of each JSON-RPC code a failure of the protocol itself takes, which JSON-RPC 2.0 predefines (ADRs 0038 and 0079).\"\"\"\n");
         text.push_str(
             "\nERROR_GROUP_CLASSES: Final[Mapping[ErrorGroup, type[GoodfetchError]]] = {\n",
         );

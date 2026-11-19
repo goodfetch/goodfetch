@@ -17,7 +17,7 @@ use std::pin::Pin;
 use std::sync::{Arc, OnceLock, mpsc};
 
 use goodfetch_collie_client::transport::{Dial, Endpoint, Link, Network};
-use goodfetch_collie_client::{Connection, ConnectionRuntime, Error};
+use goodfetch_collie_client::{Connection, ConnectionRuntime, Error, Limits};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -31,6 +31,7 @@ use goodfetch_engine::{AttachedFailure, Channel, Composition, Dependencies, Engi
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, HOME_VARIABLE};
+use goodfetch_protocol::usage::{self, LimitUsage, USAGE_SET, UsageSetParams};
 use tokio::runtime::{Handle, Runtime};
 use tokio_util::task::TaskTracker;
 
@@ -40,6 +41,7 @@ use crate::runtime::{self, Threads};
 #[derive(Clone, Debug, Default)]
 pub struct ConnectOptions {
     environment: Option<BTreeMap<OsString, OsString>>,
+    limits: Limits,
 }
 
 impl ConnectOptions {
@@ -51,15 +53,27 @@ impl ConnectOptions {
         self
     }
 
-    /// The environment the linked engine reads: the one set, or the
-    /// process's.
+    /// The connection's own `limits` (ADR 0080), in place of any given
+    /// before: each only lowers what covers the connection's work. The
+    /// connection sets each with `usage.set` once `hello` is answered, and
+    /// one the engine refuses closes it and fails the connect.
+    #[must_use]
+    pub fn limits(mut self, limits: Limits) -> Self {
+        self.limits = limits;
+        self
+    }
+
+    /// The environment the linked engine reads, the one set or the
+    /// process's, and the connection's Limits.
     #[expect(
         clippy::disallowed_methods,
         reason = "the SDK's connect(), given no environment map, reads the process environment once, the one reader besides main (ADR 0083)"
     )]
-    fn into_environment(self) -> BTreeMap<OsString, OsString> {
-        self.environment
-            .unwrap_or_else(|| std::env::vars_os().collect())
+    fn into_parts(self) -> (BTreeMap<OsString, OsString>, Limits) {
+        let environment = self
+            .environment
+            .unwrap_or_else(|| std::env::vars_os().collect());
+        (environment, self.limits)
     }
 }
 
@@ -115,12 +129,16 @@ impl LinkedConnection {
     /// needs that engine's Product. The engine runs on a runtime the
     /// connection owns, so the connection works from any executor, and
     /// reads `options`' environment, or the process's, for its Goodfetch
-    /// home and the machine's settings.
+    /// home and the machine's settings. It sets `options`' Limits on the
+    /// connection before it returns.
     ///
     /// # Errors
     ///
     /// [`Error::Engine`] when the linked engine cannot start, with no
-    /// Goodfetch home among others, and what `hello` fails with.
+    /// Goodfetch home among others, what `hello` fails with, and what
+    /// `usage.set` fails with for a Limit the engine refuses, such as
+    /// `not_in_product` for a Usage kind its Product does not count; the
+    /// connection is closed then.
     ///
     /// # Cancel safety
     ///
@@ -138,7 +156,8 @@ impl LinkedConnection {
         needs: Product,
         options: ConnectOptions,
     ) -> Result<Self, Error> {
-        let (runtime, dependencies) = production(engine.product, options.into_environment())?;
+        let (environment, limits) = options.into_parts();
+        let (runtime, dependencies) = production(engine.product, environment)?;
         let handle = runtime.handle().clone();
         Self::open(
             ConnectionRuntime::owned(runtime),
@@ -146,6 +165,7 @@ impl LinkedConnection {
             engine,
             needs,
             dependencies,
+            limits,
         )
         .await
     }
@@ -158,7 +178,8 @@ impl LinkedConnection {
     ///
     /// As [`LinkedConnection::connect`].
     pub fn connect_blocking(engine: Composed, options: ConnectOptions) -> Result<Self, Error> {
-        let (runtime, dependencies) = production(engine.product, options.into_environment())?;
+        let (environment, limits) = options.into_parts();
+        let (runtime, dependencies) = production(engine.product, environment)?;
         let handle = runtime.handle().clone();
         let on = handle.clone();
         wait(&handle, async move {
@@ -168,6 +189,7 @@ impl LinkedConnection {
                 engine,
                 engine.product,
                 dependencies,
+                limits,
             )
             .await
         })
@@ -211,14 +233,16 @@ impl LinkedConnection {
 
     /// A connection on `runtime` whose `hello` needs `needs`, to a linked
     /// `engine` that runs on `handle`, that runtime's handle, with
-    /// `dependencies`. When `hello` fails, the engine is left to stop at
-    /// the end of its input, unwaited.
+    /// `dependencies`, and with `limits` set on it. When `hello` fails, the
+    /// engine is left to stop at the end of its input, unwaited; when a
+    /// Limit is refused, the connection is closed.
     pub(crate) async fn open(
         runtime: ConnectionRuntime,
         handle: Handle,
         engine: Composed,
         needs: Product,
         dependencies: Dependencies,
+        limits: Limits,
     ) -> Result<Self, Error> {
         let (linked, network) = LinkedEngine::start(&handle, engine, dependencies)?;
         let hello = HelloParams {
@@ -227,11 +251,39 @@ impl LinkedConnection {
         };
         let (connection, _said) =
             Connection::open(runtime, &network, &Endpoint::InMemory, hello).await?;
-        Ok(Self {
+        let opened = Self {
             connection,
             engine: Arc::new(linked),
             handle,
-        })
+        };
+        if let Err(refused) = opened.set(limits).await {
+            if let Err(error) = opened.close().await {
+                tracing::warn!(
+                    target: "goodfetch::collie",
+                    %error,
+                    "closing a connection whose Limit was refused failed"
+                );
+            }
+            return Err(refused);
+        }
+        Ok(opened)
+    }
+
+    /// Sets each of `limits` on the connection, one `usage.set` on its own
+    /// scope with no period (ADR 0080), and stops at the first refused.
+    async fn set(&self, limits: Limits) -> Result<(), Error> {
+        for limit in Vec::from(limits) {
+            let params = UsageSetParams {
+                scope: usage::CONNECTION.to_owned(),
+                scope_id: None,
+                usage_kind: limit.usage_kind,
+                currency: limit.currency,
+                period: None,
+                amount: limit.amount,
+            };
+            let _set: LimitUsage = self.connection.call(USAGE_SET.name, &params).await?;
+        }
+        Ok(())
     }
 }
 

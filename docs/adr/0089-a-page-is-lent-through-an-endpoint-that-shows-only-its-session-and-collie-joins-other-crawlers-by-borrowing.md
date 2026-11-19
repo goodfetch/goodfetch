@@ -66,7 +66,7 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 - **Firefox and WebKit pages,** which run through Playwright's driver and expose no CDP (ADR 0019), cannot be lent: `page.lend()` raises `capability_unavailable` (ADR 0083) there, as a CDP session does in Collie's page API.
 - **The Playwright guides send a program's HTTP calls through Collie's `page.request`,** which the navigation gate covers in a handler (ADR 0087), since Playwright's own `request` sends from the program's process.
 - **Each supported range is stated in the release notes,** as ADR 0077's G7 does for Pydantic. Its floor is the oldest release with the options the helper sets: Playwright 1.60 for `noDefaults`.
-- **Conformance cases** run each supported library through its helper against the binary of the same commit (ADR 0069): its newest pinned release in the Pre-merge suite when touched, both ends of its range in the Release suite, and its newest release as a Live check ([`TESTING.md`](../../TESTING.md#sdks)).
+- **Conformance cases** run each supported library through its helper against the binary of the same commit (ADR 0069): its newest pinned release in the Pre-merge suite when touched, both ends of its range in the Release suite, and its newest release as a Live check ([`TESTING.md`](../testing/sdk-and-cli-tests.md#sdks)).
 
 ### In code
 

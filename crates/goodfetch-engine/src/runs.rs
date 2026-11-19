@@ -5252,6 +5252,7 @@ impl Registry {
                 return Err(StartError::Live { run_id, folder });
             }
             if found.lifecycle != Lifecycle::Finished {
+                self.may_resume_after_limit(&run_id, connection).await?;
                 return Ok(Started::Interrupted(run_id));
             }
             self.found_ended.insert(run_id.clone());
@@ -5446,6 +5447,35 @@ impl Registry {
                 error: error.to_string(),
             }),
         }
+    }
+
+    /// Refuses the start of the interrupted Run `run_id` that a Limit
+    /// stopped while a Limit that holds it still has nothing left: no
+    /// person raised it and its period has not started again (ADR 0102's
+    /// start table), as [`Registry::may_start`] refuses a new Run. A Run
+    /// stopped for another reason resumes whatever its Limits hold; its
+    /// next charge reads them.
+    async fn may_resume_after_limit(
+        &self,
+        run_id: &RunId,
+        connection: Option<ConnectionId>,
+    ) -> Result<(), StartError> {
+        // A Run whose run file holds no report, killed while it ran, was
+        // stopped by no Limit; one whose file cannot be read fails the
+        // resume that follows with that cause.
+        let Ok(ended) = self.report_of(run_id).await else {
+            return Ok(());
+        };
+        let stopped_by_limit = matches!(
+            &*ended.borrow(),
+            Some(Ended::Report(report) | Ended::Unwritten(report))
+                if matches!(report.stop_reason, Some(StopReason::Limit(_)))
+        );
+        if !stopped_by_limit {
+            return Ok(());
+        }
+        let folder = self.folder(run_id);
+        self.may_start(run_id, &folder, connection).await.map(drop)
     }
 
     async fn begin(

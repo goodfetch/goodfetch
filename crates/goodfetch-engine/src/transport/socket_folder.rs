@@ -63,4 +63,5 @@ pub fn socket_folder(prefix: &str, socket: &str) -> io::Result<tempfile::TempDir
 }
 
 #[cfg(test)]
+#[cfg(unix)]
 mod tests;

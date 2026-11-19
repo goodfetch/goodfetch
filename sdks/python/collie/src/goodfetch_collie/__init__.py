@@ -20,6 +20,8 @@ from goodfetch_collie_client.generated.errors import (
     EngineExitedError,
     EngineNotFoundError,
     EngineOutputInvalidError,
+    LimitRaiseRefusedError,
+    LimitReachedError,
     NotInProductError,
     ProtocolVersionUnsupportedError,
     SettingInvalidError,
@@ -31,6 +33,7 @@ from goodfetch_collie_client.generated.models import (
     StartedAs,
 )
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
+from goodfetch_collie_client.limits import Limits, Money, Prices
 from goodfetch_collie_client.run import AsyncRun, Run
 
 from goodfetch_collie.collie import AsyncCollie, Collie, Connecting
@@ -49,7 +52,12 @@ __all__ = [
     "EngineNotFoundError",
     "EngineOutputInvalidError",
     "GoodfetchError",
+    "LimitRaiseRefusedError",
+    "LimitReachedError",
+    "Limits",
+    "Money",
     "NotInProductError",
+    "Prices",
     "Product",
     "ProtocolVersionUnsupportedError",
     "Run",

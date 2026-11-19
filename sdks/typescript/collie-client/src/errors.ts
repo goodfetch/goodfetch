@@ -5,6 +5,7 @@
 // other way, the JSON-RPC error a request the engine sent is answered with.
 import {
   errorGroupClasses,
+  errorGroupOfProtocolFailure,
   errorGroupOfWireClass,
   GoodfetchError,
   InternalError,
@@ -16,8 +17,8 @@ import {
 export type ErrorClasses = Readonly<Record<string, ErrorClass>>;
 
 /**
- * The code a JSON-RPC error with no Error code takes, such as a protocol
- * failure answered with `-32600`: a bug in Goodfetch, in its group's class.
+ * The code a JSON-RPC error with no Error code takes: a bug in Goodfetch,
+ * in its group's class.
  */
 const NO_CODE = "internal";
 
@@ -37,9 +38,13 @@ export function errorOfReply(error: unknown, classes: ErrorClasses): GoodfetchEr
   if (known !== undefined) {
     return new known(message, fields);
   }
+  // A group's wire class, or a code JSON-RPC predefines, which a failure of
+  // the protocol itself takes, such as `-32602` for invalid params (ADR 0079).
   const wireClass = typeof reply["code"] === "number" ? reply["code"] : undefined;
   const group =
-    (wireClass === undefined ? undefined : errorGroupOfWireClass[wireClass]) ?? "internal";
+    (wireClass === undefined
+      ? undefined
+      : (errorGroupOfWireClass[wireClass] ?? errorGroupOfProtocolFailure[wireClass])) ?? "internal";
   return new errorGroupClasses[group](message, {
     ...fields,
     code: typeof code === "string" ? code : NO_CODE,

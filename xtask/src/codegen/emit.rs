@@ -55,7 +55,7 @@ use goodfetch_protocol::formats::FORMATS;
 use goodfetch_protocol::foxhound::dataset::RecordRead;
 use goodfetch_protocol::foxhound::frontier::{EnqueuedBatch, SeedBatch};
 use goodfetch_protocol::journey::{Journey, JourneyCatalog};
-use goodfetch_protocol::jsonrpc::{META, TraceContext};
+use goodfetch_protocol::jsonrpc::{META, ProtocolFailure, TraceContext};
 use goodfetch_protocol::key_value_store::KeyValueStoreKey;
 use goodfetch_protocol::log::LogEvent;
 use goodfetch_protocol::model::{ModelRequest, ModelResponsePart};
@@ -149,6 +149,10 @@ pub(super) fn emit() -> Emitted {
         add_meta(&mut definitions, params);
     }
     let exit_codes: Vec<Value> = exit_code_table().iter().map(exit_code_entry).collect();
+    let protocol_failures: Vec<Value> = ProtocolFailure::ALL
+        .iter()
+        .map(|failure| protocol_failure_entry(*failure))
+        .collect();
     Emitted {
         bundle: json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -171,7 +175,7 @@ pub(super) fn emit() -> Emitted {
             "model_provider": model_provider,
             "$defs": definitions,
         }),
-        catalog: sections.into_catalog(&exit_codes),
+        catalog: sections.into_catalog(&exit_codes, &protocol_failures),
     }
 }
 
@@ -206,6 +210,17 @@ fn exit_code_entry(row: &ExitCodeRow) -> Value {
         "product": Product::Collie.as_str(),
         "code": row.code,
         "description": row.description,
+    })
+}
+
+/// A failure of the protocol itself, with the JSON-RPC code it takes and
+/// the group an SDK raises it in (ADRs 0038 and 0079).
+fn protocol_failure_entry(failure: ProtocolFailure) -> Value {
+    json!({
+        "name": failure.name(),
+        "product": Product::Collie.as_str(),
+        "json_rpc_code": failure.code(),
+        "group": failure.group().as_str(),
     })
 }
 

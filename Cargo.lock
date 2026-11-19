@@ -2395,6 +2395,8 @@ dependencies = [
  "goodfetch-runtime",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
+ "proptest",
+ "rstest",
  "serde",
  "serde_json",
  "tempfile",

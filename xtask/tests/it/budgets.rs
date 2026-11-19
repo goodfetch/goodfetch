@@ -1,6 +1,6 @@
 //! The budget check (ADR 0061; TESTING.md, Time budgets): `xtask budgets`
 //! reads each job's last 20 runs in its own tier from the results store,
-//! compares their median with TESTING.md's table and opens or updates one
+//! compares their median with the Time budgets table and opens or updates one
 //! `needs-triage` issue per breached suite or job, with the 20 durations. It
 //! never fails a run.
 
@@ -19,9 +19,12 @@ const MILESTONES: &str = "/repos/goodfetch/goodfetch/milestones?state=open&per_p
 const PULL_REQUEST: &str = ".github/workflows/pull-request.yml";
 const RELEASE_SUITE: &str = ".github/workflows/release-suite.yml";
 
-/// The repository's own TESTING.md, so a reworded table of time budgets
-/// fails these tests rather than leaving the check with nothing to compare.
-const TABLE: &str = include_str!("../../../TESTING.md");
+/// The file of TESTING.md's section that holds the table of time budgets.
+const BUDGETS_FILE: &str = "docs/testing/suites-commands-and-time-budgets.md";
+
+/// The repository's own table, so a reworded table of time budgets fails
+/// these tests rather than leaving the check with nothing to compare.
+const TABLE: &str = include_str!("../../../docs/testing/suites-commands-and-time-budgets.md");
 
 const HOSTED: &[&str] = &["ubuntu-24.04"];
 const OWNER_MACHINE: &[&str] = &["self-hosted", "owner-machine"];
@@ -102,7 +105,7 @@ fn budgets(workspace: &Workspace, github: &GitHub) -> Outcome {
 
 fn workspace_with(attempts: &[Attempt]) -> Workspace {
     let workspace = Workspace::from_fixture("empty");
-    workspace.write("TESTING.md", TABLE.as_bytes());
+    workspace.write(BUDGETS_FILE, TABLE.as_bytes());
     write_store(&workspace, attempts);
     workspace
 }
@@ -310,7 +313,7 @@ fn later(start: &str, minutes: i64) -> String {
 fn tier_without_a_budget_row_is_reported_and_fails_nothing() {
     let workspace = workspace_with(&release_runs(20, |_| 50));
     workspace.edit(
-        "TESTING.md",
+        BUDGETS_FILE,
         "| Release | Merge queue | ≤ 60 min per group, each job ≤ 45 min | 90 min per job, 120 min for the queue |\n",
         "",
     );

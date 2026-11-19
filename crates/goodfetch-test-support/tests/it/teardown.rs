@@ -139,7 +139,13 @@ fn a_child_left_alive_after_teardown_fails_the_test() {
 
     std::fs::remove_dir_all(folder.unwrap()).unwrap();
     let alive = failure.downcast::<ProcessesAlive>().unwrap();
-    assert_eq!(alive.programs, ["goodfetch-test-env"]);
+    assert_eq!(
+        alive.programs,
+        [format!(
+            "goodfetch-test-env{}",
+            std::env::consts::EXE_SUFFIX
+        )]
+    );
 }
 
 #[test]

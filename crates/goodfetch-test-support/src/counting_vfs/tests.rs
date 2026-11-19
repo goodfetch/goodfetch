@@ -78,7 +78,13 @@ fn it_names_each_file_it_opened_once() {
     )
     .unwrap();
 
+    // SQLite names a file by its full path: its links resolved on Unix
+    // (macOS' `/var` is `/private/var`), and as `GetFullPathNameW` gives it on
+    // Windows, without the `\\?\` prefix `canonicalize` adds there.
+    #[cfg(unix)]
     let folder = folder.path().canonicalize().unwrap();
+    #[cfg(windows)]
+    let folder = std::path::absolute(folder.path()).unwrap();
     assert_eq!(
         used.files(),
         vec![

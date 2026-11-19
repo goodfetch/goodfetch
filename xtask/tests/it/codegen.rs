@@ -1604,6 +1604,50 @@ fn python_model_field_defaults_to_a_constructed_model() {
     );
 }
 
+/// A property whose type is a named type keeps its own description in the
+/// TypeScript layer, and the type keeps its own, even where another property
+/// refers to that type with no description of its own (issue 2895: an array
+/// of the type gave every such property the type's description).
+/// Covers: story:1-57
+#[test]
+fn typescript_property_of_a_named_type_keeps_its_own_description() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(
+        FOXHOUND,
+        "    /// How many pages to visit.\n    pub pages: u32,\n}",
+        "    /// How many pages to visit.\n    pub pages: u32,\n    \
+         /// The finders tried when `start` finds no page.\n    \
+         pub fallbacks: Vec<SampleFinder>,\n    \
+         /// What finds the first page.\n    pub start: SampleFinder,\n}\n\n\
+         /// What finds a page, named by `kind`.\n\
+         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]\n\
+         #[serde(tag = \"kind\", rename_all = \"snake_case\")]\n\
+         pub enum SampleFinder {\n    /// By its title.\n    Title {\n        \
+         /// The title.\n        title: String,\n    },\n    \
+         /// By its path.\n    Path {\n        /// The path.\n        path: String,\n    },\n}",
+    );
+
+    codegen(&workspace);
+
+    let types = workspace.read_text("sdks/typescript/foxhound/src/generated/types.ts");
+    let doc_before = |declaration: &str| {
+        let at = types
+            .find(declaration)
+            .unwrap_or_else(|| panic!("no `{declaration}` in\n{types}"));
+        let opening = types[..at].rfind("/**").unwrap();
+        types[opening..at].to_owned()
+    };
+    let start = doc_before("  start:");
+    assert!(
+        start.contains("What finds the first page.") && !start.contains("What finds a page"),
+        "{types}"
+    );
+    assert!(
+        doc_before("export type SampleFinder =").contains("What finds a page, named by `kind`."),
+        "{types}"
+    );
+}
+
 const POLITENESS_MANIFEST: &str = "crates/foxhound/goodfetch-politeness/Cargo.toml";
 const POLITENESS_LIB: &str = "crates/foxhound/goodfetch-politeness/src/lib.rs";
 

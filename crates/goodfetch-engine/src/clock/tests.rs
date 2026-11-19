@@ -38,14 +38,19 @@ fn a_paused_clock_is_refused_off_a_runtime() {
 }
 
 /// The Audit log, the Usage ledger and the known certificates write their
-/// times at the clock's own precision.
+/// times at the clock's own precision: the nanosecond, and on Windows, whose
+/// system time counts 100 ns, the wall time's last digit.
 #[test]
 fn a_clocks_timestamp_is_its_wall_time_to_the_nanosecond() {
-    let timestamp = goodfetch_test_support::runtime().block_on(async {
-        Clock::paused(start() + Duration::from_nanos(1_500_000_001)).timestamp()
-    });
+    let (nanos, expected) = if cfg!(windows) {
+        (1_500_000_100, "2026-01-05T09:00:01.5000001Z")
+    } else {
+        (1_500_000_001, "2026-01-05T09:00:01.500000001Z")
+    };
+    let timestamp = goodfetch_test_support::runtime()
+        .block_on(async { Clock::paused(start() + Duration::from_nanos(nanos)).timestamp() });
 
-    assert_eq!(timestamp.to_string(), "2026-01-05T09:00:01.500000001Z");
+    assert_eq!(timestamp.to_string(), expected);
 }
 
 /// A Run's points in time and "Needs you" write theirs to the millisecond,

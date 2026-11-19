@@ -15,6 +15,8 @@ mod conformance_gate;
 mod extra_loopback;
 mod fetch_edge;
 mod fingerprint;
+// Lightpanda pins no Windows build, so Windows cannot take the tier.
+#[cfg(not(windows))]
 mod light_browser;
 mod lookups;
 #[cfg(target_os = "linux")]

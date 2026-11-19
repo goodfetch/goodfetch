@@ -101,8 +101,9 @@ impl Sections {
     }
 
     /// The catalog file, with ADR 0069's exit-code table's `exit_codes`
-    /// rows.
-    pub fn into_catalog(self, exit_codes: &[Value]) -> Value {
+    /// rows and the `protocol_failures` rows of the failures of the
+    /// protocol itself (ADR 0079).
+    pub fn into_catalog(self, exit_codes: &[Value], protocol_failures: &[Value]) -> Value {
         json!({
             "protocol_version": PROTOCOL_VERSION.to_string(),
             "operations": sorted(self.operations),
@@ -110,6 +111,7 @@ impl Sections {
             "handler_requests": sorted(self.handler_requests),
             "error_groups": ErrorGroup::ALL.iter().map(|group| error_group_entry(*group)).collect::<Vec<_>>(),
             "error_codes": sorted(self.error_codes),
+            "protocol_failures": sorted(protocol_failures.to_vec()),
             "exit_codes": exit_codes,
             "plugin_kinds": sorted(self.plugin_kinds),
             "metrics": sorted(self.metrics),

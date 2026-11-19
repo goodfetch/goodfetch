@@ -137,6 +137,9 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
   - Python's sync twins and Rust's `blocking` twins;
   - error classes, event types and settings types;
   - the members both Products' Connections share.
+
+  > Note (the owner's decision of 2026-11-12 to do every recommended item), 2026-11-19, [#2517](https://github.com/goodfetch/goodfetch/issues/2517): a round trip, a query or a waiter whose operation's result has exactly one field returns that field's value, and the language's none for an optional one that is absent, so `goto` returns `Response | null` as ADR 0085 says. The rule is the generator's, derived from the catalog with no list of member names; the operation's own function and the wire keep the result type. TypeScript and Rust follow it since #2517, Python with [#2883](https://github.com/goodfetch/goodfetch/issues/2883).
+
 - **Hand-written,** in the Collie client package unless it is a Product's own:
   - ADR 0038's runtime;
   - each Product's Connection type, its `connect()` and scoped helpers;

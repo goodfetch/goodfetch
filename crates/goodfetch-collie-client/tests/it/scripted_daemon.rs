@@ -1,0 +1,54 @@
+//! The Scripted engine as the Daemon of a test's home, playing a script of
+//! the corpus with this crate's `hello` in place of the TypeScript SDK's,
+//! for the cases that reach a Daemon through the client crate.
+
+use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
+use goodfetch_test_support::{
+    RuntimeFile, SCRIPTED_DAEMON_TOKEN, TestEnv, Tool, engine_script, reported_address, tools,
+};
+use serde_json::Value;
+
+use crate::connection::hello;
+
+/// This crate's `hello` to a Daemon, carrying the Scripted engine's token.
+pub(crate) fn daemon_hello() -> HelloParams {
+    HelloParams {
+        token: Some(SCRIPTED_DAEMON_TOKEN.to_owned()),
+        ..hello()
+    }
+}
+
+/// Starts the Scripted engine as the Daemon of `env`'s home, playing
+/// `script` of the corpus with this crate's `hello` in place of the
+/// TypeScript SDK's, and returns it with where it listens.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test writes the Scripted engine's script and reads its runtime file before any async worker runs"
+)]
+pub(crate) fn scripted_daemon(
+    env: &TestEnv,
+    script: &str,
+) -> (goodfetch_test_support::Process, DaemonEndpoint) {
+    let mut played: Value =
+        serde_json::from_slice(&std::fs::read(engine_script(script)).unwrap()).unwrap();
+    played["steps"][0]["expect"]["params"] = serde_json::to_value(daemon_hello()).unwrap();
+    let path = env.folder().join("script.json");
+    std::fs::write(&path, serde_json::to_vec(&played).unwrap()).unwrap();
+    let scripted = tools()
+        .unwrap()
+        .path(Tool::ScriptedEngine)
+        .unwrap()
+        .to_owned();
+    let mut command = env.process_command(scripted);
+    command
+        .arg("--script")
+        .arg(&path)
+        .args(["--mode", "socket"])
+        .stderr(std::process::Stdio::null());
+    let process = env.spawn(&mut command).unwrap();
+    let reported = reported_address(&mut process.child()).unwrap();
+    let runtime_file = reported.line["runtime_file"].as_str().unwrap();
+    let found = RuntimeFile::read(runtime_file.as_ref()).unwrap();
+    let endpoint = serde_json::from_value(serde_json::to_value(found.endpoint).unwrap()).unwrap();
+    (process, endpoint)
+}

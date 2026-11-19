@@ -22,13 +22,13 @@ expectTypeOf(page.goto).parameters.toEqualTypeOf<
     },
   ]
 >();
-expectTypeOf(page.goto).returns.toEqualTypeOf<Promise<Navigated>>();
+expectTypeOf(page.goto).returns.toEqualTypeOf<Promise<Navigated["status"]>>();
 // @ts-expect-error a boolean is never positional
 void page.goto("https://example.test/", "https://example.test/from", true);
 
 // A query takes nothing to wait with: no options at all here.
 expectTypeOf(page.isReady).parameters.toEqualTypeOf<[]>();
-expectTypeOf(page.isReady).returns.toEqualTypeOf<Promise<Readiness>>();
+expectTypeOf(page.isReady).returns.toEqualTypeOf<Promise<Readiness["ready"]>>();
 // @ts-expect-error a query has no timeout
 void page.isReady({ timeout: 1 });
 

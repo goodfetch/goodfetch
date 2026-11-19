@@ -56,10 +56,8 @@ impl Run {
     /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
     pub fn discard(
         &self,
-    ) -> crate::blocking::Call<
-        ::goodfetch_protocol::run::RunDiscarded,
-        ::goodfetch_protocol::run::RunParams,
-    > {
+    ) -> crate::blocking::Call<::goodfetch_protocol::run::RunId, ::goodfetch_protocol::run::RunParams>
+    {
         crate::blocking::Call::new(self.inner.discard(), self.inner.host.connection())
     }
 
@@ -281,7 +279,7 @@ impl Session {
     pub fn pages(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::session_pages::SessionPages,
+        Vec<::goodfetch_protocol::page::PageId>,
         ::goodfetch_protocol::page::session::SessionParams,
     > {
         crate::blocking::Call::new(self.inner.pages(), self.inner.host.connection())
@@ -325,7 +323,7 @@ impl Page {
         &self,
         function: impl Into<String>,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::functions::Evaluated,
+        Option<::serde_json::Value>,
         ::goodfetch_protocol::page::functions::EvaluateParams,
     > {
         crate::blocking::Call::new(self.inner.evaluate(function), self.inner.host.connection())
@@ -358,7 +356,7 @@ impl Page {
     pub fn go_back(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::Navigated,
+        Option<::goodfetch_protocol::page::PageResponse>,
         ::goodfetch_protocol::page::PageParams,
     > {
         crate::blocking::Call::new(self.inner.go_back(), self.inner.host.connection())
@@ -374,7 +372,7 @@ impl Page {
     pub fn go_forward(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::Navigated,
+        Option<::goodfetch_protocol::page::PageResponse>,
         ::goodfetch_protocol::page::PageParams,
     > {
         crate::blocking::Call::new(self.inner.go_forward(), self.inner.host.connection())
@@ -391,7 +389,7 @@ impl Page {
         &self,
         url: impl Into<String>,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::Navigated,
+        Option<::goodfetch_protocol::page::PageResponse>,
         ::goodfetch_protocol::page::GotoParams,
     > {
         crate::blocking::Call::new(self.inner.goto(url), self.inner.host.connection())
@@ -424,7 +422,7 @@ impl Page {
     pub fn reload(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::Navigated,
+        Option<::goodfetch_protocol::page::PageResponse>,
         ::goodfetch_protocol::page::PageParams,
     > {
         crate::blocking::Call::new(self.inner.reload(), self.inner.host.connection())
@@ -458,7 +456,7 @@ impl Page {
         &self,
         function: impl Into<String>,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::functions::Evaluated,
+        Option<::serde_json::Value>,
         ::goodfetch_protocol::page::waits::WaitForFunctionParams,
     > {
         crate::blocking::Call::new(
@@ -607,7 +605,7 @@ impl Locator {
         &self,
         function: impl Into<String>,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::functions::Evaluated,
+        Option<::serde_json::Value>,
         ::goodfetch_protocol::page::functions::LocatorEvaluateAllParams,
     > {
         crate::blocking::Call::new(
@@ -676,10 +674,7 @@ impl Locator {
     pub fn wait_for_count(
         &self,
         count: ::goodfetch_protocol::page::waits::Count,
-    ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::waits::Counted,
-        ::goodfetch_protocol::page::waits::WaitForCountParams,
-    > {
+    ) -> crate::blocking::Call<u64, ::goodfetch_protocol::page::waits::WaitForCountParams> {
         crate::blocking::Call::new(
             self.inner.wait_for_count(count),
             self.inner.host.connection(),
@@ -697,7 +692,7 @@ impl Locator {
         &self,
         function: impl Into<String>,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::functions::Evaluated,
+        Option<::serde_json::Value>,
         ::goodfetch_protocol::page::waits::LocatorWaitForFunctionParams,
     > {
         crate::blocking::Call::new(

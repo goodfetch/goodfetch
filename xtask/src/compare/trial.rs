@@ -276,6 +276,7 @@ fn usage() -> Result<Usage> {
 }
 
 #[cfg(not(unix))]
+#[expect(clippy::unnecessary_wraps, reason = "the Unix reading's signature")]
 fn usage() -> Result<Usage> {
     Ok(Usage::default())
 }

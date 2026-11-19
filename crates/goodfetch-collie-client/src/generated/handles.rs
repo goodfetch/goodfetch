@@ -66,14 +66,17 @@ impl Run {
     /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
     pub fn discard(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunDiscarded, ::goodfetch_protocol::run::RunParams>
-    {
-        self.host.call(
+    ) -> crate::Call<::goodfetch_protocol::run::RunId, ::goodfetch_protocol::run::RunParams> {
+        let call: crate::Call<
+            ::goodfetch_protocol::run::RunDiscarded,
+            ::goodfetch_protocol::run::RunParams,
+        > = self.host.call(
             "run.discard",
             ::goodfetch_protocol::run::RunParams {
                 run_id: self.host.id().clone(),
             },
-        )
+        );
+        call.map(|result| result.run_id)
     }
 
     /// Lets a Run finish and answers its Run report: a Run its program drives ends at once, `finished` and `complete`; a crawl ends once its work items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing is left, ends once this call lets it and its work items are done. A Run something stopped first answers its report saying `stopped`. A Run that ended `failed` fails the call with the error that failed it, and a write at its end that failed, such as its Plan file's, with that write's error. Cancelling the call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends only the wait.
@@ -361,15 +364,19 @@ impl Session {
     pub fn pages(
         &self,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::session_pages::SessionPages,
+        Vec<::goodfetch_protocol::page::PageId>,
         ::goodfetch_protocol::page::session::SessionParams,
     > {
-        self.host.call(
+        let call: crate::Call<
+            ::goodfetch_protocol::page::session_pages::SessionPages,
+            ::goodfetch_protocol::page::session::SessionParams,
+        > = self.host.call(
             "session.pages",
             ::goodfetch_protocol::page::session::SessionParams {
                 session_id: self.host.id().clone(),
             },
-        )
+        );
+        call.map(|result| result.pages)
     }
 }
 
@@ -416,10 +423,13 @@ impl Page {
         &self,
         function: impl Into<String>,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::functions::Evaluated,
+        Option<::serde_json::Value>,
         ::goodfetch_protocol::page::functions::EvaluateParams,
     > {
-        self.host.call(
+        let call: crate::Call<
+            ::goodfetch_protocol::page::functions::Evaluated,
+            ::goodfetch_protocol::page::functions::EvaluateParams,
+        > = self.host.call(
             "page.evaluate",
             ::goodfetch_protocol::page::functions::EvaluateParams {
                 page_id: self.host.id().clone(),
@@ -427,7 +437,8 @@ impl Page {
                 arg: None,
                 world: None,
             },
-        )
+        );
+        call.map(|result| result.value)
     }
 
     /// Reads the formats a request names from the page's current document, each read from one serialization of it, and answers only those, with the document's URL, its base URL and, when a format it names is read from the main content (`markdown` of the main content or fit, `html` of the main content, `text`), whether the document has main content. A document with no main content answers those formats empty and `main_content: "none"`, a value. It needs neither layout nor pixels, so every tier serves it.
@@ -462,14 +473,20 @@ impl Page {
     /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
     pub fn go_back(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::page::Navigated, ::goodfetch_protocol::page::PageParams>
-    {
-        self.host.call(
+    ) -> crate::Call<
+        Option<::goodfetch_protocol::page::PageResponse>,
+        ::goodfetch_protocol::page::PageParams,
+    > {
+        let call: crate::Call<
+            ::goodfetch_protocol::page::Navigated,
+            ::goodfetch_protocol::page::PageParams,
+        > = self.host.call(
             "page.go_back",
             ::goodfetch_protocol::page::PageParams {
                 page_id: self.host.id().clone(),
             },
-        )
+        );
+        call.map(|result| result.response)
     }
 
     /// Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
@@ -481,14 +498,20 @@ impl Page {
     /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
     pub fn go_forward(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::page::Navigated, ::goodfetch_protocol::page::PageParams>
-    {
-        self.host.call(
+    ) -> crate::Call<
+        Option<::goodfetch_protocol::page::PageResponse>,
+        ::goodfetch_protocol::page::PageParams,
+    > {
+        let call: crate::Call<
+            ::goodfetch_protocol::page::Navigated,
+            ::goodfetch_protocol::page::PageParams,
+        > = self.host.call(
             "page.go_forward",
             ::goodfetch_protocol::page::PageParams {
                 page_id: self.host.id().clone(),
             },
-        )
+        );
+        call.map(|result| result.response)
     }
 
     /// Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, a document whose body broke off `response_truncated`, unless the navigation answered at `commit`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`.
@@ -501,19 +524,23 @@ impl Page {
     pub fn goto(
         &self,
         url: impl Into<String>,
-    ) -> crate::Call<::goodfetch_protocol::page::Navigated, ::goodfetch_protocol::page::GotoParams>
-    {
-        self.host
-            .call(
-                "page.goto",
-                ::goodfetch_protocol::page::GotoParams {
-                    page_id: self.host.id().clone(),
-                    url: url.into(),
-                    wait_until: None,
-                    timeout: None,
-                },
-            )
-            .wire_timeout()
+    ) -> crate::Call<
+        Option<::goodfetch_protocol::page::PageResponse>,
+        ::goodfetch_protocol::page::GotoParams,
+    > {
+        let call: crate::Call<
+            ::goodfetch_protocol::page::Navigated,
+            ::goodfetch_protocol::page::GotoParams,
+        > = self.host.call(
+            "page.goto",
+            ::goodfetch_protocol::page::GotoParams {
+                page_id: self.host.id().clone(),
+                url: url.into(),
+                wait_until: None,
+                timeout: None,
+            },
+        );
+        call.wire_timeout().map(|result| result.response)
     }
 
     /// Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.
@@ -548,14 +575,20 @@ impl Page {
     /// Once sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.
     pub fn reload(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::page::Navigated, ::goodfetch_protocol::page::PageParams>
-    {
-        self.host.call(
+    ) -> crate::Call<
+        Option<::goodfetch_protocol::page::PageResponse>,
+        ::goodfetch_protocol::page::PageParams,
+    > {
+        let call: crate::Call<
+            ::goodfetch_protocol::page::Navigated,
+            ::goodfetch_protocol::page::PageParams,
+        > = self.host.call(
             "page.reload",
             ::goodfetch_protocol::page::PageParams {
                 page_id: self.host.id().clone(),
             },
-        )
+        );
+        call.map(|result| result.response)
     }
 
     /// Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.
@@ -596,22 +629,24 @@ impl Page {
         &self,
         function: impl Into<String>,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::functions::Evaluated,
+        Option<::serde_json::Value>,
         ::goodfetch_protocol::page::waits::WaitForFunctionParams,
     > {
-        self.host
-            .call(
-                "page.wait_for_function",
-                ::goodfetch_protocol::page::waits::WaitForFunctionParams {
-                    page_id: self.host.id().clone(),
-                    function: function.into(),
-                    arg: None,
-                    world: None,
-                    polling_interval: None,
-                    timeout: None,
-                },
-            )
-            .wire_timeout()
+        let call: crate::Call<
+            ::goodfetch_protocol::page::functions::Evaluated,
+            ::goodfetch_protocol::page::waits::WaitForFunctionParams,
+        > = self.host.call(
+            "page.wait_for_function",
+            ::goodfetch_protocol::page::waits::WaitForFunctionParams {
+                page_id: self.host.id().clone(),
+                function: function.into(),
+                arg: None,
+                world: None,
+                polling_interval: None,
+                timeout: None,
+            },
+        );
+        call.wire_timeout().map(|result| result.value)
     }
 
     /// Waits until the page's document reached the load state: at once when it already did. `networkidle` is reached once the document fired `load` and no request of the page was in flight for 500 ms since, WebSocket and server-sent-event connections and a service worker's own requests left out. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -800,10 +835,13 @@ impl Locator {
         &self,
         function: impl Into<String>,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::functions::Evaluated,
+        Option<::serde_json::Value>,
         ::goodfetch_protocol::page::functions::LocatorEvaluateAllParams,
     > {
-        self.host.call(
+        let call: crate::Call<
+            ::goodfetch_protocol::page::functions::Evaluated,
+            ::goodfetch_protocol::page::functions::LocatorEvaluateAllParams,
+        > = self.host.call(
             "locator.evaluate_all",
             ::goodfetch_protocol::page::functions::LocatorEvaluateAllParams {
                 locator: self.host.id().clone(),
@@ -811,7 +849,8 @@ impl Locator {
                 arg: None,
                 world: None,
             },
-        )
+        );
+        call.map(|result| result.value)
     }
 
     /// Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes. An input whose value a person picks rather than types (a date, a time, a month, a week, a local date and time, a colour or a range) has its value set, firing `input` and `change`, and a value it does not take fails with `invalid_params`.
@@ -891,20 +930,19 @@ impl Locator {
     pub fn wait_for_count(
         &self,
         count: ::goodfetch_protocol::page::waits::Count,
-    ) -> crate::Call<
-        ::goodfetch_protocol::page::waits::Counted,
-        ::goodfetch_protocol::page::waits::WaitForCountParams,
-    > {
-        self.host
-            .call(
-                "locator.wait_for_count",
-                ::goodfetch_protocol::page::waits::WaitForCountParams {
-                    locator: self.host.id().clone(),
-                    count,
-                    timeout: None,
-                },
-            )
-            .wire_timeout()
+    ) -> crate::Call<u64, ::goodfetch_protocol::page::waits::WaitForCountParams> {
+        let call: crate::Call<
+            ::goodfetch_protocol::page::waits::Counted,
+            ::goodfetch_protocol::page::waits::WaitForCountParams,
+        > = self.host.call(
+            "locator.wait_for_count",
+            ::goodfetch_protocol::page::waits::WaitForCountParams {
+                locator: self.host.id().clone(),
+                count,
+                timeout: None,
+            },
+        );
+        call.wire_timeout().map(|result| result.count)
     }
 
     /// Waits, checking from when the call arrives, until a page function called with the one element the locator matches first and its one JSON argument second answers a truthy result, and answers that result as JSON, as `page.wait_for_function` does. The locator is resolved again at each check, so a re-render that replaces its element changes nothing, and a check while none or several elements match counts as falsy. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`, and a selector the page does not parse `invalid_params`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -918,22 +956,24 @@ impl Locator {
         &self,
         function: impl Into<String>,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::functions::Evaluated,
+        Option<::serde_json::Value>,
         ::goodfetch_protocol::page::waits::LocatorWaitForFunctionParams,
     > {
-        self.host
-            .call(
-                "locator.wait_for_function",
-                ::goodfetch_protocol::page::waits::LocatorWaitForFunctionParams {
-                    locator: self.host.id().clone(),
-                    function: function.into(),
-                    arg: None,
-                    world: None,
-                    polling_interval: None,
-                    timeout: None,
-                },
-            )
-            .wire_timeout()
+        let call: crate::Call<
+            ::goodfetch_protocol::page::functions::Evaluated,
+            ::goodfetch_protocol::page::waits::LocatorWaitForFunctionParams,
+        > = self.host.call(
+            "locator.wait_for_function",
+            ::goodfetch_protocol::page::waits::LocatorWaitForFunctionParams {
+                locator: self.host.id().clone(),
+                function: function.into(),
+                arg: None,
+                world: None,
+                polling_interval: None,
+                timeout: None,
+            },
+        );
+        call.wire_timeout().map(|result| result.value)
     }
 }
 

@@ -6,6 +6,7 @@
 //! peak, rounded up to a whole MiB. Peaks and ceilings are fixtures here.
 
 use std::process::Stdio;
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 use goodfetch_test_support::Tool;

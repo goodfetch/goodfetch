@@ -70,7 +70,7 @@ describe("A start on the Scripted engine as the Attached engine", () => {
         expect(noWork).toMatchObject({
           code: "run_ended",
           group: "program",
-          details: { run_id: "nightly" },
+          runId: "nightly",
         });
       });
       await clientCase.check("a Run another engine writes raises run_in_use", () => {
@@ -78,14 +78,15 @@ describe("A start on the Scripted engine as the Attached engine", () => {
         expect(inUse).toMatchObject({
           code: "run_in_use",
           retryable: true,
-          details: { run_id: "busy" },
+          runId: "busy",
         });
       });
       await clientCase.check("a Run of other inputs raises run_conflict listing each", () => {
         expect(conflict).toBeInstanceOf(RunConflictError);
         expect(conflict).toMatchObject({
           code: "run_conflict",
-          details: { run_id: "crawled", differences: ["product", "kind", "caller", "seeds"] },
+          runId: "crawled",
+          details: { differences: ["product", "kind", "caller", "seeds"] },
         });
       });
       await clientCase.check("a Run whose Limit is used up raises limit_reached", () => {
@@ -133,7 +134,7 @@ describe("A start on an Attached engine", () => {
         tooLong,
       }).toMatchObject({
         startedAs: ["new", "resumed", "ended"],
-        inUse: { code: "run_in_use", details: { run_id: "held" } },
+        inUse: { code: "run_in_use", runId: "held" },
         invalid: { code: "run_id_invalid", details: { pattern: expect.any(String) } },
         tooMany: { code: "invalid_params" },
         tooLong: { code: "invalid_params" },
@@ -146,7 +147,9 @@ type Logged = readonly [level: "info" | "warn", message: string, fields: unknown
 
 /**
  * A host logger that keeps what the SDK logs at info and warning, and apart
- * the engine's stderr lines, which a failed play writes.
+ * the engine's stderr lines, which a failed play writes. It leaves out the
+ * engine `connect()` reached, logged at info with its `EngineInfo`, which
+ * engine-choice.test.ts checks.
  */
 function recordingLogger(): {
   readonly logger: Logger;
@@ -160,7 +163,9 @@ function recordingLogger(): {
     level: "off",
     debug: () => {},
     info: (message, fields) => {
-      logged.push(["info", message, fields]);
+      if (fields?.["engine"] === undefined) {
+        logged.push(["info", message, fields]);
+      }
     },
     warn: (message, fields) => {
       if (fields?.["source"] === "engine stderr") {

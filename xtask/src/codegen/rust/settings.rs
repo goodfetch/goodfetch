@@ -136,8 +136,12 @@ pub(super) fn module(header: &str, settings: &[Setting]) -> Result<String> {
     for shape in shapes {
         let _ = write!(
             text,
-            "\n{}impl crate::settings::sealed::Wire for {shape} {{\n    fn into_wire(self) -> ::serde_json::Value {{\n        ::serde_json::to_value(self).expect(\"invariant: a value of the protocol's shapes is JSON\")\n    }}\n}}\n\nimpl crate::settings::SettingValue for {shape} {{}}\n",
-            comment("The protocol's own JSON of the value.")
+            "\n{}{}",
+            comment("The protocol's own JSON of the value."),
+            wire(
+                shape,
+                "::serde_json::to_value(self).expect(\"invariant: a value of the protocol's shapes is JSON\")"
+            )
         );
     }
     Ok(text)
@@ -358,11 +362,23 @@ impl Enums<'_> {
         }
         let _ = write!(
             self.text,
-            "\n{}#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\npub enum {name} {{\n{body}}}\n\nimpl crate::settings::sealed::Wire for {name} {{\n    fn into_wire(self) -> ::serde_json::Value {{\n        ::serde_json::Value::from(match self {{\n{arms}        }})\n    }}\n}}\n\nimpl crate::settings::SettingValue for {name} {{}}\n",
-            comment("A word a setting of this module takes, as the catalog spells it.")
+            "\n{}#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\npub enum {name} {{\n{body}}}\n\n{}",
+            comment("A word a setting of this module takes, as the catalog spells it."),
+            wire(
+                name,
+                &format!("::serde_json::Value::from(match self {{\n{arms}        }})")
+            )
         );
         Ok(Some(name.to_owned()))
     }
+}
+
+/// How the values of `value_type` go on the wire, `body` making the JSON
+/// of `self`: the crate's sealed `Wire` and its `SettingValue`.
+fn wire(value_type: &str, body: &str) -> String {
+    format!(
+        "impl crate::settings::sealed::Wire for {value_type} {{\n    fn into_wire(self) -> ::serde_json::Value {{\n        {body}\n    }}\n}}\n\nimpl crate::settings::SettingValue for {value_type} {{}}\n"
+    )
 }
 
 /// The one alternative of `alternatives` besides null, when there are

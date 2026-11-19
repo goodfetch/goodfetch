@@ -211,7 +211,7 @@ pub trait SettingValue: sealed::Wire {}
     message = "`{Self}` is no value of a setting whose values are `{T}`",
     label = "the key's values are `{T}`"
 )]
-pub trait IntoSettingValue<T>: sealed::Given<T> {}
+pub trait IntoSettingValue<T>: sealed::IntoValue<T> {}
 
 /// What turns a value into the JSON the wire carries, and what `set`
 /// takes into a key's value, which only this crate implements.
@@ -225,13 +225,13 @@ mod sealed {
     }
 
     /// A value `set` takes for a key whose values are `T`.
-    pub trait Given<T> {
+    pub trait IntoValue<T> {
         /// The key's value.
         fn into_value(self) -> T;
     }
 }
 
-impl<T: SettingValue> sealed::Given<T> for T {
+impl<T: SettingValue> sealed::IntoValue<T> for T {
     fn into_value(self) -> T {
         self
     }
@@ -240,7 +240,7 @@ impl<T: SettingValue> sealed::Given<T> for T {
 impl<T: SettingValue> IntoSettingValue<T> for T {}
 
 /// A value of a key that can be cleared.
-impl<T: SettingValue> sealed::Given<Option<T>> for T {
+impl<T: SettingValue> sealed::IntoValue<Option<T>> for T {
     fn into_value(self) -> Option<T> {
         Some(self)
     }
@@ -248,20 +248,22 @@ impl<T: SettingValue> sealed::Given<Option<T>> for T {
 
 impl<T: SettingValue> IntoSettingValue<Option<T>> for T {}
 
-impl sealed::Given<String> for &str {
+impl sealed::IntoValue<String> for &str {
     fn into_value(self) -> String {
         self.to_owned()
     }
 }
 
+#[diagnostic::do_not_recommend]
 impl IntoSettingValue<String> for &str {}
 
-impl sealed::Given<Option<String>> for &str {
+impl sealed::IntoValue<Option<String>> for &str {
     fn into_value(self) -> Option<String> {
         Some(self.to_owned())
     }
 }
 
+#[diagnostic::do_not_recommend]
 impl IntoSettingValue<Option<String>> for &str {}
 
 impl sealed::Wire for bool {

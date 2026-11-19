@@ -7,14 +7,6 @@ error[E0277]: `Option<_>` is no value of a setting whose values are `Duration`
   |                                     required by a bound introduced by this call
   |
   = help: the trait `IntoSettingValue<Duration>` is not implemented for `Option<_>`
-help: `&str` implements trait `IntoSettingValue<T>`
- --> src/settings.rs
-  |
-  | impl IntoSettingValue<String> for &str {}
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `IntoSettingValue<String>`
-...
-  | impl IntoSettingValue<Option<String>> for &str {}
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `IntoSettingValue<Option<String>>`
 note: required by a bound in `Settings::set`
  --> src/settings.rs
   |

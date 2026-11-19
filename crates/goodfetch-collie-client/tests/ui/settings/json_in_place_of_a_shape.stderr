@@ -8,14 +8,6 @@ error[E0277]: `Value` is no value of a setting whose values are `Option<goodfetc
   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the key's values are `Option<goodfetch_protocol::settings::page_check::PageCheck>`
   |
   = help: the trait `IntoSettingValue<Option<goodfetch_protocol::settings::page_check::PageCheck>>` is not implemented for `Value`
-help: `&str` implements trait `IntoSettingValue<T>`
- --> src/settings.rs
-  |
-  | impl IntoSettingValue<String> for &str {}
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `IntoSettingValue<std::string::String>`
-...
-  | impl IntoSettingValue<Option<String>> for &str {}
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `IntoSettingValue<Option<std::string::String>>`
 note: required by a bound in `Settings::set`
  --> src/settings.rs
   |

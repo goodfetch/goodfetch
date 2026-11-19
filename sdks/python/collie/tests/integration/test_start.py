@@ -10,13 +10,11 @@ script may send. TypeScript's `start.test.ts` is its twin.
 """
 
 import logging
-from collections.abc import Awaitable, Mapping
+from collections.abc import Mapping
 
 import pytest
+from collie_calls import CLIENT_LOGGER, failure, open_collie
 from goodfetch_collie import (
-    AsyncCollie,
-    Collie,
-    GoodfetchError,
     LimitReachedError,
     RunConflictError,
     RunEndedError,
@@ -33,26 +31,8 @@ from goodfetch_test_support import (
 )
 from goodfetch_test_support import Product as ToolProduct
 
-ENGINE_LOGGER = "goodfetch.client"
-"""The logger the engine's stderr lines go to."""
-
 START_LOGGER = "goodfetch.client.run"
 """The logger a start that resumed or found its Run ended goes to."""
-
-
-async def open_collie(way: Way, env: Mapping[str, str]) -> AsyncCollie:
-    """A Connection this way opened on the Attached engine `env` names."""
-    return await way.open(
-        lambda: AsyncCollie.connect(env=env),
-        lambda: Collie.connect(env=env),
-    )
-
-
-async def failure(call: Awaitable[object]) -> GoodfetchError:
-    """The Goodfetch error `call` raises."""
-    with pytest.raises(GoodfetchError) as raised:
-        await call
-    return raised.value
 
 
 @pytest.mark.covers("story:11-126", "story:11-127")
@@ -163,7 +143,7 @@ async def test_reaches_the_run_its_run_id_names_and_raises_each_refusals_class(
         assert [
             record.getMessage()
             for record in caplog.records
-            if record.name == ENGINE_LOGGER
+            if record.name == CLIENT_LOGGER
         ] == []
 
 

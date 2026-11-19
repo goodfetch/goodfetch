@@ -20,21 +20,20 @@ import re
 import shutil
 import subprocess
 import sys
-from collections.abc import Awaitable, Mapping
+from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
 
 import anyio
 import pytest
+from collie_calls import CLIENT_LOGGER, engine_warnings, failure, open_collie
 from collie_tracer import Traced, start_and_finish
 from goodfetch_collie import (
     AsyncCollie,
     ClosedError,
-    Collie,
     EngineExitedError,
     EngineInfo,
     EngineOutputInvalidError,
-    GoodfetchError,
     Limits,
     Product,
     SettingInvalidError,
@@ -45,6 +44,7 @@ from goodfetch_test_support import (
     TestEnv,
     Way,
     scripted_engine_env,
+    scripted_engine_record,
     three_ways,
 )
 from goodfetch_test_support import Product as ToolProduct
@@ -64,24 +64,6 @@ PROGRAM_DEADLINE_SECONDS = 60.0
 BUILD_DEADLINE_SECONDS = 120.0
 """How long one wheel's build may take."""
 
-CLIENT_LOGGER = "goodfetch.client"
-"""The logger the engine's stderr lines and a refused log level go to."""
-
-
-async def open_collie(way: Way, env: Mapping[str, str]) -> AsyncCollie:
-    """A Connection this way opened on the Attached engine `env` names."""
-    return await way.open(
-        lambda: AsyncCollie.connect(env=env), lambda: Collie.connect(env=env)
-    )
-
-
-def engine_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
-    """Each line the engines wrote on stderr, which a failed play writes."""
-    return [
-        record.getMessage() for record in caplog.records if record.name == CLIENT_LOGGER
-    ]
-
-
 ENGINE_EVENTS_LOGGER = "goodfetch.engine"
 """The logger whose effective level the engine's logs follow."""
 
@@ -99,13 +81,6 @@ async def start_and_finish_run(collie: AsyncCollie, run_id: str) -> None:
     """Starts the Run `run_id` on `collie` and finishes it, leaving it open."""
     run = await collie.start(run_id=run_id)
     await run.finish()
-
-
-async def failure(call: Awaitable[object]) -> GoodfetchError:
-    """The Goodfetch error `call` raises."""
-    with pytest.raises(GoodfetchError) as raised:
-        await call
-    return raised.value
 
 
 @pytest.mark.covers("story:11-54")
@@ -476,10 +451,7 @@ async def test_runs_beside_another_connection_in_the_same_process(
         env = scripted_engine_env(
             test_env, product, f"sdk-python/run/{script}", test_env.folder / home
         )
-        collie = await way.open(
-            lambda: AsyncCollie.connect(env=env, limits=limits),
-            lambda: Collie.connect(env=env, limits=limits),
-        )
+        collie = await open_collie(way, env, limits)
         traced.append(await start_and_finish(collie))
 
     async with anyio.create_task_group() as group:
@@ -716,7 +688,7 @@ def test_writes_nothing_to_stdout_or_stderr_in_a_program_that_configures_no_logg
         check=False,
     )
 
-    record = test_env.home / "scripted-engine" / "record.jsonl"
+    record = scripted_engine_record(test_env.home)
     sent = [
         line["message"]["params"]["level"]
         for line in map(json.loads, record.read_text("utf-8").splitlines())

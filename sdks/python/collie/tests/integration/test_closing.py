@@ -11,11 +11,11 @@ its twin.
 """
 
 import json
-from collections.abc import Awaitable, Mapping
 from pathlib import Path
 
 import anyio
 import pytest
+from collie_calls import engine_warnings, failure, open_collie
 from goodfetch_collie import (
     AsyncCollie,
     CallCancelledError,
@@ -29,38 +29,15 @@ from goodfetch_test_support import (
     TestEnv,
     Way,
     scripted_engine_env,
+    scripted_engine_record,
     three_ways,
 )
 from goodfetch_test_support import Product as ToolProduct
 
 SHOP_URL = "https://shop.test/"
 
-ENGINE_LOGGER = "goodfetch.client"
-"""The logger the engine's stderr lines go to."""
-
 SENT_DEADLINE_SECONDS = 5.0
 """How long a test waits for the Scripted engine to record a Client's call."""
-
-
-async def open_collie(way: Way, env: Mapping[str, str]) -> AsyncCollie:
-    """A Connection this way opened on the Attached engine `env` names."""
-    return await way.open(
-        lambda: AsyncCollie.connect(env=env), lambda: Collie.connect(env=env)
-    )
-
-
-def engine_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
-    """Each line the engines wrote on stderr, which a failed play writes."""
-    return [
-        record.getMessage() for record in caplog.records if record.name == ENGINE_LOGGER
-    ]
-
-
-async def failure(call: Awaitable[object]) -> GoodfetchError:
-    """The Goodfetch error `call` raises."""
-    with pytest.raises(GoodfetchError) as raised:
-        await call
-    return raised.value
 
 
 async def until_recorded(home: Path, method: str) -> None:
@@ -69,7 +46,7 @@ async def until_recorded(home: Path, method: str) -> None:
     The engine records each message as it reads it, one flushed JSON line
     each, and signals nothing, so the wait polls its record.
     """
-    record = home / "scripted-engine" / "record.jsonl"
+    record = scripted_engine_record(home)
     with anyio.fail_after(SENT_DEADLINE_SECONDS):
         while True:
             if record.exists():

@@ -130,6 +130,41 @@ class CountOf(BaseModel):
     """The reason, code or cause."""
 
 
+class CrawlHookHandled(BaseModel):
+    """
+    What a Hook answers once it returned: nothing yet, the work going on
+    unchanged.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
+class CrawlHookStage(StrEnum):
+    """
+    A stage whose answer changes the work, where a crawl's Hooks in code
+    run (ADR 0104), by the catalog's name. The observe-only stages reach
+    Plugins and Script Hooks only.
+    """
+
+    before_request = "before_request"
+    """Before each fetch of a request, its retries included."""
+    after_response = "after_response"
+    """After the request's final response, redirects followed."""
+    before_navigation = "before_navigation"
+    """
+    Before a navigation to the request's URL, on the tiers that
+    navigate.
+    """
+    after_navigation = "after_navigation"
+    """After that navigation."""
+    page_ready = "page_ready"
+    """Just before the handler, with its page, on every tier."""
+    before_record_commit = "before_record_commit"
+    """Before each Record the attempt staged commits."""
+
+
 class CrawlRequestEnqueueLinksParams(BaseModel):
     """
     What `crawl_request.enqueue_links` takes: every link a locator matches,
@@ -1674,6 +1709,29 @@ class CrawlExtraction(BaseModel):
     """The formats each page's Record holds, as `page.formats` takes them."""
 
 
+class CrawlHookDeclaration(BaseModel):
+    """
+    One Hook in code a crawl declares, in `crawl.start`'s `hooks`, which
+    list them in the order declared: per stage, they run in that order,
+    after the Hooks named in settings (ADR 0104).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    datasets: list[str] | None = None
+    """
+    At `before_record_commit`, the Datasets whose Records it runs for;
+    absent for every Dataset.
+    """
+    labels: list[str] | None = None
+    """The Labels whose requests it runs for; absent for every Label."""
+    name: str
+    """Its name, which `crawl_hook.handle` and `hook_failed` carry."""
+    stage: CrawlHookStage
+    """The stage it runs at."""
+
+
 class CrawlRequest(BaseModel):
     """One work item of a crawl as its handler receives it (ADR 0093)."""
 
@@ -2191,6 +2249,35 @@ class TransformProvenance(BaseModel):
     """The transform."""
 
 
+class CrawlHookHandleParams(BaseModel):
+    """
+    What `crawl_hook.handle` gives the program: one call of one Hook, for
+    one attempt of a work item, under its lease.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    attempt: Annotated[int, Field(ge=0)]
+    """Which attempt this is, from 1."""
+    crawl_request: CrawlRequest
+    """The work item."""
+    hook: str
+    """The Hook's name, as the crawl declared it."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The lease's epoch, which only goes up (ADR 0003)."""
+    record: PushedRecord | None = None
+    """
+    At `before_record_commit`, the Record about to commit and its
+    Dataset.
+    """
+    run_id: RunId
+    """The crawl's Run."""
+    stage: CrawlHookStage
+    """The stage it runs at."""
+
+
 class CrawlRequestOutcome1(BaseModel):
     """Its handler returned, and what it staged was committed."""
 
@@ -2369,6 +2456,12 @@ class CrawlStartParams(BaseModel):
     declares no Dataset of its own, else it fails with
     `invalid_params`. None for a crawl whose program handles its
     requests.
+    """
+    hooks: list[CrawlHookDeclaration] | None = None
+    """
+    The crawl's Hooks in code, in the order declared (ADR 0104). Never
+    kept in the Run's state: a start that resumes the Run declares them
+    again.
     """
     labels: dict[str, LabelDeclaration] | None = None
     """

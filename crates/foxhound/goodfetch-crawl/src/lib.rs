@@ -26,6 +26,7 @@ mod completeness;
 mod dataset_list;
 mod delivery;
 mod enqueue;
+mod hooks;
 mod intake;
 mod invariants;
 mod labels;

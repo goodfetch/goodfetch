@@ -18,6 +18,7 @@
 mod admission;
 mod finishing;
 mod given_back;
+mod hooks;
 mod keep_alive;
 mod labels;
 mod limits;
@@ -100,6 +101,8 @@ pub(crate) struct Client {
     next_id: i64,
     /// The handler requests the engine sent, as they came.
     pub(crate) handled: Vec<Value>,
+    /// The params of each Hook call the engine sent, as they came.
+    pub(crate) hooked: Vec<Value>,
     /// The ids of the requests left unanswered.
     pub(crate) silent: Vec<Value>,
     /// Each request and notification the engine sent, as it came, with
@@ -172,7 +175,9 @@ impl Client {
     /// Sends the call `method` and answers the engine's handler requests
     /// with `handler` until the call's reply arrives, which it answers. A
     /// `crawl.start` that declares no Dataset declares `pages`, which the
-    /// harness pushes every Record into.
+    /// harness pushes every Record into. A Hook call goes to `handler`
+    /// too, its params naming the Hook: any `Records` reply returns from
+    /// it.
     pub(crate) async fn call(
         &mut self,
         method: &str,
@@ -217,49 +222,59 @@ impl Client {
                         self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": { "records": records } }))
                             .await;
                     }
-                    Reply::Fails(code, retryable) => {
-                        self.send(&json!({
-                            "jsonrpc": "2.0",
-                            "id": message["id"],
-                            "error": { "code": -32003, "message": "the handler failed", "data": { "code": code, "retryable": retryable } },
-                        }))
-                        .await;
-                    }
-                    Reply::FailsWith(code, retryable, details) => {
-                        let mut data = json!({ "code": code, "retryable": retryable });
-                        if let (Some(data), Value::Object(details)) =
-                            (data.as_object_mut(), details)
-                        {
-                            data.extend(details);
-                        }
-                        self.send(&json!({
-                            "jsonrpc": "2.0",
-                            "id": message["id"],
-                            "error": { "code": -32005, "message": "the handler failed", "data": data },
-                        }))
-                        .await;
+                    reply @ (Reply::Fails(..) | Reply::FailsWith(..) | Reply::Blocked(_)) => {
+                        self.failing(&message["id"], reply).await;
                     }
                     Reply::Skips(text) => {
                         self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": { "skipped": { "message": text } } }))
                             .await;
-                    }
-                    Reply::Blocked(cause) => {
-                        self.send(&json!({
-                            "jsonrpc": "2.0",
-                            "id": message["id"],
-                            "error": { "code": -32003, "message": "the site refused the page", "data": { "code": "blocked", "retryable": false, "cause": cause } },
-                        }))
-                        .await;
                     }
                     Reply::Silent => self.silent.push(message["id"].clone()),
                     Reply::Calls(..) | Reply::After(..) => {
                         unreachable!("invariant: the calls were sent and the waits waited above")
                     }
                 }
+            } else if message.get("method").and_then(Value::as_str) == Some("crawl_hook.handle") {
+                self.hooked.push(message["params"].clone());
+                match self.answering(handler(&message["params"])).await {
+                    Reply::Records(_) => {
+                        self.send(&json!({ "jsonrpc": "2.0", "id": message["id"], "result": {} }))
+                            .await;
+                    }
+                    Reply::Silent => self.silent.push(message["id"].clone()),
+                    reply => self.failing(&message["id"], reply).await,
+                }
             } else if message["id"] == json!(id) {
                 return message;
             }
         }
+    }
+
+    /// Answers the handler request or Hook call `id` with the failure
+    /// `reply` says.
+    async fn failing(&mut self, id: &Value, reply: Reply) {
+        let (code, message, data) = match reply {
+            Reply::Fails(code, retryable) => (
+                -32003,
+                "the handler failed",
+                json!({ "code": code, "retryable": retryable }),
+            ),
+            Reply::FailsWith(code, retryable, details) => {
+                let mut data = json!({ "code": code, "retryable": retryable });
+                if let (Some(data), Value::Object(details)) = (data.as_object_mut(), details) {
+                    data.extend(details);
+                }
+                (-32005, "the handler failed", data)
+            }
+            Reply::Blocked(cause) => (
+                -32003,
+                "the site refused the page",
+                json!({ "code": "blocked", "retryable": false, "cause": cause }),
+            ),
+            reply => unreachable!("invariant: {reply:?} is no failure"),
+        };
+        self.send(&json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message, "data": data } }))
+            .await;
     }
 
     pub(crate) async fn close(&mut self) {
@@ -498,6 +513,7 @@ pub(crate) fn crawl_on<T>(
                 writer,
                 next_id: 0,
                 handled: Vec::new(),
+                hooked: Vec::new(),
                 silent: Vec::new(),
                 arrivals: Vec::new(),
                 late: None,

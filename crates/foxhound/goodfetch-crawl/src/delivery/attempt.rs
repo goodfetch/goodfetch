@@ -129,6 +129,7 @@ use tokio::sync::{Mutex, oneshot};
 use super::failure::{AttemptFailure, Why};
 use super::watch::{self, Watch};
 use crate::code_free::CodeFree;
+use crate::hooks::Hooks;
 use crate::lease::{CommitError, SoFar, WorkItemLease};
 use crate::progress::SharedInFlight;
 use crate::run_state::{Asking, Escalated};
@@ -140,6 +141,7 @@ use crate::work_items::{Fetched, Leased};
 mod decoy;
 mod learning;
 mod race;
+mod record_stage;
 mod site_preferences;
 mod sitemap_fetch;
 
@@ -216,6 +218,11 @@ impl Answer {
         matches!(self, Self::LeaseEnded | Self::ClientGone | Self::Released)
     }
 }
+
+/// What an attempt is handled with beside its tier: what it hands over
+/// with its Run's pages, what a code-free crawl handles it with, none when
+/// the program does, and the Run's Hooks in code.
+pub(super) type Handling = (Arc<HandOver>, Option<Arc<CodeFree>>, Arc<Hooks>);
 
 /// The tier an attempt's request takes and what it is fetched with: the
 /// Run's HTTP tier, the room its hedges take beside it, and the browser's
@@ -564,8 +571,10 @@ fn served_as(choice: &TierChoice) -> &TierChoice {
 /// first answer discarded. On `browser` the engine opens Collie's page
 /// for the handler, navigated to the request's URL through the gate. When
 /// the lease ends first, the request is cancelled and its answer left to
-/// [`late`]. A panic in the attempt, or in a task it started while it
-/// runs, ends it failed with `engine_panicked` ([`Watch`]); what it holds
+/// [`late`]. Once its handler answered, the Records it is about to commit
+/// go through the Run's Record-stage Hooks in code ([`record_stage`]). A
+/// panic in the attempt, or in a task it started while it runs, ends it
+/// failed with `engine_panicked` ([`Watch`]); what it holds
 /// is given back as for any other end.
 pub(super) async fn attempt(
     run: Run,
@@ -573,7 +582,7 @@ pub(super) async fn attempt(
     context: CallContext,
     (leased, (session, in_browser), counted): (Leased, (ServingSession, PooledSession), Counted),
     (lease, watch): (WorkItemLease, Watch),
-    (tiering, (hand_over, code_free)): (Tiering, (Arc<HandOver>, Option<Arc<CodeFree>>)),
+    (tiering, (hand_over, code_free, hooks)): (Tiering, Handling),
     (in_flight, lessons): (SharedInFlight, &Lessons),
 ) -> Attempt {
     let (document, sent_at) = (Mutex::new(None), Mutex::new(None));
@@ -636,6 +645,15 @@ pub(super) async fn attempt(
                     | AttemptPlan::Race(_),
                     None,
                 ) => without_http_tier("request"),
+            };
+            // The Record stage runs once, on the answer that counts.
+            let answer = match answer {
+                Answer::Handled(handled)
+                    if handled.skipped.is_none() && hooks.at_record_stage() =>
+                {
+                    record_stage::passed(&on, &hooks, handled).await
+                }
+                answer => answer,
             };
             (answer, sampled, raced)
         }))

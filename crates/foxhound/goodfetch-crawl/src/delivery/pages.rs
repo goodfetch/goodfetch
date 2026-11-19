@@ -13,14 +13,13 @@ use goodfetch_counted_work::Row;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
-use goodfetch_fetch_tier::{FetchAdmission, HandOver, PooledSession};
+use goodfetch_fetch_tier::{FetchAdmission, PooledSession};
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::{JoinError, JoinSet};
 
-use super::attempt::{Attempt, Lessons, Tiering, attempt};
+use super::attempt::{Attempt, Handling, Lessons, Tiering, attempt};
 use super::watch::Watch;
-use crate::code_free::CodeFree;
 use crate::lease::WorkItemLease;
 use crate::progress::SharedInFlight;
 use crate::work_items::Leased;
@@ -31,14 +30,14 @@ const MAILBOX: usize = 64;
 
 /// An attempt to run: the Connection it is served on, by its place in the
 /// delivery's list and its call context, its work item as leased, its
-/// Session, its lease, its watch, how it is fetched and handed over, and
-/// the HTTP admission it holds until it ends.
+/// Session, its lease, its watch, how it is fetched and handed over, the
+/// Run's Hooks in code, and the HTTP admission it holds until it ends.
 pub(super) struct Start {
     pub(super) server: (usize, CallContext),
     pub(super) leased: (Leased, (ServingSession, PooledSession), Counted),
     pub(super) lease: WorkItemLease,
     pub(super) watch: Watch,
-    pub(super) fetching: (Tiering, (Arc<HandOver>, Option<Arc<CodeFree>>)),
+    pub(super) fetching: (Tiering, Handling),
     pub(super) admission: FetchAdmission,
 }
 

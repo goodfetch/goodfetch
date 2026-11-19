@@ -1319,3 +1319,35 @@ milestone = "M1 Core"
 journey = false
 not_journey = "part"
 status = "active"
+
+[[story]]
+id = 168
+title = "As a developer, I want each Record my handler is about to commit, those it pushed and then those it answered, to go through the crawl's `before_record_commit` Hooks in code its Label and Dataset reach, in the order I declared them, so that one place checks or stamps every Record before it commits (ADR 0104)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 169
+title = "As a developer, I want each Hook call bounded by `timeout.hook`, which a Label may set for its requests, and a Hook past it cancelled and its attempt failed with `deadline_exceeded` naming the setting and the stage, so that a stuck Hook never holds a request (ADR 0104)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 170
+title = "As a developer, I want a Hook that raises to fail its attempt with `hook_failed` naming the stage, the Hook and the Label, its own exception retried only under `crawl.retry.handler_failed`, which a Label may set, and a Goodfetch Error code raised inside retried as its flag says, both drawing on `crawl.retry.max`, so that a Hook's failure is retried as a handler's is (ADR 0104)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 171
+title = "As a developer, I want a `before_record_commit` Hook that fails to discard everything its attempt staged, its Records, enqueues and Key-value store writes, so that a refused Record never commits part of an attempt (ADRs 0003 and 0104)."
+milestone = "M1 Core"
+journey = false
+not_journey = "part"
+status = "active"

@@ -1911,6 +1911,152 @@
       ],
       "type": "object"
     },
+    "CrawlHookDeclaration": {
+      "additionalProperties": false,
+      "description": "One Hook in code a crawl declares, in `crawl.start`'s `hooks`, which\nlist them in the order declared: per stage, they run in that order,\nafter the Hooks named in settings (ADR 0104).",
+      "properties": {
+        "datasets": {
+          "arrived_in": "0.1",
+          "description": "At `before_record_commit`, the Datasets whose Records it runs for;\nabsent for every Dataset.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "labels": {
+          "arrived_in": "0.1",
+          "description": "The Labels whose requests it runs for; absent for every Label.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, which `crawl_hook.handle` and `hook_failed` carry.",
+          "type": "string"
+        },
+        "stage": {
+          "$ref": "#/$defs/CrawlHookStage",
+          "arrived_in": "0.1",
+          "description": "The stage it runs at."
+        }
+      },
+      "required": [
+        "name",
+        "stage"
+      ],
+      "type": "object"
+    },
+    "CrawlHookHandleParams": {
+      "description": "What `crawl_hook.handle` gives the program: one call of one Hook, for\none attempt of a work item, under its lease.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "attempt": {
+          "arrived_in": "0.1",
+          "description": "Which attempt this is, from 1.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "crawl_request": {
+          "$ref": "#/$defs/CrawlRequest",
+          "arrived_in": "0.1",
+          "description": "The work item."
+        },
+        "hook": {
+          "arrived_in": "0.1",
+          "description": "The Hook's name, as the crawl declared it.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The lease's epoch, which only goes up (ADR 0003).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "record": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PushedRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "At `before_record_commit`, the Record about to commit and its\nDataset."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        },
+        "stage": {
+          "$ref": "#/$defs/CrawlHookStage",
+          "arrived_in": "0.1",
+          "description": "The stage it runs at."
+        }
+      },
+      "required": [
+        "run_id",
+        "hook",
+        "stage",
+        "crawl_request",
+        "attempt",
+        "lease_epoch"
+      ],
+      "type": "object"
+    },
+    "CrawlHookHandled": {
+      "description": "What a Hook answers once it returned: nothing yet, the work going on\nunchanged.",
+      "type": "object"
+    },
+    "CrawlHookStage": {
+      "description": "A stage whose answer changes the work, where a crawl's Hooks in code\nrun (ADR 0104), by the catalog's name. The observe-only stages reach\nPlugins and Script Hooks only.",
+      "oneOf": [
+        {
+          "const": "before_request",
+          "description": "Before each fetch of a request, its retries included.",
+          "type": "string"
+        },
+        {
+          "const": "after_response",
+          "description": "After the request's final response, redirects followed.",
+          "type": "string"
+        },
+        {
+          "const": "before_navigation",
+          "description": "Before a navigation to the request's URL, on the tiers that\nnavigate.",
+          "type": "string"
+        },
+        {
+          "const": "after_navigation",
+          "description": "After that navigation.",
+          "type": "string"
+        },
+        {
+          "const": "page_ready",
+          "description": "Just before the handler, with its page, on every tier.",
+          "type": "string"
+        },
+        {
+          "const": "before_record_commit",
+          "description": "Before each Record the attempt staged commits.",
+          "type": "string"
+        }
+      ]
+    },
     "CrawlRequest": {
       "description": "One work item of a crawl as its handler receives it (ADR 0093).",
       "properties": {
@@ -2830,6 +2976,14 @@
           ],
           "arrived_in": "0.1",
           "description": "What a crawl with no handler reads from each page (a code-free\ncrawl, ADR 0103): the engine handles each request itself and\ndeclares the Label and the Dataset it commits into, so such a start\ndeclares no Dataset of its own, else it fails with\n`invalid_params`. None for a crawl whose program handles its\nrequests."
+        },
+        "hooks": {
+          "arrived_in": "0.1",
+          "description": "The crawl's Hooks in code, in the order declared (ADR 0104). Never\nkept in the Run's state: a start that resumes the Run declares them\nagain.",
+          "items": {
+            "$ref": "#/$defs/CrawlHookDeclaration"
+          },
+          "type": "array"
         },
         "labels": {
           "additionalProperties": {
@@ -18895,7 +19049,7 @@
                     "type": "integer"
                   },
                   "hook": {
-                    "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+                    "description": "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -19335,7 +19489,7 @@
                         "type": "boolean"
                       },
                       "handler_failed": {
-                        "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+                        "description": "Whether a work item whose handler failed with `handler_failed`, or whose Hook in code failed with `hook_failed` on the program's own exception, is tried again: `false`. A Label may set it for its requests.",
                         "type": "boolean"
                       },
                       "max": {
@@ -21742,7 +21896,7 @@
                     "type": "integer"
                   },
                   "hook": {
-                    "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+                    "description": "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -22298,7 +22452,7 @@
                         "type": "boolean"
                       },
                       "handler_failed": {
-                        "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+                        "description": "Whether a work item whose handler failed with `handler_failed`, or whose Hook in code failed with `hook_failed` on the program's own exception, is tried again: `false`. A Label may set it for its requests.",
                         "type": "boolean"
                       },
                       "max": {
@@ -24705,7 +24859,7 @@
                     "type": "integer"
                   },
                   "hook": {
-                    "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+                    "description": "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -25277,7 +25431,7 @@
                         "type": "boolean"
                       },
                       "handler_failed": {
-                        "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+                        "description": "Whether a work item whose handler failed with `handler_failed`, or whose Hook in code failed with `hook_failed` on the program's own exception, is tried again: `false`. A Label may set it for its requests.",
                         "type": "boolean"
                       },
                       "max": {
@@ -27684,7 +27838,7 @@
                     "type": "integer"
                   },
                   "hook": {
-                    "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+                    "description": "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
                     "minimum": 0,
                     "type": "integer"
                   },

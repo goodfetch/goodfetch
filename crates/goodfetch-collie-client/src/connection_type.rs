@@ -16,11 +16,11 @@ use crate::run::Start;
 /// Runs: the members both Products' connections share.
 ///
 /// ```
-/// use goodfetch_collie_client::{Connection, Error};
+/// use goodfetch_collie_client::{Answer, Connection, Error};
 /// use goodfetch_protocol::run::RunReport;
 ///
 /// /// A library's helper, written once for either Product.
-/// async fn start_and_finish(connection: &impl Connection) -> Result<RunReport, Error> {
+/// async fn start_and_finish(connection: &impl Connection) -> Result<Answer<RunReport>, Error> {
 ///     connection.start().await?.finish().await
 /// }
 /// ```

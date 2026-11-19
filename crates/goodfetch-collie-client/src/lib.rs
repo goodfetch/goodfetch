@@ -15,6 +15,7 @@
 
 #![warn(missing_docs)]
 
+mod answer;
 pub mod blocking;
 mod call;
 mod connect_timeout;
@@ -36,10 +37,12 @@ mod raw_call;
 mod response;
 mod rpc;
 mod run;
+mod schema;
 pub mod settings;
 mod sync;
 pub mod transport;
 
+pub use answer::Answer;
 pub use call::{Call, Query, Reply};
 pub use connect_timeout::ConnectTimeout;
 pub use connection::{ClientConnection, ConnectionRuntime, SaveFile};
@@ -55,3 +58,7 @@ pub use limits::{Limits, Money, MoneyError, UsageKind};
 pub use raw_call::RawCall;
 pub use response::{Exchange, Response};
 pub use run::Start;
+pub use schema::{Schema, SchemaError};
+/// The `schemars` whose `JsonSchema` a [`Schema`] derives from, re-exported
+/// so that a program's derive is the SDK's version (ADR 0082).
+pub use schemars;

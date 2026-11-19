@@ -452,8 +452,7 @@ modes = ["attached"]
 # types, or a hand-written JSON Schema, round-trips through the Key-value
 # store; results keep unknown fields; a value that is not JSON is refused
 # before sending. Python and Rust join the Key-value cases with their
-# Key-value surface (#1284), and Rust `result-keeps-unknown-fields` with
-# #3034.
+# Key-value surface (#1284).
 [[capability]]
 name = "typed-data"
 
@@ -466,8 +465,8 @@ modes = ["attached"]
 [[capability.case]]
 id = "result-keeps-unknown-fields"
 covers = ["story:11-68"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
 [[capability.case]]
 id = "non-json-value-refused"

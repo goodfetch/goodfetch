@@ -58,6 +58,6 @@ pub use goodfetch_collie_client::{
     Call, Connection, Error, Limits, Locator, Money, MoneyError, Page, Query, Run, Session, Start,
     UsageKind,
 };
-pub use goodfetch_protocol::run::{RunId, RunReport, StartedAs};
+pub use goodfetch_protocol::run::{RunId, RunReport, StartedAs, Tags};
 pub use linked::ConnectOptions;
 pub use pins::pinned_artifacts;

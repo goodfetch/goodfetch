@@ -4,7 +4,9 @@
 # (ADR 0135); `all` runs it over the whole workspace, else over what changed.
 # `quick` is the gate of a change that no test, benchmark, model, container
 # or Evaluation reads (`xtask affected`'s `gate=quick`): only the checks every
-# change needs, over the whole workspace. `docs` is the gate of such a change
+# change needs, over the whole workspace, then xtask's codegen tests when the
+# change reaches what only they check (`just codegen-tests`, which reads the
+# change itself, issue 2892). `docs` is the gate of such a change
 # made of documents alone (`gate=docs`): the checks that read its commits and
 # the bar, then `just lint-documents`, the checks of `just lint` that read
 # documents; no code lint and no suite.

@@ -8,7 +8,7 @@
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 
-use goodfetch_protocol::run::{RUN_START, RunId, RunStartParams, RunStarted, StartedAs};
+use goodfetch_protocol::run::{RUN_START, RunId, RunStartParams, RunStarted, StartedAs, Tags};
 
 use crate::connection::Connection;
 use crate::error::Error;
@@ -35,11 +35,19 @@ impl Start {
         }
     }
 
-    /// Names the Run `run_id`: a start with the ID of a Run started before
-    /// with the same inputs goes on with it when it was interrupted, and
-    /// returns it as it ended when it finished (ADR 0102).
+    /// Names the Run for good: a start with an existing Run ID resumes the
+    /// Run if it was interrupted, or returns it as it ended (ADR 0102),
+    /// which [`Run::started_as`] says; the engine names it when none is
+    /// given. A Run another engine writes fails with `run_in_use`, one
+    /// begun with other inputs with `run_conflict`.
     pub fn run_id(mut self, run_id: &RunId) -> Self {
         self.params.run_id = Some(run_id.as_str().to_owned());
+        self
+    }
+
+    /// Tags the Run, in place of any tags given before (ADR 0036).
+    pub fn tags(mut self, tags: Tags) -> Self {
+        self.params.tags = tags;
         self
     }
 
@@ -63,6 +71,7 @@ impl IntoFuture for Start {
                 .call(RUN_START.name, &self.params)
                 .no_timeout()
                 .await?;
+            log_start(&started);
             let held = HeldRun::new(
                 self.connection,
                 started.run_id,
@@ -73,6 +82,28 @@ impl IntoFuture for Start {
                 host: Host::run(held),
             })
         })
+    }
+}
+
+/// Tells the host how a start with an existing Run ID reached its Run:
+/// resumed at info, ended at warning, since the Run then takes no new work
+/// (ADR 0102). A new Run is not logged.
+fn log_start(started: &RunStarted) {
+    let run_id = &started.run_id;
+    match started.started_as {
+        StartedAs::New => {}
+        StartedAs::Resumed => tracing::info!(
+            target: "goodfetch::client::run",
+            %run_id,
+            started_as = "resumed",
+            "The start resumed the Run `{run_id}` from its committed state."
+        ),
+        StartedAs::Ended => tracing::warn!(
+            target: "goodfetch::client::run",
+            %run_id,
+            started_as = "ended",
+            "The start found the Run `{run_id}` ended: it is returned as it ended and takes no new work."
+        ),
     }
 }
 
@@ -103,8 +134,9 @@ impl Run {
 }
 
 impl Connection {
-    /// The start of a Run this Connection drives (`run.start`), which
-    /// awaiting sends.
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint;
+    /// `finish()` ends it. The start of a Run this Connection drives
+    /// (`run.start`), which awaiting sends.
     pub fn start(&self) -> Start {
         Start::new(self.clone())
     }

@@ -8,7 +8,8 @@
 //! Record was obtained, `report` what a crawl's
 //! Run report adds, `progress` what its progress adds, and `session_pool` the Session of its Session pool that
 //! serves each attempt, and `fetch` the tier that fetches a crawl
-//! request's document, and `sql_tab` the SQL tab's `dataset.query`.
+//! request's document, `sql_tab` the SQL tab's `dataset.query`, and `hook`
+//! the Error codes a crawl's Hooks in code fail with.
 
 pub mod block;
 pub mod crawl;
@@ -17,6 +18,7 @@ pub mod dataset_view;
 pub mod export;
 pub mod fetch;
 pub mod frontier;
+pub mod hook;
 pub mod outcomes;
 pub mod progress;
 pub mod provenance;

@@ -11,7 +11,10 @@
 # change of documents alone (`gate=docs`) takes `just lint-documents`, the
 # checks of `just lint` that read documents, and no code lint or suite, as
 # the docs gate does; any other change takes the licence allowlist (`just
-# notices`), `just lint` and the Quick suite over what changed. `all` takes
+# notices`), `just lint` and the Quick suite over what changed, and, when
+# the change reaches what only xtask's codegen tests check (`xtask
+# affected`'s `codegen-tests=true`), those tests (`just codegen-tests`),
+# which the Quick suite, running no `tests/` binary, misses. `all` takes
 # the allowlist, every lint and the Quick suite over the whole workspace,
 # whatever changed.
 #
@@ -119,6 +122,11 @@ if [[ -z $all ]]; then
     steps_end || true
     exit 1
   fi
+  if ! codegen=$(output_value codegen-tests "$selection"); then
+    echo "error: \`xtask affected\` gave no codegen-tests line, so no lint and no Quick suite ran: the tier cannot tell whether the change takes xtask's codegen tests" >&2
+    steps_end || true
+    exit 1
+  fi
   if [[ $gate == docs ]]; then
     echo "The change is documents alone (xtask affected's gate=docs), so the pre-push tier runs the docs gate's checks: \`just lint-documents\`; the code lints and the Quick suite do not run, as at the merge (ADR 0135)."
     step lint-documents 'just lint-documents'
@@ -127,6 +135,12 @@ if [[ -z $all ]]; then
     step lint 'just lint'
     suite=$(printf ' %q' "${change[@]}")
     step quick-suite "just test-affected quick$suite"
+    # xtask's codegen tests are `tests/` tests, which the Quick suite never
+    # runs: a change to what only they check runs them too, as the quick
+    # gate does (issue 2892).
+    if [[ $codegen == true ]]; then
+      step codegen-tests "just codegen-tests$suite"
+    fi
   fi
 else
   step notices 'just notices'

@@ -10,7 +10,7 @@ use std::future::IntoFuture;
 use std::path::Path;
 use std::time::Duration;
 
-use goodfetch_protocol::run::{RunId, RunReport, StartedAs};
+use goodfetch_protocol::run::{RunId, RunReport, StartedAs, Tags};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -44,8 +44,9 @@ impl Connection {
         }
     }
 
-    /// The start of a Run this Connection drives (`run.start`), which
-    /// `send()` sends.
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint;
+    /// `finish()` ends it. The start of a Run this Connection drives
+    /// (`run.start`), which `send()` sends.
     pub fn start(&self) -> Start {
         Start(self.0.start(), self.0.clone())
     }
@@ -223,7 +224,9 @@ impl<T: DeserializeOwned + Send + 'static> SaveFile<T> {
 pub struct Start(crate::Start, crate::Connection);
 
 impl Start {
-    /// Names the Run `run_id`, as [`crate::Start::run_id`] does.
+    /// Names the Run for good: a start with an existing Run ID resumes the
+    /// Run if it was interrupted, or returns it as it ended (ADR 0102), as
+    /// [`crate::Start::run_id`] says.
     pub fn run_id(self, run_id: &RunId) -> Self {
         Self(self.0.run_id(run_id), self.1)
     }
@@ -231,6 +234,11 @@ impl Start {
     /// Sets the Run's own Limits, as [`crate::Start::limits`] does.
     pub fn limits(self, limits: crate::Limits) -> Self {
         Self(self.0.limits(limits), self.1)
+    }
+
+    /// Tags the Run, as [`crate::Start::tags`] does.
+    pub fn tags(self, tags: Tags) -> Self {
+        Self(self.0.tags(tags), self.1)
     }
 
     /// Starts the Run and blocks the calling thread until it is started.

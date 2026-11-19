@@ -31,6 +31,7 @@ pub mod foxhound;
 pub mod foxhound_names;
 pub mod governor;
 pub mod home;
+pub mod hook;
 pub mod hostile_input;
 pub mod journey;
 pub mod jsonrpc;

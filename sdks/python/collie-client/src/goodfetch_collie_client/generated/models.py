@@ -3363,12 +3363,13 @@ class UserWriteParams(BaseModel):
 
 class ValueField(BaseModel):
     """
-    A value field (ADRs 0123 and 0147): the first element its locator finds
-    in the page, its text, its runs of white space read as one space and
-    trimmed, or one of its attributes, an `href` or `src` resolved against
-    the document's base URL; optionally a capture group of a regular
-    expression over that text; then its Value transform. A field the page
-    does not give is null, with why.
+    A value field (ADRs 0123 and 0147): the first element its locator
+    ladder finds in the page, its locator tried first, then each of its
+    `fallbacks` in turn until one finds an element; its text, its runs of
+    white space read as one space and trimmed, or one of its attributes, an
+    `href` or `src` resolved against the document's base URL; optionally a
+    capture group of a regular expression over that text; then its Value
+    transform. A field the page does not give is null, with why.
     """
 
     model_config = ConfigDict(
@@ -3376,6 +3377,14 @@ class ValueField(BaseModel):
     )
     attribute: str | None = None
     """The attribute read in place of the element's text."""
+    fallbacks: list[FieldLocator] | None = None
+    """
+    Its locator ladder's further rungs: when `locator` finds no
+    element, the first of these, in order, that finds one supplies it;
+    in a list, the first that finds any; in rows, the first that finds
+    one under the row's element. Each is checked as `locator` is when
+    the call or crawl starts.
+    """
     locator: FieldLocator
     """What finds its element."""
     match: FieldMatch | None = None

@@ -34,6 +34,7 @@ import {
 import type { JSONValue } from "./json.ts";
 import { limitList, type Limits } from "./limits.ts";
 import { logEngineEvent, logLevelOf, type Logger } from "./logger.ts";
+import { collieTimes } from "./generated/times.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
 import {
@@ -43,6 +44,7 @@ import {
   type Transport,
   type TransportEnd,
 } from "./rpc.ts";
+import { withTimes, type Times } from "./times.ts";
 
 /** How long `close()` waits for an Attached engine to stop: `timeout.close`'s default (ADR 0080). */
 const CLOSE_TIMEOUT = 30_000;
@@ -157,9 +159,10 @@ export class ClientConnection implements AsyncDisposable {
       },
       options.bounds,
     );
-    this.#operations = new CollieOperations(this.caller<CollieOperationTypes>());
+    const calls = this.caller<CollieOperationTypes>(collieTimes);
+    this.#operations = new CollieOperations(calls);
     this.#runHost = {
-      calls: this.caller<CollieOperationTypes>(),
+      calls,
       reachable: () => !this.#ended,
       stream: (method, params, opened) => this.stream(method, params, opened),
       forget: (run) => this.#runs.delete(run),
@@ -336,17 +339,24 @@ export class ClientConnection implements AsyncDisposable {
     }
   }
 
-  /** The Connection's calls, typed by a Product's operation table. */
-  caller<Types extends Record<keyof Types, OperationTypes>>(): Caller<Types> {
+  /**
+   * The Connection's calls, typed by a Product's operation table, whose
+   * results read the points in time `times` places as `Date`s.
+   */
+  caller<Types extends Record<keyof Types, OperationTypes>>(
+    times: Times<keyof Types & string>,
+  ): Caller<Types> {
     const channel = this.#channel;
     return {
-      call<Name extends keyof Types & string>(
+      async call<Name extends keyof Types & string>(
         operation: Name,
         params: Types[Name]["params"],
         options: CallOptions,
       ): Promise<Types[Name]["result"]> {
+        const result = await channel.call(operation, params, options);
+        const path = times.results[operation];
         // Engine answers are not validated beyond `hello`'s protocol version (STYLE.md): the result is the operation's as the catalog types it.
-        return channel.call(operation, params, options);
+        return path === undefined ? result : withTimes(result, path, times.types);
       },
     };
   }

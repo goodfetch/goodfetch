@@ -356,10 +356,15 @@ impl Page {
     pub fn go_back(
         &self,
     ) -> crate::blocking::Call<
-        Option<::goodfetch_protocol::page::PageResponse>,
+        Option<crate::blocking::Response>,
         ::goodfetch_protocol::page::PageParams,
     > {
-        crate::blocking::Call::new(self.inner.go_back(), self.inner.host.connection())
+        crate::blocking::Call::new(
+            self.inner
+                .go_back()
+                .map(|answered| answered.map(crate::blocking::Response::new)),
+            self.inner.host.connection(),
+        )
     }
 
     /// Goes forward one entry in the page's history and waits for its `load` event, answering the document's response, or none when there is no entry to go forward to. The back/forward cache is off, so the document always loads again (ADR 0121).
@@ -372,10 +377,15 @@ impl Page {
     pub fn go_forward(
         &self,
     ) -> crate::blocking::Call<
-        Option<::goodfetch_protocol::page::PageResponse>,
+        Option<crate::blocking::Response>,
         ::goodfetch_protocol::page::PageParams,
     > {
-        crate::blocking::Call::new(self.inner.go_forward(), self.inner.host.connection())
+        crate::blocking::Call::new(
+            self.inner
+                .go_forward()
+                .map(|answered| answered.map(crate::blocking::Response::new)),
+            self.inner.host.connection(),
+        )
     }
 
     /// Navigates the page to a URL and waits for its document's `load` event, or the state `wait_until` names, answering the document's response: a 404 or a 500 is a response, a value. A file the browser downloads, such as a PDF, answers no response and emits `page.download`. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, a redirect loop `too_many_redirects`, a document whose body broke off `response_truncated`, unless the navigation answered at `commit`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`.
@@ -389,10 +399,15 @@ impl Page {
         &self,
         url: impl Into<String>,
     ) -> crate::blocking::Call<
-        Option<::goodfetch_protocol::page::PageResponse>,
+        Option<crate::blocking::Response>,
         ::goodfetch_protocol::page::GotoParams,
     > {
-        crate::blocking::Call::new(self.inner.goto(url), self.inner.host.connection())
+        crate::blocking::Call::new(
+            self.inner
+                .goto(url)
+                .map(|answered| answered.map(crate::blocking::Response::new)),
+            self.inner.host.connection(),
+        )
     }
 
     /// Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.
@@ -422,10 +437,15 @@ impl Page {
     pub fn reload(
         &self,
     ) -> crate::blocking::Call<
-        Option<::goodfetch_protocol::page::PageResponse>,
+        Option<crate::blocking::Response>,
         ::goodfetch_protocol::page::PageParams,
     > {
-        crate::blocking::Call::new(self.inner.reload(), self.inner.host.connection())
+        crate::blocking::Call::new(
+            self.inner
+                .reload()
+                .map(|answered| answered.map(crate::blocking::Response::new)),
+            self.inner.host.connection(),
+        )
     }
 
     /// Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.
@@ -439,10 +459,13 @@ impl Page {
         &self,
         url: impl Into<String>,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::PageResponse,
+        crate::blocking::Response,
         ::goodfetch_protocol::page::request::PageRequestParams,
     > {
-        crate::blocking::Call::new(self.inner.request(url), self.inner.host.connection())
+        crate::blocking::Call::new(
+            self.inner.request(url).map(crate::blocking::Response::new),
+            self.inner.host.connection(),
+        )
     }
 
     /// Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -510,11 +533,13 @@ impl Page {
     pub fn wait_for_request_finished(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::events::PageExchange,
+        crate::blocking::Exchange,
         ::goodfetch_protocol::page::events::WaitForRequestFinishedParams,
     > {
         crate::blocking::Call::new(
-            self.inner.wait_for_request_finished(),
+            self.inner
+                .wait_for_request_finished()
+                .map(crate::blocking::Exchange::new),
             self.inner.host.connection(),
         )
     }
@@ -529,10 +554,15 @@ impl Page {
     pub fn wait_for_response(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::events::PageExchange,
+        crate::blocking::Exchange,
         ::goodfetch_protocol::page::waits::WaitForExchangeParams,
     > {
-        crate::blocking::Call::new(self.inner.wait_for_response(), self.inner.host.connection())
+        crate::blocking::Call::new(
+            self.inner
+                .wait_for_response()
+                .map(crate::blocking::Exchange::new),
+            self.inner.host.connection(),
+        )
     }
 
     /// Waits, armed when the call arrives, until the page's URL matches: at once when it already does, else on a committed navigation, then until its document reaches `wait_until`, or on a change within the document, a `pushState`, a `replaceState` or a hash change. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.

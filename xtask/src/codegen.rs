@@ -47,6 +47,7 @@ mod facts;
 mod handles;
 mod helpers;
 mod layer;
+mod members;
 mod names;
 mod naming;
 mod projection;
@@ -72,6 +73,8 @@ use crate::features;
 use emit::JOURNEY_FILES;
 use goodfetch_protocol::catalog::Product;
 use layer::Layer;
+pub(crate) use members::{HandleMember, handle_members};
+pub(crate) use naming::{camel, pascal, rust_snake, rust_type};
 
 /// Where `goodfetch-protocol`'s committed outputs live.
 const PROTOCOL_GENERATED: &str = "crates/goodfetch-protocol/generated";

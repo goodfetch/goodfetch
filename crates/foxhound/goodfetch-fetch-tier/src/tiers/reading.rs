@@ -24,11 +24,12 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use goodfetch_encoding::Kind;
 use goodfetch_engine::runs::Run;
 use goodfetch_page::page_value::{DocumentReader, ReadDocument, Reading};
 
 use super::{Served, lock};
-use crate::charset::{self, Kind, Read, Source};
+use crate::charset::{self, Read, Source};
 use crate::content_types::{Accepts, declared, is_document, typed};
 use crate::gate::HandOver;
 

@@ -16,6 +16,7 @@ from goodfetch_collie_client.generated.models import (
     StopReason2,
 )
 from goodfetch_collie_client.generated.operations import CollieOperations
+from goodfetch_test_support import EngineAnswering
 from pydantic import BaseModel
 
 PAGE = PageId(root="page-1")
@@ -37,19 +38,6 @@ class NewerEngine:
         """Answers every call with the fields this SDK knows and one it does not."""
         del operation, params
         return {"text": "hi", "added_in_a_minor": 1}
-
-
-class EngineAnswering:
-    """A caller answering every call with one result, as the engine sends it."""
-
-    def __init__(self, result: object) -> None:
-        """Takes the result every call answers."""
-        self._result = result
-
-    def call(self, operation: str, params: BaseModel) -> object:
-        """Answers the call with the result."""
-        del operation, params
-        return self._result
 
 
 def test_result_from_a_newer_engine_keeps_its_unknown_field() -> None:

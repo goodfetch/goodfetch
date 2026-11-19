@@ -1943,6 +1943,17 @@
       ]
     },
     {
+      "id": "error:response_not_json",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:response_not_ok",
       "kind": "error",
       "area": 6,

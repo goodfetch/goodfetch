@@ -1,12 +1,12 @@
 # The manifest of Foxhound's Rust SDK's hand-written public members (ADR
 # 0099; STYLE.md, Protocol and SDKs): each names the catalog entry it serves,
 # or `entry = "none"` with its reason, and the canonical words and form it is
-# spelled from, in the forms of `sdks/typescript/manifest.toml`. The values a
-# connection hands out are the Collie client crate's, re-exported, and listed
-# with it. `xtask sdk-manifests` refuses an entry that is no catalog
-# operation or one only a person may call. ADR 0099's completeness tests join
-# with area 11's catalog mapping ticket; until then a member added by hand
-# gets its line here.
+# spelled from, in the forms of `sdks/typescript/manifest.toml`, whose header
+# says what `xtask sdk-manifests` refuses. The values a connection hands out
+# are the Collie client crate's, re-exported, and listed with it. A
+# `blocking::` receiver is its async receiver's twin. Matching this manifest
+# to what the crate exports is issue 2920's; until then a member added by
+# hand gets its line here.
 
 [[member]]
 crate = "goodfetch-foxhound"
@@ -23,6 +23,7 @@ receiver = "Foxhound"
 member = "scope"
 entry = "none"
 reason = "The scoped form of `connect` and `close` (ADRs 0078 and 0112); `Collie::scope`'s member under the same name."
+only = "TypeScript's scoped form is `await using` on `[Symbol.asyncDispose]`, the words `close`."
 words = ["scope"]
 form = "closer"
 
@@ -78,5 +79,6 @@ receiver = "(crate)"
 member = "PAID_FETCHES"
 entry = "none"
 reason = "The `paid_fetch` Usage kind a Limit caps, which only Foxhound counts (ADR 0087), for `Limits::count` and `Limits::price`; a value, no catalog entry, which a Collie engine refuses with `not_in_product`."
+only = "TypeScript names the Usage kind as the `paidFetches` key of its `Limits` object, plain data, where Rust's `Limits` takes a `UsageKind` value (ADR 0080)."
 words = ["paid", "fetches"]
-form = "read"
+form = "constant"

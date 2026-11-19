@@ -690,6 +690,15 @@ export class ResponseLimitExceededError extends PageError {
 }
 
 /**
+ * The response's body is not JSON, or not the JSON the program reads it as: `json()` reads the body as UTF-8 whatever its charset, a leading BOM ignored. The SDK raises it itself, naming the response's URL; the body is the same on every read, so read it with `text()` or `body()` instead.
+ */
+export class ResponseNotJSONError extends PageError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "response_not_json", group: "page", retryable: false });
+  }
+}
+
+/**
  * The response's body broke off before its end: shorter than its `Content-Length`, a chunked body without its last chunk, or a stream the server or the connection ended. A navigation waiting for `domcontentloaded` or `load` raises it for its main document; one that answered at `commit` leaves it to the body's read. The details name the URL and the bytes received and expected.
  */
 export class ResponseTruncatedError extends PageError {
@@ -1018,6 +1027,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   proxy_unavailable: ProxyUnavailableError,
   resources_exhausted: ResourcesExhaustedError,
   response_limit_exceeded: ResponseLimitExceededError,
+  response_not_json: ResponseNotJSONError,
   response_truncated: ResponseTruncatedError,
   route_already_handled: RouteAlreadyHandledError,
   run_busy: RunBusyError,

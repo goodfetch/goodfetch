@@ -637,6 +637,17 @@ pub const RESPONSE_TRUNCATED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A response's body that is not JSON, raised by the SDK's `json()` itself
+/// (ADRs 0085 and 0119).
+pub const RESPONSE_NOT_JSON: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "response_not_json",
+    description: "The response's body is not JSON, or not the JSON the program reads it as: `json()` reads the body as UTF-8 whatever its charset, a leading BOM ignored. The SDK raises it itself, naming the response's URL; the body is the same on every read, so read it with `text()` or `body()` instead.",
+    group: ErrorGroup::Page,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A navigation or request a site's preferences refused, at the page's
 /// navigation gate (ADRs 0086, 0087 and 0093).
 pub const SITE_PREFERENCES_REFUSED: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -1817,6 +1828,7 @@ pub const ENTRIES: Entries = Entries {
         BLOCKED,
         TOO_MANY_REDIRECTS,
         RESPONSE_TRUNCATED,
+        RESPONSE_NOT_JSON,
         SITE_PREFERENCES_REFUSED,
         PAGE_CRASHED,
         BROWSER_LAUNCH_FAILED,

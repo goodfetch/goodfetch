@@ -1,0 +1,34 @@
+{
+  "protocol_version": "0.1",
+  "operations": [
+    {
+      "name": "run.abort",
+      "product": "collie",
+      "description": "Aborts the Run.",
+      "kind": "round_trip",
+      "params": { "$ref": "#/$defs/RunAbortParams" },
+      "result": { "$ref": "#/$defs/RunReport" },
+      "cancellable": false,
+      "stability": "stable",
+      "deprecated": null,
+      "reach": "all_surfaces"
+    }
+  ],
+  "events": [],
+  "error_groups": [],
+  "error_codes": [],
+  "plugin_kinds": [],
+  "$defs": {
+    "RunAbortParams": {
+      "type": "object",
+      "required": ["run_id"],
+      "properties": { "run_id": { "$ref": "#/$defs/RunId" } }
+    },
+    "RunId": { "type": "string" },
+    "RunReport": {
+      "type": "object",
+      "required": ["run_id", "state"],
+      "properties": { "run_id": { "$ref": "#/$defs/RunId" }, "state": { "type": "string" } }
+    }
+  }
+}

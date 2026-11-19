@@ -8,7 +8,8 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
+from goodfetch_collie_client.point_in_time import PointInTime
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
 class CollieTypes(BaseModel):
@@ -513,6 +514,21 @@ class EffectAttempt(BaseModel):
     """The attempt's lease epoch, as `crawl_request.handle` gave it."""
 
 
+class EffectClosed1(BaseModel):
+    """
+    The body returned a value the Effect journal keeps: it never runs
+    again under its key, and the SDK answers `performed`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    judged: Literal["done"]
+    performed_at: PointInTime
+    """When it was performed."""
+
+
 class EffectClosed2(BaseModel):
     """
     The body did not return, and nothing was sent or the Effect is
@@ -546,6 +562,45 @@ class EffectOpened1(BaseModel):
     Effect on any machine and different in every Run and install,
     for the body to send as a site's `Idempotency-Key`.
     """
+
+
+class EffectOpened2(BaseModel):
+    """
+    An earlier attempt or start performed the Effect: the body does not
+    run, and the output it returned then is the answer.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    answer: Literal["journal"]
+    output: Any | None = None
+    """What the body returned, or absent when it returned nothing."""
+    performed_at: PointInTime
+    """When it was performed."""
+
+
+class EffectOpened3(BaseModel):
+    """
+    A person answered "it happened" (ADR 0029): the body does not run,
+    and no output is known.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    answer: Literal["reconciled"]
+    reconciled_at: PointInTime
+    """When they answered."""
+    reconciled_by: str
+    """Who answered."""
+
+
+class EffectOpened(RootModel[EffectOpened1 | EffectOpened2 | EffectOpened3]):
+    root: EffectOpened1 | EffectOpened2 | EffectOpened3
+    """What `effect.open` answers."""
 
 
 class EffectOutcome1(BaseModel):
@@ -1433,6 +1488,18 @@ class NotAddedReason(StrEnum):
     """
 
 
+class NothingDone1(BaseModel):
+    """The start found the Run ended."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    ended_at: PointInTime
+    """When it ended."""
+    reason: Literal["already_ended"]
+
+
 class NothingDone3(BaseModel):
     """A resume or a retry found nothing left."""
 
@@ -1727,11 +1794,6 @@ class PluginRun(BaseModel):
     """The network level it ran at."""
 
 
-class PointInTime(RootModel[AwareDatetime]):
-    root: AwareDatetime
-    """A point in time in UTC, as RFC 3339."""
-
-
 class PolicyReadParams(BaseModel):
     """What `config.policy_read` takes: nothing."""
 
@@ -1900,6 +1962,7 @@ class RecordingReport(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     file: str
     """Its file."""
@@ -2016,6 +2079,7 @@ class ResponseOrigin1(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     fetched_at: PointInTime
     """When the cached response was fetched."""
@@ -2027,6 +2091,7 @@ class ResponseOrigin2(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     kind: Literal["response_recording"]
     recorded_at: PointInTime
@@ -2757,6 +2822,7 @@ class SigningKeyDirectory(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     body: str
     """The response's body, the JSON key set, byte for byte."""
@@ -3185,6 +3251,7 @@ class TimeRange(BaseModel):
 
     model_config = ConfigDict(
         extra="forbid",
+        arbitrary_types_allowed=True,
     )
     from_: Annotated[PointInTime | None, Field(alias="from")] = None
     """Its first point, included."""
@@ -3220,6 +3287,7 @@ class UncertainEffect(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     crawl_request: str | None = None
     """The crawl request it ran for, in a crawl."""
@@ -3755,6 +3823,7 @@ class CertificatePin(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     changed_spki_sha256: str | None = None
     """
@@ -3799,6 +3868,7 @@ class Checkpoint(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     digest: str
     """The SHA-256 of its bytes, in lowercase hexadecimal."""
@@ -4103,20 +4173,6 @@ class EffectCloseParams(BaseModel):
     """The Run whose Effect journal keeps the Effect."""
 
 
-class EffectClosed1(BaseModel):
-    """
-    The body returned a value the Effect journal keeps: it never runs
-    again under its key, and the SDK answers `performed`.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    judged: Literal["done"]
-    performed_at: PointInTime
-    """When it was performed."""
-
-
 class EffectClosed3(BaseModel):
     """
     The body did not return a value the Effect journal keeps after
@@ -4177,43 +4233,6 @@ class EffectOpenParams(BaseModel):
     """
     run_id: RunId
     """The Run whose Effect journal keeps the Effect."""
-
-
-class EffectOpened2(BaseModel):
-    """
-    An earlier attempt or start performed the Effect: the body does not
-    run, and the output it returned then is the answer.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    answer: Literal["journal"]
-    output: Any | None = None
-    """What the body returned, or absent when it returned nothing."""
-    performed_at: PointInTime
-    """When it was performed."""
-
-
-class EffectOpened3(BaseModel):
-    """
-    A person answered "it happened" (ADR 0029): the body does not run,
-    and no output is known.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    answer: Literal["reconciled"]
-    reconciled_at: PointInTime
-    """When they answered."""
-    reconciled_by: str
-    """Who answered."""
-
-
-class EffectOpened(RootModel[EffectOpened1 | EffectOpened2 | EffectOpened3]):
-    root: EffectOpened1 | EffectOpened2 | EffectOpened3
-    """What `effect.open` answers."""
 
 
 class EncodingProvenance(BaseModel):
@@ -4335,6 +4354,7 @@ class ExportedAuditEntry(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     actor: Actor
     """Who did what it records."""
@@ -4485,6 +4505,7 @@ class HumanPause(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     deadline: PointInTime | None = None
     """
@@ -4922,6 +4943,7 @@ class NeedsYouItem(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     actions: list[str]
     """
@@ -5023,17 +5045,6 @@ class NewSessionPageParams(BaseModel):
     it; the Session's Access mode, Identity profile and proxy only its
     opening sets.
     """
-
-
-class NothingDone1(BaseModel):
-    """The start found the Run ended."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    ended_at: PointInTime
-    """When it ended."""
-    reason: Literal["already_ended"]
 
 
 class NothingDone2(BaseModel):
@@ -5336,6 +5347,7 @@ class ReachedLimit(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     currency: str | None = None
     """The currency it caps a price in, for a price Limit."""
@@ -5816,6 +5828,7 @@ class StopReason6(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     currency: str | None = None
     """The currency it caps a price in, for a price Limit."""
@@ -5912,6 +5925,7 @@ class TransformProvenance(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     anchor: PointInTime | None = None
     """A relative time's anchor: the fetch time of the page's document."""
@@ -6077,6 +6091,7 @@ class AppliedLimit(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     amount: Annotated[int, Field(ge=0)]
     """What it allows per period: a count, or millionths of the currency."""
@@ -6319,6 +6334,7 @@ class LimitUsage(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     charged: Annotated[int, Field(ge=0)]
     """
@@ -6353,6 +6369,7 @@ class ModelAllowance(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     currency: str | None = None
     """The currency of a `price` allowance, an ISO 4217 code."""
@@ -6608,6 +6625,7 @@ class RunIndexRow(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     completeness: Completeness | None = None
     """Its Completeness, once it ended."""
@@ -6676,6 +6694,7 @@ class RunProgress(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     at: PointInTime
     """When the engine read it."""
@@ -6813,6 +6832,7 @@ class DatasetRecord(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     committed_at: PointInTime
     """When it was committed."""
@@ -6860,6 +6880,7 @@ class RunReport(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     checkpoint: Checkpoint | None = None
     """The last Checkpoint written of it in this engine, when one was."""

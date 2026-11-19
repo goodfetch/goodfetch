@@ -19,6 +19,7 @@ import {
   pageOf,
   Sequence,
   type ClientConnection,
+  withTimes,
   type RunHost,
 } from "@goodfetch/collie-client/runtime";
 import {
@@ -39,6 +40,7 @@ import type {
   DatasetRecord,
   FoxhoundOperationTypes,
 } from "./generated/index.ts";
+import { foxhoundTimes } from "./generated/times.ts";
 
 /** How many Records `records()` lets the engine send before the program has read any. */
 const RECORD_CREDITS = 64;
@@ -244,8 +246,9 @@ export function handleRequest(
 function recordOf(method: string, params: unknown): DatasetRecord | undefined {
   if (method !== "$/record" || typeof params !== "object" || params === null) return undefined;
   if (!("record" in params)) return undefined;
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine messages are not validated beyond `hello`'s protocol version (STYLE.md): a `$/record` carries a Dataset's Record.
-  return params.record as DatasetRecord;
+  const record = withTimes(params.record, foxhoundTimes.types.DatasetRecord, foxhoundTimes.types);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine messages are not validated beyond `hello`'s protocol version (STYLE.md): a `$/record` carries a Dataset's Record, its points in time read as `Date`s.
+  return record as DatasetRecord;
 }
 
 /** The message of a thrown value, whatever was thrown. */

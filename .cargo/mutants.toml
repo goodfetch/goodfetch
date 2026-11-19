@@ -1,0 +1,4 @@
+# cargo-mutants' settings (ADR 0072; TESTING.md, Feature coverage): mutation
+# testing targets the hand-written runtimes, never what `xtask codegen` writes
+# (ADR 0099), whose tests are its drift check and the generator's own.
+exclude_globs = ["**/generated/**", "**/generated.rs"]

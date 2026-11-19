@@ -73,7 +73,7 @@ pub fn place_executable_copy(
         {
             return Ok(ExecutableCopy { id, executable });
         }
-        Read::Entry(_) => store::delete(root, &folder)?,
+        Read::Entry(_) => store::delete(root, &folder, None)?,
         Read::Absent => {}
         // An entry it cannot read is never touched: this engine cannot
         // make the copy there, so it says so.

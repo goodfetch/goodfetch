@@ -1,0 +1,43 @@
+# The manifest of the Python SDK's hand-written public names (ADR 0099;
+# STYLE.md, Protocol and SDKs). Its members join with area 11's catalog
+# mapping ticket, as TypeScript's did; until then it lists the SDK's logger
+# names (ADR 0078), which are SDK API under semver as names, checked as such
+# by `griffe check` once #148 adds it, through the constants of
+# `goodfetch_collie_client.host_logging`. Message text is not. `xtask
+# sdk-manifests` reads it from its first member on.
+#
+# Each logger sits under `goodfetch`, which alone carries a handler, a
+# `NullHandler`; `<area>` is an engine log event's target as a dotted path,
+# without a leading `goodfetch` segment (`goodfetch::rpc::dispatch` gives
+# `goodfetch.engine.rpc.dispatch`), and the areas are Experimental as the
+# targets are (ADR 0132).
+
+[[logger]]
+package = "goodfetch-collie-client"
+name = "goodfetch"
+constant = "none"
+reason = "The root of the SDK's loggers, which the package gives its one `NullHandler`."
+
+[[logger]]
+package = "goodfetch-collie-client"
+name = "goodfetch.client"
+constant = "CLIENT_LOGGER"
+reason = "The SDK's runtime: each line the engine writes on stderr, and a log level the engine refused, at warning."
+
+[[logger]]
+package = "goodfetch-collie-client"
+name = "goodfetch.client.run"
+constant = "RUN_LOGGER"
+reason = "A start that resumed its Run, at info, or found it ended, at warning."
+
+[[logger]]
+package = "goodfetch-collie-client"
+name = "goodfetch.engine"
+constant = "ENGINE_LOGGER"
+reason = "Its effective level is the level of the engine's logs a Connection asks for, in `hello` and `connection.set_log_level`; an engine event whose target has no area goes to it."
+
+[[logger]]
+package = "goodfetch-collie-client"
+name = "goodfetch.engine.<area>"
+constant = "none"
+reason = "Each `$/log` event of the engine, at its level (`trace` at 5), with `target`, `fields` and `dropped` as the record's attributes."

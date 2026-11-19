@@ -681,7 +681,8 @@
             "description": "Everything else: a person reviews it.",
             "type": "string"
           }
-        ]
+        ],
+        "open": true
       }
     },
     "$ref": "#/$defs/RunIndexRow"

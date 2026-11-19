@@ -20,7 +20,8 @@ import {
 import { timeoutOf } from "./handle.ts";
 import { limitList, type Limits } from "./limits.ts";
 import type { Logger } from "./logger.ts";
-import { boundsOf, type ChannelBounds, type Transport } from "./rpc.ts";
+import { MAX_LISTENER_QUEUE } from "./listeners.ts";
+import { boundsOf, wholeBound, type ChannelBounds, type Transport } from "./rpc.ts";
 
 /** Options of opening a Connection, over an Attached engine's stdio or a transport a test holds. */
 export interface ConnectOverOptions {
@@ -42,6 +43,17 @@ export interface ConnectOverOptions {
    * message larger than this is still taken while nothing waits.
    */
   readonly maxQueuedWriteBytes?: ChannelBounds["maxQueuedWriteBytes"];
+  /**
+   * How many events each listener of a value whose events the engine
+   * publishes, such as `session.on`'s, holds in its own queue, the one it
+   * has included, 1,024 when left out (ADR 0081). Its queue gives each
+   * event back to the Connection's Subscription as it takes it, so a slow
+   * listener slows no other; past this bound the listener loses the
+   * events it would take, and once it got those it held it is removed and
+   * the logger gets `listener_events_lost` naming how many it lost. A whole
+   * number of 1 or more, or the opening fails with `setting_invalid`.
+   */
+  readonly maxListenerQueue?: number | undefined;
   /**
    * The Limits of this Client connection (ADR 0080), set once `hello` is
    * answered and before the opening returns: each only lowers what covers
@@ -276,6 +288,7 @@ export function openOver(
 /** The common Connection's part of a Product's options. */
 interface Opening {
   readonly bounds: ChannelBounds;
+  readonly listenerQueue: number;
   readonly signal: AbortSignal | undefined;
   readonly limits: readonly RunLimit[];
   readonly timeout: number | null | undefined;
@@ -290,9 +303,10 @@ interface Opening {
  * is 0, negative, fractional or not finite.
  */
 function opening(options: ConnectOverOptions): Opening {
-  const { signal, maxPendingCalls, maxQueuedWriteBytes, logger } = options;
+  const { signal, maxPendingCalls, maxQueuedWriteBytes, maxListenerQueue, logger } = options;
   return {
     bounds: boundsOf({ maxPendingCalls, maxQueuedWriteBytes }),
+    listenerQueue: wholeBound("maxListenerQueue", maxListenerQueue, MAX_LISTENER_QUEUE),
     signal,
     limits: limitList(options.limits),
     timeout: timeoutOf(options.timeout, "timeout.connect"),

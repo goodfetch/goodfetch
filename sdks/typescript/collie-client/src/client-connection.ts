@@ -42,6 +42,7 @@ import { warnEntry } from "./markers.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
 import { settingsOnWire, type RunSettings } from "./generated/settings.ts";
+import { MAX_LISTENER_QUEUE } from "./listeners.ts";
 import { SharedSubscription } from "./shared-subscription.ts";
 import {
   Channel,
@@ -142,6 +143,8 @@ export interface ClientConnectionOptions {
   readonly errorClasses: ErrorClasses;
   /** What the Connection lets wait before it refuses a new call; the defaults when left out. */
   readonly bounds?: ChannelBounds | undefined;
+  /** How many events each listener of published events holds in its own queue, already checked: `MAX_LISTENER_QUEUE` when left out. */
+  readonly listenerQueue?: number | undefined;
   /** Cancels the opening: `open` rejects with its reason once the transport and its engine are ended. */
   readonly signal?: AbortSignal | undefined;
   /** The Client connection's Limits, in the wire's form, set once `hello` is answered. */
@@ -217,6 +220,7 @@ export class ClientConnection implements AsyncDisposable {
       published: new SharedSubscription(
         (opened) => this.stream("events.subscribe", {}, opened),
         this.#logger,
+        options.listenerQueue ?? MAX_LISTENER_QUEUE,
       ),
       forget: (run) => this.#runs.delete(run),
       logger: this.#logger,
@@ -504,6 +508,7 @@ export class ClientConnection implements AsyncDisposable {
     const params: HelloParams = {
       protocolVersion: PROTOCOL_VERSION,
       surface: "sdk_typescript",
+      form: "typescript",
       needs,
       productVersion: PRODUCT_VERSION,
       logLevel: this.#logLevel,

@@ -37,6 +37,7 @@ pub const OUTCOMES_PAGE: usize = 256;
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true))]
 pub enum OutcomeKind {
     /// Its handler returned, and what it staged was committed.
     Succeeded,
@@ -63,6 +64,7 @@ impl OutcomeKind {
 /// Why a crawl request was skipped (ADRs 0079, 0093, 0107 and 0119).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true))]
 pub enum SkipReason {
     /// A redirect left the crawl's scope.
     OutOfScope,

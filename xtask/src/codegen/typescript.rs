@@ -58,6 +58,7 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         });
     wire::with_date_types(&mut input);
     wire::camel_fields(&mut input)?;
+    super::open_values::typescript_input(&mut input);
     // The header comes first, then the imports, then the generator's
     // output, which has no banner of its own.
     let prefix = if replaced.is_empty() {

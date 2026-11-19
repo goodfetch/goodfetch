@@ -15,6 +15,7 @@ from goodfetch_collie_client.generated.errors import (
     ERROR_CLASSES,
     ERROR_GROUP_CLASSES,
     InternalError,
+    PageError,
     ProgramError,
     SettingInvalidError,
 )
@@ -65,6 +66,28 @@ def test_a_protocol_failure_raises_its_group_class_keeping_its_code(
         True,
         code,
         group,
+    )
+
+
+def test_a_code_it_does_not_know_raises_its_group_class_keeping_the_code() -> None:
+    """A code a newer engine adds raises the class its JSON-RPC code names.
+
+    ADR 0079.
+    """
+    error = error_of_reply(
+        {
+            "code": -32003,
+            "message": "the page went away",
+            "data": {"code": "a_code_from_a_newer_engine", "retryable": True},
+        },
+        ERROR_CLASSES,
+    )
+
+    assert (isinstance(error, PageError), error.code, error.group, error.retryable) == (
+        True,
+        "a_code_from_a_newer_engine",
+        "page",
+        True,
     )
 
 

@@ -528,7 +528,8 @@
           "description": "A wall that asks for consent before it shows the page (ADR 0048).",
           "type": "string"
         }
-      ]
+      ],
+      "open": true
     },
     "BodyHandle": {
       "description": "A page body as a handle: its ID, the file that holds it and its size.",
@@ -1359,7 +1360,8 @@
           "description": "Before each Record the attempt staged commits.",
           "type": "string"
         }
-      ]
+      ],
+      "open": true
     },
     "CrawlRequest": {
       "description": "One work item of a crawl as its handler receives it (ADR 0093).",
@@ -7316,7 +7318,8 @@
           "description": "The site refused it, with a Block cause.",
           "type": "string"
         }
-      ]
+      ],
+      "open": true
     },
     "OutcomeRequest": {
       "description": "The crawl request an outcome ends.",
@@ -12929,7 +12932,8 @@
           "description": "Its response's content type is not one its Label takes.",
           "type": "string"
         }
-      ]
+      ],
+      "open": true
     },
     "SocialNetwork": {
       "description": "A social network whose profiles the page links to.",
@@ -14169,7 +14173,8 @@
           "description": "Everything else: a person reviews it.",
           "type": "string"
         }
-      ]
+      ],
+      "open": true
     },
     "WaitForCountParams": {
       "additionalProperties": false,
@@ -15285,6 +15290,16 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "limit_reached",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A listener the program registered with `on` on a value whose events the engine publishes on its event stream, such as a Session's, held more events than its queue takes, the bound set where the Connection opens, 1,024 by default, so the SDK removed it once it got the events it held. Only that listener loses events: the Connection's Subscription and its other listeners go on. Its details name the event and how many events the listener lost: make the listener return sooner, or raise the bound, and listen again.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "listener_events_lost",
       "product": "collie",
       "retryable": false
     },

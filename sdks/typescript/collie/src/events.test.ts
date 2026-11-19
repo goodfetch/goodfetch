@@ -5,7 +5,9 @@
 // listener that throws is removed, and `listener_failed` is raised once, by
 // the next call on its value or by the `close()` that closes the value or
 // the Run above it. A Session's events come on the Connection's own
-// Subscription, which its listeners share, rather than on their calls.
+// Subscription, which its listeners share, rather than on their calls; each
+// listener's own queue takes them, so a stalled one delays no other and,
+// past `maxListenerQueue`, ends with `listener_events_lost`.
 import { ClosedError, type ConsoleMessage, type Logger, type Page } from "@goodfetch/collie-client";
 import { pageOf } from "@goodfetch/collie-client/runtime";
 import {
@@ -243,6 +245,57 @@ describe("a Session's listeners", () => {
           "served": [],
         }
       `);
+    },
+  );
+
+  test(
+    "keep a stalled listener from delaying another's pages, and end it with `listener_events_lost` naming the pages it lost",
+    { tags: ["story:11-63", "error:listener_events_lost"] },
+    async () => {
+      const played = playScript("page/session-listener-lost-events.json");
+      const errors: { readonly message: string; readonly fields: unknown }[] = [];
+      const logger: Logger = {
+        level: "off",
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: (message, fields) => {
+          errors.push({ message, fields });
+        },
+      };
+      const collie = await connectOver(played.transport, { logger, maxListenerQueue: 2 });
+      const run = await collie.start();
+      const stalledSession = await run.newSession();
+      const otherSession = await run.newSession();
+      const { promise: stalled, resolve: release } = Promise.withResolvers<void>();
+      const stalledPages: Page[] = [];
+      const otherPages: Page[] = [];
+
+      stalledSession.on("page", async (page) => {
+        stalledPages.push(page);
+        await stalled;
+      });
+      const other = otherSession.on("page", (page) => {
+        otherPages.push(page);
+      });
+      await vi.waitFor(() => {
+        expect(otherPages).toHaveLength(1);
+      });
+      expect(stalledPages).toHaveLength(1);
+      release();
+      await vi.waitFor(() => {
+        expect(errors).toHaveLength(1);
+      });
+      other.close();
+      await run.finish();
+      await collie.close();
+
+      expect(stalledPages).toHaveLength(2);
+      expect(errors[0]?.fields).toMatchObject({
+        event: "session.page",
+        error: { code: "listener_events_lost", details: { event: "session.page", lost: 14 } },
+      });
+      expect(played.done()).toEqual({ kind: "finished" });
     },
   );
 

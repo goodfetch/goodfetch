@@ -121,7 +121,8 @@ proptest.workspace = true
 rstest.workspace = true
 # The program's type a page's fields are read into (tests/it/sdk/page.rs).
 serde.workspace = true
-# The corpus writers' dumps of run state and the Run index (examples/compat-run-index.rs).
+# The corpus writers' dumps of run state and the Run index (examples/compat-run-index.rs), and a
+# test report part's signature (src/linked/tests.rs).
 rusqlite.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

@@ -315,6 +315,7 @@ impl ProductConnection {
         HelloParams {
             needs: Some(needs),
             log_level: Some(engine_log_level()),
+            form: Some(goodfetch_protocol::connection::Form::Rust),
             ..HelloParams::new(Surface::Rust, version())
         }
     }

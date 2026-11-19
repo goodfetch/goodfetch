@@ -6,7 +6,9 @@
 use std::fmt;
 
 use goodfetch_protocol::catalog::ErrorCodeDefinition;
+use goodfetch_protocol::connection::Form;
 use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject, ProtocolFailure};
+use goodfetch_protocol::naming;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -54,6 +56,24 @@ impl CallError {
             failure,
             message: message.into(),
         }))
+    }
+
+    /// The failure as the call `operation`, a catalog name, answers it
+    /// (ADRs 0079 and 0099): its message headed by the operation in the
+    /// Client's `form`, and `operation` in its details by its canonical
+    /// name. A failure that already names its operation, and a protocol
+    /// failure, stay as they are.
+    #[must_use]
+    pub fn in_call(mut self, operation: &str, form: Form) -> Self {
+        if let Failure::Code {
+            message, details, ..
+        } = &mut *self.0
+            && !details.contains_key("operation")
+        {
+            *message = format!("{}: {message}", naming::operation(form, operation));
+            details.insert("operation".to_owned(), Value::from(operation));
+        }
+        self
     }
 
     /// Its Error code, or the protocol failure's name.

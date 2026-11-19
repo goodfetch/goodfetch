@@ -350,10 +350,10 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
-member = "withTimes"
+member = "fromWire"
 entry = "none"
-reason = "Reads the points in time a value from the engine holds as `Date`s, at the places a Product's generated times table names, for what arrives outside a call's result, such as Foxhound's `$/record` (ADRs 0092 and 0099)."
-words = ["with", "times"]
+reason = "Reads a value from the engine in a program's names: each field the schema declares by its camelCase name, each point in time as a `Date`, at the places a Product's generated wire table names, for what arrives outside a call's result, such as Foxhound's `$/record`; data keys keep their spelling (ADRs 0092 and 0099)."
+words = ["from", "wire"]
 form = "runtime"
 
 [[member]]
@@ -361,7 +361,7 @@ package = "@goodfetch/collie-client/runtime"
 receiver = "ClientConnection"
 member = "caller"
 entry = "none"
-reason = "The Connection's calls, typed by a Product's generated operation table (ADR 0038), their results' points in time read as `Date`s by its generated times table (ADRs 0092 and 0099)."
+reason = "The Connection's calls, typed by a Product's generated operation table (ADR 0038), their params written in wire names and their results read in camelCase names, with points in time as `Date`s, by its generated wire table (ADRs 0092 and 0099)."
 words = ["caller"]
 form = "runtime"
 
@@ -1825,19 +1825,37 @@ form = "type"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
-member = "TimePath"
+member = "Wire"
 entry = "none"
-reason = "Where a value holds points in time, which `withTimes` reads."
-words = ["time", "path"]
+reason = "A Product's table of where its types, operation params and results and event payloads hold fields a program names otherwise, and points in time, which `fromWire` and `toWire` read."
+words = ["wire"]
 form = "type"
 
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
-member = "Times"
+member = "WireField"
 entry = "none"
-reason = "A Product's table of where its types and results hold points in time, which `withTimes` reads."
-words = ["times"]
+reason = "One declared field of a `WirePath`: its camelCase name, and where its value holds more such fields."
+words = ["wire", "field"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "WirePath"
+entry = "none"
+reason = "Where a value holds declared fields and points in time, which `fromWire` and `toWire` read."
+words = ["wire", "path"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "WireTypes"
+entry = "none"
+reason = "A `Wire` table's paths by type name."
+words = ["wire", "types"]
 form = "type"
 
 [[member]]

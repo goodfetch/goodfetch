@@ -36,7 +36,7 @@ import {
 import type { JSONValue } from "./json.ts";
 import { limitList, type Limits } from "./limits.ts";
 import { logEngineEvent, logLevelOf, type Logger } from "./logger.ts";
-import { collieTimes } from "./generated/times.ts";
+import { collieWire, type CollieWireType } from "./generated/wire.ts";
 import { rawCall, type RawCallOptions, type RawParams } from "./raw-call.ts";
 import { warnEntry } from "./markers.ts";
 import { holdInRealm } from "./realm.ts";
@@ -50,7 +50,7 @@ import {
   type Transport,
   type TransportEnd,
 } from "./rpc.ts";
-import { withTimes, type Times } from "./times.ts";
+import { fromWire, toWire, type Wire } from "./wire.ts";
 
 /** How long opening waits for `hello`'s answer when `connect()`'s `timeout` is left out: `timeout.connect`'s default (ADR 0083). */
 const CONNECT_TIMEOUT = 30_000;
@@ -207,7 +207,7 @@ export class ClientConnection implements AsyncDisposable {
       },
       options.bounds,
     );
-    const calls = this.caller<CollieOperationTypes>(collieTimes);
+    const calls = this.caller<CollieOperationTypes>(collieWire);
     this.#operations = new CollieOperations(calls);
     this.#runHost = {
       calls,
@@ -222,36 +222,36 @@ export class ClientConnection implements AsyncDisposable {
       logger: this.#logger,
       keyValueStore: {
         get: async (runId, key) => {
-          const { value } = await this.#operations.keyValueStoreGet({ run_id: runId, key });
+          const { value } = await this.#operations.keyValueStoreGet({ runId, key });
           // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): a stored value is JSON.
           return value as JSONValue;
         },
         set: async (runId, key, value) => {
           // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the generated layer types a schemaless JSON value as an object; any JSON value but null is the engine's to take.
           const stored = value as KeyValueStoreSetParams["value"];
-          await this.#operations.keyValueStoreSet({ run_id: runId, key, value: stored });
+          await this.#operations.keyValueStoreSet({ runId, key, value: stored });
         },
         getBytes: async (runId, key) => {
-          const { bytes } = await this.#operations.keyValueStoreGetBytes({ run_id: runId, key });
+          const { bytes } = await this.#operations.keyValueStoreGetBytes({ runId, key });
           return bytes
             ? {
                 content: new Uint8Array(Buffer.from(bytes.content, "base64")),
-                contentType: bytes.content_type,
+                contentType: bytes.contentType,
               }
             : null;
         },
         setBytes: async (runId, key, content, contentType) => {
           await this.#operations.keyValueStoreSetBytes({
-            run_id: runId,
+            runId,
             key,
             content: Buffer.from(content.buffer, content.byteOffset, content.byteLength).toString(
               "base64",
             ),
-            content_type: contentType,
+            contentType,
           });
         },
         delete: async (runId, key) =>
-          (await this.#operations.keyValueStoreDelete({ run_id: runId, key })).existed,
+          (await this.#operations.keyValueStoreDelete({ runId, key })).existed,
       },
     };
     holdInRealm(this);
@@ -294,7 +294,7 @@ export class ClientConnection implements AsyncDisposable {
     const limits = limitList(options.limits);
     const settings = settingsOnWire(options.settings);
     const params: RunStartParams = {
-      ...(options.runId === undefined ? {} : { run_id: options.runId }),
+      ...(options.runId === undefined ? {} : { runId: options.runId }),
       ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
       ...(limits.length === 0 ? {} : { limits }),
       ...(settings === undefined ? {} : { settings }),
@@ -336,7 +336,7 @@ export class ClientConnection implements AsyncDisposable {
    * Run: resumed at info, ended at warning, since the Run then takes no new
    * work (ADR 0102). A new Run is not logged.
    */
-  #logStart({ run_id: runId, started_as: startedAs }: RunStarted): void {
+  #logStart({ runId, startedAs }: RunStarted): void {
     const fields = { runId, startedAs };
     switch (startedAs) {
       case "new":
@@ -380,7 +380,7 @@ export class ClientConnection implements AsyncDisposable {
     const before = this.#logLevel;
     this.#logLevel = level;
     try {
-      await this.#operations.connectionSetLogLevel({ log_level: level });
+      await this.#operations.connectionSetLogLevel({ logLevel: level });
     } catch (error) {
       // A start begun meanwhile may have told the engine a newer level.
       if (this.#logLevel === level) {
@@ -397,11 +397,13 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   /**
-   * The Connection's calls, typed by a Product's operation table, whose
-   * results read the points in time `times` places as `Date`s.
+   * The Connection's calls, typed by a Product's operation table, which
+   * send each declared field in the engine's spelling and read each in
+   * camelCase, each point in time as a `Date`, by `wire` (ADRs 0092 and
+   * 0099).
    */
   caller<Types extends Record<keyof Types, OperationTypes>>(
-    times: Times<keyof Types & string>,
+    wire: Wire<keyof Types & string>,
   ): Caller<Types> {
     const channel = this.#channel;
     return {
@@ -410,10 +412,10 @@ export class ClientConnection implements AsyncDisposable {
         params: Types[Name]["params"],
         options: CallOptions,
       ): Promise<Types[Name]["result"]> {
-        const result = await channel.call(operation, params, options);
-        const path = times.results[operation];
+        const sent = toWire(params, wire.params[operation], wire.types);
+        const result = await channel.call(operation, sent, options);
         // Engine answers are not validated beyond `hello`'s protocol version (STYLE.md): the result is the operation's as the catalog types it.
-        return path === undefined ? result : withTimes(result, path, times.types);
+        return fromWire(result, wire.results[operation], wire.types);
       },
     };
   }
@@ -488,7 +490,8 @@ export class ClientConnection implements AsyncDisposable {
   async #setLimits(limits: readonly RunLimit[], signal: AbortSignal | undefined): Promise<void> {
     for (const limit of limits) {
       const params: UsageSetParams = { scope: "connection", ...limit };
-      await this.#channel.call("usage.set", params, { signal });
+      const sent = toWire(params, collieWire.params["usage.set"], collieWire.types);
+      await this.#channel.call("usage.set", sent, { signal });
     }
   }
 
@@ -499,16 +502,21 @@ export class ClientConnection implements AsyncDisposable {
     timeout: number | null | undefined,
   ): Promise<void> {
     const params: HelloParams = {
-      protocol_version: PROTOCOL_VERSION,
+      protocolVersion: PROTOCOL_VERSION,
       surface: "sdk_typescript",
       needs,
-      product_version: PRODUCT_VERSION,
-      log_level: this.#logLevel,
+      productVersion: PRODUCT_VERSION,
+      logLevel: this.#logLevel,
       ...(daemon === undefined ? {} : { token: daemon.token }),
     };
     let answer: unknown;
     try {
-      answer = await this.#answerWithin(this.#channel.call("hello", params, { signal }), timeout);
+      const sent = toWire(
+        params,
+        { type: "HelloParams" satisfies CollieWireType },
+        collieWire.types,
+      );
+      answer = await this.#answerWithin(this.#channel.call("hello", sent, { signal }), timeout);
     } catch (error) {
       throw daemon !== undefined && error instanceof EngineExitedError
         ? daemon.closedAtHello()
@@ -533,12 +541,16 @@ export class ClientConnection implements AsyncDisposable {
       );
     }
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the one answer checked is the protocol version it speaks, above (STYLE.md).
-    const result = answer as HelloResult;
+    const result = fromWire(
+      answer,
+      { type: "HelloResult" satisfies CollieWireType },
+      collieWire.types,
+    ) as HelloResult;
     this.#info = {
       kind: this.#reached.kind,
       product: result.product,
-      version: result.product_version,
-      protocolVersion: result.protocol_version,
+      version: result.productVersion,
+      protocolVersion: result.protocolVersion,
       projectFile: null,
       home: this.#reached.home,
       enginePath: this.#engine?.path ?? null,

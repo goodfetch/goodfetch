@@ -86,7 +86,7 @@ export type CrawlRequestOutcome = {
   /**
    * When it ended.
    */
-  ended_at: PointInTime;
+  endedAt: PointInTime;
   /**
    * The error of each failed attempt, in order.
    */
@@ -108,11 +108,11 @@ export type CrawlRequestOutcome1 =
        * Each request its attempt's enqueues, `enqueueLinks` calls and
        * seeds answered `added` that the commit did not add, in order.
        */
-      not_added?: NotAddedAtCommit[];
+      notAdded?: NotAddedAtCommit[];
       /**
        * Why it committed no Record, when it committed none.
        */
-      nothing_committed?: NothingCommitted | null;
+      nothingCommitted?: NothingCommitted | null;
       /**
        * Per Dataset its handler pushed into, the Records committed,
        * dropped and rejected.
@@ -251,7 +251,7 @@ export type ResponseOrigin =
       /**
        * When the cached response was fetched.
        */
-      fetched_at: PointInTime;
+      fetchedAt: PointInTime;
       kind: "response_cache";
     }
   | {
@@ -259,7 +259,7 @@ export type ResponseOrigin =
       /**
        * When the recorded response was received.
        */
-      recorded_at: PointInTime;
+      recordedAt: PointInTime;
     };
 /**
  * What a Record's Provenance says of the robots.txt of its page's origin
@@ -518,7 +518,7 @@ export interface CertificateExceptionMark {
    * The SHA-256 of the public key of the certificate it accepted, as
    * `sha256/<base64>`, the known-certificates store's spelling.
    */
-  spki_sha256: string;
+  spkiSha256: string;
 }
 /**
  * How many requests ended for one reason, code or cause.
@@ -613,7 +613,7 @@ export interface CrawlHookHandleParams {
   /**
    * The work item.
    */
-  crawl_request: CrawlRequest;
+  crawlRequest: CrawlRequest;
   /**
    * The Hook's name, as the crawl declared it.
    */
@@ -621,7 +621,7 @@ export interface CrawlHookHandleParams {
   /**
    * The lease's epoch, which only goes up (ADR 0003).
    */
-  lease_epoch: number;
+  leaseEpoch: number;
   /**
    * At `before_record_commit`, the Record about to commit and its
    * Dataset.
@@ -630,7 +630,7 @@ export interface CrawlHookHandleParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * The stage it runs at.
    */
@@ -707,7 +707,7 @@ export interface CrawlRequestEnqueueLinksParams {
   /**
    * The ID of the crawl request whose attempt enqueues.
    */
-  crawl_request_id: string;
+  crawlRequestId: string;
   /**
    * URL patterns a link must match none of, besides the crawl's scope.
    */
@@ -725,7 +725,7 @@ export interface CrawlRequestEnqueueLinksParams {
   /**
    * The attempt's lease epoch, as `crawl_request.handle` gave it.
    */
-  lease_epoch: number;
+  leaseEpoch: number;
   /**
    * At most this many links are added; once they are, each later
    * element whose link the Frontier would judge is not added, with
@@ -757,7 +757,7 @@ export interface CrawlRequestEnqueueLinksParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `crawl_request.enqueue` takes: one request to add, from one attempt
@@ -774,7 +774,7 @@ export interface CrawlRequestEnqueueParams {
   /**
    * The ID of the crawl request whose attempt enqueues.
    */
-  crawl_request_id: string;
+  crawlRequestId: string;
   /**
    * The document the handler read, whose base URL a relative `url`
    * resolves against; absent, the crawl request's own URL is the base.
@@ -800,7 +800,7 @@ export interface CrawlRequestEnqueueParams {
   /**
    * The attempt's lease epoch, as `crawl_request.handle` gave it.
    */
-  lease_epoch: number;
+  leaseEpoch: number;
   /**
    * The method it is sent with: `GET` by default.
    */
@@ -819,7 +819,7 @@ export interface CrawlRequestEnqueueParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * The URL to add, absolute or relative to the document's base URL.
    */
@@ -835,7 +835,7 @@ export interface EnqueueDocument {
   /**
    * The `href` of its first `<base>` element, as written.
    */
-  base_href?: string | null;
+  baseHref?: string | null;
   /**
    * The URL the document was reached at, after every redirect.
    */
@@ -856,16 +856,16 @@ export interface CrawlRequestHandleParams {
   /**
    * The work item.
    */
-  crawl_request: CrawlRequest;
+  crawlRequest: CrawlRequest;
   /**
    * The lease's epoch, which only goes up (ADR 0003).
    */
-  lease_epoch: number;
+  leaseEpoch: number;
   /**
    * The page served from the fetched document, which the handler reads
    * as any page; every request names one.
    */
-  page_id?: PageId | null;
+  pageId?: PageId | null;
   /**
    * The response of the request's own document, when the engine
    * fetched it: its final URL, status and headers as the site sent
@@ -877,7 +877,7 @@ export interface CrawlRequestHandleParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * The Session of the crawl's Session pool that serves the attempt.
    */
@@ -902,7 +902,7 @@ export interface ServingSession {
   /**
    * The proxy tier it opened at.
    */
-  proxy_tier: ProxyTier;
+  proxyTier: ProxyTier;
   /**
    * Whether this is its first page since the crawl resumed, which
    * revalidates the Session's login before the page is trusted.
@@ -992,11 +992,11 @@ export interface CrawlRequestLinksParams {
   /**
    * The ID of the crawl request whose attempt reads the links.
    */
-  crawl_request_id: string;
+  crawlRequestId: string;
   /**
    * The attempt's lease epoch, as `crawl_request.handle` gave it.
    */
-  lease_epoch: number;
+  leaseEpoch: number;
   /**
    * The locator, on the page `crawl_request.handle` gave.
    */
@@ -1004,7 +1004,7 @@ export interface CrawlRequestLinksParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * The crawl request an outcome ends.
@@ -1046,7 +1046,7 @@ export interface NotAddedAtCommit {
    * The crawl request it is a duplicate of, when another request was
    * admitted under its identity first.
    */
-  duplicate_of?: string | null;
+  duplicateOf?: string | null;
   /**
    * The ID its staging answered.
    */
@@ -1117,7 +1117,7 @@ export interface CrawlRequestPushParams {
   /**
    * The ID of the crawl request whose attempt pushes.
    */
-  crawl_request_id: string;
+  crawlRequestId: string;
   /**
    * The Dataset's name.
    */
@@ -1125,7 +1125,7 @@ export interface CrawlRequestPushParams {
   /**
    * The attempt's lease epoch, as `crawl_request.handle` gave it.
    */
-  lease_epoch: number;
+  leaseEpoch: number;
   /**
    * The Records, at least one, in the order pushed: a Record's position
    * in this list is how `record_invalid` names it.
@@ -1136,7 +1136,7 @@ export interface CrawlRequestPushParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `crawl_request.push` answers once every Record is staged.
@@ -1166,11 +1166,11 @@ export interface CrawlRunReport {
   /**
    * Why it is not `complete`, when it is not.
    */
-  completeness_reasons?: AxisReason[];
+  completenessReasons?: AxisReason[];
   /**
    * When it ended.
    */
-  ended_at: PointInTime;
+  endedAt: PointInTime;
   /**
    * The error the call that ends it raises: the one that failed a
    * `failed` Run, or a write at its end that failed, such as its Plan
@@ -1180,7 +1180,7 @@ export interface CrawlRunReport {
   /**
    * Its Frontier's learned URL rules (ADR 0005).
    */
-  learned_rules?: LearnedRule[] | null;
+  learnedRules?: LearnedRule[] | null;
   /**
    * Where it ended.
    */
@@ -1188,7 +1188,7 @@ export interface CrawlRunReport {
   /**
    * Why the call that answered it did nothing, when it did nothing.
    */
-  nothing_done?: NothingDone | null;
+  nothingDone?: NothingDone | null;
   /**
    * What it did with its Plan file (ADR 0091).
    */
@@ -1201,7 +1201,7 @@ export interface CrawlRunReport {
    * The version of the Operator policy it ran under, when one applied
    * (ADR 0031).
    */
-  policy_version?: string | null;
+  policyVersion?: string | null;
   /**
    * What it did with the Response recording its start named (ADR 0105).
    */
@@ -1217,7 +1217,7 @@ export interface CrawlRunReport {
   /**
    * The Run's ID.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * Each effective value it ran with, the layer that set it and the one
    * that locked it, as `config.explain` gives them (ADR 0028).
@@ -1234,16 +1234,16 @@ export interface CrawlRunReport {
   /**
    * When it started.
    */
-  started_at: PointInTime;
+  startedAt: PointInTime;
   /**
    * Why it stopped, when it did.
    */
-  stop_reason?: StopReason | null;
+  stopReason?: StopReason | null;
   /**
    * Each Effect it left uncertain, until a person reconciles it (ADR
    * 0106).
    */
-  uncertain_effects?: UncertainEffect[] | null;
+  uncertainEffects?: UncertainEffect[] | null;
   /**
    * What it used, as the Usage ledger charged it, with the Limits that
    * apply to it (ADR 0101).
@@ -1256,7 +1256,7 @@ export interface CrawlRunReport {
   /**
    * Why it is not `verified`, when it is not.
    */
-  verdict_reasons?: AxisReason[];
+  verdictReasons?: AxisReason[];
   /**
    * What the areas warn of, each with a code and a message.
    */
@@ -1331,15 +1331,15 @@ export interface RequestCounts {
   /**
    * The blocked ones, by Block cause.
    */
-  by_block_cause?: CountOf[];
+  byBlockCause?: CountOf[];
   /**
    * The failed ones, by Error code.
    */
-  by_error_code?: CountOf[];
+  byErrorCode?: CountOf[];
   /**
    * The skipped ones, by skip reason.
    */
-  by_skip_reason?: CountOf[];
+  bySkipReason?: CountOf[];
   /**
    * How many failed.
    */
@@ -1367,11 +1367,11 @@ export interface SinkReport {
   /**
    * How many deliveries are dead letters.
    */
-  dead_letters: number;
+  deadLetters: number;
   /**
    * Its Guarantee class.
    */
-  guarantee_class: string;
+  guaranteeClass: string;
   /**
    * Its name.
    */
@@ -1380,7 +1380,7 @@ export interface SinkReport {
    * How many deliveries fell outside the destination's deduplication
    * window, and so were at least once.
    */
-  outside_dedup_window: number;
+  outsideDedupWindow: number;
   /**
    * Its delivery status.
    */
@@ -1389,7 +1389,7 @@ export interface SinkReport {
    * For an inactive Sink, the Dataset names it gave that the crawl does
    * not declare.
    */
-  undeclared_datasets?: string[];
+  undeclaredDatasets?: string[];
 }
 /**
  * A sitemap seed's sitemaps (ADR 0102): those it read, those it could
@@ -1415,12 +1415,12 @@ export interface SitemapReport {
   /**
    * How many of its sitemaps' entries were not.
    */
-  not_added: number;
+  notAdded: number;
   /**
    * Those not added, by the reason the Frontier gave, `no_rule` for an
    * entry no rule of the seed matched, sorted by name.
    */
-  not_added_by_reason: CountOf[];
+  notAddedByReason: CountOf[];
   /**
    * How many of its sitemaps were read, nested ones included; a
    * robots.txt is none.
@@ -1509,7 +1509,7 @@ export interface CrawlStartParams {
   /**
    * The Run's ID, as `run.start` takes it.
    */
-  run_id?: string | null;
+  runId?: string | null;
   /**
    * The requests the crawl starts from.
    */
@@ -1728,7 +1728,7 @@ export interface DatasetListParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * One page of `dataset.page`.
@@ -1761,7 +1761,7 @@ export interface DatasetRecord {
   /**
    * When it was committed.
    */
-  committed_at: PointInTime;
+  committedAt: PointInTime;
   /**
    * Its number in its Dataset, from 1, in commit order, with no gaps.
    */
@@ -1773,7 +1773,7 @@ export interface DatasetRecord {
   /**
    * The ID of the crawl request whose attempt committed it.
    */
-  request_id: string;
+  requestId: string;
   /**
    * That crawl request's URL.
    */
@@ -1796,12 +1796,12 @@ export interface RecordProvenance {
    * The exception of `tls.accept_invalid_certs` its document's host was
    * reached through; none where its certificate verified.
    */
-  certificate_exception?: CertificateExceptionMark | null;
+  certificateException?: CertificateExceptionMark | null;
   /**
    * The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,
    * whose Run trace names their date and the release that applied them.
    */
-  clean_up_rules?: string | null;
+  cleanUpRules?: string | null;
   /**
    * The encoding the document was read in, and where it came from;
    * none for a request with no document.
@@ -1820,7 +1820,7 @@ export interface RecordProvenance {
   /**
    * The ID of the crawl request whose attempt produced it.
    */
-  request_id: string;
+  requestId: string;
   /**
    * `ignored` when its page was fetched while
    * `site_preferences.respect_robots_txt` was off and
@@ -1828,7 +1828,7 @@ export interface RecordProvenance {
    * origin's robots.txt disallows, so a result taken against a site's
    * stated preferences can be found and removed; none otherwise.
    */
-  robots_txt?: RobotsTxtMark | null;
+  robotsTxt?: RobotsTxtMark | null;
   /**
    * The tier that fetched that request's document, and how it was
    * chosen; none where no document was fetched.
@@ -1838,12 +1838,12 @@ export interface RecordProvenance {
    * Each field of a code-free crawl the page did not give, null in the
    * Record, with why; absent where every field was read.
    */
-  unread_fields?: UnreadField[];
+  unreadFields?: UnreadField[];
   /**
    * Each field whose value an engine Value transform gave, in the
    * order read; empty where the program parsed its own values.
    */
-  value_transforms?: TransformProvenance[];
+  valueTransforms?: TransformProvenance[];
   /**
    * The Wall its page was read past; none where no Wall was met.
    */
@@ -1886,7 +1886,7 @@ export interface PaymentMark {
   /**
    * The domain paid.
    */
-  payee_domain: string;
+  payeeDomain: string;
   /**
    * The payment scheme the site asked through.
    */
@@ -1909,7 +1909,7 @@ export interface TierProvenance {
    * when the Session's own HTTP transport sent them, `browser_fetch`
    * when they left from inside its browser.
    */
-  calls_sent_on?: FetchTier | null;
+  callsSentOn?: FetchTier | null;
   /**
    * How it was chosen.
    */
@@ -1917,7 +1917,7 @@ export interface TierProvenance {
   /**
    * What forced it, when `chosen` is `forced`.
    */
-  forced_by?: ForcedBy | null;
+  forcedBy?: ForcedBy | null;
   /**
    * The tier that sent the document's request, whoever chose it:
    * `browser_fetch` when it left from inside the Session's browser, as
@@ -1957,7 +1957,7 @@ export interface TransformProvenance {
    * Its resolved time zone, an IANA name, for a date-time or a
    * relative time.
    */
-  time_zone?: string | null;
+  timeZone?: string | null;
   /**
    * The transform.
    */
@@ -2012,7 +2012,7 @@ export interface DatasetPageParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * Their order; absent, by number.
    */
@@ -2145,7 +2145,7 @@ export interface Export {
   /**
    * The Export, which `export.save_as` and `export.stream` take.
    */
-  export_id: ExportId;
+  exportId: ExportId;
   /**
    * Its format.
    */
@@ -2153,7 +2153,7 @@ export interface Export {
   /**
    * The number of the last Record it holds, 0 when it holds none.
    */
-  last_number: number;
+  lastNumber: number;
   /**
    * How many Records it holds.
    */
@@ -2177,7 +2177,7 @@ export interface ExportSaveAsParams {
   /**
    * The Export.
    */
-  export_id: ExportId;
+  exportId: ExportId;
   /**
    * The program's path, absolute, which an Attached engine writes
    * itself; any other engine leaves it to the SDK and sends the file's
@@ -2217,7 +2217,7 @@ export interface ExportStreamParams {
   /**
    * The Export.
    */
-  export_id: ExportId;
+  exportId: ExportId;
 }
 /**
  * What `export.stream` answers once it sent every byte.
@@ -2316,7 +2316,7 @@ export interface RejectedRecord {
   /**
    * The ID of the crawl request whose attempt pushed it.
    */
-  request_id: string;
+  requestId: string;
   /**
    * That request's URL.
    */
@@ -2371,7 +2371,7 @@ export interface RunAddSeedParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * The seed.
    */
@@ -2388,11 +2388,11 @@ export interface SeedAttempt {
   /**
    * The ID of the crawl request whose attempt adds the seed.
    */
-  crawl_request_id: string;
+  crawlRequestId: string;
   /**
    * The attempt's lease epoch, as `crawl_request.handle` gave it.
    */
-  lease_epoch: number;
+  leaseEpoch: number;
 }
 /**
  * What `run.add_seeds` takes: the running crawl its Client streams seeds
@@ -2405,7 +2405,7 @@ export interface RunAddSeedsParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `run.export` takes.
@@ -2433,7 +2433,7 @@ export interface RunExportParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * The Export's settings, nested by key: the run layer (ADR 0083),
    * whose `export.*` keys shape its format.
@@ -2461,7 +2461,7 @@ export interface RunFailedRequestsParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `run.outcomes` takes.
@@ -2491,7 +2491,7 @@ export interface RunOutcomesParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `run.records` takes: a crawl's Run, one of its Datasets, and where
@@ -2513,7 +2513,7 @@ export interface RunRecordsParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * The number of the last Record to read, such as the last one
    * committed when the reader began (`dataset.page`'s `through`): the
@@ -2547,7 +2547,7 @@ export interface RunRejectedRecordsParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `run.retry_failed` takes.
@@ -2568,7 +2568,7 @@ export interface RunRetryFailedParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
   /**
    * The Run's settings from the retry on, nested by key, as a resume
    * takes them: read only when the retry returns an ended Run to
@@ -2606,7 +2606,7 @@ export interface RunSeedsAdded {
   /**
    * The seeds not added, each with its reason in its answer.
    */
-  not_added: number;
+  notAdded: number;
 }
 /**
  * What `run.seeds` takes.
@@ -2618,7 +2618,7 @@ export interface RunSeedsParams {
   /**
    * The crawl's Run.
    */
-  run_id: RunId;
+  runId: RunId;
 }
 /**
  * What `sample.crawl` starts from.

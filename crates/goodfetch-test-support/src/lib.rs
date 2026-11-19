@@ -235,7 +235,9 @@ pub use tmpfs::{
     tmpfs_mounted_home,
 };
 pub use tools::{Product, Tool, Tools, ToolsError, tools};
-pub use trace::{CapturedLog, exercise_layer, logged, subscriber, subscriber_writing_to};
+pub use trace::{
+    CapturedLog, capturing, exercise_layer, logged, subscriber, subscriber_writing_to,
+};
 pub use transition_tables::refused_matches;
 pub use unicode::{UnicodeField, UnicodeRecord, unicode_record};
 #[cfg(all(

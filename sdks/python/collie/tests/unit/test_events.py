@@ -1,19 +1,21 @@
-"""A page's listeners on the Scripted engine (ADR 0081).
+"""A page's and a Session's listeners on the Scripted engine (ADR 0081).
 
 Each test plays a script of the shared corpus over the in-memory transport,
 which fails the test on a message it does not expect and on a step left
 unused, three ways: async on asyncio, async on Trio and through the sync
 `Collie`. `on` sends its call when called, in call order, with no queue the
 program sees; a listener that throws is removed, and `listener_failed` is
-raised once, by the next call on its page or by the `close()` that closes
-the page or the Run above it, or logged at error when the page was released
-first. TypeScript's `events.test.ts` is its twin.
+raised once, by the next call on its value or by the `close()` that closes
+the value or the Run above it, or logged at error when the value was
+released first. A Session's events come on the Connection's own
+Subscription, which its listeners share, rather than on their calls.
+TypeScript's `events.test.ts` is its twin.
 """
 
 import gc
 import logging
 from collections.abc import Awaitable, Callable, Mapping
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import anyio
 import anyio.lowlevel
@@ -34,6 +36,9 @@ from goodfetch_test_support import (
     play_script,
     three_ways,
 )
+
+if TYPE_CHECKING:
+    from goodfetch_collie_client.generated.handles import AsyncPage
 
 CLIENT_LOGGER = "goodfetch.client"
 """The logger a failed listener nothing could raise goes to."""
@@ -72,7 +77,12 @@ async def until(holds: Callable[[], bool], what: str) -> None:
 
 def sent(played: PlayedScript, method: str) -> bool:
     """Whether the Client has sent a message for `method`."""
-    return any(
+    return times_sent(played, method) > 0
+
+
+def times_sent(played: PlayedScript, method: str) -> int:
+    """How many messages the Client has sent for `method`."""
+    return sum(
         isinstance(played_message, PlayedMessage)
         and played_message.from_ == "client"
         and isinstance(message := played_message.message, Mapping)
@@ -89,7 +99,7 @@ class Throwing:
         self.bug = ValueError("the listener's bug")
         self.threw = False
 
-    def __call__(self, _: ConsoleMessage) -> None:
+    def __call__(self, _: object) -> None:
         """Throws the bug."""
         self.threw = True
         raise self.bug
@@ -292,4 +302,71 @@ async def test_logs_a_thrown_listeners_failure_at_error_once_its_page_is_release
     assert logged.exc_info is not None
     assert isinstance(logged.exc_info[1], ListenerFailedError)
     assert logged.exc_info[1].__cause__ is failing.bug
+    assert played.done() == Finished()
+
+
+@pytest.mark.covers("story:11-61", "story:11-62")
+@three_ways
+async def test_a_sessions_listeners_share_one_subscription_and_hear_their_own_pages(
+    way: Way,
+) -> None:
+    """Each hears only its Session's page, a working page; the last out cancels it."""
+    collie, played = await collie_on(way, "page/session-listened.json")
+    run = await collie.start()
+    first = await run.new_session()
+    second = await run.new_session()
+    firsts: list[AsyncPage] = []
+    seconds: list[AsyncPage] = []
+
+    heard_first = first.on("page", firsts.append)
+    heard_second = second.on("page", seconds.append)
+    await until(
+        lambda: (
+            (len(firsts), len(seconds), times_sent(played, "$/credit")) == (1, 1, 2)
+        ),
+        "each Session's page, and the credits granted again",
+    )
+    values = [
+        (await way.api(page, page).evaluate("() => 1")).value
+        for page in (*firsts, *seconds)
+    ]
+    heard_first.close()
+    heard_second.close()
+    with first.on("page", firsts.append):
+        await until(
+            lambda: times_sent(played, "session.on") == 3, "the next Subscription"
+        )
+    await run.finish()
+    await collie.close()
+
+    assert values == [1, 2]
+    assert played.done() == Finished()
+
+
+@pytest.mark.covers("story:11-63", "error:listener_failed")
+@three_ways
+async def test_raises_a_thrown_session_listeners_failure_once_from_the_next_call(
+    way: Way,
+) -> None:
+    """The next call on its Session raises `listener_failed` and is not sent."""
+    collie, played = await collie_on(way, "page/session-listener-failed.json")
+    run = await collie.start()
+    session = await run.new_session()
+    failing = Throwing()
+
+    session.on("page", failing)
+    await until(lambda: sent(played, "$/cancel"), "the listener's removal")
+    refused = await failure(session.pages())
+    await session.close()
+    await run.finish()
+    await collie.close()
+
+    assert failing.threw
+    assert isinstance(refused, ListenerFailedError)
+    assert (refused.code, refused.group, refused.details) == (
+        "listener_failed",
+        "program",
+        {"event": "session.page"},
+    )
+    assert refused.__cause__ is failing.bug
     assert played.done() == Finished()

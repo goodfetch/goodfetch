@@ -16,6 +16,7 @@ use std::time::Duration;
 use goodfetch_protocol::connection::{CANCEL, CancelParams};
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::jsonrpc::{Message, Notification, Request, RequestId, Version};
+use goodfetch_protocol::log::LOG;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncWrite, AsyncWriteExt as _, BufReader};
 use tokio::runtime::Handle;
@@ -23,10 +24,12 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::task::TaskTracker;
 use tokio_util::time::DelayQueue;
 use tokio_util::time::delay_queue::Key;
+use tracing::instrument::WithSubscriber as _;
 
 use crate::error::Error;
 use crate::handler::Streams;
 use crate::line;
+use crate::logging;
 use crate::transport::Link;
 
 /// What a call's caller hands the Connection's tasks.
@@ -127,7 +130,17 @@ pub(crate) fn start(
     let (commands, commands_in) = mpsc::unbounded_channel();
     let (lines, lines_in) = mpsc::unbounded_channel();
     tracker.spawn_on(write(writer, lines_in), runtime);
-    tracker.spawn_on(correlate(reader, commands_in, lines, streams), runtime);
+    let correlating = correlate(reader, commands_in, lines, streams);
+    // The engine's `$/log` events reach the subscriber of the program that
+    // opened the Connection; with none set then, they reach the global one,
+    // which a program may install later.
+    let opened_under = tracing::dispatcher::get_default(|dispatch| {
+        (!dispatch.is::<tracing::subscriber::NoSubscriber>()).then(|| dispatch.clone())
+    });
+    match opened_under {
+        Some(dispatch) => tracker.spawn_on(correlating.with_subscriber(dispatch), runtime),
+        None => tracker.spawn_on(correlating, runtime),
+    };
     Sender(commands)
 }
 
@@ -276,6 +289,10 @@ fn answer(
     let (id, outcome) = match serde_json::from_str::<Message>(line) {
         Ok(Message::Response(response)) => (Some(response.id), Ok(response.result)),
         Ok(Message::Error(failure)) => (failure.id, Err(Error::answered(failure.error))),
+        Ok(Message::Notification(notification)) if notification.method == LOG => {
+            logging::relay(notification.params);
+            return;
+        }
         Ok(Message::Notification(notification)) => {
             hand_over(notification, pending, deadlines);
             return;

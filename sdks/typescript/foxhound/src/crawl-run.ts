@@ -20,7 +20,7 @@ import {
   pageOf,
   Sequence,
   type ClientConnection,
-  withTimes,
+  fromWire,
   type RunHost,
   warnEntry,
 } from "@goodfetch/collie-client/runtime";
@@ -43,7 +43,7 @@ import {
   type DatasetRecord,
   type FoxhoundOperationTypes,
 } from "./generated/index.ts";
-import { foxhoundTimes } from "./generated/times.ts";
+import { foxhoundWire, type FoxhoundWireType } from "./generated/wire.ts";
 
 /** How many Records `records()` lets the engine send before the program has read any. */
 const RECORD_CREDITS = 64;
@@ -145,7 +145,7 @@ export class CrawlRun extends Run {
     request: CrawlRequestHandleParams,
     served: AbortSignal,
   ): Promise<CrawlRequestHandled> {
-    const { label } = request.crawl_request;
+    const { label } = request.crawlRequest;
     const handler = handlerOf(this.#crawl, label);
     if (handler === undefined) {
       throw new HandlerFailedError(`the Crawl attaches no handler to the Label ${label}`, {
@@ -173,20 +173,20 @@ export class CrawlRun extends Run {
 
   #contextOf(request: CrawlRequestHandleParams, signal: AbortSignal): CrawlContext {
     const attempt = {
-      run_id: this.id(),
-      crawl_request_id: request.crawl_request.id,
-      lease_epoch: request.lease_epoch,
+      runId: this.id(),
+      crawlRequestId: request.crawlRequest.id,
+      leaseEpoch: request.leaseEpoch,
     };
     const calls = this.#crawlHost.calls;
     const crawl = this.#crawl;
     const options: CallOptions = { signal };
-    const pageId = request.page_id ?? undefined;
+    const pageId = request.pageId ?? undefined;
     const page = pageId === undefined ? undefined : pageOf(this, pageId, signal);
     return {
       get page(): Page {
         if (page === undefined) {
           throw new ResponseNotDocumentError(
-            `the crawl request ${request.crawl_request.id}'s response is not a document, so its handler has no page`,
+            `the crawl request ${request.crawlRequest.id}'s response is not a document, so its handler has no page`,
             {},
           );
         }
@@ -256,8 +256,12 @@ export function handleRequest(
 function recordOf(method: string, params: unknown): DatasetRecord | undefined {
   if (method !== "$/record" || typeof params !== "object" || params === null) return undefined;
   if (!("record" in params)) return undefined;
-  const record = withTimes(params.record, foxhoundTimes.types.DatasetRecord, foxhoundTimes.types);
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine messages are not validated beyond `hello`'s protocol version (STYLE.md): a `$/record` carries a Dataset's Record, its points in time read as `Date`s.
+  const record = fromWire(
+    params.record,
+    { type: "DatasetRecord" satisfies FoxhoundWireType },
+    foxhoundWire.types,
+  );
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine messages are not validated beyond `hello`'s protocol version (STYLE.md): a `$/record` carries a Dataset's Record, its declared fields in camelCase and its points in time read as `Date`s.
   return record as DatasetRecord;
 }
 

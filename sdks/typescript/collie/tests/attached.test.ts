@@ -192,7 +192,7 @@ describe("a Collie Connection on an Attached engine", () => {
       expect(traced.startedAs).toBe("new");
       expect(traced.runId).toMatch(RUN_ID);
       expect(traced.report).toMatchObject({
-        run_id: traced.runId,
+        runId: traced.runId,
         lifecycle: "finished",
         verdict: "verified",
         completeness: "complete",
@@ -281,16 +281,16 @@ describe("a Collie Connection on an Attached engine", () => {
       const report = await run.report();
 
       await clientCase.check("a member with a positional parameter reaches its operation", () =>
-        expect(set).toMatchObject({ run_id: run.id(), lifecycle: "running" }),
+        expect(set).toMatchObject({ runId: run.id(), lifecycle: "running" }),
       );
       await clientCase.check("a member with only options answers what the engine holds", () =>
         expect(read.message).toEqual(set.message),
       );
       await clientCase.check("a member that ends the Run answers its report", () =>
-        expect(finished).toMatchObject({ run_id: run.id(), lifecycle: "finished" }),
+        expect(finished).toMatchObject({ runId: run.id(), lifecycle: "finished" }),
       );
       await clientCase.check("the engine holds what the members did", () =>
-        expect(report).toMatchObject({ run_id: run.id(), lifecycle: "finished" }),
+        expect(report).toMatchObject({ runId: run.id(), lifecycle: "finished" }),
       );
     },
   );

@@ -1,33 +1,44 @@
 """What a Product's package builds its Connection type on (ADRs 0024, 0090 and 0095).
 
-It finds the Product's executable, the one its engine-path variable names or
-else the one its platform wheel holds, starts it as an Attached engine with
-exactly the program's environment map, and finishes `hello`, naming the
-Product. The other Product's variable is never read here. TypeScript's
-`product-connection.ts` is its twin.
+It reaches the engine `engine` chooses: a Daemon, or the Product's
+executable, the one its engine-path variable names or else the one its
+platform wheel holds, started as an Attached engine with exactly the
+program's environment map. Then it finishes `hello`, naming the Product,
+and logs the engine reached. The other Product's variable is never read
+here. TypeScript's `product-connection.ts` is its twin.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from goodfetch_collie_client.attached_engine import AttachedEngine
-from goodfetch_collie_client.connection import CLOSE_TIMEOUT, ClientConnection
+from goodfetch_collie_client.connection import (
+    CLOSE_TIMEOUT,
+    ClientConnection,
+    DaemonHello,
+    EngineInfo,
+    Reached,
+)
+from goodfetch_collie_client.engine_choice import AttachedReach, reach_engine
 from goodfetch_collie_client.generated.errors import SettingInvalidError
 from goodfetch_collie_client.handle import NotGiven, not_given, timeout_of
+from goodfetch_collie_client.host_logging import CLIENT_LOGGER
 from goodfetch_collie_client.limits import limit_list
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
     from datetime import timedelta
     from pathlib import Path
 
     from anyio.abc import ByteStream
 
-    from goodfetch_collie_client.generated.models import Product
+    from goodfetch_collie_client.engine_choice import DaemonReach, EngineChoice
+    from goodfetch_collie_client.generated.models import Product, RunLimit
     from goodfetch_collie_client.goodfetch_error import ErrorClass
     from goodfetch_collie_client.limits import Limits
 
@@ -96,26 +107,33 @@ def locate_engine(env: Mapping[str, str], product: ProductPackage) -> EngineLoca
     )
 
 
-async def open_attached(
+async def open_engine(
     product: ProductPackage,
     *,
     env: Mapping[str, str] | None = None,
+    engine: EngineChoice = "auto",
     close_timeout: float = CLOSE_TIMEOUT,
     limits: Limits | None = None,
     connect_timeout: timedelta | NotGiven | None = not_given,
 ) -> ClientConnection:
-    """Starts `product`'s engine as an Attached engine, then `hello` and `limits`.
+    """Reaches the engine `engine` chooses for `product`, then `hello` and `limits`.
 
-    `env` is the environment map, read here and never at import: the
-    process's own when left out (ADRs 0062 and 0083). The engine gets
-    exactly this map. `connect_timeout` is how long `hello` waits for its answer:
-    `timeout.connect`'s 30 s when left out, none for `None`; past it,
-    `DeadlineExceededError` naming `timeout.connect` raises. A `limits`
-    amount the SDK cannot turn exactly, or a `connect_timeout` of zero or less
-    (`setting_invalid`), raises before the engine starts. A missing
-    executable (`engine_not_found`), a refused Product (`not_in_product`) or
-    version, or a refused Limit raises here, with a `fix`, leaving no engine
-    behind.
+    `engine` is `auto` unless given: the remote Daemon `GOODFETCH_URL` names,
+    else the running Daemon of the SDK's line, else an Attached engine (ADR
+    0024). `env` is the environment map, read here and never at import: the
+    process's own when left out (ADRs 0062 and 0083). An Attached engine,
+    and a Daemon this call starts, gets exactly this map. `connect_timeout`
+    is how long `hello` waits for its answer: `timeout.connect`'s 30 s when
+    left out, none for `None`; past it, `DeadlineExceededError` naming
+    `timeout.connect` raises. A `limits` amount the SDK cannot turn exactly,
+    or a `connect_timeout` of zero or less (`setting_invalid`), raises before
+    any engine is reached. A refused engine choice (`setting_invalid`), a
+    missing executable (`engine_not_found`), a Daemon nothing reaches or that
+    refuses the token (`daemon_unreachable`), a refused Product
+    (`not_in_product`) or version, or a refused Limit raises here, with a
+    `fix`, leaving no Attached engine behind. The engine reached is logged
+    at info on the `goodfetch.client` logger, its `EngineInfo` as the
+    record's `engine`.
     """
     connection_limits = limit_list(limits)
     checked = (
@@ -124,19 +142,90 @@ async def open_attached(
         else timeout_of(connect_timeout, "timeout.connect")
     )
     environment = dict(os.environ if env is None else env)
-    location = locate_engine(environment, product)
-    engine = await AttachedEngine.start(
-        location.path, environment, location.not_found_fix
+    reach = await reach_engine(
+        engine, environment, lambda: locate_engine(environment, product)
     )
+    if isinstance(reach, AttachedReach):
+        connection = await _open_attached(
+            product, environment, reach.home, close_timeout, connection_limits, checked
+        )
+    else:
+        connection = await _open_daemon(
+            product, reach, close_timeout, connection_limits, checked
+        )
+    info = connection.engine
+    logging.getLogger(CLIENT_LOGGER).info(
+        _reached_text(product, info), extra={"engine": info}
+    )
+    return connection
+
+
+async def _open_attached(
+    product: ProductPackage,
+    env: Mapping[str, str],
+    home: str | None,
+    close_timeout: float,
+    limits: Sequence[RunLimit],
+    connect_timeout: int | NotGiven | None,
+) -> ClientConnection:
+    """Starts `product`'s engine as an Attached engine with `env`, then `hello`."""
+    location = locate_engine(env, product)
+    engine = await AttachedEngine.start(location.path, env, location.not_found_fix)
     return await ClientConnection.open(
         engine.transport,
         needs=product.needs,
         error_classes=product.error_classes,
         engine=engine,
+        reached=Reached("attached", home, None),
         close_timeout=close_timeout,
-        limits=connection_limits,
-        connect_timeout=checked,
+        limits=limits,
+        connect_timeout=connect_timeout,
     )
+
+
+async def _open_daemon(
+    product: ProductPackage,
+    reach: DaemonReach,
+    close_timeout: float,
+    limits: Sequence[RunLimit],
+    connect_timeout: int | NotGiven | None,
+) -> ClientConnection:
+    """Finishes `hello` with a Daemon, its token in it.
+
+    One that closes the Connection before it answers fails with
+    `daemon_unreachable`.
+    """
+    return await ClientConnection.open(
+        reach.stream,
+        needs=product.needs,
+        error_classes=product.error_classes,
+        reached=Reached(reach.kind, reach.home, reach.url),
+        daemon=DaemonHello(reach.token, reach.closed_at_hello),
+        close_timeout=close_timeout,
+        limits=limits,
+        connect_timeout=connect_timeout,
+    )
+
+
+def _reached_text(product: ProductPackage, engine: EngineInfo) -> str:
+    """The line logged once `connect()` reached `engine`."""
+    version = f"{engine.product} {engine.version}"
+    match engine.kind:
+        case "attached":
+            return (
+                f"{product.name} connected to an Attached engine, {version}, "
+                f"started from {engine.engine_path or 'its executable'}"
+            )
+        case "daemon":
+            return (
+                f"{product.name} connected to the Daemon at "
+                f"{engine.url or 'its endpoint'}, {version}"
+            )
+        case "remote":
+            return (
+                f"{product.name} connected to the remote Daemon at "
+                f"{engine.url or 'its address'}, {version}"
+            )
 
 
 async def open_over(

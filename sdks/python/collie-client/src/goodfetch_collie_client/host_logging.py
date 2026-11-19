@@ -20,7 +20,10 @@ from goodfetch_collie_client.framing import object_members
 from goodfetch_collie_client.generated.models import LogEvent, LogLevel
 
 CLIENT_LOGGER: Final = "goodfetch.client"
-"""The SDK's runtime: the engine's stderr lines and a refused log level, at warning."""
+"""The SDK's runtime: the engine reached, at info.
+
+And at warning, the engine's stderr lines and a refused log level.
+"""
 
 RUN_LOGGER: Final = "goodfetch.client.run"
 """A start that resumed its Run, at info, or found it ended, at warning."""

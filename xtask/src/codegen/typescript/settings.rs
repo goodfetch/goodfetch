@@ -15,13 +15,12 @@ use serde_json::{Map, Value};
 
 use goodfetch_protocol::catalog::SettingScope;
 
-use super::super::handles::{Form, Handle, Member};
+use super::super::handles::{Handle, Member};
 use super::super::layer::Setting;
 use super::super::naming::camel;
+use super::super::settings_tree::{Node, opened_scope, tree};
 use super::HEADER;
-
-/// The optional parameter that holds a scope's own settings (ADR 0083).
-pub(super) const SETTINGS: &str = "settings";
+use super::wire::{inline_path, path_value};
 
 /// What sends a scope's settings by their wire spelling, which the
 /// generated settings module declares.
@@ -105,52 +104,6 @@ const UNTYPED_KEYWORDS: [&str; 11] = [
     "propertyNames",
 ];
 
-/// A segment of the settings tree: a setting, or an area of more segments.
-enum Node<'a> {
-    Setting(&'a Setting),
-    Area(BTreeMap<String, Node<'a>>),
-}
-
-/// The settings tree of those `settings` that `scope` sets, by wire segment.
-fn tree(settings: &[Setting], scope: Option<SettingScope>) -> Result<BTreeMap<String, Node<'_>>> {
-    let mut root = BTreeMap::new();
-    for setting in settings {
-        let applies = match scope {
-            Some(scope) => setting.scopes.iter().any(|named| named == scope.as_str()),
-            None => !setting.scopes.is_empty(),
-        };
-        if !applies {
-            continue;
-        }
-        let segments: Vec<&str> = setting.name.split('.').collect();
-        let (last, areas) = segments
-            .split_last()
-            .with_context(|| format!("the setting `{}` has no segment", setting.name))?;
-        let mut level = &mut root;
-        for area in areas {
-            let node = level
-                .entry((*area).to_owned())
-                .or_insert_with(|| Node::Area(BTreeMap::new()));
-            level = match node {
-                Node::Area(children) => children,
-                Node::Setting(other) => bail!(
-                    "the setting `{}` is inside the setting `{}`",
-                    setting.name,
-                    other.name
-                ),
-            };
-        }
-        ensure!(
-            level
-                .insert((*last).to_owned(), Node::Setting(setting))
-                .is_none(),
-            "the setting `{}` holds other settings",
-            setting.name
-        );
-    }
-    Ok(root)
-}
-
 /// The camelCase spelling of each of `level`'s segments, refusing two that
 /// spell one.
 fn spelled<'a, 'b>(
@@ -225,18 +178,7 @@ pub(super) fn scope_type(opened: &str) -> Result<&'static str> {
 /// The settings type of the scope `member` opens, when it takes `settings`;
 /// an error when the scope it opens takes none.
 pub(super) fn scope_settings(member: &Member<'_>) -> Result<Option<&'static str>> {
-    match &member.form {
-        Form::Opens(opened)
-            if member
-                .parameters
-                .optional
-                .iter()
-                .any(|name| name == SETTINGS) =>
-        {
-            scope_type(opened).map(Some)
-        }
-        _ => Ok(None),
-    }
+    opened_scope(member).map(scope_type).transpose()
 }
 
 /// The import of the settings types `handles`' members take, and of
@@ -305,8 +247,21 @@ fn spelling(level: &BTreeMap<String, Node<'_>>, indent: &str) -> Result<String> 
     let mut text = "{\n".to_owned();
     for (name, segment, node) in spelled(level)? {
         match node {
-            Node::Setting(_) => {
-                let _ = writeln!(text, "{inner}{name}: {segment:?},");
+            Node::Setting(setting) => {
+                let value = inline_path(&setting.value)
+                    .with_context(|| format!("the value of the setting `{}`", setting.name))?;
+                match value {
+                    None => {
+                        let _ = writeln!(text, "{inner}{name}: {segment:?},");
+                    }
+                    Some(path) => {
+                        let _ = writeln!(
+                            text,
+                            "{inner}{name}: {{ setting: {segment:?}, value: {} }},",
+                            path_value(&path)
+                        );
+                    }
+                }
             }
             Node::Area(children) => {
                 let _ = writeln!(
@@ -417,8 +372,9 @@ fn schema_members(schema: &Value) -> Result<Vec<String>> {
         .collect()
 }
 
-/// An object value's type: its properties under their wire names, a value
-/// being sent as written, and its other keys' values.
+/// An object value's type: its properties by their camelCase names, which
+/// the walker sends by their wire names, and its other keys' values, which
+/// are data. Two properties that spell one name are refused.
 fn object_type(object: &Map<String, Value>) -> Result<String> {
     let required: Vec<&str> = object
         .get("required")
@@ -427,15 +383,21 @@ fn object_type(object: &Map<String, Value>) -> Result<String> {
         .unwrap_or_default();
     let mut members = Vec::new();
     if let Some(properties) = object.get("properties").and_then(Value::as_object) {
-        for (name, schema) in properties {
-            let optional = if required.contains(&name.as_str()) {
+        let mut seen = BTreeSet::new();
+        for (key, schema) in properties {
+            let name = camel(key);
+            ensure!(
+                seen.insert(name.clone()),
+                "two fields of a value are named `{name}` in TypeScript, one of them `{key}`"
+            );
+            let optional = if required.contains(&key.as_str()) {
                 ""
             } else {
                 "?"
             };
             members.push(format!(
                 "readonly {}{optional}: {}",
-                property_key(name),
+                property_key(&name),
                 union(schema_members(schema)?)
             ));
         }

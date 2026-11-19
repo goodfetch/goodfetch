@@ -9,6 +9,10 @@ const SPELLING: Spelling = {
   timeout: ["timeout", { navigation: "navigation", run: "run" }],
   filterLists: ["filter_lists", { ads: "ads", firstPartyScripts: "first_party_scripts" }],
   paidFetch: ["paid_fetch", { exchangeRates: "exchange_rates" }],
+  session: [
+    "session",
+    { pageCheck: { setting: "page_check", value: { fields: { login_page: "loginPage" } } } },
+  ],
 };
 
 /** A segment no spelling knows, `__proto__` and its kin included. */
@@ -49,6 +53,24 @@ describe("onWire", () => {
   test("sends a setting's value as written, its own keys included", () => {
     expect(onWire({ paidFetch: { exchangeRates: { usdPerEur: "1.1" } } }, SPELLING)).toEqual({
       paid_fetch: { exchange_rates: { usdPerEur: "1.1" } },
+    });
+  });
+
+  test("sends the fields a setting's value declares by their wire names, and its data as written", () => {
+    expect(
+      onWire(
+        {
+          session: {
+            pageCheck: { loginPage: "/login", headers: { "X-Page_Id": "1" } },
+          },
+        },
+        SPELLING,
+      ),
+    ).toEqual({
+      session: { page_check: { login_page: "/login", headers: { "X-Page_Id": "1" } } },
+    });
+    expect(onWire({ session: { pageCheck: null } }, SPELLING)).toEqual({
+      session: { page_check: null },
     });
   });
 

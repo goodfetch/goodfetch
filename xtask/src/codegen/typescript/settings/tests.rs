@@ -187,3 +187,59 @@ fn a_crawl_types_collie_and_foxhound_run_settings_and_a_label_only_its_own() {
     );
     assert!(!module.contains("interface RunSettings"), "{module}");
 }
+
+#[test]
+fn a_value_names_its_declared_fields_in_camel_case_and_the_spelling_sends_them_by_the_wire_names() {
+    let settings = [
+        setting(
+            "session.page_check",
+            json!({
+                "type": "object",
+                "properties": {
+                    "login_page": { "type": ["string", "null"] },
+                    "headers": {
+                        "type": "object",
+                        "additionalProperties": { "type": "string" },
+                    },
+                },
+            }),
+            true,
+            &["run"],
+        ),
+        setting("session.name", json!({ "type": "string" }), false, &["run"]),
+    ];
+
+    let module = settings_module(&settings).unwrap();
+
+    assert!(
+        module.contains("readonly pageCheck?: { readonly headers?: { readonly [key: string]: string }; readonly loginPage?: string | null } | null;"),
+        "{module}"
+    );
+    assert!(
+        module.contains(
+            "pageCheck: { setting: \"page_check\", value: { fields: { \"login_page\": \"loginPage\" } } },"
+        ),
+        "{module}"
+    );
+    assert!(module.contains("name: \"name\","), "{module}");
+}
+
+#[test]
+fn two_fields_of_a_value_that_spell_one_name_are_refused() {
+    let settings = [setting(
+        "session.page_check",
+        json!({
+            "type": "object",
+            "properties": {
+                "login_page": { "type": "string" },
+                "loginPage": { "type": "string" },
+            },
+        }),
+        false,
+        &["run"],
+    )];
+
+    let error = settings_module(&settings).unwrap_err();
+
+    assert!(format!("{error:#}").contains("loginPage"), "{error:#}");
+}

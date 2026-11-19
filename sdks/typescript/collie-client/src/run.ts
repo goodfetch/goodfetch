@@ -24,6 +24,7 @@ import {
   type StartedAs,
 } from "./generated/index.ts";
 import { Page } from "./generated/handles.ts";
+import { collieWire } from "./generated/wire.ts";
 import type { HandleHost, Listener, Subscription } from "./handle.ts";
 import { KeyValueStore, type KeyValueStoreHost } from "./key-value-store.ts";
 import { subscribe, subscribePublished, type Listening } from "./listeners.ts";
@@ -33,6 +34,7 @@ import { warnEntry } from "./markers.ts";
 import { holdInRealm } from "./realm.ts";
 import type { ChannelOpenOptions } from "./rpc.ts";
 import type { SharedSubscription } from "./shared-subscription.ts";
+import { fromWire, toWire, type WirePath } from "./wire.ts";
 
 /** What a Run reaches its engine through: its Connection. */
 export interface RunHost {
@@ -243,7 +245,7 @@ function hostIn<Id>(
     listener: Listener<Payload>,
   ): Listening<Payload> => ({
     event,
-    listener,
+    listener: readingWire(event, listener),
     failed: (cause) => {
       const error = new ListenerFailedError(
         `${operation}: the listener of \`${event}\` threw, so it was removed`,
@@ -330,7 +332,7 @@ function hostIn<Id>(
     ): Subscription {
       ensureListenable(operation);
       return subscribe(
-        (options) => reach.stream(operation, params, options),
+        (options) => reach.stream(operation, paramsOnWire(operation, params), options),
         listeningTo(operation, event, listener),
       );
     },
@@ -343,7 +345,7 @@ function hostIn<Id>(
     ): Subscription {
       ensureListenable(operation);
       return subscribePublished(
-        (options) => reach.stream(operation, params, options),
+        (options) => reach.stream(operation, paramsOnWire(operation, params), options),
         reach.published,
         (data) =>
           typeof data === "object" &&
@@ -355,6 +357,26 @@ function hostIn<Id>(
     },
   };
   return host;
+}
+
+/** `params` of `operation` as the engine takes them, each declared field in its spelling (ADR 0099). */
+function paramsOnWire(operation: keyof CollieOperationTypes, params: unknown): unknown {
+  return toWire(params, collieWire.params[operation], collieWire.types);
+}
+
+/**
+ * `listener`, which reads the payload of `event`, as the engine names it,
+ * with each declared field in camelCase and each point in time a `Date`
+ * (ADRs 0092 and 0099); the payload's own data keeps its keys.
+ */
+function readingWire<Payload>(event: string, listener: Listener<Payload>): Listener<Payload> {
+  const events: Readonly<Record<string, WirePath | undefined>> = collieWire.events;
+  const path = Object.hasOwn(events, event) ? events[event] : undefined;
+  return path === undefined
+    ? listener
+    : (payload, dropped) =>
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine payloads are not validated beyond `hello`'s protocol version (STYLE.md): the payload is the event's as the catalog types it.
+        listener(fromWire(payload, path, collieWire.types) as Payload, dropped);
 }
 
 /** What stops a call given `given`, its own signal, that also stops when `signal` aborts. */
@@ -437,14 +459,14 @@ export class Run extends RunMembers implements AsyncDisposable {
   /** @internal The Connection's start opens a Run; a program never constructs one. */
   constructor(host: RunHost, started: RunStarted) {
     const scope: RunScope = {
-      id: started.run_id,
+      id: started.runId,
       state: started.lifecycle === "running" ? "running" : "ended",
       failures: [],
     };
-    super(hostIn(host, scope, undefined, started.run_id));
+    super(hostIn(host, scope, undefined, started.runId));
     this.#host = host;
     this.#scope = scope;
-    this.#startedAs = started.started_as;
+    this.#startedAs = started.startedAs;
     this.keyValueStore = new KeyValueStore(host.keyValueStore, scope.id, (operation) => {
       ensureOpen(scope, operation);
     });
@@ -486,7 +508,7 @@ export class Run extends RunMembers implements AsyncDisposable {
     this.#scope.state = "closed";
     try {
       if (running && this.#host.reachable()) {
-        await this.#host.calls.call("run.abort", { run_id: this.#scope.id }, {});
+        await this.#host.calls.call("run.abort", { runId: this.#scope.id }, {});
       }
     } finally {
       this.#host.forget(this);

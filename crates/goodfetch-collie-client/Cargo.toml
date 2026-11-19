@@ -29,6 +29,9 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
 tokio-util = { workspace = true, features = ["rt", "time"] }
 tracing.workspace = true
+# The callsites an engine's `$/log` events are re-emitted through, under
+# targets known only when they arrive (ADR 0078).
+tracing-core.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 [target.'cfg(windows)'.dependencies]

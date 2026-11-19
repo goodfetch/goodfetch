@@ -1073,8 +1073,13 @@ impl<T> crate::Call<T, ::goodfetch_protocol::page::NewPageParams> {
     /// main-content step its formats read with. Any other key is refused
     /// with `setting_not_applicable`, as only its Session or its Run sets
     /// it.
-    pub fn settings(self, settings: ::serde_json::Map<String, ::serde_json::Value>) -> Self {
-        self.edit(move |params| params.settings = settings)
+    ///
+    /// A key of [`crate::settings`] this scope does not set fails the call before it is sent.
+    pub fn settings(self, settings: crate::settings::Settings) -> Self {
+        self.try_edit(move |params| {
+            params.settings = settings.within(::goodfetch_protocol::catalog::SettingScope::Page)?;
+            Ok(())
+        })
     }
 }
 
@@ -1136,8 +1141,13 @@ impl<T> crate::Call<T, ::goodfetch_protocol::page::session::NewSessionPageParams
     /// with `setting_not_applicable`, as only its Session or its Run sets
     /// it; the Session's Access mode, Identity profile and proxy only its
     /// opening sets.
-    pub fn settings(self, settings: ::serde_json::Map<String, ::serde_json::Value>) -> Self {
-        self.edit(move |params| params.settings = settings)
+    ///
+    /// A key of [`crate::settings`] this scope does not set fails the call before it is sent.
+    pub fn settings(self, settings: crate::settings::Settings) -> Self {
+        self.try_edit(move |params| {
+            params.settings = settings.within(::goodfetch_protocol::catalog::SettingScope::Page)?;
+            Ok(())
+        })
     }
 }
 
@@ -1154,8 +1164,14 @@ impl<T> crate::Call<T, ::goodfetch_protocol::page::session::NewSessionParams> {
     /// `session.source` is refused here with `setting_not_applicable`,
     /// as the call's own `source` sets it, and so is any other key, which
     /// only the Run sets.
-    pub fn settings(self, settings: ::serde_json::Map<String, ::serde_json::Value>) -> Self {
-        self.edit(move |params| params.settings = settings)
+    ///
+    /// A key of [`crate::settings`] this scope does not set fails the call before it is sent.
+    pub fn settings(self, settings: crate::settings::Settings) -> Self {
+        self.try_edit(move |params| {
+            params.settings =
+                settings.within(::goodfetch_protocol::catalog::SettingScope::Session)?;
+            Ok(())
+        })
     }
     /// `session.source` for this Session alone: left out, the Run's or the
     /// connection's applies; `null`, the Session opens fresh (ADRs 0083

@@ -24,4 +24,6 @@ mod logging;
 mod navigations;
 mod points_in_time;
 mod scripted_daemon;
+mod settings;
+mod settings_types;
 mod start;

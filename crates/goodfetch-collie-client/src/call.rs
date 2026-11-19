@@ -107,6 +107,18 @@ impl<T, P> Call<T, P> {
         self
     }
 
+    /// Changes the params before they are sent, or fails the call with the
+    /// error `edit` returns, which it then answers without sending: an
+    /// option's builder method that checks its value, as `settings` does.
+    pub(crate) fn try_edit(mut self, edit: impl FnOnce(&mut P) -> Result<(), Error>) -> Self {
+        if let Ok(params) = &mut self.request.params
+            && let Err(error) = edit(params)
+        {
+            self.request.params = Err(error);
+        }
+        self
+    }
+
     /// Runs `note` with the reply's JSON once it has come.
     pub(crate) fn note(mut self, note: impl FnOnce(&Value) + Send + 'static) -> Self {
         self.request.note = Some(Box::new(note));

@@ -24,9 +24,12 @@
 # and re-emits the engine's `$/log` events (ADR 0078).
 # `event_stream` is the stream of a listener's events, read by meaning
 # (ADR 0081), with the credits it grants and the cancel its drop sends.
+# `settings` is the one `Settings` type every scope's opening takes, with
+# the typed keys `xtask codegen` writes from the catalog, and refuses a key
+# the scope does not set (ADR 0083).
 # Event resumption joins as its own module with the ticket that adds it.
 [modules]
-blocking = ["call", "connection", "error", "event_stream", "field_values", "generated", "limits", "response", "run"]
+blocking = ["call", "connection", "error", "event_stream", "field_values", "generated", "limits", "response", "run", "settings"]
 call = ["error", "rpc"]
 connect_timeout = ["call", "error"]
 connection = ["call", "connect_timeout", "error", "file_saving", "handler", "logging", "rpc", "sync", "transport"]
@@ -35,7 +38,7 @@ error = []
 event_stream = ["error", "rpc"]
 field_values = ["call", "error"]
 file_saving = ["error"]
-generated = ["call", "event_stream", "host", "markers", "response"]
+generated = ["call", "event_stream", "host", "markers", "response", "settings"]
 handler = ["error", "line", "sync"]
 host = ["call", "connection", "error", "event_stream", "sync"]
 limits = []
@@ -44,6 +47,7 @@ logging = ["sync"]
 markers = ["logging", "sync"]
 response = ["call", "connection", "error", "host"]
 rpc = ["error", "handler", "line", "logging", "transport"]
-run = ["connection", "error", "generated", "host", "limits", "logging", "markers"]
+run = ["connection", "error", "generated", "host", "limits", "logging", "markers", "settings"]
+settings = ["call", "error"]
 sync = []
 transport = []

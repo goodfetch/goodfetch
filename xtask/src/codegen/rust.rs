@@ -3,7 +3,8 @@
 //! with its members in the form their kind gives them, the values it builds
 //! without a call and its sub-objects, `blocking.rs`, its twin, which
 //! repeats it under the same type and method names, and `events.rs`, the
-//! marker types a handle's `events` reads its events by (ADR 0081).
+//! marker types a handle's `events` reads its events by (ADR 0081), and
+//! `settings.rs`, the typed keys of the crate's `Settings` (`settings`).
 //!
 //! - A round trip and a waiter return a `Call<T, P>` builder, a query a
 //!   `Query<T, P>`, which has no `timeout`; `P` is the operation's params
@@ -32,6 +33,7 @@
 
 mod index;
 mod listeners;
+mod settings;
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -98,8 +100,9 @@ const PAGE_EXCHANGE: &str = "::goodfetch_protocol::page::events::PageExchange";
 /// The ID of the page a `Response` reads its body through.
 const PAGE_ID: &str = "::goodfetch_protocol::page::PageId";
 
-/// Collie's Rust handles, `handles.rs`, `blocking.rs` and `events.rs` under
-/// [`FOLDER`], or nothing when the workspace has no Rust client.
+/// Collie's Rust handles, `handles.rs`, `blocking.rs`, `events.rs` and
+/// `settings.rs` under [`FOLDER`], or nothing when the workspace has no
+/// Rust client.
 pub(super) fn generate(root: &Path, layer: &Layer) -> Result<BTreeMap<String, Vec<u8>>> {
     if !root.join(MANIFEST).is_file() {
         return Ok(BTreeMap::new());
@@ -131,6 +134,11 @@ pub(super) fn generate(root: &Path, layer: &Layer) -> Result<BTreeMap<String, Ve
         rustfmt(&listeners::module(HEADER, &listeners))
             .context("formatting the Rust events' markers")?,
     );
+    files.insert(
+        format!("{FOLDER}/settings.rs"),
+        rustfmt(&settings::module(HEADER, &layer.settings)?)
+            .context("formatting the Rust settings' keys")?,
+    );
     Ok(files)
 }
 
@@ -158,6 +166,9 @@ struct Setter {
     declared: String,
     /// The value the field takes, from the argument named `ident`.
     set: String,
+    /// The scope whose settings the member opens, which a `settings` option
+    /// checks its keys against: the variant of `SettingScope`.
+    scope: Option<String>,
 }
 
 /// Which builder a member returns.
@@ -548,7 +559,12 @@ fn setter(field: &Field, doc: String) -> Setter {
     } else {
         (ty.to_owned(), ident.clone())
     };
-    Setter { doc, declared, set }
+    Setter {
+        doc,
+        declared,
+        set,
+        scope: None,
+    }
 }
 
 fn member_model(
@@ -594,8 +610,9 @@ fn member_model(
         let description = schema
             .and_then(|schema| schema["properties"][name.as_str()]["description"].as_str())
             .map_or_else(|| format!("Sets `{name}`."), str::to_owned);
-        own.entry(field.ident.clone())
-            .or_insert_with(|| setter(field, comment(&description)));
+        let made = settings::setter(member, name, &description, &owner)?
+            .unwrap_or_else(|| setter(field, comment(&description)));
+        own.entry(field.ident.clone()).or_insert(made);
     }
     let answers = match (&member.form, &member.unwrapped) {
         (Form::Opens(opened), _) => {
@@ -783,11 +800,17 @@ impl Module {
             let own = self.setters.entry((*builds, params.clone())).or_default();
             for (name, setter) in setters {
                 own.entry(name.clone()).or_insert_with(|| {
+                    let body = match &setter.scope {
+                        Some(scope) => format!(
+                            "self.try_edit(move |params| {{\n            params.{name} = {}.within(::goodfetch_protocol::catalog::SettingScope::{scope})?;\n            Ok(())\n        }})",
+                            setter.set
+                        ),
+                        None => format!("self.edit(move |params| params.{name} = {})", setter.set),
+                    };
                     format!(
-                        "{}    pub fn {name}(self, {name}: {}) -> Self {{\n        self.edit(move |params| params.{name} = {})\n    }}\n",
+                        "{}    pub fn {name}(self, {name}: {}) -> Self {{\n        {body}\n    }}\n",
                         indent(&setter.doc),
                         setter.declared,
-                        setter.set
                     )
                 });
             }

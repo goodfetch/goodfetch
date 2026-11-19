@@ -8,6 +8,7 @@
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
 
+use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::run::{RUN_START, RunId, RunStartParams, RunStarted, StartedAs, Tags};
 
 use crate::connection::ClientConnection;
@@ -16,6 +17,7 @@ use crate::generated::handles::Run;
 use crate::host::{HeldRun, Host};
 use crate::limits::Limits;
 use crate::logging::{self, engine_log_level};
+use crate::settings::Settings;
 
 /// The start of a Run (`run.start`), which awaiting sends. Nothing is sent
 /// until it is awaited.
@@ -24,6 +26,8 @@ use crate::logging::{self, engine_log_level};
 pub struct Start {
     connection: ClientConnection,
     params: RunStartParams,
+    /// The Run's own settings, which its params carry once checked.
+    settings: Settings,
 }
 
 impl Start {
@@ -33,6 +37,7 @@ impl Start {
         Self {
             connection,
             params: RunStartParams::default(),
+            settings: Settings::new(),
         }
     }
 
@@ -59,6 +64,16 @@ impl Start {
         self.params.limits = limits.into();
         self
     }
+
+    /// Sets the Run's own settings, in place of any given before: what
+    /// they leave out the connection's settings give, and the Run's
+    /// Sessions and pages inherit them (ADR 0083). A key a Run's start does
+    /// not set, as `timeout.run`, fails the start with
+    /// `setting_not_applicable` before anything is sent.
+    pub fn settings(mut self, settings: Settings) -> Self {
+        self.settings = settings;
+        self
+    }
 }
 
 impl IntoFuture for Start {
@@ -68,9 +83,10 @@ impl IntoFuture for Start {
     /// Reads the level the program's subscriber records for the engine
     /// on the calling thread, which the start tells the engine first when
     /// it changed (ADR 0078).
-    fn into_future(self) -> Self::IntoFuture {
+    fn into_future(mut self) -> Self::IntoFuture {
         let log_level = engine_log_level();
         Box::pin(async move {
+            self.params.settings = self.settings.within(SettingScope::Run)?;
             self.connection.follow_log_level(log_level).await?;
             let started: RunStarted = self
                 .connection

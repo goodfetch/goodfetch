@@ -57,7 +57,7 @@ pub use composition::{composition, composition_with};
 pub use goodfetch_collie_client::{
     BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange, FieldValues,
     Limits, Locator, Money, MoneyError, Page, Query, Response, Run, Session, Start, UsageKind,
-    events,
+    events, settings,
 };
 pub use goodfetch_protocol::page::events::PageRequest;
 pub use goodfetch_protocol::page::read::{

@@ -439,13 +439,16 @@ describe("a Connection opened with bounds of its own", () => {
     },
   );
 
-  test(
-    "fails to open on a bound that is no count, before it takes the transport",
+  test.for([
+    { bound: "maxPendingCalls", bounds: { maxPendingCalls: 0 } },
+    { bound: "maxListenerQueue", bounds: { maxListenerQueue: 1.5 } },
+  ])(
+    "fails to open on a $bound that is no count, before it takes the transport",
     { tags: ["error:setting_invalid"] },
-    async () => {
+    async ({ bounds }) => {
       const played = playScript("connect/accepted-by-foxhound.json");
 
-      const error = await failure(connectOver(played.transport, { maxPendingCalls: 0 }));
+      const error = await failure(connectOver(played.transport, bounds));
 
       expect(error).toMatchObject({ code: "setting_invalid" });
       expect(played.transport.writable.locked).toBe(false);

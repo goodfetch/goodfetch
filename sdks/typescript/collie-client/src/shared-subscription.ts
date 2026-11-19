@@ -1,12 +1,13 @@
 // The Connection's own Subscription (ADRs 0031 and 0081): one
 // `events.subscribe`, sent when the first listener whose events the engine
 // publishes on its event stream joins, such as a Session's, and cancelled
-// once the last leaves. Each event goes to the readers that take it, and its
-// credit goes back once each of them is through with it, so a slow listener
-// slows the stream; the engine then falls behind to `events.resync` rather
-// than wait, and the events in between are gone, which is logged.
+// once the last leaves. Each event's credit goes back as it goes to the
+// readers that take it, since each listener's own queue holds it or loses it
+// (`listeners.ts`), so a slow listener slows no other; should the stream still fall behind, the
+// engine sends `events.resync` rather than wait, and the events in between
+// are gone, which is logged.
 import type { Stream } from "./client-connection.ts";
-import { CREDITS, once, regranting } from "./listeners.ts";
+import { CREDITS, regranting } from "./listeners.ts";
 import type { Logger } from "./logger.ts";
 import type { ChannelOpenOptions } from "./rpc.ts";
 import { batchOf, type StreamedEvent } from "./stream.ts";
@@ -18,8 +19,8 @@ const RESYNC = "events.resync";
 export interface Reader {
   /** Whether it takes `event`, such as a page of its Session. */
   takes(event: StreamedEvent): boolean;
-  /** Takes `event`; `settled` hears once its listener is through with it. */
-  take(event: StreamedEvent, settled: () => void): void;
+  /** Takes `event`, into its listener's queue or lost: its credit is already back. */
+  take(event: StreamedEvent): void;
   /** Hears that the Subscription ended, which it no longer reads: with the error that ended it, if one did. */
   ended(failure: { readonly error: unknown } | undefined): void;
 }
@@ -34,14 +35,24 @@ interface Open {
 
 /** One Connection's Subscription, shared by the listeners that read it. */
 export class SharedSubscription {
+  /** How many events each listener's own queue holds, the one it has included: `maxListenerQueue`. */
+  readonly listenerQueue: number;
   readonly #open: (options: ChannelOpenOptions) => Stream;
   readonly #logger: Logger | undefined;
   #readers = new Set<Reader>();
   #current: Open | undefined;
 
-  /** `open` sends `events.subscribe`; `logger` hears that the stream fell behind. */
-  constructor(open: (options: ChannelOpenOptions) => Stream, logger: Logger | undefined) {
+  /**
+   * `open` sends `events.subscribe`; `logger` hears that the stream fell
+   * behind; `listenerQueue` bounds each listener's own queue.
+   */
+  constructor(
+    open: (options: ChannelOpenOptions) => Stream,
+    logger: Logger | undefined,
+    listenerQueue: number,
+  ) {
     this.#open = open;
+    this.listenerQueue = listenerQueue;
     this.#logger = logger;
   }
 
@@ -81,25 +92,18 @@ export class SharedSubscription {
     return current;
   }
 
-  /** Hands each of `events` to the readers that take it, and its credit back once each is through with it. */
+  /** Gives each of `events`' credit back, then hands it to the readers that take it. */
   #received(current: Open, events: readonly StreamedEvent[]): void {
     for (const event of events) {
       if (event.event === RESYNC) {
         this.#fellBehind();
       }
-      const takers = [...this.#readers].filter((reader) => reader.takes(event));
-      let waiting = takers.length;
-      const settled = (): void => {
-        waiting -= 1;
-        if (waiting === 0) {
-          current.settle();
+      // First, as a reader that takes it may be the last to leave.
+      current.settle();
+      for (const reader of this.#readers) {
+        if (reader.takes(event)) {
+          reader.take(event);
         }
-      };
-      if (takers.length === 0) {
-        current.settle();
-      }
-      for (const reader of takers) {
-        reader.take(event, once(settled));
       }
     }
   }

@@ -213,8 +213,8 @@ describe("a Collie Connection", () => {
         expect(error).toMatchObject({
           code: "deadline_exceeded",
           group: "deadline_exceeded",
+          limit: { key: "timeout.close", value: 30_000, layer: "default" },
           details: {
-            limit: { key: "timeout.close", value: 30_000, layer: "default" },
             elapsed: 30_000,
             waited_for: "close",
           },

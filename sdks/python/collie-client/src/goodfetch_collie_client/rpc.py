@@ -18,10 +18,11 @@ that use them.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, TypeAlias
+from typing import TYPE_CHECKING, Protocol, TypeAlias, TypeVar, cast
 
 import anyio
 
+from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.framing import (
     Failure,
     Invalid,
@@ -37,6 +38,7 @@ from goodfetch_collie_client.generated.errors import (
     ERROR_GROUP_OF_PROTOCOL_FAILURE,
     ERROR_GROUP_OF_WIRE_CLASS,
 )
+from goodfetch_collie_client.generated.models import ModelUsage, SettingLimit
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -44,7 +46,13 @@ if TYPE_CHECKING:
     from anyio.abc import ByteStream
 
     from goodfetch_collie_client.generated.errors import ErrorGroup
-    from goodfetch_collie_client.goodfetch_error import ErrorClass, GoodfetchError
+    from goodfetch_collie_client.goodfetch_error import (
+        ErrorClass,
+        ErrorFields,
+        GoodfetchError,
+    )
+
+_Field = TypeVar("_Field")
 
 METHOD_NOT_FOUND = -32601
 """JSON-RPC's code for a method the receiver does not serve."""
@@ -388,10 +396,9 @@ def error_of_reply(
     details = object_members(error.get("data")) or {}
     code = details.pop("code", None)
     retryable = details.pop("retryable", None)
-    fix_value = details.pop("fix", None)
-    fix = fix_value if isinstance(fix_value, str) else None
+    fields = _fields_of_data(details)
     if isinstance(code, str) and code in classes:
-        return classes[code](text, fix=fix, details=details)
+        return classes[code](text, **fields)
     wire = error.get("code")
     group: ErrorGroup = "internal"
     if isinstance(wire, int) and not isinstance(wire, bool):
@@ -403,6 +410,64 @@ def error_of_reply(
         code=code if isinstance(code, str) else "internal",
         group=group,
         retryable=retryable is True,
-        fix=fix,
-        details=details,
+        **fields,
     )
+
+
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _lines(value: object) -> list[str] | None:
+    if not isinstance(value, list):
+        return None
+    lines = [line for line in cast("list[object]", value) if isinstance(line, str)]
+    return lines if len(lines) == len(cast("list[object]", value)) else None
+
+
+def _setting_limit(value: object) -> SettingLimit | None:
+    members = object_members(value)
+    if members is None or not (
+        isinstance(members.get("key"), str) and isinstance(members.get("layer"), str)
+    ):
+        return None
+    return result_of(SettingLimit, members)
+
+
+def _model_usage(value: object) -> ModelUsage | None:
+    members = object_members(value)
+    return None if members is None else result_of(ModelUsage, members)
+
+
+def _take(
+    data: dict[str, object], key: str, read: Callable[[object], _Field | None]
+) -> _Field | None:
+    """`data[key]` read as its field, taken out of `data` when it has the shape."""
+    field = read(data.get(key))
+    if field is not None:
+        del data[key]
+    return field
+
+
+def _fields_of_data(data: dict[str, object]) -> ErrorFields:
+    """The fields every error carries, taken out of a reply's `data`.
+
+    What stays in `data` is the code's own details. A code's details may use
+    a field's name for something else, such as `response_limit_exceeded`'s
+    byte count as `limit`: a value without the field's shape stays in them.
+    `limit` and `usage` are built unvalidated, as every result is.
+    """
+    return {
+        "fix": _take(data, "fix", _text),
+        "operation": _take(data, "operation", _text),
+        "call_id": _take(data, "call_id", _text),
+        "run_id": _take(data, "run_id", _text),
+        "target": _take(data, "target", _text),
+        "url": _take(data, "url", _text),
+        "observed": _take(data, "observed", _text),
+        "limit": _take(data, "limit", _setting_limit),
+        "call_log": _take(data, "call_log", _lines) or [],
+        "usage": _take(data, "usage", _model_usage),
+        "agent_task": _take(data, "agent_task", object_members),
+        "details": data,
+    }

@@ -160,3 +160,14 @@ fn a_client_certificate_that_is_no_file_and_reference_is_refused_without_its_val
         "the refusal repeats the key: {refused}"
     );
 }
+
+/// A Rust program's client certificate goes on the wire as the table it
+/// reads back from (ADR 0083).
+#[test]
+fn a_client_certificate_writes_the_table_it_is_read_from() {
+    let entry = json!({ "certificate": "client.pem", "key": "env:CLIENT_KEY" });
+
+    let read = ClientCertificateConfiguration::read(&entry).unwrap();
+
+    assert_eq!(serde_json::to_value(read).unwrap(), entry);
+}

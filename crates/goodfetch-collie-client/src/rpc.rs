@@ -129,7 +129,7 @@ impl Sender {
         if let Err(mpsc::error::SendError(Command::Call(call, _))) =
             self.0.send(Command::Call(call, granted))
         {
-            let _closed = call.reply.send(Err(Error::closed()));
+            let _closed = call.reply.send(Err(Error::closed().in_call(&call.method)));
         }
     }
 
@@ -206,9 +206,18 @@ async fn write(
 
 /// A call in flight.
 struct Pending {
+    method: String,
     reply: oneshot::Sender<Result<Value, Error>>,
     deadline: Option<Key>,
     notified: Option<mpsc::Sender<Heard>>,
+}
+
+impl Pending {
+    /// Fails the call with `error`, which the runtime raised, as the call
+    /// reads it: headed by its operation (ADR 0079).
+    fn fail(self, error: Error) {
+        let _gone = self.reply.send(Err(error.in_call(&self.method)));
+    }
 }
 
 /// Sends calls, matches replies and deadlines to them, hands the engine's
@@ -225,6 +234,8 @@ async fn correlate(
     let mut pending: BTreeMap<i64, Pending> = BTreeMap::new();
     let mut deadlines: DelayQueue<i64> = DelayQueue::new();
     let mut next_id: i64 = 0;
+    // Whether the engine's side ended the Connection, rather than the Client.
+    let mut dropped = false;
     loop {
         tokio::select! {
             command = commands.recv() => match command {
@@ -237,15 +248,17 @@ async fn correlate(
                         method: call.method,
                         params: Some(call.params),
                     };
-                    let line = match line::encode(&request) {
+                    let encoded = line::encode(&request);
+                    let method = request.method;
+                    let line = match encoded {
                         Ok(line) => line,
                         Err(error) => {
-                            let _gone = call.reply.send(Err(Error::shape(error)));
+                            let _gone = call.reply.send(Err(Error::shape(error).in_call(&method)));
                             continue;
                         }
                     };
                     if lines.send(line).is_err() {
-                        let _gone = call.reply.send(Err(Error::closed()));
+                        let _gone = call.reply.send(Err(Error::closed().in_call(&method)));
                         continue;
                     }
                     let deadline = call.timeout.map(|timeout| deadlines.insert(id, timeout));
@@ -261,7 +274,7 @@ async fn correlate(
                         // so never learnt its id: the call is cancelled here.
                         send(&cancelled(id), &lines);
                     }
-                    pending.insert(id, Pending { reply: call.reply, deadline, notified: call.notified });
+                    pending.insert(id, Pending { method, reply: call.reply, deadline, notified: call.notified });
                 }
                 Some(Command::Notify(notification)) => send(&notification, &lines),
                 Some(Command::CancelSent(call)) => {
@@ -275,17 +288,19 @@ async fn correlate(
                 let id = expired.into_inner();
                 if let Some(call) = pending.remove(&id) {
                     tracing::debug!(target: "goodfetch::client", id, "a call timed out");
-                    let _gone = call.reply.send(Err(Error::timed_out()));
+                    call.fail(Error::timed_out());
                 }
             }
             line = input.next_line() => match line {
                 Ok(Some(line)) => answer(&line, &mut pending, &mut deadlines, &streams, &lines),
                 Ok(None) => {
                     tracing::debug!(target: "goodfetch::client", "the engine closed the Connection");
+                    dropped = true;
                     break;
                 }
                 Err(error) => {
                     tracing::debug!(target: "goodfetch::client", %error, "the Connection's input failed");
+                    dropped = true;
                     break;
                 }
             },
@@ -293,13 +308,20 @@ async fn correlate(
     }
     streams.end();
     commands.close();
+    let ended = || {
+        if dropped {
+            Error::dropped()
+        } else {
+            Error::closed()
+        }
+    };
     while let Ok(command) = commands.try_recv() {
         if let Command::Call(call, _) = command {
-            let _gone = call.reply.send(Err(Error::closed()));
+            let _gone = call.reply.send(Err(ended().in_call(&call.method)));
         }
     }
     for call in std::mem::take(&mut pending).into_values() {
-        let _gone = call.reply.send(Err(Error::closed()));
+        call.fail(ended());
     }
 }
 
@@ -413,8 +435,8 @@ fn hand_over(
             deadlines.remove(&key);
         }
         tracing::debug!(target: "goodfetch::client", id, "a streaming call's engine sent past its credits");
-        let _gone = call.reply.send(Err(Error::shape(serde::de::Error::custom(
+        call.fail(Error::shape(serde::de::Error::custom(
             "the engine streamed past the credits the call granted",
-        ))));
+        )));
     }
 }

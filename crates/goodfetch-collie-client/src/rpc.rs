@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use std::future::poll_fn;
 use std::time::Duration;
 
+use goodfetch_protocol::connection::{CANCEL, CancelParams};
 use goodfetch_protocol::jsonrpc::{Message, Notification, Request, RequestId, Version};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncWrite, AsyncWriteExt as _, BufReader};
@@ -179,8 +180,12 @@ async fn correlate(
                         continue;
                     }
                     let deadline = call.timeout.map(|timeout| deadlines.insert(id, timeout));
-                    if let Some(notified) = &call.notified {
-                        let _gone = notified.try_send(Heard::Sent(id));
+                    if let Some(notified) = &call.notified
+                        && let Err(mpsc::error::TrySendError::Closed(_)) = notified.try_send(Heard::Sent(id))
+                    {
+                        // Its caller stopped listening before it was sent,
+                        // so never learnt its id: the call is cancelled here.
+                        cancel(id, &lines);
                     }
                     pending.insert(id, Pending { reply: call.reply, deadline, notified: call.notified });
                 }
@@ -223,6 +228,21 @@ async fn correlate(
     }
     for call in std::mem::take(&mut pending).into_values() {
         let _gone = call.reply.send(Err(Error::Closed));
+    }
+}
+
+/// Sends `$/cancel` for the call `id` through `lines`.
+fn cancel(id: i64, lines: &mpsc::UnboundedSender<Vec<u8>>) {
+    let notification = Notification {
+        jsonrpc: Version,
+        method: CANCEL.to_owned(),
+        params: serde_json::to_value(CancelParams {
+            id: RequestId::Number(id),
+        })
+        .ok(),
+    };
+    if let Ok(line) = line::encode(&notification) {
+        let _closed = lines.send(line);
     }
 }
 

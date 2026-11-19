@@ -1,8 +1,9 @@
 //! The handles of Collie's Rust client crate (ADR 0099), generated into
 //! its `src/generated/` folder: `handles.rs`, one async handle a namespace,
 //! with its members in the form their kind gives them, the values it builds
-//! without a call and its sub-objects, and `blocking.rs`, its twin, which
-//! repeats it under the same type and method names.
+//! without a call and its sub-objects, `blocking.rs`, its twin, which
+//! repeats it under the same type and method names, and `events.rs`, the
+//! marker types a handle's `events` reads its events by (ADR 0081).
 //!
 //! - A round trip and a waiter return a `Call<T, P>` builder, a query a
 //!   `Query<T, P>`, which has no `timeout`; `P` is the operation's params
@@ -30,6 +31,7 @@
 //! checks every member against the crate's own types.
 
 mod index;
+mod listeners;
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -38,6 +40,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 
 use self::index::{Field, Index};
+use self::listeners::ListenerModel;
 use super::cdp::rustfmt;
 use super::handles::{self, Builder, Form, Handle, HandleId, Member, Parameters};
 use super::layer::{Deprecation, Layer, Stability};
@@ -95,8 +98,8 @@ const PAGE_EXCHANGE: &str = "::goodfetch_protocol::page::events::PageExchange";
 /// The ID of the page a `Response` reads its body through.
 const PAGE_ID: &str = "::goodfetch_protocol::page::PageId";
 
-/// Collie's Rust handles, `handles.rs` and `blocking.rs` under [`FOLDER`],
-/// or nothing when the workspace has no Rust client.
+/// Collie's Rust handles, `handles.rs`, `blocking.rs` and `events.rs` under
+/// [`FOLDER`], or nothing when the workspace has no Rust client.
 pub(super) fn generate(root: &Path, layer: &Layer) -> Result<BTreeMap<String, Vec<u8>>> {
     if !root.join(MANIFEST).is_file() {
         return Ok(BTreeMap::new());
@@ -107,10 +110,12 @@ pub(super) fn generate(root: &Path, layer: &Layer) -> Result<BTreeMap<String, Ve
     let handles = handles::handles(layer)?;
     let mut asynchronous = Module::new(Twin::Async);
     let mut blocking = Module::new(Twin::Blocking);
+    let mut listeners = Vec::new();
     for handle in &handles {
         let model = HandleModel::new(&index, layer, handle)?;
         asynchronous.handle(&model);
         blocking.handle(&model);
+        listeners.extend(model.listener);
     }
     let mut files = BTreeMap::new();
     files.insert(
@@ -120,6 +125,11 @@ pub(super) fn generate(root: &Path, layer: &Layer) -> Result<BTreeMap<String, Ve
     files.insert(
         format!("{FOLDER}/blocking.rs"),
         rustfmt(&blocking.text()).context("formatting the blocking Rust handles")?,
+    );
+    files.insert(
+        format!("{FOLDER}/events.rs"),
+        rustfmt(&listeners::module(HEADER, &listeners))
+            .context("formatting the Rust events' markers")?,
     );
     Ok(files)
 }
@@ -332,6 +342,8 @@ struct HandleModel {
     members: Vec<MemberModel>,
     builders: Vec<BuilderModel>,
     sub_objects: Vec<SubObjectModel>,
+    /// Its `events`, when it has a listener.
+    listener: Option<ListenerModel>,
     /// The setters each builder of each params type gains.
     setters: BTreeMap<(Builds, String), BTreeMap<String, Setter>>,
 }
@@ -383,6 +395,7 @@ impl HandleModel {
             members,
             builders,
             sub_objects,
+            listener: ListenerModel::new(index, handle)?,
             setters,
         })
     }
@@ -825,6 +838,9 @@ impl Module {
         }
         for member in &model.members {
             self.member(member);
+        }
+        if let Some(listener) = &model.listener {
+            self.body.push_str(&listener.member(self.twin));
         }
         for built in &model.builders {
             self.builder(built);

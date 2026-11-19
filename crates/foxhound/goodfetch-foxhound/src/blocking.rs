@@ -10,7 +10,7 @@ use goodfetch_collie::linked::LinkedConnection;
 use goodfetch_collie_client::{Error, blocking};
 
 pub use goodfetch_collie_client::blocking::{
-    Call, Connection, Exchange, Locator, Page, Query, Response, Run, Session, Start,
+    Call, Connection, EventIter, Exchange, Locator, Page, Query, Response, Run, Session, Start,
 };
 
 use crate::foxhound::ENGINE;

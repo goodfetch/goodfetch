@@ -17,19 +17,21 @@
 # the Connection both Products' connections implement (ADRs 0095 and 0099),
 # and `blocking` its blocking twin. `markers` warns once per process of a
 # deprecated or Experimental entry `generated` calls (ADRs 0030 and 0099).
-# Credits, cancellation and event resumption join as their own modules with
-# the tickets that add them.
+# `event_stream` is the stream of a listener's events, read by meaning
+# (ADR 0081), with the credits it grants and the cancel its drop sends.
+# Event resumption joins as its own module with the ticket that adds it.
 [modules]
-blocking = ["call", "connection", "error", "field_values", "generated", "limits", "response", "run"]
+blocking = ["call", "connection", "error", "event_stream", "field_values", "generated", "limits", "response", "run"]
 call = ["error", "rpc"]
 connection = ["call", "error", "file_saving", "handler", "rpc", "sync", "transport"]
 connection_type = ["error", "run"]
 error = []
+event_stream = ["error", "rpc"]
 field_values = ["call", "error"]
 file_saving = ["error"]
-generated = ["call", "host", "markers", "response"]
+generated = ["call", "event_stream", "host", "markers", "response"]
 handler = ["error", "line", "sync"]
-host = ["call", "connection", "error", "sync"]
+host = ["call", "connection", "error", "event_stream", "sync"]
 limits = []
 line = []
 markers = ["sync"]

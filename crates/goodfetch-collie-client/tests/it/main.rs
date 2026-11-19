@@ -14,6 +14,7 @@ mod connection_type;
 #[cfg(unix)]
 mod daemon;
 mod duration;
+mod events;
 mod file_saving;
 mod forms;
 mod handler_requests;

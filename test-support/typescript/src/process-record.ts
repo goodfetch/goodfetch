@@ -25,6 +25,12 @@ export interface SpawnOptions {
   readonly env: Readonly<Record<string, string | undefined>>;
   /** Its working folder; the test runner's own when absent. */
   readonly cwd?: string | undefined;
+  /**
+   * Whether it leads a process group of its own, as the program a terminal
+   * runs does, so a signal sent to its group never reaches the test runner;
+   * the runner's group when absent. Unix only: Windows ignores it here.
+   */
+  readonly detached?: boolean | undefined;
 }
 
 /** One test's record of the processes it started. */
@@ -36,6 +42,7 @@ export class ProcessRecord {
     const child = spawn(command, args, {
       env: options.env,
       cwd: options.cwd,
+      detached: process.platform !== "win32" && options.detached === true,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });

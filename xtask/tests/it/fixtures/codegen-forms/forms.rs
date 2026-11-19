@@ -10,7 +10,9 @@
 //! (ADR 0080), the settings the calls' own `timeout` sets, whose defaults a
 //! Python docstring states, and an event, `run.limited`, whose payload
 //! reaches the types every error carries, which the client packages'
-//! hand-written error base names (ADR 0079).
+//! hand-written error base names (ADR 0079). `page.wait_for_ready` takes a
+//! deprecated keyword, `poll`, and a choice with a deprecated value,
+//! `loaded`, which each SDK gives an overload of its own (ADR 0099).
 
 use std::collections::BTreeMap;
 
@@ -117,6 +119,15 @@ pub struct WaitForReadyParams {
     /// How far the document must get; `interactive` when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<ReadyState>,
+    /// How often the wait checks, in milliseconds: a deprecated keyword.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("deprecation" = {
+        "since": "0.1",
+        "replacement": null,
+        "earliest_removal": "1.0",
+        "note": "The engine picks how often a wait checks."
+    }))]
+    pub poll: Option<u64>,
 }
 
 /// What an operation that only acts answers.
@@ -163,6 +174,14 @@ pub enum ReadyState {
     Interactive,
     /// Loaded, with its subresources.
     Complete,
+    /// Loaded, as an earlier version named `complete`: a deprecated value.
+    #[schemars(extend("deprecation" = {
+        "since": "0.1",
+        "replacement": "complete",
+        "earliest_removal": "1.0",
+        "note": "The same state under its new name."
+    }))]
+    Loaded,
 }
 
 /// A field read from the page: the first element its selector finds, or

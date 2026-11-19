@@ -146,9 +146,11 @@ impl TinyClient {
     /// Closes its end and waits for the engine to exit.
     fn close(mut self) -> (ExitStatus, String) {
         drop(self.stdin.take());
-        let status = self.process.child().wait().unwrap();
+        // Read before the wait: an engine writing more than a pipe holds
+        // to its stderr only ends once that is read.
         let mut stderr = String::new();
         self.stderr.read_to_string(&mut stderr).unwrap();
+        let status = self.process.child().wait().unwrap();
         (status, stderr)
     }
 }
@@ -456,6 +458,24 @@ fn the_crash_mid_call_script_leaves_the_client_a_dead_pipe() {
 
     let (status, _) = client.close();
     assert_eq!((after, status.code()), (None, Some(101)));
+}
+
+#[test]
+fn an_exit_writes_its_crash_output_to_stderr_before_the_process_ends() {
+    let env = TestEnv::new();
+    let map = engine_map(&env, "collie", "attached-engine/crash-with-output.json");
+    let mut client = TinyClient::connect(&env, "collie", &map);
+    client.hello("0.1", "0.1.0");
+    client.next().unwrap().unwrap();
+
+    client.request("sample.echo", &json!({ "text": "hello" }));
+
+    let (status, stderr) = client.close();
+    let line = format!("thread 'main' panicked: {}\n", "é".repeat(1000));
+    assert_eq!(
+        (status.code(), stderr == line.repeat(40)),
+        (Some(101), true)
+    );
 }
 
 #[test]

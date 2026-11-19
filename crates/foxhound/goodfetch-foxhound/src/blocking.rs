@@ -10,7 +10,8 @@ use goodfetch_collie::{ConnectOptions, EngineInfo};
 use goodfetch_collie_client::{Error, blocking};
 
 pub use goodfetch_collie_client::blocking::{
-    Call, Connection, EventIter, Exchange, Locator, Page, Query, Response, Run, Session, Start,
+    Call, Connection, EventIter, Exchange, Locator, Page, Query, RawCall, Response, Run, Session,
+    Start,
 };
 
 use crate::foxhound::ENGINE;
@@ -63,6 +64,12 @@ impl Foxhound {
         self.linked.engine()
     }
 
+    /// The raw call of `operation`, as [`crate::Foxhound::call`]'s, which
+    /// `send()` sends.
+    pub fn call(&self, operation: &str) -> RawCall {
+        self.connection.raw_call(operation)
+    }
+
     /// The start of a Run the program drives (`run.start`), which `send()`
     /// sends.
     pub fn start(&self) -> Start {
@@ -89,13 +96,17 @@ impl Connection for Foxhound {
         Foxhound::start(self)
     }
 
+    fn call(&self, operation: &str) -> RawCall {
+        Foxhound::call(self, operation)
+    }
+
     fn close(&self) -> Result<(), Error> {
         Foxhound::close(self)
     }
 }
 
-/// The client crate's connection, the way down to its `call` (ADR 0099)
-/// until the public `call` joins the Connection with its own ticket.
+/// The client crate's connection, the way down to its typed `call` of a
+/// runtime method, which the raw `call` (ADR 0099) does not type.
 impl AsRef<blocking::ClientConnection> for Foxhound {
     fn as_ref(&self) -> &blocking::ClientConnection {
         &self.connection

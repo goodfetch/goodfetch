@@ -1164,9 +1164,10 @@ fn workspace_with_the_forms_catalog() -> Workspace {
 
 /// A prefix keeps its one meaning and a query never waits (ADR 0099), a
 /// result is typed by fields a call declares (ADR 0147), and a call's own
-/// `timeout` names the setting it sets (ADR 0080): `xtask codegen` refuses
-/// a catalog that says otherwise, naming the operation, in place of writing
-/// a member whose name, options or result lie.
+/// `timeout` names the setting it sets (ADR 0080), and a deprecated
+/// parameter or value leaves a call free of it (ADR 0099): `xtask codegen`
+/// refuses a catalog that says otherwise, naming the operation, in place of
+/// writing a member whose name, options or result lie.
 ///
 /// Covers: story:11-178
 #[rstest]
@@ -1232,6 +1233,24 @@ fn workspace_with_the_forms_catalog() -> Workspace {
     "",
     "operation `page.goto`"
 )]
+/// Covers: story:11-182
+#[case::a_deprecated_required_parameter(
+    "    /// The URL to navigate to.\n",
+    "    /// The URL to navigate to.\n    #[schemars(extend(\"deprecation\" = {\"since\": \"0.1\", \"replacement\": null, \"earliest_removal\": \"1.0\", \"note\": \"\"}))]\n",
+    "operation `page.goto`: its required parameter `url` is deprecated"
+)]
+/// Covers: story:11-182
+#[case::every_value_deprecated(
+    "    /// Parsed.\n    Interactive,\n    /// Loaded, with its subresources.\n    Complete,\n",
+    "",
+    "operation `page.wait_for_ready`: every value of its parameter `state` is deprecated"
+)]
+/// Covers: story:11-182
+#[case::a_deprecated_value_that_is_no_string(
+    "    Loaded,\n}",
+    "    Loaded(u64),\n}",
+    "operation `page.wait_for_ready`: its parameter `state` takes a deprecated variant that is no string"
+)]
 fn codegen_refuses_a_member_whose_form_its_kind_does_not_give(
     #[case] from: &str,
     #[case] to: &str,
@@ -1251,9 +1270,11 @@ fn codegen_refuses_a_member_whose_form_its_kind_does_not_give(
 /// generated handles type-check with the client package's own hand-written
 /// modules under `tsc` with `skipLibCheck: false`, and
 /// `codegen-forms/forms.types.ts` holds what a program can and cannot write
-/// against them.
+/// against them. A deprecated option or value has an overload of its own,
+/// which oxlint's `no-deprecated` reports on each use the fixture marks and
+/// on no other, since `tsc` reports no deprecation (ADR 0099).
 ///
-/// Covers: story:11-178
+/// Covers: story:11-178, story:11-182
 #[test]
 fn each_declared_kind_generates_its_typescript_form_which_type_checks() {
     let workspace = workspace_with_the_forms_catalog();
@@ -1296,6 +1317,28 @@ fn each_declared_kind_generates_its_typescript_form_which_type_checks() {
         String::from_utf8_lossy(&checked.stdout),
         String::from_utf8_lossy(&checked.stderr)
     );
+    workspace.add_fixture_file(
+        "codegen-forms/oxlintrc.json",
+        &format!("{COLLIE_CLIENT}/.oxlintrc.json"),
+    );
+    let linted = workspace
+        .command(repository.join("node_modules/.bin/oxlint"))
+        .current_dir(workspace.path().join(COLLIE_CLIENT))
+        .args([
+            "-c",
+            ".oxlintrc.json",
+            "--tsconfig",
+            "tsconfig.json",
+            "src/forms.types.ts",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        linted.status.success(),
+        "oxlint: {}{}",
+        String::from_utf8_lossy(&linted.stdout),
+        String::from_utf8_lossy(&linted.stderr)
+    );
     insta::assert_snapshot!(
         "typescript_forms_handles",
         workspace.read_text(&format!("{COLLIE_CLIENT}/src/generated/handles.ts"))
@@ -1335,9 +1378,11 @@ fn python_type_check(workspace: &Workspace, checker: &str, args: &[&str]) {
 /// and its sync twin: the generated handles type-check with the client
 /// package's own hand-written modules under pyright's strict mode and
 /// `mypy --strict`, and `codegen-forms/forms_types.py` holds what a program
-/// can and cannot write against them, each refusal checked by both.
+/// can and cannot write against them, each refusal checked by both. A
+/// deprecated keyword or value has an `@overload` of its own, which both
+/// report on each use the fixture marks and on no other (ADR 0099).
 ///
-/// Covers: story:11-178
+/// Covers: story:11-178, story:11-182
 #[test]
 fn each_declared_kind_generates_its_python_form_which_type_checks() {
     let workspace = workspace_with_the_forms_catalog();

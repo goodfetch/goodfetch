@@ -53,6 +53,15 @@ form = "closer"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "Foxhound"
+member = "call"
+entry = "none"
+reason = "The raw catalog call on the Connection, a builder whose `params` and result are `serde_json` values (ADR 0099, G8), for an operation acting on no value that the SDK does not generate: any catalog operation, so no entry is its own."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
 member = "engine"
 entry = "none"
 reason = "Answered from the engine's reply to `hello` (ADR 0095), with no round trip; `Collie::engine`'s member under the same name."
@@ -84,6 +93,15 @@ entry = "none"
 reason = "`Foxhound::close` without async (ADR 0081)."
 words = ["close"]
 form = "closer"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "call"
+entry = "none"
+reason = "`Foxhound::call` without async (ADR 0081), its builder ending in `send()`."
+words = ["call"]
+form = "round_trip"
 
 [[member]]
 crate = "goodfetch-foxhound"

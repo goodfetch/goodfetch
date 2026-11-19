@@ -40,11 +40,20 @@
 //!   document's response rather than a wrapper of it (issue 2517); an
 //!   optional property answers the language's none when it is absent. The
 //!   operation's own function, the wire and the result type are unchanged.
+//! - An optional parameter marked `deprecation`, or a value of a
+//!   parameter's choice of strings marked so, is a deprecated form of a
+//!   member that is not deprecated itself: a language with overloads gives
+//!   each its own overload carrying the deprecation, so a type checker
+//!   reports a call that uses it and no other (ADR 0099), and ends with one
+//!   that takes every form, so a call whose value only its type gives, a
+//!   union or an optional one, still resolves. A required
+//!   parameter, which every call passes, or every value of a choice, which
+//!   leaves no call free of it, is refused.
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
 
-use super::layer::{Kind, Layer, Operation};
+use super::layer::{Deprecation, Kind, Layer, Operation};
 
 /// The namespaces whose handles the generators write so far; each other
 /// one joins with the ticket that builds its value.
@@ -156,6 +165,29 @@ pub(super) struct Unwrapped {
     pub(super) required: bool,
 }
 
+/// The schema keyword that marks a deprecated parameter, or a deprecated
+/// value of a choice of strings, with its deprecation (ADR 0099).
+pub(super) const DEPRECATION: &str = "deprecation";
+
+/// A deprecated form of a member's call (ADR 0099): passing an optional
+/// parameter, or one value of a parameter's choice of strings.
+pub(super) struct DeprecatedForm {
+    /// The parameter, as the wire names it.
+    pub(super) param: String,
+    /// The value of its choice that is deprecated; none when passing the
+    /// parameter at all is.
+    pub(super) value: Option<String>,
+    pub(super) deprecation: Deprecation,
+}
+
+impl DeprecatedForm {
+    /// Whether this form is the deprecated value `value` of the parameter
+    /// `param`.
+    pub(super) fn is_value(&self, param: &str, value: &str) -> bool {
+        self.param == param && self.value.as_deref() == Some(value)
+    }
+}
+
 /// An operation as a member of a handle or of one of its sub-objects.
 pub(super) struct Member<'a> {
     pub(super) operation: &'a Operation,
@@ -171,6 +203,55 @@ pub(super) struct Member<'a> {
     /// The one property of its result, which it answers in place of the
     /// result; none when the result has no property or several.
     pub(super) unwrapped: Option<Unwrapped>,
+    /// Its deprecated forms, each an overload of its own; none when the
+    /// member itself is deprecated, which marks every call.
+    pub(super) deprecated_forms: Vec<DeprecatedForm>,
+}
+
+/// Which of a member's signatures a generator declares (ADR 0099): an
+/// overload free of the deprecated forms leaves out a deprecated parameter
+/// and narrows a choice to its current values; a deprecated form's overload
+/// requires that parameter, narrowed to the deprecated value for one. The
+/// last overload takes every form, as the implementation does.
+#[derive(Clone, Copy)]
+pub(super) enum Overload<'f> {
+    /// The implementation, which takes every form.
+    Every,
+    /// The overload free of every deprecated form of the member.
+    Current(&'f [DeprecatedForm]),
+    /// The overload of one deprecated form, which takes the others too.
+    Deprecated(&'f DeprecatedForm),
+}
+
+impl Overload<'_> {
+    /// Whether the parameter `param` takes the value `value` of its choice.
+    pub(super) fn takes(self, param: &str, value: &str) -> bool {
+        match self {
+            Self::Every => true,
+            Self::Current(forms) => !forms.iter().any(|form| form.is_value(param, value)),
+            Self::Deprecated(form) => {
+                form.param != param || form.value.as_deref().is_none_or(|only| only == value)
+            }
+        }
+    }
+
+    /// Whether the parameter `param` is this overload's deprecated form,
+    /// which a call passes to choose it.
+    pub(super) fn chosen_by(self, param: &str) -> bool {
+        matches!(self, Self::Deprecated(form) if form.param == param)
+    }
+
+    /// Whether this overload is the deprecated value of the parameter
+    /// `param`, which it takes alone, without the language's none.
+    pub(super) fn chosen_value_of(self, param: &str) -> bool {
+        matches!(self, Self::Deprecated(form) if form.param == param && form.value.is_some())
+    }
+
+    /// Whether the parameter `param` is left out: passing it is a
+    /// deprecated form, which the current overload never takes.
+    pub(super) fn leaves_out(self, param: &str) -> bool {
+        matches!(self, Self::Current(forms) if forms.iter().any(|form| form.param == param && form.value.is_none()))
+    }
 }
 
 /// A value a handle builds without a call.
@@ -395,6 +476,101 @@ fn unwrapped(
     }))
 }
 
+/// The definition `property` takes: a reference, alone or beside `null`.
+fn definition_of<'l>(layer: &'l Layer, property: &Value) -> Option<&'l Value> {
+    let reference = match property["anyOf"].as_array() {
+        Some(variants) => {
+            let mut values = variants.iter().filter(|variant| variant["type"] != "null");
+            let only = values.next()?;
+            values.next().is_none().then_some(only)?
+        }
+        None => property,
+    };
+    layer.definitions.get(referenced(reference)?)
+}
+
+/// `schema`'s deprecation, if it marks one.
+fn deprecation(operation: &Operation, schema: &Value) -> Result<Option<Deprecation>> {
+    schema
+        .get(DEPRECATION)
+        .map(|marked| {
+            serde_json::from_value(marked.clone()).with_context(|| {
+                format!(
+                    "operation `{}`: a `{DEPRECATION}` of its params is no deprecation (ADR 0099)",
+                    operation.name
+                )
+            })
+        })
+        .transpose()
+}
+
+/// The deprecated forms of `operation`'s call, read from its params,
+/// `schema`: each optional parameter marked `deprecation`, and each value
+/// so marked of a parameter's choice of strings. None for a deprecated
+/// operation, whose every call its own marker reports.
+fn deprecated_forms(
+    layer: &Layer,
+    operation: &Operation,
+    schema: &Value,
+    parameters: &Parameters,
+) -> Result<Vec<DeprecatedForm>> {
+    if operation.deprecated.is_some() {
+        return Ok(Vec::new());
+    }
+    let mut forms = Vec::new();
+    let passed = parameters
+        .positional
+        .iter()
+        .chain(&parameters.named)
+        .chain(&parameters.optional);
+    for param in passed {
+        let property = &schema["properties"][param];
+        if let Some(deprecation) = deprecation(operation, property)? {
+            if !parameters.optional.contains(param) {
+                bail!(
+                    "operation `{}`: its required parameter `{param}` is deprecated, which every call passes; make it optional (ADR 0099)",
+                    operation.name
+                );
+            }
+            forms.push(DeprecatedForm {
+                param: param.clone(),
+                value: None,
+                deprecation,
+            });
+        }
+        let variants = definition_of(layer, property)
+            .and_then(|definition| definition["oneOf"].as_array())
+            .into_iter()
+            .flatten();
+        let mut current = false;
+        for variant in variants {
+            let deprecation = deprecation(operation, variant)?;
+            match (variant["const"].as_str(), deprecation) {
+                (Some(value), Some(deprecation)) => forms.push(DeprecatedForm {
+                    param: param.clone(),
+                    value: Some(value.to_owned()),
+                    deprecation,
+                }),
+                (_, None) => current = true,
+                (None, Some(_)) => bail!(
+                    "operation `{}`: its parameter `{param}` takes a deprecated variant that is no string, which only a choice of strings marks (ADR 0099)",
+                    operation.name
+                ),
+            }
+        }
+        let deprecated_values = forms
+            .iter()
+            .any(|form| form.param == *param && form.value.is_some());
+        if deprecated_values && !current {
+            bail!(
+                "operation `{}`: every value of its parameter `{param}` is deprecated, which leaves no call free of it; deprecate the parameter (ADR 0099)",
+                operation.name
+            );
+        }
+    }
+    Ok(forms)
+}
+
 /// The Duration setting `operation`'s own `timeout` sets, which its params
 /// type, `schema`, names with `setting`; none when it takes no `timeout`.
 fn timeout_setting(operation: &Operation, schema: &Value) -> Result<Option<String>> {
@@ -602,6 +778,7 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
                 operation,
                 name,
                 form,
+                deprecated_forms: deprecated_forms(layer, operation, schema, &parameters)?,
                 parameters,
                 typed_by,
                 timeout_setting,

@@ -33,6 +33,13 @@
 //! - A handle's listener is its `on`, overloaded once per type its
 //!   listener gets so each event's listener is typed (`listeners`, ADR
 //!   0081). A Session's gets the pages it opened as page handles.
+//! - A member with deprecated forms, a deprecated keyword or a deprecated
+//!   value of a choice, has an `@overload` free of them, then one for each,
+//!   marked with PEP 702's `@deprecated`, which takes that keyword or that
+//!   value alone, so pyright and mypy report a call that uses it and no
+//!   other (ADR 0099), and last one that takes every form, as the
+//!   implementation does, so a call whose value only its type gives still
+//!   resolves.
 //!
 //! Each parameter's annotation is read from its schema; one the generator
 //! cannot spell fails `xtask codegen` with the operation named, and the
@@ -45,7 +52,9 @@ use std::fmt::Write as _;
 use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
 
-use super::super::handles::{Builder, Form, Handle, HandleId, Member, Parameters};
+use super::super::handles::{
+    Builder, DEPRECATION, Form, Handle, HandleId, Member, Overload, Parameters,
+};
 use super::super::layer::{Layer, Stability};
 use super::super::naming::{pascal, snake};
 use super::super::settings_tree::SETTINGS;
@@ -172,8 +181,14 @@ fn primitive(kind: &str) -> Option<&'static str> {
 }
 
 /// `schema`'s wrapped value, when it is a reference, alone or beside
-/// `null`, to a definition that wraps one wire value.
-fn wrapped(schema: &Value, layer: &Layer, imports: &mut Imports) -> Option<Wrapped> {
+/// `null`, to a definition that wraps one wire value: of a choice, the
+/// values `takes` keeps.
+fn wrapped(
+    schema: &Value,
+    layer: &Layer,
+    imports: &mut Imports,
+    takes: impl Fn(&str) -> bool,
+) -> Option<Wrapped> {
     let (reference, nullable) = match schema["anyOf"].as_array() {
         Some(variants) => {
             let mut values = variants.iter().filter(|variant| variant["type"] != "null");
@@ -204,7 +219,11 @@ fn wrapped(schema: &Value, layer: &Layer, imports: &mut Imports) -> Option<Wrapp
     let annotation = match choices {
         Some(Some(choices)) if !choices.is_empty() => {
             imports.typing.insert("Literal");
-            let choices: Vec<String> = choices.iter().map(|choice| format!("{choice:?}")).collect();
+            let choices: Vec<String> = choices
+                .iter()
+                .filter(|choice| takes(choice))
+                .map(|choice| format!("{choice:?}"))
+                .collect();
             format!("Literal[{}]", choices.join(", "))
         }
         Some(_) => return None,
@@ -219,12 +238,13 @@ fn wrapped(schema: &Value, layer: &Layer, imports: &mut Imports) -> Option<Wrapp
 
 /// The keywords that describe a value without restricting it: the JSON
 /// Schema annotations, and the bundle's `arrived_in`, the version that
-/// added it.
-const ANNOTATIONS: [&str; 7] = [
+/// added it, and `deprecation`, the deprecation it marks (ADR 0099).
+const ANNOTATIONS: [&str; 8] = [
     "$comment",
     "arrived_in",
     "default",
     "deprecated",
+    DEPRECATION,
     "description",
     "examples",
     "title",
@@ -330,6 +350,10 @@ struct CatalogTyped<'a> {
     settings_type: Option<&'static str>,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each is one input of the one signature, which a struct would only rename"
+)]
 fn signature(
     layer: &Layer,
     owner: &str,
@@ -337,6 +361,7 @@ fn signature(
     parameters: &Parameters,
     typed: CatalogTyped<'_>,
     id: &HandleId,
+    overload: Overload<'_>,
     imports: &mut Imports,
 ) -> Result<Signature> {
     let schema = layer
@@ -356,8 +381,11 @@ fn signature(
             annotation,
             model,
             nullable,
-        }) = wrapped(property, layer, imports)
-        {
+        }) = wrapped(property, layer, imports, |value| {
+            overload.takes(name, value)
+        }) {
+            // A deprecated value's overload takes that value alone.
+            let nullable = nullable && !overload.chosen_value_of(name);
             return Ok(if nullable {
                 (
                     format!("{annotation} | None"),
@@ -391,6 +419,9 @@ fn signature(
     }
     let mut optional = Vec::new();
     for name in &parameters.optional {
+        if overload.leaves_out(name) {
+            continue;
+        }
         let (spelled, passed) = match (
             typed.timeout_setting.filter(|_| name == TIMEOUT),
             typed.settings_type.filter(|_| name == SETTINGS),
@@ -408,8 +439,13 @@ fn signature(
             }
             (None, None) => spell(name, imports)?,
         };
-        imports.handle.extend(["NotGiven", "not_given"]);
-        declared.push(format!("{name}: {spelled} | NotGiven = not_given"));
+        // A deprecated form's overload is chosen by passing it.
+        if overload.chosen_by(name) {
+            declared.push(format!("{name}: {spelled}"));
+        } else {
+            imports.handle.extend(["NotGiven", "not_given"]);
+            declared.push(format!("{name}: {spelled} | NotGiven = not_given"));
+        }
         optional.push((name.clone(), passed));
     }
     let model = imports.model(model);
@@ -440,6 +476,35 @@ fn build(signature: &Signature, local: &str, text: &mut String) -> String {
     local.to_owned()
 }
 
+/// The description of `member`'s docstring: its operation's, then the
+/// default its own `timeout` takes and each of its deprecated forms.
+fn description(layer: &Layer, member: &Member<'_>) -> Result<String> {
+    let operation = member.operation;
+    let description = match &member.timeout_setting {
+        Some(setting) => format!(
+            "{}\n\n{}",
+            operation.description,
+            timeout_default(layer, &operation.name, setting)?
+        ),
+        None => operation.description.clone(),
+    };
+    Ok(member
+        .deprecated_forms
+        .iter()
+        .fold(description, |mut text, form| {
+            let used = match &form.value {
+                Some(value) => format!("`{}={value:?}`", form.param),
+                None => format!("`{}`", form.param),
+            };
+            let _ = write!(
+                text,
+                "\n\nDeprecated: {used}. {}",
+                form.deprecation.message()
+            );
+            text
+        }))
+}
+
 /// One member, a method of the class that holds `self._host`.
 fn member(
     layer: &Layer,
@@ -450,18 +515,23 @@ fn member(
 ) -> Result<String> {
     let operation = member.operation;
     let (params, result) = (&operation.params.0, &operation.result.0);
-    let signature = signature(
-        layer,
-        &operation.name,
-        params,
-        &member.parameters,
-        CatalogTyped {
-            timeout_setting: member.timeout_setting.as_deref(),
-            settings_type: scope_settings(member)?,
-        },
-        id,
-        imports,
-    )?;
+    let typed = CatalogTyped {
+        timeout_setting: member.timeout_setting.as_deref(),
+        settings_type: scope_settings(member)?,
+    };
+    let signature_of = |overload, imports: &mut Imports| {
+        signature(
+            layer,
+            &operation.name,
+            params,
+            &member.parameters,
+            typed,
+            id,
+            overload,
+            imports,
+        )
+    };
+    let signature = signature_of(Overload::Every, imports)?;
     let Mode {
         prefix,
         asynchronous,
@@ -479,22 +549,39 @@ fn member(
         imports.deprecated = true;
         text.push_str(&deprecated_decorator(deprecated));
     }
+    if !member.deprecated_forms.is_empty() {
+        imports.typing.insert("overload");
+        imports.deprecated = true;
+        let current = signature_of(Overload::Current(&member.deprecated_forms), imports)?;
+        let _ = write!(
+            text,
+            "    @overload\n    {asynchronous}def {}(self{}) -> {returns}: ...\n\n",
+            member.name, current.declared
+        );
+        for form in &member.deprecated_forms {
+            let deprecated = signature_of(Overload::Deprecated(form), imports)?;
+            let _ = write!(
+                text,
+                "    @overload\n{}    {asynchronous}def {}(self{}) -> {returns}: ...\n\n",
+                deprecated_decorator(&form.deprecation),
+                member.name,
+                deprecated.declared
+            );
+        }
+        let _ = write!(
+            text,
+            "    @overload\n    {asynchronous}def {}(self{}) -> {returns}: ...\n\n",
+            member.name, signature.declared
+        );
+    }
     let _ = writeln!(
         text,
         "    {asynchronous}def {}(self{}) -> {returns}:",
         member.name, signature.declared
     );
-    let description = match &member.timeout_setting {
-        Some(setting) => format!(
-            "{}\n\n{}",
-            operation.description,
-            timeout_default(layer, &operation.name, setting)?
-        ),
-        None => operation.description.clone(),
-    };
     text.push_str(&docstring(
         "        ",
-        &description,
+        &description(layer, member)?,
         operation.stability,
         operation.deprecated.as_ref(),
     ));
@@ -575,6 +662,7 @@ fn builder(
         &builder.parameters,
         CatalogTyped::default(),
         id,
+        Overload::Every,
         imports,
     )?;
     let mut text = String::new();

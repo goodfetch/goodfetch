@@ -234,6 +234,26 @@ impl Error {
         error
     }
 
+    /// A raw call (ADR 0099) refused before it is sent, as the engine
+    /// would refuse its params: `invalid_params`, group `program`, not
+    /// retryable, with `fix` and the operation.
+    pub(crate) fn refused(operation: &str, reason: &str, fix: &str) -> Self {
+        let failure = ProtocolFailure::InvalidParams;
+        let mut data = Map::new();
+        data.insert("fix".to_owned(), fix.into());
+        data.insert("operation".to_owned(), operation.into());
+        Self(Box::new(Inner {
+            code: ErrorCode::new(failure.name())
+                .expect("invariant: a protocol failure's name fits an ErrorCode"),
+            group: failure.group(),
+            retryable: false,
+            message: format!("{operation}: {reason}"),
+            data,
+            answered: false,
+            source: None,
+        }))
+    }
+
     /// The error the engine answered a call with.
     pub(crate) fn answered(object: ErrorObject) -> Self {
         let ErrorObject {

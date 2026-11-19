@@ -4,7 +4,8 @@ One per Connection, started by `connect()` and joined by `close()`, never
 process-wide. It runs its own event loop, so it never touches the caller's:
 the sync API works in a notebook cell, in Streamlit and in a sync tool's
 thread. It is a daemon thread, so a program that forgets `close()` still
-exits. Any number of threads may call through it at once.
+exits. Any number of threads may call through it at once. A forked child
+has none of it: a call there fails with `connection_forked` (ADR 0078).
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ from typing import TYPE_CHECKING, TypeVar
 
 import anyio
 from anyio.from_thread import BlockingPortal
+
+from goodfetch_collie_client.opening_process import OpeningProcess
 
 if TYPE_CHECKING:
     import concurrent.futures
@@ -34,6 +37,7 @@ class PrivateLoop:
 
     def __init__(self) -> None:
         """Starts the thread and waits for its loop to run."""
+        self._opener = OpeningProcess()
         ready = threading.Event()
         holder: list[BlockingPortal] = []
 
@@ -59,7 +63,11 @@ class PrivateLoop:
 
         Raises:
             LoopStopped: The loop has stopped, so its Connection is closed.
+            ConnectionForkedError: Another process than the one that started
+                the loop, such as a forked child, which has no loop thread,
+                made the call.
         """
+        self._opener.ensure_current()
         try:
             future: concurrent.futures.Future[_T] = self._portal.start_task_soon(
                 function
@@ -73,7 +81,13 @@ class PrivateLoop:
             raise
 
     def stop(self) -> None:
-        """Ends the loop once its calls are done, and joins the thread."""
+        """Ends the loop once its calls are done, and joins the thread.
+
+        In another process than the one that started it, such as a forked
+        child, it does nothing: the thread is the opener's alone.
+        """
+        if not self._opener.is_current():
+            return
         if threading.current_thread() is self._thread:
             message = "invariant: the private loop is never stopped from its own thread"
             raise RuntimeError(message)

@@ -3,15 +3,84 @@
 //! The events a program reads by meaning (ADR 0081): a marker type for each, which a handle's `events` takes, and a trait for each handle's that names what each carries.
 
 /// What the markers' traits build on, which only the crate implements:
-/// the value that names each event to the engine, and its name in the
-/// engine's batches.
+/// the value that names each event to the engine, its name in the
+/// engine's batches, and what a stream builds of an event the engine
+/// publishes.
 pub(crate) mod sealed {
+    /// What a `SessionEvent` names its event by.
+    pub trait SessionEvent {
+        /// The value the call names it by.
+        const EVENT: ::goodfetch_protocol::page::session_pages::SessionEventName;
+        /// Its name in the engine's batches.
+        const NAME: &'static str;
+
+        /// What a stream of `handle`'s events hands of the event's
+        /// `data`.
+        ///
+        /// # Errors
+        ///
+        /// `internal` when `data` does not fit the event's payload.
+        fn build(
+            handle: &crate::Session,
+            data: ::serde_json::Value,
+        ) -> Result<<Self as super::SessionEvent>::Data, crate::Error>
+        where
+            Self: super::SessionEvent;
+
+        /// The blocking twin of what a stream hands.
+        fn blocking(
+            data: <Self as super::SessionEvent>::Data,
+        ) -> <Self as super::SessionEvent>::BlockingData
+        where
+            Self: super::SessionEvent;
+    }
+
     /// What a `PageEvent` names its event by.
     pub trait PageEvent {
         /// The value the call names it by.
         const EVENT: ::goodfetch_protocol::page::events::PageEventName;
-        /// Its name in the call's batches.
+        /// Its name in the engine's batches.
         const NAME: &'static str;
+    }
+}
+
+/// An event a handle's `events` reads by its marker, such as
+/// [`Page`]; only this module's markers implement it.
+pub trait SessionEvent: sealed::SessionEvent + Copy + Send + Sync + 'static {
+    /// What a stream hands of the event: the handle it tells of, or
+    /// its payload.
+    type Data: Send + 'static;
+    /// What a blocking iterator hands of it.
+    type BlockingData: Send + 'static;
+}
+
+/// A page opened in the Session: one `session.new_page` or `run.new_page` opened, or a popup one of its pages opened. Published while `session.on` listens to `page`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Page;
+
+impl SessionEvent for Page {
+    type Data = crate::Page;
+    type BlockingData = crate::blocking::Page;
+}
+
+impl sealed::SessionEvent for Page {
+    const EVENT: ::goodfetch_protocol::page::session_pages::SessionEventName =
+        ::goodfetch_protocol::page::session_pages::SessionEventName::Page;
+    const NAME: &'static str = "session.page";
+
+    fn build(
+        handle: &crate::Session,
+        data: ::serde_json::Value,
+    ) -> Result<crate::Page, crate::Error> {
+        let payload: ::goodfetch_protocol::page::PageOpened =
+            ::serde_json::from_value(data).map_err(crate::Error::shape)?;
+        Ok(crate::Page {
+            host: handle.host.reached(payload.page_id),
+        })
+    }
+
+    fn blocking(data: crate::Page) -> crate::blocking::Page {
+        crate::blocking::Page { inner: data }
     }
 }
 

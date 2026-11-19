@@ -19,6 +19,15 @@ impl Run {
         self.host.id()
     }
 
+    /// The raw call of `operation`, an operation of `run` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `run_id`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::RawCall {
+        self.host.raw(operation, "run", "run_id")
+    }
+
     /// Opens a page in the Run.
     ///
     /// # Errors
@@ -97,6 +106,15 @@ impl Page {
     #[must_use]
     pub fn id(&self) -> &::goodfetch_protocol::forms::PageId {
         self.host.id()
+    }
+
+    /// The raw call of `operation`, an operation of `page` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `page_id`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::RawCall {
+        self.host.raw(operation, "page", "page_id")
     }
 
     /// Its `keyboard`.
@@ -203,6 +221,7 @@ impl Page {
                     timeout: None,
                     expected: None,
                     state: None,
+                    poll: None,
                 },
             )
             .wire_timeout()
@@ -233,6 +252,15 @@ impl Locator {
     #[must_use]
     pub fn id(&self) -> &::goodfetch_protocol::forms::Locator {
         self.host.id()
+    }
+
+    /// The raw call of `operation`, an operation of `locator` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `locator`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::RawCall {
+        self.host.raw(operation, "locator", "locator")
     }
 
     /// Clicks what the locator finds.
@@ -271,6 +299,10 @@ impl<T> crate::Call<T, ::goodfetch_protocol::forms::WaitForReadyParams> {
     /// A JSON value the wait checks against, of any type; absent for none.
     pub fn expected(self, expected: ::serde_json::Value) -> Self {
         self.edit(move |params| params.expected = Some(expected))
+    }
+    /// How often the wait checks, in milliseconds: a deprecated keyword.
+    pub fn poll(self, poll: u64) -> Self {
+        self.edit(move |params| params.poll = Some(poll))
     }
     /// How far the document must get; `interactive` when absent.
     pub fn state(self, state: ::goodfetch_protocol::forms::ReadyState) -> Self {

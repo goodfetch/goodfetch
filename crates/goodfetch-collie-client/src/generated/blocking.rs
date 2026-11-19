@@ -15,6 +15,15 @@ impl Run {
         self.inner.id()
     }
 
+    /// The raw call of `operation`, an operation of `run` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `run_id`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::blocking::RawCall {
+        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.connection())
+    }
+
     /// Stops a Run at its next safe point, `stopped` and `incomplete`: no attempt in flight commits, and its work items return to pending. Answers its Run report; an ended Run's report is answered as it is. A Run whose engine died is stopped by this engine, which takes its writer role at the next run epoch; a Run another engine writes is stopped by that engine, the owner the Run index names.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
@@ -239,6 +248,15 @@ impl Session {
         self.inner.id()
     }
 
+    /// The raw call of `operation`, an operation of `session` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `session_id`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::blocking::RawCall {
+        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.connection())
+    }
+
     /// Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
@@ -284,6 +302,27 @@ impl Session {
     > {
         crate::blocking::Call::new(self.inner.pages(), self.inner.host.connection())
     }
+
+    /// Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.
+    ///
+    /// In Rust, the marker type of `event`, from [`crate::events`], names the event read, and the stream answered, its call already sent, hands its events in order. It reads them from the Connection's own Subscription, which the first such stream sends before its call and the last one dropped cancels; an event it has not read holds one of the Subscription's credits. Dropping the stream cancels its call without blocking and without a warning.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Its stream hands `closed` when its handle or the Connection is closed, the engine's error, and `internal` for an event that does not fit its type.
+    pub fn events<E: crate::events::SessionEvent>(
+        &self,
+        event: E,
+    ) -> crate::blocking::EventIter<E::BlockingData> {
+        crate::blocking::EventIter::new(
+            self.inner
+                .events(event)
+                .map(<E as crate::events::sealed::SessionEvent>::blocking),
+            self.inner.host.connection(),
+        )
+    }
 }
 
 /// A `page` a program holds: the members the catalog gives it (ADR 0099).
@@ -297,6 +336,15 @@ impl Page {
     #[must_use]
     pub fn id(&self) -> &::goodfetch_protocol::page::PageId {
         self.inner.id()
+    }
+
+    /// The raw call of `operation`, an operation of `page` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `page_id`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::blocking::RawCall {
+        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.connection())
     }
 
     /// Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that.
@@ -622,6 +670,15 @@ impl Locator {
     #[must_use]
     pub fn id(&self) -> &::goodfetch_protocol::page::Locator {
         self.inner.id()
+    }
+
+    /// The raw call of `operation`, an operation of `locator` the SDK may not
+    /// generate (ADR 0099), its params and its result the wire's JSON in
+    /// snake case: its ID fills `locator`. An operation of another namespace
+    /// fails with `invalid_params` before it is sent, as a call on a
+    /// closed value does with `closed`. It is never retried.
+    pub fn call(&self, operation: &str) -> crate::blocking::RawCall {
+        crate::blocking::RawCall::new(self.inner.call(operation), self.inner.host.connection())
     }
 
     /// Clicks the element the locator matches once it is unique, visible, enabled, stable and receiving the click (the guard, ADR 0019); a click that lands on another element is cancelled and sent again, until `timeout.action` passes. A click that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).

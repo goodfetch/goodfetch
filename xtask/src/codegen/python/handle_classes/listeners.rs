@@ -172,11 +172,14 @@ fn head(
 ) -> Result<(String, String)> {
     let operation = listener.operation;
     let params = &operation.params.0;
-    let Some(Wrapped { model: event, .. }) = layer
-        .definitions
-        .get(params)
-        .and_then(|schema| wrapped(&schema["properties"][&listener.param], layer, imports))
-    else {
+    let Some(Wrapped { model: event, .. }) = layer.definitions.get(params).and_then(|schema| {
+        wrapped(
+            &schema["properties"][&listener.param],
+            layer,
+            imports,
+            |_| true,
+        )
+    }) else {
         bail!(
             "operation `{}`: the Python handles take the event listened to as one of a choice of strings, but its parameter `{}` is not one (ADR 0081)",
             operation.name,

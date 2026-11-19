@@ -15,21 +15,22 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::cli::ATTACHED_ENGINE;
 use goodfetch_protocol::settings::{COLLIE_ENGINE_PATH_VARIABLE, FOXHOUND_ENGINE_PATH_VARIABLE};
 
-use super::handles::{self, Form, Handle, HandleId, Member, Parameters};
+use super::handles::{self, Form, Handle, HandleId, Member, Overload};
 use super::layer::{Deprecation, Layer, Stability};
 use super::naming::{camel, pascal};
-use super::settings_tree::SETTINGS;
 use super::{Generated, TypesFile};
 
 mod errors;
 mod listeners;
 mod markers;
 mod settings;
+mod signature;
 mod wire;
 
 use markers::{
     CLIENT_RUNTIME, ENTRY_MARKERS, MARKERS_MODULE, WARN_ENTRY, markers_import, warnings,
 };
+use signature::signature;
 
 /// Where Foxhound's layer imports Collie's generated layer from.
 const CLIENT_PACKAGE: &str = "@goodfetch/collie-client/generated";
@@ -521,150 +522,6 @@ const TIMEOUT: &str = "timeout";
 /// own `timeout` no deadline can be before it is sent (ADR 0080).
 const TIMEOUT_OF: &str = "timeoutOf";
 
-/// The words TypeScript reserves, which a positional parameter cannot be
-/// named: it takes a trailing `_` in the declaration, which no caller
-/// writes (ADR 0099).
-const RESERVED_WORDS: [&str; 48] = [
-    "with",
-    "yield",
-    "arguments",
-    "await",
-    "break",
-    "case",
-    "catch",
-    "class",
-    "const",
-    "continue",
-    "debugger",
-    "default",
-    "delete",
-    "do",
-    "else",
-    "enum",
-    "eval",
-    "export",
-    "extends",
-    "false",
-    "finally",
-    "for",
-    "function",
-    "if",
-    "implements",
-    "import",
-    "in",
-    "instanceof",
-    "interface",
-    "let",
-    "new",
-    "null",
-    "package",
-    "private",
-    "protected",
-    "public",
-    "return",
-    "static",
-    "super",
-    "switch",
-    "this",
-    "throw",
-    "true",
-    "try",
-    "typeof",
-    "var",
-    "void",
-    "while",
-];
-
-/// A positional parameter's name in a declaration.
-fn positional_name(name: &str) -> String {
-    let spelled = camel(name);
-    if RESERVED_WORDS.contains(&spelled.as_str()) || spelled == "options" {
-        format!("{spelled}_")
-    } else {
-        spelled
-    }
-}
-
-/// A method's parameter list and the object it makes of it, which starts
-/// with the handle's ID as `id`: positional parameters first, then the
-/// options object, which holds the named ones and, for a call that can be
-/// cancelled, `signal`. Each type is the params type's own,
-/// `types.<Params>["<name>"]`, but the one the fields that type a result
-/// are declared by, `typed`, which is the member's type parameter. A call's
-/// own `timeout` goes through `timeoutOf`, which refuses before sending a
-/// value no deadline can be, naming its setting, `timeout_setting`
-/// (ADR 0080). A scope's own `settings` take that scope's settings type,
-/// `settings_type`, and go through `settingsOnWire`, which sends them by
-/// their wire spelling (ADR 0083).
-fn signature(
-    parameters: &Parameters,
-    type_name: &str,
-    cancellable: bool,
-    id: &str,
-    typed: Option<&str>,
-    timeout_setting: Option<&str>,
-    settings_type: Option<&str>,
-) -> (String, String) {
-    let mut declared = Vec::new();
-    let mut entries = vec![format!("{}: this.#host.id", camel(id))];
-    for name in &parameters.positional {
-        let local = positional_name(name);
-        if typed == Some(name.as_str()) {
-            declared.push(format!("{local}: {FIELDS}"));
-        } else {
-            declared.push(format!("{local}: types.{type_name}[{:?}]", camel(name)));
-        }
-        let field = camel(name);
-        entries.push(if local == field {
-            local
-        } else {
-            format!("{field}: {local}")
-        });
-    }
-    let mut options = Vec::new();
-    for name in &parameters.named {
-        let field = camel(name);
-        options.push(format!("readonly {field}: types.{type_name}[{field:?}]"));
-        entries.push(format!("{field}: options.{field}"));
-    }
-    for name in &parameters.optional {
-        let field = camel(name);
-        let given = format!("options.{field}");
-        if let Some(settings) = settings_type.filter(|_| name == SETTINGS) {
-            options.push(format!("readonly {field}?: {settings} | undefined"));
-            entries.push(format!("{field}: {}({given})", settings::SETTINGS_ON_WIRE));
-        } else {
-            options.push(format!(
-                "readonly {field}?: types.{type_name}[{field:?}] | undefined"
-            ));
-            entries.push(match timeout_setting.filter(|_| name == TIMEOUT) {
-                Some(setting) => format!("{field}: {TIMEOUT_OF}({given}, {setting:?})"),
-                None => format!("{field}: {given}"),
-            });
-        }
-    }
-    if cancellable {
-        options.push("readonly signal?: AbortSignal | undefined".to_owned());
-    }
-    if !options.is_empty() {
-        let default = if parameters.named.is_empty() {
-            " = {}"
-        } else {
-            ""
-        };
-        declared.push(format!("options: {{ {} }}{default}", options.join("; ")));
-    }
-    let object = format!("{{ {} }}", entries.join(", "));
-    // An optional parameter left out is left out of the object, never sent
-    // as `undefined`.
-    let object = if parameters.optional.is_empty() {
-        object
-    } else {
-        format!("defined({object})")
-    };
-    (declared.join(", "), object)
-}
-
 /// The type `member` answers: the operation's result type, or the type of
 /// its one property, which an optional one gives with `null` for absent.
 fn answered(member: &Member<'_>, result: &str) -> String {
@@ -694,20 +551,81 @@ fn answer(member: &Member<'_>, call: &str) -> String {
     }
 }
 
+/// The documented signatures that come before `member`'s implementation:
+/// its doc alone, or each overload: the current one, then one per
+/// deprecated form, which a call resolves to and a linter reports, then one
+/// that takes every form; the implementation's signature is then hidden
+/// (ADR 0099).
+fn overloads(
+    member: &Member<'_>,
+    name: &str,
+    generics: &str,
+    returns: &str,
+    signature_of: impl Fn(Overload<'_>) -> (String, String),
+) -> String {
+    let operation = member.operation;
+    let forms = &member.deprecated_forms;
+    if forms.is_empty() {
+        return doc(
+            "  ",
+            &operation.description,
+            operation.stability,
+            operation.deprecated.as_ref(),
+        );
+    }
+    let (current, _) = signature_of(Overload::Current(forms));
+    let mut text = doc("  ", &operation.description, operation.stability, None);
+    let _ = writeln!(text, "  {name}{generics}({current}): {returns};");
+    for form in forms {
+        let (declared, _) = signature_of(Overload::Deprecated(form));
+        let passed = match &form.value {
+            Some(value) => format!("`{}: {value:?}`", camel(&form.param)),
+            None => format!("`{}`", camel(&form.param)),
+        };
+        text.push_str(&doc(
+            "  ",
+            &format!(
+                "{}\n\nPassing {passed} is deprecated.",
+                operation.description
+            ),
+            operation.stability,
+            Some(&form.deprecation),
+        ));
+        let _ = writeln!(text, "  {name}{generics}({declared}): {returns};");
+    }
+    // Last, one that takes every form, as the implementation does, so a
+    // call whose value only its type gives, a union or an optional one,
+    // still resolves: an overload free of no form, which has no default.
+    let (every, _) = signature_of(Overload::Current(&[]));
+    text.push_str(&doc(
+        "  ",
+        &operation.description,
+        operation.stability,
+        None,
+    ));
+    let _ = writeln!(text, "  {name}{generics}({every}): {returns};");
+    text
+}
+
 /// One member, a method of the class that holds `host`.
 fn member(member: &Member<'_>, id: &HandleId) -> Result<String> {
     let operation = member.operation;
     let (params, result) = (&operation.params.0, &operation.result.0);
     let typed = member.typed_by.as_ref();
-    let (declared, sent) = signature(
-        &member.parameters,
-        params,
-        operation.cancellable,
-        &id.param,
-        typed.map(|typed| typed.param.as_str()),
-        member.timeout_setting.as_deref(),
-        settings::scope_settings(member)?,
-    );
+    let settings_type = settings::scope_settings(member)?;
+    let signature_of = |overload: Overload<'_>| {
+        signature(
+            &member.parameters,
+            params,
+            operation.cancellable,
+            &id.param,
+            typed.map(|typed| typed.param.as_str()),
+            member.timeout_setting.as_deref(),
+            settings_type,
+            overload,
+        )
+    };
+    let (declared, sent) = signature_of(Overload::Every);
     let call_options = if operation.cancellable {
         "{ signal: options.signal }"
     } else {
@@ -717,55 +635,58 @@ fn member(member: &Member<'_>, id: &HandleId) -> Result<String> {
         "this.#host.call({:?}, {sent}, {call_options})",
         operation.name
     );
-    let mut text = doc(
-        "  ",
-        &operation.description,
-        operation.stability,
-        operation.deprecated.as_ref(),
-    );
     let name = camel(member.name);
     let warn = warnings(operation);
-    match &member.form {
+    // The type parameters, the result type and the body of the method.
+    let (generics, returns, body) = match &member.form {
         Form::RoundTrip | Form::Query | Form::Waiter => match typed {
-            None => {
-                let _ = write!(
-                    text,
-                    "  async {name}({declared}): Promise<{}> {{\n{warn}    return {};\n  }}\n",
-                    answered(member, result),
-                    answer(member, &call)
-                );
-            }
+            None => (
+                String::new(),
+                format!("Promise<{}>", answered(member, result)),
+                format!("    return {};\n", answer(member, &call)),
+            ),
             // Its result is typed by the fields the caller passes, which
             // the member takes as a type parameter (ADR 0147).
-            Some(typed) => {
-                let typed_result = format!(
-                    "TypedBy<types.{result}, {:?}, {FIELDS}>",
+            Some(typed) => (
+                format!(
+                    "<const {FIELDS} extends types.{params}[{:?}]>",
+                    camel(&typed.param)
+                ),
+                format!(
+                    "Promise<TypedBy<types.{result}, {:?}, {FIELDS}>>",
                     camel(&typed.property)
-                );
-                let _ = write!(
-                    text,
-                    "  async {name}<const {FIELDS} extends types.{params}[{:?}]>({declared}): Promise<{typed_result}> {{\n{warn}    return typedBy<types.{result}, {:?}, {FIELDS}>(await {call});\n  }}\n",
-                    camel(&typed.param),
+                ),
+                format!(
+                    "    return typedBy<types.{result}, {:?}, {FIELDS}>(await {call});\n",
                     camel(&typed.property)
-                );
-            }
+                ),
+            ),
         },
         Form::Opens(opened) => {
             let class = pascal(opened);
             let id = camel(&format!("{opened}_id"));
-            let _ = write!(
-                text,
-                "  async {name}({declared}): Promise<{class}> {{\n{warn}    const opened = await {call};\n    return new {class}(this.#host.child(opened.{id}));\n  }}\n"
-            );
+            (
+                String::new(),
+                format!("Promise<{class}>"),
+                format!(
+                    "    const opened = await {call};\n    return new {class}(this.#host.child(opened.{id}));\n"
+                ),
+            )
         }
-        Form::Closes => {
-            let _ = write!(
-                text,
-                "  async {name}({declared}): Promise<void> {{\n{warn}    await this.#host.close({:?}, {sent});\n  }}\n",
+        Form::Closes => (
+            String::new(),
+            "Promise<void>".to_owned(),
+            format!(
+                "    await this.#host.close({:?}, {sent});\n",
                 operation.name
-            );
-        }
-    }
+            ),
+        ),
+    };
+    let mut text = overloads(member, &name, &generics, &returns, signature_of);
+    let _ = write!(
+        text,
+        "  async {name}{generics}({declared}): {returns} {{\n{warn}{body}  }}\n"
+    );
     Ok(text)
 }
 
@@ -920,6 +841,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
                 None,
                 None,
                 None,
+                Overload::Every,
             );
             text.push('\n');
             text.push_str(&doc(

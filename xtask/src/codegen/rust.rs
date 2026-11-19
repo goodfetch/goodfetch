@@ -33,6 +33,7 @@
 
 mod index;
 mod listeners;
+mod raw_call;
 mod settings;
 
 use std::collections::BTreeMap;
@@ -350,6 +351,8 @@ struct HandleModel {
     namespace: &'static str,
     type_name: String,
     id: String,
+    /// The parameter its ID fills, such as `page_id`.
+    param: String,
     members: Vec<MemberModel>,
     builders: Vec<BuilderModel>,
     sub_objects: Vec<SubObjectModel>,
@@ -403,6 +406,7 @@ impl HandleModel {
             namespace: handle.namespace,
             type_name,
             id,
+            param: handle.id.param.clone(),
             members,
             builders,
             sub_objects,
@@ -846,6 +850,8 @@ impl Module {
             "    /// Its ID, which names it to the engine.\n    #[must_use]\n    pub fn id(&self) -> &{} {{\n        {id}\n    }}\n",
             model.id
         );
+        self.body
+            .push_str(&raw_call::member(self.twin, model.namespace, &model.param));
         for sub_object in &model.sub_objects {
             let held = match self.twin {
                 Twin::Async => "host: self.host.clone()",

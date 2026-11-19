@@ -9,28 +9,29 @@
 //! at most the credits granted wait in the stream. Dropping the stream
 //! cancels its call with `$/cancel`, without blocking and without a
 //! warning (ADRs 0078, 0081).
+//!
+//! A stream of events the engine publishes on its event stream, such as a
+//! Session's pages, gets them from the Connection's own Subscription
+//! instead, which [`crate::published`] shares between such streams: its
+//! call only arms the engine, and the stream joins the Subscription before
+//! the call is sent and leaves it once dropped or ended.
 
+use std::collections::VecDeque;
 use std::fmt;
 use std::future::poll_fn;
-use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use goodfetch_protocol::events::{EVENTS, EventBatch, EventEnvelope};
-use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::Error;
+use crate::published::{CREDITS, Interest, Membership, Published, REGRANT, Taken};
 use crate::rpc::{Heard, Outgoing, Sender};
 
-/// The credits a stream grants when its call is sent: at most this many
-/// events wait in it for the program.
-const CREDITS: u32 = 16;
-
-/// How many events the program reads before the stream grants as many
-/// again.
-const REGRANT: u32 = 8;
+/// What a stream builds each event's payload into.
+type Build<T> = Box<dyn Fn(Value) -> Result<T, Error> + Send + Sync>;
 
 /// The events one call streams, read in order. One reader each: a second
 /// reader calls the method again and gets its own call. It has its own
@@ -39,13 +40,19 @@ const REGRANT: u32 = 8;
 /// without blocking and without a warning.
 ///
 /// It ends, [`EventStream::next`] answering `None`, when its call does:
-/// when its page closes or its Run ends. A call that fails, such as one
-/// whose value is closed or whose engine lost events past its credits
-/// (`page_events_lost`), hands its error once, then ends.
+/// when its page or Session closes or its Run ends. A call that fails, such
+/// as one whose value is closed or whose engine lost events past its
+/// credits (`page_events_lost`), hands its error once, then ends.
 #[must_use = "a stream's call is sent when it is made; dropping it cancels the call"]
 pub struct EventStream<T> {
-    /// The event of the call's batches it hands, such as `page.console`;
-    /// the others take no more than their credit.
+    flow: Flow,
+    build: Build<T>,
+}
+
+/// What a stream reads, whatever it builds of it.
+struct Flow {
+    /// The event it hands, such as `page.console`; the others its call
+    /// streams take no more than their credit.
     event: &'static str,
     /// What the call hears; closed once its reply came.
     heard: mpsc::Receiver<Heard>,
@@ -53,67 +60,116 @@ pub struct EventStream<T> {
     reply: Option<oneshot::Receiver<Result<Value, Error>>>,
     /// The call's id, once it was sent.
     id: Option<i64>,
-    /// The events of the batches heard that the program has not read.
-    waiting: std::collections::VecDeque<EventEnvelope>,
-    /// The events read since the last grant.
-    read: u32,
     /// Whether it handed its last item, after which it hands none.
     ended: bool,
     /// An error to hand before anything else: the call was never sent.
     refused: Option<Error>,
     sender: Sender,
-    item: PhantomData<fn() -> T>,
+    source: Source,
+}
+
+/// The batches a stream's own call streams.
+#[derive(Default)]
+struct Batches {
+    /// The events of the batches heard that the program has not read.
+    waiting: VecDeque<EventEnvelope>,
+    /// The events read since the last grant.
+    read: u32,
+}
+
+/// Where a stream's events come from.
+enum Source {
+    /// Its own call's batches.
+    Own(Batches),
+    /// The Connection's Subscription, which it joined before its call was
+    /// sent.
+    Published {
+        /// Its place on the Subscription, until it leaves.
+        membership: Option<Membership>,
+        /// The events it takes, each with its credit.
+        taken: mpsc::UnboundedReceiver<Taken>,
+    },
 }
 
 impl<T> fmt::Debug for EventStream<T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("EventStream")
-            .field("event", &self.event)
-            .field("id", &self.id)
-            .field("ended", &self.ended)
+            .field("event", &self.flow.event)
+            .field("id", &self.flow.id)
+            .field("ended", &self.flow.ended)
             .finish_non_exhaustive()
     }
 }
 
-impl<T: DeserializeOwned> EventStream<T> {
+impl<T> EventStream<T> {
     /// Sends the call of `method` with `params`, which streams `event`
-    /// among others, and returns its stream; `params` that are an error,
-    /// such as `closed` for a closed value, send nothing, and the
-    /// stream hands that error once.
+    /// among others, and returns its stream, which builds each payload
+    /// with `build`; `params` that are an error, such as `closed` for a
+    /// closed value, send nothing, and the stream hands that error once.
     pub(crate) fn open(
         sender: Sender,
         method: &str,
         params: Result<Value, Error>,
         event: &'static str,
+        build: Build<T>,
     ) -> Self {
         // The call's id, then at most a batch for each credit granted.
         let (notified, heard) = mpsc::channel(CREDITS as usize + 1);
-        let (reply, replied) = oneshot::channel();
-        let refused = match params {
-            Ok(params) => {
-                sender.call(Outgoing {
-                    method: method.to_owned(),
-                    params,
-                    timeout: None,
-                    reply,
-                    notified: Some(notified),
-                });
-                None
+        let source = Source::Own(Batches::default());
+        Self {
+            flow: Flow::open(sender, method, params, event, notified, heard, source),
+            build,
+        }
+    }
+
+    /// Joins `published`, the Connection's Subscription, as the reader of
+    /// the events `interest` names, then sends the call of `method` with
+    /// `params`, which arms them, and returns its stream, which builds each
+    /// payload with `build`; `params` that are an error send and join
+    /// nothing, and the stream hands that error once.
+    pub(crate) fn published(
+        published: &Published,
+        method: &str,
+        params: Result<Value, Error>,
+        interest: Interest,
+        build: Build<T>,
+    ) -> Self {
+        // The call's id: it streams nothing itself.
+        let (notified, heard) = mpsc::channel(1);
+        let event = interest.event;
+        let source = if params.is_ok() {
+            let (membership, taken) = published.join(interest);
+            Source::Published {
+                membership: Some(membership),
+                taken,
             }
-            Err(error) => Some(error),
+        } else {
+            Source::Own(Batches::default())
         };
         Self {
-            event,
-            heard,
-            reply: refused.is_none().then_some(replied),
-            id: None,
-            waiting: std::collections::VecDeque::new(),
-            read: 0,
-            ended: false,
-            refused,
-            sender,
-            item: PhantomData,
+            flow: Flow::open(
+                published.sender(),
+                method,
+                params,
+                event,
+                notified,
+                heard,
+                source,
+            ),
+            build,
+        }
+    }
+
+    /// The stream that hands `map` of each of this one's items.
+    pub(crate) fn map<U>(self, map: impl Fn(T) -> U + Send + Sync + 'static) -> EventStream<U>
+    where
+        T: 'static,
+    {
+        let Self { flow, build } = self;
+        EventStream {
+            flow,
+            build: Box::new(move |data| build(data).map(&map)),
         }
     }
 
@@ -135,6 +191,52 @@ impl<T: DeserializeOwned> EventStream<T> {
 
     /// The next item, or `Pending` until one comes.
     fn poll_item(&mut self, context: &mut Context<'_>) -> Poll<Option<Result<T, Error>>> {
+        self.flow
+            .poll_payload(context)
+            .map(|item| item.map(|payload| payload.and_then(&self.build)))
+    }
+}
+
+impl Flow {
+    /// Sends the call of `method` with `params`, whose sends it hears on
+    /// `heard`, unless `params` is an error.
+    fn open(
+        sender: Sender,
+        method: &str,
+        params: Result<Value, Error>,
+        event: &'static str,
+        notified: mpsc::Sender<Heard>,
+        heard: mpsc::Receiver<Heard>,
+        source: Source,
+    ) -> Self {
+        let (reply, replied) = oneshot::channel();
+        let refused = match params {
+            Ok(params) => {
+                sender.call(Outgoing {
+                    method: method.to_owned(),
+                    params,
+                    timeout: None,
+                    reply,
+                    notified: Some(notified),
+                });
+                None
+            }
+            Err(error) => Some(error),
+        };
+        Self {
+            event,
+            heard,
+            reply: refused.is_none().then_some(replied),
+            id: None,
+            ended: false,
+            refused,
+            sender,
+            source,
+        }
+    }
+
+    /// The next payload, or `Pending` until one comes.
+    fn poll_payload(&mut self, context: &mut Context<'_>) -> Poll<Option<Result<Value, Error>>> {
         if self.ended {
             return Poll::Ready(None);
         }
@@ -142,17 +244,47 @@ impl<T: DeserializeOwned> EventStream<T> {
             self.ended = true;
             return Poll::Ready(Some(Err(error)));
         }
+        if matches!(self.source, Source::Published { .. }) {
+            self.poll_published(context)
+        } else {
+            self.poll_own(context)
+        }
+    }
+
+    /// The next payload of the call's own batches.
+    fn poll_own(&mut self, context: &mut Context<'_>) -> Poll<Option<Result<Value, Error>>> {
+        let Source::Own(batches) = &mut self.source else {
+            return Poll::Ready(None);
+        };
         loop {
-            while let Some(envelope) = self.waiting.pop_front() {
-                self.read_one();
+            while let Some(envelope) = batches.waiting.pop_front() {
+                batches.read += 1;
+                if batches.read == REGRANT {
+                    batches.read = 0;
+                    credit(&self.sender, self.id, REGRANT);
+                }
                 if envelope.event == self.event {
-                    return Poll::Ready(Some(
-                        serde_json::from_value(envelope.data).map_err(Error::shape),
-                    ));
+                    return Poll::Ready(Some(Ok(envelope.data)));
                 }
             }
             match self.heard.poll_recv(context) {
-                Poll::Ready(Some(heard)) => self.hear(heard),
+                // Its first credits go once it was sent, which the
+                // program's first read polls for.
+                Poll::Ready(Some(Heard::Sent(id))) => {
+                    self.id = Some(id);
+                    credit(&self.sender, self.id, CREDITS);
+                }
+                Poll::Ready(Some(Heard::Notified { method, params })) if method == EVENTS => {
+                    match serde_json::from_value::<EventBatch>(params) {
+                        Ok(batch) => batches.waiting.extend(batch.events),
+                        Err(error) => tracing::debug!(
+                            target: "goodfetch::client",
+                            %error,
+                            "a batch of events that is no batch"
+                        ),
+                    }
+                }
+                Poll::Ready(Some(Heard::Notified { .. })) => {}
                 // Its reply came, or the Connection ended: nothing more is
                 // heard.
                 Poll::Ready(None) => return self.poll_end(context),
@@ -161,41 +293,72 @@ impl<T: DeserializeOwned> EventStream<T> {
         }
     }
 
-    /// Acts on what the call heard: grants its first credits once it
-    /// hears the call was sent, which the program's first read polls for,
-    /// and keeps a batch's events for the program.
-    fn hear(&mut self, heard: Heard) {
-        match heard {
-            Heard::Sent(id) => {
+    /// The next payload the Subscription hands: the stream ends when its
+    /// call does, once the events taken before are read, or when the
+    /// Subscription does.
+    fn poll_published(&mut self, context: &mut Context<'_>) -> Poll<Option<Result<Value, Error>>> {
+        // The call's id is all it hears.
+        while let Poll::Ready(Some(heard)) = self.heard.poll_recv(context) {
+            if let Heard::Sent(id) = heard {
                 self.id = Some(id);
-                self.credit(CREDITS);
             }
-            Heard::Notified { method, params } if method == EVENTS => {
-                match serde_json::from_value::<EventBatch>(params) {
-                    Ok(batch) => self.waiting.extend(batch.events),
-                    Err(error) => tracing::debug!(
-                        target: "goodfetch::client",
-                        %error,
-                        "a batch of events that is no batch"
-                    ),
+        }
+        loop {
+            let Source::Published { membership, taken } = &mut self.source else {
+                return Poll::Ready(None);
+            };
+            match taken.poll_recv(context) {
+                // Read: its credit goes back as its share drops.
+                Poll::Ready(Some(Taken::Event(data, _credit))) => {
+                    return Poll::Ready(Some(Ok(data)));
+                }
+                Poll::Ready(Some(Taken::Ended(failure))) => {
+                    self.cancel();
+                    self.leave();
+                    self.ended = true;
+                    return Poll::Ready(failure.map(Err));
+                }
+                // It left, and read every event it took before.
+                Poll::Ready(None) => {
+                    self.ended = true;
+                    return Poll::Ready(None);
+                }
+                Poll::Pending => {}
+            }
+            // Its call ended: it waits for the Subscription to let it go.
+            let Some(reply) = self.reply.as_mut() else {
+                return Poll::Pending;
+            };
+            let replied = match Pin::new(reply).poll(context) {
+                Poll::Ready(replied) => replied,
+                Poll::Pending => return Poll::Pending,
+            };
+            self.reply = None;
+            match replied {
+                // Its call ended: the events published before its answer
+                // are still handed, then its receiver ends.
+                Ok(Ok(_)) => {
+                    if let Some(membership) = membership {
+                        membership.finish();
+                    }
+                }
+                Ok(Err(error)) => {
+                    self.leave();
+                    self.ended = true;
+                    return Poll::Ready(Some(Err(error)));
+                }
+                Err(_) => {
+                    self.leave();
+                    self.ended = true;
+                    return Poll::Ready(Some(Err(Error::closed())));
                 }
             }
-            Heard::Notified { .. } => {}
-        }
-    }
-
-    /// Notes one event read, and grants as many again every [`REGRANT`].
-    fn read_one(&mut self) {
-        self.read += 1;
-        if self.read == REGRANT {
-            self.read = 0;
-            self.credit(REGRANT);
         }
     }
 
     /// Ends the stream with its call's reply: `None` once it answered, its
     /// error once when it failed.
-    fn poll_end(&mut self, context: &mut Context<'_>) -> Poll<Option<Result<T, Error>>> {
+    fn poll_end(&mut self, context: &mut Context<'_>) -> Poll<Option<Result<Value, Error>>> {
         let Some(reply) = self.reply.as_mut() else {
             self.ended = true;
             return Poll::Ready(None);
@@ -213,29 +376,12 @@ impl<T: DeserializeOwned> EventStream<T> {
         }
     }
 
-    /// Grants the call `credits` more events.
-    fn credit(&self, credits: u32) {
-        if let Some(id) = self.id {
-            self.sender.credit(id, credits);
-        }
-    }
-}
-
-impl<T: DeserializeOwned> futures_core::Stream for EventStream<T> {
-    type Item = Result<T, Error>;
-
-    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.get_mut().poll_item(context)
-    }
-}
-
-impl<T> Drop for EventStream<T> {
-    /// Cancels the call unless it ended, without blocking and without a
-    /// warning. A call not sent yet is cancelled once it is: the closed
-    /// stream tells the Connection that no one reads it.
-    fn drop(&mut self) {
+    /// Cancels the call unless it ended. A call not sent yet is cancelled
+    /// once it is: the closed stream tells the Connection that no one
+    /// reads it.
+    fn cancel(&mut self) {
         // Ended, or never sent: nothing to cancel.
-        if self.reply.is_none() {
+        if self.reply.take().is_none() {
             return;
         }
         self.heard.close();
@@ -250,11 +396,44 @@ impl<T> Drop for EventStream<T> {
             self.sender.cancel(id);
         }
     }
+
+    /// Leaves the Subscription, if it joined it.
+    fn leave(&mut self) {
+        if let Source::Published { membership, .. } = &mut self.source {
+            drop(membership.take());
+        }
+    }
+}
+
+/// Grants the call `id`, once it was sent, `credits` more events.
+fn credit(sender: &Sender, id: Option<i64>, credits: u32) {
+    if let Some(id) = id {
+        sender.credit(id, credits);
+    }
+}
+
+impl<T> futures_core::Stream for EventStream<T> {
+    type Item = Result<T, Error>;
+
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.get_mut().poll_item(context)
+    }
+}
+
+impl Drop for Flow {
+    /// Cancels the call unless it ended, without blocking and without a
+    /// warning, then leaves the Subscription, which its last reader
+    /// cancels; the events it took and never read then give their credits
+    /// back.
+    fn drop(&mut self) {
+        self.cancel();
+        self.leave();
+    }
 }
 
 /// C-SEND-SYNC: a stream moves into a spawned task, and any
 /// `futures_core::Stream` consumer reads it (ADR 0081).
 const _: () = {
-    const fn send_static_stream<T: Send + 'static + futures_core::Stream>() {}
+    const fn send_static_stream<T: Send + Sync + 'static + futures_core::Stream>() {}
     send_static_stream::<EventStream<Value>>();
 };

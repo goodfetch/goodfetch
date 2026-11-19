@@ -211,8 +211,8 @@ pub use runtime_file::{
     RuntimeFileError, SCRIPTED_DAEMON_TOKEN, SOCKET_FOLDER_PREFIX,
 };
 pub use script::{
-    Call, ENGINE_SCRIPTS, Exit, Expectation, Raw, Reply, Script, ScriptError, Sent, Step,
-    engine_script,
+    Call, ENGINE_SCRIPTS, Exit, Expectation, Raw, Reply, Script, ScriptError, Sent, StderrLines,
+    Step, engine_script,
 };
 pub use sdk_items::{public_methods, public_types_with_lifetimes, re_exports, sdk_sources};
 pub use snapshot::{SnapshotValues, redact, snapshot_settings};

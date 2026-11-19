@@ -20,10 +20,12 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize as _, Serialize};
 use serde_json::Value;
 
-use crate::call::{Call, Query};
+use crate::call::{Call, Note, Query};
 use crate::connection::{ClientConnection, Closes, close_timeout};
 use crate::error::Error;
 use crate::event_stream::EventStream;
+use crate::published::Interest;
+use crate::raw_call::{RawCall, RawValue};
 use crate::sync::{AtomicBool, Mutex, MutexGuard};
 
 /// What a handle reaches its engine through: the Run it belongs to and its
@@ -70,17 +72,8 @@ impl<Id> Host<Id> {
     /// The host of a value this handle opened or built, named `id`, in the
     /// same Run: it closes with this handle's value.
     pub(crate) fn child<C: Held>(&self, id: C) -> Host<C> {
-        let value = HeldValue {
-            run: Arc::clone(&self.run),
-            parent: self.value.clone(),
-            closed: AtomicBool::new(false),
-            dropped: id.dropped(),
-        };
-        Host {
-            id,
-            run: Arc::clone(&self.run),
-            value: Some(Arc::new(value)),
-        }
+        let dropped = id.dropped();
+        self.held(id, dropped)
     }
 
     /// The call of `method` with `params`, whose reply reads as `T`.
@@ -90,12 +83,44 @@ impl<Id> Host<Id> {
         P: Serialize + Send + 'static,
     {
         let call = Call::new(self.connection().sender(), method, self.open(params));
-        if self.value.is_none() {
-            let run = Arc::clone(&self.run);
-            call.note(move |reply| run.note(reply))
-        } else {
-            call
+        match self.note() {
+            Some(note) => call.note(note),
+            None => call,
         }
+    }
+
+    /// What the handle notes of a reply: a Run's, that its Run ended; a
+    /// value's, nothing.
+    fn note(&self) -> Option<Note> {
+        self.value.is_none().then(|| {
+            let run = Arc::clone(&self.run);
+            Box::new(move |reply: &Value| run.note(reply)) as Note
+        })
+    }
+
+    /// The raw call of `operation` on the handle's value (ADR 0099), of
+    /// the namespace `namespace`, its ID filling `param`. Whether the value
+    /// is closed is read when it is awaited, and a reply that says the Run
+    /// ended notes it, as for [`Host::call`].
+    pub(crate) fn raw(
+        &self,
+        operation: &str,
+        namespace: &'static str,
+        param: &'static str,
+    ) -> RawCall
+    where
+        Id: Serialize,
+    {
+        let (run, value) = (Arc::clone(&self.run), self.value.clone());
+        let note = self.note();
+        let value = RawValue {
+            namespace,
+            param,
+            id: serde_json::to_value(&self.id).map_err(Error::shape),
+            closed: Box::new(move || closed(&run, value.as_deref())),
+            note,
+        };
+        RawCall::new(self.connection().sender(), operation, Some(value))
     }
 
     /// The query of `method` with `params`, whose answer reads as `T`.
@@ -120,10 +145,75 @@ impl<Id> Host<Id> {
         T: DeserializeOwned,
         P: Serialize,
     {
-        let params = self
-            .open(params)
-            .and_then(|params| serde_json::to_value(params).map_err(Error::shape));
-        EventStream::open(self.connection().sender(), method, params, event)
+        EventStream::open(
+            self.connection().sender(),
+            method,
+            self.params(params),
+            event,
+            Box::new(|data| serde_json::from_value(data).map_err(Error::shape)),
+        )
+    }
+
+    /// The stream of the events named `event` the engine publishes on its
+    /// event stream whose payload names this handle's value in `field`,
+    /// read from the Connection's own Subscription, which it joins before
+    /// the call of `method` with `params`, which arms them, is sent now.
+    /// Each payload is built with `build`. Once the value is closed it
+    /// sends and joins nothing, and the stream hands `closed` once.
+    pub(crate) fn listen_published<T, P>(
+        &self,
+        method: &str,
+        params: P,
+        event: &'static str,
+        field: &'static str,
+        build: impl Fn(Value) -> Result<T, Error> + Send + Sync + 'static,
+    ) -> EventStream<T>
+    where
+        Id: Serialize,
+        P: Serialize,
+    {
+        let interest = Interest {
+            event,
+            field,
+            id: serde_json::to_value(&self.id).expect("invariant: an ID serializes"),
+        };
+        EventStream::published(
+            self.connection().published(),
+            method,
+            self.params(params),
+            interest,
+            Box::new(build),
+        )
+    }
+
+    /// The host of a value of the same Run, named `id`, that the engine
+    /// opened and this handle's events told of, such as a page of its
+    /// Session: it closes with this handle's value, and dropping its last
+    /// handle closes nothing, since the program did not open it.
+    pub(crate) fn reached<C>(&self, id: C) -> Host<C> {
+        self.held(id, None)
+    }
+
+    /// The value `id` this one holds, which sends `dropped`, if any, once
+    /// dropped.
+    fn held<C>(&self, id: C, dropped: Option<Dropped>) -> Host<C> {
+        let value = HeldValue {
+            run: Arc::clone(&self.run),
+            parent: self.value.clone(),
+            closed: AtomicBool::new(false),
+            dropped,
+        };
+        Host {
+            id,
+            run: Arc::clone(&self.run),
+            value: Some(Arc::new(value)),
+        }
+    }
+
+    /// `params` as a call sends them, or `closed` once the value is closed.
+    fn params<P: Serialize>(&self, params: P) -> Result<Value, Error> {
+        self.open(params)
+            .and_then(|params| serde_json::to_value(params).map_err(Error::shape))
     }
 
     /// The call of `method` that closes the handle's value, whose reply

@@ -23,8 +23,10 @@
 //! This module is the translation point of both resolvers' failures (ADR
 //! 0127). `hickory-resolver` runs its name-server connections as Tokio tasks
 //! of its own, outside any owner's tracker; they end with their
-//! connections. The system resolver's `getaddrinfo` runs on Tokio's blocking
-//! pool, since it cannot be cancelled once called.
+//! connections. The system resolver's `getaddrinfo` runs on a thread of the
+//! `tasks` module's lookup pool, since it blocks and cannot be cancelled
+//! once called, never on Tokio's blocking pool, so it waits behind no work
+//! `governor.blocking_threads` caps (#2870).
 
 mod cache;
 
@@ -55,6 +57,7 @@ use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::host_name;
 use crate::settings::Resolved;
+use crate::tasks;
 
 /// The `resolve` setting's value, `network.resolve` (ADR 0059): host names
 /// mapped to the addresses they resolve to before any lookup, each name
@@ -338,7 +341,7 @@ impl Dns {
     /// # Cancel safety
     ///
     /// Dropping the future loses only this lookup; a system lookup already
-    /// running finishes on its blocking thread and is dropped.
+    /// running finishes on its lookup thread and is dropped.
     pub async fn lookup(&self, name: &str, route: Route) -> Result<Resolution, LookupError> {
         if route == Route::Proxy {
             return Ok(Resolution::ByProxy);
@@ -513,12 +516,13 @@ fn of_family(addresses: impl Iterator<Item = IpAddr>, family: IpFamily) -> Vec<I
         .collect()
 }
 
-/// A lookup through the operating system's resolver, of both families.
-/// Its failures are not told apart: the standard library reports
-/// `getaddrinfo`'s codes only as text, which ADR 0127 keeps unread.
+/// A lookup through the operating system's resolver, of both families, on
+/// a thread of the lookup pool ([`tasks::system_lookup`]). Its failures
+/// are not told apart: the standard library reports `getaddrinfo`'s codes
+/// only as text, which ADR 0127 keeps unread.
 async fn system_lookup(name: &str) -> Result<Vec<IpAddr>, LookupError> {
-    match tokio::net::lookup_host((name, 0)).await {
-        Ok(found) => Ok(unique(found.map(|address| address.ip()))),
+    match tasks::system_lookup(name, 0).await {
+        Ok(found) => Ok(unique(found.into_iter().map(|address| address.ip()))),
         Err(_) => Err(not_resolved(name, NameResolver::System)),
     }
 }

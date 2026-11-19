@@ -3,7 +3,9 @@
 //! (`governor.blocking_threads`) then covers only the work that waits. At
 //! most one thread a core runs at once; a thread starts when a job finds
 //! none idle, and ends once it has waited its keep-alive with nothing to
-//! run, so cheap parses keep few threads alive.
+//! run, so cheap parses keep few threads alive. The `tasks` module runs a
+//! second pool of the kind, of threads named apart, for the system
+//! resolver's lookups (#2870).
 //!
 //! A job queues under one lock, as Tokio's blocking pool does: a submitter
 //! wakes an idle thread it counts as notified, or starts one while fewer
@@ -133,7 +135,11 @@ impl CpuPool {
         if state.threads > 0 {
             return Ok(());
         }
-        tracing::warn!(%error, "the OS refused the CPU pool a thread, and none of its own runs");
+        tracing::warn!(
+            %error,
+            pool = self.shared.name,
+            "the OS refused the pool a thread, and none of its own runs"
+        );
         Err(Stranded(state.queue.drain(..).collect()))
     }
 }

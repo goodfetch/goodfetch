@@ -19,6 +19,7 @@
     "@goodfetch/collie": "workspace:*",
     "@goodfetch/test-support": "workspace:*",
     "@types/node": "catalog:",
+    "connection-library": "workspace:*",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },

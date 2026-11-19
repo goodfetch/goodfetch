@@ -6,6 +6,7 @@
 //! takes. A Foxhound connection that meets a Collie engine is tested on
 //! Collie's crate's linked connection, which both open through.
 
+use connection_library::finish_one_run;
 use goodfetch_foxhound::{ConnectOptions, Connection, Error, Foxhound, RunId, RunReport, blocking};
 use goodfetch_protocol::run::{Lifecycle, RUN_REPORT, RunParams};
 use goodfetch_protocol::settings::{COLLIE_ENGINE_PATH_VARIABLE, FOXHOUND_ENGINE_PATH_VARIABLE};
@@ -130,8 +131,10 @@ fn blocking_inside_an_async_runtime_never_nests_a_runtime() {
 
 /// One helper typed for the client crate's Connection takes both
 /// Products' connections and closes them, and a `match` on the client
-/// crate's `Error` catches what either fails with.
-/// Covers: story:11-1003, story:11-1004, story:11-179
+/// crate's `Error` catches what either fails with. The helper is a
+/// library's, `tests/libraries/connection-library`, which takes the client
+/// crate by a semver range: Cargo builds the program's one copy for both.
+/// Covers: story:11-1003, story:11-1004, story:11-179, story:11-180
 #[test]
 fn a_helper_typed_for_connection_takes_collies_and_foxhounds() {
     let env = TestEnv::new();
@@ -142,26 +145,21 @@ fn a_helper_typed_for_connection_takes_collies_and_foxhounds() {
             .unwrap();
 
         let reports = [
-            start_and_finish(&foxhound).await.unwrap(),
-            start_and_finish(&collie).await.unwrap(),
+            finish_one_run(&foxhound).await.unwrap(),
+            finish_one_run(&collie).await.unwrap(),
         ];
         Connection::close(&foxhound).await.unwrap();
         Connection::close(&collie).await.unwrap();
         let closed = [
-            start_and_finish(&foxhound).await,
-            start_and_finish(&collie).await,
+            finish_one_run(&foxhound).await.unwrap(),
+            finish_one_run(&collie).await.unwrap(),
         ];
 
         assert_eq!(
-            reports.map(|report| report.lifecycle),
-            [Lifecycle::Finished; 2]
+            reports.map(|report| report.map(|report| report.lifecycle)),
+            [Some(Lifecycle::Finished); 2]
         );
-        assert!(
-            closed
-                .iter()
-                .all(|after| matches!(after, Err(Error::Closed))),
-            "{closed:?}"
-        );
+        assert!(closed.iter().all(Option::is_none), "{closed:?}");
     });
 }
 

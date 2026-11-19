@@ -189,11 +189,9 @@ fn a_scope_beneath_a_run_that_sets_an_unbuilt_setting_is_refused() {
 /// that default is refused naming the key, the run layer and the phase's
 /// feature, never accepted and ignored (ADRs 0080 and 0083).
 ///
-/// Covers: story:11-41, setting:timeout.hook, setting:timeout.sink_write,
-/// setting:timeout.agent, setting:timeout.ai, setting:timeout.model,
-/// setting:timeout.human_pause
+/// Covers: story:11-41, setting:timeout.sink_write, setting:timeout.agent,
+/// setting:timeout.ai, setting:timeout.model, setting:timeout.human_pause
 #[rstest::rstest]
-#[case::hook("hook", "timeout.hook", 10_000, "hooks")]
 #[case::sink_write("sink_write", "timeout.sink_write", 30_000, "sinks")]
 #[case::agent("agent", "timeout.agent", 600_000, "agent")]
 #[case::ai("ai", "timeout.ai", 120_000, "ai_verbs")]

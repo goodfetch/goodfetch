@@ -17,7 +17,7 @@ pub const EVENTS: &[&str] = &["sample.crawled"];
 pub const EXIT_CODES: &[&str] = &[];
 
 /// The handler requests only Foxhound carries.
-pub const HANDLER_REQUESTS: &[&str] = &["crawl_request.handle"];
+pub const HANDLER_REQUESTS: &[&str] = &["crawl_hook.handle", "crawl_request.handle"];
 
 /// The hook stages only Foxhound carries.
 pub const HOOK_STAGES: &[&str] = &["sample_crawled_page"];

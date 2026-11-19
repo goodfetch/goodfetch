@@ -1095,18 +1095,17 @@ pub const TIMEOUT_FIRST_BYTE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
-/// `timeout.hook` (ADRs 0080 and 0083), refused away from its default until its phase is
-/// built.
+/// `timeout.hook` (ADRs 0080, 0083 and 0104).
 pub const TIMEOUT_HOOK: Setting = Setting {
     name: "timeout.hook",
-    description: "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+    description: "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
     kind: ValueKind::Duration,
     default: ten_seconds,
     clearable: false,
     authority: Authority::Every,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("hooks"),
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

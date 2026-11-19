@@ -1215,6 +1215,152 @@
       ],
       "type": "object"
     },
+    "CrawlHookDeclaration": {
+      "additionalProperties": false,
+      "description": "One Hook in code a crawl declares, in `crawl.start`'s `hooks`, which\nlist them in the order declared: per stage, they run in that order,\nafter the Hooks named in settings (ADR 0104).",
+      "properties": {
+        "datasets": {
+          "arrived_in": "0.1",
+          "description": "At `before_record_commit`, the Datasets whose Records it runs for;\nabsent for every Dataset.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "labels": {
+          "arrived_in": "0.1",
+          "description": "The Labels whose requests it runs for; absent for every Label.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, which `crawl_hook.handle` and `hook_failed` carry.",
+          "type": "string"
+        },
+        "stage": {
+          "$ref": "#/$defs/CrawlHookStage",
+          "arrived_in": "0.1",
+          "description": "The stage it runs at."
+        }
+      },
+      "required": [
+        "name",
+        "stage"
+      ],
+      "type": "object"
+    },
+    "CrawlHookHandleParams": {
+      "description": "What `crawl_hook.handle` gives the program: one call of one Hook, for\none attempt of a work item, under its lease.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/TraceContext",
+          "arrived_in": "0.1"
+        },
+        "attempt": {
+          "arrived_in": "0.1",
+          "description": "Which attempt this is, from 1.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "crawl_request": {
+          "$ref": "#/$defs/CrawlRequest",
+          "arrived_in": "0.1",
+          "description": "The work item."
+        },
+        "hook": {
+          "arrived_in": "0.1",
+          "description": "The Hook's name, as the crawl declared it.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The lease's epoch, which only goes up (ADR 0003).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "record": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PushedRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "At `before_record_commit`, the Record about to commit and its\nDataset."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        },
+        "stage": {
+          "$ref": "#/$defs/CrawlHookStage",
+          "arrived_in": "0.1",
+          "description": "The stage it runs at."
+        }
+      },
+      "required": [
+        "run_id",
+        "hook",
+        "stage",
+        "crawl_request",
+        "attempt",
+        "lease_epoch"
+      ],
+      "type": "object"
+    },
+    "CrawlHookHandled": {
+      "description": "What a Hook answers once it returned: nothing yet, the work going on\nunchanged.",
+      "type": "object"
+    },
+    "CrawlHookStage": {
+      "description": "A stage whose answer changes the work, where a crawl's Hooks in code\nrun (ADR 0104), by the catalog's name. The observe-only stages reach\nPlugins and Script Hooks only.",
+      "oneOf": [
+        {
+          "const": "before_request",
+          "description": "Before each fetch of a request, its retries included.",
+          "type": "string"
+        },
+        {
+          "const": "after_response",
+          "description": "After the request's final response, redirects followed.",
+          "type": "string"
+        },
+        {
+          "const": "before_navigation",
+          "description": "Before a navigation to the request's URL, on the tiers that\nnavigate.",
+          "type": "string"
+        },
+        {
+          "const": "after_navigation",
+          "description": "After that navigation.",
+          "type": "string"
+        },
+        {
+          "const": "page_ready",
+          "description": "Just before the handler, with its page, on every tier.",
+          "type": "string"
+        },
+        {
+          "const": "before_record_commit",
+          "description": "Before each Record the attempt staged commits.",
+          "type": "string"
+        }
+      ]
+    },
     "CrawlRequest": {
       "description": "One work item of a crawl as its handler receives it (ADR 0093).",
       "properties": {
@@ -2134,6 +2280,14 @@
           ],
           "arrived_in": "0.1",
           "description": "What a crawl with no handler reads from each page (a code-free\ncrawl, ADR 0103): the engine handles each request itself and\ndeclares the Label and the Dataset it commits into, so such a start\ndeclares no Dataset of its own, else it fails with\n`invalid_params`. None for a crawl whose program handles its\nrequests."
+        },
+        "hooks": {
+          "arrived_in": "0.1",
+          "description": "The crawl's Hooks in code, in the order declared (ADR 0104). Never\nkept in the Run's state: a start that resumes the Run declares them\nagain.",
+          "items": {
+            "$ref": "#/$defs/CrawlHookDeclaration"
+          },
+          "type": "array"
         },
         "labels": {
           "additionalProperties": {
@@ -15760,7 +15914,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The details name the key and say which was refused.",
+      "description": "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The SDK refuses a value that is not JSON before sending it, and a value the call's Standard Schema rejects, sent or read; a JSON Schema written by hand types the value as JSON and checks nothing. The details name the key, say which was refused and, for a value's content, its path as a JSON Pointer.",
       "exit_code": null,
       "group": "program",
       "json_rpc_class": -32001,
@@ -16292,6 +16446,20 @@
     }
   ],
   "handler_requests": [
+    {
+      "arrived_in": "0.1",
+      "deprecated": null,
+      "description": "Asks the program to run one of the crawl's Hooks in code at its stage, for one attempt of a work item under its lease; a stage none of the crawl's Hooks is scoped to sends none. Per stage, the Hooks run in the order the crawl declared them, each after the one before answered. `timeout.hook`, which a Label may set for its requests, bounds each call: past it, the engine sends `$/cancel` for the request and the attempt fails with `deadline_exceeded`, whose `limit` names `timeout.hook` and whose `waited_for` names the stage. A failure fails the attempt with `hook_failed`, naming the stage, the Hook and the request's Label, the program's exception carried as its type, message and stack, and a Goodfetch Error code raised inside as `wrapped_code`; the program's own exception is retried only under `crawl.retry.handler_failed`, a wrapped code as its retryable flag says, and both draw on `crawl.retry.max` with the handler's failures. At `before_record_commit`, a failure discards everything the attempt staged, so it commits nothing. A failure with the Error code `call_cancelled` by the program with nothing closed gives the request back, as for `crawl_request.handle`.",
+      "name": "crawl_hook.handle",
+      "params": {
+        "$ref": "#/$defs/CrawlHookHandleParams"
+      },
+      "product": "foxhound",
+      "result": {
+        "$ref": "#/$defs/CrawlHookHandled"
+      },
+      "stability": "experimental"
+    },
     {
       "arrived_in": "0.1",
       "deprecated": null,
@@ -19840,7 +20008,7 @@
       "authority": "every",
       "clearable": false,
       "default": false,
-      "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
+      "description": "Whether a work item whose handler failed with `handler_failed`, or whose Hook in code failed with `hook_failed` on the program's own exception, is tried again: `false`. A Label may set it for its requests.",
       "name": "crawl.retry.handler_failed",
       "product": "foxhound",
       "products": [
@@ -23943,7 +24111,7 @@
       "authority": "every",
       "clearable": false,
       "default": 10000,
-      "description": "How long a Hook may run before it fails with `deadline_exceeded`: 10 s.",
+      "description": "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
       "name": "timeout.hook",
       "product": "collie",
       "products": [

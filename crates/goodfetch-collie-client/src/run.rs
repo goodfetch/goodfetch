@@ -116,6 +116,7 @@ fn log_start(started: &RunStarted) {
 impl Run {
     /// Whether the start began the Run, went on with it, or found it ended.
     pub fn started_as(&self) -> StartedAs {
+        crate::markers::warn_operation("run.start");
         self.host.held_run().started_as()
     }
 
@@ -136,6 +137,7 @@ impl Run {
     /// Dropping the future after its first poll leaves the value closed
     /// and the abort sent.
     pub async fn close(&self) -> Result<(), Error> {
+        crate::markers::warn_operation("run.abort");
         self.host.held_run().close().await
     }
 }
@@ -145,6 +147,7 @@ impl ClientConnection {
     /// `finish()` ends it. The start of a Run this Connection drives
     /// (`run.start`), which awaiting sends.
     pub fn start(&self) -> Start {
+        crate::markers::warn_operation("run.start");
         Start::new(self.clone())
     }
 }

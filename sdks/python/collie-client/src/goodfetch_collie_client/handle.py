@@ -1,25 +1,71 @@
 """What a generated handle reaches its engine through (ADR 0099).
 
-The raw call, the ID its calls carry, and the host of each handle it opens
-or builds, for the async handles and their sync twins, `not_given`, what
-an optional parameter left out holds, and `timeout_of`, how a call's own
-`timeout` is sent. Hand-written, since no catalog entry
-shapes it; the client package's runtime implements it. TypeScript's
-`handle.ts` is its twin.
+The raw call, the ID its calls carry, the host of each handle it opens
+or builds, and its listeners, for the async handles and their sync twins,
+`not_given`, what an optional parameter left out holds, `timeout_of`, how
+a call's own `timeout` is sent, and the `Subscription` a listener's `on`
+returns (ADR 0081). Hand-written, since no catalog entry shapes it; the
+client package's runtime implements it. TypeScript's `handle.ts` is its
+twin.
 """
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
-from typing import TYPE_CHECKING, Final, Literal, Protocol, TypeVar, final
+from typing import TYPE_CHECKING, Final, Literal, Protocol, TypeAlias, TypeVar, final
 
 from .generated.errors import SettingInvalidError
 
 if TYPE_CHECKING:
+    from typing import Self
+
     from pydantic import BaseModel
 
 _Id = TypeVar("_Id", covariant=True)
 _ChildId = TypeVar("_ChildId")
+_Payload = TypeVar("_Payload")
+_Model = TypeVar("_Model", bound="BaseModel")
+
+AsyncListener: TypeAlias = Callable[[_Payload], Awaitable[None] | None]
+"""A listener of the async API: it gets each event's payload, one at a time.
+
+An awaitable it returns, as an `async def` listener's call does, is awaited
+before the next event (ADR 0081).
+"""
+
+Listener: TypeAlias = Callable[[_Payload], None]
+"""A listener of the sync API: it gets each event's payload, one at a time.
+
+It runs on a worker thread its Connection owns, never on the program's.
+"""
+
+
+@final
+class Subscription:
+    """A listener registered with `on`, which `close()` removes (ADR 0081).
+
+    Closing it is idempotent and waits for nothing: the listener gets no
+    event after it, and its call's `$/cancel` reaches the engine before any
+    later call of the program does. It is a context manager in both APIs,
+    whose block removes the listener. A program never constructs one.
+    """
+
+    def __init__(self, close: Callable[[], None]) -> None:
+        """Takes what removes the listener."""
+        self._close = close
+
+    def close(self) -> None:
+        """Removes the listener; idempotent."""
+        self._close()
+
+    def __enter__(self) -> Self:
+        """Holds the listener for a `with` block, which removes it."""
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        """Removes the listener."""
+        self.close()
 
 
 @final
@@ -117,7 +163,24 @@ class AsyncHandleHost(Protocol[_Id]):
         Idempotent: it is sent once, and nothing is sent for a handle already
         closed, by its program or with the value that opened it. Every other
         call on the handle, and on a handle it opened or built, then fails
-        with `closed`.
+        with `closed`. A listener of the handle, or of one it opened or
+        built, that threw and that nothing raised yet is raised then, as
+        `listener_failed`, once the handle is closed (ADR 0081).
+        """
+        ...
+
+    def listen(
+        self,
+        operation: str,
+        params: BaseModel,
+        event: str,
+        payload: type[_Model],
+        listener: AsyncListener[_Model],
+    ) -> Subscription:
+        """Sends the listener's call `operation`; `listener` gets `event`'s payloads.
+
+        The call is sent in the order the program called, with no await of
+        the program's: `on` is a plain method in both APIs (ADR 0081).
         """
         ...
 
@@ -143,4 +206,15 @@ class HandleHost(Protocol[_Id]):
 
         Idempotent, as `AsyncHandleHost.close` is.
         """
+        ...
+
+    def listen(
+        self,
+        operation: str,
+        params: BaseModel,
+        event: str,
+        payload: type[_Model],
+        listener: Listener[_Model],
+    ) -> Subscription:
+        """Sends the listener's call, as `AsyncHandleHost.listen` does."""
         ...

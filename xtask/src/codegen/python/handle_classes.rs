@@ -27,6 +27,9 @@
 //!   gives the default of the setting it sets for the call alone, as a
 //!   `timedelta` (ADR 0080).
 //!
+//! - A handle's listener is its `on`, overloaded once a payload so each
+//!   event's listener is typed (`listeners`, ADR 0081).
+//!
 //! Each parameter's annotation is read from its schema; one the generator
 //! cannot spell fails `xtask codegen` with the operation named, and the
 //! repository's type checkers check each against the model's own, which
@@ -42,6 +45,8 @@ use super::super::handles::{Builder, Form, Handle, HandleId, Member, Parameters}
 use super::super::layer::{Layer, Stability};
 use super::super::naming::{pascal, snake};
 use super::{CALLER_MODULE, deprecation_message, docstring, header};
+
+mod listeners;
 
 /// The hand-written module of Collie's client package that declares what a
 /// generated handle reaches its engine through.
@@ -99,6 +104,9 @@ struct Imports {
     typing: BTreeSet<&'static str>,
     models: bool,
     deprecated: bool,
+    /// Whether it names pydantic's `BaseModel`, as a listener's map of
+    /// payloads does.
+    base_model: bool,
     /// The names it imports from the handle module besides the hosts: the
     /// `not_given` sentinel when a member takes an optional parameter, and
     /// [`TIMEOUT_OF`] when a member takes its own `timeout`, a `timedelta`.
@@ -562,6 +570,10 @@ fn classes(
         "\n    def __init__(self, host: {host}) -> None:\n        \"\"\"Takes what it reaches its engine through; a program never constructs one.\"\"\"\n        self._host = host\n"
     );
     let mut text = String::new();
+    // The async classes come first, so the listener's map precedes both.
+    if mode.prefix == ASYNC.prefix {
+        text.push_str(&listeners::declarations(handle, imports));
+    }
     for sub_object in &handle.sub_objects {
         let _ = write!(
             text,
@@ -601,6 +613,10 @@ fn classes(
     for held in &handle.members {
         text.push('\n');
         text.push_str(&member(layer, held, &handle.id, mode, imports)?);
+    }
+    if handle.listener.is_some() {
+        text.push('\n');
+        text.push_str(&listeners::member(layer, handle, mode, imports)?);
     }
     for built in &handle.builders {
         text.push('\n');
@@ -643,8 +659,14 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
     imports.typing.insert("Self");
     let typing: Vec<&str> = imports.typing.into_iter().collect();
     let _ = writeln!(text, "from typing import {}", typing.join(", "));
+    if imports.deprecated || imports.base_model {
+        text.push('\n');
+    }
+    if imports.base_model {
+        text.push_str("from pydantic import BaseModel\n");
+    }
     if imports.deprecated {
-        text.push_str("\nfrom typing_extensions import deprecated\n");
+        text.push_str("from typing_extensions import deprecated\n");
     }
     let handle = imports
         .handle

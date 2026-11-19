@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "20"
+version = "21"
 
 [[capability]]
 name = "lifecycle"
@@ -131,12 +131,12 @@ covers = ["story:11-77"]
 surfaces = ["sdk-typescript", "sdk-rust"]
 modes = ["attached", "linked"]
 
-# A page's listeners (issue 1277, ADR 0081): TypeScript leads; the Python
-# SDK joins with issue 2932 and the Rust SDK with issue 2933.
+# A page's listeners (issues 1277 and 2932, ADR 0081): the TypeScript and
+# Python SDKs; the Rust SDK joins with issue 2933.
 [[capability.case]]
 id = "listeners-in-order-and-a-thrower-raises-listener-failed"
 covers = ["story:11-61", "story:11-62", "story:11-63", "error:listener_failed"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 # A program's crawl (issue 1467): declared on a `Crawl` value, started on

@@ -1,12 +1,13 @@
 """The Connection's own Subscription, shared by a Session's listeners (ADR 0081).
 
-The Collie tests play one shared Subscription on the Scripted engine; these
-cover what a script cannot show: each listener's own queue, which gives
-an event's credit back as it takes it, and past its bound ends its
-listener with `listener_events_lost`, a listener leaving while others
-stay, the Subscription ending unasked, and the warning the engine's
-falling behind logs. TypeScript's `shared-subscription.test.ts` is its
-twin.
+The Collie tests play one shared Subscription on the Scripted engine, a
+stalled listener losing its own events among them; these pin each
+listener's own queue at the client's interface, which gives an event's
+credit back as it takes it and past its bound ends its listener with
+`listener_events_lost`, and cover what a script cannot show: a listener
+leaving while others stay, the Subscription ending unasked, and the
+warning the engine's falling behind logs. TypeScript's
+`shared-subscription.test.ts` is its twin.
 """
 
 from __future__ import annotations

@@ -64,6 +64,7 @@ from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.once import Once
 from goodfetch_collie_client.rpc import Channel, InvalidLine, ReadFailed, WriteFailed
 from goodfetch_collie_client.run import AsyncRun
+from goodfetch_collie_client.settings import settings_on_wire
 from goodfetch_collie_client.shared_subscription import SharedSubscription
 
 if TYPE_CHECKING:
@@ -74,6 +75,7 @@ if TYPE_CHECKING:
 
     from goodfetch_collie_client.attached_engine import AttachedEngine
     from goodfetch_collie_client.generated.models import RunLimit, RunStarted
+    from goodfetch_collie_client.generated.settings import RunSettings
     from goodfetch_collie_client.goodfetch_error import ErrorClass
     from goodfetch_collie_client.rpc import TransportEnd
 
@@ -309,6 +311,7 @@ class ClientConnection:
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
+        settings: RunSettings | None = None,
     ) -> AsyncRun:
         """Leaving the scope or `close()` stops the Run with a Checkpoint.
 
@@ -330,6 +333,8 @@ class ClientConnection:
         run_limits = limit_list(limits)
         if run_limits:
             fields["limits"] = run_limits
+        if settings is not None:
+            fields["settings"] = settings_on_wire(settings)
         await self._follow_log_level()
         self.ensure_open("run.start")
         started = await self._operations.run_start(

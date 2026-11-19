@@ -7,9 +7,10 @@
 //! catalog's descriptions as Google-style docstrings and its Experimental and
 //! deprecated markers, and the constants a Connection opens with: the
 //! protocol and Product versions `hello` names, the engine's command and
-//! the variable naming its executable, and Collie's handles in their ADR
-//! 0099 forms (`handle_classes`). Foxhound's layer imports what Collie's
-//! client package defines.
+//! the variable naming its executable, Collie's handles in their ADR 0099
+//! forms (`handle_classes`) and the types of its scopes' `settings`
+//! (`settings`, ADR 0083). Foxhound's layer imports what Collie's client
+//! package defines.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -71,6 +72,7 @@ pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 19] = [
 mod handle_classes;
 pub(super) mod model_defaults;
 mod points_in_time;
+mod settings;
 
 const EXPERIMENTAL: &str = "Experimental: outside semver until it is promoted (ADR 0030).";
 
@@ -109,6 +111,9 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
             "handles.py",
             handle_classes::handles_module(layer, &handles)?,
         ));
+    }
+    if layer.product == Product::Collie {
+        files.push(("settings.py", settings::settings_module(&layer.settings)?));
     }
     Ok(Generated {
         files,

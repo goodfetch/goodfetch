@@ -15,14 +15,12 @@ use serde_json::{Map, Value};
 
 use goodfetch_protocol::catalog::SettingScope;
 
-use super::super::handles::{Form, Handle, Member};
+use super::super::handles::{Handle, Member};
 use super::super::layer::Setting;
 use super::super::naming::camel;
+use super::super::settings_tree::{Node, opened_scope, tree};
 use super::HEADER;
 use super::wire::{inline_path, path_value};
-
-/// The optional parameter that holds a scope's own settings (ADR 0083).
-pub(super) const SETTINGS: &str = "settings";
 
 /// What sends a scope's settings by their wire spelling, which the
 /// generated settings module declares.
@@ -106,52 +104,6 @@ const UNTYPED_KEYWORDS: [&str; 11] = [
     "propertyNames",
 ];
 
-/// A segment of the settings tree: a setting, or an area of more segments.
-enum Node<'a> {
-    Setting(&'a Setting),
-    Area(BTreeMap<String, Node<'a>>),
-}
-
-/// The settings tree of those `settings` that `scope` sets, by wire segment.
-fn tree(settings: &[Setting], scope: Option<SettingScope>) -> Result<BTreeMap<String, Node<'_>>> {
-    let mut root = BTreeMap::new();
-    for setting in settings {
-        let applies = match scope {
-            Some(scope) => setting.scopes.iter().any(|named| named == scope.as_str()),
-            None => !setting.scopes.is_empty(),
-        };
-        if !applies {
-            continue;
-        }
-        let segments: Vec<&str> = setting.name.split('.').collect();
-        let (last, areas) = segments
-            .split_last()
-            .with_context(|| format!("the setting `{}` has no segment", setting.name))?;
-        let mut level = &mut root;
-        for area in areas {
-            let node = level
-                .entry((*area).to_owned())
-                .or_insert_with(|| Node::Area(BTreeMap::new()));
-            level = match node {
-                Node::Area(children) => children,
-                Node::Setting(other) => bail!(
-                    "the setting `{}` is inside the setting `{}`",
-                    setting.name,
-                    other.name
-                ),
-            };
-        }
-        ensure!(
-            level
-                .insert((*last).to_owned(), Node::Setting(setting))
-                .is_none(),
-            "the setting `{}` holds other settings",
-            setting.name
-        );
-    }
-    Ok(root)
-}
-
 /// The camelCase spelling of each of `level`'s segments, refusing two that
 /// spell one.
 fn spelled<'a, 'b>(
@@ -226,18 +178,7 @@ pub(super) fn scope_type(opened: &str) -> Result<&'static str> {
 /// The settings type of the scope `member` opens, when it takes `settings`;
 /// an error when the scope it opens takes none.
 pub(super) fn scope_settings(member: &Member<'_>) -> Result<Option<&'static str>> {
-    match &member.form {
-        Form::Opens(opened)
-            if member
-                .parameters
-                .optional
-                .iter()
-                .any(|name| name == SETTINGS) =>
-        {
-            scope_type(opened).map(Some)
-        }
-        _ => Ok(None),
-    }
+    opened_scope(member).map(scope_type).transpose()
 }
 
 /// The import of the settings types `handles`' members take, and of

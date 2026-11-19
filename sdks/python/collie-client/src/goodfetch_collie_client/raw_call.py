@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
 from goodfetch_collie_client.generated.errors import ProgramError
-from goodfetch_collie_client.handle import NotGiven, not_given
+from goodfetch_collie_client.handle import NotGiven, not_given, whole_milliseconds
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -59,7 +59,7 @@ def _wire_timeout(timeout: object) -> object:
     setting, which the SDK does not know (ADR 0080).
     """
     if isinstance(timeout, timedelta):
-        return -(-(timeout // timedelta(microseconds=1)) // 1000)
+        return whole_milliseconds(timeout)
     return timeout
 
 

@@ -11,6 +11,7 @@ not expect, `hello` included, and on a step left unused. TypeScript's
 import threading
 from collections.abc import Awaitable, Mapping
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from typing import cast
 
 import anyio
@@ -214,6 +215,29 @@ async def test_takes_a_timeout_as_a_timedelta_only(way: Way) -> None:
         {"key": "timeout.run", "value": 30_000, "layer": "run", "origin": "argument"},
         True,
     )
+    assert played.done() == Finished()
+
+
+@three_ways
+async def test_sends_each_scopes_settings_by_segment_durations_in_milliseconds(
+    way: Way,
+) -> None:
+    """Starting a Run, a Session and a page each send their own settings (ADR 0083).
+
+    A `timedelta` goes in whole milliseconds and `None` as null, which
+    clears; `run/settings-sent-by-scope.json` expects each.
+    """
+    collie, played = await collie_on(way, "run/settings-sent-by-scope.json")
+    run = await collie.start(
+        settings={
+            "timeout": {"navigation": timedelta(seconds=30)},
+            "checkpoint": {"interval": None},
+        }
+    )
+    session = await run.new_session(settings={"browser": {"access_mode": "stealth"}})
+    await session.new_page(settings={"content": {"extractor": "trafilatura"}})
+    await collie.close()
+
     assert played.done() == Finished()
 
 

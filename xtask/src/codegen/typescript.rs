@@ -18,6 +18,7 @@ use goodfetch_protocol::settings::{COLLIE_ENGINE_PATH_VARIABLE, FOXHOUND_ENGINE_
 use super::handles::{self, Form, Handle, HandleId, Member, Parameters};
 use super::layer::{Deprecation, Layer, Stability};
 use super::naming::{camel, pascal};
+use super::settings_tree::SETTINGS;
 use super::{Generated, TypesFile};
 
 mod errors;
@@ -628,7 +629,7 @@ fn signature(
     for name in &parameters.optional {
         let field = camel(name);
         let given = format!("options.{field}");
-        if let Some(settings) = settings_type.filter(|_| name == settings::SETTINGS) {
+        if let Some(settings) = settings_type.filter(|_| name == SETTINGS) {
             options.push(format!("readonly {field}?: {settings} | undefined"));
             entries.push(format!("{field}: {}({given})", settings::SETTINGS_ON_WIRE));
         } else {

@@ -57,7 +57,11 @@ describe("a Collie Connection on an Attached engine", () => {
         product: "collie",
         version: "0.0.0",
         protocolVersion: "0.1",
+        projectFile: null,
+        home: testEnv.home,
         enginePath: env["GOODFETCH_COLLIE_ENGINE_PATH"],
+        url: null,
+        fallback: null,
       });
       expect(traced.startedAs).toBe("new");
       expect(traced.runId).toMatch(RUN_ID);
@@ -175,7 +179,11 @@ describe("a Collie Connection on the Scripted engine as its Attached engine", ()
           product: "foxhound",
           version: "0.0.0",
           protocolVersion: "0.1",
+          projectFile: null,
+          home: testEnv.home,
           enginePath: env["GOODFETCH_COLLIE_ENGINE_PATH"],
+          url: null,
+          fallback: null,
         }),
       );
       await clientCase.check("the script played to its end, so its engine wrote no failure", () =>
@@ -275,9 +283,7 @@ describe("a Collie Connection on the Scripted engine as its Attached engine", ()
           expect(refused).toMatchObject({
             code: "setting_invalid",
             fix: expect.stringContaining("`timeout: null`"),
-            details: {
-              limit: { key: "timeout.run", value: timeout, layer: "run", origin: "argument" },
-            },
+            limit: { key: "timeout.run", value: timeout, layer: "run", origin: "argument" },
           }),
       );
       await clientCase.check("the script played to its end, so its engine wrote no failure", () =>

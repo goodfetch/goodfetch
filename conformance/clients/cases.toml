@@ -55,30 +55,31 @@ modes = ["attached"]
 # resumable by its Run ID, while an ended Run's frees only the value, the
 # Connection's close cancels its calls in flight and waits for its Attached
 # engine, and a failed close raises its typed error, a `SuppressedError`
-# under `await using`. TypeScript leads; the Python SDK joins with issue
-# 2927 and the Rust SDK with issue 2928.
+# under `await using` and an exception chained to the one `async with` or
+# `with` was unwinding from in Python (issue 2927). The Rust SDK joins with
+# issue 2928.
 [[capability.case]]
 id = "children-close-with-their-parent"
 covers = ["story:11-16"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 [[capability.case]]
 id = "close-stops-a-running-run"
 covers = ["story:11-18"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 [[capability.case]]
 id = "connection-close-stops-its-engine"
 covers = ["story:11-19"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 [[capability.case]]
 id = "failed-close-raises-a-typed-error"
 covers = ["story:11-20"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 # The catalog's operations reach the engine through the members generated
@@ -179,6 +180,19 @@ id = "handler-exactly-once"
 covers = ["story:3-41"]
 surfaces = ["sdk-typescript"]
 modes = ["attached"]
+
+# `connect()` finds the engine (ADRs 0024, 0078 and 0083; issue 1259): with
+# `engine` at `auto`, the Daemon running in the Goodfetch home, else an
+# Attached engine; `engine()` reports the kind, Product, versions, project
+# file, home, engine path and address, and the choice is logged at info.
+# TypeScript leads; Python and Rust join in the next parts of issue 1259.
+[[capability]]
+name = "connecting"
+
+[[capability.case]]
+id = "connect-finds-the-engine"
+covers = ["story:11-2", "story:11-4", "story:11-5", "story:11-8"]
+surfaces = ["sdk-typescript"]
 
 [[capability]]
 name = "product-conformance"

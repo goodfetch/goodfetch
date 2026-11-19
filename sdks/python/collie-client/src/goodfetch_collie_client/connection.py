@@ -39,6 +39,8 @@ from goodfetch_collie_client.generated.models import (
     ProtocolVersion,
     RunStartParams,
     SetLogLevelParams,
+    SettingLimit,
+    SettingsLayer,
     StartedAs,
     Surface,
     UsageSetParams,
@@ -407,12 +409,10 @@ class ClientConnection:
                     "Raise timeout.close, or find why the engine stopped answering "
                     "in the engine's stderr, which the logger got."
                 ),
+                limit=SettingLimit(
+                    key="timeout.close", value=limit, layer=SettingsLayer.default
+                ),
                 details={
-                    "limit": {
-                        "key": "timeout.close",
-                        "value": limit,
-                        "layer": "default",
-                    },
                     "elapsed": round((anyio.current_time() - started_at) * 1000),
                     "waited_for": "close",
                 },

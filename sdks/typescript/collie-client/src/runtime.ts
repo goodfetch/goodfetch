@@ -10,7 +10,8 @@
 // naming the Product, through which the Product's package reaches its own
 // operations, streams and Run type and serves the engine's requests to its
 // program's handlers. It is for the Product packages, never for programs,
-// which hold their Product's Connection type.
+// which hold their Product's Connection type. Its generated members of a
+// deprecated or Experimental entry warn through `markers`' functions.
 export type { ClientConnection, Served, Stream } from "./client-connection.ts";
 export type { ErrorClasses } from "./errors.ts";
 export {
@@ -23,6 +24,7 @@ export {
 export type { Transport } from "./rpc.ts";
 export { holdInRealm } from "./realm.ts";
 export { alsoInNamespace } from "./raw-call.ts";
+export { warnDeprecated, warnExperimental } from "./markers.ts";
 export { ensureRunOpen, pageOf, type RunHost } from "./run.ts";
 export { Sequence, type SequenceOptions } from "./sequence.ts";
 export { idOfLocator } from "./generated/handles.ts";
@@ -30,7 +32,7 @@ export { collieTimes, type CollieTimeType } from "./generated/times.ts";
 export { withTimes, type TimePath, type Times } from "./times.ts";
 export {
   locateEngine,
-  openAttached,
+  openEngine,
   openOver,
   type EngineLocation,
   type ProductPackage,

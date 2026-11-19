@@ -24,24 +24,28 @@
 # and re-emits the engine's `$/log` events (ADR 0078).
 # `event_stream` is the stream of a listener's events, read by meaning
 # (ADR 0081), with the credits it grants and the cancel its drop sends.
+# `published` is the Connection's own Subscription, which the streams of
+# the events the engine publishes on its event stream share (ADR 0081),
+# such as a Session's.
 # Event resumption joins as its own module with the ticket that adds it.
 [modules]
 blocking = ["call", "connection", "error", "event_stream", "field_values", "generated", "limits", "response", "run"]
 call = ["error", "rpc"]
 connect_timeout = ["call", "error"]
-connection = ["call", "connect_timeout", "error", "file_saving", "handler", "logging", "rpc", "sync", "transport"]
+connection = ["call", "connect_timeout", "error", "file_saving", "handler", "logging", "published", "rpc", "sync", "transport"]
 connection_type = ["error", "run"]
 error = []
-event_stream = ["error", "rpc"]
+event_stream = ["error", "published", "rpc"]
 field_values = ["call", "error"]
 file_saving = ["error"]
 generated = ["call", "event_stream", "host", "markers", "response"]
 handler = ["error", "line", "sync"]
-host = ["call", "connection", "error", "event_stream", "sync"]
+host = ["call", "connection", "error", "event_stream", "published", "sync"]
 limits = []
 line = []
 logging = ["sync"]
 markers = ["logging", "sync"]
+published = ["error", "rpc", "sync"]
 response = ["call", "connection", "error", "host"]
 rpc = ["error", "handler", "line", "logging", "transport"]
 run = ["connection", "error", "generated", "host", "limits", "logging", "markers"]

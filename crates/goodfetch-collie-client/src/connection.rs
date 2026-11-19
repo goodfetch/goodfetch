@@ -38,6 +38,7 @@ use crate::error::Error;
 use crate::file_saving::{self, FileSaving};
 use crate::handler::{HandlerRequests, Streams};
 use crate::logging;
+use crate::published::Published;
 use crate::rpc::{self, Heard, Outgoing, Sender};
 use crate::sync::{AtomicBool, Mutex, MutexGuard};
 use crate::transport::{self, Endpoint, Network};
@@ -109,6 +110,9 @@ struct Inner {
     sender: Sender,
     /// The streams of the engine's requests the program serves.
     streams: Streams,
+    /// Its own Subscription, which the streams of the events the engine
+    /// publishes share.
+    published: Published,
     /// The runtime its tasks run on.
     handle: Handle,
     tasks: TaskTracker,
@@ -177,9 +181,11 @@ impl ClientConnection {
         }
         let streams = Streams::new();
         let sender = rpc::start(opened.link, &handle, &tasks, streams.clone());
+        let published = Published::new(sender.clone(), handle.clone(), tasks.clone());
         let connection = Self(Arc::new(Inner {
             sender,
             streams,
+            published,
             handle,
             tasks,
             handed: TaskTracker::new(),
@@ -266,6 +272,12 @@ impl ClientConnection {
     /// The handle the calls of the Connection's handles go through.
     pub(crate) fn sender(&self) -> Sender {
         self.0.sender.clone()
+    }
+
+    /// Its own Subscription, which the streams of the events the engine
+    /// publishes share.
+    pub(crate) fn published(&self) -> &Published {
+        &self.0.published
     }
 
     /// The save of a file to the program's `path` through the call of

@@ -56,7 +56,7 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{Product, Reach};
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams,
+    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, Form, HELLO, HelloParams,
     NETWORK_MAX_HELLO_SIZE, PERSON_REQUIRED, PanicEnded, PrivateEndpoint, StoppedBy, Surface,
     TIMEOUT_HELLO, TOO_MANY_CALLS, TooManyCallsDetails,
 };
@@ -828,7 +828,10 @@ impl Session<'_> {
             }
             (ConnectionEffect::Answer, Message::Unreadable(error)) => {
                 let failure = CallError::protocol(error.failure, error.detail);
-                if self.send(failure_line(error.id, &failure)).await {
+                if self
+                    .send(failure_line(error.id, &failure, self.form()))
+                    .await
+                {
                     Flow::Continue
                 } else {
                     Flow::Close
@@ -876,11 +879,12 @@ impl Session<'_> {
                     "a Connection opens with `hello`",
                 );
                 record(self.named(call.method()), Some(error.code()));
-                self.send(failure_line(Some(id), &error)).await;
+                self.send(failure_line(Some(id), &error, self.form())).await;
             }
             Message::Unreadable(error) => {
                 let failure = CallError::protocol(error.failure, error.detail);
-                self.send(failure_line(error.id, &failure)).await;
+                self.send(failure_line(error.id, &failure, self.form()))
+                    .await;
             }
             Message::Notification(_) => {
                 tracing::debug!("a notification before `hello` closes the Connection");
@@ -910,7 +914,7 @@ impl Session<'_> {
             "a Connection opens with `hello` once",
         );
         record(self.named(call.method()), Some(error.code()));
-        if self.send(failure_line(Some(id), &error)).await {
+        if self.send(failure_line(Some(id), &error, self.form())).await {
             Flow::Continue
         } else {
             Flow::Close
@@ -1051,7 +1055,7 @@ impl Session<'_> {
                 record(HELLO, Some(error.code()));
                 trace::record_failure(&span, error.code(), error.wire_code());
                 drop(span);
-                self.send(failure_line(Some(id), &error)).await;
+                self.send(failure_line(Some(id), &error, self.form())).await;
                 self.rejected()
             }
         }
@@ -1129,7 +1133,7 @@ impl Session<'_> {
             return Flow::Continue;
         };
         record(self.named(method), Some(error.code()));
-        if self.send(failure_line(Some(id), &error)).await {
+        if self.send(failure_line(Some(id), &error, self.form())).await {
             Flow::Continue
         } else {
             Flow::Close
@@ -1207,6 +1211,7 @@ impl Session<'_> {
             },
         );
         let (outgoing, completed) = (self.outgoing.clone(), self.completed.clone());
+        let form = self.form();
         // Each call keeps its own task (the audit's E1-4, kept by #1898):
         // the Connection goes on reading while a handler waits, a
         // `$/cancel` reaches the call at once, and [`MAX_IN_FLIGHT`] caps
@@ -1236,7 +1241,7 @@ impl Session<'_> {
                 Err(error) => {
                     record(operation.name, Some(error.code()));
                     trace::record_failure(&span, error.code(), error.wire_code());
-                    failure_line(Some(id.clone()), &error)
+                    failure_line(Some(id.clone()), &error, form)
                 }
             };
             drop(span);
@@ -1334,6 +1339,13 @@ impl Session<'_> {
 }
 
 impl Session<'_> {
+    /// The form its Client writes names in (ADR 0099), which a failure's
+    /// marked names are spelled in; the catalog's own names before the
+    /// `hello` declared one.
+    fn form(&self) -> Form {
+        self.connection.form.get().copied().unwrap_or(Form::Catalog)
+    }
+
     /// `method` as a record names it: a name of the catalog, `hello` or
     /// `$/cancel`, or [`UNKNOWN_METHOD`] for any other, which a Client
     /// wrote and no log keeps (ADR 0132's bounded values).

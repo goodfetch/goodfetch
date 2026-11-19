@@ -205,6 +205,21 @@ impl<T, P> Query<T, P> {
     }
 }
 
+impl<T: 'static, P> Query<T, P> {
+    /// The query whose answer is `map` of this one's, or the error `map`
+    /// fails with: a read whose values a program's type reads.
+    pub(crate) fn try_map<U>(
+        self,
+        map: impl FnOnce(T) -> Result<U, Error> + Send + 'static,
+    ) -> Query<U, P> {
+        let read = self.read;
+        Query {
+            request: self.request,
+            read: Box::new(move |value| read(value).and_then(map)),
+        }
+    }
+}
+
 impl<T: Send + 'static, P: Serialize + Send + 'static> IntoFuture for Query<T, P> {
     type Output = Result<T, Error>;
     type IntoFuture = Reply<T>;

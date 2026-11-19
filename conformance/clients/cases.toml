@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "19"
+version = "20"
 
 [[capability]]
 name = "lifecycle"
@@ -50,6 +50,37 @@ covers = ["story:11-15"]
 surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
+# Closing the tree Connection, Run, Session, page (ADR 0078; issue 1266):
+# each value closes its children first, a running Run's close aborts it,
+# resumable by its Run ID, while an ended Run's frees only the value, the
+# Connection's close cancels its calls in flight and waits for its Attached
+# engine, and a failed close raises its typed error, a `SuppressedError`
+# under `await using`. TypeScript leads; the Python SDK joins with issue
+# 2927 and the Rust SDK with issue 2928.
+[[capability.case]]
+id = "children-close-with-their-parent"
+covers = ["story:11-16"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "close-stops-a-running-run"
+covers = ["story:11-18"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "connection-close-stops-its-engine"
+covers = ["story:11-19"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "failed-close-raises-a-typed-error"
+covers = ["story:11-20"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
 # The catalog's operations reach the engine through the members generated
 # from them (ADR 0099; issues 2399, 1233 and 2793): attached in TypeScript
 # and Python, linked in Rust, each surface taking the modes it has.
@@ -63,41 +94,42 @@ surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
 # A program's first pages (issue 2400): opened, navigated, acted on through
-# locators, read and closed, on the Proving ground through Collie's
-# executable. TypeScript leads; the Python and Rust SDKs join with their
-# parts of issues 1236 and 1237.
+# locators, read and closed, on the Proving ground: attached through
+# Collie's executable in TypeScript, linked in Rust (issue 2803), each
+# surface taking the modes it has. The Python SDK joins with its part of
+# issues 1236 and 1237.
 [[capability]]
 name = "page"
 
 [[capability.case]]
 id = "page-form-program"
 covers = ["story:11-77"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "goto-404-returns-the-response"
 covers = ["story:11-84"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "second-new-page-in-the-default-session"
 covers = ["story:11-77"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "page-read-fields"
 covers = ["story:11-77", "operation:page.read"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "closed-page-raises-closed"
 covers = ["story:11-77"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-rust"]
+modes = ["attached", "linked"]
 
 # A program's crawl (issue 1467): declared on a `Crawl` value, started on
 # Foxhound's executable, its handler served on the event loop, and its
@@ -309,11 +341,11 @@ name = "logging"
 [[capability.case]]
 id = "log-level-follows-the-logger"
 covers = ["story:11-26"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 [[capability.case]]
 id = "engine-logs-reach-the-logger"
 covers = ["story:11-25"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]

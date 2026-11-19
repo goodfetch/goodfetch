@@ -40,16 +40,16 @@ fn a_navigation_answers_its_response_or_none_and_an_evaluation_its_value() {
         let missing = missing.expect("a 404 is a response");
         assert_eq!(
             (
-                missing.status,
-                missing.url.as_str(),
-                reloaded,
+                missing.status(),
+                missing.url(),
+                reloaded.is_none(),
                 answered,
                 left_out
             ),
             (
                 404,
                 "https://shop.test/missing",
-                None,
+                true,
                 Some(json!(42)),
                 None
             )

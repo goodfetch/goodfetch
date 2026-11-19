@@ -11,19 +11,23 @@
 # `file_saving` writes a file to the program's path whole or not at all (ADR
 # 0116), which `connection` drives. `sync` names the crate's locks. `limits`
 # types the Limits a connection and a Run's start take, a price as an exact
-# `Money` (ADR 0080). Credits, cancellation, event resumption and bodies
-# join as their own modules with the tickets that add them.
+# `Money` (ADR 0080). `response` is the Response a page's request got, whose
+# body it reads and decodes (ADRs 0085 and 0119), and `field_values` reads a
+# page's fields into a program's type (ADR 0147). Credits, cancellation and
+# event resumption join as their own modules with the tickets that add them.
 [modules]
-blocking = ["call", "connection", "error", "generated", "limits", "run"]
+blocking = ["call", "connection", "error", "field_values", "generated", "limits", "response", "run"]
 call = ["error", "rpc"]
 connection = ["call", "error", "file_saving", "handler", "rpc", "sync", "transport"]
 error = []
+field_values = ["call", "error"]
 file_saving = ["error"]
-generated = ["call", "host"]
+generated = ["call", "host", "response"]
 handler = ["error", "line", "sync"]
 host = ["call", "connection", "error", "sync"]
 limits = []
 line = []
+response = ["call", "connection", "error", "host"]
 rpc = ["error", "handler", "line", "transport"]
 run = ["connection", "error", "generated", "host", "limits"]
 sync = []

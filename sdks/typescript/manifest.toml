@@ -3,15 +3,21 @@
 # or `entry = "none"` with its reason, and the canonical words and form it is
 # spelled from. Everything `xtask codegen` writes is generated, never listed.
 # `xtask sdk-manifests` refuses an entry that is no catalog operation or one
-# only a person may call. The completeness tests join with area 11's catalog
-# mapping ticket; until then a member added by hand gets its line here.
+# only a person may call, two members of one receiver for one entry, a
+# member with no entry not spelled from its words and form, a line naming a
+# member the generator writes, and a member whose words another SDK's
+# manifest lacks on a receiver both manifests list unless its `only` says
+# why that SDK lacks it. Matching this manifest to what the packages export is issue
+# 2920's; until then a member added by hand gets its line here.
 #
 # Forms: `opener` (a round trip that returns a value the caller closes),
 # `round_trip`, `read` (answered by the SDK without a round trip), `closer`
 # (the idempotent `close()` and its scoped form), `runtime` (what a
 # Product's package builds its Connection on, from
-# `@goodfetch/collie-client/runtime`, never for programs) and `type` (a type
-# or class the generated layer builds on and re-exports).
+# `@goodfetch/collie-client/runtime`, never for programs), `type` (a type
+# or class the generated layer builds on and re-exports) and `constant` (a
+# value, its words in capitals). `constructor` is spelled from its
+# receiver's words and `[Symbol.asyncDispose]` from `close`.
 
 [[member]]
 package = "@goodfetch/collie"
@@ -72,6 +78,7 @@ receiver = "Foxhound"
 member = "engine"
 entry = "none"
 reason = "Answered from the engine's reply to `hello` (ADR 0095), with no round trip; `Collie.engine`'s member under the same name."
+only = "Rust's `Foxhound` does not answer the engine's reply to `hello` yet; nor does Rust's `Collie`."
 words = ["engine"]
 form = "read"
 
@@ -106,6 +113,7 @@ package = "@goodfetch/foxhound"
 receiver = "Foxhound"
 member = "startCrawl"
 entry = "crawl.start"
+only = "Rust's crawl, its declaration and its start, is issue 2804's."
 words = ["start", "crawl"]
 form = "opener"
 
@@ -169,6 +177,7 @@ receiver = "(module)"
 member = "seed"
 entry = "none"
 reason = "Builds one of the seeds `crawl.start` carries (ADR 0093), with no round trip."
+only = "Rust builds a seed with `Seed::new` (ADR 0099), with its crawl, issue 2804's."
 words = ["seed"]
 form = "read"
 
@@ -276,7 +285,8 @@ form = "closer"
 package = "@goodfetch/collie-client"
 receiver = "Run"
 member = "[Symbol.asyncDispose]"
-entry = "run.abort"
+entry = "none"
+reason = "The scoped form of `close()` (ADR 0078), whose line serves `run.abort`."
 words = ["close"]
 form = "closer"
 
@@ -345,10 +355,19 @@ form = "runtime"
 
 [[member]]
 package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "withTimes"
+entry = "none"
+reason = "Reads the points in time a value from the engine holds as `Date`s, at the places a Product's generated times table names, for what arrives outside a call's result, such as Foxhound's `$/record` (ADRs 0092 and 0099)."
+words = ["with", "times"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
 receiver = "ClientConnection"
 member = "caller"
 entry = "none"
-reason = "The Connection's calls, typed by a Product's generated operation table (ADR 0038)."
+reason = "The Connection's calls, typed by a Product's generated operation table (ADR 0038), their results' points in time read as `Date`s by its generated times table (ADRs 0092 and 0099)."
 words = ["caller"]
 form = "runtime"
 

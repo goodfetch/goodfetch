@@ -1,0 +1,4 @@
+# Which of goodfetch-encoding's top-level modules may import which (ADR 0126).
+[modules]
+declaration = ["media_type"]
+media_type = []

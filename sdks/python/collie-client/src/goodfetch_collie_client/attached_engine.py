@@ -25,6 +25,7 @@ from anyio.streams.stapled import StapledByteStream
 
 from goodfetch_collie_client.generated.connection import ATTACHED_ENGINE_COMMAND
 from goodfetch_collie_client.generated.errors import EngineNotFoundError
+from goodfetch_collie_client.host_logging import CLIENT_LOGGER
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -33,9 +34,6 @@ if TYPE_CHECKING:
 
 STDERR_TAIL_BYTES = 64 * 1024
 """How much of the engine's stderr its exit keeps (ADR 0078)."""
-
-LOGGER_NAME = "goodfetch.client"
-"""The logger the engine's stderr lines go to, silent unless the host listens."""
 
 
 @dataclass(frozen=True)
@@ -161,7 +159,7 @@ class _StderrReader:
         return data[start:].decode("utf-8", errors="replace")
 
     def _run(self) -> None:
-        logger = logging.getLogger(LOGGER_NAME)
+        logger = logging.getLogger(CLIENT_LOGGER)
         partial = b""
         try:
             with open(self._fd, "rb", buffering=0) as stderr:

@@ -454,6 +454,10 @@ _Avoid_: parent call, outer deadline
 What Foxhound registers on a crawl handler's Session to receive the responses its pages observe whose URLs its URL patterns match, each body up to a byte cap, those a service worker answered included (ADR 0110).
 _Avoid_: response hook, response listener, sniffer
 
+**Encoding**:
+The character encoding a document's or a response body's bytes are decoded with, a WHATWG Encoding, found in ADR 0119's order: a BOM, a forced one, the `Content-Type` charset, the declaration in its own bytes as Chrome reads it, then UTF-8.
+_Avoid_: character set, code page
+
 **Access mode**:
 How a Session presents itself to sites, fixed when it opens: standard (an ordinary browser), identified (a declared, signed agent) or stealth (masked).
 _Avoid_: profile, access profile, stealth level

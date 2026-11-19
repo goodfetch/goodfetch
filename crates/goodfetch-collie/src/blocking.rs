@@ -7,7 +7,7 @@
 use goodfetch_collie_client::blocking;
 
 pub use goodfetch_collie_client::blocking::{
-    Call, Connection, Locator, Page, Query, Run, Session, Start,
+    Call, Connection, Exchange, Locator, Page, Query, Response, Run, Session, Start,
 };
 
 use crate::Error;

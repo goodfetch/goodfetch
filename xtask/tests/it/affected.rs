@@ -337,6 +337,7 @@ fn local_mode_without_origin_main_is_an_error() {
     let outcome = workspace.xtask(&["affected", "--local"]);
 
     assert_eq!(outcome.code, 2);
+    assert!(outcome.stderr.contains("origin/main"), "{}", outcome.stderr);
 }
 
 /// The visual job runs when a change reaches a package holding a visual test,

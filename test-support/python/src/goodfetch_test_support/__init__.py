@@ -4,6 +4,7 @@ Its fixtures reach the setup `goodfetch-test-env` prepares, as Rust tests get
 it from `TestEnv::new()`; nothing of that setup is rewritten in Python.
 """
 
+from goodfetch_test_support.answering import EngineAnswering
 from goodfetch_test_support.canaries import (
     Canary,
     CanaryHit,
@@ -89,6 +90,7 @@ __all__ = [
     "DaemonNotRequested",
     "Encoding",
     "Ending",
+    "EngineAnswering",
     "EngineVersionUnreported",
     "Exited",
     "Finished",

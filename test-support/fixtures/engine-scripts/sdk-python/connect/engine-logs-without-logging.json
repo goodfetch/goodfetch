@@ -1,0 +1,53 @@
+{
+  "description": "A Collie Client in a program that configures no logging sends `warn`, the root logger's default `WARNING`, in `hello`; the engine sends an error and a warning as `$/log` events, and the SDK writes them nowhere, since `goodfetch` has its `NullHandler` (ADR 0078).",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/log",
+          "params": {
+            "level": "error",
+            "target": "goodfetch::rpc::dispatch",
+            "message": "A call failed."
+          }
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/log",
+          "params": {
+            "level": "warn",
+            "target": "goodfetch::page",
+            "message": "A page was slow.",
+            "dropped": 2
+          }
+        }
+      }
+    }
+  ]
+}

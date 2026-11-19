@@ -456,7 +456,7 @@ impl BrowserCache {
             folder = %folder.display(),
             "a build in the Browser cache does not have its pinned digest: removing it",
         );
-        store::delete(&self.root, &folder).map_err(CacheError::cache(&folder))?;
+        store::delete(&self.root, &folder, None).map_err(CacheError::cache(&folder))?;
         Ok(Present::Missing)
     }
 

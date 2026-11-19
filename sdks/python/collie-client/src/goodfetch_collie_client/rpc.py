@@ -9,9 +9,10 @@ while it waits sends `$/cancel` with its id. When the engine's side ends,
 the owner says which error every call still waiting fails with, and every
 later call fails with it too. A stream is a call whose notifications, such
 as `$/chunk`, name its id: the reader hands each to the stream's listener,
-and the caller grants credits with `notify`. TypeScript's `rpc.ts` is its
-twin; served requests and the channel's bounds come with the tickets that
-use them.
+and the caller grants credits with `notify`; a notification that names no
+call, such as the engine's `$/log`, goes to the owner. TypeScript's `rpc.ts`
+is its twin; served requests and the channel's bounds come with the tickets
+that use them.
 """
 
 from __future__ import annotations
@@ -84,6 +85,13 @@ class ChannelOwner(Protocol):
 
     async def ended(self, end: TransportEnd) -> GoodfetchError:
         """The error each call still waiting, and every later one, fails with."""
+        ...
+
+    def notified(self, method: str, params: object) -> None:
+        """Hears a notification that names no call, such as the engine's `$/log`.
+
+        It runs on the reading task, so it must not block.
+        """
         ...
 
 
@@ -315,6 +323,7 @@ class Channel:
         members = object_members(notification.params)
         stream_id = None if members is None else members.get("id")
         if not isinstance(stream_id, int) or isinstance(stream_id, bool):
+            self._owner.notified(notification.method, notification.params)
             return
         listener = self._listeners.get(stream_id)
         if listener is not None:

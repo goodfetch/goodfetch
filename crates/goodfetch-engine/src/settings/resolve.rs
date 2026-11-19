@@ -634,7 +634,10 @@ fn user_settable(key: &str) -> bool {
     keys::find(key).is_some_and(|found| {
         !matches!(
             found.setting.authority,
-            Authority::OperatorPolicy | Authority::OperatorPolicyAlone | Authority::Fixed
+            Authority::OperatorPolicy
+                | Authority::OperatorPolicyAlone
+                | Authority::ProjectFileAlone
+                | Authority::Fixed
         )
     })
 }
@@ -1098,20 +1101,22 @@ fn take(
 /// `setting_not_applicable` for `setting`, set in `layer`, unless `layer`
 /// is one its authority takes it from: a machine's setting from user
 /// configuration or an Operator policy, an Operator's alone from an
-/// Operator policy.
+/// Operator policy, and the project file's alone from the project file.
 fn only_in(setting: &Setting, layer: SettingsLayer) -> Result<(), SettingsError> {
-    let (layers, where_set): (&[SettingsLayer], &str) =
-        if matches!(setting.authority, Authority::OperatorPolicyAlone) {
-            (&[SettingsLayer::OperatorPolicy], "an Operator policy")
-        } else {
-            (
-                &[
-                    SettingsLayer::OperatorPolicy,
-                    SettingsLayer::UserConfiguration,
-                ],
-                "user configuration or an Operator policy",
-            )
-        };
+    let (layers, where_set): (&[SettingsLayer], &str) = match setting.authority {
+        Authority::OperatorPolicyAlone => (&[SettingsLayer::OperatorPolicy], "an Operator policy"),
+        Authority::ProjectFileAlone => (
+            &[SettingsLayer::ProjectConfiguration],
+            "the project file, which `connect()` and the CLI read before they connect",
+        ),
+        _ => (
+            &[
+                SettingsLayer::OperatorPolicy,
+                SettingsLayer::UserConfiguration,
+            ],
+            "user configuration or an Operator policy",
+        ),
+    };
     if layers.contains(&layer) {
         return Ok(());
     }
@@ -1149,7 +1154,9 @@ fn authority(
             current.clone(),
             format!("`{name}` is an honesty guarantee no layer changes"),
         )),
-        Authority::Machine | Authority::OperatorPolicyAlone => only_in(key.setting, layer),
+        Authority::Machine | Authority::OperatorPolicyAlone | Authority::ProjectFileAlone => {
+            only_in(key.setting, layer)
+        }
         Authority::OperatorPolicy if layer != SettingsLayer::OperatorPolicy => Err(refused(
             current.clone(),
             format!("`{name}` is set only in an Operator policy"),

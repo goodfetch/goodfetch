@@ -351,6 +351,41 @@ async def test_closes_a_running_run_by_aborting_it_and_refuses_every_later_call(
     assert played.done() == Finished()
 
 
+@pytest.mark.covers(
+    "story:11-41", "story:11-42", "setting:timeout.connect", "error:deadline_exceeded"
+)
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "anyio_backend",
+    # Trio's clock jumps ahead whenever every task waits; the sync way's
+    # private loop keeps real time.
+    [
+        pytest.param(
+            ("trio", {"clock": trio.testing.MockClock(autojump_threshold=0)}), id="trio"
+        )
+    ],
+)
+async def test_fails_the_connect_once_timeout_connects_default_passes() -> None:
+    """With `timeout` left out, an unanswered `hello` fails it after 30 s."""
+    played = play_script("sdk-python/connect/hello-never-answered.json")
+
+    error = await failure(async_connect_over(played.transport))
+
+    assert isinstance(error, DeadlineExceededError)
+    assert (error.code, error.group) == ("deadline_exceeded", "deadline_exceeded")
+    assert error.limit is not None
+    assert error.limit.model_dump(mode="json", exclude_none=True) == {
+        "key": "timeout.connect",
+        "value": 30_000,
+        "layer": "default",
+    }
+    assert error.details == {
+        "elapsed": 30_000,
+        "waited_for": "hello",
+    }
+    assert played.done() == Finished()
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "anyio_backend",

@@ -17,6 +17,7 @@
 
 pub mod blocking;
 mod call;
+mod connect_timeout;
 mod connection;
 mod connection_type;
 mod error;
@@ -35,6 +36,7 @@ mod sync;
 pub mod transport;
 
 pub use call::{Call, Query, Reply};
+pub use connect_timeout::ConnectTimeout;
 pub use connection::{ClientConnection, ConnectionRuntime, SaveFile};
 pub use connection_type::Connection;
 pub use error::{Error, FileFailure};

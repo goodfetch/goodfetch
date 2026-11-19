@@ -33,6 +33,7 @@ use tokio::task::JoinError;
 use tokio_util::task::TaskTracker;
 
 use crate::call::{Call, Query, Reply};
+use crate::connect_timeout::{self, ConnectTimeout};
 use crate::error::Error;
 use crate::file_saving::{self, FileSaving};
 use crate::handler::{HandlerRequests, Streams};
@@ -125,7 +126,8 @@ struct Inner {
 
 impl ClientConnection {
     /// Opens a Connection to the engine at `endpoint` over `network`, on
-    /// `runtime`, and says `hello`.
+    /// `runtime`, and says `hello`, waiting for its answer as long as it
+    /// takes.
     ///
     /// # Errors
     ///
@@ -137,6 +139,27 @@ impl ClientConnection {
         endpoint: &Endpoint,
         hello: HelloParams,
     ) -> Result<(Self, HelloResult), Error> {
+        Self::open_within(runtime, network, endpoint, hello, ConnectTimeout::Off).await
+    }
+
+    /// Opens a Connection as [`ClientConnection::open`] does, waiting for
+    /// `hello`'s answer within `timeout` (ADR 0083); past it, the
+    /// Connection is closed.
+    ///
+    /// # Errors
+    ///
+    /// As [`ClientConnection::open`], [`ConnectTimeout::check`]'s refusal,
+    /// and [`Error::Failed`] with `deadline_exceeded` when `hello`'s answer
+    /// did not come within `timeout`, its `limit` naming `timeout.connect`
+    /// and the layer that set it, and `waited_for` `hello`.
+    pub async fn open_within(
+        runtime: ConnectionRuntime,
+        network: &Network,
+        endpoint: &Endpoint,
+        hello: HelloParams,
+        timeout: ConnectTimeout,
+    ) -> Result<(Self, HelloResult), Error> {
+        timeout.check()?;
         let (handle, owned) = runtime.split();
         let tasks = TaskTracker::new();
         let (network, endpoint) = (network.clone(), endpoint.clone());
@@ -160,11 +183,23 @@ impl ClientConnection {
             closed: AtomicBool::new(false),
             _runtime: owned,
         }));
-        match connection.call::<HelloResult>(HELLO, &hello).await {
+        let deadline = timeout.deadline();
+        let said = match &deadline {
+            Some((after, _)) => connection
+                .call::<HelloResult>(HELLO, &hello)
+                .timeout(*after),
+            None => connection.call::<HelloResult>(HELLO, &hello).no_timeout(),
+        };
+        match said.await {
             Ok(said) => Ok((connection, said)),
             Err(error) => {
                 connection.close().await?;
-                Err(error)
+                Err(match (error, deadline) {
+                    (Error::TimedOut, Some((after, limit))) => {
+                        connect_timeout::exceeded(after, limit)
+                    }
+                    (error, _) => error,
+                })
             }
         }
     }

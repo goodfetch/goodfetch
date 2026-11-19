@@ -37,6 +37,7 @@ from goodfetch_collie_client.generated.models import (
     Product,
     ProductVersion,
     ProtocolVersion,
+    RunOrigin,
     RunStartParams,
     SetLogLevelParams,
     SettingLimit,
@@ -47,6 +48,7 @@ from goodfetch_collie_client.generated.models import (
 )
 from goodfetch_collie_client.generated.operations import AsyncCollieOperations
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
+from goodfetch_collie_client.handle import NotGiven, not_given
 from goodfetch_collie_client.host_logging import (
     CLIENT_LOGGER,
     RUN_LOGGER,
@@ -68,6 +70,12 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.generated.models import RunLimit, RunStarted
     from goodfetch_collie_client.goodfetch_error import ErrorClass
     from goodfetch_collie_client.rpc import TransportEnd
+
+CONNECT_TIMEOUT = 30_000
+"""How long opening waits for `hello`'s answer, in milliseconds (ADR 0083).
+
+`timeout.connect`'s default, when `connect()`'s `timeout` is left out.
+"""
 
 CLOSE_TIMEOUT = 30.0
 """How long `close()` waits for an engine to stop, in seconds (ADR 0080).
@@ -138,17 +146,21 @@ class ClientConnection:
         engine: AttachedEngine | None = None,
         close_timeout: float = CLOSE_TIMEOUT,
         limits: Sequence[RunLimit] = (),
+        connect_timeout: int | NotGiven | None = not_given,
     ) -> ClientConnection:
         """Opens a Connection over `transport`, finishing `hello` before it returns.
 
         Then each of `limits`, the wire's list of the Connection's Limits,
-        is set on it. A refused Product, protocol version or Limit raises
-        here, once the transport and its engine are ended; so does a
-        cancelled opening.
+        is set on it. `connect_timeout`, already checked by `timeout_of`, is
+        how many milliseconds `hello` waits for its answer:
+        `timeout.connect`'s 30 s when left out, none for `None`. A refused
+        Product, protocol version or Limit raises here, once the transport
+        and its engine are ended; so does a cancelled opening, and a `hello`
+        unanswered within `connect_timeout`, with `DeadlineExceededError`.
         """
         connection = cls(transport, engine, error_classes, close_timeout)
         try:
-            await connection._hello(needs)
+            await connection._hello(needs, connect_timeout)
             for limit in limits:
                 await connection._set_limit(limit)
         except BaseException:
@@ -313,7 +325,9 @@ class ClientConnection:
         if self._closing.started:
             raise closed_error(operation)
 
-    async def _hello(self, needs: Product) -> None:
+    async def _hello(
+        self, needs: Product, connect_timeout: int | NotGiven | None
+    ) -> None:
         params = HelloParams(
             protocol_version=ProtocolVersion(PROTOCOL_VERSION),
             surface=Surface.sdk_python,
@@ -322,7 +336,7 @@ class ClientConnection:
             form=Form.python,
             log_level=self._log_level,
         )
-        answer = await self.call("hello", params)
+        answer = await self._hello_answer(params, connect_timeout)
         fields = object_members(answer) or {}
         spoken = fields.get("protocol_version")
         if not isinstance(spoken, str) or not speaks(spoken):
@@ -335,6 +349,44 @@ class ClientConnection:
             version=version if isinstance(version, str) else "",
             protocol_version=spoken,
             engine_path=None if self._engine is None else self._engine.path,
+        )
+
+    async def _hello_answer(
+        self, params: HelloParams, connect_timeout: int | NotGiven | None
+    ) -> object:
+        """`hello`'s answer, once it came within `connect_timeout`.
+
+        Past it, raises `DeadlineExceededError`, its `limit` naming
+        `timeout.connect` at the run layer, given as an argument, or at its
+        default, and `waited_for` `hello` (ADR 0083).
+        """
+        if connect_timeout is None:
+            return await self.call("hello", params)
+        if isinstance(connect_timeout, NotGiven):
+            value = CONNECT_TIMEOUT
+            limit = SettingLimit(
+                key="timeout.connect", value=value, layer=SettingsLayer.default
+            )
+        else:
+            value = connect_timeout
+            limit = SettingLimit(
+                key="timeout.connect",
+                value=value,
+                layer=SettingsLayer.run,
+                origin=RunOrigin.argument,
+            )
+        started_at = anyio.current_time()
+        with anyio.move_on_after(value / 1000):
+            return await self.call("hello", params)
+        raise _phase_exceeded(
+            f"timeout.connect ({value} ms) passed before the engine answered hello",
+            fix=(
+                "Raise connect()'s timeout, or find why the engine does not answer "
+                "in the engine's stderr, which the logger got."
+            ),
+            limit=limit,
+            started_at=started_at,
+            waited_for="hello",
         )
 
     async def _follow_log_level(self) -> None:
@@ -399,12 +451,9 @@ class ClientConnection:
                 await self._engine.exited()
             await self._channel.abandon()
             limit = round(self._close_timeout * 1000)
-            raise DeadlineExceededError(
+            raise _phase_exceeded(
                 f"the Connection did not close within timeout.close ({limit} ms), "
                 "so its engine was stopped",
-                code="deadline_exceeded",
-                group="deadline_exceeded",
-                retryable=True,
                 fix=(
                     "Raise timeout.close, or find why the engine stopped answering "
                     "in the engine's stderr, which the logger got."
@@ -412,10 +461,8 @@ class ClientConnection:
                 limit=SettingLimit(
                     key="timeout.close", value=limit, layer=SettingsLayer.default
                 ),
-                details={
-                    "elapsed": round((anyio.current_time() - started_at) * 1000),
-                    "waited_for": "close",
-                },
+                started_at=started_at,
+                waited_for="close",
             )
         if failure is not None:
             raise failure
@@ -489,6 +536,32 @@ def _log_start(started: RunStarted) -> None:
                 run_id,
                 extra=fields,
             )
+
+
+def _phase_exceeded(
+    message: str,
+    *,
+    fix: str,
+    limit: SettingLimit,
+    started_at: float,
+    waited_for: Literal["hello", "close"],
+) -> DeadlineExceededError:
+    """The `deadline_exceeded` of a phase `limit` bounds (ADR 0080).
+
+    Its wait for `waited_for` started at `started_at`, on anyio's clock.
+    """
+    return DeadlineExceededError(
+        message,
+        code="deadline_exceeded",
+        group="deadline_exceeded",
+        retryable=True,
+        fix=fix,
+        limit=limit,
+        details={
+            "elapsed": round((anyio.current_time() - started_at) * 1000),
+            "waited_for": waited_for,
+        },
+    )
 
 
 def closed_error(operation: str) -> ClosedError:

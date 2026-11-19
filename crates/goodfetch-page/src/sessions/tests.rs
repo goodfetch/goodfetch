@@ -422,14 +422,18 @@ fn only_a_session_the_run_file_records_commits_its_end(#[case] opener: &str, #[c
 /// A setting a program's own code sets at no scope is refused at a
 /// Session's or a page's opening with the place that does set it, never
 /// the Run, which refuses it too (ADR 0083): only configuration sets
-/// `proxy.providers`, only an Operator policy `stealth.allowed_builds`;
-/// one some scope sets is left to that scope's own advice.
+/// `proxy.providers`, only an Operator policy `stealth.allowed_builds`,
+/// only the project file `timeout.connect`; one some scope sets is left to that scope's own advice.
 #[rstest]
 #[case::configuration_alone(
     "proxy.providers",
     Some("set it in configuration or an Operator policy, which alone set it")
 )]
 #[case::an_operator_policy_alone("stealth.allowed_builds", Some("set it in an Operator policy"))]
+#[case::the_project_file_alone(
+    "timeout.connect",
+    Some("set it in the project file, which `connect()` and the CLI read before they connect")
+)]
 #[case::one_a_session_sets("browser.access_mode", None)]
 #[case::one_a_run_sets("timeout.navigation", None)]
 fn a_setting_no_scope_sets_is_refused_with_where_it_is_set(

@@ -17,10 +17,12 @@ from typing import TYPE_CHECKING
 from goodfetch_collie_client.attached_engine import AttachedEngine
 from goodfetch_collie_client.connection import CLOSE_TIMEOUT, ClientConnection
 from goodfetch_collie_client.generated.errors import SettingInvalidError
+from goodfetch_collie_client.handle import NotGiven, not_given, timeout_of
 from goodfetch_collie_client.limits import limit_list
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from datetime import timedelta
     from pathlib import Path
 
     from anyio.abc import ByteStream
@@ -100,18 +102,27 @@ async def open_attached(
     env: Mapping[str, str] | None = None,
     close_timeout: float = CLOSE_TIMEOUT,
     limits: Limits | None = None,
+    connect_timeout: timedelta | NotGiven | None = not_given,
 ) -> ClientConnection:
     """Starts `product`'s engine as an Attached engine, then `hello` and `limits`.
 
     `env` is the environment map, read here and never at import: the
     process's own when left out (ADRs 0062 and 0083). The engine gets
-    exactly this map. A `limits` amount the SDK cannot turn exactly
-    (`setting_invalid`) raises before the engine starts. A missing
+    exactly this map. `connect_timeout` is how long `hello` waits for its answer:
+    `timeout.connect`'s 30 s when left out, none for `None`; past it,
+    `DeadlineExceededError` naming `timeout.connect` raises. A `limits`
+    amount the SDK cannot turn exactly, or a `connect_timeout` of zero or less
+    (`setting_invalid`), raises before the engine starts. A missing
     executable (`engine_not_found`), a refused Product (`not_in_product`) or
     version, or a refused Limit raises here, with a `fix`, leaving no engine
     behind.
     """
     connection_limits = limit_list(limits)
+    checked = (
+        connect_timeout
+        if isinstance(connect_timeout, NotGiven)
+        else timeout_of(connect_timeout, "timeout.connect")
+    )
     environment = dict(os.environ if env is None else env)
     location = locate_engine(environment, product)
     engine = await AttachedEngine.start(
@@ -124,6 +135,7 @@ async def open_attached(
         engine=engine,
         close_timeout=close_timeout,
         limits=connection_limits,
+        connect_timeout=checked,
     )
 
 

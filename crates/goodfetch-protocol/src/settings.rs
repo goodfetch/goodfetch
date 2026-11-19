@@ -1011,6 +1011,21 @@ pub const TIMEOUT_RUN: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `timeout.connect` (ADRs 0080 and 0083), which `connect()` and the CLI
+/// read from the project file before they connect.
+pub const TIMEOUT_CONNECT: Setting = Setting {
+    name: "timeout.connect",
+    description: "How long `connect()` and the CLI wait for the engine to answer `hello` before they fail with `deadline_exceeded`: 30 s. Set only in the project file, which they read before they connect; a connection's own is `connect()`'s `timeout`.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::ProjectFileAlone,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `timeout.close` (ADRs 0080 and 0083).
 pub const TIMEOUT_CLOSE: Setting = Setting {
     name: "timeout.close",
@@ -1238,6 +1253,7 @@ pub const ENTRIES: Entries = Entries {
         SECRETS_BY_REFERENCE,
         WEBHOOK_SIGNING,
         TIMEOUT_RUN,
+        TIMEOUT_CONNECT,
         TIMEOUT_CLOSE,
         TIMEOUT_ACTION,
         TIMEOUT_NAVIGATION,

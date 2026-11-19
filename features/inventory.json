@@ -10365,6 +10365,17 @@
       ]
     },
     {
+      "id": "setting:timeout.connect",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:timeout.dataset_query",
       "kind": "setting",
       "area": 3,

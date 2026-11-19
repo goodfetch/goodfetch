@@ -9,6 +9,7 @@ import { Buffer } from "node:buffer";
 import { AttachedEngine, type EngineExit } from "./attached-engine.ts";
 import type { CallOptions, Caller, OperationTypes } from "./caller.ts";
 import { errorOfReply, type ErrorClasses } from "./errors.ts";
+import type { ErrorLimit } from "./goodfetch-error.ts";
 import {
   CallCancelledError,
   ClosedError,
@@ -48,6 +49,8 @@ import {
 } from "./rpc.ts";
 import { withTimes, type Times } from "./times.ts";
 
+/** How long opening waits for `hello`'s answer when `connect()`'s `timeout` is left out: `timeout.connect`'s default (ADR 0083). */
+const CONNECT_TIMEOUT = 30_000;
 /** How long `close()` waits for an Attached engine to stop: `timeout.close`'s default (ADR 0080). */
 const CLOSE_TIMEOUT = 30_000;
 /** How long an ended transport waits for its engine's exit status before reporting without it. */
@@ -140,6 +143,11 @@ export interface ClientConnectionOptions {
   readonly signal?: AbortSignal | undefined;
   /** The Client connection's Limits, in the wire's form, set once `hello` is answered. */
   readonly limits?: readonly RunLimit[] | undefined;
+  /**
+   * How long `hello` waits for its answer, already checked by `timeoutOf`:
+   * `timeout.connect`'s 30 s when left out, none for `null`.
+   */
+  readonly timeout?: number | null | undefined;
   /**
    * The host's logger, which gets a start that resumed a Run at info and
    * one that found it ended at warning, and the engine's log events at the
@@ -245,13 +253,14 @@ export class ClientConnection implements AsyncDisposable {
   /**
    * Opens a Connection over `transport`, finishes `hello` and sets its
    * Limits before it returns: a refused Product, protocol version or Limit
-   * fails here, as does an aborted `signal`, with its reason, and the
-   * transport and its engine are ended before it rejects.
+   * fails here, as does an aborted `signal`, with its reason, and a `hello`
+   * unanswered within `timeout`, with `deadline_exceeded`; the transport
+   * and its engine are ended before it rejects.
    */
   static async open(options: ClientConnectionOptions): Promise<ClientConnection> {
     const connection = new ClientConnection(options);
     try {
-      await connection.#hello(options.needs, options.daemon, options.signal);
+      await connection.#hello(options.needs, options.daemon, options.signal, options.timeout);
       await connection.#setLimits(options.limits ?? [], options.signal);
     } catch (error) {
       await connection.#end();
@@ -479,6 +488,7 @@ export class ClientConnection implements AsyncDisposable {
     needs: Product,
     daemon: DaemonHello | undefined,
     signal: AbortSignal | undefined,
+    timeout: number | null | undefined,
   ): Promise<void> {
     const params: HelloParams = {
       protocol_version: PROTOCOL_VERSION,
@@ -490,7 +500,7 @@ export class ClientConnection implements AsyncDisposable {
     };
     let answer: unknown;
     try {
-      answer = await this.#channel.call("hello", params, { signal });
+      answer = await this.#answerWithin(this.#channel.call("hello", params, { signal }), timeout);
     } catch (error) {
       throw daemon !== undefined && error instanceof EngineExitedError
         ? daemon.closedAtHello()
@@ -530,6 +540,43 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   /**
+   * `hello`'s answer, once `called` gives it within `timeout`, its
+   * `timeout.connect` (ADR 0083).
+   *
+   * @throws {DeadlineExceededError} past it, its `limit` naming
+   * `timeout.connect` at the run layer, given as an argument, or at its
+   * default, and `waited_for` `hello`.
+   */
+  async #answerWithin(
+    called: Promise<unknown>,
+    timeout: number | null | undefined,
+  ): Promise<unknown> {
+    if (timeout === null) {
+      return called;
+    }
+    const value = timeout ?? CONNECT_TIMEOUT;
+    const limit: ErrorLimit =
+      timeout === undefined
+        ? { key: "timeout.connect", value, layer: "default" }
+        : { key: "timeout.connect", value, layer: "run", origin: "argument" };
+    const startedAt = Date.now();
+    const answered = await within(
+      called.then((answer) => ({ answer })),
+      value,
+    );
+    if (answered !== "late") {
+      return answered.answer;
+    }
+    throw phaseExceeded(
+      `timeout.connect (${value} ms) passed before the engine answered hello`,
+      "Raise connect()'s timeout, or find why the engine does not answer in the engine's stderr, which the logger got.",
+      limit,
+      startedAt,
+      "hello",
+    );
+  }
+
+  /**
    * Closes the Runs, cancels the calls in flight and ends the engine, all
    * within `timeout.close`. Past it, whatever is still waiting is cancelled,
    * an Attached engine is killed, and the close fails with
@@ -543,19 +590,12 @@ export class ClientConnection implements AsyncDisposable {
       this.#engine?.kill();
       await this.#channel.close();
       await this.#engine?.exited;
-      throw new DeadlineExceededError(
+      throw phaseExceeded(
         `the Connection did not close within timeout.close (${CLOSE_TIMEOUT} ms), so its engine was stopped`,
-        {
-          code: "deadline_exceeded",
-          group: "deadline_exceeded",
-          retryable: true,
-          fix: "Raise timeout.close, or find why the engine stopped answering in the engine's stderr, which the logger got.",
-          limit: { key: "timeout.close", value: CLOSE_TIMEOUT, layer: "default" },
-          details: {
-            elapsed: Date.now() - startedAt,
-            waited_for: "close",
-          },
-        },
+        "Raise timeout.close, or find why the engine stopped answering in the engine's stderr, which the logger got.",
+        { key: "timeout.close", value: CLOSE_TIMEOUT, layer: "default" },
+        startedAt,
+        "close",
       );
     }
     if (closed.failure !== undefined) {
@@ -641,6 +681,30 @@ async function within<T>(promise: Promise<T>, timeout: number): Promise<T | "lat
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * The `deadline_exceeded` of a phase `limit` bounds, whose wait for
+ * `waitedFor` started at `startedAt` (ADR 0080).
+ */
+function phaseExceeded(
+  message: string,
+  fix: string,
+  limit: ErrorLimit,
+  startedAt: number,
+  waitedFor: "hello" | "close",
+): DeadlineExceededError {
+  return new DeadlineExceededError(message, {
+    code: "deadline_exceeded",
+    group: "deadline_exceeded",
+    retryable: true,
+    fix,
+    limit,
+    details: {
+      elapsed: Date.now() - startedAt,
+      waited_for: waitedFor,
+    },
+  });
 }
 
 /** The error a call in flight fails with when its Connection closes: cancelled by its Client. */

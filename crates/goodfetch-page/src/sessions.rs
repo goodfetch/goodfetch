@@ -1429,6 +1429,9 @@ fn set_outside_code(key: &str) -> Option<&'static str> {
         Authority::OperatorPolicy | Authority::OperatorPolicyAlone => {
             "set it in an Operator policy"
         }
+        Authority::ProjectFileAlone => {
+            "set it in the project file, which `connect()` and the CLI read before they connect"
+        }
         Authority::Fixed => "it keeps its built-in value, which no layer changes",
         _ => "set it in configuration or an Operator policy, which alone set it",
     })

@@ -200,7 +200,6 @@ pub(super) struct Handle<'a> {
     /// Its `on`, when its namespace is one of [`LISTENERS`].
     pub(super) listener: Option<Listener<'a>>,
     /// Its `on`, when its namespace is one of [`PUBLISHED_LISTENERS`].
-    /// TypeScript writes it so far.
     pub(super) published_listener: Option<Listener<'a>>,
 }
 

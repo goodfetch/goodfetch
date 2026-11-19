@@ -1,10 +1,12 @@
 """A listener's subscription (ADR 0081).
 
-Its `on` call is sent when `on` is called and stays in flight, and the
-engine sends the event on the call itself, in `$/events` batches, never
-more than the credits granted. The listener gets the events one at a time,
-in order, and an awaitable it returns is awaited before the next; a credit
-goes back only once it settled, so a slow listener slows a lossless
+Its `on` call is sent when `on` is called and stays in flight. A page's
+events come on that call itself, in `$/events` batches, never more than the
+credits granted; a Session's come on the Connection's own Subscription,
+which every such listener shares (`shared_subscription`), and its call only
+arms the listener in the engine. The listener gets the events one at a
+time, in order, and an awaitable it returns is awaited before the next; a
+credit goes back only once it settled, so a slow listener slows a lossless
 producer. One that throws is removed: its call is cancelled and its value
 hears the failure. Closing the value, or its Run, stops its listeners:
 one running is cancelled and awaited, as in a task group the value owns.
@@ -23,6 +25,7 @@ import contextvars
 import inspect
 import logging
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast
 
@@ -35,7 +38,7 @@ from goodfetch_collie_client.handle import Subscription
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine, Mapping
+    from collections.abc import Coroutine, Mapping
 
     from anyio.streams.memory import (
         MemoryObjectReceiveStream,
@@ -44,6 +47,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from goodfetch_collie_client.handle import AsyncListener
+    from goodfetch_collie_client.shared_subscription import SharedSubscription
 
     _Work = Callable[[], Coroutine[Any, Any, None]]
 
@@ -116,6 +120,38 @@ class Order:
             self._last = None
 
 
+class Regranting:
+    """Counts the events a call's listeners settled: every `REGRANT`, as many are due.
+
+    A page's call and the Connection's Subscription grant through it alike.
+    """
+
+    def __init__(self) -> None:
+        """Has counted none."""
+        self._settled = 0
+
+    def settle(self) -> bool:
+        """Counts one event settled; whether `REGRANT` credits are due again."""
+        self._settled += 1
+        if self._settled < REGRANT:
+            return False
+        self._settled = 0
+        return True
+
+
+def once(run: Callable[[], None]) -> Callable[[], None]:
+    """`run`, which does nothing when called again."""
+    ran = False
+
+    def first() -> None:
+        nonlocal ran
+        if not ran:
+            ran = True
+            run()
+
+    return first
+
+
 @dataclass(frozen=True)
 class Listening(Generic[_Model]):
     """What a subscription listens to, and what it tells its value."""
@@ -130,6 +166,24 @@ class Listening(Generic[_Model]):
     """Hears, once, what the listener threw, after it was removed for it."""
     ended: Callable[[GoodfetchError], None]
     """Hears the error that ended the call unasked, such as `page_events_lost`."""
+
+
+@dataclass(frozen=True, eq=False)
+class Reader:
+    """What reads the Connection's Subscription for one listener."""
+
+    takes: Callable[[str, object], bool]
+    """Whether it takes an event, by name and data, such as a page of its Session."""
+    take: Callable[[object, Callable[[], None]], None]
+    """Takes an event's data; the callable hears once its listener is through.
+
+    Calling it again does nothing.
+    """
+    ended: Callable[[GoodfetchError | None], None]
+    """Hears that the Subscription ended unasked, which it no longer reads.
+
+    With the error that ended it, if one did.
+    """
 
 
 class Subscribed(Protocol):
@@ -164,7 +218,7 @@ def subscribe(
     Raises:
         RuntimeError: No asyncio or Trio loop runs on this thread.
     """
-    spawn = _spawner()
+    spawn = spawner()
     subscribed = _Subscribed(connection, method, params, listening, order)
     spawn(subscribed.run)
     return subscribed
@@ -287,8 +341,12 @@ class _Subscribed(Generic[_Model]):
                     if not self._closed:
                         self._listening.ended(error)
             group.cancel_scope.cancel()
+        await self._called()
         self._sent.set()
         await self._release_close()
+
+    async def _called(self) -> None:
+        """What runs once the call ended, before its close's hold is set."""
 
     async def _grant_first(self, written: anyio.Event) -> None:
         await written.wait()
@@ -322,17 +380,15 @@ class _Subscribed(Generic[_Model]):
             return
 
     async def _deliver(self, receive: MemoryObjectReceiveStream[object]) -> None:
-        delivered = 0
+        regranting = Regranting()
         with receive:
             async for batch in receive:
-                for event, data in _batch_of(batch):
+                for event, data in batch_of(batch):
                     if self._closed:
                         return
                     if event == self._listening.event and not await self._heard(data):
                         return
-                    delivered += 1
-                    if delivered == REGRANT:
-                        delivered = 0
+                    if regranting.settle():
                         await self._grant(REGRANT)
 
     async def _heard(self, data: object) -> bool:
@@ -357,7 +413,133 @@ class _Subscribed(Generic[_Model]):
         return True
 
 
-def _batch_of(params: object) -> list[tuple[str, object]]:
+def subscribe_published(
+    connection: Streams,
+    shared: SharedSubscription,
+    method: str,
+    params: Mapping[str, object],
+    mine: Callable[[object], bool],
+    listening: Listening[_Model],
+    order: Order,
+) -> Subscribed:
+    """Delivers to `listening`'s listener the events of `shared` that `mine` takes.
+
+    It joins `shared`, the Connection's Subscription, first, so that the
+    Subscription is in flight before the engine arms the listener, then
+    sends the call `method`, which arms it. Like `subscribe`, it returns at
+    once and sends after every hold `order` had.
+
+    Raises:
+        RuntimeError: No asyncio or Trio loop runs on this thread.
+    """
+    spawn = spawner()
+    published = _Published(connection, shared, method, params, mine, listening, order)
+    spawn(published.run)
+    return published
+
+
+class _Published(_Subscribed[_Model]):
+    """A listener of events published on the Connection's Subscription.
+
+    Its call carries no events and takes no credits: the Subscription's
+    carry them. It settles every event it took, once its listener is
+    through with it, or once it left the Subscription, even while its
+    listener still awaits one.
+    """
+
+    def __init__(
+        self,
+        connection: Streams,
+        shared: SharedSubscription,
+        method: str,
+        params: Mapping[str, object],
+        mine: Callable[[object], bool],
+        listening: Listening[_Model],
+        order: Order,
+    ) -> None:
+        super().__init__(connection, method, params, listening, order)
+        self._shared = shared
+        self._reader = Reader(
+            takes=lambda event, data: event == listening.event and mine(data),
+            take=self._take,
+            ended=self._shared_ended,
+        )
+        self._taken: MemoryObjectSendStream[tuple[object, Callable[[], None]]] | None
+        self._taken = None
+        self._held: dict[Callable[[], None], None] = {}
+        self._left = False
+
+    async def _listen(self) -> None:
+        send, receive = anyio.create_memory_object_stream[
+            tuple[object, Callable[[], None]]
+        ](math.inf)
+        self._taken = send
+        async with anyio.create_task_group() as group:
+            group.start_soon(self._deliver_taken, receive)
+            with send:
+                try:
+                    await self._shared.join(self._reader)
+                    if not self._closed:
+                        # It leaves as the call ends, before the close's hold is set.
+                        await self._call()
+                finally:
+                    # Also when the call was never sent.
+                    await self._called()
+            # What it took before it left is still delivered.
+
+    async def _called(self) -> None:
+        """Leaves the Subscription, then settles each event its listener still holds.
+
+        Once: it does nothing when it already left.
+        """
+        if self._left:
+            return
+        await self._shared.leave(self._reader)
+        self._left = True
+        held = list(self._held)
+        self._held.clear()
+        for settled in held:
+            settled()
+
+    async def _grant_first(self, written: anyio.Event) -> None:
+        await written.wait()
+        self._sent.set()
+
+    def _take(self, data: object, settled: Callable[[], None]) -> None:
+        """Queues one event's payload; it runs on the reading task, so never blocks."""
+        taken = self._taken
+        if self._left or self._closed or taken is None:
+            settled()
+            return
+        self._held[settled] = None
+        try:
+            taken.send_nowait((data, settled))
+        except (anyio.ClosedResourceError, anyio.BrokenResourceError):
+            self._held.pop(settled, None)
+            settled()
+
+    def _shared_ended(self, error: GoodfetchError | None) -> None:
+        """The Subscription ended unasked: the listener goes; its value hears why."""
+        if self._closed:
+            return
+        self.close()
+        if error is not None:
+            self._listening.ended(error)
+
+    async def _deliver_taken(
+        self, receive: MemoryObjectReceiveStream[tuple[object, Callable[[], None]]]
+    ) -> None:
+        with receive:
+            async for data, settled in receive:
+                try:
+                    if not self._closed:
+                        await self._heard(data)
+                finally:
+                    self._held.pop(settled, None)
+                    settled()
+
+
+def batch_of(params: object) -> list[tuple[str, object]]:
     """The events of a `$/events` batch, each its name and data."""
     members = object_members(params)
     events = None if members is None else members.get("events")
@@ -372,7 +554,7 @@ def _batch_of(params: object) -> list[tuple[str, object]]:
     return batch
 
 
-def _spawner() -> Callable[[_Work], None]:
+def spawner() -> Callable[[_Work], None]:
     """What runs work beside the running loop's tasks, with the caller's context.
 
     The work raises nothing: a task no caller awaits has nowhere to raise to.
@@ -395,7 +577,7 @@ def _spawner() -> Callable[[_Work], None]:
 
 
 def _trio_spawner(context: contextvars.Context) -> Callable[[_Work], None]:
-    """`_spawner` under Trio, the other loop AnyIO runs on.
+    """`spawner` under Trio, the other loop AnyIO runs on.
 
     Raises:
         RuntimeError: No Trio loop runs on this thread either.

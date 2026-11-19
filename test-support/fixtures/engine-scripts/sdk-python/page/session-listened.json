@@ -1,0 +1,318 @@
+{
+  "description": "A Collie Client's hello accepted, then a Run started and two Sessions opened in it. The program listens to each Session's `page`: the Connection's one Subscription, `events.subscribe` with its credits, is sent before the first `session.on`, and the second shares it. The engine publishes eight events: a page of each Session, a page of a third Session and events of another kind; each listener gets only its own Session's page, as a page whose `evaluate` reaches it, and once all eight are settled the Subscription's credits are granted again. The program closes the first listener, which cancels its `session.on` alone, then the second, which cancels its `session.on`, then the Subscription no other listener holds. A new listener sends a new Subscription with all its credits; its block cancels both. The Run finishes and the Client closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {}
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.new_session",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "session_id": "session-2"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.new_session",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "session_id": "session-3"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 4,
+          "credits": 16
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "session.on",
+        "params": {
+          "session_id": "session-2",
+          "event": "page"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "session.on",
+        "params": {
+          "session_id": "session-3",
+          "event": "page"
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/events",
+          "params": {
+            "id": 4,
+            "events": [
+              {
+                "position": 1,
+                "event": "session.page",
+                "data": {
+                  "page_id": "page-9",
+                  "session_id": "session-9"
+                }
+              },
+              {
+                "position": 2,
+                "event": "sample.echoed",
+                "data": {
+                  "text": "elsewhere"
+                }
+              },
+              {
+                "position": 3,
+                "event": "session.page",
+                "data": {
+                  "page_id": "page-3",
+                  "session_id": "session-3"
+                }
+              },
+              {
+                "position": 4,
+                "event": "sample.echoed",
+                "data": {
+                  "text": "elsewhere"
+                }
+              },
+              {
+                "position": 5,
+                "event": "session.page",
+                "data": {
+                  "page_id": "page-2",
+                  "session_id": "session-2"
+                }
+              },
+              {
+                "position": 6,
+                "event": "sample.echoed",
+                "data": {
+                  "text": "elsewhere"
+                }
+              },
+              {
+                "position": 7,
+                "event": "sample.echoed",
+                "data": {
+                  "text": "elsewhere"
+                }
+              },
+              {
+                "position": 8,
+                "event": "sample.echoed",
+                "data": {
+                  "text": "elsewhere"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 4,
+          "credits": 8
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.evaluate",
+        "params": {
+          "page_id": "page-2",
+          "function": "() => 1"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "value": 1
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.evaluate",
+        "params": {
+          "page_id": "page-3",
+          "function": "() => 1"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "value": 2
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 5
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 6
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 4
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "events.subscribe",
+        "params": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 9,
+          "credits": 16
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "session.on",
+        "params": {
+          "session_id": "session-2",
+          "event": "page"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 10
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 9
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    }
+  ]
+}

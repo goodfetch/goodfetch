@@ -27,8 +27,9 @@
 //!   gives the default of the setting it sets for the call alone, as a
 //!   `timedelta` (ADR 0080).
 //!
-//! - A handle's listener is its `on`, overloaded once a payload so each
-//!   event's listener is typed (`listeners`, ADR 0081).
+//! - A handle's listener is its `on`, overloaded once per type its
+//!   listener gets so each event's listener is typed (`listeners`, ADR
+//!   0081). A Session's gets the pages it opened as page handles.
 //!
 //! Each parameter's annotation is read from its schema; one the generator
 //! cannot spell fails `xtask codegen` with the operation named, and the
@@ -632,7 +633,7 @@ fn classes(
         text.push('\n');
         text.push_str(&member(layer, held, &handle.id, mode, imports)?);
     }
-    if handle.listener.is_some() {
+    if handle.listener.is_some() || handle.published_listener.is_some() {
         text.push('\n');
         text.push_str(&listeners::member(layer, handle, mode, imports)?);
     }

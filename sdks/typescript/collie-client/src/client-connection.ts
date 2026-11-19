@@ -24,6 +24,7 @@ import {
   type HelloParams,
   type HelloResult,
   type KeyValueStoreSetParams,
+  type LogLevel,
   type Product,
   type RunLimit,
   type RunStartParams,
@@ -32,7 +33,7 @@ import {
 } from "./generated/index.ts";
 import type { JsonValue } from "./key-value-store.ts";
 import { limitList, type Limits } from "./limits.ts";
-import type { Logger } from "./logger.ts";
+import { logEngineEvent, logLevelOf, type Logger } from "./logger.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
 import {
@@ -47,6 +48,8 @@ import {
 const CLOSE_TIMEOUT = 30_000;
 /** How long an ended transport waits for its engine's exit status before reporting without it. */
 const EXIT_GRACE = 2_000;
+/** The notification that carries one of the engine's log events, `goodfetch-protocol`'s `log::LOG`. */
+const LOG = "$/log";
 
 /** The engine a Connection reached, fixed when it opened (G6). */
 export interface EngineInfo {
@@ -100,7 +103,12 @@ export interface ClientConnectionOptions {
   readonly signal?: AbortSignal | undefined;
   /** The Client connection's Limits, in the wire's form, set once `hello` is answered. */
   readonly limits?: readonly RunLimit[] | undefined;
-  /** The host's logger, which gets a start that resumed a Run at info and one that found it ended at warning. */
+  /**
+   * The host's logger, which gets a start that resumed a Run at info and
+   * one that found it ended at warning, and the engine's log events at the
+   * level it records (`logLevelOf`), read at `open` and again when a Run
+   * starts.
+   */
   readonly logger?: Logger | undefined;
 }
 
@@ -124,6 +132,8 @@ export class ClientConnection implements AsyncDisposable {
   readonly #runs = new Set<Run>();
   readonly #runHost: RunHost;
   readonly #served = new Map<string, Served>();
+  /** The level of the engine's logs the engine was last told, by `hello` or `connection.set_log_level`. */
+  #logLevel: LogLevel;
   #info: EngineInfo | undefined;
   #ended = false;
   #closing: Promise<void> | undefined;
@@ -131,6 +141,7 @@ export class ClientConnection implements AsyncDisposable {
   private constructor(options: ClientConnectionOptions) {
     this.#engine = options.engine;
     this.#logger = options.logger;
+    this.#logLevel = logLevelOf(options.logger);
     const { errorClasses } = options;
     this.#channel = new Channel(
       options.transport,
@@ -138,6 +149,11 @@ export class ClientConnection implements AsyncDisposable {
         ended: (end) => this.#endedWith(end),
         failure: (error) => errorOfReply(error, errorClasses),
         serve: (method, params, signal) => this.#served.get(method)?.(params, signal),
+        notified: (method, params) => {
+          if (method === LOG) {
+            logEngineEvent(this.#logger, params);
+          }
+        },
       },
       options.bounds,
     );
@@ -239,6 +255,13 @@ export class ClientConnection implements AsyncDisposable {
     make: (host: RunHost, started: RunStarted) => Started,
   ): Promise<Started> {
     this.#openOrThrow(operation);
+    // The start goes out at once when the level did not change, so a close
+    // right after it still finds it in flight and cancels it.
+    const told = this.#followLogLevel();
+    if (told !== undefined) {
+      await told;
+      this.#openOrThrow(operation);
+    }
     const started = await start();
     this.#logStart(started);
     const run = make(this.#runHost, started);
@@ -268,6 +291,46 @@ export class ClientConnection implements AsyncDisposable {
           fields,
         );
         return;
+    }
+  }
+
+  /**
+   * Tells the engine the level the host's logger records now, with
+   * `connection.set_log_level`, when it changed since the engine was last
+   * told, and answers once the engine answered; nothing is sent and nothing
+   * is answered when it did not change, and nothing polls it.
+   */
+  #followLogLevel(): Promise<void> | undefined {
+    const level = logLevelOf(this.#logger);
+    if (level === this.#logLevel) {
+      return undefined;
+    }
+    return this.#tellLogLevel(level);
+  }
+
+  /**
+   * Tells the engine `level`. The engine's logs are telemetry, so a refusal
+   * fails no start: it goes to the host's logger at warning, and the level
+   * the engine kept stays the one told, so the next Run's start tells it
+   * again. A Connection that ended or is closing fails with its own error.
+   */
+  async #tellLogLevel(level: LogLevel): Promise<void> {
+    const before = this.#logLevel;
+    this.#logLevel = level;
+    try {
+      await this.#operations.connectionSetLogLevel({ log_level: level });
+    } catch (error) {
+      // A start begun meanwhile may have told the engine a newer level.
+      if (this.#logLevel === level) {
+        this.#logLevel = before;
+      }
+      if (this.#ended || this.#closing !== undefined) {
+        throw error;
+      }
+      this.#logger?.warn(
+        `The engine refused the log level \`${level}\`; it keeps sending its logs at \`${before}\`.`,
+        { logLevel: level, error },
+      );
     }
   }
 
@@ -341,6 +404,7 @@ export class ClientConnection implements AsyncDisposable {
       surface: "sdk_typescript",
       needs,
       product_version: PRODUCT_VERSION,
+      log_level: this.#logLevel,
     };
     const answer = await this.#channel.call("hello", params, { signal });
     const spoken = protocolVersionOf(answer);

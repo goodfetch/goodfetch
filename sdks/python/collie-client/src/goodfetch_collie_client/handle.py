@@ -189,6 +189,26 @@ class AsyncHandleHost(Protocol[_Id]):
         """
         ...
 
+    def listen_published(
+        self,
+        operation: str,
+        params: BaseModel,
+        event: str,
+        param: str,
+        payload: type[_Model],
+        listener: AsyncListener[_Model],
+    ) -> Subscription:
+        """Registers `listener` for `event`, which the engine publishes (ADR 0081).
+
+        Such as `session.on`'s: the Connection's own Subscription is sent
+        first when none is in flight, then the call `operation`, which only
+        arms the listener in the engine and stays in flight until the
+        `Subscription` closes or the value goes. The listener gets each
+        `event` of the Connection's Subscription whose payload names the
+        handle by `param`, in the order the program called, as `listen`.
+        """
+        ...
+
 
 class HandleHost(Protocol[_Id]):
     """What a sync handle of ID `_Id` reaches its engine through."""
@@ -226,4 +246,16 @@ class HandleHost(Protocol[_Id]):
         listener: Listener[_Model],
     ) -> Subscription:
         """Sends the listener's call, as `AsyncHandleHost.listen` does."""
+        ...
+
+    def listen_published(
+        self,
+        operation: str,
+        params: BaseModel,
+        event: str,
+        param: str,
+        payload: type[_Model],
+        listener: Listener[_Model],
+    ) -> Subscription:
+        """Registers the listener, as `AsyncHandleHost.listen_published` does."""
         ...

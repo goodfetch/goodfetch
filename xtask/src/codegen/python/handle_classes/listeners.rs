@@ -1,16 +1,20 @@
 //! A handle's listener in the Python handles (ADR 0081): the map that
 //! names each event by its wire name under Playwright's name, with the
-//! model of what its listener gets, and the `on` member, overloaded once a
-//! payload so each event's listener is typed, that registers a listener
-//! and returns its `Subscription`. TypeScript's `listeners.rs` is its twin.
+//! model of what its listener gets, and the `on` member, overloaded once
+//! per type its listener gets when there are several, that registers a
+//! listener and returns its `Subscription`. A page's events come on its
+//! `on` call; a Session's, which the engine publishes on its event stream,
+//! on the Connection's own Subscription, and a payload that opened a handle
+//! reaches the listener as that handle. TypeScript's `listeners.rs` is its
+//! twin.
 
 use std::fmt::Write as _;
 
 use anyhow::{Result, bail};
 
-use super::super::super::handles::{Handle, Listener};
+use super::super::super::handles::{Handle, Listened, Listener};
 use super::super::super::layer::Layer;
-use super::super::super::naming::snake;
+use super::super::super::naming::{pascal, snake};
 use super::super::{deprecated_decorator, docstring, warnings};
 use super::{ASYNC, Imports, Mode, Wrapped, wrapped};
 
@@ -20,8 +24,9 @@ fn events_constant(handle: &Handle<'_>) -> String {
     format!("_{}_EVENTS", snake(handle.namespace).to_uppercase())
 }
 
-/// What `handle`'s listener writes before its classes, if it has one: the
-/// map its `on` reads each event's wire name and payload from.
+/// What `handle`'s listener writes before its classes, if it has one whose
+/// events come on its own call: the map its `on` reads each event's wire
+/// name and payload from.
 pub(super) fn declarations(handle: &Handle<'_>, imports: &mut Imports) -> String {
     let Some(listener) = &handle.listener else {
         return String::new();
@@ -48,18 +53,115 @@ pub(super) fn declarations(handle: &Handle<'_>, imports: &mut Imports) -> String
     text
 }
 
-/// A handle's `on` in `mode` (ADR 0081): one overload a payload, which
-/// types the listener of the events that carry it, then the method that
-/// registers `listener` and returns the `Subscription` that removes it.
+/// A handle's `on` in `mode` (ADR 0081), if it has a listener: the method
+/// that registers `listener` and returns the `Subscription` that removes
+/// it, overloaded once per type its listener gets when there are several.
 pub(super) fn member(
     layer: &Layer,
     handle: &Handle<'_>,
     mode: Mode,
     imports: &mut Imports,
 ) -> Result<String> {
-    let Some(listener) = &handle.listener else {
-        return Ok(String::new());
+    if let Some(listener) = &handle.listener {
+        let (mut text, event) = head(layer, listener, mode, imports, |listened, imports| {
+            imports.model(&listened.payload)
+        })?;
+        let _ = writeln!(
+            text,
+            "        listened, payload = {}[event]\n        return self._host.listen({:?}, {}({}=self._host.id, {}={event}(listened)), f\"{}.{{listened}}\", payload, listener)",
+            events_constant(handle),
+            listener.operation.name,
+            imports.model(&listener.operation.params.0),
+            handle.id.param,
+            listener.param,
+            handle.namespace,
+        );
+        return Ok(text);
+    }
+    if let Some(listener) = &handle.published_listener {
+        return published_member(layer, handle, listener, mode, imports);
+    }
+    Ok(String::new())
+}
+
+/// A handle's `on` whose events the engine publishes on its event stream
+/// (ADR 0081): it registers `listener` on the Connection's own Subscription
+/// for the events whose payload names the handle, sends the call that arms
+/// it, and returns the `Subscription` that removes it. A payload an opener
+/// of another handle answers reaches the listener as that handle, built in
+/// `mode`.
+fn published_member(
+    layer: &Layer,
+    handle: &Handle<'_>,
+    listener: &Listener<'_>,
+    mode: Mode,
+    imports: &mut Imports,
+) -> Result<String> {
+    let (mut text, event) = head(layer, listener, mode, imports, |listened, imports| {
+        gets(listened, mode, imports)
+    })?;
+    let operation = listener.operation;
+    let params = imports.model(&operation.params.0);
+    let Some((last, others)) = listener.events.split_last() else {
+        bail!(
+            "operation `{}`: a listener listens to at least one event (ADR 0081)",
+            operation.name
+        );
     };
+    let listen = |listened: &Listened, imports: &mut Imports| {
+        let heard = listened.builds.map_or_else(
+            || "listener".to_owned(),
+            |namespace| {
+                format!(
+                    "lambda opened: listener({}{}(self._host.child(opened.{namespace}_id)))",
+                    mode.prefix,
+                    pascal(namespace)
+                )
+            },
+        );
+        format!(
+            "return self._host.listen_published({:?}, {params}({id}=self._host.id, {}={event}({:?})), \"{}.{}\", {id:?}, {}, {heard})",
+            operation.name,
+            listener.param,
+            listened.wire,
+            handle.namespace,
+            listened.wire,
+            imports.model(&listened.payload),
+            id = handle.id.param,
+        )
+    };
+    for listened in others {
+        let _ = writeln!(
+            text,
+            "        if event == {:?}:\n            {}",
+            listened.joined(),
+            listen(listened, imports)
+        );
+    }
+    let _ = writeln!(text, "        {}", listen(last, imports));
+    Ok(text)
+}
+
+/// What a published listener gets of `listened` in `mode`: the handle its
+/// payload opened, or its payload.
+fn gets(listened: &Listened, mode: Mode, imports: &mut Imports) -> String {
+    listened.builds.map_or_else(
+        || imports.model(&listened.payload),
+        |namespace| format!("{}{}", mode.prefix, pascal(namespace)),
+    )
+}
+
+/// The part of a handle's `on` both kinds of listener share: its
+/// signature, one overload per type its listener gets when there are
+/// several, as `gets` names each, its docstring and its markers' warnings.
+/// Also the model of the event parameter's choice of strings.
+fn head(
+    layer: &Layer,
+    listener: &Listener<'_>,
+    mode: Mode,
+    imports: &mut Imports,
+    gets: impl Fn(&Listened, &mut Imports) -> String,
+) -> Result<(String, String)> {
     let operation = listener.operation;
     let params = &operation.params.0;
     let Some(Wrapped { model: event, .. }) = layer
@@ -78,7 +180,7 @@ pub(super) fn member(
     } else {
         "Listener"
     };
-    imports.typing.extend(["Any", "Literal", "overload"]);
+    imports.typing.insert("Literal");
     imports
         .handle
         .extend(["AsyncListener", "Listener", "Subscription"]);
@@ -90,19 +192,28 @@ pub(super) fn member(
             imports.deprecated = true;
             deprecated_decorator(deprecated)
         });
-    // PEP 702 marks each overload, after its `@overload`.
-    for (payload, names) in by_payload(listener) {
-        let _ = write!(
+    let groups = by_gets(listener, |listened| gets(listened, imports));
+    if let [(got, names)] = groups.as_slice() {
+        let _ = writeln!(
             text,
-            "    @overload\n{decorator}    def on(self, event: Literal[{}], listener: {listens}[{}]) -> Subscription: ...\n\n",
-            names.join(", "),
-            imports.model(payload)
+            "{decorator}    def on(self, event: Literal[{}], listener: {listens}[{got}]) -> Subscription:",
+            names.join(", ")
+        );
+    } else {
+        imports.typing.extend(["Any", "overload"]);
+        // PEP 702 marks each overload, after its `@overload`.
+        for (got, names) in &groups {
+            let _ = write!(
+                text,
+                "    @overload\n{decorator}    def on(self, event: Literal[{}], listener: {listens}[{got}]) -> Subscription: ...\n\n",
+                names.join(", ")
+            );
+        }
+        let _ = writeln!(
+            text,
+            "    def on(self, event: str, listener: {listens}[Any]) -> Subscription:"
         );
     }
-    let _ = writeln!(
-        text,
-        "    def on(self, event: str, listener: {listens}[Any]) -> Subscription:"
-    );
     text.push_str(&docstring(
         "        ",
         &format!("{}\n\n{}", operation.description, event_list(listener)),
@@ -115,31 +226,23 @@ pub(super) fn member(
         operation.deprecated.as_ref(),
         &mut imports.markers,
     ));
-    let _ = writeln!(
-        text,
-        "        listened, payload = {}[event]\n        return self._host.listen({:?}, {}({}=self._host.id, {}={event}(listened)), f\"{}.{{listened}}\", payload, listener)",
-        events_constant(handle),
-        operation.name,
-        imports.model(params),
-        handle.id.param,
-        listener.param,
-        handle.namespace,
-    );
-    Ok(text)
+    Ok((text, event))
 }
 
-/// The events of `listener` by payload, in the order each payload first
-/// appears, each event under Playwright's name, quoted.
-fn by_payload<'a>(listener: &'a Listener<'_>) -> Vec<(&'a str, Vec<String>)> {
-    let mut groups: Vec<(&str, Vec<String>)> = Vec::new();
+/// The events of `listener` by what their listener gets, as `gets` names
+/// it, in the order each first appears, each event under Playwright's name,
+/// quoted.
+fn by_gets(
+    listener: &Listener<'_>,
+    mut gets: impl FnMut(&Listened) -> String,
+) -> Vec<(String, Vec<String>)> {
+    let mut groups: Vec<(String, Vec<String>)> = Vec::new();
     for listened in &listener.events {
         let name = format!("{:?}", listened.joined());
-        match groups
-            .iter_mut()
-            .find(|(payload, _)| *payload == listened.payload)
-        {
+        let got = gets(listened);
+        match groups.iter_mut().find(|(known, _)| *known == got) {
             Some((_, names)) => names.push(name),
-            None => groups.push((&listened.payload, vec![name])),
+            None => groups.push((got, vec![name])),
         }
     }
     groups

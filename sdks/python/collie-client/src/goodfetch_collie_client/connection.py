@@ -59,6 +59,7 @@ from goodfetch_collie_client.limits import Limits, limit_list
 from goodfetch_collie_client.once import Once
 from goodfetch_collie_client.rpc import Channel, InvalidLine, ReadFailed, WriteFailed
 from goodfetch_collie_client.run import AsyncRun
+from goodfetch_collie_client.shared_subscription import SharedSubscription
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -126,6 +127,7 @@ class ClientConnection:
         self._channel = Channel(transport, self, error_classes)
         self._operations = AsyncCollieOperations(self)
         self._runs: dict[AsyncRun, None] = {}
+        self._published = SharedSubscription(self)
         self._info: EngineInfo | None = None
         self._ended = False
         self._closing = Once()
@@ -268,6 +270,11 @@ class ClientConnection:
     def forget(self, run: AsyncRun) -> None:
         """Forgets a closed Run."""
         self._runs.pop(run, None)
+
+    @property
+    def published(self) -> SharedSubscription:
+        """Its own Subscription, which the listeners of published events share."""
+        return self._published
 
     async def close(self) -> None:
         """Closes the Connection; idempotent, and every caller waits for the one close.

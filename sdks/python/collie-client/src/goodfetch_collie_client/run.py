@@ -40,6 +40,7 @@ from goodfetch_collie_client.listeners import (
     Streams,
     Subscribed,
     subscribe,
+    subscribe_published,
 )
 from goodfetch_collie_client.once import Once
 from goodfetch_collie_client.portal import LoopStopped
@@ -59,6 +60,7 @@ if TYPE_CHECKING:
         Listener,
     )
     from goodfetch_collie_client.portal import PrivateLoop
+    from goodfetch_collie_client.shared_subscription import SharedSubscription
 
 _Id = TypeVar("_Id")
 _ChildId = TypeVar("_ChildId")
@@ -85,6 +87,11 @@ class RunHost(Streams, Protocol):
 
     def forget(self, run: AsyncRun) -> None:
         """Forgets a closed Run."""
+        ...
+
+    @property
+    def published(self) -> SharedSubscription:
+        """Its own Subscription, which the listeners of published events share."""
         ...
 
 
@@ -426,6 +433,64 @@ class _AsyncHost(Generic[_Id]):
             ClosedError: The Run, the value or a value above it is closed.
             ListenerFailedError: A listener of the value, or above it, threw.
         """
+        listening = self._listening(operation, event, payload, listener)
+        subscribed = subscribe(
+            self._connection, operation, _wire(params), listening, self.run.order
+        )
+        self.run.listening(self._value, subscribed)
+        return subscribed.subscription()
+
+    def listen_published(
+        self,
+        operation: str,
+        params: BaseModel,
+        event: str,
+        param: str,
+        payload: type[_Model],
+        listener: AsyncListener[_Model],
+    ) -> Subscription:
+        """Joins the Connection's Subscription, then sends `operation`, which arms it.
+
+        `listener` gets each `event` whose payload names the handle by
+        `param`, after what came before.
+
+        Raises:
+            ClosedError: The Run, the value or a value above it is closed.
+            ListenerFailedError: A listener of the value, or above it, threw.
+        """
+        listening = self._listening(operation, event, payload, listener)
+        wire = _wire(params)
+        owner = wire.get(param)
+
+        def mine(data: object) -> bool:
+            members = object_members(data)
+            return members is not None and members.get(param) == owner
+
+        subscribed = subscribe_published(
+            self._connection,
+            self._connection.published,
+            operation,
+            wire,
+            mine,
+            listening,
+            self.run.order,
+        )
+        self.run.listening(self._value, subscribed)
+        return subscribed.subscription()
+
+    def _listening(
+        self,
+        operation: str,
+        event: str,
+        payload: type[_Model],
+        listener: AsyncListener[_Model],
+    ) -> Listening[_Model]:
+        """What a listener of the value's `event` tells it, once the value is watched.
+
+        Raises:
+            ClosedError: The Run, the value or a value above it is closed.
+            ListenerFailedError: A listener of the value, or above it, threw.
+        """
         self._ensure_callable(operation)
         run = self.run
         value = self._value
@@ -454,18 +519,14 @@ class _AsyncHost(Generic[_Id]):
                 "%s: the listener of `%s` stopped", operation, event, exc_info=error
             )
 
-        wire = params.model_dump(
-            mode="json", by_alias=True, exclude_unset=True, warnings=False
-        )
-        subscribed = subscribe(
-            self._connection,
-            operation,
-            wire,
-            Listening(event, payload, listener, failed, ended),
-            run.order,
-        )
-        run.listening(value, subscribed)
-        return subscribed.subscription()
+        return Listening(event, payload, listener, failed, ended)
+
+
+def _wire(params: BaseModel) -> dict[str, object]:
+    """`params` as the call sends them."""
+    return params.model_dump(
+        mode="json", by_alias=True, exclude_unset=True, warnings=False
+    )
 
 
 class _SyncHost(Generic[_Id]):
@@ -523,12 +584,45 @@ class _SyncHost(Generic[_Id]):
         Never on the loop's thread, which reads every call's answer
         (ADR 0081).
         """
+        return self._on_loop(
+            operation,
+            listener,
+            lambda in_worker: self._host.listen(
+                operation, params, event, payload, in_worker
+            ),
+        )
+
+    def listen_published(
+        self,
+        operation: str,
+        params: BaseModel,
+        event: str,
+        param: str,
+        payload: type[_Model],
+        listener: Listener[_Model],
+    ) -> Subscription:
+        """Registers the listener on the private loop; it runs on a worker thread."""
+        return self._on_loop(
+            operation,
+            listener,
+            lambda in_worker: self._host.listen_published(
+                operation, params, event, param, payload, in_worker
+            ),
+        )
+
+    def _on_loop(
+        self,
+        operation: str,
+        listener: Listener[_Model],
+        listen: Callable[[AsyncListener[_Model]], Subscription],
+    ) -> Subscription:
+        """Calls `listen` on the private loop with `listener` run on a worker thread."""
 
         async def in_worker(heard: _Model) -> None:
             await anyio.to_thread.run_sync(listener, heard)
 
         async def listening() -> Subscription:
-            return self._host.listen(operation, params, event, payload, in_worker)
+            return listen(in_worker)
 
         try:
             subscription = self._loop.call(listening)

@@ -199,6 +199,18 @@ class AsyncSession(AsyncHandle):
         warn_experimental("session.pages")
         return result_of(models.SessionPages, await self._host.call("session.pages", models.SessionParams(session_id=self._host.id)))
 
+    def on(self, event: Literal["page"], listener: AsyncListener[AsyncPage]) -> Subscription:
+        """Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.
+
+        Its events, under Playwright's names (ADR 0081):
+
+        - `page`: A page opened in the Session: one `session.new_page` or `run.new_page` opened, or a popup one of its pages opened. Published while `session.on` listens to `page`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.on")
+        return self._host.listen_published("session.on", models.SessionOnParams(session_id=self._host.id, event=models.SessionEventName("page")), "session.page", "session_id", models.PageOpened, lambda opened: listener(AsyncPage(self._host.child(opened.page_id))))
+
     async def __aenter__(self) -> Self:
         """Holds it for an `async with` block, which closes it."""
         return self
@@ -759,6 +771,18 @@ class Session(Handle):
         """
         warn_experimental("session.pages")
         return result_of(models.SessionPages, self._host.call("session.pages", models.SessionParams(session_id=self._host.id)))
+
+    def on(self, event: Literal["page"], listener: Listener[Page]) -> Subscription:
+        """Listens to one of the Session's events, armed when the call arrives: the call stays in flight, and the engine publishes that event of the Session on its event stream, lossless, which `events.subscribe` reads under its credits. Cancelling the call removes the listener; it answers when the Session closes or its Run ends.
+
+        Its events, under Playwright's names (ADR 0081):
+
+        - `page`: A page opened in the Session: one `session.new_page` or `run.new_page` opened, or a popup one of its pages opened. Published while `session.on` listens to `page`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("session.on")
+        return self._host.listen_published("session.on", models.SessionOnParams(session_id=self._host.id, event=models.SessionEventName("page")), "session.page", "session_id", models.PageOpened, lambda opened: listener(Page(self._host.child(opened.page_id))))
 
     def __enter__(self) -> Self:
         """Holds it for a `with` block, which closes it."""

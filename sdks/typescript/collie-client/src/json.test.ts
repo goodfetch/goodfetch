@@ -15,7 +15,8 @@ const jsonValue: fc.Arbitrary<JSONValue> = fc.letrec<{ value: JSONValue }>((tie)
     { depthSize: "small" },
     fc.constant(null),
     fc.boolean(),
-    fc.double({ noNaN: true, noDefaultInfinity: true }),
+    // JSON has no negative zero: `JSON.stringify(-0)` writes `0`.
+    fc.double({ noNaN: true, noDefaultInfinity: true }).map((n) => (Object.is(n, -0) ? 0 : n)),
     fc.string(),
     fc.array(tie("value"), { maxLength: 4 }),
     fc.dictionary(

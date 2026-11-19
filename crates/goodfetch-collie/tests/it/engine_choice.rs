@@ -25,9 +25,10 @@ use crate::daemon_run::{ANY_PORT, Foreground, token};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
-/// Snapshots a command's `stderr`, this executable's path as `[COLLIE]`.
-fn stderr_snapshot(env: &TestEnv, name: &str, stderr: &str) {
-    let values = SnapshotValues::of(env).with_path(COLLIE, "[COLLIE]");
+/// Snapshots a command's `stderr` under `values`, this executable's path as
+/// `[COLLIE]`.
+fn stderr_snapshot(values: SnapshotValues, name: &str, stderr: &str) {
+    let values = values.with_path(COLLIE, "[COLLIE]");
     snapshot_settings(&values).bind(|| insta::assert_snapshot!(name, stderr.trim()));
 }
 
@@ -163,7 +164,11 @@ fn under_daemon_a_daemon_refusing_the_version_fails_with_exit_11_and_its_daemon_
         (Some(11), ""),
         "{output}"
     );
-    stderr_snapshot(&env, "run_start_refused_version", &output.stderr);
+    stderr_snapshot(
+        SnapshotValues::of(&env),
+        "run_start_refused_version",
+        &output.stderr,
+    );
 }
 
 /// With neither flag, a Daemon that refuses the protocol version of a
@@ -228,7 +233,11 @@ fn by_default_a_daemon_refusing_the_version_ends_a_lasting_command_with_exit_11(
         (Some(11), "", false),
         "{output}"
     );
-    stderr_snapshot(&env, "run_start_refused_version", &output.stderr);
+    stderr_snapshot(
+        SnapshotValues::of(&env),
+        "run_start_refused_version",
+        &output.stderr,
+    );
 }
 
 /// A runtime file whose Daemon died is replaced: a command whose value
@@ -285,12 +294,11 @@ fn a_connection_dropped_mid_command_is_reported_and_exits_8() {
         (Some(8), ""),
         "{output}"
     );
-    let values = SnapshotValues::of(&env)
-        .with_path(COLLIE, "[COLLIE]")
-        .with_path(&endpoint.to_string(), "[DAEMON]");
-    snapshot_settings(&values).bind(|| {
-        insta::assert_snapshot!("run_start_connection_dropped", output.stderr.trim());
-    });
+    stderr_snapshot(
+        SnapshotValues::of(&env).with_path(&endpoint.to_string(), "[DAEMON]"),
+        "run_start_connection_dropped",
+        &output.stderr,
+    );
 }
 
 /// No command takes the Daemon's token as a flag, so a token never sits in

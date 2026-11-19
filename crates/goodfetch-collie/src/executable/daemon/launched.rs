@@ -116,9 +116,13 @@ fn detach(_command: &mut std::process::Command) {}
 /// pipes open, so a caller reading `daemon start`'s output to its end
 /// waited until the Daemon ended. A child this process starts later with
 /// an inherited standard handle still gets it: the standard library hands
-/// it an inheritable copy. A handle this process has not, or that the call
-/// refuses, is left as it is.
+/// it an inheritable copy. A handle this process has not is left as it
+/// is, and one the call refuses is logged and left as it is.
 #[cfg(windows)]
+#[expect(
+    unsafe_code,
+    reason = "SetHandleInformation is a Windows C call (STYLE.md, `unsafe`)"
+)]
 fn keep_own_standard_handles() {
     use std::os::windows::io::AsRawHandle as _;
     use windows_sys::Win32::Foundation::{HANDLE_FLAG_INHERIT, SetHandleInformation};
@@ -132,12 +136,10 @@ fn keep_own_standard_handles() {
         }
         // SAFETY: the standard handles live as long as the process, and the
         // call only clears a handle's inheritance flag.
-        #[expect(
-            unsafe_code,
-            reason = "SetHandleInformation is a Windows C call (STYLE.md, `unsafe`)"
-        )]
-        unsafe {
-            SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0);
+        let cleared = unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) };
+        if cleared == 0 {
+            let error = std::io::Error::last_os_error();
+            tracing::debug!(%error, "a standard handle stays inheritable by the Daemon");
         }
     }
 }

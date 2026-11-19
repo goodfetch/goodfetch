@@ -7,6 +7,7 @@
 )]
 
 mod connection;
+mod connection_type;
 #[cfg(unix)]
 mod daemon;
 mod duration;

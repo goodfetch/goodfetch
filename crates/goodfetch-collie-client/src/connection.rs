@@ -98,7 +98,7 @@ impl Drop for Owned {
 /// A Connection to one engine. Cloning it is cheap and every clone is the
 /// same Connection.
 #[derive(Clone, Debug)]
-pub struct Connection(Arc<Inner>);
+pub struct ClientConnection(Arc<Inner>);
 
 #[derive(Debug)]
 struct Inner {
@@ -118,7 +118,7 @@ struct Inner {
     _runtime: Owned,
 }
 
-impl Connection {
+impl ClientConnection {
     /// Opens a Connection to the engine at `endpoint` over `network`, on
     /// `runtime`, and says `hello`.
     ///
@@ -463,7 +463,7 @@ impl Connection {
 /// engine's call with `$/cancel`; the path holds what it held before.
 #[must_use = "a save is sent only when it is awaited"]
 pub struct SaveFile<T> {
-    connection: Connection,
+    connection: ClientConnection,
     method: String,
     params: Result<Value, Error>,
     path: PathBuf,
@@ -593,6 +593,6 @@ fn joined<T>(result: Result<T, JoinError>) -> Result<T, Error> {
 /// between them and outlive the borrow that made them (ADR 0081).
 const _: () = {
     const fn send_sync_static<T: Send + Sync + 'static>() {}
-    send_sync_static::<Connection>();
+    send_sync_static::<ClientConnection>();
     send_sync_static::<ConnectionRuntime>();
 };

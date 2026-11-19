@@ -36,7 +36,7 @@ impl Response {
     }
 
     /// The Connection its page's Run is on.
-    pub(crate) fn connection(&self) -> &crate::Connection {
+    pub(crate) fn connection(&self) -> &crate::ClientConnection {
         self.host.connection()
     }
 

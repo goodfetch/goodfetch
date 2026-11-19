@@ -3,7 +3,7 @@
 //! it around a body. Each connection starts its own linked engine, the
 //! engine this crate composes, in the program's own process (ADR 0087).
 
-use goodfetch_collie_client::{Connection, Error, Start};
+use goodfetch_collie_client::{ClientConnection, Connection, Error, Start};
 
 use crate::linked::{Composed, ConnectOptions, LinkedConnection};
 
@@ -178,11 +178,23 @@ impl Collie {
     }
 }
 
-/// The Connection, the type a helper written for either Product takes
-/// (ADR 0095): `helper(collie.as_ref())`, until
-/// ADR 0099's `Connection` trait lands (#1257).
-impl AsRef<Connection> for Collie {
-    fn as_ref(&self) -> &Connection {
+/// The Connection both Products' connections implement (ADRs 0095 and
+/// 0099), so a helper taking `&impl Connection` takes a `Collie`; its
+/// members are the inherent ones above.
+impl Connection for Collie {
+    fn start(&self) -> Start {
+        Collie::start(self)
+    }
+
+    async fn close(&self) -> Result<(), Error> {
+        Collie::close(self).await
+    }
+}
+
+/// The client crate's connection, the way down to its `call` (ADR 0099)
+/// until the public `call` joins the Connection with its own ticket.
+impl AsRef<ClientConnection> for Collie {
+    fn as_ref(&self) -> &ClientConnection {
         self.linked.connection()
     }
 }

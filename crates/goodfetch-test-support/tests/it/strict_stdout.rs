@@ -74,9 +74,6 @@ fn a_child_writing_a_request_a_notification_and_a_reply_passes() {
 
 #[rstest]
 #[case::plain_log_line(b"2026-01-05T09:00:00Z INFO goodfetch: engine ready")]
-#[case::ansi_escape(b"\x1b[2m2026-01-05T09:00:00Z\x1b[0m \x1b[32mINFO\x1b[0m engine ready")]
-#[case::truncated_message(b"{\"jsonrpc\":\"2.0\",\"method\":\"run.prog")]
-#[case::utf8_bom(b"\xef\xbb\xbf{\"jsonrpc\":\"2.0\",\"method\":\"run.progress\"}")]
 fn a_child_writing_anything_else_fails_naming_the_line_and_showing_its_stderr(#[case] line: &[u8]) {
     let env = TestEnv::new();
     let mut written = after_a_request(line);

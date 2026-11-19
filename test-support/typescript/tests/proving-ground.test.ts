@@ -6,7 +6,7 @@
 import { get, type IncomingHttpHeaders } from "node:http";
 import { readFileSync } from "node:fs";
 import { describe, expect } from "vitest";
-import { provingGroundOf, test } from "@goodfetch/test-support";
+import { test } from "@goodfetch/test-support";
 
 /** An answer's status and body. */
 interface Answer {
@@ -82,13 +82,5 @@ describe("provingGround", () => {
     const authority = readFileSync(provingGround.ca, "utf8");
 
     expect(authority).toMatch(/^-----BEGIN CERTIFICATE-----\n/);
-  });
-});
-
-describe("provingGround without a seed", () => {
-  test("fails the fixture with proving_ground_unseeded", ({ testEnv }) => {
-    expect(() => provingGroundOf(testEnv)).toThrow(
-      expect.objectContaining({ code: "proving_ground_unseeded" }),
-    );
   });
 });

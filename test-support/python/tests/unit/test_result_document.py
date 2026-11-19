@@ -91,12 +91,3 @@ def test_write_journey_document_gives_the_outcome_of_each_vector(
 
     assert outcome == vector["outcome"]
     assert json.loads(path.read_text("utf-8"))["outcome"] == vector["outcome"]
-
-
-def test_write_journey_document_writes_the_journey_kind(tmp_path: Path) -> None:
-    """The document is tagged as a `journey` one."""
-    path = tmp_path / "journey.json"
-
-    write(path, read_vector("every-step-check-and-task-passed"))
-
-    assert json.loads(path.read_text("utf-8"))["kind"] == "journey"

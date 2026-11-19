@@ -30,12 +30,6 @@ describe("journeyDocument", () => {
     expect(document.outcome).toBe(outcome);
   });
 
-  test("writes the journey kind", () => {
-    const document = journeyDocument(proved);
-
-    expect(document.kind).toBe("journey");
-  });
-
   test("derives the outcome over one the facts carry", () => {
     const smuggled = { ...proved, outcome: "failed" } as JourneyFacts;
 

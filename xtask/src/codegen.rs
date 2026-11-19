@@ -42,6 +42,7 @@ mod deny;
 mod digest;
 mod emit;
 mod emitter;
+mod error_codes;
 mod executables;
 mod facts;
 mod handles;
@@ -397,6 +398,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         format!("{PROTOCOL_GENERATED}/foxhound_names.rs"),
         names::render(&foxhound_names).into_bytes(),
     );
+    files.extend(error_codes::files(&catalog)?);
     files.extend(special_purpose::generate(root)?);
     files.extend(counted_work::generate(root)?);
     files.extend(executables.into_files());

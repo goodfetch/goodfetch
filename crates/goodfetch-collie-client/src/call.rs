@@ -77,7 +77,7 @@ impl<T: DeserializeOwned, P> Call<T, P> {
 
 impl<T, P> Call<T, P> {
     /// Fails the call if its reply has not come within `timeout`: with
-    /// [`Error::TimedOut`], or with the engine's `deadline_exceeded` for an
+    /// `deadline_exceeded`, or with the engine's `deadline_exceeded` for an
     /// operation that takes its own `timeout`. A reply that comes later
     /// changes nothing.
     pub fn timeout(mut self, timeout: Duration) -> Self {
@@ -278,7 +278,7 @@ impl<P: Serialize> Request<P> {
         if let Some(answer) = self.settled.and_then(|settled| settled()) {
             return Ok(answer);
         }
-        let mut params = serde_json::to_value(self.params?).map_err(Error::Shape)?;
+        let mut params = serde_json::to_value(self.params?).map_err(Error::shape)?;
         edit(&mut params);
         let (reply, replied) = oneshot::channel();
         self.sender.call(Outgoing {
@@ -288,7 +288,7 @@ impl<P: Serialize> Request<P> {
             reply,
             notified: None,
         });
-        let result = replied.await.map_err(|_| Error::Closed)??;
+        let result = replied.await.map_err(|_| Error::closed())??;
         if let Some(note) = self.note {
             note(&result);
         }
@@ -298,7 +298,7 @@ impl<P: Serialize> Request<P> {
 
 /// Reads a reply's JSON as `T`.
 fn read<T: DeserializeOwned>() -> Read<T> {
-    Box::new(|value| serde_json::from_value(value).map_err(Error::Shape))
+    Box::new(|value| serde_json::from_value(value).map_err(Error::shape))
 }
 
 /// Sets the operation's own `timeout` in `params` (ADR 0080): the engine's

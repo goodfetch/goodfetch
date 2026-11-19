@@ -7,7 +7,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_collie_client::Error;
+use goodfetch_collie_client::ErrorCode;
 use goodfetch_engine::Channel;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::NotInProductDetails;
@@ -30,12 +30,11 @@ fn a_connection_that_needs_foxhound_fails_on_a_collie_engine_with_not_in_product
         options,
     ));
 
-    let Err(Error::Failed(error)) = failed else {
+    let Err(error) = failed else {
         panic!("connected: {failed:?}");
     };
-    assert_eq!(error.data.code, "not_in_product");
-    let details: NotInProductDetails =
-        serde_json::from_value(serde_json::Value::Object(error.data.details.clone())).unwrap();
+    assert_eq!(error.code(), ErrorCode::NOT_IN_PRODUCT);
+    let details: NotInProductDetails = error.details().unwrap();
     let install = Channel::CratesIo.install_command(Product::Foxhound);
     assert_eq!(
         (

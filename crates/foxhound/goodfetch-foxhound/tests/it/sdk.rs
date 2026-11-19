@@ -7,7 +7,9 @@
 //! Collie's crate's linked connection, which both open through.
 
 use connection_library::finish_one_run;
-use goodfetch_foxhound::{ConnectOptions, Connection, Error, Foxhound, RunId, RunReport, blocking};
+use goodfetch_foxhound::{
+    ConnectOptions, Connection, Error, ErrorCode, Foxhound, RunId, RunReport, blocking,
+};
 use goodfetch_protocol::run::{Lifecycle, RUN_REPORT, RunParams};
 use goodfetch_protocol::settings::{COLLIE_ENGINE_PATH_VARIABLE, FOXHOUND_ENGINE_PATH_VARIABLE};
 use goodfetch_test_support::{TestEnv, real_time_runtime};
@@ -49,7 +51,10 @@ fn a_program_connects_starts_a_run_finishes_it_and_closes_on_a_single_threaded_r
         assert_eq!(report.run_id, first);
         assert_eq!(report.lifecycle, Lifecycle::Finished);
         let after = foxhound.start().await;
-        assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+        assert!(
+            matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+            "{after:?}"
+        );
     });
 }
 
@@ -68,7 +73,10 @@ fn a_scope_lends_its_connection_to_the_body_and_closes_it_after() {
 
     assert_eq!(report.lifecycle, Lifecycle::Finished);
     let after = real_time_runtime().block_on(async { kept.start().await });
-    assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+    assert!(
+        matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+        "{after:?}"
+    );
 }
 
 /// Two connections at once in one process, each with its own linked
@@ -110,7 +118,10 @@ fn a_program_without_async_connects_starts_a_run_finishes_it_and_closes() {
 
     assert_eq!(report.lifecycle, Lifecycle::Finished);
     let after = foxhound.start().send();
-    assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+    assert!(
+        matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+        "{after:?}"
+    );
 }
 
 /// `blocking` inside an async runtime never enters a runtime, which would

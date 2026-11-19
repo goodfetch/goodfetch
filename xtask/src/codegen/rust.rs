@@ -59,11 +59,11 @@ const EXPERIMENTAL: &str = "Experimental: outside semver until it is promoted (A
 
 /// The `# Errors` section of a member that answers through a call
 /// (STYLE.md, Documentation in code).
-const CALL_ERRORS: &str = "# Errors\n\nOnce sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, [`crate::Error::TimedOut`] once its timeout runs out, and [`crate::Error::Shape`] when its reply does not fit its type.";
+const CALL_ERRORS: &str = "# Errors\n\nOnce sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.";
 
 /// The `# Errors` section of a member that answers through a query, which
 /// takes no timeout.
-const QUERY_ERRORS: &str = "# Errors\n\nOnce sent, [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, and [`crate::Error::Shape`] when its answer does not fit its type.";
+const QUERY_ERRORS: &str = "# Errors\n\nOnce sent, `closed` when its handle or the Connection is closed, the engine's error, and `internal` when its answer does not fit its type.";
 
 /// The parameter a call sends its own timeout in (ADR 0080).
 const TIMEOUT: &str = "timeout";

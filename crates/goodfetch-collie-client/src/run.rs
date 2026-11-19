@@ -118,12 +118,12 @@ impl Run {
     /// next safe point, `stopped` and `incomplete`, as an abort by its
     /// program (`run.abort`), resumable by its Run ID; an ended one stays
     /// as it is. Any later call on it, or on a handle it opened, fails
-    /// with [`Error::Closed`]. Closing again does nothing.
+    /// with `closed`. Closing again does nothing.
     ///
     /// # Errors
     ///
     /// What `run.abort` fails with, unless the Connection is closed: its
-    /// engine then stops the Run itself. [`Error::TimedOut`] once
+    /// engine then stops the Run itself. `deadline_exceeded` once
     /// `timeout.close` has run out, the value closed all the same.
     ///
     /// # Cancel safety

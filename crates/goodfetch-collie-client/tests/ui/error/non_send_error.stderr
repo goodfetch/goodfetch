@@ -1,0 +1,37 @@
+error[E0277]: `?` couldn't convert the error: `Rc<str>: Send` is not satisfied
+  --> tests/ui/error/non_send_error.rs:25:11
+   |
+24 | fn handler() -> Result<(), BoxError> {
+   |                 -------------------- required `Rc<str>: Send` because of this
+25 |     read()?;
+   |     ------^ `Rc<str>` cannot be sent between threads safely
+   |     |
+   |     this can't be annotated with `?` because it has type `Result<_, Shared>`
+   |
+   = help: within `Shared`, the trait `Send` is not implemented for `Rc<str>`
+   = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+note: required because it appears within the type `Shared`
+  --> tests/ui/error/non_send_error.rs:10:8
+   |
+10 | struct Shared(Rc<str>);
+   |        ^^^^^^
+   = note: required for `Box<dyn std::error::Error + Send + Sync>` to implement `From<Shared>`
+
+error[E0277]: `?` couldn't convert the error: `Rc<str>: Sync` is not satisfied
+  --> tests/ui/error/non_send_error.rs:25:11
+   |
+24 | fn handler() -> Result<(), BoxError> {
+   |                 -------------------- required `Rc<str>: Sync` because of this
+25 |     read()?;
+   |     ------^ `Rc<str>` cannot be shared between threads safely
+   |     |
+   |     this can't be annotated with `?` because it has type `Result<_, Shared>`
+   |
+   = help: within `Shared`, the trait `Sync` is not implemented for `Rc<str>`
+   = note: the question mark operation (`?`) implicitly performs a conversion on the error value using the `From` trait
+note: required because it appears within the type `Shared`
+  --> tests/ui/error/non_send_error.rs:10:8
+   |
+10 | struct Shared(Rc<str>);
+   |        ^^^^^^
+   = note: required for `Box<dyn std::error::Error + Send + Sync>` to implement `From<Shared>`

@@ -9,12 +9,14 @@
 //! Run report adds, `progress` what its progress adds, and `session_pool` the Session of its Session pool that
 //! serves each attempt, and `fetch` the tier that fetches a crawl
 //! request's document, `sql_tab` the SQL tab's `dataset.query`, and `hook`
-//! the Error codes a crawl's Hooks in code fail with.
+//! the Error codes a crawl's Hooks in code fail with; `error_code` holds
+//! every Foxhound Error code as a value of the shared `ErrorCode`.
 
 pub mod block;
 pub mod crawl;
 pub mod dataset;
 pub mod dataset_view;
+pub mod error_code;
 pub mod export;
 pub mod fetch;
 pub mod frontier;

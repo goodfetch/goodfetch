@@ -55,7 +55,7 @@ use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
-use goodfetch_engine::{CallContext, CallError, Contribution, Guard, Handler};
+use goodfetch_engine::{CallContext, CallError, Contribution, Enclose, Guard, Handler};
 use goodfetch_extractor::{BuiltIn, Serialization};
 use goodfetch_protocol::connection::{Surface, WaitedFor};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -202,7 +202,55 @@ pub fn contribution_with(
         let page_id = PageId(params.page()?.into_owned());
         product.call(&page_id, operation.name, read, context)
     });
-    contribution.guarded(&guard)
+    contribution
+        .guarded(&guard)
+        .enclosed(&enclosing_handler(&pages))
+}
+
+/// What ends a call on a handler's page at its handler's end (ADR 0080):
+/// the enclosing call a served page's Product names, else the one a browser
+/// page's lease names; a call on a page no call encloses, as on every page
+/// a program opens, keeps its answer. `observed` says whether a navigation
+/// was under way on the page, or what document a served page held.
+fn enclosing_handler(pages: &Pages) -> Enclose {
+    let seams = Arc::new((pages.sessions.clone(), Arc::clone(&pages.product)));
+    Arc::new(move |_, params, context, answer| {
+        let Some(page_id) = params.page() else {
+            return answer;
+        };
+        let page_id = PageId(page_id.into_owned());
+        let (seams, clock) = (Arc::clone(&seams), context.engine().clock());
+        Box::pin(async move {
+            let (sessions, product) = &*seams;
+            if let Some(enclosing) = product.enclosing(&page_id) {
+                let observe = || {
+                    product.document(&page_id).map(|document| {
+                        format!("page `{}` served from `{}`", page_id.0, document.url)
+                    })
+                };
+                return enclosing.bound(&clock, answer, observe).await;
+            }
+            let Ok(page) = sessions.page(&page_id).await else {
+                return answer.await;
+            };
+            let Some(enclosing) = page
+                .driver
+                .value()
+                .lease()
+                .and_then(|lease| lease.enclosing())
+            else {
+                return answer.await;
+            };
+            let observe = || {
+                Some(if page.driver.navigation_waits() {
+                    format!("a navigation under way on page `{}`", page_id.0)
+                } else {
+                    format!("no navigation under way on page `{}`", page_id.0)
+                })
+            };
+            enclosing.bound(&clock, answer, observe).await
+        })
+    })
 }
 
 /// Adds the handlers of `page.evaluate`, of `locator.evaluate_all` and of

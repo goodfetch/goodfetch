@@ -333,6 +333,24 @@ pub type Guard = Arc<
         + Sync,
 >;
 
+/// What ends a contribution's calls at the end of an enclosing call (ADR
+/// 0080), given the operation, the call's params as they arrived, its
+/// context and its answer: that answer, ended once the enclosing call's
+/// end passes first, such as a page call's in a crawl handler under
+/// `timeout.handler`, or as it was when no call encloses it. It runs when
+/// the request arrives, once the guards or the handler gave the answer,
+/// and only on a cancellable operation, whose answer may be dropped.
+pub type Enclose = Arc<
+    dyn for<'params> Fn(
+            &'static Operation,
+            Params<'params>,
+            &CallContext,
+            GuardAnswer,
+        ) -> GuardAnswer
+        + Send
+        + Sync,
+>;
+
 /// A call's params as its handler's type read them, when they read: what a
 /// [`Guard`] answers from in the handler's place, so that a call decodes
 /// its params once whoever answers it (ADR 0140's E1).
@@ -376,6 +394,8 @@ pub struct Handler {
     call: Arc<Call>,
     /// The guards its calls ask before it, the last added first.
     guards: Arc<[Guard]>,
+    /// What ends its calls' answers at an enclosing call's end.
+    encloses: Arc<[Enclose]>,
     streams: bool,
     input: Option<(&'static str, usize)>,
 }
@@ -428,6 +448,7 @@ impl Handler {
             operation,
             call: Arc::new(call),
             guards: Arc::new([]),
+            encloses: Arc::new([]),
             streams: false,
             input: None,
         }
@@ -469,7 +490,8 @@ impl Handler {
     }
 
     /// Starts its call on `params`: the guards it asks, then the handler,
-    /// which reads `params` before this returns.
+    /// which reads `params` before this returns, its answer ended at an
+    /// enclosing call's end when its operation is cancellable.
     ///
     /// # Errors
     ///
@@ -480,7 +502,14 @@ impl Handler {
         params: Params<'_>,
         context: CallContext,
     ) -> Result<Answer, CallError> {
-        (self.call)(params, context, &self.guards)
+        if self.encloses.is_empty() || !self.operation.cancellable {
+            return (self.call)(params, context, &self.guards);
+        }
+        let enclosed = context.clone();
+        let answer = (self.call)(params, context, &self.guards)?;
+        Ok(self.encloses.iter().fold(answer, |answer, enclose| {
+            enclose(self.operation, params, &enclosed, answer)
+        }))
     }
 }
 
@@ -601,6 +630,21 @@ impl Contribution {
                 .guards
                 .iter()
                 .chain([guard])
+                .map(Arc::clone)
+                .collect();
+        }
+        self
+    }
+
+    /// The same, each of its handlers' cancellable calls ended by
+    /// `enclose` at an enclosing call's end (ADR 0080).
+    #[must_use]
+    pub fn enclosed(mut self, enclose: &Enclose) -> Self {
+        for handler in &mut self.handlers {
+            handler.encloses = handler
+                .encloses
+                .iter()
+                .chain([enclose])
                 .map(Arc::clone)
                 .collect();
         }

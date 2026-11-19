@@ -5,11 +5,19 @@
 //! value and the layer that set it, so its fix is to raise that setting.
 //! The fetch tiers and the page's driver (area 5) wait under it; time is the
 //! `Clock`'s.
+//!
+//! Timeouts nest (ADR 0080): a call made inside another inherits its end
+//! ([`Enclosing`]), so it may end sooner than its enclosing call but never
+//! later, and its `deadline_exceeded` then names that call as `ended_by`.
 
+use std::fmt;
+use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::Setting;
-use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails, WaitedFor};
+use goodfetch_protocol::connection::{
+    DEADLINE_EXCEEDED, DeadlineExceededDetails, EnclosingCall, WaitedFor,
+};
 use goodfetch_protocol::settings::{
     RunOrigin, SETTING_INVALID, SettingInvalidDetails, SettingLimit, SettingsLayer,
 };
@@ -17,6 +25,7 @@ use goodfetch_protocol::settings::{
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::settings::Resolved;
+use tokio::time::Instant;
 
 /// A timeout's deadline, as its setting resolved.
 #[derive(Clone, Debug, PartialEq)]
@@ -207,11 +216,115 @@ impl Deadline {
             ),
             &DeadlineExceededDetails {
                 limit: self.limit.clone(),
-                elapsed: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
+                elapsed: millis(elapsed),
                 waited_for,
+                ended_by: None,
+                observed: None,
             },
         )
     }
+}
+
+/// The end an enclosing call sets the calls made inside it (ADR 0080):
+/// the call, its timeout and when that timeout passes, read again as it
+/// nears, since a hold of the call's clock, a Human pause (ADR 0092) or a
+/// handler's wait for a navigation-gate permit (ADR 0093), moves it later.
+#[derive(Clone)]
+pub struct Enclosing {
+    limit: SettingLimit,
+    call: EnclosingCall,
+    ends_at: Arc<dyn Fn() -> Instant + Send + Sync>,
+}
+
+impl fmt::Debug for Enclosing {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Enclosing")
+            .field("limit", &self.limit)
+            .field("call", &self.call)
+            .field("ends_at", &(self.ends_at)())
+            .finish()
+    }
+}
+
+impl Enclosing {
+    /// The end of `call`, which waits under `deadline`, as `ends_at` reads
+    /// it: an end that only moves later.
+    pub fn new(
+        deadline: &Deadline,
+        call: EnclosingCall,
+        ends_at: impl Fn() -> Instant + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            limit: deadline.limit.clone(),
+            call,
+            ends_at: Arc::new(ends_at),
+        }
+    }
+
+    /// Waits for `work`, a call made inside the enclosing one, on `clock`
+    /// until the enclosing call's end, then ends it with
+    /// `deadline_exceeded`: its `limit` is the enclosing call's timeout,
+    /// its `ended_by` that call and its `observed` what `observe` saw then.
+    /// Work that ends first, on its own deadline too, keeps its result.
+    ///
+    /// # Errors
+    ///
+    /// What `work` fails with, else `deadline_exceeded` once the enclosing
+    /// call's end passed first.
+    ///
+    /// # Cancel safety
+    ///
+    /// As cancel-safe as `work`.
+    pub async fn bound<T>(
+        &self,
+        clock: &Clock,
+        work: impl Future<Output = Result<T, CallError>>,
+        observe: impl FnOnce() -> Option<String>,
+    ) -> Result<T, CallError> {
+        let started = clock.now();
+        tokio::select! {
+            biased;
+            answer = work => answer,
+            () = self.passed(clock) => Err(self.exceeded(clock.now() - started, observe())),
+        }
+    }
+
+    /// Returns once the enclosing call's end passed, sleeping again while
+    /// a hold moved it later.
+    async fn passed(&self, clock: &Clock) {
+        loop {
+            let end = (self.ends_at)();
+            if clock.now() >= end {
+                return;
+            }
+            clock.sleep_until(end).await;
+        }
+    }
+
+    /// The `deadline_exceeded` of a call made inside the enclosing one that
+    /// waited `elapsed` for its answer when the enclosing call's end came.
+    fn exceeded(&self, elapsed: Duration, observed: Option<String>) -> CallError {
+        CallError::new(
+            &DEADLINE_EXCEEDED,
+            format!(
+                "`{}` ({} ms) of the enclosing `{}` call passed before this call's answer came; raise it, or leave the call more of it.",
+                self.limit.key, self.limit.value, self.call.operation,
+            ),
+            &DeadlineExceededDetails {
+                limit: self.limit.clone(),
+                elapsed: millis(elapsed),
+                waited_for: WaitedFor::ANSWER,
+                ended_by: Some(self.call.clone()),
+                observed,
+            },
+        )
+    }
+}
+
+/// `elapsed` in whole milliseconds, as an error's details count it.
+fn millis(elapsed: Duration) -> u64 {
+    u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]

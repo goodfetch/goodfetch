@@ -25,11 +25,14 @@ use goodfetch_dataset::{Checked, Datasets};
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::Keys;
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::deadline::{Deadline, Enclosing};
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::{RunState, RunStateError};
-use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, PushedRecord};
+use goodfetch_protocol::connection::EnclosingCall;
+use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, PushedRecord};
 use goodfetch_protocol::foxhound::provenance::RobotsTxtMark;
+use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::run::PointInTime;
 use tokio::sync::watch;
 use tokio::time::Instant;
@@ -174,6 +177,7 @@ impl Leases {
             work_item: Arc::from(work_item),
             length,
             state,
+            handler_call: watch::Sender::new(None),
         }));
         granted.trace("grant", &lease, None);
         granted
@@ -192,6 +196,9 @@ struct Shared {
     /// How long it was granted for, which each renewal grants again.
     length: Duration,
     state: watch::Sender<Held>,
+    /// The id of the handler call last sent under it, which encloses the
+    /// calls its handler makes (ADR 0080).
+    handler_call: watch::Sender<Option<RequestId>>,
 }
 
 impl Drop for Shared {
@@ -359,6 +366,30 @@ impl WorkItemLease {
     /// How long it was granted for.
     pub(crate) fn length(&self) -> Duration {
         self.0.length
+    }
+
+    /// Keeps `id` as the handler call sent under it, the call enclosing
+    /// the calls its handler makes from now on.
+    pub(crate) fn handler_sent(&self, id: RequestId) {
+        self.0.handler_call.send_replace(Some(id));
+    }
+
+    /// The end of the handler call last sent under it, which waits under
+    /// `timeout` (ADR 0080): the lease's end less the margin by which it
+    /// outlasts that timeout, so a renewal, such as a navigation-gate
+    /// permit's wait's (ADR 0093), moves it later too. None until a handler
+    /// call is sent, and a code-free crawl sends none.
+    pub(crate) fn handler(&self, timeout: &Deadline) -> Option<Enclosing> {
+        let call = EnclosingCall {
+            operation: CRAWL_REQUEST_HANDLE.name.to_owned(),
+            call_id: self.0.handler_call.borrow().clone()?,
+        };
+        let margin = self.0.length.saturating_sub(timeout.duration());
+        let lease = self.clone();
+        Some(Enclosing::new(timeout, call, move || {
+            let expires_at = lease.0.state.borrow().lease.expires_at();
+            expires_at.checked_sub(margin).unwrap_or(expires_at)
+        }))
     }
 
     /// Gives it back as its attempt ends; it then lets nothing more leave.

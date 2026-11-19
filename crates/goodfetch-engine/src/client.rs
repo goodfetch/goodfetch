@@ -186,6 +186,12 @@ struct WithMeta<'a, P> {
 }
 
 impl<R: DeserializeOwned> Sent<R> {
+    /// Its request's id on the Connection, which names it as the call
+    /// enclosing the calls its handler makes (ADR 0080).
+    pub fn id(&self) -> &RequestId {
+        &self.id
+    }
+
     /// The handler's answer, read as `R`.
     ///
     /// # Errors

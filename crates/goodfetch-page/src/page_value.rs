@@ -46,6 +46,7 @@ use std::sync::Arc;
 
 use bytestring::ByteString;
 use goodfetch_counted_work::{CountedWork, ParsedHtml};
+use goodfetch_engine::deadline::Enclosing;
 pub use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::response_limits::LimitExceeded;
 use goodfetch_engine::runs::Run;
@@ -849,6 +850,16 @@ pub trait HandlerPages: Send + Sync {
     /// The document the page `page_id` serves, when a fetch tier opened it
     /// from a document rather than in a browser; none by default.
     fn document(&self, page_id: &PageId) -> Option<Arc<ServedDocument>> {
+        let _ = page_id;
+        None
+    }
+
+    /// The end of the call enclosing the calls on the page `page_id`, when
+    /// a fetch tier serves that page from a document and a call encloses
+    /// its handler, such as a crawl handler under `timeout.handler` (ADR
+    /// 0080); none by default. A browser page's is its value's lease's
+    /// ([`LeaseCheck::enclosing`]).
+    fn enclosing(&self, page_id: &PageId) -> Option<Enclosing> {
         let _ = page_id;
         None
     }

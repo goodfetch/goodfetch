@@ -37,6 +37,7 @@ use bytes::Bytes;
 use bytestring::ByteString;
 use encoding_rs::Encoding;
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_engine::deadline::Enclosing;
 use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::happy_eyeballs::Delays;
@@ -2317,6 +2318,16 @@ impl HandlerPages for FetchTiers {
             .open
             .get(page_id)
             .map(|page| Arc::clone(&page.document))
+    }
+
+    /// The handler call enclosing the served page's attempt, through its
+    /// lease (ADR 0080).
+    fn enclosing(&self, page_id: &PageId) -> Option<Enclosing> {
+        let hand_over = lock(&self.served.pages)
+            .open
+            .get(page_id)
+            .map(|page| Arc::clone(&page.hand_over))?;
+        hand_over.lease.enclosing()
     }
 
     fn call(

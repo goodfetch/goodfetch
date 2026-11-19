@@ -26,7 +26,9 @@ use serde_json::{Value, json};
 use super::trace::{PARENT_ID, TRACEPARENT, attribute, exported, the_span, trace_id};
 use super::{Client, attached, engine_with, opened, owed};
 use crate::call_error::CallError;
-use crate::composition::{CallContext, Contribution, Guard, GuardAnswer, Handler};
+use crate::composition::{
+    Answered, CallContext, Contribution, Enclose, Guard, GuardAnswer, Handler,
+};
 
 /// A call whose params are a type of their own, behind a guard.
 const TYPED: Operation = Operation {
@@ -55,9 +57,21 @@ struct Typed {
 /// Who ran for a call, in order: its guard, its handler.
 type Ran = Arc<Mutex<Vec<&'static str>>>;
 
+/// [`TYPED`] made cancellable, as every call an enclosing call can end is.
+const CANCELLABLE: Operation = Operation {
+    name: "test.cancellable",
+    cancellable: true,
+    ..TYPED
+};
+
 /// `test.typed`, whose guard refuses params that hold a member `refuse`
 /// with `invalid_request`; each notes in `ran` that it ran.
 fn typed(ran: &Ran) -> Contribution {
+    typed_as(&TYPED, ran)
+}
+
+/// [`typed`]'s guard and handler, answering `operation`.
+fn typed_as(operation: &'static Operation, ran: &Ran) -> Contribution {
     let (asked, handled) = (Arc::clone(ran), Arc::clone(ran));
     let guard: Guard = Arc::new(move |_, params, _, _| {
         asked.lock().unwrap().push("guard");
@@ -70,7 +84,7 @@ fn typed(ran: &Ran) -> Contribution {
     });
     Contribution::new("test_typed")
         .with_handler(Handler::new(
-            &TYPED,
+            operation,
             move |params: Typed, _: CallContext| {
                 handled.lock().unwrap().push("handler");
                 ready(Ok::<Value, CallError>(json!(params.count)))
@@ -93,6 +107,53 @@ fn called(params: &str) -> (Value, Vec<&'static str>) {
     });
     let ran = ran.lock().unwrap().clone();
     (reply, ran)
+}
+
+/// Opens an Attached engine with `operation`, enclosed by a bound that
+/// answers `"enclosed"` in place of the handler's answer, calls it, and
+/// answers the reply with who ran.
+fn called_enclosed(operation: &'static Operation) -> (Value, Vec<&'static str>) {
+    let ran = Ran::default();
+    let bounded = Arc::clone(&ran);
+    let enclose: Enclose = Arc::new(move |_, _, context, answer| {
+        bounded.lock().unwrap().push("enclose");
+        let context = context.clone();
+        Box::pin(async move {
+            answer.await?;
+            Answered::encode(&context, &json!("enclosed"))
+        })
+    });
+    let engine = engine_with(
+        Product::Collie,
+        Some(typed_as(operation, &ran).enclosed(&enclose)),
+    );
+    let line = format!(
+        r#"{{"jsonrpc":"2.0","id":1,"method":"{}","params":{{"count":2}}}}"#,
+        operation.name
+    );
+    let reply = attached(&engine, |mut client: Client| async move {
+        opened(&mut client).await;
+        client.send_bytes(format!("{line}\n").as_bytes()).await;
+        owed(&mut client).await.expect("the call is answered")
+    });
+    let ran = ran.lock().unwrap().clone();
+    (reply, ran)
+}
+
+/// An enclosing call bounds only the calls a cancel can end: the bound
+/// drops a call's answer when the enclosing end comes, which only a
+/// cancellable call allows (ADR 0080).
+#[rstest]
+#[case::cancellable(&CANCELLABLE, json!("enclosed"), vec!["guard", "handler", "enclose"])]
+#[case::not_cancellable(&TYPED, json!(2), vec!["guard", "handler"])]
+fn an_enclosing_bound_wraps_only_a_cancellable_calls_answer(
+    #[case] operation: &'static Operation,
+    #[case] answer: Value,
+    #[case] expected: Vec<&'static str>,
+) {
+    let (reply, ran) = called_enclosed(operation);
+
+    assert_eq!((&reply["result"], ran), (&answer, expected), "{reply}");
 }
 
 /// The Error code of `reply`, and whether its message names `_meta`.

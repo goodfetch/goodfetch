@@ -88,12 +88,13 @@ use goodfetch_engine::CallContext;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::client::{ClientRequestError, Sent};
+use goodfetch_engine::deadline::{Deadline, Enclosing};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_fetch_tier::{
     Capture, Chosen, FetchFailure, FetchTiers, HandOver, HopChecks, HttpTier, Judged,
     PAGE_CHECK_CALL, PageFacts, PooledSession, Redirected, ReplayPlan, Request, Requester,
@@ -106,7 +107,7 @@ use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::{CALL_CANCELLED, CallCancelledDetails, StoppedBy};
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
-    HANDLER_FAILED, LEASE_LOST, WORK_ITEM_LEASED,
+    HANDLER_FAILED, LEASE_LOST, TIMEOUT_HANDLER, WORK_ITEM_LEASED,
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
@@ -419,19 +420,24 @@ pub(super) fn handler_lease(
     (leased, lease, watch): (&Leased, &WorkItemLease, &Watch),
     in_flight: &SharedInFlight,
 ) -> Arc<dyn LeaseCheck> {
+    let settings = of_run.run.settings().map(RunSettings::resolved);
     Arc::new(HandlerLease {
         lease: lease.clone(),
         watch: watch.clone(),
         of_run: Arc::clone(of_run),
         request_id: leased.crawl_request.id.clone(),
         in_flight: Arc::clone(in_flight),
+        timeout: Deadline::of_resolved(settings, &TIMEOUT_HANDLER),
     })
 }
 
 /// The lease check of an attempt's handler pages: the attempt's lease,
 /// renewed while a page waits for a navigation gate's permit, the wait
 /// named in the Run's live status, so a handler waiting for a permit is not
-/// timed out meanwhile (ADR 0093). A panic in the renewal ends the
+/// timed out meanwhile (ADR 0093), and the end of the handler call its
+/// pages' calls inherit (ADR 0080): its `timeout.handler`, which the lease
+/// outlasts by its margin, moved later as the wait renews the lease. A
+/// panic in the renewal ends the
 /// attempt ([`Watch`]). It shares its Run with every attempt's hand-over
 /// rather than holding a clone of its own, which the loop would build and
 /// the page's task drop once a page (#2243).
@@ -442,6 +448,8 @@ struct HandlerLease {
     of_run: Arc<RunHandOver>,
     request_id: String,
     in_flight: SharedInFlight,
+    /// The Run's `timeout.handler`.
+    timeout: Deadline,
 }
 
 impl std::fmt::Debug for HandlerLease {
@@ -453,6 +461,7 @@ impl std::fmt::Debug for HandlerLease {
             .field("run", &self.of_run.run)
             .field("request_id", &self.request_id)
             .field("in_flight", &self.in_flight)
+            .field("timeout", &self.timeout)
             .finish()
     }
 }
@@ -489,6 +498,10 @@ impl LeaseCheck for HandlerLease {
             waiting.in_flight.lock().await.permit_wait_ended(run, id);
         }));
         PermitWait::holding(stop)
+    }
+
+    fn enclosing(&self) -> Option<Enclosing> {
+        self.lease.handler(&self.timeout)
     }
 }
 
@@ -1913,7 +1926,9 @@ async fn handled(
         .await
     {
         Err(_) => Answer::ClientGone,
-        Ok(mut sent) => tokio::select! {
+        Ok(mut sent) => {
+            lease.handler_sent(sent.id().clone());
+            tokio::select! {
             biased;
             answer = sent.answer() => match answer {
                 Ok(handled) => Answer::Handled(handled),
@@ -1938,7 +1953,8 @@ async fn handled(
                 run.spawn(watch::after(run.metrics(), late(run.clone(), lease.clone(), sent)));
                 Answer::LeaseEnded
             }
-        },
+            }
+        }
     }
 }
 

@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from pydantic import JsonValue
 
     from goodfetch_collie_client.connection import EngineInfo
+    from goodfetch_collie_client.generated.models import SettingsExplanation
     from goodfetch_collie_client.generated.settings import RunSettings
     from goodfetch_collie_client.limits import Limits
     from goodfetch_collie_client.run import AsyncRun, Run
@@ -72,6 +73,20 @@ class AsyncConnection(ABC):
         are sent and the result answered as on the wire, in snake_case.
         `timeout` is sent as the operation's own; cancelling the task
         cancels the call. It is never retried, and raises `closed` once the
+        Connection is closed.
+        """
+
+    @abstractmethod
+    async def explain_settings(
+        self, keys: Iterable[str] | None = None
+    ) -> SettingsExplanation:
+        """What the Connection runs with (ADR 0083), as `config explain` shows it.
+
+        Each setting under `keys`, each a key or a prefix of keys such as
+        `timeout`, every one when left out, with its effective value, the
+        layer and origin that set it and the layer that locked it: the
+        Connection's own `settings` over configuration and the Operator
+        policy, which each Run it starts inherits. Raises `closed` once the
         Connection is closed.
         """
 
@@ -133,6 +148,12 @@ class Connection(ABC):
         timeout: timedelta | NotGiven | None = not_given,
     ) -> JsonValue:
         """Sends `operation` as `AsyncConnection.call` does; waits for its result."""
+
+    @abstractmethod
+    def explain_settings(
+        self, keys: Iterable[str] | None = None
+    ) -> SettingsExplanation:
+        """What the Connection runs with, as `AsyncConnection.explain_settings` says."""
 
     @abstractmethod
     def close(self) -> None:

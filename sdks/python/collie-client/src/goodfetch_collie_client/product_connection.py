@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 
     from goodfetch_collie_client.engine_choice import DaemonReach, EngineChoice
     from goodfetch_collie_client.generated.models import Product, RunLimit
+    from goodfetch_collie_client.generated.settings import Settings
     from goodfetch_collie_client.goodfetch_error import ErrorClass
     from goodfetch_collie_client.limits import Limits
 
@@ -117,6 +118,7 @@ async def open_engine(
     limits: Limits | None = None,
     connect_timeout: timedelta | NotGiven | None = not_given,
     max_listener_queue: int = MAX_LISTENER_QUEUE,
+    settings: Settings | None = None,
 ) -> ClientConnection:
     """Reaches the engine `engine` chooses for `product`, then `hello` and `limits`.
 
@@ -137,7 +139,9 @@ async def open_engine(
     a refused Product (`not_in_product`) or version, or a refused Limit
     raises here, with a `fix`, leaving no Attached engine behind. The engine
     reached is logged at info on the `goodfetch.client` logger, its
-    `EngineInfo` as the record's `engine`.
+    `EngineInfo` as the record's `engine`. `settings`, the Connection's own
+    (ADR 0083), go in `hello`, and a key the engine refuses fails the opening
+    with its error, such as `setting_not_applicable`.
     """
     connection_limits = limit_list(limits)
     listener_queue = listener_queue_of(max_listener_queue)
@@ -159,6 +163,7 @@ async def open_engine(
             connection_limits,
             checked,
             listener_queue,
+            settings=settings,
         )
     else:
         connection = await _open_daemon(
@@ -168,6 +173,7 @@ async def open_engine(
             connection_limits,
             checked,
             listener_queue,
+            settings=settings,
         )
     info = connection.engine
     logging.getLogger(CLIENT_LOGGER).info(
@@ -184,6 +190,8 @@ async def _open_attached(
     limits: Sequence[RunLimit],
     connect_timeout: int | NotGiven | None,
     listener_queue: int,
+    *,
+    settings: Settings | None,
 ) -> ClientConnection:
     """Starts `product`'s engine as an Attached engine with `env`, then `hello`."""
     location = locate_engine(env, product)
@@ -198,6 +206,7 @@ async def _open_attached(
         limits=limits,
         connect_timeout=connect_timeout,
         listener_queue=listener_queue,
+        settings=settings,
     )
 
 
@@ -208,6 +217,8 @@ async def _open_daemon(
     limits: Sequence[RunLimit],
     connect_timeout: int | NotGiven | None,
     listener_queue: int,
+    *,
+    settings: Settings | None,
 ) -> ClientConnection:
     """Finishes `hello` with a Daemon, its token in it.
 
@@ -224,6 +235,7 @@ async def _open_daemon(
         limits=limits,
         connect_timeout=connect_timeout,
         listener_queue=listener_queue,
+        settings=settings,
     )
 
 

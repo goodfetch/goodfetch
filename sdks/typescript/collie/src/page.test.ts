@@ -250,7 +250,7 @@ async function readTwentyFields(page: Page) {
     released: { locator: css("time.released"), transform: { kind: "date", locale: "en" } },
     updated: {
       locator: css("time.updated"),
-      transform: { kind: "date_time", locale: "en", time_zone: "Europe/Paris" },
+      transform: { kind: "date_time", locale: "en", timeZone: "Europe/Paris" },
     },
     image: { locator: css("img.main"), attribute: "src" },
     canonical: { locator: css("link[rel=canonical]"), attribute: "href" },

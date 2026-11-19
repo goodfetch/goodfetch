@@ -1262,11 +1262,13 @@ fn each_declared_kind_generates_its_typescript_form_which_type_checks() {
     for module in [
         "caller.ts",
         "field-values.ts",
+        "framing.ts",
         "goodfetch-error.ts",
         "handle.ts",
         "json.ts",
         "markers.ts",
         "raw-call.ts",
+        "wire.ts",
     ] {
         let contents =
             std::fs::read(repository.join(COLLIE_CLIENT).join("src").join(module)).unwrap();

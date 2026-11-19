@@ -28,7 +28,7 @@ export class Run extends Handle {
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
   constructor(host: HandleHost<types.RunId, CollieOperationTypes>) {
-    super(host, "run", "run_id");
+    super(host, "run", "run_id", { type: "RunId" });
     this.#host = host;
   }
 
@@ -36,8 +36,8 @@ export class Run extends Handle {
    * Opens a page in the Run.
    */
   async newPage(options: { readonly viewport?: types.NewPageParams["viewport"] | undefined } = {}): Promise<Page> {
-    const opened = await this.#host.call("run.new_page", defined({ run_id: this.#host.id, viewport: options.viewport }), {});
-    return new Page(this.#host.child(opened.page_id));
+    const opened = await this.#host.call("run.new_page", defined({ runId: this.#host.id, viewport: options.viewport }), {});
+    return new Page(this.#host.child(opened.pageId));
   }
 }
 
@@ -59,7 +59,7 @@ export class PageKeyboard {
   async press(key: types.KeyboardPressParams["key"], options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
     warnExperimental("page.keyboard.press");
     warnDeprecated("page.keyboard.press", "Since 0.1, removed no earlier than 1.0: A fixture entry, which no program should call.");
-    return this.#host.call("page.keyboard.press", { page_id: this.#host.id, key }, { signal: options.signal });
+    return this.#host.call("page.keyboard.press", { pageId: this.#host.id, key }, { signal: options.signal });
   }
 }
 
@@ -82,7 +82,7 @@ export class Page extends Handle implements AsyncDisposable {
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
   constructor(host: HandleHost<types.PageId, CollieOperationTypes>) {
-    super(host, "page", "page_id");
+    super(host, "page", "page_id", { type: "PageId" });
     this.#host = host;
     this.keyboard = new PageKeyboard(host);
   }
@@ -91,35 +91,35 @@ export class Page extends Handle implements AsyncDisposable {
    * Closes the page.
    */
   async close(): Promise<void> {
-    await this.#host.close("page.close", { page_id: this.#host.id });
+    await this.#host.close("page.close", { pageId: this.#host.id });
   }
 
   /**
    * Navigates the page to a URL.
    */
   async goto(url: types.GotoParams["url"], referrer: types.GotoParams["referrer"], options: { readonly fresh: types.GotoParams["fresh"]; readonly timeout?: types.GotoParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined }): Promise<types.Navigated["status"]> {
-    return (await this.#host.call("page.goto", defined({ page_id: this.#host.id, url, referrer, fresh: options.fresh, timeout: timeoutOf(options.timeout, "timeout.navigation") }), { signal: options.signal })).status;
+    return (await this.#host.call("page.goto", defined({ pageId: this.#host.id, url, referrer, fresh: options.fresh, timeout: timeoutOf(options.timeout, "timeout.navigation") }), { signal: options.signal })).status;
   }
 
   /**
    * Whether the page's document has loaded.
    */
   async isReady(): Promise<types.Readiness["ready"]> {
-    return (await this.#host.call("page.is_ready", { page_id: this.#host.id }, {})).ready;
+    return (await this.#host.call("page.is_ready", { pageId: this.#host.id }, {})).ready;
   }
 
   /**
    * Reads the named fields from the page.
    */
   async read<const Fields extends types.ReadParams["fields"]>(fields: Fields, options: { readonly signal?: AbortSignal | undefined } = {}): Promise<TypedBy<types.Read, "values", Fields>> {
-    return typedBy<types.Read, "values", Fields>(await this.#host.call("page.read", { page_id: this.#host.id, fields }, { signal: options.signal }));
+    return typedBy<types.Read, "values", Fields>(await this.#host.call("page.read", { pageId: this.#host.id, fields }, { signal: options.signal }));
   }
 
   /**
    * Waits until the page's document has loaded.
    */
   async waitForReady(options: { readonly expected?: types.WaitForReadyParams["expected"] | undefined; readonly state?: types.WaitForReadyParams["state"] | undefined; readonly timeout?: types.WaitForReadyParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
-    return this.#host.call("page.wait_for_ready", defined({ page_id: this.#host.id, expected: options.expected, state: options.state, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal });
+    return this.#host.call("page.wait_for_ready", defined({ pageId: this.#host.id, expected: options.expected, state: options.state, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal });
   }
 
   /**
@@ -128,7 +128,7 @@ export class Page extends Handle implements AsyncDisposable {
    * Built without a call (ADR 0099).
    */
   locator(selector: types.Locator["selector"]): Locator {
-    return new Locator(this.#host.child<types.Locator>({ page_id: this.#host.id, selector }));
+    return new Locator(this.#host.child<types.Locator>({ pageId: this.#host.id, selector }));
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
@@ -153,7 +153,7 @@ export class Locator extends Handle {
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
   constructor(host: HandleHost<types.Locator, CollieOperationTypes>) {
-    super(host, "locator", "locator");
+    super(host, "locator", "locator", { type: "Locator" });
     this.#host = host;
   }
 

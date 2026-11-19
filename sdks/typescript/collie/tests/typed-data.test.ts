@@ -114,7 +114,7 @@ describe("Typed data on the Scripted engine as the Attached engine", () => {
       await collie.close();
 
       await clientCase.check("the Run report keeps the newer engine's field as sent", () =>
-        expect(report).toMatchObject({ run_id: "newer", carbon: { grams: 1.5 } }),
+        expect(report).toMatchObject({ runId: "newer", carbon: { grams: 1.5 } }),
       );
       await clientCase.check("the script played to its end, so its engine wrote no failure", () =>
         expect(warned).toEqual([]),

@@ -37,7 +37,7 @@ describe("Limits in code on the Scripted engine as the Attached engine", () => {
       await collie.close();
 
       await clientCase.check("the Run started and finished under its Limits", () =>
-        expect(report).toMatchObject({ run_id: "capped", lifecycle: "finished" }),
+        expect(report).toMatchObject({ runId: "capped", lifecycle: "finished" }),
       );
       await clientCase.check(
         "the engine read each Limit as the script expects, so it wrote no failure",
@@ -180,10 +180,10 @@ describe("Limits in code on the Scripted engine as the Attached engine", () => {
         expect(report).toMatchObject({
           lifecycle: "stopped",
           completeness: "incomplete",
-          stop_reason: {
+          stopReason: {
             kind: "limit",
             scope: { kind: "run", id: "capped" },
-            usage_kind: "proxy_bytes",
+            usageKind: "proxy_bytes",
             currency: "USD",
           },
         }),

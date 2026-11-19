@@ -10,7 +10,7 @@ use std::fmt::Write as _;
 
 use super::super::handles::{Handle, Listened, Listener};
 use super::super::layer::Stability;
-use super::super::naming::{pascal, snake};
+use super::super::naming::{camel, pascal, snake};
 use super::doc;
 use super::markers::warnings;
 
@@ -102,7 +102,7 @@ fn events_value(class: &str, listener: &Listener<'_>, events: &str) -> String {
     let _ = writeln!(
         text,
         "}} as const satisfies {{ readonly [Name in keyof {class}Events]: types.{params}[{:?}] }};",
-        listener.param
+        camel(&listener.param)
     );
     text
 }
@@ -130,8 +130,8 @@ fn listener_member(
         "  on<Name extends keyof {class}Events>(event: Name, listener: Listener<{class}Events[Name]>): Subscription {{\n{}    const listened = {events}[event];\n    warnEntry({registry}, `{namespace}.${{listened}}`);\n    return this.#host.listen({:?}, {{ {}: this.#host.id, {}: listened }}, `{namespace}.${{listened}}`, listener);\n  }}\n",
         warnings(operation),
         operation.name,
-        handle.id.param,
-        listener.param
+        camel(&handle.id.param),
+        camel(&listener.param)
     );
     text
 }
@@ -172,8 +172,9 @@ fn published_events(
             || "(_host, payload) => payload".to_owned(),
             |namespace| {
                 format!(
-                    "(host, payload) => new {}(host.child(payload.{namespace}_id))",
-                    pascal(namespace)
+                    "(host, payload) => new {}(host.child(payload.{}))",
+                    pascal(namespace),
+                    camel(&format!("{namespace}_id"))
                 )
             },
         );
@@ -205,10 +206,11 @@ fn published_member(
     );
     let _ = write!(
         text,
-        "  on<Name extends keyof {class}Events>(event: Name, listener: Listener<{class}Events[Name]>): Subscription {{\n{}    const listened = {events}[event];\n    warnEntry({registry}, `{namespace}.${{listened}}`);\n    const build = {events}_VALUES[event];\n    return this.#host.listenPublished({:?}, {{ {id}: this.#host.id, {}: listened }}, `{namespace}.${{listened}}`, {id:?}, (payload: {class}Payloads[Name], dropped: number) => listener(build(this.#host, payload), dropped));\n  }}\n",
+        "  on<Name extends keyof {class}Events>(event: Name, listener: Listener<{class}Events[Name]>): Subscription {{\n{}    const listened = {events}[event];\n    warnEntry({registry}, `{namespace}.${{listened}}`);\n    const build = {events}_VALUES[event];\n    return this.#host.listenPublished({:?}, {{ {}: this.#host.id, {}: listened }}, `{namespace}.${{listened}}`, {id:?}, (payload: {class}Payloads[Name], dropped: number) => listener(build(this.#host, payload), dropped));\n  }}\n",
         warnings(operation),
         operation.name,
-        listener.param,
+        camel(&handle.id.param),
+        camel(&listener.param),
         id = handle.id.param,
     );
     text

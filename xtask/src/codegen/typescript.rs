@@ -24,7 +24,7 @@ mod errors;
 mod listeners;
 mod markers;
 mod settings;
-mod times;
+mod wire;
 
 use markers::{
     CLIENT_RUNTIME, ENTRY_MARKERS, MARKERS_MODULE, WARN_ENTRY, markers_import, warnings,
@@ -55,7 +55,8 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         .generator_input(&format!("{}Types", layer.product.name()), |name| {
             ("tsType", name.to_owned())
         });
-    times::with_date_types(&mut input);
+    wire::with_date_types(&mut input);
+    wire::camel_fields(&mut input)?;
     // The header comes first, then the imports, then the generator's
     // output, which has no banner of its own.
     let prefix = if replaced.is_empty() {
@@ -71,7 +72,7 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         ("plugins.ts", plugins(layer)),
     ];
     files.push(("connection.ts", connection(layer)));
-    files.push(("times.ts", times::file(layer)?));
+    files.push(("wire.ts", wire::file(layer)?));
     if !layer.shared_types.is_empty() {
         files.push(("shared-types.ts", shared_types(layer)));
     }
@@ -603,41 +604,40 @@ fn signature(
     settings_type: Option<&str>,
 ) -> (String, String) {
     let mut declared = Vec::new();
-    let mut entries = vec![format!("{id}: this.#host.id")];
+    let mut entries = vec![format!("{}: this.#host.id", camel(id))];
     for name in &parameters.positional {
         let local = positional_name(name);
         if typed == Some(name.as_str()) {
             declared.push(format!("{local}: {FIELDS}"));
         } else {
-            declared.push(format!("{local}: types.{type_name}[{name:?}]"));
+            declared.push(format!("{local}: types.{type_name}[{:?}]", camel(name)));
         }
-        entries.push(if local == *name {
+        let field = camel(name);
+        entries.push(if local == field {
             local
         } else {
-            format!("{name}: {local}")
+            format!("{field}: {local}")
         });
     }
     let mut options = Vec::new();
     for name in &parameters.named {
-        options.push(format!(
-            "readonly {}: types.{type_name}[{name:?}]",
-            camel(name)
-        ));
-        entries.push(format!("{name}: options.{}", camel(name)));
+        let field = camel(name);
+        options.push(format!("readonly {field}: types.{type_name}[{field:?}]"));
+        entries.push(format!("{field}: options.{field}"));
     }
     for name in &parameters.optional {
-        let given = format!("options.{}", camel(name));
+        let field = camel(name);
+        let given = format!("options.{field}");
         if let Some(settings) = settings_type.filter(|_| name == settings::SETTINGS) {
-            options.push(format!("readonly {}?: {settings} | undefined", camel(name)));
-            entries.push(format!("{name}: {}({given})", settings::SETTINGS_ON_WIRE));
+            options.push(format!("readonly {field}?: {settings} | undefined"));
+            entries.push(format!("{field}: {}({given})", settings::SETTINGS_ON_WIRE));
         } else {
             options.push(format!(
-                "readonly {}?: types.{type_name}[{name:?}] | undefined",
-                camel(name)
+                "readonly {field}?: types.{type_name}[{field:?}] | undefined"
             ));
             entries.push(match timeout_setting.filter(|_| name == TIMEOUT) {
-                Some(setting) => format!("{name}: {TIMEOUT_OF}({given}, {setting:?})"),
-                None => format!("{name}: {given}"),
+                Some(setting) => format!("{field}: {TIMEOUT_OF}({given}, {setting:?})"),
+                None => format!("{field}: {given}"),
             });
         }
     }
@@ -669,12 +669,12 @@ fn answered(member: &Member<'_>, result: &str) -> String {
     match &member.unwrapped {
         None => format!("types.{result}"),
         Some(unwrapped) if unwrapped.required => {
-            format!("types.{result}[{:?}]", unwrapped.property)
+            format!("types.{result}[{:?}]", camel(&unwrapped.property))
         }
         Some(unwrapped) => {
             format!(
                 "NonNullable<types.{result}[{:?}]> | null",
-                unwrapped.property
+                camel(&unwrapped.property)
             )
         }
     }
@@ -686,9 +686,9 @@ fn answer(member: &Member<'_>, call: &str) -> String {
     match &member.unwrapped {
         None => call.to_owned(),
         Some(unwrapped) if unwrapped.required => {
-            format!("(await {call}).{}", unwrapped.property)
+            format!("(await {call}).{}", camel(&unwrapped.property))
         }
-        Some(unwrapped) => format!("(await {call}).{} ?? null", unwrapped.property),
+        Some(unwrapped) => format!("(await {call}).{} ?? null", camel(&unwrapped.property)),
     }
 }
 
@@ -736,20 +736,24 @@ fn member(member: &Member<'_>, id: &HandleId) -> Result<String> {
             // Its result is typed by the fields the caller passes, which
             // the member takes as a type parameter (ADR 0147).
             Some(typed) => {
-                let typed_result =
-                    format!("TypedBy<types.{result}, {:?}, {FIELDS}>", typed.property);
+                let typed_result = format!(
+                    "TypedBy<types.{result}, {:?}, {FIELDS}>",
+                    camel(&typed.property)
+                );
                 let _ = write!(
                     text,
                     "  async {name}<const {FIELDS} extends types.{params}[{:?}]>({declared}): Promise<{typed_result}> {{\n{warn}    return typedBy<types.{result}, {:?}, {FIELDS}>(await {call});\n  }}\n",
-                    typed.param, typed.property
+                    camel(&typed.param),
+                    camel(&typed.property)
                 );
             }
         },
         Form::Opens(opened) => {
             let class = pascal(opened);
+            let id = camel(&format!("{opened}_id"));
             let _ = write!(
                 text,
-                "  async {name}({declared}): Promise<{class}> {{\n{warn}    const opened = await {call};\n    return new {class}(this.#host.child(opened.{opened}_id));\n  }}\n"
+                "  async {name}({declared}): Promise<{class}> {{\n{warn}    const opened = await {call};\n    return new {class}(this.#host.child(opened.{id}));\n  }}\n"
             );
         }
         Form::Closes => {
@@ -887,8 +891,8 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
         }
         let _ = write!(
             text,
-            "\n  /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */\n  constructor(host: {host}) {{\n    super(host, {:?}, {:?});\n    this.#host = host;\n",
-            handle.namespace, handle.id.param
+            "\n  /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */\n  constructor(host: {host}) {{\n    super(host, {:?}, {:?}, {{ type: {:?} }});\n    this.#host = host;\n",
+            handle.namespace, handle.id.param, handle.id.type_name
         );
         for sub_object in &handle.sub_objects {
             let _ = writeln!(

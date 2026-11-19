@@ -209,6 +209,10 @@ class TestEnv:
             raise TestEnvError(message)
 
 
+SCRIPTED_ENGINE_FOLDER = "scripted-engine"
+"""The folder under a home that holds the Scripted engine's script and record."""
+
+
 def scripted_engine_env(
     test_env: TestEnv, product: Product, script: str, home: Path | None = None
 ) -> Mapping[str, str]:
@@ -231,13 +235,22 @@ def scripted_engine_env(
     """
     engine = test_env.tools.path(Tool.SCRIPTED_ENGINE)
     home = test_env.home if home is None else home
-    (home / "scripted-engine").mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(CORPUS / script, home / "scripted-engine" / "script.json")
+    (home / SCRIPTED_ENGINE_FOLDER).mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(CORPUS / script, home / SCRIPTED_ENGINE_FOLDER / "script.json")
     return {
         **test_env.env,
         "GOODFETCH_HOME": str(home),
         product.engine_path_variable: str(engine),
     }
+
+
+def scripted_engine_record(home: Path) -> Path:
+    """The record `goodfetch-scripted-engine` writes under `home`.
+
+    One flushed JSON line for each message it reads or writes, as it reads
+    or writes it, beside the script `scripted_engine_env` installed there.
+    """
+    return home / SCRIPTED_ENGINE_FOLDER / "record.jsonl"
 
 
 def _stop(process: subprocess.Popen[bytes]) -> None:

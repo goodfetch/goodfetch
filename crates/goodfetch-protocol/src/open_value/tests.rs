@@ -1,3 +1,4 @@
+use rstest::rstest;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -62,4 +63,12 @@ fn a_known_stop_reason_never_reads_as_unknown() {
 #[test]
 fn a_member_without_a_tag_is_refused() {
     assert!(serde_json::from_value::<StopReason>(json!({ "by_whom": "x" })).is_err());
+}
+
+#[rstest]
+#[case::abort_without_who(json!({ "kind": "abort" }))]
+#[case::resources_with_a_newer_resource(json!({ "kind": "resources", "resource": "gpu" }))]
+#[case::limit_without_its_limit(json!({ "kind": "limit" }))]
+fn a_known_stop_reason_whose_fields_do_not_read_is_refused(#[case] sent: Value) {
+    assert!(serde_json::from_value::<StopReason>(sent).is_err());
 }

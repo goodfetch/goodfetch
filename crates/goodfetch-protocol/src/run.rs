@@ -20,7 +20,7 @@ use std::borrow::Cow;
 use std::fmt;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Operation,
@@ -458,9 +458,31 @@ pub enum StopReason {
     },
     /// A reason a newer engine gives that this reader does not know, kept
     /// as received with its tag (ADR 0079).
-    #[serde(untagged)]
+    #[serde(untagged, deserialize_with = "StopReason::read_unknown")]
     #[schemars(skip)]
     Unknown(UnknownMember),
+}
+
+impl StopReason {
+    /// The tags of the reasons this reader knows, in declaration order.
+    const KNOWN_TAGS: [&str; 10] = [
+        "abort",
+        "pause",
+        "migrate",
+        "timeout",
+        "drain",
+        "limit",
+        "limit_not_understood",
+        "engine_lost",
+        "engine_panicked",
+        "resources",
+    ];
+
+    /// Reads a reason this reader does not know, refusing a known one whose
+    /// fields do not read.
+    fn read_unknown<'de, D: Deserializer<'de>>(deserializer: D) -> Result<UnknownMember, D::Error> {
+        UnknownMember::read_unknown(deserializer, &Self::KNOWN_TAGS)
+    }
 }
 
 /// A resource the governor can run out of (ADR 0122).

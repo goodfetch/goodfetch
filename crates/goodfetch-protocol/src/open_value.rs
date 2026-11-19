@@ -54,6 +54,25 @@ impl UnknownMember {
     pub const fn fields(&self) -> &Map<String, Value> {
         &self.0
     }
+
+    /// Reads the unknown member of an open tagged union whose known members
+    /// carry the tags `known`. Serde falls back to the unknown member
+    /// whenever a known member does not read, so a member with a known tag
+    /// is refused here: a known member whose fields are wrong is an error,
+    /// never an unknown member.
+    pub(crate) fn read_unknown<'de, D: Deserializer<'de>>(
+        deserializer: D,
+        known: &[&str],
+    ) -> Result<Self, D::Error> {
+        let member = Self::deserialize(deserializer)?;
+        if known.contains(&member.tag()) {
+            return Err(D::Error::custom(format_args!(
+                "the member `{}` is known, and its fields do not read",
+                member.tag()
+            )));
+        }
+        Ok(member)
+    }
 }
 
 impl<'de> Deserialize<'de> for UnknownMember {

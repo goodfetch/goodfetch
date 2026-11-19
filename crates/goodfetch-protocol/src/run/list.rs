@@ -10,7 +10,8 @@ use crate::point_in_time::PointInTime;
 use std::time::SystemTime;
 
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::catalog::{
     Operation, OperationClass, OperationKind, Product, ProtocolVersion, Reach, Stability, schema_of,
@@ -184,7 +185,11 @@ pub struct RunListParams {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub lifecycle: Option<Lifecycle>,
     /// Their Verdict: only Runs that ended have one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "known_verdict"
+    )]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub verdict: Option<Verdict>,
     /// Their Completeness: only Runs that ended have one.
@@ -218,6 +223,19 @@ pub struct RunListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub order: Option<SortOrder>,
+}
+
+/// Reads a Verdict filter, refusing a Verdict this reader does not know: a
+/// filter is a request, which ADR 0079's keeping of a newer engine's values
+/// does not cover, so an engine answers it with an error, not an empty list.
+fn known_verdict<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Verdict>, D::Error> {
+    match Option::<Verdict>::deserialize(deserializer)? {
+        Some(Verdict::Unknown(value)) => Err(D::Error::custom(format_args!(
+            "unknown Verdict `{value}`, expected one of {}",
+            crate::wire_name::all(&Verdict::ALL).join(", ")
+        ))),
+        known => Ok(known),
+    }
 }
 
 /// What `run.list` answers: the rows of its filter, in its order.

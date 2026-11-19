@@ -38,7 +38,7 @@ export function failsOnce(): FailsOnce {
     attempts,
     settings: {
       fetch: { tier: "http" },
-      crawl: { handler: { concurrency: 1 }, retry: { handler_failed: true } },
+      crawl: { handler: { concurrency: 1 }, retry: { handlerFailed: true } },
     },
     attemptsMade: () => attempt,
   };

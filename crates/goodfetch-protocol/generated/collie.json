@@ -14614,6 +14614,7 @@
       "scopes": [
         "connection",
         "run",
+        "label",
         "session",
         "page"
       ],
@@ -17076,6 +17077,7 @@
       "scopes": [
         "connection",
         "run",
+        "label",
         "session"
       ],
       "value": {
@@ -17330,7 +17332,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "label"
       ],
       "value": {
         "description": "Where a Session's login comes from (ADR 0056): exactly one kind.",
@@ -18177,7 +18180,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "label"
       ],
       "value": {
         "description": "A duration in milliseconds.",

@@ -11,6 +11,7 @@ TypeScript's `client-connection.ts` is its twin.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
@@ -37,6 +38,7 @@ from goodfetch_collie_client.generated.models import (
     ProductVersion,
     ProtocolVersion,
     RunStartParams,
+    StartedAs,
     Surface,
     UsageSetParams,
 )
@@ -53,7 +55,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from goodfetch_collie_client.attached_engine import AttachedEngine
-    from goodfetch_collie_client.generated.models import RunLimit
+    from goodfetch_collie_client.generated.models import RunLimit, RunStarted
     from goodfetch_collie_client.goodfetch_error import ErrorClass, GoodfetchError
     from goodfetch_collie_client.rpc import TransportEnd
 
@@ -67,6 +69,9 @@ EXIT_GRACE = 2.0
 """How long an ended transport waits for its engine's exit status, in seconds."""
 
 _CONNECT_AGAIN = "Connect again: a closed Connection never reopens."
+
+START_LOGGER_NAME = "goodfetch.client.run"
+"""The logger a resumed or ended start goes to, silent unless the host listens."""
 
 
 @dataclass(frozen=True)
@@ -184,8 +189,11 @@ class ClientConnection:
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
     ) -> AsyncRun:
-        """Starts a Run and returns once it is started (ADR 0102).
+        """Leaving the scope or `close()` stops the Run with a Checkpoint.
 
+        `finish()` ends it. Starts a Run and returns once it is started
+        (ADR 0102). A start that resumed its Run is logged at info, and one
+        that found it ended at warning, on the `goodfetch.client.run` logger.
         A `limits` amount the SDK cannot turn exactly fails with
         `setting_invalid` before anything is sent.
         """
@@ -201,6 +209,7 @@ class ClientConnection:
         started = await self._operations.run_start(
             RunStartParams.model_construct(None, **fields)
         )
+        _log_start(started)
         run = AsyncRun(self, started)
         self._runs[run] = None
         return run
@@ -377,6 +386,34 @@ class ClientConnection:
             with anyio.move_on_after(EXIT_GRACE):
                 return await self._engine.exited()
         return EngineExit(None, None, "")
+
+
+def _log_start(started: RunStarted) -> None:
+    """Tells the host how a start with an existing Run ID reached its Run.
+
+    Resumed at info, ended at warning, since the Run then takes no new work
+    (ADR 0102). A new Run is not logged.
+    """
+    run_id = started.run_id.root
+    # Engine answers are not validated (STYLE.md): `started_as` may be a bare string.
+    fields = {"run_id": run_id, "started_as": str(started.started_as)}
+    logger = logging.getLogger(START_LOGGER_NAME)
+    match started.started_as:
+        case StartedAs.new:
+            return
+        case StartedAs.resumed:
+            logger.info(
+                "The start resumed the Run `%s` from its committed state.",
+                run_id,
+                extra=fields,
+            )
+        case StartedAs.ended:
+            logger.warning(
+                "The start found the Run `%s` ended: it is returned as it ended "
+                "and takes no new work.",
+                run_id,
+                extra=fields,
+            )
 
 
 def closed_error(operation: str) -> ClosedError:

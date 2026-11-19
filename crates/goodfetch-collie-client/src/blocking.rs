@@ -10,7 +10,7 @@ use std::future::IntoFuture;
 use std::path::Path;
 use std::time::Duration;
 
-use goodfetch_protocol::run::{RunId, RunReport, StartedAs};
+use goodfetch_protocol::run::{RunId, RunReport, StartedAs, Tags};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -44,8 +44,9 @@ impl Connection {
         }
     }
 
-    /// The start of a Run this Connection drives (`run.start`), which
-    /// `send()` sends.
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint;
+    /// `finish()` ends it. The start of a Run this Connection drives
+    /// (`run.start`), which `send()` sends.
     pub fn start(&self) -> Start {
         Start(self.0.start(), self.0.clone())
     }
@@ -231,6 +232,11 @@ impl Start {
     /// Sets the Run's own Limits, as [`crate::Start::limits`] does.
     pub fn limits(self, limits: crate::Limits) -> Self {
         Self(self.0.limits(limits), self.1)
+    }
+
+    /// Tags the Run, as [`crate::Start::tags`] does.
+    pub fn tags(self, tags: Tags) -> Self {
+        Self(self.0.tags(tags), self.1)
     }
 
     /// Starts the Run and blocks the calling thread until it is started.

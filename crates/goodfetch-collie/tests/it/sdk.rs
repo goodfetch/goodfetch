@@ -18,6 +18,7 @@ use serde_json::json;
 
 mod limits;
 mod public_items;
+mod start;
 
 /// What a connection opens with: the test's environment, which names its
 /// Goodfetch home.

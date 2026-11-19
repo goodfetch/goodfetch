@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "16"
+version = "17"
 
 [[capability]]
 name = "lifecycle"
@@ -138,6 +138,22 @@ id = "collie-accepted-by-foxhound"
 covers = ["story:11-8"]
 surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
+
+# A start reaches the Run its Run ID names (ADR 0102; issue 1230): a fresh
+# ID begins it, an interrupted Run's resumes it, logged at info, and a
+# finished Run's returns it ended, logged at warning, where a call that would
+# give it work raises `run_ended`; `run.id()` sends nothing; and each start
+# the engine refuses raises its generated class with its fields. Attached in
+# TypeScript and Python, linked in Rust, each surface taking the modes it
+# has.
+[[capability]]
+name = "start"
+
+[[capability.case]]
+id = "start-reaches-its-run"
+covers = ["story:11-126", "story:11-127"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability]]
 name = "time"

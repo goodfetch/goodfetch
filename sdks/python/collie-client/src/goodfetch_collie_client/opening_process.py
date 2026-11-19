@@ -3,9 +3,10 @@
 A child created by `fork` inherits a copy of its parent's Connection and of
 every Run, Session and page under it, whose pipe, engine and private thread
 stay the parent's: each use in the child fails with `connection_forked`
-before it writes anything, and the child connects on its own. No fork hook
-is installed (ADR 0078): each use compares the process ID with the
-opener's.
+before it writes anything, and the child connects on its own (ADR 0078).
+Each use compares the process ID with the opener's, so nothing is
+registered with `os.register_at_fork`, whose callbacks no Connection
+could ever remove.
 """
 
 from __future__ import annotations

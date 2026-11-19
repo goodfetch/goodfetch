@@ -70,6 +70,15 @@ def _seen(error: BaseException | None) -> list[object] | None:
     ]
 
 
+def _client_methods(home: Path) -> list[object]:
+    """The methods of the Client's messages recorded under `home`."""
+    lines = scripted_engine_record(home).read_text("utf-8").splitlines()
+    record = [json.loads(line) for line in lines]
+    return [
+        each["message"].get("method") for each in record if each["from"] == "client"
+    ]
+
+
 async def _outcome(call: Callable[[], Awaitable[object]]) -> list[object] | None:
     try:
         await call()
@@ -200,15 +209,11 @@ async def test_a_forked_child_fails_on_its_parents_connection_and_connects_its_o
         "the child wrote nothing to the parent's engine, whose Run closed as if"
         " no child had been"
     ):
-        record = [
-            json.loads(line)
-            for line in scripted_engine_record(test_env.folder / "parent")
-            .read_text("utf-8")
-            .splitlines()
+        assert _client_methods(test_env.folder / "parent") == [
+            "hello",
+            "run.start",
+            "run.abort",
         ]
-        assert [
-            each["message"].get("method") for each in record if each["from"] == "client"
-        ] == ["hello", "run.start", "run.abort"]
         assert engine_warnings(caplog) == []
 
 
@@ -265,18 +270,10 @@ def test_ctrl_c_reaches_only_the_host_whose_unwinding_closes_the_run(
         client_case.message(seen)
         assert seen["interrupted"] is True
     with client_case.check(
-        "the engine, in a group of its own, got the Run's close, which stopped it"
-        " with a Checkpoint, and played its script to its end"
+        "the engine, in a group of its own, outlived the signal, got the Run's"
+        " close, run.abort, and played its script to its end"
     ):
-        record = [
-            json.loads(line)
-            for line in scripted_engine_record(test_env.home)
-            .read_text("utf-8")
-            .splitlines()
-        ]
-        assert [
-            each["message"].get("method") for each in record if each["from"] == "client"
-        ] == ["hello", "run.start", "run.abort"]
+        assert _client_methods(test_env.home) == ["hello", "run.start", "run.abort"]
         assert seen["warnings"] == []
     with client_case.check("the SDK wrote nothing to the host's stdout or stderr"):
         assert (stdout, stderr) == (b"", b"")

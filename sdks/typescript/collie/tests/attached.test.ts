@@ -581,14 +581,26 @@ describe("a Collie Connection on the Scripted engine as its Attached engine", ()
   test(
     "fails the call in flight with the engine's exit code and crash output when the engine exits mid-call",
     { tags: ["client_case/engine-exited-carries-its-evidence", "attached", "error:engine_exited"] },
-    async ({ testEnv, clientCase }) => {
+    async ({ testEnv, processes, clientCase }) => {
       const env = scriptedEngineEnv(testEnv, "collie", "connect/exit-during-a-call.json");
       const { logger, warned } = recordingLogger();
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
       const collie = await Collie.connect({ env, logger });
-
       const error = await failure(collie.start());
       await collie.close();
+      // The same crash in a program of its own, whose stdout and stderr
+      // hold only what the SDK writes there.
+      const program = processes.spawn(
+        process.execPath,
+        ["--no-warnings", join(import.meta.dirname, "fixtures", "crashed.ts")],
+        { env },
+      );
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      program.child.stdout.on("data", (bytes: Buffer) => stdout.push(bytes));
+      program.child.stderr.on("data", (bytes: Buffer) => stderr.push(bytes));
+      program.child.stdin.end();
+      const exit = await program.exit;
 
       await clientCase.check(
         "the call in flight fails with engine_exited, unavailable and not retryable",
@@ -611,6 +623,13 @@ describe("a Collie Connection on the Scripted engine as its Attached engine", ()
       );
       await clientCase.check("each line of its stderr reached the host's logger at warning", () =>
         expect(warned).toEqual(Array.from({ length: 40 }, () => CRASH_LINE)),
+      );
+      await clientCase.check("the SDK wrote nothing to its own stdout or stderr", () =>
+        expect({
+          exit,
+          stdout: Buffer.concat(stdout).toString(),
+          stderr: Buffer.concat(stderr).toString(),
+        }).toEqual({ exit: { code: 0, signal: null }, stdout: "", stderr: "" }),
       );
     },
   );

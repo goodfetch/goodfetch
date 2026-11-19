@@ -677,7 +677,7 @@ CRASH_LINE = "thread 'main' panicked: " + "é" * 1000
 
 @pytest.mark.client_case(id="engine-exited-carries-its-evidence", mode="attached")
 @three_ways
-async def test_fails_the_call_in_flight_with_the_engines_exit_code(
+async def test_fails_the_call_in_flight_with_the_engines_exit_code_and_crash_output(
     way: Way,
     test_env: TestEnv,
     product: ToolProduct,

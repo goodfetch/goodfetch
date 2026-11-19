@@ -23,64 +23,63 @@ function clientMethods(home: string): unknown[] {
     .map((entry) => entry.message.method);
 }
 
-// Its signal is SIGINT; Windows's CTRL_C_EVENT has no test yet.
-describe.skipIf(process.platform === "win32")(
-  "Ctrl+C sent to a host whose Run runs on an Attached engine",
-  () => {
-    test(
-      "reaches the host alone, whose handler closes the Run with a Checkpoint, then the Connection",
-      { tags: ["client_case/interrupt-reaches-only-the-host", "attached"] },
-      async ({ testEnv, processes, clientCase }) => {
-        const env = scriptedEngineEnv(testEnv, "collie", "run/closed-while-running.json");
-        const out = join(testEnv.folder, "interrupted.json");
-        const running = join(testEnv.folder, "running");
-        // The host's own group, as a terminal gives the program it runs; the
-        // catalog's marker warnings, which Node prints, are the host's to silence.
-        const host = processes.spawn(
-          process.execPath,
-          ["--no-warnings", join(import.meta.dirname, "fixtures", "interrupted.ts"), out, running],
-          { env, cwd: testEnv.folder, detached: true },
-        );
-        const stdout: Buffer[] = [];
-        const stderr: Buffer[] = [];
-        host.child.stdout.on("data", (bytes: Buffer) => stdout.push(bytes));
-        host.child.stderr.on("data", (bytes: Buffer) => stderr.push(bytes));
-        host.child.stdin.end();
-        const ended = host.exit.then(() => true);
-        while (!existsSync(running)) {
-          if (await Promise.race([ended, setTimeout(50, false)])) {
-            throw new Error(
-              `the host ended before its Run ran: ${Buffer.concat(stderr).toString()}`,
-            );
-          }
+describe("Ctrl+C sent to a host whose Run runs on an Attached engine", () => {
+  test(
+    "reaches the host alone, whose handler closes the Run with a Checkpoint, then the Connection",
+    { tags: ["client_case/interrupt-reaches-only-the-host", "attached"] },
+    async ({ testEnv, processes, clientCase, skip }) => {
+      // Skipped at run time, as a skipIf would leave it out of the case list's
+      // listing on every platform.
+      if (process.platform === "win32") {
+        skip("its signal is SIGINT; Windows's CTRL_C_EVENT has no test yet");
+      }
+      const env = scriptedEngineEnv(testEnv, "collie", "run/closed-while-running.json");
+      const out = join(testEnv.folder, "interrupted.json");
+      const running = join(testEnv.folder, "running");
+      // The host's own group, as a terminal gives the program it runs; the
+      // catalog's marker warnings, which Node prints, are the host's to silence.
+      const host = processes.spawn(
+        process.execPath,
+        ["--no-warnings", join(import.meta.dirname, "fixtures", "interrupted.ts"), out, running],
+        { env, cwd: testEnv.folder, detached: true },
+      );
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      host.child.stdout.on("data", (bytes: Buffer) => stdout.push(bytes));
+      host.child.stderr.on("data", (bytes: Buffer) => stderr.push(bytes));
+      host.child.stdin.end();
+      const ended = host.exit.then(() => true);
+      while (!existsSync(running)) {
+        if (await Promise.race([ended, setTimeout(50, false)])) {
+          throw new Error(`the host ended before its Run ran: ${Buffer.concat(stderr).toString()}`);
         }
+      }
 
-        // Ctrl+C: the terminal signals the whole foreground group.
-        const pid = host.child.pid;
-        if (pid === undefined) {
-          throw new TypeError("invariant: a host that created its file has started");
-        }
-        process.kill(-pid, "SIGINT");
-        const exit = await host.exit;
+      // Ctrl+C: the terminal signals the whole foreground group.
+      const pid = host.child.pid;
+      if (pid === undefined) {
+        throw new TypeError("invariant: a host that created its file has started");
+      }
+      process.kill(-pid, "SIGINT");
+      const exit = await host.exit;
 
-        await clientCase.check("the host's handler got SIGINT and the host exited 0", () => {
-          expect(exit).toMatchObject({ code: 0, signal: null });
-          expect(JSON.parse(readFileSync(out, "utf8"))).toMatchObject({ signal: "SIGINT" });
-        });
-        await clientCase.check(
-          "the engine, in a group of its own, got the Run's close, which stopped it with a Checkpoint, and played its script to its end",
-          () => {
-            expect(clientMethods(testEnv.home)).toEqual(["hello", "run.start", "run.abort"]);
-            expect(JSON.parse(readFileSync(out, "utf8"))).toMatchObject({ warned: [] });
-          },
-        );
-        await clientCase.check("the SDK wrote nothing to the host's stdout or stderr", () =>
-          expect({
-            stdout: Buffer.concat(stdout).toString(),
-            stderr: Buffer.concat(stderr).toString(),
-          }).toEqual({ stdout: "", stderr: "" }),
-        );
-      },
-    );
-  },
-);
+      await clientCase.check("the host's handler got SIGINT and the host exited 0", () => {
+        expect(exit).toMatchObject({ code: 0, signal: null });
+        expect(JSON.parse(readFileSync(out, "utf8"))).toMatchObject({ signal: "SIGINT" });
+      });
+      await clientCase.check(
+        "the engine, in a group of its own, outlived the signal, got the Run's close, run.abort, and played its script to its end",
+        () => {
+          expect(clientMethods(testEnv.home)).toEqual(["hello", "run.start", "run.abort"]);
+          expect(JSON.parse(readFileSync(out, "utf8"))).toMatchObject({ warned: [] });
+        },
+      );
+      await clientCase.check("the SDK wrote nothing to the host's stdout or stderr", () =>
+        expect({
+          stdout: Buffer.concat(stdout).toString(),
+          stderr: Buffer.concat(stderr).toString(),
+        }).toEqual({ stdout: "", stderr: "" }),
+      );
+    },
+  );
+});

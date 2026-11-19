@@ -176,7 +176,26 @@ describe("a Foxhound Connection", () => {
   );
 });
 
+/** The members both Products' Connections share, as `tests/connection.test-d.ts` lists `Connection`'s. */
+const connectionMembers = [
+  "close",
+  "engine",
+  "start",
+  Symbol.asyncDispose,
+] as const satisfies readonly (keyof client.Connection)[];
+
 describe("a helper typed for Connection", () => {
+  test.for([
+    { product: "Foxhound", type: Foxhound },
+    { product: "Collie", type: Collie },
+  ] as const)(
+    "finds each of the members both Products share on $product's Connection",
+    { tags: ["story:11-179"] },
+    ({ type }) => {
+      expect(members(type)).toEqual(expect.arrayContaining(connectionMembers.map(String)));
+    },
+  );
+
   test.for([
     {
       product: "Foxhound",
@@ -186,7 +205,7 @@ describe("a helper typed for Connection", () => {
     { product: "Collie", script: "run/started-and-finished.json", open: connectOverCollie },
   ] as const)(
     "takes $product's Connection, and a client package's class catches its error",
-    { tags: ["story:11-1003", "story:11-1004"] },
+    { tags: ["story:11-179", "story:11-1003", "story:11-1004"] },
     async ({ script, open }) => {
       const played = playScript(script);
       const connection: client.Connection = await open(played.transport);

@@ -19,9 +19,11 @@ import trio.testing
 from collie_tracer import start_and_finish
 from goodfetch_collie import (
     AsyncCollie,
+    AsyncConnection,
     CallCancelledError,
     ClosedError,
     Collie,
+    Connection,
     DeadlineExceededError,
     EngineExitedError,
     EngineInfo,
@@ -56,7 +58,43 @@ async def collie_on(way: Way, script: str) -> tuple[AsyncCollie, PlayedScript]:
     return collie, played
 
 
-@pytest.mark.covers("story:11-54")
+@pytest.mark.covers("story:11-179")
+@pytest.mark.parametrize(
+    ("base", "product", "listed"),
+    [
+        pytest.param(
+            AsyncConnection,
+            AsyncCollie,
+            {"close", "engine", "start", "__aenter__", "__aexit__"},
+            id="async",
+        ),
+        pytest.param(
+            Connection,
+            Collie,
+            {"close", "engine", "start", "__enter__", "__exit__"},
+            id="sync",
+        ),
+    ],
+)
+def test_extends_the_connection_both_products_share_with_each_of_its_members(
+    base: type[object], product: type[object], listed: set[str]
+) -> None:
+    """Collie's Connection extends the client package's, carrying each member.
+
+    `listed` is what both Products' Connections share, the scoped form's two
+    members included, as TypeScript's `Symbol.asyncDispose` is.
+    """
+    declared = {
+        name
+        for name, member in vars(base).items()
+        if callable(member) or isinstance(member, property)
+    }
+    carried = {name for name in listed if hasattr(product, name)}
+
+    assert (issubclass(product, base), declared, carried) == (True, listed, listed)
+
+
+@pytest.mark.covers("story:11-54", "story:11-179")
 @three_ways
 async def test_starts_a_run_finishes_it_and_answers_its_run_report(way: Way) -> None:
     """The tracer program runs the same on asyncio, on Trio and through the sync API."""

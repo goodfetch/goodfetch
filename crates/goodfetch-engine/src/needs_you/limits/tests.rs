@@ -71,7 +71,7 @@ fn stopped() -> RunIndexRow {
         lifecycle: Lifecycle::Stopped,
         verdict: None,
         completeness: Some(Completeness::Incomplete),
-        started_at: at.clone(),
+        started_at: at,
         ended_at: Some(at),
         owner: None,
         presence: Presence::Present,

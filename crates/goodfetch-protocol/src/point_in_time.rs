@@ -2,8 +2,11 @@
 //! field the schema declares as a `date-time` is a [`SystemTime`] in Rust,
 //! written as RFC 3339 in UTC and read from RFC 3339 with any offset, which
 //! is converted to UTC. A field takes `#[serde(with = "…::point_in_time")]`
-//! (`point_in_time::nullable` for an `Option`) and, for its schema,
-//! `#[schemars(with = "PointInTime")]`.
+//! (`point_in_time::nullable` with `default` for an `Option`, which reads
+//! an absent field as none) and, for its schema,
+//! `#[schemars(with = "PointInTime")]`. The fields typed as text before
+//! keep their inline schema, a string of `format: date-time`, so the
+//! bundle and the compatibility corpus do not move.
 
 use std::borrow::Cow;
 use std::time::SystemTime;

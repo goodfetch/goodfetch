@@ -113,7 +113,7 @@ impl Outcome {
         let ended = match ending {
             Ending::Commit { commit, refused } => {
                 let (work_item, lease_epoch) = commit.attempt();
-                let (work_item, ended_at) = (work_item.to_owned(), commit.ended_at().clone());
+                let (work_item, ended_at) = (work_item.to_owned(), *commit.ended_at());
                 match commit.write(connection, &mut changed)? {
                     Some(Ok(committed)) => Ended::Committed(committed),
                     Some(Err(refusal)) => end(

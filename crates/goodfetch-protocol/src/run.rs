@@ -1190,7 +1190,7 @@ pub struct RunStateRow {
     #[schemars(with = "PointInTime")]
     pub started_at: SystemTime,
     /// When it ended.
-    #[serde(with = "crate::point_in_time::nullable")]
+    #[serde(default, with = "crate::point_in_time::nullable")]
     #[schemars(with = "Option<PointInTime>")]
     pub ended_at: Option<SystemTime>,
     /// The version of the Operator policy it ran under (ADR 0028).
@@ -1268,7 +1268,7 @@ pub struct RunIndexRow {
     #[schemars(with = "PointInTime")]
     pub started_at: SystemTime,
     /// When it ended.
-    #[serde(with = "crate::point_in_time::nullable")]
+    #[serde(default, with = "crate::point_in_time::nullable")]
     #[schemars(with = "Option<PointInTime>")]
     pub ended_at: Option<SystemTime>,
     /// While it is live, where the engine that owns it is reached: a

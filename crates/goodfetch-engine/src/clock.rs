@@ -11,6 +11,7 @@
 
 use std::time::{Duration, SystemTime};
 
+use goodfetch_protocol::point_in_time;
 use jiff::Timestamp;
 use tokio::time::Instant;
 
@@ -117,10 +118,11 @@ impl Clock {
 ///
 /// # Panics
 ///
-/// When `at` is outside the years -9999 to 9999, which no point in time
-/// the engine holds is: each came from a clock or from RFC 3339 text.
+/// When `at` is outside the years 9999 BC to 9999 AD, which no point in
+/// time the engine holds is: each came from a clock or from RFC 3339 text.
 pub fn rfc3339(at: SystemTime) -> String {
-    timestamp(at).to_string()
+    point_in_time::to_rfc3339(at)
+        .expect("invariant: the engine holds no point in time RFC 3339 cannot write")
 }
 
 fn timestamp(wall: SystemTime) -> Timestamp {

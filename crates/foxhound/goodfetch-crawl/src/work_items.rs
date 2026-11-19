@@ -1688,7 +1688,7 @@ fn write_outcome(
         },
         attempts,
         errors,
-        ended_at: ended_at.clone(),
+        ended_at: *ended_at,
         ending,
     };
     connection

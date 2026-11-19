@@ -113,8 +113,8 @@ impl EndFacts {
             verdict_reasons: Vec::new(),
             completeness,
             completeness_reasons,
-            started_at: self.started_at.clone(),
-            ended_at: self.ended_at.clone(),
+            started_at: self.started_at,
+            ended_at: self.ended_at,
             usage: RunUsage {
                 limits: self.limits.clone(),
                 ..RunUsage::default()

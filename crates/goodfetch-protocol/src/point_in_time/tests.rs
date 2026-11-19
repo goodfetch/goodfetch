@@ -5,6 +5,8 @@ use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::page::BlockedDetails;
+
 /// 2026-11-19T12:30:00Z.
 const HALF_PAST_NOON: Duration = Duration::from_mins(29_918_190);
 
@@ -58,6 +60,18 @@ fn a_nullable_point_in_time_reads_null_or_its_absence_as_none() {
     let absent: Holder = serde_json::from_value(json!({"at": at})).unwrap();
 
     assert_eq!((null.until, absent.until), (None, None));
+}
+
+#[test]
+fn a_protocol_type_reads_an_absent_nullable_point_in_time_as_none() {
+    let blocked: BlockedDetails = serde_json::from_value(json!({
+        "cause": "rate_limit",
+        "url": "https://a.test/",
+        "status": 429,
+    }))
+    .unwrap();
+
+    assert_eq!(blocked.retry_after, None);
 }
 
 #[test]

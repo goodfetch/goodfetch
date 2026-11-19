@@ -162,7 +162,7 @@ impl Progressing {
             lifecycle: self.lifecycle,
             writer: self.writer,
             epoch: self.epoch,
-            checkpoint_at: self.checkpoint_at.clone(),
+            checkpoint_at: self.checkpoint_at,
             pauses: self.pauses.values().cloned().collect(),
             message: self.message.clone(),
             storage: self.storage.clone(),

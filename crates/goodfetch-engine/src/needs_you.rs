@@ -464,7 +464,7 @@ impl Driver {
                 item.actions.push(NEEDS_YOU_DISMISS.name.to_owned());
             }
             if let Some(listed) = self.listed.get(&id) {
-                item.since = listed.item.since.clone();
+                item.since = listed.item.since;
                 if listed.item == item {
                     continue;
                 }

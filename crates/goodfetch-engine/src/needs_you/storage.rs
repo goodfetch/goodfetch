@@ -62,7 +62,7 @@ impl Primitives for Levels {
                     Some(NeedsYouItem {
                         id: format!("{STORAGE_LEVEL}:{folder}"),
                         kind: STORAGE_LEVEL.to_owned(),
-                        since: since.clone(),
+                        since,
                         run: None,
                         schedule: None,
                         summary,

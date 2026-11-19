@@ -183,7 +183,8 @@ impl Primitives for Waiting {
             Ok(vec![NeedsYouItem {
                 id: WAITING.to_owned(),
                 kind: "corpus_waiting".to_owned(),
-                since: point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap(),
+                since: point_in_time::from_rfc3339("2026-01-05T09:00:00Z")
+                    .expect("invariant: the corpus's time is RFC 3339"),
                 run: None,
                 schedule: None,
                 summary: "The corpus waits for a person.".to_owned(),

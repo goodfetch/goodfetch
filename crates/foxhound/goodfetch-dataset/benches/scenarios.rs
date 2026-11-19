@@ -55,7 +55,8 @@ fn declared() -> (Connection, Datasets) {
 /// Record, and answers the run file.
 pub(crate) fn commit_all(values: Vec<Value>) -> Connection {
     let (connection, datasets) = declared();
-    let at = point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap();
+    let at = point_in_time::from_rfc3339("2026-01-05T09:00:00Z")
+        .expect("invariant: the scenarios' time is RFC 3339");
     let masks = Masks::new();
     for (request, value) in values.into_iter().enumerate() {
         let checked = datasets

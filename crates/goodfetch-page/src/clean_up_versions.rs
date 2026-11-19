@@ -606,7 +606,7 @@ impl Versions {
             "action": "clean_up_rules",
             "digest": version.digest,
             "source": version.manifest.source,
-            "published_at": version.manifest.published_at,
+            "published_at": clock::rfc3339(version.manifest.published_at),
             "applied_by": { "product": context.product, "product_version": context.product_version },
             "update": get_or_default::<&str>(
                 context.settings.map(RunSettings::resolved),

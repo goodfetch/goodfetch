@@ -1627,7 +1627,7 @@ impl Run {
         let at = self.point_in_time();
         let stop = run_index::RefetchStopped {
             domain,
-            first_stopped: at.clone(),
+            first_stopped: at,
             last_run: self.id.clone(),
             cause,
             project_file: self
@@ -4539,7 +4539,7 @@ impl Registry {
             }
             Command::Checkpointed(run_id, checkpoint) => {
                 if let Some(live) = self.live.get_mut(&run_id) {
-                    let time = checkpoint.time.clone();
+                    let time = checkpoint.time;
                     live.progress
                         .change(|progressing| progressing.checkpoint_at = Some(time));
                     live.checkpoint = Some(*checkpoint);
@@ -5512,7 +5512,7 @@ impl Registry {
             needs: start.needs,
             epoch: 1,
             inputs: inputs.clone(),
-            started_at: started_at.clone(),
+            started_at,
             policy_version: start.policy_version.clone(),
             weakened: start.weakened.clone(),
             binding: start.binding.as_ref().map(|binding| {
@@ -5599,8 +5599,8 @@ impl Registry {
             lifecycle,
             verdict: report.map(|report| report.verdict),
             completeness: report.map(|report| report.completeness),
-            started_at: live.started_at.clone(),
-            ended_at: report.map(|report| report.ended_at.clone()),
+            started_at: live.started_at,
+            ended_at: report.map(|report| report.ended_at),
             owner: match report {
                 Some(_) => None,
                 None => self.setup.reached_at.clone(),
@@ -5956,7 +5956,7 @@ impl Registry {
             run,
             writer: Arc::clone(&live.writer),
             lock: Arc::clone(&live.lock),
-            started_at: live.started_at.clone(),
+            started_at: live.started_at,
             policy_version: live.policy_version.clone(),
             weakened: live.weakened.clone(),
             clock,
@@ -6021,7 +6021,7 @@ impl Registry {
         let mut report = answered.borrow().clone();
         if let Some(Ended::Report(report) | Ended::Unwritten(report)) = &mut report {
             report.nothing_done = Some(NothingDone::AlreadyEnded {
-                ended_at: report.ended_at.clone(),
+                ended_at: report.ended_at,
             });
         }
         Ok(watch::Sender::new(report).subscribe())
@@ -6854,7 +6854,7 @@ impl Recording {
             lifecycle: report.lifecycle,
             verdict: Some(report.verdict),
             completeness: Some(report.completeness),
-            ended_at: Some(report.ended_at.clone()),
+            ended_at: Some(report.ended_at),
             owner: None,
             stop_reason: report.stop_reason.clone(),
             replayed: report.replayed(),

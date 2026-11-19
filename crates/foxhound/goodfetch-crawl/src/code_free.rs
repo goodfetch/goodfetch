@@ -409,7 +409,10 @@ pub(crate) fn record_of(
             }
         }
         properties.insert("status".to_owned(), json!(status));
-        properties.insert(FETCHED_AT.to_owned(), json!(fetched_at));
+        properties.insert(
+            FETCHED_AT.to_owned(),
+            Value::String(goodfetch_engine::clock::rfc3339(*fetched_at)),
+        );
         properties.extend(fields);
     }
     record

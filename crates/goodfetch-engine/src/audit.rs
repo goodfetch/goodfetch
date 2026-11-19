@@ -550,7 +550,7 @@ impl Store {
                 debug_assert_eq!(kind.shared_type, SharedType::AuditKind);
                 let entry = AuditEntry {
                     sequence: tail.next,
-                    time: time.clone(),
+                    time,
                     kind: kind.name.to_owned(),
                     actor: origin.actor,
                     surface: origin.surface,
@@ -1276,7 +1276,7 @@ fn anchor_entry(
 ) -> AuditEntry {
     AuditEntry {
         sequence: through,
-        time: time.clone(),
+        time: *time,
         kind: AUDIT_LOG_ANCHOR.name.to_owned(),
         actor: Actor::Engine,
         surface: None,

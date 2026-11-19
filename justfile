@@ -951,6 +951,33 @@ test-affected suite *change:
     fi
     {{ just_executable() }} test {{ suite }} "${packages[@]}"
 
+# xtask's codegen tests (xtask/tests/it/codegen.rs) when the change reaches
+# what only they check (`xtask affected`'s `codegen-tests=true`): the
+# emitter, the protocol crate's files their fixture holds as they are, and
+# their own fixture and snapshots. They are `tests/` tests, which the Quick
+# suite never runs, so `just quick` and the quick gate run them on their own
+# and a change like that cannot merge with them red (issue 2892); the
+# Pre-merge suite runs them with every test. The change as `just
+# test-affected` takes it, `--local` when none is given.
+codegen-tests *change:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    change=({{ change }})
+    [[ ${#change[@]} -gt 0 ]] || change=(--local)
+    selection=$(cargo run --quiet --bin xtask -- affected "${change[@]}")
+    source ci/output-value.sh
+    reached=$(output_value codegen-tests "$selection")
+    if [[ $reached != true ]]; then
+      echo "The change reaches nothing that only xtask's codegen tests check."
+      exit 0
+    fi
+    exclusions=$(cargo run --quiet --bin xtask -- quarantine exclude)
+    skips=$(ci/nextest-skips.sh "$exclusions")
+    skip_nextest=()
+    while IFS= read -r argument; do [[ -z "$argument" ]] || skip_nextest+=("$argument"); done <<< "$skips"
+    INSTA_UPDATE=no cargo nextest run -p xtask --test it --cargo-profile {{ test_profile }} \
+      -E 'binary_id(xtask::it) & test(/^codegen::/)' ${skip_nextest[@]+"${skip_nextest[@]}"}
+
 # Each suite lists the parts it could not run on this host, with the reason,
 # even when a part fails: the list is printed when the suite stops.
 
@@ -991,6 +1018,8 @@ quick-steps:
     done
     echo "# The Quick suite over what changed:"
     echo "just test-affected quick --local --since <base>"
+    echo "# When xtask affected prints codegen-tests=true, xtask's codegen tests:"
+    echo "just codegen-tests --local --since <base>"
 
 # Before `just merge` of a batch branch (AGENTS.md, Merging), in its
 # worktree: what the batch's combined tree can break that each pull

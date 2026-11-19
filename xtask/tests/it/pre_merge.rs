@@ -95,8 +95,10 @@ const ALL_BESIDE_CALLS: [&str; 7] = [
     "_tlc all", "linux", "loom", "miri", "perf", "visual", "windows",
 ];
 
-/// The calls `just pre-merge quick` makes, in their order.
-const QUICK_CALLS: [&str; 9] = [
+/// The calls `just pre-merge quick` makes, in their order: last, xtask's
+/// codegen tests, which run when the change reaches what only they check
+/// (issue 2892).
+const QUICK_CALLS: [&str; 10] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -106,6 +108,7 @@ const QUICK_CALLS: [&str; 9] = [
     "lint",
     "_suite quick all",
     "journeys-tasks --check",
+    "codegen-tests",
 ];
 
 /// The calls `just pre-merge docs` makes, in their order.

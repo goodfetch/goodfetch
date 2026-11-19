@@ -201,6 +201,41 @@ fn any_other_change_runs_every_lint_and_the_quick_suite_over_what_changed(#[case
     );
 }
 
+/// A change to what only xtask's codegen tests check (`xtask affected`'s
+/// `codegen-tests=true`, here the emitter) runs them after the Quick suite,
+/// which runs no `tests/` binary (issue 2892); any other change does not, as
+/// the cases above show.
+#[test]
+fn a_change_the_codegen_tests_alone_check_runs_them_after_the_quick_suite() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_ins(&workspace);
+    let repository = crate::affected::repository();
+    repository.write("xtask/src/codegen/emit.rs", b"//! Emits.\n");
+    let outcome = repository.xtask(&["affected", "--local"]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(crate::affected::value(&outcome, "codegen-tests"), "true");
+    std::fs::write(stand_in.join("selection"), outcome.stdout).unwrap();
+
+    let run = quick(&workspace, &stand_in, &[]);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(
+        run.calls,
+        [
+            "compiler-cache",
+            "dco origin/main",
+            "commit-messages origin/main",
+            "floor-guard origin/main",
+            "commit-leaks origin/main",
+            "notices",
+            "lint",
+            "test-affected quick --local --since origin/main",
+            "codegen-tests --local --since origin/main",
+            "_skips-report"
+        ]
+    );
+}
+
 #[test]
 fn the_change_is_read_against_the_base_the_pre_push_hook_gives() {
     let workspace = Workspace::from_fixture("empty");

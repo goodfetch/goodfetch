@@ -96,6 +96,10 @@ pub(crate) struct Selection {
     /// Whether the change is documents alone: at least one path, and every
     /// path a document (`is_document`).
     documents_only: bool,
+    /// Whether the change reaches what only xtask's codegen tests check
+    /// (`is_codegen_test_input`), which `just quick` and the quick gate then
+    /// run beside the Quick suite (`just codegen-tests`).
+    codegen_tests: bool,
 }
 
 /// The folder of every sink process (ADR 0087).
@@ -160,6 +164,32 @@ fn is_visual_input(path: &RepoPath) -> bool {
     is_visual_test(name)
         || screenshots::is_reference_screenshot(Path::new(path.as_str()))
         || VISUAL_INPUTS.iter().any(|input| path.is_in(input))
+}
+
+/// What only xtask's codegen tests (`xtask/tests/it/codegen.rs`) check, as
+/// `tests/` tests the Quick suite never runs: the emitter, the protocol
+/// crate's files their fixture holds as they are, and their own test file,
+/// fixture and snapshots. A change to one leaves the fixture's copy, its
+/// committed outputs or the SDK layer snapshots stale without a red Quick
+/// suite, as commit f6abad1cf did (issue 2892).
+const CODEGEN_TEST_INPUTS: [&str; 8] = [
+    "xtask/src/codegen.rs",
+    "xtask/src/codegen",
+    "crates/goodfetch-protocol/src/catalog.rs",
+    "crates/goodfetch-protocol/src/catalog",
+    "crates/goodfetch-protocol/src/wire_name.rs",
+    "crates/goodfetch-protocol/src/secret_reference.rs",
+    "xtask/tests/it/codegen.rs",
+    "xtask/tests/it/fixtures/codegen",
+];
+
+/// The file-name prefix of the codegen tests' insta snapshots.
+const CODEGEN_TEST_SNAPSHOTS: &str = "xtask/tests/it/snapshots/it__codegen__";
+
+/// Whether a change to the path can turn xtask's codegen tests red.
+fn is_codegen_test_input(path: &RepoPath) -> bool {
+    CODEGEN_TEST_INPUTS.iter().any(|input| path.is_in(input))
+        || path.as_str().starts_with(CODEGEN_TEST_SNAPSHOTS)
 }
 
 /// What TLC's job reads besides the models: the pinned tools and the
@@ -560,6 +590,7 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath], parts: &ChangedP
         bench_targets,
         models,
         documents_only: !paths.is_empty() && paths.iter().all(is_document),
+        codegen_tests: paths.iter().any(is_codegen_test_input),
     }
 }
 
@@ -665,6 +696,7 @@ impl fmt::Display for Selection {
             "models={}",
             joined(self.models.iter().map(String::as_str))
         )?;
+        writeln!(formatter, "codegen-tests={}", self.codegen_tests)?;
         writeln!(formatter, "gate={}", self.gate())
     }
 }

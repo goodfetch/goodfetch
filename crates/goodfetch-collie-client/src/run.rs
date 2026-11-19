@@ -1,8 +1,9 @@
 //! The Run a program drives (ADRs 0078 and 0102): a Connection starts it,
 //! the program finishes it for its Run report, and closing it stops it if
 //! it still runs. Its members are the ones the catalog gives a Run, which
-//! `xtask codegen` writes (ADR 0099); this module adds its start and its
-//! close. Its handles are cheap clones of one Run, `Send + Sync +
+//! `xtask codegen` writes (ADR 0099); this module adds its start, its
+//! close, and the explanation of the settings it runs with, as of the
+//! Connection's (ADR 0083). Its handles are cheap clones of one Run, `Send + Sync +
 //! 'static`, and closing any of them closes it for all.
 
 use std::future::{Future, IntoFuture};
@@ -10,7 +11,9 @@ use std::pin::Pin;
 
 use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::run::{RUN_START, RunId, RunStartParams, RunStarted, StartedAs, Tags};
+use goodfetch_protocol::settings::{CONFIG_EXPLAIN, ConfigExplainParams, SettingsExplanation};
 
+use crate::call::Query;
 use crate::connection::ClientConnection;
 use crate::error::Error;
 use crate::generated::handles::Run;
@@ -156,6 +159,34 @@ impl Run {
         crate::markers::warn_operation("run.abort");
         self.host.held_run().close().await
     }
+
+    /// What the Run runs with (ADR 0083), as `config explain` shows it
+    /// (`config.explain`), which awaiting asks: each setting, or those
+    /// [`Query::keys`] names, with the effective value the Run opened
+    /// with, the layer and origin that set it and the layer that locked
+    /// it, its own settings over its Connection's. A Run that is no longer
+    /// live fails with `run_not_found`, and a closed Run's value with
+    /// `closed`.
+    pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
+        crate::markers::warn_operation(CONFIG_EXPLAIN.name);
+        self.host.query(
+            CONFIG_EXPLAIN.name,
+            ConfigExplainParams {
+                run_id: Some(self.host.id().as_str().to_owned()),
+                ..ConfigExplainParams::default()
+            },
+        )
+    }
+}
+
+impl<T> Query<T, ConfigExplainParams> {
+    /// Explains only `keys`, each a key, such as `timeout.wait`, or a
+    /// prefix of keys, such as `timeout`, in place of any given before;
+    /// left out, every key is explained.
+    pub fn keys(self, keys: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        let keys: Vec<String> = keys.into_iter().map(Into::into).collect();
+        self.edit(|params| params.keys = keys)
+    }
 }
 
 impl ClientConnection {
@@ -165,6 +196,22 @@ impl ClientConnection {
     pub fn start(&self) -> Start {
         crate::markers::warn_operation("run.start");
         Start::new(self.clone())
+    }
+
+    /// What the Connection runs with (ADR 0083), as `config explain` shows
+    /// it (`config.explain`), which awaiting asks: each setting, or those
+    /// [`Query::keys`] names, with its effective value, the layer and
+    /// origin that set it and the layer that locked it, the Connection's
+    /// own settings over configuration and the Operator policy, which each
+    /// Run it starts inherits. Once the Connection is closed it fails with
+    /// `closed`.
+    pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
+        crate::markers::warn_operation(CONFIG_EXPLAIN.name);
+        Query::new(
+            self.sender(),
+            CONFIG_EXPLAIN.name,
+            Ok(ConfigExplainParams::default()),
+        )
     }
 }
 

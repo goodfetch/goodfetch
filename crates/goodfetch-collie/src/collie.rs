@@ -4,7 +4,8 @@
 //! engine this crate composes, in the program's own process (ADR 0087), or
 //! reaches a Daemon ([`crate::EngineChoice`]).
 
-use goodfetch_collie_client::{ClientConnection, Connection, Error, RawCall, Start};
+use goodfetch_collie_client::{ClientConnection, Connection, Error, Query, RawCall, Start};
+use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
 use crate::EngineInfo;
 use crate::linked::{Composed, ConnectOptions, ProductConnection};
@@ -194,6 +195,19 @@ impl Collie {
         self.linked.connection().start()
     }
 
+    /// What the connection runs with (ADR 0083), as `config explain`
+    /// shows it (`config.explain`), which awaiting asks: each setting, or
+    /// those `.keys(…)` names, with its effective value, the layer and
+    /// origin that set it and the layer that locked it, the connection's
+    /// own settings ([`ConnectOptions::settings`]) over configuration and
+    /// the Operator policy, which each Run it starts inherits. A Run's own
+    /// explanation is
+    /// [`Run::explain_settings`](crate::Run::explain_settings). Once the connection is
+    /// closed it fails with `closed`.
+    pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
+        self.linked.connection().explain_settings()
+    }
+
     /// Closes the connection for every clone: first every Run it started
     /// that still runs, then the linked engine, which checkpoints and stops;
     /// returns once it has stopped, or once `timeout.close` has run out.
@@ -245,6 +259,10 @@ impl Connection for Collie {
 
     fn call(&self, operation: &str) -> RawCall {
         Collie::call(self, operation)
+    }
+
+    fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
+        Collie::explain_settings(self)
     }
 
     async fn close(&self) -> Result<(), Error> {

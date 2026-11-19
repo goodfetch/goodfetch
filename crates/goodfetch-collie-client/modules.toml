@@ -6,8 +6,10 @@
 # engine's requests to the program's streams and writes their answers, `host`
 # is what every handle reaches its engine through, `generated` holds the
 # handles `xtask codegen` writes from the catalog (ADR 0099), `run` starts and
-# closes the Runs a Connection drives, and `blocking` gives them all a face
-# that blocks, with the twins of the generated handles as its own submodule.
+# closes the Runs a Connection drives and explains the settings a Connection
+# and a Run run with (ADR 0083), through `call`'s query, and `blocking` gives
+# them all a face that blocks, with the twins of the generated handles as its
+# own submodule.
 # `file_saving` writes a file to the program's path whole or not at all (ADR
 # 0116), which `connection` drives. `sync` names the crate's locks. `limits`
 # types the Limits a connection and a Run's start take, a price as an exact
@@ -38,7 +40,7 @@ blocking = ["call", "connection", "error", "event_stream", "field_values", "gene
 call = ["error", "rpc"]
 connect_timeout = ["call", "error"]
 connection = ["call", "connect_timeout", "error", "file_saving", "handler", "logging", "published", "raw_call", "rpc", "sync", "transport"]
-connection_type = ["error", "raw_call", "run"]
+connection_type = ["call", "error", "raw_call", "run"]
 error = []
 event_stream = ["error", "published", "rpc"]
 field_values = ["call", "error"]
@@ -54,7 +56,7 @@ published = ["error", "rpc", "sync"]
 raw_call = ["call", "error", "rpc"]
 response = ["call", "connection", "error", "host"]
 rpc = ["error", "handler", "line", "logging", "transport"]
-run = ["connection", "error", "generated", "host", "limits", "logging", "markers", "settings"]
+run = ["call", "connection", "error", "generated", "host", "limits", "logging", "markers", "settings"]
 settings = ["call", "error"]
 sync = []
 transport = []

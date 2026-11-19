@@ -22,6 +22,7 @@ use std::sync::{Arc, OnceLock, mpsc};
 use std::time::Duration;
 
 use goodfetch_collie_client::logging::{CLIENT, engine_log_level};
+use goodfetch_collie_client::settings::Settings;
 use goodfetch_collie_client::transport::{Dial, Endpoint, Link, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectTimeout, ConnectionRuntime, Error, Limits};
 use goodfetch_engine::clock::Clock;
@@ -34,7 +35,7 @@ use goodfetch_engine::settings::{SettingsFiles, deployment_variable};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, InMemoryDialer};
 use goodfetch_engine::{AttachedFailure, Channel, Composition, Dependencies, Engine, Identity};
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{Product, SettingScope};
 use goodfetch_protocol::connection::{HelloParams, HelloResult, ProductVersion, Surface};
 use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, HOME_VARIABLE, TIMEOUT_CLOSE};
 use goodfetch_protocol::usage::{self, LimitUsage, USAGE_SET, UsageSetParams};
@@ -53,6 +54,7 @@ pub struct ConnectOptions {
     limits: Limits,
     timeout: ConnectTimeout,
     engine: EngineChoice,
+    settings: Settings,
 }
 
 impl fmt::Debug for ConnectOptions {
@@ -66,6 +68,7 @@ impl fmt::Debug for ConnectOptions {
             .field("limits", &self.limits)
             .field("timeout", &self.timeout)
             .field("engine", &self.engine)
+            .field("settings", &self.settings)
             .finish()
     }
 }
@@ -98,6 +101,17 @@ impl ConnectOptions {
         self
     }
 
+    /// The connection's own settings (ADR 0083), in place of any given
+    /// before: they travel in `hello`, over configuration and the Operator
+    /// policy, and every Run the connection starts inherits what its own
+    /// settings leave out. A key the engine refuses, such as one a lower
+    /// layer locked, fails the connect with the engine's error.
+    #[must_use]
+    pub fn settings(mut self, settings: Settings) -> Self {
+        self.settings = settings;
+        self
+    }
+
     /// Fails the connect if the engine has not answered `hello` within
     /// `timeout`, with `deadline_exceeded` naming `timeout.connect` at the
     /// run layer, given as an argument (ADR 0083); left out, the connect
@@ -117,14 +131,15 @@ impl ConnectOptions {
     }
 
     /// The environment the connection reads, the one set or the
-    /// process's, the connection's Limits, its `timeout`, once checked, and
-    /// its engine.
+    /// process's, the connection's Limits, its `timeout`, once checked, its
+    /// engine, and its settings as `hello` carries them, once checked.
     #[expect(
         clippy::disallowed_methods,
         reason = "the SDK's connect(), given no environment map, reads the process environment once, the one reader besides main (ADR 0083)"
     )]
     fn into_parts(self) -> Result<Parts, Error> {
         self.timeout.check()?;
+        let settings = self.settings.within(SettingScope::Connection)?;
         let environment = self
             .environment
             .unwrap_or_else(|| std::env::vars_os().collect());
@@ -133,6 +148,7 @@ impl ConnectOptions {
             limits: self.limits,
             timeout: self.timeout,
             engine: self.engine,
+            settings,
         })
     }
 }
@@ -143,6 +159,8 @@ struct Parts {
     limits: Limits,
     timeout: ConnectTimeout,
     engine: EngineChoice,
+    /// The connection's own settings, nested by key.
+    settings: serde_json::Map<String, serde_json::Value>,
 }
 
 /// The engine a connection links: its Product and that Product's
@@ -498,13 +516,17 @@ impl Opening {
     /// The connection `options` open, whose `hello` needs `needs`, to the
     /// engine they choose, `engine` when it is the linked one.
     fn of(engine: Composed, needs: Product, options: ConnectOptions) -> Result<Self, Error> {
-        let hello = ProductConnection::hello(needs);
         let Parts {
             environment,
             limits,
             timeout,
             engine: choice,
+            settings,
         } = options.into_parts()?;
+        let hello = HelloParams {
+            settings,
+            ..ProductConnection::hello(needs)
+        };
         let found = home(&environment);
         let reach = engine_choice::reach(
             choice,

@@ -14,6 +14,7 @@ use std::time::Duration;
 use goodfetch_protocol::page::events::PageRequest;
 use goodfetch_protocol::page::read::{PageRead, PageReadParams};
 use goodfetch_protocol::run::{RunId, RunReport, StartedAs, Tags};
+use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -59,6 +60,13 @@ impl ClientConnection {
     /// (`run.start`), which `send()` sends.
     pub fn start(&self) -> Start {
         Start(self.0.start(), self.0.clone())
+    }
+
+    /// What the Connection runs with, as
+    /// [`crate::ClientConnection::explain_settings`] says, which `send()`
+    /// asks.
+    pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
+        Query::new(self.0.explain_settings(), &self.0)
     }
 
     /// The save of a file to the program's `path`, as
@@ -109,6 +117,10 @@ pub trait Connection {
     /// The raw call of `operation`, as [`crate::Connection::call`]'s,
     /// which `send()` sends.
     fn call(&self, operation: &str) -> RawCall;
+
+    /// What the connection runs with, as
+    /// [`crate::Connection::explain_settings`] says, which `send()` asks.
+    fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams>;
 
     /// Closes the connection as [`crate::Connection::close`] does, and
     /// returns once it is closed.
@@ -412,6 +424,16 @@ impl Start {
     }
 }
 
+impl<T> Query<T, ConfigExplainParams> {
+    /// Explains only `keys`, as [`crate::Query::keys`] does.
+    pub fn keys(self, keys: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            query: self.query.keys(keys),
+            ..self
+        }
+    }
+}
+
 impl Query<PageRead, PageReadParams> {
     /// The read whose values are read into `T`, as
     /// [`crate::Query::typed`] reads them.
@@ -565,6 +587,12 @@ impl Run {
     /// Whether the start began the Run, went on with it, or found it ended.
     pub fn started_as(&self) -> StartedAs {
         self.inner.started_as()
+    }
+
+    /// What the Run runs with, as [`crate::Run::explain_settings`] says,
+    /// which `send()` asks.
+    pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
+        Query::new(self.inner.explain_settings(), self.inner.host.connection())
     }
 
     /// Closes the Run for every clone, as [`crate::Run::close`] does, and

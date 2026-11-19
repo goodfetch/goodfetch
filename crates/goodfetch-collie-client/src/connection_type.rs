@@ -8,6 +8,9 @@
 
 use std::future::Future;
 
+use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
+
+use crate::call::Query;
 use crate::error::Error;
 use crate::raw_call::RawCall;
 use crate::run::Start;
@@ -37,6 +40,14 @@ pub trait Connection {
     /// the wire's JSON, in snake case. Awaiting sends it; it is never
     /// retried, and once the connection is closed it fails with `closed`.
     fn call(&self, operation: &str) -> RawCall;
+
+    /// What the connection runs with (ADR 0083), as `config explain`
+    /// shows it (`config.explain`), which awaiting asks: each setting, or
+    /// those [`Query::keys`] names, with its effective value and the layer
+    /// and origin that set it, the connection's own settings over
+    /// configuration and the Operator policy. Once the connection is
+    /// closed it fails with `closed`.
+    fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams>;
 
     /// Closes the connection for every clone: first every Run it started
     /// that still runs, then its engine; returns once it has stopped. Any

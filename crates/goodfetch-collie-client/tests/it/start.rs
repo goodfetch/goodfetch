@@ -156,7 +156,7 @@ fn a_start_reaches_the_run_its_run_id_names_logs_a_resume_and_an_end_and_fails_e
     let env = TestEnv::new();
     let (process, endpoint) = daemon(&env);
     let id = |text: &str| RunId::parse(text).unwrap();
-    let runtime = goodfetch_test_support::runtime();
+    let runtime = goodfetch_test_support::real_time_runtime();
     let (played, log) = logged(|| runtime.block_on(play(endpoint)));
     let Played {
         started_as,

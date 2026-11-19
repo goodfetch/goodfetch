@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "21"
+version = "22"
 
 [[capability]]
 name = "lifecycle"
@@ -29,20 +29,20 @@ name = "lifecycle"
 [[capability.case]]
 id = "two-connections-at-once"
 covers = ["story:11-15"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "connect-after-close"
 covers = ["story:11-15"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "closed-after-close"
 covers = ["story:11-17"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "nothing-at-import-or-connect"
@@ -57,24 +57,26 @@ modes = ["attached"]
 # engine, and a failed close raises its typed error, a `SuppressedError`
 # under `await using` and an exception chained to the one `async with` or
 # `with` was unwinding from in Python (issue 2927). The Rust SDK joins with
-# issue 2928.
+# issue 2928, linked, where a real engine plays every case but the failed
+# close, which only the Scripted engine plays, reached by Rust as a Daemon:
+# Rust's `daemon` mode, which these cases' other surfaces do not list yet.
 [[capability.case]]
 id = "children-close-with-their-parent"
 covers = ["story:11-16"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "close-stops-a-running-run"
 covers = ["story:11-18"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "connection-close-stops-its-engine"
 covers = ["story:11-19"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "failed-close-raises-a-typed-error"

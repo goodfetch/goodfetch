@@ -15,6 +15,7 @@ use std::ffi::OsString;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock, mpsc};
+use std::time::Duration;
 
 use goodfetch_collie_client::transport::{Dial, Endpoint, Link, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, Limits};
@@ -30,7 +31,7 @@ use goodfetch_engine::transport::{self, InMemoryDialer};
 use goodfetch_engine::{AttachedFailure, Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HelloParams, ProductVersion, Surface};
-use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, HOME_VARIABLE};
+use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, HOME_VARIABLE, TIMEOUT_CLOSE};
 use goodfetch_protocol::usage::{self, LimitUsage, USAGE_SET, UsageSetParams};
 use tokio::runtime::{Handle, Runtime};
 use tokio_util::task::TaskTracker;
@@ -203,22 +204,33 @@ impl LinkedConnection {
 
     /// Closes the connection for every clone: first every Run it started
     /// that still runs, then the linked engine, which checkpoints and
-    /// stops; returns once it has stopped. Any later call fails with
-    /// [`Error::Closed`]. Closing again does nothing.
+    /// stops; returns once it has stopped, or once `timeout.close` has run
+    /// out. Any later call fails with [`Error::Closed`]. Closing again
+    /// does nothing.
     ///
     /// # Errors
     ///
-    /// What closing a Run fails with, and [`Error::Engine`] when the linked
-    /// engine failed.
+    /// What closing a Run fails with, [`Error::Engine`] when the linked
+    /// engine failed, and [`Error::TimedOut`] when `timeout.close` ran out
+    /// first, the engine then stopping on its own.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future before it completes leaves the engine stopping
     /// on its own.
     pub async fn close(&self) -> Result<(), Error> {
-        let closed = self.connection.close().await;
-        let stopped = self.engine.stopped().await;
-        closed.and(stopped)
+        let closing = async {
+            let closed = self.connection.close().await;
+            let stopped = self.engine.stopped().await;
+            closed.and(stopped)
+        };
+        // The timer is the engine's runtime's, so the close runs on any
+        // executor (ADR 0081).
+        let bounded = {
+            let _entered = self.handle.enter();
+            tokio::time::timeout(close_timeout(), closing)
+        };
+        bounded.await.unwrap_or(Err(Error::TimedOut))
     }
 
     /// Closes the connection as [`LinkedConnection::close`] does, blocking
@@ -419,6 +431,14 @@ impl LinkedEngine {
             None => Ok(()),
         }
     }
+}
+
+/// How long a close waits: `timeout.close`'s default (ADR 0078).
+fn close_timeout() -> Duration {
+    let millis = (TIMEOUT_CLOSE.default)()
+        .as_u64()
+        .expect("invariant: `timeout.close` defaults to a duration in milliseconds");
+    Duration::from_millis(millis)
 }
 
 #[cfg(test)]

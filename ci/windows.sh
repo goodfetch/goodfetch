@@ -68,6 +68,12 @@ if [[ "${1:-}" == in-container ]]; then
   while IFS= read -r argument; do
     [[ -z "$argument" ]] || skips+=("$argument")
   done <<<"$quarantined"
+  # Wine's session starts here, apart from every test, and lasts the run: a
+  # test whose `wine` boots it leaves wineserver and Wine's services (explorer,
+  # services, winedevice) holding the test's output after it exits, and nextest
+  # fails it as leaky.
+  wineserver -p </dev/null >/dev/null 2>&1
+  wine wineboot </dev/null >/dev/null 2>&1
   nextest=(--locked --target "$target" "${packages[@]}" --profile ci --cargo-profile ci-test
     --tool-config-file "goodfetch-windows:$PWD/ci/windows/nextest.toml")
   filter=()

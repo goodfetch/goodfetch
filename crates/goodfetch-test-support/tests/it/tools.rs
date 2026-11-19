@@ -100,12 +100,18 @@ impl BuiltTools {
 
     /// Writes the input record of tools built now from `root`.
     fn record(&self, root: &Path) {
-        let metadata = std::fs::metadata(&self.source).unwrap();
-        let modified = metadata.modified().unwrap().duration_since(UNIX_EPOCH);
-        let nanoseconds = u64::try_from(modified.unwrap().as_nanos()).unwrap();
+        let modified = std::fs::metadata(&self.source).unwrap().modified().unwrap();
+        let nanoseconds = modified.duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        self.record_modified(root, u64::try_from(nanoseconds).unwrap());
+    }
+
+    /// Writes the input record of tools built from `root` when the source's
+    /// modification time read `nanoseconds` since the Unix epoch.
+    fn record_modified(&self, root: &Path, nanoseconds: u64) {
+        let size = std::fs::metadata(&self.source).unwrap().len();
         let record = serde_json::json!({
             "root": root,
-            "inputs": [["src/lib.rs", metadata.len(), nanoseconds]],
+            "inputs": [["src/lib.rs", size, nanoseconds]],
         });
         std::fs::write(
             self.manifest.with_extension("inputs.json"),
@@ -130,6 +136,52 @@ fn tools_whose_sources_are_as_they_were_built_from_are_read() {
         tools.unwrap().path(Tool::Collie).unwrap(),
         Path::new("/work/target/debug/goodfetch-collie")
     );
+}
+
+/// `xtask test-tools build` on Linux records a source's time to the
+/// nanosecond, and Windows, or Wine running a test built for it, reads it in
+/// 100 ns ticks (issue 2767): one time, read through either clock, is the
+/// same time.
+#[test]
+fn tools_whose_sources_time_two_clocks_read_at_different_resolutions_are_read() {
+    let env = TestEnv::new();
+    let built = BuiltTools::new(&env);
+    let source = std::fs::File::options()
+        .write(true)
+        .open(&built.source)
+        .unwrap();
+    source
+        .set_modified(UNIX_EPOCH + Duration::new(1_800_000_000, 123_456_789))
+        .unwrap();
+    built.record_modified(&built.tree, 1_800_000_000_123_456_700);
+
+    let tools = built.read();
+
+    assert!(tools.is_ok(), "{:?}", tools.err());
+}
+
+/// A watched folder is recorded with no size, since Linux and Windows
+/// count a folder's size differently (issue 2767).
+#[test]
+fn tools_whose_watched_folder_is_as_it_was_built_from_are_read() {
+    let env = TestEnv::new();
+    let built = BuiltTools::new(&env);
+    let folder = built.source.parent().unwrap();
+    let modified = std::fs::metadata(folder).unwrap().modified().unwrap();
+    let nanoseconds = modified.duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let record = serde_json::json!({
+        "root": built.tree,
+        "inputs": [["src", 0, u64::try_from(nanoseconds).unwrap()]],
+    });
+    std::fs::write(
+        built.manifest.with_extension("inputs.json"),
+        record.to_string(),
+    )
+    .unwrap();
+
+    let tools = built.read();
+
+    assert!(tools.is_ok(), "{:?}", tools.err());
 }
 
 /// What a merge, a `git switch` or an edit does to a source after the tools

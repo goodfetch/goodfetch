@@ -1433,9 +1433,9 @@ linux:
 # Wine but those ci/windows/skips.toml lists, in the pinned image of
 # ci/windows/Containerfile through Docker or Podman, in
 # `target/windows/`; listed as skipped without either (ci/windows.sh,
-# issue 2767).
-windows:
-    ci/windows.sh
+# issue 2767). Named packages narrow it to theirs.
+windows *packages:
+    ci/windows.sh {{ packages }}
 
 # The visual projects in the pinned Playwright image (ADR 0073), through
 # Docker or Podman, comparing every Reference screenshot; a host with

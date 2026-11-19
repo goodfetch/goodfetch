@@ -26,3 +26,10 @@ RUN cargo install --locked --root /usr/local "cargo-xwin@${CARGO_XWIN_VERSION}" 
 
 RUN rustup component add clippy rustfmt \
  && rustup target add x86_64-pc-windows-msvc
+
+# The Wine prefix, made once here: tests started at once under a prefix not
+# yet made each start making it, and find no profile folders (no %TEMP%)
+# until one of them is done. Under a UTF-8 locale, so that Wine spells the
+# names the tests make, a test folder's `é` among them, on the Linux side.
+ENV WINEDEBUG=-all LANG=C.UTF-8
+RUN wine wineboot --init && wineserver --wait

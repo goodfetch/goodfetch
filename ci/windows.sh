@@ -23,6 +23,10 @@
 # on 2026-11-17 for building and testing under Wine alone, with no
 # redistribution (issue 2767).
 #
+# It takes the whole workspace, as the full gate runs it, or the packages
+# named as its arguments (`just windows goodfetch-engine goodfetch-page`),
+# whose build is smaller where disk is short.
+#
 # Without a container engine it lists itself as skipped with the reason
 # (ADR 0061), as ci/linux.sh does.
 set -euo pipefail
@@ -36,33 +40,43 @@ source "$root/ci/container.sh"
 target=x86_64-pc-windows-msvc
 
 if [[ "${1:-}" == in-container ]]; then
+  shift
+  packages=(--workspace)
+  [[ $# -eq 0 ]] || packages=()
+  for package in "$@"; do packages+=(-p "$package"); done
   # The Visual Studio 17 manifest's CRT 14.44 (14.44.35220) and the
   # Windows 11 SDK 10.0.26100 (10.0.26100.18), as read on 2026-11-18.
   export XWIN_VERSION=17 XWIN_CRT_VERSION=14.44.17.14 XWIN_SDK_VERSION=10.0.26100
   eval "$(cargo xwin env --target "$target")"
   echo "$(wine --version), $(cargo xwin --version), CRT $XWIN_CRT_VERSION, SDK $XWIN_SDK_VERSION"
   status=0
-  cargo clippy --locked --target "$target" --workspace --all-targets --all-features -- -D warnings || status=$?
+  cargo clippy --locked --target "$target" "${packages[@]}" --all-targets --all-features -- -D warnings || status=$?
 
   export GOODFETCH_TEST_SUITE=pre-merge
+  # insta finds the workspace by running `cargo metadata`, which a test under
+  # Wine cannot start: Linux's Cargo is no Windows program.
+  export INSTA_WORKSPACE_ROOT="$PWD"
   export GOODFETCH_TEST_TOOLS="$CARGO_TARGET_DIR/test-tools.json"
-  cargo run --quiet --locked --bin xtask -- test-tools build --cargo-profile ci-test \
+  # xtask builds with the tests' profile, so it shares their host-built
+  # dependencies.
+  xtask=(cargo run --quiet --locked --profile ci-test --bin xtask --)
+  "${xtask[@]}" test-tools build --cargo-profile ci-test \
     --target "$target" --out "$GOODFETCH_TEST_TOOLS"
   skips=()
-  exclusions=$(cargo run --quiet --locked --bin xtask -- quarantine exclude)
+  exclusions=$("${xtask[@]}" quarantine exclude)
   quarantined=$(jq -r '.nextest[]' <<<"$exclusions")
   while IFS= read -r argument; do
     [[ -z "$argument" ]] || skips+=("$argument")
   done <<<"$quarantined"
+  nextest=(--locked --target "$target" "${packages[@]}" --profile ci --cargo-profile ci-test
+    --tool-config-file "goodfetch-windows:$PWD/ci/windows/nextest.toml")
   filter=()
   if [[ -n "$GOODFETCH_WINE_SKIPS" ]]; then
     echo "The tests skipped under Wine:"
-    cargo nextest list --locked --target "$target" --workspace --profile ci --cargo-profile ci-test \
-      -E "$GOODFETCH_WINE_SKIPS"
+    cargo nextest list "${nextest[@]}" -E "$GOODFETCH_WINE_SKIPS"
     filter=(-E "not ($GOODFETCH_WINE_SKIPS)")
   fi
-  cargo nextest run --locked --target "$target" --workspace --profile ci --cargo-profile ci-test \
-    ${filter[@]+"${filter[@]}"} ${skips[@]+"${skips[@]}"} || status=$?
+  cargo nextest run "${nextest[@]}" ${filter[@]+"${filter[@]}"} ${skips[@]+"${skips[@]}"} || status=$?
   exit "$status"
 fi
 
@@ -78,7 +92,7 @@ fi
 # The skipped tests, each entry's filterset joined into one, and each entry
 # printed with its reason and issue.
 read_skips() { uv run --frozen --quiet python -c "import tomllib; skips = tomllib.load(open('ci/windows/skips.toml', 'rb')).get('skip', []); $1"; }
-read_skips 'print("\n".join(f"Skipped under Wine, proven on Windows by issue {s[\"issue\"]}: {s[\"filter\"]}: {s[\"reason\"]}" for s in skips))'
+read_skips 'print("\n".join("Skipped under Wine, issue " + str(s["issue"]) + ": " + s["reason"] for s in skips))'
 wine_skips=$(read_skips 'print(" | ".join("(" + s["filter"] + ")" for s in skips))')
 
 build="${CARGO_TARGET_DIR:-$root/target}/windows"
@@ -93,4 +107,4 @@ environment=(--env GIT_CONFIG_COUNT=1 --env GIT_CONFIG_KEY_0=safe.directory --en
 [[ -z "${CARGO_BUILD_JOBS:-}" ]] || environment+=(--env "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS")
 exec "$engine" run --rm --init --platform linux/amd64 "${mounts[@]}" --workdir "$root" \
   --volume goodfetch-windows-cargo:/usr/local/cargo/registry \
-  "${environment[@]}" "$image" ci/windows.sh in-container
+  "${environment[@]}" "$image" ci/windows.sh in-container "$@"

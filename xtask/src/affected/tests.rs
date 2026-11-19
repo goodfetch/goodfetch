@@ -370,6 +370,90 @@ fn the_gate_is_quick_only_when_no_job_but_the_docs_runs(
     assert_eq!(value(&selection, "gate"), gate);
 }
 
+// xtask's codegen tests are `tests/` tests, which the Quick suite never
+// runs, so a change to what they alone check selects them beside it: the
+// emitter and the xtask modules it renders through, the protocol crate's
+// files their fixture holds as they are or whose items the emitter writes
+// into it, and their own fixture, test file and snapshots. Commit f6abad1cf changed the
+// emitter and the catalog's sections and merged on the quick gate with 37 of
+// them red (issue 2892). Another change to the protocol crate, to xtask or
+// to xtask's other tests leaves them to the Pre-merge suite.
+#[rstest]
+#[case::the_emitters_root(&["xtask/src/codegen.rs"], "true")]
+#[case::the_emitter(&["xtask/src/codegen/emit.rs"], "true")]
+#[case::the_layer_writer(&["xtask/src/codegen/layer.rs"], "true")]
+#[case::the_catalog_module(&["crates/goodfetch-protocol/src/catalog.rs"], "true")]
+#[case::the_catalogs_sections(&["crates/goodfetch-protocol/src/catalog/sections.rs"], "true")]
+#[case::the_catalogs_settings(&["crates/goodfetch-protocol/src/catalog/setting.rs"], "true")]
+#[case::wire_names(&["crates/goodfetch-protocol/src/wire_name.rs"], "true")]
+#[case::secret_references(&["crates/goodfetch-protocol/src/secret_reference.rs"], "true")]
+#[case::feature_schemas(&["xtask/src/features/files.rs"], "true")]
+#[case::the_feature_inventory(&["xtask/src/features.rs"], "true")]
+#[case::the_licence_allowlist(&["xtask/src/license_allowlist.rs"], "true")]
+#[case::the_refusal_samples(&["xtask/src/compat/refusals.rs"], "true")]
+#[case::the_products_folders(&["xtask/src/products.rs"], "true")]
+#[case::the_attached_engines_name(&["crates/goodfetch-protocol/src/cli.rs"], "true")]
+#[case::the_engine_path_variables(&["crates/goodfetch-protocol/src/settings/deployment.rs"], "true")]
+#[case::the_format_types(&["crates/goodfetch-protocol/src/formats.rs"], "true")]
+#[case::the_refusal_types(&["crates/goodfetch-protocol/src/refusals.rs"], "true")]
+#[case::the_tests(&["xtask/tests/it/codegen.rs"], "true")]
+#[case::their_workspace_helper(&["xtask/tests/it/workspace.rs"], "true")]
+#[case::their_fixture(&["xtask/tests/it/fixtures/codegen/crates/goodfetch-protocol/generated/catalog.json"], "true")]
+#[case::their_snapshot(&["xtask/tests/it/snapshots/it__codegen__sdks__typescript__collie-client__src__generated.snap"], "true")]
+#[case::another_protocol_module(&["crates/goodfetch-protocol/src/foxhound.rs"], "false")]
+#[case::another_xtask_module(&["xtask/src/gate/plan.rs"], "false")]
+#[case::another_compat_module(&["xtask/src/compat.rs"], "false")]
+#[case::another_settings_module(&["crates/goodfetch-protocol/src/settings.rs"], "false")]
+#[case::another_xtask_test(&["xtask/tests/it/affected.rs"], "false")]
+#[case::another_tests_snapshot(&["xtask/tests/it/snapshots/it__affected__selection.snap"], "false")]
+#[case::a_crate(&["crates/goodfetch-engine/src/lib.rs"], "false")]
+#[case::a_workspace_input(&["Cargo.lock"], "false")]
+#[case::no_change(&[], "false")]
+fn a_change_to_what_only_the_codegen_tests_check_selects_them(
+    #[case] paths: &[&str],
+    #[case] selected: &str,
+) {
+    let selection = select_paths(paths);
+
+    assert_eq!(value(&selection, "codegen-tests"), selected);
+}
+
+/// Each protocol file that the codegen tests' fixture holds as it is, a case
+/// of `xtask/tests/it/codegen.rs`'s
+/// `the_fixtures_catalog_module_is_the_protocol_crates_own`, selects those
+/// tests, so a file the fixture comes to copy cannot drift from it on a
+/// quick merge.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
+)]
+fn each_protocol_file_the_codegen_fixture_copies_selects_the_codegen_tests() {
+    let tests = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/codegen.rs");
+    let text = std::fs::read_to_string(&tests).unwrap();
+    let copy_test = text
+        .find("fn the_fixtures_catalog_module_is_the_protocol_crates_own(")
+        .expect("the codegen tests check the fixture's copies");
+    let attributes = &text[text[..copy_test].rfind("#[rstest]").unwrap()..copy_test];
+    let copies: Vec<String> = attributes
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("#[case::"))
+        .map(|case| {
+            let file = case.split('"').nth(1).expect("a case names its file");
+            format!("crates/goodfetch-protocol/{file}")
+        })
+        .collect();
+
+    assert!(!copies.is_empty(), "the fixture copies no protocol file");
+    for path in copies {
+        assert_eq!(
+            value(&select_paths(&[&path]), "codegen-tests"),
+            "true",
+            "{path}"
+        );
+    }
+}
+
 /// Writes `text` to `path` under `root`, its folders first.
 #[expect(
     clippy::disallowed_methods,
@@ -745,6 +829,7 @@ fn shared_crate_change_selects_both_products_tests() {
     sinks-touched=
     bench-targets=goodfetch-engine/engine goodfetch-frontier/frontier
     models=
+    codegen-tests=false
     gate=full
     "#);
 }
@@ -779,6 +864,7 @@ fn a_change_to_a_crates_tests_folder_reaches_its_tests_alone() {
     sinks-touched=
     bench-targets=
     models=
+    codegen-tests=false
     gate=full
     "#);
 }
@@ -998,6 +1084,7 @@ fn foxhound_side_change_outside_any_package_selects_all_of_foxhounds_tests() {
     sinks-touched=goodfetch-sink-kafka goodfetch-sink-s3
     bench-targets=goodfetch-frontier/frontier
     models=
+    codegen-tests=false
     gate=full
     "#);
 }
@@ -1015,6 +1102,7 @@ fn workspace_input_change_selects_everything() {
     sinks-touched=goodfetch-sink-kafka goodfetch-sink-s3
     bench-targets=goodfetch-engine/engine goodfetch-frontier/frontier
     models=
+    codegen-tests=false
     gate=full
     "#);
 }

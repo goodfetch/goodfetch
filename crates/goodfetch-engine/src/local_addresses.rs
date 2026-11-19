@@ -33,8 +33,8 @@ use goodfetch_protocol::egress::{
 pub use goodfetch_protocol::egress::{Ipv6Prefix, LocalAddresses};
 
 pub use self::host::System;
-use crate::CallError;
 use crate::settings::Resolved;
+use crate::{CallError, named};
 
 /// What the host lets a Session send from.
 pub trait Host: Send + Sync {
@@ -109,10 +109,11 @@ pub struct Unavailable {
 impl From<Unavailable> for CallError {
     fn from(unavailable: Unavailable) -> Self {
         let entry = &unavailable.entry;
+        let setting = named::setting(EGRESS_LOCAL_ADDRESSES.name);
         let message = match unavailable.failure {
             LocalAddressFailure::NotHeld => {
                 format!(
-                    "this host holds no local address {entry}: assign it, or remove it from `egress.local_addresses`"
+                    "this host holds no local address {entry}: assign it, or remove it from `{setting}`"
                 )
             }
             LocalAddressFailure::UnknownInterface => {
@@ -125,10 +126,10 @@ impl From<Unavailable> for CallError {
                 "the prefix {entry} holds none of this host's addresses; on Linux, route it locally and set `net.ipv6.ip_nonlocal_bind` to 1 to send from any of its addresses"
             ),
             LocalAddressFailure::NotLaunchedHere => format!(
-                "`egress.local_addresses` ({entry}) binds only the browsers this engine launches on this machine, never a Borrowed browser, a third-party CDP browser or a Browser host's: open the Session on a browser the engine launches, or leave `egress.local_addresses` unset for its Run"
+                "`{setting}` ({entry}) binds only the browsers this engine launches on this machine, never a Borrowed browser, a third-party CDP browser or a Browser host's: open the Session on a browser the engine launches, or leave `{setting}` unset for its Run"
             ),
             LocalAddressFailure::ProxyNotRelayed => format!(
-                "`egress.local_addresses` ({entry}) cannot hold a Session behind an `https://` proxy, which the egress relay does not chain through, so its browser would reach the proxy from an address the OS chooses: use an `http://` or `socks5://` proxy, or leave `egress.local_addresses` unset"
+                "`{setting}` ({entry}) cannot hold a Session behind an `https://` proxy, which the egress relay does not chain through, so its browser would reach the proxy from an address the OS chooses: use an `http://` or `socks5://` proxy, or leave `{setting}` unset"
             ),
         };
         Self::new(

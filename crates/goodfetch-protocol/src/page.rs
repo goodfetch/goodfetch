@@ -437,7 +437,8 @@ pub enum RedirectLimit {
         #[schemars(extend("arrived_in" = "0.1"))]
         count: u32,
     },
-    /// A call's option, such as `page.request`'s `maxRedirects`.
+    /// A call's option, such as `page.request`'s `max_redirects`, by its
+    /// canonical name (ADR 0099).
     Option {
         /// The option's name.
         #[schemars(extend("arrived_in" = "0.1"))]

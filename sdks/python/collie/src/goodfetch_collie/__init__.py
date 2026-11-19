@@ -3,7 +3,9 @@
 Where the main types live (ADR 0117): this package, `goodfetch_collie`,
 holds `AsyncCollie` and the sync `Collie`; the Collie client package,
 `goodfetch_collie_client`, holds `AsyncRun` and `Run`, the results, the
-errors, a listener's `Subscription`, each scope's settings types
+errors, a listener's `Subscription`, a sequence's iterators (`AsyncSequence`
+and `Sequence`), a Run's Key-value store (`AsyncKeyValueStore` and
+`KeyValueStore`), each scope's settings types
 (`Settings`, `RunSettings`, `SessionSettings`, `PageSettings`), and
 `AsyncConnection` and
 `Connection`, which both Products' Connections extend, all of which this
@@ -55,15 +57,19 @@ from goodfetch_collie_client.generated.settings import (
 )
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
 from goodfetch_collie_client.handle import Subscription
+from goodfetch_collie_client.key_value_store import AsyncKeyValueStore, KeyValueStore
 from goodfetch_collie_client.limits import Limits, Money, Prices
 from goodfetch_collie_client.run import AsyncRun, Run
+from goodfetch_collie_client.sequence import AsyncSequence, Sequence
 
 from goodfetch_collie.collie import AsyncCollie, Collie, Connecting
 
 __all__ = [
     "AsyncCollie",
     "AsyncConnection",
+    "AsyncKeyValueStore",
     "AsyncRun",
+    "AsyncSequence",
     "CallCancelledError",
     "ClosedError",
     "Collie",
@@ -79,6 +85,7 @@ __all__ = [
     "EngineNotFoundError",
     "EngineOutputInvalidError",
     "GoodfetchError",
+    "KeyValueStore",
     "LimitRaiseRefusedError",
     "LimitReachedError",
     "Limits",
@@ -99,6 +106,7 @@ __all__ = [
     "RunSettings",
     "RunStarted",
     "RunStateUnavailableError",
+    "Sequence",
     "SessionSettings",
     "SettingInvalidError",
     "Settings",

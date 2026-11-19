@@ -224,7 +224,8 @@ def subscribe(
     return subscribed
 
 
-async def _wait(hold: anyio.Event | None) -> None:
+async def wait_for(hold: anyio.Event | None) -> None:
+    """Waits until `hold` is set; at once for none."""
     if hold is not None and not hold.is_set():
         await hold.wait()
 
@@ -290,7 +291,7 @@ class _Subscribed(Generic[_Model]):
     async def run(self) -> None:
         """Sends the call once its turn came, and delivers its events until it ends."""
         try:
-            await _wait(self._previous)
+            await wait_for(self._previous)
             if not self._closed:
                 await self._listen()
         except Exception:
@@ -309,7 +310,7 @@ class _Subscribed(Generic[_Model]):
             return
         previous, closed = self._closing
         with anyio.CancelScope(shield=True):
-            await _wait(previous)
+            await wait_for(previous)
         closed.set()
 
     async def _listen(self) -> None:
@@ -356,7 +357,7 @@ class _Subscribed(Generic[_Model]):
     async def _cancel_when_closed(self, call: anyio.CancelScope) -> None:
         await self._close_asked.wait()
         if self._closing is not None:
-            await _wait(self._closing[0])
+            await wait_for(self._closing[0])
         call.cancel()
 
     async def _grant(self, credits: int) -> None:

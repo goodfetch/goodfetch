@@ -12,9 +12,13 @@
 //! - A round trip, a query and a waiter are members; a query declares no
 //!   `timeout`, and a waiter's name starts with `wait_for`. A round trip
 //!   named `new_<value>` opens that value, whose ID its result carries, and
-//!   a handle's own `close` that takes no required parameter closes it. A
-//!   read, a sequence and an event get their forms with their own tickets
-//!   (issue 1233), as does an opener, which opens its own namespace's value.
+//!   a handle's own `close` that takes no required parameter closes it. An
+//!   event named `on` of a namespace in [`LISTENERS`], whose one required
+//!   parameter is the event listened to, is the handle's listener (ADR
+//!   0081): each value of that parameter names the event
+//!   `<namespace>.<value>`, whose payload the listener gets. A read, a sequence and another event get their forms
+//!   with their own tickets (issue 1233), as does an opener, which opens its
+//!   own namespace's value.
 //! - A prefix has one meaning: `new_` starts a round trip or an opener,
 //!   `wait_for` a waiter and every waiter, `is_` a query, `on` an event or
 //!   a sequence, and `get_by_` no operation, since it builds without I/O.
@@ -42,6 +46,11 @@ use super::layer::{Kind, Layer, Operation};
 /// The namespaces whose handles the generators write so far; each other
 /// one joins with the ticket that builds its value.
 pub(super) const HANDLES: [&str; 4] = ["run", "session", "page", "locator"];
+
+/// The namespaces whose `on` the generators write as a listener (ADR 0081),
+/// which gets its events on its own call. `session.on` publishes on the
+/// shared event stream instead, so it joins with its own ticket.
+pub(super) const LISTENERS: [&str; 1] = ["page"];
 
 /// The parameter that names a handle in its operations' params.
 pub(super) struct HandleId {
@@ -78,6 +87,35 @@ pub(super) enum Form {
     /// The handle's own `close` (ADR 0078): idempotent, it answers nothing,
     /// and every other call on the value then fails with `closed`.
     Closes,
+}
+
+/// A handle's `on`, which registers a listener for one of its events (ADR
+/// 0081): its call stays in flight and gets them. TypeScript writes it so
+/// far, Python and Rust with issues 2932 and 2933.
+pub(super) struct Listener<'a> {
+    pub(super) operation: &'a Operation,
+    /// The parameter that names the event listened to, such as `event`.
+    pub(super) param: String,
+    /// The events it listens to, in the order its parameter's type lists them.
+    pub(super) events: Vec<Listened>,
+}
+
+/// An event a [`Listener`] gets.
+pub(super) struct Listened {
+    /// The value its call's parameter names it by, such as `page_error`.
+    pub(super) wire: String,
+    /// Its payload's type in the bundle, such as `WebError`.
+    pub(super) payload: String,
+    /// Its description in the catalog.
+    pub(super) description: String,
+}
+
+impl Listened {
+    /// Its name as a program passes it: Playwright's, its words joined in
+    /// lowercase, such as `pageerror` (ADR 0081).
+    pub(super) fn joined(&self) -> String {
+        self.wire.replace('_', "")
+    }
 }
 
 /// The schema keyword that marks a result property typed by a parameter.
@@ -147,9 +185,23 @@ pub(super) struct Handle<'a> {
     pub(super) members: Vec<Member<'a>>,
     pub(super) builders: Vec<Builder>,
     pub(super) sub_objects: Vec<SubObject<'a>>,
+    /// Its `on`, when its namespace is one of [`LISTENERS`].
+    pub(super) listener: Option<Listener<'a>>,
 }
 
 impl Handle<'_> {
+    /// The handle of `namespace`, named by `id`, before its members.
+    fn of(namespace: &'static str, id: HandleId) -> Self {
+        Self {
+            namespace,
+            id,
+            members: Vec::new(),
+            builders: Vec::new(),
+            sub_objects: Vec::new(),
+            listener: None,
+        }
+    }
+
     /// Whether a program closes the value: its catalog has a `close` in
     /// the closing form.
     pub(super) fn closes(&self) -> bool {
@@ -365,6 +417,66 @@ fn form(operation: &Operation, name: &str, schema: &Value) -> Result<Option<Form
     })
 }
 
+/// `operation`, the `on` of `namespace`, as its listener: it gets one
+/// event for each value of its one required parameter but the handle's ID,
+/// the event listened to, which names the event `<namespace>.<value>`.
+fn listener<'a>(
+    layer: &Layer,
+    namespace: &str,
+    operation: &'a Operation,
+    schema: &Value,
+) -> Result<Listener<'a>> {
+    let id = format!("{namespace}_id");
+    let required = names(schema, "required");
+    let [event] = required
+        .iter()
+        .filter(|name| **name != id)
+        .collect::<Vec<_>>()[..]
+    else {
+        bail!(
+            "operation `{}`: a listener's `on` takes one required parameter but its handle's ID, the event listened to (ADR 0081)",
+            operation.name
+        );
+    };
+    let values = referenced(&schema["properties"][event])
+        .and_then(|type_name| layer.definitions.get(type_name))
+        .and_then(|definition| definition["oneOf"].as_array())
+        .and_then(|variants| {
+            variants
+                .iter()
+                .map(|variant| variant["const"].as_str())
+                .collect::<Option<Vec<_>>>()
+        });
+    let Some(values) = values.filter(|values| !values.is_empty()) else {
+        bail!(
+            "operation `{}`: its `{event}` is a type of its own whose values name the events listened to (ADR 0081)",
+            operation.name
+        );
+    };
+    let events = values
+        .into_iter()
+        .map(|wire| {
+            let name = format!("{namespace}.{wire}");
+            let Some(found) = layer.events.iter().find(|held| held.name == name) else {
+                bail!(
+                    "operation `{}`: its `{event}` `{wire}` names the event `{name}`, which the catalog lacks (ADR 0081)",
+                    operation.name
+                );
+            };
+            Ok(Listened {
+                wire: wire.to_owned(),
+                payload: found.payload.0.clone(),
+                description: found.description.clone(),
+            })
+        })
+        .collect::<Result<_>>()?;
+    Ok(Listener {
+        operation,
+        param: event.clone(),
+        events,
+    })
+}
+
 /// The handles of `layer`'s operations, in [`HANDLES`]' order; a namespace
 /// with no member has none.
 pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
@@ -390,6 +502,17 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
             let Some(id) = handle_id(namespace, operation, schema)? else {
                 continue;
             };
+            if operation.kind == Kind::Event
+                && sub_object.is_none()
+                && name == "on"
+                && LISTENERS.contains(&namespace)
+            {
+                let listener = listener(layer, namespace, operation, schema)?;
+                found
+                    .get_or_insert_with(|| Handle::of(namespace, id))
+                    .listener = Some(listener);
+                continue;
+            }
             let Some(form) = form(operation, name, schema)? else {
                 continue;
             };
@@ -415,13 +538,7 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
                 timeout_setting,
                 unwrapped,
             };
-            let handle = found.get_or_insert_with(|| Handle {
-                namespace,
-                id,
-                members: Vec::new(),
-                builders: Vec::new(),
-                sub_objects: Vec::new(),
-            });
+            let handle = found.get_or_insert_with(|| Handle::of(namespace, id));
             match sub_object {
                 None => handle.members.push(member),
                 Some(sub_object) => {

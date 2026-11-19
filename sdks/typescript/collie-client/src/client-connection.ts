@@ -161,7 +161,9 @@ export class ClientConnection implements AsyncDisposable {
     this.#runHost = {
       calls: this.caller<CollieOperationTypes>(),
       reachable: () => !this.#ended,
+      stream: (method, params, opened) => this.stream(method, params, opened),
       forget: (run) => this.#runs.delete(run),
+      logger: this.#logger,
       keyValueStore: {
         get: async (runId, key) => {
           const { value } = await this.#operations.keyValueStoreGet({ run_id: runId, key });

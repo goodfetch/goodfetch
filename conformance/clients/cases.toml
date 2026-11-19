@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "19"
+version = "20"
 
 [[capability]]
 name = "lifecycle"
@@ -96,6 +96,14 @@ modes = ["attached"]
 [[capability.case]]
 id = "closed-page-raises-closed"
 covers = ["story:11-77"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+# A page's listeners (issue 1277, ADR 0081): TypeScript leads; the Python
+# SDK joins with issue 2932 and the Rust SDK with issue 2933.
+[[capability.case]]
+id = "listeners-in-order-and-a-thrower-raises-listener-failed"
+covers = ["story:11-61", "story:11-62", "story:11-63", "error:listener_failed"]
 surfaces = ["sdk-typescript"]
 modes = ["attached"]
 

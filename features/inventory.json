@@ -1565,6 +1565,17 @@
       ]
     },
     {
+      "id": "error:listener_failed",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:local_address_unavailable",
       "kind": "error",
       "area": 4,

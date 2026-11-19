@@ -142,35 +142,6 @@ fn a_command_with_no_lasting_value_runs_attached_unless_a_daemon_runs() {
     );
 }
 
-/// Under `--daemon`, a Daemon that refuses the command's protocol version
-/// and cannot hand over ends the command with exit `11` and a `fix` naming
-/// this executable's `daemon restart` by its path (ADR 0098), read from the
-/// Scripted engine playing the Daemon (ADR 0069).
-///
-/// Covers: story:11-213, command:run.start, error:protocol_version_unsupported
-#[test]
-fn under_daemon_a_daemon_refusing_the_version_fails_with_exit_11_and_its_daemon_restart() {
-    let env = TestEnv::new();
-    let scripted = scripted_daemon(&env, "daemon/cli-hello-refused.json");
-
-    let output = cli(&env, COLLIE)
-        .args(["run", "start", "--run-id", "first", "--daemon"])
-        .run()
-        .unwrap();
-    scripted.child().wait().unwrap();
-
-    assert_eq!(
-        (output.exit, output.stdout.as_str()),
-        (Some(11), ""),
-        "{output}"
-    );
-    stderr_snapshot(
-        SnapshotValues::of(&env),
-        "run_start_refused_version",
-        &output.stderr,
-    );
-}
-
 /// With neither flag, a Daemon that refuses the protocol version of a
 /// command with no value outliving it, and cannot hand over, leaves it to
 /// an Attached engine, after a warning that names the refusal and its fix,

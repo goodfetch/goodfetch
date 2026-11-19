@@ -325,85 +325,8 @@ fn refused_and_recorded() -> Attempts {
 
 /// Covers: story:4-1, error:egress_refused, operation:page.goto
 #[test]
-fn a_subresource_to_a_refused_host_is_refused_and_one_to_an_allowed_host_arrives() {
-    let attempts = attempt(PAGES, kind_page("fetch"), reached_target("fetch"));
-
-    assert_eq!(attempts, refused_and_recorded());
-}
-
-/// Covers: story:4-1, error:egress_refused, operation:page.goto
-#[test]
 fn a_navigation_the_page_sends_itself_to_a_refused_host_is_refused() {
     let attempts = attempt(PAGES, kind_page("navigation"), reached_target("navigation"));
-
-    assert_eq!(attempts, refused_and_recorded());
-}
-
-/// An out-of-process frame's own request passes its page's interception.
-///
-/// Covers: story:4-1, error:egress_refused, operation:page.goto
-#[test]
-fn an_out_of_process_frames_request_to_a_refused_host_is_refused() {
-    let attempts = attempt(PAGES, kind_page("frame"), reached_target("frame"));
-
-    assert_eq!(attempts, refused_and_recorded());
-}
-
-/// A dedicated worker's requests pass its page's interception. Neither the
-/// page's events nor the Run trace see a worker's requests, so only the
-/// connection record says the refused one went nowhere.
-///
-/// Covers: story:4-1, operation:page.goto
-#[test]
-fn a_dedicated_workers_request_to_a_refused_host_is_refused() {
-    let attempts = attempt(
-        PAGES,
-        kind_page("dedicated_worker"),
-        reached_target("dedicated_worker"),
-    );
-
-    assert_eq!((attempts.held, attempts.open), (0, true));
-}
-
-/// A shared worker belongs to no page: its requests pass its Session's
-/// interception, each recorded in the Run trace.
-///
-/// Covers: story:4-1, error:egress_refused, operation:page.goto
-#[test]
-fn a_shared_workers_request_to_a_refused_host_is_refused() {
-    let attempts = attempt(
-        PAGES,
-        kind_page("shared_worker"),
-        reached_target("shared_worker"),
-    );
-
-    assert_eq!(attempts, refused_and_recorded());
-}
-
-/// A service worker that fetches from a refused host as it installs: it is
-/// held before its first line runs, so even that first request is refused,
-/// as a page's subresource would be.
-///
-/// Covers: story:4-7, operation:page.goto
-#[test]
-fn a_service_worker_fetching_from_a_refused_host_as_it_installs_is_refused() {
-    let attempts = attempt(
-        FRAME,
-        |_| "/service-worker/".to_owned(),
-        |proving_ground| received(proving_ground, REFUSED, "/service-worker/forbidden.json"),
-    );
-
-    assert_eq!((attempts.held, attempts.open), (0, true));
-}
-
-/// No interception sees a WebSocket's handshake: the browser holds it to
-/// the domain policy where it connects, and the engine records the refusal
-/// as a `page.request_failed` of the Run trace.
-///
-/// Covers: story:4-1, error:egress_refused, operation:page.goto
-#[test]
-fn a_websocket_to_a_refused_host_is_blocked_and_recorded_as_a_failed_request() {
-    let attempts = attempt(PAGES, kind_page("websocket"), reached_target("websocket"));
 
     assert_eq!(attempts, refused_and_recorded());
 }

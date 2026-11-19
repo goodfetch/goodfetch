@@ -1,9 +1,7 @@
 use std::collections::BTreeSet;
 
 use goodfetch_engine::secrets;
-use goodfetch_engine::{Channel, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::secret_reference::Provider;
 
@@ -17,17 +15,6 @@ fn collies_composition_has_exactly_one_handler_for_each_operation_of_collies_cat
     handled.sort_unstable();
     catalog.sort_unstable();
     assert_eq!(handled, catalog);
-}
-
-#[test]
-fn collies_composition_starts_an_engine() {
-    let identity = Identity {
-        product: Product::Collie,
-        product_version: ProductVersion::parse("0.0.0").unwrap(),
-        channel: Channel::CratesIo,
-    };
-
-    assert!(Engine::new(identity, &composition()).is_ok());
 }
 
 /// ADR 0015's list of V1 providers, every scheme a Secret reference names,

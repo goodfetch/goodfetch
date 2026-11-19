@@ -2,17 +2,21 @@
 //! page it opened from a document (ADR 0093): the page crate's guard finds
 //! the page the call names and hands the call to the Product, in process,
 //! with no browser. The call decodes its params once, the guard's search
-//! for its page included (ADR 0140's E1, issue 2617).
+//! for its page included (ADR 0140's E1, issue 2617). A call on a page a
+//! call encloses, as a crawl handler encloses its pages' calls, ends at
+//! that call's end (ADR 0080).
 #![expect(
     clippy::disallowed_methods,
     reason = "tests run on the test Clock and Entropy (ADR 0059)"
 )]
 
 use std::collections::BTreeMap;
-use std::future::ready;
+use std::future::{pending, ready};
+use std::time::Duration;
 
 use goodfetch_counted_work::Row;
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::deadline::{Deadline, Enclosing};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::metrics::Metrics;
@@ -26,10 +30,12 @@ use goodfetch_engine::{
 use goodfetch_page::Launcher;
 use goodfetch_page::blocks::NoBlocks;
 use goodfetch_page::page_value::{HandlerPages, Observer, PageValue};
-use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::catalog::{Product, Setting};
+use goodfetch_protocol::connection::{EnclosingCall, ProductVersion};
+use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::settings::TIMEOUT_HOOK;
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -37,6 +43,14 @@ use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
 /// The page the Product serves.
 const SERVED: &str = "served-page";
+
+/// Foxhound's `timeout.handler` with its 60 s default, which
+/// `goodfetch-page` may not name (ADR 0099).
+const TIMEOUT_HANDLER: Setting = Setting {
+    name: "timeout.handler",
+    default: || json!(60_000),
+    ..TIMEOUT_HOOK
+};
 
 /// A Product that answers every call on [`SERVED`] with the call's name.
 struct Served;
@@ -62,6 +76,49 @@ impl HandlerPages for Served {
     }
 }
 
+/// A Product whose call on [`SERVED`] never answers, and whose pages a
+/// crawl handler's call encloses, its `timeout.handler` ending 10 s after
+/// the page's call arrives.
+struct Enclosed;
+
+impl HandlerPages for Enclosed {
+    fn value(&self, _run: &RunId, _session: &SessionId) -> PageValue {
+        PageValue::empty()
+    }
+
+    fn observer(&self, _run: &RunId, _session: &SessionId) -> Option<Observer> {
+        None
+    }
+
+    fn encloses_calls(&self) -> bool {
+        true
+    }
+
+    fn enclosing(&self, page_id: &PageId) -> Option<Enclosing> {
+        let ends_at = tokio::time::Instant::now() + Duration::from_secs(10);
+        (page_id.0 == SERVED).then(|| {
+            Enclosing::new(
+                &Deadline::declared(&TIMEOUT_HANDLER),
+                EnclosingCall {
+                    operation: "crawl_request.handle".to_owned(),
+                    call_id: RequestId::Number(3),
+                },
+                move || ends_at,
+            )
+        })
+    }
+
+    fn call(
+        &self,
+        page_id: &PageId,
+        _operation: &'static str,
+        _params: ReadParams<'_>,
+        _context: &CallContext,
+    ) -> Option<GuardAnswer> {
+        (page_id.0 == SERVED).then(|| Box::pin(pending()) as GuardAnswer)
+    }
+}
+
 fn dependencies(env: &TestEnv) -> Dependencies {
     Dependencies {
         environment: BTreeMap::new(),
@@ -80,6 +137,11 @@ fn dependencies(env: &TestEnv) -> Dependencies {
 /// crate's, its pages [`Served`]'s, then calls `method` with `params`: the
 /// call's reply and the decodes of params it counted.
 fn called(method: &str, params: &Value) -> (Value, u64) {
+    called_on(Served, method, params)
+}
+
+/// [`called`], its pages `product`'s.
+fn called_on(product: impl HandlerPages + 'static, method: &str, params: &Value) -> (Value, u64) {
     let env = TestEnv::new();
     let metrics = Metrics::none();
     let work = metrics.counted_work().clone();
@@ -87,7 +149,7 @@ fn called(method: &str, params: &Value) -> (Value, u64) {
         .with(goodfetch_engine::contribution())
         .with(goodfetch_page::contribution_with(
             (Vec::new(), Launcher::Executable),
-            Served,
+            product,
             std::sync::Arc::new(NoBlocks),
         ));
     let identity = Identity {
@@ -173,4 +235,37 @@ fn a_call_on_a_served_page_decodes_its_params_once(#[case] method: &str, #[case]
     let (reply, decodes) = called(method, &params);
 
     assert_eq!((&reply["result"], decodes), (&json!(method), 1), "{reply}");
+}
+
+/// A call on a page a crawl handler's call encloses, which would wait for
+/// ever, ends at that call's end and names the handler call as `ended_by`
+/// (ADR 0080).
+/// Covers: story:11-41, story:11-43
+#[rstest]
+#[case::by_its_page_id(
+    "page.goto",
+    json!({ "page_id": SERVED, "url": "https://a.test/" }),
+)]
+#[case::by_its_locator(
+    "locator.click",
+    json!({ "locator": { "selector": "#go", "page_id": SERVED } }),
+)]
+fn a_call_on_an_enclosed_page_ends_at_the_enclosing_calls_end(
+    #[case] method: &str,
+    #[case] params: Value,
+) {
+    let (reply, _) = called_on(Enclosed, method, &params);
+
+    assert_eq!(
+        &reply["error"]["data"],
+        &json!({
+            "code": "deadline_exceeded",
+            "retryable": true,
+            "limit": { "key": "timeout.handler", "value": 60_000, "layer": "default" },
+            "elapsed": 10_000,
+            "waited_for": "answer",
+            "ended_by": { "operation": "crawl_request.handle", "call_id": 3 },
+        }),
+        "{reply}"
+    );
 }

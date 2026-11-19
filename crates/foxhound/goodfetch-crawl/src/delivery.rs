@@ -81,6 +81,7 @@ use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::local_addresses::{BlockSizes, LocalAddresses, Rotation, System};
@@ -96,7 +97,7 @@ use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_LOST,
-    LEASE_LOST, WORK_ITEM_QUEUED, WORK_ITEM_RETRIED,
+    LEASE_LOST, TIMEOUT_HANDLER, WORK_ITEM_QUEUED, WORK_ITEM_RETRIED,
 };
 use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_SAMPLE_COUNT, FETCH_SAMPLE_REFRESH_AFTER, FETCH_TIER_RACE, FetchTier,
@@ -377,9 +378,13 @@ fn wall_ms(run: &Run) -> u64 {
 
 /// Where `run`'s leases are granted, each attempt staging in the crawl's
 /// staging, and its commit keying the work items it adds as `admission`'s
-/// gate keys them.
+/// gate keys them; each handler call sent under a lease waits under the
+/// Run's `timeout.handler`, resolved once here.
 fn leases_of(run: &Run, arrivals: &Opened, admission: &Admission) -> Leases {
+    let handler_timeout =
+        Deadline::of_resolved(run.settings().map(RunSettings::resolved), &TIMEOUT_HANDLER);
     Leases::new(run.clock(), run.id().as_str(), run.state().epoch())
+        .handled_under(handler_timeout)
         .staging_in(arrivals.staging.clone())
         .checking_against(arrivals.datasets.clone())
         .counting_on(run.metrics().counted_work().clone())

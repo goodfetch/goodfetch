@@ -88,6 +88,7 @@ use goodfetch_engine::CallContext;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::client::{ClientRequestError, Sent};
+use goodfetch_engine::deadline::Enclosing;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
@@ -431,7 +432,8 @@ pub(super) fn handler_lease(
 /// The lease check of an attempt's handler pages: the attempt's lease,
 /// renewed while a page waits for a navigation gate's permit, the wait
 /// named in the Run's live status, so a handler waiting for a permit is not
-/// timed out meanwhile (ADR 0093). A panic in the renewal ends the
+/// timed out meanwhile (ADR 0093), and the end of the handler call its
+/// pages' calls inherit (ADR 0080). A panic in the renewal ends the
 /// attempt ([`Watch`]). It shares its Run with every attempt's hand-over
 /// rather than holding a clone of its own, which the loop would build and
 /// the page's task drop once a page (#2243).
@@ -489,6 +491,10 @@ impl LeaseCheck for HandlerLease {
             waiting.in_flight.lock().await.permit_wait_ended(run, id);
         }));
         PermitWait::holding(stop)
+    }
+
+    fn enclosing(&self) -> Option<Enclosing> {
+        self.lease.enclosing()
     }
 }
 
@@ -1909,7 +1915,9 @@ async fn handled(
     }
     match context
         .client()
-        .send::<CrawlRequestHandled>(&CRAWL_REQUEST_HANDLE, params)
+        .send_noted::<CrawlRequestHandled>(&CRAWL_REQUEST_HANDLE, params, |id| {
+            lease.handler_sent(id.clone());
+        })
         .await
     {
         Err(_) => Answer::ClientGone,

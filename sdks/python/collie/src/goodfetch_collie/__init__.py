@@ -24,6 +24,10 @@ from goodfetch_collie_client.generated.errors import (
     LimitReachedError,
     NotInProductError,
     ProtocolVersionUnsupportedError,
+    RunConflictError,
+    RunEndedError,
+    RunIdInvalidError,
+    RunInUseError,
     SettingInvalidError,
 )
 from goodfetch_collie_client.generated.models import (
@@ -61,6 +65,10 @@ __all__ = [
     "Product",
     "ProtocolVersionUnsupportedError",
     "Run",
+    "RunConflictError",
+    "RunEndedError",
+    "RunIdInvalidError",
+    "RunInUseError",
     "RunReport",
     "RunStarted",
     "SettingInvalidError",

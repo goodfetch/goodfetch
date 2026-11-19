@@ -166,17 +166,18 @@ impl Tag {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    fn parse(text: String) -> Result<Self, TagsInvalid> {
+        if text.chars().count() > MAX_TAG_CHARACTERS {
+            return Err(TagsInvalid::TooLong);
+        }
+        Ok(Self(text))
+    }
 }
 
 impl<'de> Deserialize<'de> for Tag {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let text = String::deserialize(deserializer)?;
-        if text.chars().count() > MAX_TAG_CHARACTERS {
-            return Err(serde::de::Error::custom(format!(
-                "a tag holds at most {MAX_TAG_CHARACTERS} characters"
-            )));
-        }
-        Ok(Self(text))
+        Self::parse(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }
 
@@ -199,7 +200,41 @@ impl JsonSchema for Tag {
 #[serde(transparent)]
 pub struct Tags(Vec<Tag>);
 
+/// Why texts are no Run's tags.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum TagsInvalid {
+    /// There are more than [`MAX_TAGS`].
+    #[error("a Run carries at most {MAX_TAGS} tags")]
+    TooMany,
+    /// One holds more than [`MAX_TAG_CHARACTERS`] characters.
+    #[error("a tag holds at most {MAX_TAG_CHARACTERS} characters")]
+    TooLong,
+}
+
 impl Tags {
+    /// Reads `tags` as a Run's tags, in the order given.
+    ///
+    /// # Errors
+    ///
+    /// [`TagsInvalid::TooMany`] past [`MAX_TAGS`] tags, and
+    /// [`TagsInvalid::TooLong`] for a tag past [`MAX_TAG_CHARACTERS`]
+    /// characters.
+    pub fn parse<S: Into<String>>(tags: impl IntoIterator<Item = S>) -> Result<Self, TagsInvalid> {
+        Self::of(
+            tags.into_iter()
+                .map(|tag| Tag::parse(tag.into()))
+                .collect::<Result<_, _>>()?,
+        )
+    }
+
+    fn of(tags: Vec<Tag>) -> Result<Self, TagsInvalid> {
+        if tags.len() > MAX_TAGS {
+            return Err(TagsInvalid::TooMany);
+        }
+        Ok(Self(tags))
+    }
+
     /// Each tag, in order.
     pub fn iter(&self) -> impl Iterator<Item = &Tag> {
         self.0.iter()
@@ -213,13 +248,7 @@ impl Tags {
 
 impl<'de> Deserialize<'de> for Tags {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let tags = Vec::<Tag>::deserialize(deserializer)?;
-        if tags.len() > MAX_TAGS {
-            return Err(serde::de::Error::custom(format!(
-                "a Run carries at most {MAX_TAGS} tags"
-            )));
-        }
-        Ok(Self(tags))
+        Self::of(Vec::<Tag>::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }
 

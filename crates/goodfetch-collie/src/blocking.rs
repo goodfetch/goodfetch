@@ -55,8 +55,9 @@ impl Collie {
         })
     }
 
-    /// The start of a Run the program drives (`run.start`), which `send()`
-    /// sends.
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint;
+    /// `finish()` ends it. The start of a Run the program drives
+    /// (`run.start`), which `send()` sends.
     pub fn start(&self) -> Start {
         self.connection.start()
     }

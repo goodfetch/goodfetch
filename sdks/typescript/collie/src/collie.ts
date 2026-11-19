@@ -55,10 +55,11 @@ export class Collie implements Connection {
   }
 
   /**
-   * Starts a Run and returns once it is started (ADR 0102); a `runId`
-   * naming an interrupted Run resumes it, and one naming a finished Run
-   * returns it as it ended. `finish()` ends it; closing it unfinished stops
-   * it, resumable by its Run ID.
+   * Leaving the scope or `close()` stops the Run with a Checkpoint;
+   * `finish()` ends it. Starts a Run and returns once it is started
+   * (ADR 0102): a `runId` naming an interrupted Run resumes it, logged at
+   * info, and one naming a finished Run returns it as it ended, logged at
+   * warning, through the host's logger.
    */
   start(options?: StartOptions): Promise<Run> {
     return this.#connection.start(options);

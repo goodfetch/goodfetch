@@ -33,7 +33,7 @@ import anyio
 
 from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.framing import object_members
-from goodfetch_collie_client.goodfetch_error import GoodfetchError
+from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError, GoodfetchError
 from goodfetch_collie_client.handle import Subscription
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
 
@@ -164,8 +164,11 @@ class Listening(Generic[_Model]):
     """The program's listener."""
     failed: Callable[[Exception], None]
     """Hears, once, what the listener threw, after it was removed for it."""
-    ended: Callable[[GoodfetchError], None]
-    """Hears the error that ended the call unasked, such as `page_events_lost`."""
+    ended: Callable[[BaseGoodfetchError], None]
+    """Hears the error that ended the call unasked, such as `page_events_lost`.
+
+    Or `attempt_ended`, whose class is outside `Exception` (ADR 0093).
+    """
 
 
 @dataclass(frozen=True, eq=False)
@@ -338,7 +341,7 @@ class _Subscribed(Generic[_Model]):
                     await self._connection.stream(
                         self._method, self._params, self._notified, sent=sent
                     )
-                except GoodfetchError as error:
+                except BaseGoodfetchError as error:
                     if not self._closed:
                         self._listening.ended(error)
             group.cancel_scope.cancel()

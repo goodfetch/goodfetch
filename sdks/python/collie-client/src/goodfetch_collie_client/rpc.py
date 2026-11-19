@@ -39,6 +39,7 @@ from goodfetch_collie_client.generated.errors import (
     ERROR_GROUP_OF_WIRE_CLASS,
 )
 from goodfetch_collie_client.generated.models import ModelUsage, SettingLimit
+from goodfetch_collie_client.goodfetch_error import GoodfetchError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -47,9 +48,9 @@ if TYPE_CHECKING:
 
     from goodfetch_collie_client.generated.errors import ErrorGroup
     from goodfetch_collie_client.goodfetch_error import (
+        BaseGoodfetchError,
         ErrorClass,
         ErrorFields,
-        GoodfetchError,
     )
 
 _Field = TypeVar("_Field")
@@ -110,7 +111,7 @@ class _Answered:
 
 @dataclass(frozen=True)
 class _Raised:
-    error: GoodfetchError
+    error: BaseGoodfetchError
 
 
 @dataclass(eq=False)
@@ -160,6 +161,8 @@ class Channel:
         Raises:
             GoodfetchError: The engine answered with an error, or the
                 channel ended or was cancelled before the reply.
+            BaseGoodfetchError: The engine answered `attempt_ended`, whose
+                class is outside `Exception` (ADR 0093).
         """
         return await self.stream(method, params, None)
 
@@ -180,6 +183,8 @@ class Channel:
         Raises:
             GoodfetchError: The engine answered with an error, or the
                 channel ended or was cancelled before the reply.
+            BaseGoodfetchError: The engine answered `attempt_ended`, whose
+                class is outside `Exception` (ADR 0093).
         """
         if self._failure is not None:
             raise self._failure
@@ -261,7 +266,9 @@ class Channel:
             outcome = await self._wait_for(drainer)
         finally:
             self._drainers.remove(drainer)
-        if not isinstance(outcome, _Raised):
+        if not isinstance(outcome, _Raised) or not isinstance(
+            outcome.error, GoodfetchError
+        ):
             message = "invariant: a channel ends with the error later calls fail with"
             raise TypeError(message)
         return outcome.error
@@ -383,10 +390,11 @@ class Channel:
 
 def error_of_reply(
     error: Mapping[str, object], classes: Mapping[str, ErrorClass]
-) -> GoodfetchError:
+) -> BaseGoodfetchError:
     """The exception an engine's error reply stands for.
 
-    A known Error code gets its class; an unknown one gets its group's class,
+    A known Error code gets its class, a `GoodfetchError` but for
+    `attempt_ended`'s (ADR 0093); an unknown one gets its group's class,
     named by the reply's wire class or, for a failure of the protocol
     itself, the code JSON-RPC predefines that it takes (ADR 0079), or
     `internal`'s.

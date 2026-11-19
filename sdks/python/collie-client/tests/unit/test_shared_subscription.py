@@ -30,7 +30,10 @@ from pydantic import BaseModel
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
-    from goodfetch_collie_client.goodfetch_error import GoodfetchError
+    from goodfetch_collie_client.goodfetch_error import (
+        BaseGoodfetchError,
+        GoodfetchError,
+    )
     from goodfetch_collie_client.handle import Subscription
 
 
@@ -115,7 +118,7 @@ class _Listeners:
         self._shared = SharedSubscription(engine)
         self._order = Order()
         self.failures: list[Exception] = []
-        self.endings: list[GoodfetchError] = []
+        self.endings: list[BaseGoodfetchError] = []
 
     def listen(
         self, session: str, listener: Callable[[_Opened], Awaitable[None] | None]

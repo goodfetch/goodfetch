@@ -20,10 +20,11 @@ use serde_json::Value;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::cli::ATTACHED_ENGINE;
+use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::settings::{COLLIE_ENGINE_PATH_VARIABLE, FOXHOUND_ENGINE_PATH_VARIABLE};
 
 use super::handles;
-use super::layer::{Deprecation, Layer, Stability};
+use super::layer::{Deprecation, ErrorCode, Layer, Stability};
 use super::naming::{pascal, snake};
 use super::open_values::{self, OpenValues};
 use super::{Generated, TypesFile};
@@ -73,6 +74,24 @@ fn open_values_module(layer: &Layer, open: &[(String, OpenValues)]) -> String {
 /// The hand-written module of Collie's client package that declares the
 /// base of every exception class, which every layer's classes extend.
 const GOODFETCH_ERROR_MODULE: &str = "goodfetch_collie_client.goodfetch_error";
+
+/// The hand-written base, outside `Exception`, of the one code's class that
+/// a program's `except Exception:` must let through (ADR 0093).
+const BASE_ERROR: &str = "BaseGoodfetchError";
+
+/// What the docstring of `attempt_ended`'s class adds to the catalog's
+/// description, which every language shares.
+const ATTEMPT_ENDED_BASE: &str = "In Python it derives from `BaseException`, not `GoodfetchError`, as `asyncio.CancelledError` sits outside `Exception`, so a handler's `except Exception:` lets it through to what runs the attempt; it still carries its code and group (ADR 0093).";
+
+/// The class Python declares `code`'s class on: its group's, or for
+/// `attempt_ended`, which ends a crawl handler's attempt, `BaseGoodfetchError`.
+fn base_class(code: &ErrorCode) -> String {
+    if code.name == ATTEMPT_ENDED.name {
+        BASE_ERROR.to_owned()
+    } else {
+        group_class(&code.group)
+    }
+}
 
 /// How `xtask codegen` runs `datamodel-code-generator`.
 pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 19] = [
@@ -605,6 +624,32 @@ fn group_class(group: &str) -> String {
     format!("{}Error", pascal(group))
 }
 
+/// The rest of the import lines of Foxhound's `errors` module: the group
+/// classes from Collie's, and the base outside `Exception` when a code's
+/// class derives from it.
+fn foxhound_error_imports(layer: &Layer) -> String {
+    let imported: BTreeSet<String> = layer
+        .error_codes
+        .iter()
+        .map(base_class)
+        .filter(|class| class != BASE_ERROR)
+        .collect();
+    let names: Vec<&String> = imported.iter().collect();
+    let base = if layer
+        .error_codes
+        .iter()
+        .any(|code| base_class(code) == BASE_ERROR)
+    {
+        format!("{BASE_ERROR}, ")
+    } else {
+        String::new()
+    };
+    format!(
+        ", Unpack\n\nfrom {CLIENT_PACKAGE}.errors import {}\nfrom {GOODFETCH_ERROR_MODULE} import {base}ErrorClass, ErrorFields\n",
+        join(&names)
+    )
+}
+
 fn errors(layer: &Layer) -> String {
     let product = layer.product.name();
     let mut text = header(&format!(
@@ -642,19 +687,7 @@ fn errors(layer: &Layer) -> String {
                 ));
             }
         }
-        Product::Foxhound => {
-            let imported: BTreeSet<String> = layer
-                .error_codes
-                .iter()
-                .map(|code| group_class(&code.group))
-                .collect();
-            let names: Vec<&String> = imported.iter().collect();
-            let _ = writeln!(
-                text,
-                ", Unpack\n\nfrom {CLIENT_PACKAGE}.errors import {}\nfrom {GOODFETCH_ERROR_MODULE} import ErrorClass, ErrorFields",
-                join(&names)
-            );
-        }
+        Product::Foxhound => text.push_str(&foxhound_error_imports(layer)),
     }
     let mut registry = Vec::new();
     for code in &layer.error_codes {
@@ -664,15 +697,15 @@ fn errors(layer: &Layer) -> String {
         if code.name == code.group {
             continue;
         }
-        let group = group_class(&code.group);
+        let base = base_class(code);
         let class = format!("{}Error", pascal(&code.name));
-        let _ = write!(text, "\n\nclass {class}({group}):\n");
-        text.push_str(&docstring(
-            "    ",
-            &code.description,
-            Stability::Stable,
-            None,
-        ));
+        let _ = write!(text, "\n\nclass {class}({base}):\n");
+        let description = if base == BASE_ERROR {
+            format!("{}\n\n{ATTEMPT_ENDED_BASE}", code.description)
+        } else {
+            code.description.clone()
+        };
+        text.push_str(&docstring("    ", &description, Stability::Stable, None));
         let _ = write!(
             text,
             "\n    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:\n        \"\"\"Takes the message the engine rendered, and what it carries.\"\"\"\n        super().__init__(message, code={:?}, group={:?}, retryable={}, **fields)\n",

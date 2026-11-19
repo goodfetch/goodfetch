@@ -10,7 +10,7 @@ use goodfetch_protocol::effect::UncertainReason;
 use goodfetch_protocol::run::{RunReport, UncertainEffect};
 use hkdf::Hkdf;
 use rusqlite::types::Type;
-use rusqlite::{Connection, OptionalExtension as _};
+use rusqlite::{Connection, OptionalExtension as _, ToSql as _};
 use sha2::Sha256;
 
 use super::Reconciliation;
@@ -286,8 +286,10 @@ pub(super) fn mark_sent(
         "UPDATE effect_journal SET state = 'sent', first_command = ?2, since = ?3 \
          WHERE entry = ?1 AND state = 'open'",
     )?;
+    let since = StoredTime(since);
+    let since = since.to_sql()?;
     for entry in entries {
-        statement.execute((entry, first_command, StoredTime(since)))?;
+        statement.execute((entry, first_command, &since))?;
     }
     Ok(())
 }

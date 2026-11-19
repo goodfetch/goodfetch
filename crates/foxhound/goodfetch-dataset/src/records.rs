@@ -23,7 +23,7 @@ use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::DatasetRecord;
 use goodfetch_protocol::foxhound::outcomes::DatasetRecords;
 use goodfetch_protocol::foxhound::provenance::RecordProvenance;
-use rusqlite::Connection;
+use rusqlite::{Connection, ToSql as _};
 
 use crate::rejections::{self, Rejection};
 
@@ -122,6 +122,9 @@ pub fn commit(
         &serde_json::to_value(committing.provenance).expect("invariant: a Provenance encodes"),
         Scope::Kept,
     );
+    // The commit's time, written once for all of its Records.
+    let committed_at = StoredTime(*committing.at);
+    let committed_at = committed_at.to_sql()?;
     let mut counted: Vec<DatasetRecords> = Vec::new();
     let work = committing.work;
     for (record, schema_hash) in records.records.iter().zip(&records.schema_hashes) {
@@ -132,7 +135,7 @@ pub fn commit(
             &record.dataset,
             committing.request_id,
             committing.url,
-            StoredTime(*committing.at),
+            &committed_at,
             masks.json(&record.data, Scope::Kept),
             schema_hash.as_deref(),
             &provenance,

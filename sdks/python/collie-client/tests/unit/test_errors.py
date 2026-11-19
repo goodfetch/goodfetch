@@ -202,23 +202,55 @@ def test_an_error_with_no_call_log_has_an_empty_one() -> None:
 @pytest.mark.parametrize(
     ("code", "class_name", "group", "retryable"),
     [
-        (
+        pytest.param(
             "browser_host_unreachable",
             "BrowserHostUnreachableError",
             "unavailable",
             True,
+            id="browser_host_unreachable",
         ),
-        ("browser_host_outdated", "BrowserHostOutdatedError", "unavailable", False),
-        (
+        pytest.param(
+            "browser_host_outdated",
+            "BrowserHostOutdatedError",
+            "unavailable",
+            False,
+            id="browser_host_outdated",
+        ),
+        pytest.param(
             "executable_blocked_by_smart_app_control",
             "ExecutableBlockedBySmartAppControlError",
             "refused",
             False,
+            id="executable_blocked_by_smart_app_control",
         ),
-        ("confinement_unavailable", "ConfinementUnavailableError", "refused", False),
-        ("challenge_unsolved", "ChallengeUnsolvedError", "page", False),
-        ("plugin_crashed", "PluginCrashedError", "unavailable", True),
-        ("person_required", "PersonRequiredError", "refused", False),
+        pytest.param(
+            "confinement_unavailable",
+            "ConfinementUnavailableError",
+            "refused",
+            False,
+            id="confinement_unavailable",
+        ),
+        pytest.param(
+            "challenge_unsolved",
+            "ChallengeUnsolvedError",
+            "page",
+            False,
+            id="challenge_unsolved",
+        ),
+        pytest.param(
+            "plugin_crashed",
+            "PluginCrashedError",
+            "unavailable",
+            True,
+            id="plugin_crashed",
+        ),
+        pytest.param(
+            "person_required",
+            "PersonRequiredError",
+            "refused",
+            False,
+            id="person_required",
+        ),
     ],
 )
 def test_the_codes_areas_5_7_and_8_add_have_their_class_under_their_group(

@@ -470,3 +470,73 @@ fn dropping_an_unclosed_value_sends_its_close_without_waiting_and_warns() {
         assert!(warning.contains(named), "{log}");
     }
 }
+
+/// A Connection's close that `timeout.close` cuts short, its first Run's
+/// abort unanswered, still leaves every Run it started closed: dropping
+/// the Run it had not reached yet sends nothing and does not warn.
+/// Covers: story:11-19, story:11-21
+#[test]
+fn a_run_a_timed_out_connection_close_did_not_reach_is_closed_all_the_same() {
+    let (network, mut lines, mut writer) = scripted();
+    let runtime = goodfetch_test_support::runtime();
+    let (release, released) = tokio::sync::oneshot::channel::<()>();
+    let ((connection_closed, unanswered), log) = logged(|| {
+        runtime.block_on(async {
+            let peer = async {
+                let hello = lines.next_line().await.unwrap().unwrap();
+                writer.write_all(&reply(&hello, &said())).await.unwrap();
+                for run_id in ["01ke6p4ym0j8x3v5wq2rtbn7hc", "01ke6p4ym0j8x3v5wq2rtbn7hd"] {
+                    let start = lines.next_line().await.unwrap().unwrap();
+                    let started = json!({"run_id": run_id, "lifecycle": "running", "needs": "collie", "started_as": "new"});
+                    writer.write_all(&reply(&start, &started)).await.unwrap();
+                }
+                let mut unanswered = Vec::new();
+                while let Some(line) = lines.next_line().await.unwrap() {
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    unanswered.push((
+                        request["method"].as_str().unwrap().to_owned(),
+                        request["params"]["run_id"].clone(),
+                    ));
+                }
+                // The engine keeps its output open past the client's close.
+                released.await.unwrap();
+                writer.shutdown().await.unwrap();
+                unanswered
+            };
+            let client = async {
+                let (connection, _) = ClientConnection::open(
+                    ConnectionRuntime::driven(tokio::runtime::Handle::current()),
+                    &network,
+                    &Endpoint::InMemory,
+                    // The `trace` that `logged` records, so the start
+                    // tells the engine no other level.
+                    HelloParams {
+                        log_level: Some(LogLevel::Trace),
+                        ..hello()
+                    },
+                )
+                .await
+                .unwrap();
+                let first = connection.start().await.unwrap();
+                let second = connection.start().await.unwrap();
+                let connection_closed = connection.close().await;
+                drop(second);
+                drop(first);
+                release.send(()).unwrap();
+                connection_closed
+            };
+            tokio::join!(client, peer)
+        })
+    });
+
+    assert!(
+        matches!(&connection_closed, Err(error) if error.code() == ErrorCode::DEADLINE_EXCEEDED),
+        "{connection_closed:?}"
+    );
+    assert_eq!(
+        unanswered,
+        [("run.abort".to_owned(), json!("01ke6p4ym0j8x3v5wq2rtbn7hc"))]
+    );
+    let log = String::from_utf8(log).unwrap();
+    assert!(!log.contains("without close()"), "{log}");
+}

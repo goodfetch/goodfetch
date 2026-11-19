@@ -451,7 +451,8 @@ impl ClientConnection {
     }
 
     /// Closes the Connection: first every Run it started that is still
-    /// open, as [`crate::Run::close`] does, then every call in flight fails with
+    /// open, as [`crate::Run::close`] does, each closed at once even when
+    /// `timeout.close` runs out before its abort, then every call in flight fails with
     /// `closed`, as does every later one; the engine reads the end
     /// of its input, and an Attached engine exits. Returns once the
     /// Connection's tasks have ended, or once `timeout.close` has run out.
@@ -466,8 +467,9 @@ impl ClientConnection {
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future before it completes leaves the Runs it had not
-    /// closed yet open and the Connection open.
+    /// Dropping the future after its first poll leaves every Run it
+    /// started closed, the aborts it had not sent unsent, and the
+    /// Connection open.
     pub async fn close(&self) -> Result<(), Error> {
         if self.0.closed.load(Ordering::Acquire) {
             return Ok(());
@@ -493,13 +495,16 @@ impl ClientConnection {
     /// Closes the Connection as [`ClientConnection::close`] says, however
     /// long it takes.
     async fn close_unbounded(&self) -> Result<(), Error> {
-        let runs: Vec<Arc<dyn Closes>> = std::mem::take(&mut *self.runs())
+        // Every Run is closed before the first abort is sent, so one the
+        // close's timeout cut short before its abort is closed all the same.
+        let closing: Vec<_> = std::mem::take(&mut *self.runs())
             .iter()
             .filter_map(Weak::upgrade)
+            .map(Closes::close)
             .collect();
         let mut closed = Ok(());
-        for run in runs {
-            let result = run.close().await;
+        for run in closing {
+            let result = run.await;
             closed = closed.and(result);
         }
         self.0.sender.close();
@@ -668,7 +673,8 @@ impl Drop for Saving {
 /// What a Connection closes before itself: a Run it started. The `host`
 /// module, above the Connection, implements it (ADR 0126).
 pub(crate) trait Closes: Debug + Send + Sync {
-    /// Closes it, as [`crate::Run::close`] does.
+    /// Closes it at once, as [`crate::Run::close`] does; the future sends
+    /// what the engine is told.
     fn close(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>;
 }
 

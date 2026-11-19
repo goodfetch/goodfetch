@@ -45,7 +45,8 @@ pub(crate) enum Command {
     /// Fails on a case with no test on a surface it lists in one of that
     /// surface's modes, a test carrying an unknown case, a case on a surface
     /// or in a mode the case does not list, or no mode, two cases with one
-    /// ID, a case whose modes are on no surface it lists, and a case list
+    /// ID, a case whose modes are on no surface it lists, a case giving
+    /// modes of their own to a surface it does not list, and a case list
     /// that does not parse. A listed surface whose tests are not read yet is
     /// noted.
     Check {
@@ -179,22 +180,54 @@ struct Case {
     /// The modes it exists in, for a capability that exists in some only;
     /// every mode of each surface otherwise.
     #[serde(default)]
-    modes: Option<Vec<Mode>>,
+    modes: Option<Modes>,
     /// The platforms it runs on, by Rust's `cfg` name (`unix`, `windows`),
     /// for a case a platform lacks; every platform otherwise.
     #[serde(default)]
     platforms: Option<Vec<String>>,
 }
 
+/// The modes a case exists in, for a capability that exists in some only.
+#[derive(Deserialize)]
+#[serde(
+    untagged,
+    expecting = "`modes` takes a list of modes, as [\"attached\"], or a table of each surface's modes, as { sdk-rust = [\"daemon\"] }"
+)]
+enum Modes {
+    /// The same on every surface it lists, as `modes = ["attached"]`.
+    Shared(Vec<Mode>),
+    /// Each surface's own, as `modes = { sdk-rust = ["daemon"] }`, for a
+    /// capability whose modes differ by surface; a surface the table leaves
+    /// out runs in every mode it has.
+    BySurface(BTreeMap<Surface, Vec<Mode>>),
+}
+
 impl Case {
     /// The modes it runs in on `surface`.
     fn modes_on(&self, surface: Surface) -> Vec<Mode> {
+        let listed = match &self.modes {
+            None => None,
+            Some(Modes::Shared(modes)) => Some(modes),
+            Some(Modes::BySurface(by_surface)) => by_surface.get(&surface),
+        };
         surface
             .modes()
             .iter()
             .copied()
-            .filter(|mode| self.modes.as_ref().is_none_or(|modes| modes.contains(mode)))
+            .filter(|mode| listed.is_none_or(|modes| modes.contains(mode)))
             .collect()
+    }
+
+    /// The surfaces it gives modes of their own to without listing them.
+    fn unlisted_with_modes(&self) -> impl Iterator<Item = Surface> + '_ {
+        let by_surface = match &self.modes {
+            Some(Modes::BySurface(by_surface)) => Some(by_surface.keys().copied()),
+            None | Some(Modes::Shared(_)) => None,
+        };
+        by_surface
+            .into_iter()
+            .flatten()
+            .filter(|surface| !self.surfaces.contains(surface))
     }
 
     /// Whether a test with these gates runs wherever the case does: one
@@ -303,6 +336,13 @@ fn check_case(
     findings: &mut Vec<Finding>,
     notes: &mut Vec<Finding>,
 ) {
+    for surface in case.unlisted_with_modes() {
+        findings.push(Finding::new(
+            "modes-unlisted-surface",
+            format!("{} {surface}", case.id),
+            "the case gives this surface modes of its own but does not list it in `surfaces`",
+        ));
+    }
     for &surface in &case.surfaces {
         let modes = case.modes_on(surface);
         if modes.is_empty() {

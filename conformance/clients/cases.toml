@@ -1,10 +1,12 @@
 # The Client conformance case list (ADR 0069; TESTING.md, SDKs): each case,
 # by capability, with the Features it covers (ADR 0072), the surfaces it
 # applies to and, where a mode does not have its capability yet, its
-# `modes`. Every surface a case lists implements it in each of its modes;
-# `xtask clients check` fails on a missing one or an unknown ID. Area 11
-# writes the cases; each joins with the ticket whose code satisfies it.
-# Bump the version whenever a case changes.
+# `modes`: one list for every surface, or a table giving a surface modes of
+# its own, as `modes = { sdk-rust = ["daemon"] }`, where a surface the table
+# leaves out takes every mode it has. Every surface a case lists implements
+# it in each of its modes; `xtask clients check` fails on a missing one or an
+# unknown ID. Area 11 writes the cases; each joins with the ticket whose code
+# satisfies it. Bump the version whenever a case changes.
 #
 # The `sdk-typescript` and `sdk-python` cases below run in the `attached`
 # mode only: the Daemon transport (#220 and area 11's Daemon ticket) adds
@@ -64,7 +66,9 @@ modes = ["attached"]
 # `with` was unwinding from in Python (issue 2927). The Rust SDK joins with
 # issue 2928, linked, where a real engine plays every case but the failed
 # close, which only the Scripted engine plays, reached by Rust as a Daemon:
-# Rust's `daemon` mode, which these cases' other surfaces do not list yet.
+# Rust's `daemon` mode, which the other cases' other surfaces do not list
+# yet. In Rust only a Daemon fails a close, so the failed close lists
+# `sdk-rust` in `daemon` mode alone (issue 2974).
 [[capability.case]]
 id = "children-close-with-their-parent"
 covers = ["story:11-16"]
@@ -86,8 +90,8 @@ modes = ["attached", "linked"]
 [[capability.case]]
 id = "failed-close-raises-a-typed-error"
 covers = ["story:11-20"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
 # The catalog's operations reach the engine through the members generated
 # from them (ADR 0099; issues 2399, 1233 and 2793): attached in TypeScript

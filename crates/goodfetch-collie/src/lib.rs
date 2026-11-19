@@ -45,6 +45,7 @@ mod block_detection;
 pub mod blocking;
 mod collie;
 mod composition;
+mod engine_choice;
 #[cfg(feature = "executable")]
 pub mod executable;
 pub mod linked;
@@ -54,6 +55,7 @@ mod sample;
 
 pub use collie::Collie;
 pub use composition::{composition, composition_with};
+pub use engine_choice::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
 pub use goodfetch_collie_client::{
     BoxError, Call, Connection, Error, ErrorCode, ErrorDetails, EventStream, Exchange, FieldValues,
     Limits, Locator, Money, MoneyError, Page, Query, Response, Run, Session, Start, UsageKind,

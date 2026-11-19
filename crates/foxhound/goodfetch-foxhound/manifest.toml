@@ -19,7 +19,7 @@ crate = "goodfetch-foxhound"
 receiver = "Foxhound"
 member = "connect"
 entry = "none"
-reason = "The one factory of ADR 0078, as `Collie::connect` is: it starts the linked Foxhound engine the crate composes (ADR 0087) and finishes `hello`, naming Foxhound, which no catalog entry carries, then sends each of its options' `limits` as a `usage.set` on its Client connection (ADR 0080)."
+reason = "The one factory of ADR 0078, as `Collie::connect` is: it reaches the engine its options' `engine` chooses, at `Auto` the remote Daemon `GOODFETCH_URL` names, else the Daemon running in the Goodfetch home, else the linked Foxhound engine the crate composes (ADRs 0087 and 0098), and finishes `hello`, naming Foxhound, which no catalog entry carries, then sends each of its options' `limits` as a `usage.set` on its Client connection (ADR 0080)."
 words = ["connect"]
 form = "opener"
 
@@ -46,9 +46,18 @@ crate = "goodfetch-foxhound"
 receiver = "Foxhound"
 member = "close"
 entry = "none"
-reason = "Closes the Connection's Runs, then ends the linked engine's input and waits for it (ADR 0078); `Collie::close`'s member under the same name."
+reason = "Closes the Connection's Runs, then ends the linked engine's input and waits for it, or closes its Daemon connection (ADR 0078); `Collie::close`'s member under the same name."
 words = ["close"]
 form = "closer"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Foxhound"
+member = "engine"
+entry = "none"
+reason = "Answered from the engine's reply to `hello` (ADR 0095), with no round trip; `Collie::engine`'s member under the same name."
+words = ["engine"]
+form = "read"
 
 [[member]]
 crate = "goodfetch-foxhound"
@@ -76,6 +85,15 @@ reason = "`Foxhound::close` without async (ADR 0081)."
 words = ["close"]
 form = "closer"
 
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Foxhound"
+member = "engine"
+entry = "none"
+reason = "`Foxhound::engine`, which never blocks (ADR 0081)."
+words = ["engine"]
+form = "read"
+
 # Limits in code (ADR 0080): `ConnectOptions::limits` and `Start::limits`
 # are Collie's, re-exported with `Limits`, `Money` and `UsageKind`; Foxhound
 # adds the Usage kind only it counts.
@@ -93,7 +111,7 @@ form = "constant"
 crate = "goodfetch-collie-client"
 name = "goodfetch::client"
 constant = "logging::CLIENT"
-reason = "The SDK's runtime: a log level the engine refused, at warning, a handle dropped unclosed, and what the Connection saw of its engine's messages, at debug and trace."
+reason = "The SDK's runtime: the engine `connect()` reached, at info; a log level the engine refused, at warning, a handle dropped unclosed, and what the Connection saw of its engine's messages, at debug and trace."
 
 [[target]]
 crate = "goodfetch-collie-client"

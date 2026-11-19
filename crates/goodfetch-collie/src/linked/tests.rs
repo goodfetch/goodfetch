@@ -13,7 +13,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::NotInProductDetails;
 use goodfetch_test_support::{TestEnv, real_time_runtime};
 
-use super::{Composed, ConnectOptions, LinkedConnection, version};
+use super::{Composed, ConnectOptions, ProductConnection, version};
 
 /// The engine fails `hello` before any other call, with its Product and
 /// version, the Product needed, and a fix that names the install command
@@ -24,7 +24,7 @@ fn a_connection_that_needs_foxhound_fails_on_a_collie_engine_with_not_in_product
     let env = TestEnv::new();
     let options = ConnectOptions::default().environment(env.env_os());
 
-    let failed = real_time_runtime().block_on(LinkedConnection::connect_needing(
+    let failed = real_time_runtime().block_on(ProductConnection::connect_needing(
         Composed::COLLIE,
         Product::Foxhound,
         options,

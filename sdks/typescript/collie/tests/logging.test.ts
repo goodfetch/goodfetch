@@ -79,7 +79,9 @@ describe("the host's logger on the Scripted engine as the Attached engine", () =
       await (await collie.start({ runId: "second" })).finish();
       await collie.close();
 
-      expect(logged.map(({ method, fields }) => [method, fields?.["logLevel"]])).toEqual([
+      // Without the engine `connect()` reached, logged at info, which engine-choice.test.ts checks.
+      const afterConnect = logged.filter(({ fields }) => fields?.["engine"] === undefined);
+      expect(afterConnect.map(({ method, fields }) => [method, fields?.["logLevel"]])).toEqual([
         ["warn", "warn"],
       ]);
     },

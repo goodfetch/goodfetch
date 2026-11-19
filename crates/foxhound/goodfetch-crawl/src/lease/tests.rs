@@ -1,6 +1,6 @@
 //! A lease's rules as pure functions of a monotonic reading, with no clock;
-//! the waiting loop of an attempt's lease in process on the paused `Clock`
-//! with a default-length lease (ADR 0059); and the model-based test of
+//! the waiting loop of an attempt's lease and its handler's end in process
+//! on the paused `Clock` (ADR 0059); and the model-based test of
 //! leases and commits on real SQLite (`model`).
 #![expect(
     clippy::disallowed_methods,
@@ -222,18 +222,17 @@ fn no_handler_call_sent_encloses_nothing() {
     });
 }
 
-/// A handler's wait for a navigation-gate permit renews its lease (ADR
-/// 0093), and the renewal moves the handler's end later, so the wait does
-/// not count toward `timeout.handler`.
+/// A renewal of its lease moves the handler's end later by as much, so a
+/// call still waiting at the end the handler had keeps its answer.
 ///
 /// Covers: story:11-41
 #[test]
-fn a_renewal_during_a_permit_wait_moves_the_handlers_end_later() {
+fn a_renewal_moves_the_handlers_end_later() {
     on_paused_clock(async |leases, clock| {
         let lease = leases.grant("1", 1, DEFAULT_LEASE);
         lease.handler_sent(RequestId::Number(4));
         let handler = lease.enclosing().expect("a handler call was sent");
-        let waiting_for_a_permit = async {
+        let renewed = async {
             clock.sleep(Duration::from_secs(50)).await;
             lease.renew(DEFAULT_LEASE);
         };
@@ -242,10 +241,7 @@ fn a_renewal_during_a_permit_wait_moves_the_handlers_end_later() {
             Ok("clicked")
         };
 
-        let ((), answer) = tokio::join!(
-            waiting_for_a_permit,
-            handler.bound(&clock, answered, || None)
-        );
+        let ((), answer) = tokio::join!(renewed, handler.bound(&clock, answered, || None));
 
         assert_eq!(answer.ok(), Some("clicked"));
     });
@@ -263,13 +259,9 @@ fn a_renewal_during_a_permit_wait_moves_the_handlers_end_later() {
 /// Covers: story:11-41
 #[test]
 fn a_permit_wait_longer_than_the_handlers_timeout_ends_none_of_its_calls() {
-    goodfetch_test_support::runtime().block_on(async {
-        let clock = Clock::paused(std::time::UNIX_EPOCH);
-        let leases = Leases::new(clock, "waiting", 1).handled_under(Deadline::given(
-            &TIMEOUT_HANDLER,
-            1_000,
-            SettingsLayer::Run,
-        ));
+    on_paused_clock(async |leases, clock| {
+        let leases =
+            leases.handled_under(Deadline::given(&TIMEOUT_HANDLER, 1_000, SettingsLayer::Run));
         let start = clock.now();
         let lease = leases.grant("1", 1, Duration::from_secs(11));
         lease.handler_sent(RequestId::Number(4));
@@ -307,21 +299,5 @@ fn a_permit_wait_longer_than_the_handlers_timeout_ends_none_of_its_calls() {
                 (Err("deadline_exceeded"), Duration::from_secs(13))
             )
         );
-    });
-}
-
-/// Once the lease ended, nothing encloses its handler's page calls: the
-/// lease check refuses them with `attempt_ended` (ADRs 0003 and 0087), not
-/// the handler's end, passed long before, with `deadline_exceeded`.
-///
-/// Covers: story:3-42
-#[test]
-fn an_ended_lease_encloses_nothing() {
-    on_paused_clock(async |leases, clock| {
-        let lease = leases.grant("1", 1, DEFAULT_LEASE);
-        lease.handler_sent(RequestId::Number(4));
-        clock.sleep(DEFAULT_LEASE).await;
-
-        assert!(lease.enclosing().is_none());
     });
 }

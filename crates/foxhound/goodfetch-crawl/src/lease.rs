@@ -368,17 +368,26 @@ pub(crate) enum CommitError {
 impl WorkItemLease {
     /// Renews it for `length` from now; one that ended stays ended.
     pub(crate) fn renew(&self, length: Duration) {
+        self.renew_counting(length, |_| false);
+    }
+
+    /// Renews it for `length` from now, unless it ended, in the same step
+    /// as `count` changes its count of permit waits under way, so its
+    /// handler's end never reads one without the other; `count` says
+    /// whether it changed the count.
+    fn renew_counting(&self, length: Duration, count: impl FnOnce(&mut u32) -> bool) {
         let now = self.0.leases.clock.now();
         let mut renewed = None;
         self.0.state.send_if_modified(|held| {
+            let counted = count(&mut held.permit_waits);
             if held.released || !held.lease.holds_at(now) {
-                return false;
+                return counted;
             }
             let lease = held.lease.renewed(now, length);
             renewed = Some(lease);
             let lengthened = lease != held.lease;
             held.lease = lease;
-            lengthened
+            counted || lengthened
         });
         if let Some(lease) = renewed {
             self.trace("renew", &lease, None);
@@ -391,9 +400,9 @@ impl WorkItemLease {
     }
 
     /// Holds it through a wait of its handler's for a navigation gate's
-    /// permit, until `wait_ended` (ADR 0093): renews it now and every
-    /// quarter of its length, and its handler's time does not run
-    /// meanwhile; at the wait's end, renews it once more, and the
+    /// permit, until `wait_ended` (ADR 0093): renews it now and
+    /// `RENEWALS_PER_LENGTH` times per length, and its handler's time does
+    /// not run meanwhile; at the wait's end, renews it once more, and the
     /// handler's time runs again from there.
     ///
     /// # Cancel safety
@@ -402,7 +411,10 @@ impl WorkItemLease {
     /// until the lease runs out.
     pub(crate) async fn held_through_permit_wait(&self, wait_ended: impl Future) {
         let length = self.0.length;
-        self.permit_wait(1);
+        self.renew_counting(length, |waits| {
+            *waits += 1;
+            true
+        });
         tokio::pin!(wait_ended);
         loop {
             tokio::select! {
@@ -410,26 +422,12 @@ impl WorkItemLease {
                 () = self.0.leases.clock.sleep(length / RENEWALS_PER_LENGTH) => self.renew(length),
             }
         }
-        self.permit_wait(-1);
-    }
-
-    /// Counts `change` more of its handler's permit waits under way,
-    /// renewing it for its length in the same step, so its handler's end
-    /// never reads a wait's count without the renewal that goes with it.
-    fn permit_wait(&self, change: i32) {
-        let now = self.0.leases.clock.now();
-        let length = self.0.length;
-        let mut renewed = None;
-        self.0.state.send_modify(|held| {
-            held.permit_waits = held.permit_waits.saturating_add_signed(change);
-            if !held.released && held.lease.holds_at(now) {
-                held.lease = held.lease.renewed(now, length);
-                renewed = Some(held.lease);
-            }
+        self.renew_counting(length, |waits| {
+            *waits = waits
+                .checked_sub(1)
+                .expect("invariant: a permit wait ends after it began");
+            true
         });
-        if let Some(lease) = renewed {
-            self.trace("renew", &lease, None);
-        }
     }
 
     /// Keeps the handler call `id`, sent under it, as the call enclosing
@@ -464,13 +462,8 @@ impl WorkItemLease {
     }
 
     /// The end of the handler call last sent under it ([`Self::handler_sent`]);
-    /// none until one is sent, and a code-free crawl sends none. None too
-    /// once the lease ended: the lease check then refuses its page's calls
-    /// with `attempt_ended` (ADRs 0003 and 0087), which the handler's end,
-    /// passed before the lease's, would otherwise answer first with
-    /// `deadline_exceeded`.
+    /// none until one is sent, and a code-free crawl sends none.
     pub(crate) fn enclosing(&self) -> Option<Enclosing> {
-        self.check().ok()?;
         self.0.handler.borrow().clone()
     }
 

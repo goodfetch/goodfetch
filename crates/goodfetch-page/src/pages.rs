@@ -237,10 +237,15 @@ fn enclosing_handler(pages: &Pages) -> Enclose {
             let Ok(page) = sessions.page(&page_id).await else {
                 return answer.await;
             };
+            // Past its lease, the page refuses the call itself with
+            // `attempt_ended` (ADRs 0003 and 0087), which the handler's
+            // end, passed before the lease's, would answer first with
+            // `deadline_exceeded`.
             let Some(enclosing) = page
                 .driver
                 .value()
                 .lease()
+                .filter(|lease| lease.check().is_ok())
                 .and_then(|lease| lease.enclosing())
             else {
                 return answer.await;

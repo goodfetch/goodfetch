@@ -175,7 +175,10 @@ class Reader:
     takes: Callable[[str, object], bool]
     """Whether it takes an event, by name and data, such as a page of its Session."""
     take: Callable[[object, Callable[[], None]], None]
-    """Takes an event's data; the callable hears once its listener is through."""
+    """Takes an event's data; the callable hears once its listener is through.
+
+    Calling it again does nothing.
+    """
     ended: Callable[[GoodfetchError | None], None]
     """Hears that the Subscription ended unasked, which it no longer reads.
 
@@ -477,13 +480,20 @@ class _Published(_Subscribed[_Model]):
                 try:
                     await self._shared.join(self._reader)
                     if not self._closed:
+                        # It leaves as the call ends, before the close's hold is set.
                         await self._call()
                 finally:
+                    # Also when the call was never sent.
                     await self._called()
             # What it took before it left is still delivered.
 
     async def _called(self) -> None:
-        """Leaves the Subscription, then settles each event its listener still holds."""
+        """Leaves the Subscription, then settles each event its listener still holds.
+
+        Once: it does nothing when it already left.
+        """
+        if self._left:
+            return
         await self._shared.leave(self._reader)
         self._left = True
         held = list(self._held)
@@ -497,17 +507,16 @@ class _Published(_Subscribed[_Model]):
 
     def _take(self, data: object, settled: Callable[[], None]) -> None:
         """Queues one event's payload; it runs on the reading task, so never blocks."""
-        held = once(settled)
         taken = self._taken
         if self._left or self._closed or taken is None:
-            held()
+            settled()
             return
-        self._held[held] = None
+        self._held[settled] = None
         try:
-            taken.send_nowait((data, held))
+            taken.send_nowait((data, settled))
         except (anyio.ClosedResourceError, anyio.BrokenResourceError):
-            self._held.pop(held, None)
-            held()
+            self._held.pop(settled, None)
+            settled()
 
     def _shared_ended(self, error: GoodfetchError | None) -> None:
         """The Subscription ended unasked: the listener goes; its value hears why."""

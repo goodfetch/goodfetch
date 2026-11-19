@@ -162,8 +162,8 @@ class _Open:
 
     async def run(self) -> None:
         """Sends `events.subscribe` and grants its credits until it ends."""
+        error: GoodfetchError | None = None
         try:
-            error: GoodfetchError | None = None
             async with anyio.create_task_group() as group:
                 group.start_soon(self._grant_all)
                 with self._call:
@@ -174,13 +174,14 @@ class _Open:
                     except GoodfetchError as failure:
                         error = failure
                 group.cancel_scope.cancel()
-            if not self._stopping:
-                self._shared.ended(self, error)
         except Exception:
             # A spawned task has no caller to raise to.
             _logger.exception("invariant: the Connection's Subscription failed")
         finally:
             self._grants.close()
+            # Its readers hear it ended, so the next to join sends another.
+            if not self._stopping:
+                self._shared.ended(self, error)
             self.ready.set()
             self.done.set()
 

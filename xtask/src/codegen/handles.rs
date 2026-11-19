@@ -13,10 +13,13 @@
 //!   `timeout`, and a waiter's name starts with `wait_for`. A round trip
 //!   named `new_<value>` opens that value, whose ID its result carries, and
 //!   a handle's own `close` that takes no required parameter closes it. An
-//!   event named `on` of a namespace in [`LISTENERS`], whose one required
-//!   parameter is the event listened to, is the handle's listener (ADR
-//!   0081): each value of that parameter names the event
-//!   `<namespace>.<value>`, whose payload the listener gets. A read, a sequence and another event get their forms
+//!   event named `on` of a namespace in [`LISTENERS`] or
+//!   [`PUBLISHED_LISTENERS`], whose one required parameter is the event
+//!   listened to, is the handle's listener (ADR 0081): each value of that
+//!   parameter names the event `<namespace>.<value>`, whose payload the
+//!   listener gets, or the handle it names when it is what an opener of
+//!   another handle answers. A published event's payload names its handle
+//!   by the handle's ID. A read, a sequence and another event get their forms
 //!   with their own tickets (issue 1233), as does an opener, which opens its
 //!   own namespace's value.
 //! - A prefix has one meaning: `new_` starts a round trip or an opener,
@@ -48,9 +51,13 @@ use super::layer::{Kind, Layer, Operation};
 pub(super) const HANDLES: [&str; 4] = ["run", "session", "page", "locator"];
 
 /// The namespaces whose `on` the generators write as a listener (ADR 0081),
-/// which gets its events on its own call. `session.on` publishes on the
-/// shared event stream instead, so it joins with its own ticket.
+/// which gets its events on its own call.
 pub(super) const LISTENERS: [&str; 1] = ["page"];
+
+/// The namespaces whose `on` the generators write as a listener whose
+/// events the engine publishes on its event stream (ADR 0081), which the
+/// Connection's own Subscription reads; the call only arms it.
+pub(super) const PUBLISHED_LISTENERS: [&str; 1] = ["session"];
 
 /// The parameter that names a handle in its operations' params.
 pub(super) struct HandleId {
@@ -90,12 +97,13 @@ pub(super) enum Form {
 }
 
 /// A handle's `on`, which registers a listener for one of its events (ADR
-/// 0081): its call stays in flight and gets them. TypeScript and Python
-/// write it so far, Rust with issue 2933.
+/// 0081): its call stays in flight and gets them.
 pub(super) struct Listener<'a> {
     pub(super) operation: &'a Operation,
     /// The parameter that names the event listened to, such as `event`.
     pub(super) param: String,
+    /// Its type in the bundle, such as `PageEventName`.
+    pub(super) event_type: String,
     /// The events it listens to, in the order its parameter's type lists them.
     pub(super) events: Vec<Listened>,
 }
@@ -108,6 +116,10 @@ pub(super) struct Listened {
     pub(super) payload: String,
     /// Its description in the catalog.
     pub(super) description: String,
+    /// The namespace of the handle its listener gets in place of its
+    /// payload, which is what an opener of that handle answers, such as
+    /// `page` for `session.page`'s `PageOpened`.
+    pub(super) builds: Option<&'static str>,
 }
 
 impl Listened {
@@ -187,6 +199,9 @@ pub(super) struct Handle<'a> {
     pub(super) sub_objects: Vec<SubObject<'a>>,
     /// Its `on`, when its namespace is one of [`LISTENERS`].
     pub(super) listener: Option<Listener<'a>>,
+    /// Its `on`, when its namespace is one of [`PUBLISHED_LISTENERS`].
+    /// TypeScript writes it so far.
+    pub(super) published_listener: Option<Listener<'a>>,
 }
 
 impl Handle<'_> {
@@ -199,6 +214,7 @@ impl Handle<'_> {
             builders: Vec::new(),
             sub_objects: Vec::new(),
             listener: None,
+            published_listener: None,
         }
     }
 
@@ -438,7 +454,8 @@ fn listener<'a>(
             operation.name
         );
     };
-    let values = referenced(&schema["properties"][event])
+    let event_type = referenced(&schema["properties"][event]);
+    let values = event_type
         .and_then(|type_name| layer.definitions.get(type_name))
         .and_then(|definition| definition["oneOf"].as_array())
         .and_then(|variants| {
@@ -447,7 +464,8 @@ fn listener<'a>(
                 .map(|variant| variant["const"].as_str())
                 .collect::<Option<Vec<_>>>()
         });
-    let Some(values) = values.filter(|values| !values.is_empty()) else {
+    let (Some(event_type), Some(values)) = (event_type, values.filter(|values| !values.is_empty()))
+    else {
         bail!(
             "operation `{}`: its `{event}` is a type of its own whose values name the events listened to (ADR 0081)",
             operation.name
@@ -467,14 +485,49 @@ fn listener<'a>(
                 wire: wire.to_owned(),
                 payload: found.payload.0.clone(),
                 description: found.description.clone(),
+                builds: opened_by(layer, &found.payload.0),
             })
         })
         .collect::<Result<_>>()?;
     Ok(Listener {
         operation,
         param: event.clone(),
+        event_type: event_type.to_owned(),
         events,
     })
+}
+
+/// The namespace of the handle whose opener answers `payload`, a round trip
+/// named `new_<namespace>` of a namespace in [`HANDLES`], if one does.
+fn opened_by(layer: &Layer, payload: &str) -> Option<&'static str> {
+    layer.operations.iter().find_map(|operation| {
+        let (_, name) = operation.name.rsplit_once('.')?;
+        let opened = name.strip_prefix("new_")?;
+        let namespace = HANDLES.into_iter().find(|handle| *handle == opened)?;
+        (operation.kind == Kind::RoundTrip && operation.result.0 == payload).then_some(namespace)
+    })
+}
+
+/// Fails unless each event of `listener`, whose events the engine
+/// publishes on its event stream, names its handle by `id` in its payload,
+/// which is how a listener tells its own handle's events from another's.
+fn names_its_handle(layer: &Layer, listener: &Listener<'_>, id: &HandleId) -> Result<()> {
+    for listened in &listener.events {
+        let named = layer
+            .definitions
+            .get(&listened.payload)
+            .is_some_and(|payload| payload["properties"].get(&id.param).is_some());
+        if !named {
+            bail!(
+                "operation `{}`: its event `{}`'s payload `{}` names no `{}`, which tells its handle's events on the event stream from another's (ADR 0081)",
+                listener.operation.name,
+                listened.wire,
+                listened.payload,
+                id.param
+            );
+        }
+    }
+    Ok(())
 }
 
 /// The handles of `layer`'s operations, in [`HANDLES`]' order; a namespace
@@ -502,16 +555,33 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
             let Some(id) = handle_id(namespace, operation, schema)? else {
                 continue;
             };
-            if operation.kind == Kind::Event
-                && sub_object.is_none()
-                && name == "on"
-                && LISTENERS.contains(&namespace)
-            {
-                let listener = listener(layer, namespace, operation, schema)?;
-                found
-                    .get_or_insert_with(|| Handle::of(namespace, id))
-                    .listener = Some(listener);
-                continue;
+            if operation.kind == Kind::Event && sub_object.is_none() && name == "on" {
+                if LISTENERS.contains(&namespace) {
+                    let listener = listener(layer, namespace, operation, schema)?;
+                    if let Some(built) = listener
+                        .events
+                        .iter()
+                        .find(|listened| listened.builds.is_some())
+                    {
+                        bail!(
+                            "operation `{}`: its event `{}` opens a handle, which only a listener whose events the engine publishes builds; add `{namespace}` to `PUBLISHED_LISTENERS` (ADR 0081)",
+                            operation.name,
+                            built.wire
+                        );
+                    }
+                    found
+                        .get_or_insert_with(|| Handle::of(namespace, id))
+                        .listener = Some(listener);
+                    continue;
+                }
+                if PUBLISHED_LISTENERS.contains(&namespace) {
+                    let listener = listener(layer, namespace, operation, schema)?;
+                    names_its_handle(layer, &listener, &id)?;
+                    found
+                        .get_or_insert_with(|| Handle::of(namespace, id))
+                        .published_listener = Some(listener);
+                    continue;
+                }
             }
             let Some(form) = form(operation, name, schema)? else {
                 continue;

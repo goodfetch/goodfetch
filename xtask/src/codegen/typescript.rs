@@ -771,10 +771,20 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> Result<Stri
                 .iter()
                 .chain(handle.sub_objects.iter().flat_map(|held| &held.members))
                 .map(|member| member.operation)
+                .chain(
+                    handle
+                        .listener
+                        .iter()
+                        .chain(&handle.published_listener)
+                        .map(|listener| listener.operation),
+                )
         }),
         MARKERS_MODULE,
     );
-    let listens = if handles.iter().any(|handle| handle.listener.is_some()) {
+    let listens = if handles
+        .iter()
+        .any(|handle| handle.listener.is_some() || handle.published_listener.is_some())
+    {
         ", type Listener, type Subscription"
     } else {
         ""
@@ -823,7 +833,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> Result<String> {
         } else {
             ""
         };
-        let (listened, on) = listeners::emit(&class, handle);
+        let (listened, on) = listeners::emit(&class, handle, &host);
         text.push_str(&listened);
         let id_type = format!("types.{}", handle.id.type_name);
         let _ = write!(

@@ -89,7 +89,7 @@ lint-documents:
 # each change passed them alone: the lockfiles and the workspace-hack match
 # the manifests, and the files generated from the workspace match it (the
 # module list, the protocol's generated code, the clients, the SDK
-# manifests, the compatibility tables). `just batch-check` runs them on a
+# manifests and what the SDKs export, the compatibility tables). `just batch-check` runs them on a
 # batch's combined tree. Every check runs even after one failed; the `xtask`
 # checks come after xtask's build, and are skipped, named so, when it fails.
 lint-drift:
@@ -110,6 +110,7 @@ lint-drift:
     step --after xtask xtask-codegen 'cargo run --quiet --bin xtask -- codegen --check'
     step --after xtask xtask-clients 'cargo run --quiet --bin xtask -- clients check'
     step --after xtask xtask-sdk-manifests 'cargo run --quiet --bin xtask -- sdk-manifests'
+    step --after xtask xtask-sdk-exports 'cargo run --quiet --bin xtask -- sdk-exports'
     step --after xtask xtask-compat 'cargo run --quiet --bin xtask -- compat check'
     steps_end
 

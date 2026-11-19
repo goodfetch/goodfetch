@@ -19,9 +19,7 @@ use std::sync::{Arc, PoisonError, Weak};
 use std::time::Duration;
 
 use data_encoding::BASE64;
-use goodfetch_protocol::connection::{CANCEL, CancelParams, HELLO, HelloParams, HelloResult};
-use goodfetch_protocol::events::{CREDIT, CreditParams};
-use goodfetch_protocol::jsonrpc::RequestId;
+use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult};
 use goodfetch_protocol::page::{BodyHandle, CHUNK, Chunk};
 use goodfetch_protocol::settings::TIMEOUT_CLOSE;
 use serde::Serialize;
@@ -33,6 +31,7 @@ use tokio::task::JoinError;
 use tokio_util::task::TaskTracker;
 
 use crate::call::{Call, Query, Reply};
+use crate::connect_timeout::{self, ConnectTimeout};
 use crate::error::Error;
 use crate::file_saving::{self, FileSaving};
 use crate::handler::{HandlerRequests, Streams};
@@ -125,7 +124,8 @@ struct Inner {
 
 impl ClientConnection {
     /// Opens a Connection to the engine at `endpoint` over `network`, on
-    /// `runtime`, and says `hello`.
+    /// `runtime`, and says `hello`, waiting for its answer as long as it
+    /// takes.
     ///
     /// # Errors
     ///
@@ -137,6 +137,27 @@ impl ClientConnection {
         endpoint: &Endpoint,
         hello: HelloParams,
     ) -> Result<(Self, HelloResult), Error> {
+        Self::open_within(runtime, network, endpoint, hello, ConnectTimeout::Off).await
+    }
+
+    /// Opens a Connection as [`ClientConnection::open`] does, waiting for
+    /// `hello`'s answer within `timeout` (ADR 0083); past it, the
+    /// Connection is closed.
+    ///
+    /// # Errors
+    ///
+    /// As [`ClientConnection::open`], [`ConnectTimeout::check`]'s refusal,
+    /// and [`Error::Failed`] with `deadline_exceeded` when `hello`'s answer
+    /// did not come within `timeout`, its `limit` naming `timeout.connect`
+    /// and the layer that set it, and `waited_for` `hello`.
+    pub async fn open_within(
+        runtime: ConnectionRuntime,
+        network: &Network,
+        endpoint: &Endpoint,
+        hello: HelloParams,
+        timeout: ConnectTimeout,
+    ) -> Result<(Self, HelloResult), Error> {
+        timeout.check()?;
         let (handle, owned) = runtime.split();
         let tasks = TaskTracker::new();
         let (network, endpoint) = (network.clone(), endpoint.clone());
@@ -160,11 +181,23 @@ impl ClientConnection {
             closed: AtomicBool::new(false),
             _runtime: owned,
         }));
-        match connection.call::<HelloResult>(HELLO, &hello).await {
+        let deadline = timeout.deadline();
+        let said = match &deadline {
+            Some((after, _)) => connection
+                .call::<HelloResult>(HELLO, &hello)
+                .timeout(*after),
+            None => connection.call::<HelloResult>(HELLO, &hello).no_timeout(),
+        };
+        match said.await {
             Ok(said) => Ok((connection, said)),
             Err(error) => {
                 connection.close().await?;
-                Err(error)
+                Err(match (error, deadline) {
+                    (Error::TimedOut, Some((after, limit))) => {
+                        connect_timeout::exceeded(after, limit)
+                    }
+                    (error, _) => error,
+                })
             }
         }
     }
@@ -258,7 +291,8 @@ impl ClientConnection {
         match heard {
             Heard::Sent(id) => {
                 saving.id = Some(id);
-                self.credit(id, CHUNKS_AHEAD)
+                self.0.sender.credit(id, CHUNKS_AHEAD);
+                Ok(())
             }
             Heard::Notified { method, params } if method == CHUNK => {
                 let chunk: Chunk = serde_json::from_value(params).map_err(Error::Shape)?;
@@ -285,7 +319,7 @@ impl ClientConnection {
                     .await?;
                 saving.file = Some(file);
                 if let Some(id) = saving.id {
-                    self.credit(id, 1)?;
+                    self.0.sender.credit(id, 1);
                 }
                 Ok(())
             }
@@ -310,16 +344,6 @@ impl ClientConnection {
             file.finish()
         })
         .await
-    }
-
-    /// Grants the streaming call `id` `credits` more chunks.
-    fn credit(&self, id: i64, credits: u32) -> Result<(), Error> {
-        let params = to_value(&CreditParams {
-            id: RequestId::Number(id),
-            credits,
-        })?;
-        self.0.sender.notify(CREDIT, params);
-        Ok(())
     }
 
     /// The bytes of the page body `handle` names, read from the file the
@@ -577,11 +601,7 @@ impl Drop for Saving {
         let Some(id) = self.id.filter(|_| !self.answered) else {
             return;
         };
-        if let Ok(params) = serde_json::to_value(CancelParams {
-            id: RequestId::Number(id),
-        }) {
-            self.sender.notify(CANCEL, params);
-        }
+        self.sender.cancel(id);
     }
 }
 

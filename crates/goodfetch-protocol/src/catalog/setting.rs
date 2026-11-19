@@ -305,6 +305,11 @@ pub enum Authority {
     /// layers, as `browser_cache.max_unused_age` (ADR 0098); anywhere else
     /// it is `setting_not_applicable`.
     Machine,
+    /// Only project configuration, the project file, as `timeout.connect`,
+    /// which `connect()` and the CLI read before they connect and apply
+    /// themselves (ADR 0083); anywhere else it is `setting_not_applicable`,
+    /// since only the engine reads the other layers, once reached.
+    ProjectFileAlone,
     /// Every layer but a Recipe, which may only expose it, as
     /// `session.source` (ADR 0056).
     NotByRecipe,
@@ -352,6 +357,7 @@ impl Authority {
             Self::OperatorPolicy => "operator_policy",
             Self::OperatorPolicyAlone => "operator_policy_alone",
             Self::Machine => "machine",
+            Self::ProjectFileAlone => "project_file_alone",
             Self::NotByRecipe => "not_by_recipe",
             Self::NotByRecipeOrModel => "not_by_recipe_or_model",
             Self::NotByModel => "not_by_model",

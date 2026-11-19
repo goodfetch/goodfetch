@@ -1,10 +1,12 @@
-// A page's listeners on the Scripted engine (ADR 0081): each test plays a
-// script of the shared corpus over the in-memory transport, which fails the
-// test on a message it does not expect and on a step left unused. `on` sends
-// its call when called, with no queue in the SDK; a listener that throws is
-// removed, and `listener_failed` is raised once, by the next call on its page
-// or by the `close()` that closes the page or the Run above it.
-import { ClosedError, type ConsoleMessage, type Logger } from "@goodfetch/collie-client";
+// A page's and a Session's listeners on the Scripted engine (ADR 0081): each
+// test plays a script of the shared corpus over the in-memory transport,
+// which fails the test on a message it does not expect and on a step left
+// unused. `on` sends its call when called, with no queue in the SDK; a
+// listener that throws is removed, and `listener_failed` is raised once, by
+// the next call on its value or by the `close()` that closes the value or
+// the Run above it. A Session's events come on the Connection's own
+// Subscription, which its listeners share, rather than on their calls.
+import { ClosedError, type ConsoleMessage, type Logger, type Page } from "@goodfetch/collie-client";
 import { pageOf } from "@goodfetch/collie-client/runtime";
 import {
   failure,
@@ -193,6 +195,86 @@ describe("a page's listeners", () => {
 
       expect(played.done()).toEqual({ kind: "finished" });
       expect(errored).toEqual([]);
+    },
+  );
+});
+
+describe("a Session's listeners", () => {
+  test(
+    "send the Connection's Subscription, then `on`, and hear only their Session's pages, each a working Page",
+    { tags: ["story:11-61", "story:11-62"] },
+    async () => {
+      const { collie, played } = await collieOn("page/session-listened.json");
+      const run = await collie.start();
+      const session = await run.newSession();
+      const pages: Page[] = [];
+
+      const subscription = session.on("page", (page) => {
+        pages.push(page);
+      });
+      await vi.waitFor(() => {
+        expect(pages).toHaveLength(1);
+      });
+      const [page] = pages;
+      const value = await page?.evaluate("() => 1");
+      subscription.close();
+      await run.finish();
+      await collie.close();
+
+      expect(value).toBe(1);
+      expect(played.done()).toEqual({ kind: "finished" });
+      expect(protocolCounts(played.messages)).toMatchInlineSnapshot(`
+        {
+          "answers": 5,
+          "events": 1,
+          "replies": 0,
+          "requests": [
+            "hello",
+            "run.start",
+            "run.new_session",
+            "events.subscribe",
+            "$/credit",
+            "session.on",
+            "page.evaluate",
+            "$/cancel",
+            "$/cancel",
+            "run.finish",
+          ],
+          "served": [],
+        }
+      `);
+    },
+  );
+
+  test(
+    "raise a thrown listener's `listener_failed` once from the next call on its Session, which is not sent",
+    { tags: ["story:11-63", "error:listener_failed"] },
+    async () => {
+      const { collie, played } = await collieOn("page/session-listener-failed.json");
+      const run = await collie.start();
+      const session = await run.newSession();
+      const bug = new Error("the listener's bug");
+      let threw = false;
+
+      session.on("page", () => {
+        threw = true;
+        throw bug;
+      });
+      await vi.waitFor(() => {
+        expect(threw).toBe(true);
+      });
+      const refused = await failure(session.pages());
+      await session.close();
+      await run.finish();
+      await collie.close();
+
+      expect(refused).toMatchObject({
+        code: "listener_failed",
+        group: "program",
+        details: { event: "session.page" },
+        cause: bug,
+      });
+      expect(played.done()).toEqual({ kind: "finished" });
     },
   );
 });

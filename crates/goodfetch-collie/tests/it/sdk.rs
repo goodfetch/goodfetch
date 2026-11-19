@@ -17,6 +17,7 @@ use goodfetch_test_support::{TestEnv, real_time_runtime};
 use serde_json::json;
 
 mod closing;
+mod events;
 mod limits;
 mod page;
 mod public_items;
@@ -219,6 +220,46 @@ fn no_timeout_waits_for_the_stop_with_no_deadline() {
         collie.close().await.unwrap();
 
         assert_eq!(stopped.lifecycle, Lifecycle::Stopped);
+    });
+}
+
+/// The `connect-timeout-three-states` client conformance case, linked:
+/// `connect()` opens with its `timeout` left out, given as a duration or
+/// none, and refuses `Duration::ZERO` with `setting_invalid` before the
+/// engine starts (ADRs 0080 and 0083). A linked engine always answers
+/// `hello`, so the deadline passing is `goodfetch-collie-client`'s
+/// `an_unanswered_hello_fails_the_opening_past_its_timeout_in_its_three_states`.
+/// Covers: story:11-41, story:11-42, setting:timeout.connect
+#[test]
+fn connect_takes_its_timeout_left_out_given_or_none_and_refuses_zero() {
+    let env = TestEnv::new();
+    real_time_runtime().block_on(async {
+        for options in [
+            options(&env),
+            options(&env).timeout(Duration::from_secs(30)),
+            options(&env).no_timeout(),
+        ] {
+            Collie::connect(options).await.unwrap().close().await.unwrap();
+        }
+
+        let refused = Collie::connect(options(&env).timeout(Duration::ZERO)).await;
+        let Err(Error::Failed(failure)) = refused else {
+            panic!("{refused:?}");
+        };
+        assert_eq!(
+            (
+                failure.data.code.as_str(),
+                &failure.data.details["limit"],
+                failure.data.details["fix"]
+                    .as_str()
+                    .is_some_and(|fix| fix.contains("`.no_timeout()`")),
+            ),
+            (
+                "setting_invalid",
+                &json!({ "key": "timeout.connect", "value": 0, "layer": "run", "origin": "argument" }),
+                true,
+            )
+        );
     });
 }
 

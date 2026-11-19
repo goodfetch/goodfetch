@@ -17,9 +17,11 @@
 
 pub mod blocking;
 mod call;
+mod connect_timeout;
 mod connection;
 mod connection_type;
 mod error;
+mod event_stream;
 mod field_values;
 pub mod file_saving;
 mod generated;
@@ -35,10 +37,13 @@ mod sync;
 pub mod transport;
 
 pub use call::{Call, Query, Reply};
+pub use connect_timeout::ConnectTimeout;
 pub use connection::{ClientConnection, ConnectionRuntime, SaveFile};
 pub use connection_type::Connection;
 pub use error::{Error, FileFailure};
+pub use event_stream::EventStream;
 pub use field_values::FieldValues;
+pub use generated::events;
 pub use generated::handles::{Locator, Page, Run, Session};
 pub use handler::{HandlerCall, HandlerRequests};
 pub use limits::{Limits, Money, MoneyError, UsageKind};

@@ -15,7 +15,7 @@ use goodfetch_collie::{
 };
 use goodfetch_collie_client::logging::engine_log_level;
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
-use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams, ProductVersion, Surface};
+use goodfetch_protocol::connection::{DaemonEndpoint, Form, HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::daemon::DaemonUnreachableDetails;
 use goodfetch_protocol::settings::SettingInvalidDetails;
 use goodfetch_test_support::{
@@ -53,6 +53,7 @@ pub(super) fn hello(token: &str) -> HelloParams {
         needs: Some(Product::Collie),
         log_level: Some(engine_log_level()),
         token: Some(token.to_owned()),
+        form: Some(Form::Rust),
         ..HelloParams::new(Surface::Rust, version())
     }
 }

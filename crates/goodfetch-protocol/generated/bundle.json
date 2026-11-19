@@ -13369,6 +13369,11 @@
           "const": "form",
           "description": "An Integration's form.",
           "type": "string"
+        },
+        {
+          "const": "registered",
+          "description": "A program's only SDK handler of a kind that one setting chooses,\nregistered on its connection: the lowest of the run layer's origins,\nwhich every other replaces and configuration does not. A lock wins\nover it with no refusal, since the program never wrote the key (ADR\n0104's amendment of ADR 0083).",
+          "type": "string"
         }
       ]
     },

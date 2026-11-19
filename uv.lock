@@ -9,6 +9,7 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "connection-library",
     "goodfetch-collie",
     "goodfetch-collie-client",
     "goodfetch-foxhound",
@@ -406,6 +407,17 @@ wheels = [
 ]
 
 [[package]]
+name = "connection-library"
+version = "0.1.0"
+source = { editable = "sdks/python/collie/tests/libraries/connection-library" }
+dependencies = [
+    { name = "goodfetch-collie-client" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "goodfetch-collie-client", specifier = ">=0.0,<0.1" }]
+
+[[package]]
 name = "coverage"
 version = "7.16.2"
 source = { registry = "https://pypi.org/simple" }
@@ -677,6 +689,7 @@ source = { virtual = "." }
 [package.dev-dependencies]
 dev = [
     { name = "anyio" },
+    { name = "connection-library" },
     { name = "datamodel-code-generator" },
     { name = "goodfetch-collie" },
     { name = "goodfetch-collie-client" },
@@ -702,6 +715,7 @@ dev = [
 [package.metadata.requires-dev]
 dev = [
     { name = "anyio", specifier = ">=4.15.1" },
+    { name = "connection-library", editable = "sdks/python/collie/tests/libraries/connection-library" },
     { name = "datamodel-code-generator", specifier = "==0.86.0" },
     { name = "goodfetch-collie", editable = "sdks/python/collie" },
     { name = "goodfetch-collie-client", editable = "sdks/python/collie-client" },

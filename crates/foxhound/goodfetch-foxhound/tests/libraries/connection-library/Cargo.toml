@@ -1,0 +1,47 @@
+# A library serving both Products, as its author would publish it (story
+# 11-180, ADR 0095): it takes the Collie client crate, and the protocol crate
+# its values come from, by a semver range of the Product's line and never by
+# a copy of its own, so Cargo builds one client crate for the program and the
+# library, and a program's `Collie` or `Foxhound` is the very `Connection` the
+# library names. Foxhound's `tests/it/sdk.rs` is its program; the root
+# manifest's `exclude` keeps it out of the workspace, as it would be, and its
+# own empty `[workspace]` makes it a root even inside a nested checkout. Cargo
+# passes no `[workspace.lints]` to a crate outside the workspace, so the
+# root's lints are copied below, but for its `check-cfg` list of cfgs this
+# crate never reads, as the Kennel's manifest copies them.
+[workspace]
+
+[package]
+name = "connection-library"
+version = "0.1.0"
+edition = "2024"
+description = "A library goodfetch-foxhound's tests use."
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+goodfetch-collie-client = { version = "0.0", path = "../../../../../goodfetch-collie-client" }
+goodfetch-protocol = { version = "0.0", path = "../../../../../goodfetch-protocol" }
+
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+unreachable_pub = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+print_stdout = "deny"
+print_stderr = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+clone_on_ref_ptr = "deny"
+exit = "deny"
+iter_over_hash_type = "deny"
+undocumented_unsafe_blocks = "deny"

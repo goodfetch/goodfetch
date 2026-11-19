@@ -2293,6 +2293,14 @@ class RunOrigin(StrEnum):
     """A CLI flag."""
     form = "form"
     """An Integration's form."""
+    registered = "registered"
+    """
+    A program's only SDK handler of a kind that one setting chooses,
+    registered on its connection: the lowest of the run layer's origins,
+    which every other replaces and configuration does not. A lock wins
+    over it with no refusal, since the program never wrote the key (ADR
+    0104's amendment of ADR 0083).
+    """
 
 
 class RunOwner1(BaseModel):

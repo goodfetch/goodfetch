@@ -1052,6 +1052,17 @@
       ]
     },
     {
+      "id": "error:browser_host_unreachable",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:browser_launch_failed",
       "kind": "error",
       "area": 5,
@@ -1150,6 +1161,17 @@
       ]
     },
     {
+      "id": "error:challenge_unsolved",
+      "kind": "error",
+      "area": 8,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:client_gone",
       "kind": "error",
       "area": 3,
@@ -1163,6 +1185,17 @@
       "id": "error:closed",
       "kind": "error",
       "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:confinement_unavailable",
+      "kind": "error",
+      "area": 7,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1797,6 +1830,17 @@
       "id": "error:person_required",
       "kind": "error",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:plugin_crashed",
+      "kind": "error",
+      "area": 7,
       "milestone": null,
       "status": "active",
       "products": [

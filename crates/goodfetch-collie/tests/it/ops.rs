@@ -625,7 +625,8 @@ fn an_attached_engine_serves_its_counted_work_at_ops_attached_address() {
 }
 
 /// An `ops.attached_address` that is no loopback `host:port` stops the
-/// Attached engine before it serves, its Client reading no message.
+/// Attached engine before it serves, its Client reading no message, and
+/// its log names the refusal's Error code and the key.
 ///
 /// Covers: setting:ops.attached_address
 #[test]
@@ -634,5 +635,14 @@ fn an_attached_engine_refuses_an_ops_attached_address_off_loopback() {
     env.user_configuration("ops.attached_address = \"0.0.0.0:9465\"\n");
     let engine = goodfetch_test_client::Attached::start(&env, COLLIE);
 
-    assert_eq!(engine.finish(), (vec![], false));
+    let (sent, stderr) = engine.finish_with_stderr();
+    assert_eq!(
+        (
+            sent,
+            stderr.contains("setting_invalid"),
+            stderr.contains("ops.attached_address")
+        ),
+        (vec![], true, true),
+        "{stderr}"
+    );
 }

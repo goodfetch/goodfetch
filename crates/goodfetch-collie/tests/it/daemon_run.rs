@@ -111,14 +111,20 @@ impl Foreground {
     /// The fields of the first log record from here on whose message is
     /// `message`.
     pub(crate) fn record(&mut self, message: &str) -> Value {
+        self.first_record("message", message)
+    }
+
+    /// The fields of the first log record from here on whose field `name`
+    /// is `value`.
+    fn first_record(&mut self, name: &str, value: &str) -> Value {
         loop {
             let line = self
                 .lines
                 .recv_timeout(LOG_DEADLINE)
-                .unwrap_or_else(|_| panic!("no `{message}` in its log: {:#?}", self.logged));
+                .unwrap_or_else(|_| panic!("no `{name}` `{value}` in its log: {:#?}", self.logged));
             self.logged.push(line.clone());
             if let Ok(record) = serde_json::from_str::<Value>(&line)
-                && record["fields"]["message"] == json!(message)
+                && record["fields"][name] == json!(value)
             {
                 return record["fields"].clone();
             }
@@ -249,12 +255,18 @@ fn daemon_run_refuses_an_address_that_is_not_loopback() {
     env.user_configuration("daemon.address = \"0.0.0.0:7900\"\n");
 
     let mut daemon = Foreground::start(&env, COLLIE, &[]);
-    let refusal = daemon.record("`daemon.address` is not valid in user_configuration: `0.0.0.0:7900` is not a loopback address: `daemon run` listens only on loopback until the Daemon terminates TLS; put a TLS-terminating proxy in front of a loopback address");
+    let refusal = daemon.first_record("code", "setting_invalid");
 
     let exited = daemon.process.child().wait().unwrap();
     assert_eq!(
-        (exited.code(), refusal["code"].clone()),
-        (Some(1), json!("setting_invalid"))
+        (
+            exited.code(),
+            refusal["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("`daemon.address`"))
+        ),
+        (Some(1), true),
+        "{refusal}"
     );
 }
 

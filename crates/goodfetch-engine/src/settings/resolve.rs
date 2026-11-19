@@ -1043,7 +1043,8 @@ fn above(value: &Value, bound: u64) -> bool {
 /// the project configuration a Client sent,
 /// unless something holds the key: a lock, an Operator policy's cap the
 /// value is past (a clear to no bound is past every cap), a Recipe's
-/// bounds or the key's authority.
+/// bounds or the key's authority. A lock keeps its value over a
+/// `registered` one with no refusal.
 fn take(
     state: &mut State,
     key: Key,
@@ -1062,6 +1063,10 @@ fn take(
     let current = limit(name, &state.effective.value, state.effective.layer);
     authority(key, layer, value, given.for_model, &current, &refused)?;
     if let Some(locked) = &state.locked {
+        // The program never wrote a registered handler's value (ADR 0104).
+        if given.origin == Some(RunOrigin::Registered) {
+            return Ok(());
+        }
         let fix = match locked.layer {
             SettingsLayer::Default => format!("`{name}` is an honesty guarantee no layer changes"),
             SettingsLayer::Recipe => format!("the Recipe does not expose `{name}`"),

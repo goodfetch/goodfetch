@@ -16,7 +16,7 @@ from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from typing import cast
 
-_MICROSECOND = timedelta(microseconds=1)
+from goodfetch_collie_client.handle import whole_milliseconds
 
 
 def settings_on_wire(settings: Mapping[str, object]) -> dict[str, object]:
@@ -27,10 +27,10 @@ def settings_on_wire(settings: Mapping[str, object]) -> dict[str, object]:
 def _on_wire(value: object) -> object:
     """One value as the wire takes it."""
     if isinstance(value, timedelta):
-        return -(-(value // _MICROSECOND) // 1000)
+        return whole_milliseconds(value)
     if isinstance(value, Mapping):
         entries = cast("Mapping[object, object]", value)
-        return {str(key): _on_wire(inner) for key, inner in entries.items()}
+        return {key: _on_wire(inner) for key, inner in entries.items()}
     if isinstance(value, list | tuple):
         items = cast("Sequence[object]", value)
         return [_on_wire(inner) for inner in items]

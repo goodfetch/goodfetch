@@ -91,6 +91,12 @@ not_given: Final = NotGiven()
 """The default of each optional parameter of a generated handle."""
 
 _TIMEOUT_FIX: Final = "give a `timedelta` above zero, or `timeout=None` for no timeout"
+_MICROSECOND: Final = timedelta(microseconds=1)
+
+
+def whole_milliseconds(duration: timedelta) -> int:
+    """`duration` in whole milliseconds, a part of one counting as one (ADR 0080)."""
+    return -(-(duration // _MICROSECOND) // 1000)
 
 
 def timeout_of(timeout: object, setting: str) -> int | None:
@@ -111,13 +117,9 @@ def timeout_of(timeout: object, setting: str) -> int | None:
         value: object = timeout
         reason = f"a timeout is a `timedelta`, not {type(timeout).__name__}"
     else:
-        microseconds = (
-            timeout.days * 86_400_000_000
-            + timeout.seconds * 1_000_000
-            + timeout.microseconds
-        )
+        microseconds = timeout // _MICROSECOND
         if microseconds > 0:
-            return -(-microseconds // 1000)
+            return whole_milliseconds(timeout)
         value = (
             microseconds // 1000 if microseconds % 1000 == 0 else microseconds / 1000
         )

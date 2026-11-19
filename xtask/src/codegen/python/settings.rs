@@ -184,7 +184,7 @@ pub(super) fn settings_module(settings: &[Setting]) -> Result<String> {
 }
 
 /// The type name of the settings `opened`'s option takes.
-pub(super) fn scope_type(opened: &str) -> Result<&'static str> {
+fn scope_type(opened: &str) -> Result<&'static str> {
     SCOPES
         .iter()
         .find(|scope| scope.scope.as_str() == opened)

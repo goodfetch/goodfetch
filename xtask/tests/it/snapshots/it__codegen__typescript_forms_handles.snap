@@ -118,8 +118,29 @@ export class Page extends Handle implements AsyncDisposable {
   /**
    * Waits until the page's document has loaded.
    */
-  async waitForReady(options: { readonly expected?: types.WaitForReadyParams["expected"] | undefined; readonly state?: types.WaitForReadyParams["state"] | undefined; readonly timeout?: types.WaitForReadyParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
-    return this.#host.call("page.wait_for_ready", defined({ pageId: this.#host.id, expected: options.expected, state: options.state, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal });
+  waitForReady(options?: { readonly expected?: types.WaitForReadyParams["expected"] | undefined; readonly state?: Exclude<types.WaitForReadyParams["state"], "loaded"> | undefined; readonly timeout?: types.WaitForReadyParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined }): Promise<types.Acted>;
+  /**
+   * Waits until the page's document has loaded.
+   *
+   * Passing `poll` is deprecated.
+   *
+   * @deprecated Since 0.1, removed no earlier than 1.0: The engine picks how often a wait checks.
+   */
+  waitForReady(options: { readonly expected?: types.WaitForReadyParams["expected"] | undefined; readonly poll: Exclude<types.WaitForReadyParams["poll"], undefined>; readonly state?: types.WaitForReadyParams["state"] | undefined; readonly timeout?: types.WaitForReadyParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined }): Promise<types.Acted>;
+  /**
+   * Waits until the page's document has loaded.
+   *
+   * Passing `state: "loaded"` is deprecated.
+   *
+   * @deprecated Since 0.1, removed no earlier than 1.0: use `complete` instead. The same state under its new name.
+   */
+  waitForReady(options: { readonly expected?: types.WaitForReadyParams["expected"] | undefined; readonly poll?: types.WaitForReadyParams["poll"] | undefined; readonly state: "loaded"; readonly timeout?: types.WaitForReadyParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined }): Promise<types.Acted>;
+  /**
+   * Waits until the page's document has loaded.
+   */
+  waitForReady(options?: { readonly expected?: types.WaitForReadyParams["expected"] | undefined; readonly poll?: types.WaitForReadyParams["poll"] | undefined; readonly state?: types.WaitForReadyParams["state"] | undefined; readonly timeout?: types.WaitForReadyParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined }): Promise<types.Acted>;
+  async waitForReady(options: { readonly expected?: types.WaitForReadyParams["expected"] | undefined; readonly poll?: types.WaitForReadyParams["poll"] | undefined; readonly state?: types.WaitForReadyParams["state"] | undefined; readonly timeout?: types.WaitForReadyParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+    return this.#host.call("page.wait_for_ready", defined({ pageId: this.#host.id, expected: options.expected, poll: options.poll, state: options.state, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal });
   }
 
   /**

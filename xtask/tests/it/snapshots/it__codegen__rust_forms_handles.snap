@@ -221,6 +221,7 @@ impl Page {
                     timeout: None,
                     expected: None,
                     state: None,
+                    poll: None,
                 },
             )
             .wire_timeout()
@@ -298,6 +299,10 @@ impl<T> crate::Call<T, ::goodfetch_protocol::forms::WaitForReadyParams> {
     /// A JSON value the wait checks against, of any type; absent for none.
     pub fn expected(self, expected: ::serde_json::Value) -> Self {
         self.edit(move |params| params.expected = Some(expected))
+    }
+    /// How often the wait checks, in milliseconds: a deprecated keyword.
+    pub fn poll(self, poll: u64) -> Self {
+        self.edit(move |params| params.poll = Some(poll))
     }
     /// How far the document must get; `interactive` when absent.
     pub fn state(self, state: ::goodfetch_protocol::forms::ReadyState) -> Self {

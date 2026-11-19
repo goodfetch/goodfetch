@@ -2060,9 +2060,10 @@ existing-code-sweep *arguments:
 
 # The test-health runs the gate host starts while Actions is off
 # (TESTING.md, After merge), on `main`'s head: from its cron
-# (ci/test-health.crontab), in the backstop's gate worktree, `constrained`,
-# the constrained test-health run, and `mutants`, the advisory mutation run
-# over the last day's Rust changes (ci/test-health/scheduled.sh). Each skips
+# (ci/test-health.crontab), in the backstop's gate worktree, `mutants`, the
+# advisory mutation run over the last day's Rust changes, and by hand
+# `constrained`, the constrained test-health run, which left the cron on
+# 2026-11-19 (ADR 0135) (ci/test-health/scheduled.sh). Each skips
 # while `just merge`'s gate runs, and a gate started during one waits for it.
 # Logs and results go to ~/test-health/ (GOODFETCH_TEST_HEALTH_LOG). Run from
 # the main checkout.

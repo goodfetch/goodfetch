@@ -9,17 +9,20 @@ package re-exports;
 `goodfetch_foxhound` holds Foxhound's.
 `goodfetch_collie.testing` opens a Connection over a transport a test holds.
 
-The Connection finds Collie's executable and reads only
+The Connection reaches a Daemon or finds Collie's executable, reading
+`GOODFETCH_URL`, `GOODFETCH_TOKEN`, `GOODFETCH_HOME` and
 `GOODFETCH_COLLIE_ENGINE_PATH`. Importing it reads, starts, patches and logs
 nothing (ADR 0078).
 """
 
-from goodfetch_collie_client.connection import EngineInfo
+from goodfetch_collie_client.connection import EngineFallback, EngineInfo
 from goodfetch_collie_client.connection_type import AsyncConnection, Connection
+from goodfetch_collie_client.engine_choice import EngineChoice, RemoteDaemon
 from goodfetch_collie_client.generated.errors import (
     CallCancelledError,
     ClosedError,
     ConnectionOverloadedError,
+    DaemonUnreachableError,
     DeadlineExceededError,
     EngineExitedError,
     EngineNotFoundError,
@@ -59,8 +62,11 @@ __all__ = [
     "Connecting",
     "Connection",
     "ConnectionOverloadedError",
+    "DaemonUnreachableError",
     "DeadlineExceededError",
+    "EngineChoice",
     "EngineExitedError",
+    "EngineFallback",
     "EngineInfo",
     "EngineNotFoundError",
     "EngineOutputInvalidError",
@@ -74,6 +80,7 @@ __all__ = [
     "Prices",
     "Product",
     "ProtocolVersionUnsupportedError",
+    "RemoteDaemon",
     "Run",
     "RunConflictError",
     "RunEndedError",

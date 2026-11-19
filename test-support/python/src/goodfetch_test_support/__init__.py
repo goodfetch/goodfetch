@@ -69,6 +69,12 @@ from goodfetch_test_support.proving_ground import (
 )
 from goodfetch_test_support.result_document import write_journey_document
 from goodfetch_test_support.schemas import SchemaError
+from goodfetch_test_support.scripted_daemon import (
+    ScriptedDaemon,
+    ScriptedDaemonFailed,
+    ScriptedDaemonMode,
+    start_scripted_daemon,
+)
 from goodfetch_test_support.snapshot import redact
 from goodfetch_test_support.tools import Tool, Tools, ToolsError
 from goodfetch_test_support.unicode_record import (
@@ -117,6 +123,9 @@ __all__ = [
     "ProvingGroundUnseeded",
     "ProxyCredentials",
     "SchemaError",
+    "ScriptedDaemon",
+    "ScriptedDaemonFailed",
+    "ScriptedDaemonMode",
     "SecretKind",
     "SurfaceUnlisted",
     "TestEnv",
@@ -140,6 +149,7 @@ __all__ = [
     "scripted_engine_record",
     "search_canaries",
     "start_journey_run",
+    "start_scripted_daemon",
     "three_ways",
     "time_zones",
     "unicode_record",

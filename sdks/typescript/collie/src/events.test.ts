@@ -252,7 +252,7 @@ describe("a Session's listeners", () => {
     "keep a stalled listener from delaying another's pages, and end it with `listener_events_lost` naming the pages it lost",
     { tags: ["story:11-63", "error:listener_events_lost"] },
     async () => {
-      const played = playScript("page/session-listener-fell-behind.json");
+      const played = playScript("page/session-listener-lost-events.json");
       const errors: { readonly message: string; readonly fields: unknown }[] = [];
       const logger: Logger = {
         level: "off",
@@ -293,7 +293,7 @@ describe("a Session's listeners", () => {
       expect(stalledPages).toHaveLength(2);
       expect(errors[0]?.fields).toMatchObject({
         event: "session.page",
-        error: { code: "listener_events_lost", details: { event: "session.page", lost: 5 } },
+        error: { code: "listener_events_lost", details: { event: "session.page", lost: 14 } },
       });
       expect(played.done()).toEqual({ kind: "finished" });
     },

@@ -521,7 +521,7 @@ export class LimitReachedError extends RefusedError<"limit_reached"> {
 }
 
 /**
- * A listener the program registered with `on` on a value whose events the engine publishes on its event stream, such as a Session's, held more events than its queue takes, the Connection's `maxListenerQueue`, 1,024 by default, so the SDK removed it once it got the events it held. Only that listener loses events: the Connection's Subscription and its other listeners go on. Its details name the event and how many events the listener lost: make the listener return sooner, or raise the bound, and listen again.
+ * A listener the program registered with `on` on a value whose events the engine publishes on its event stream, such as a Session's, held more events than its queue takes, the bound set where the Connection opens, 1,024 by default, so the SDK removed it once it got the events it held. Only that listener loses events: the Connection's Subscription and its other listeners go on. Its details name the event and how many events the listener lost: make the listener return sooner, or raise the bound, and listen again.
  */
 export class ListenerEventsLostError extends UnavailableError<"listener_events_lost"> {
   constructor(message: string, fields: ErrorFields = {}) {

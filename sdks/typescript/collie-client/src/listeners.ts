@@ -138,7 +138,7 @@ export function regranting(call: Pick<Stream, "grant">, signal: AbortSignal): ()
 }
 
 /** `run`, which does nothing when called again. */
-export function once(run: () => void): () => void {
+function once(run: () => void): () => void {
   let ran = false;
   return () => {
     if (!ran) {
@@ -216,9 +216,7 @@ export function subscribePublished<Payload>(
   // First, so that the Subscription is in flight before the engine arms the listener.
   const leave = shared.join({
     takes: (event) => event.event === listening.event && mine(event.data),
-    take: (event, settled) => {
-      // The queue holds it, or it is lost: either way the stream need not wait.
-      settled();
+    take: (event) => {
       if (lost > 0 || held >= bound) {
         lost += 1;
         return;
@@ -227,7 +225,7 @@ export function subscribePublished<Payload>(
       delivery.take(event, () => {
         held -= 1;
         if (held === 0 && lost > 0) {
-          fellBehind();
+          lostEvents();
         }
       });
     },
@@ -260,7 +258,7 @@ export function subscribePublished<Payload>(
   }
 
   /** The listener got what it held while its queue was full: it is removed, and hears what it lost. */
-  function fellBehind(): void {
+  function lostEvents(): void {
     if (cancel.signal.aborted) {
       return;
     }

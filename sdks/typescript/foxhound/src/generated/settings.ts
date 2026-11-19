@@ -198,7 +198,7 @@ export interface CrawlSettings {
      *
      * `crawl.path_budgets`.
      */
-    readonly pathBudgets?: readonly ({ readonly max_requests: number; readonly pattern: string })[];
+    readonly pathBudgets?: readonly ({ readonly maxRequests: number; readonly pattern: string })[];
     readonly payload?: {
       /**
        * The longest a crawl request's Payload may be, in bytes of its JSON as the engine writes it, compactly: a longer one is refused at its enqueue with `payload_invalid`, whose `limit` names this setting, since a Payload lives in the Frontier and in every Checkpoint. Large content goes to the Key-value store, and the Payload carries its key. 64 KiB (65,536 bytes) by default.
@@ -956,7 +956,7 @@ export interface CrawlSettings {
      *
      * `session.page_check`.
      */
-    readonly pageCheck?: { readonly expected_page?: { readonly kind: "glob"; readonly pattern: string } | { readonly kind: "regex"; readonly pattern: string } | { readonly kind: "css"; readonly selector: string } | { readonly kind: "xpath"; readonly selector: string } | { readonly kind: "text"; readonly text: string } | null; readonly login_page?: { readonly kind: "glob"; readonly pattern: string } | { readonly kind: "regex"; readonly pattern: string } | { readonly kind: "css"; readonly selector: string } | { readonly kind: "xpath"; readonly selector: string } | { readonly kind: "text"; readonly text: string } | null } | null;
+    readonly pageCheck?: { readonly expectedPage?: { readonly kind: "glob"; readonly pattern: string } | { readonly kind: "regex"; readonly pattern: string } | { readonly kind: "css"; readonly selector: string } | { readonly kind: "xpath"; readonly selector: string } | { readonly kind: "text"; readonly text: string } | null; readonly loginPage?: { readonly kind: "glob"; readonly pattern: string } | { readonly kind: "regex"; readonly pattern: string } | { readonly kind: "css"; readonly selector: string } | { readonly kind: "xpath"; readonly selector: string } | { readonly kind: "text"; readonly text: string } | null } | null;
     readonly pool?: {
       /**
        * How long after it opened a Session of a crawl's Session pool is retired: 3,000 s, Crawlee's `maxAgeSecs`.
@@ -988,7 +988,7 @@ export interface CrawlSettings {
      *
      * `session.source`.
      */
-    readonly source?: { readonly kind: "saved_identity"; readonly name: string } | { readonly domains?: readonly string[] | null; readonly format?: "storage_state" | "cookies_txt" | "cdp_cookies" | "session_export" | null; readonly key?: string | null; readonly kind: "state_file"; readonly path: string } | { readonly domain: string; readonly header: string; readonly kind: "cookie_header" } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly chromium_profile?: string | null; readonly domains: readonly string[]; readonly kind: "profile_directory"; readonly path: string } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly chromium_profile?: string | null; readonly domains: readonly string[]; readonly kind: "installed_browser" } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly domains: readonly string[]; readonly kind: "running_browser" } | { readonly domains?: readonly string[] | null; readonly exclusive?: boolean | null; readonly headers?: { readonly [key: string]: string } | null; readonly kind: "cdp_url"; readonly url: string } | null;
+    readonly source?: { readonly kind: "saved_identity"; readonly name: string } | { readonly domains?: readonly string[] | null; readonly format?: "storage_state" | "cookies_txt" | "cdp_cookies" | "session_export" | null; readonly key?: string | null; readonly kind: "state_file"; readonly path: string } | { readonly domain: string; readonly header: string; readonly kind: "cookie_header" } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly chromiumProfile?: string | null; readonly domains: readonly string[]; readonly kind: "profile_directory"; readonly path: string } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly chromiumProfile?: string | null; readonly domains: readonly string[]; readonly kind: "installed_browser" } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly domains: readonly string[]; readonly kind: "running_browser" } | { readonly domains?: readonly string[] | null; readonly exclusive?: boolean | null; readonly headers?: { readonly [key: string]: string } | null; readonly kind: "cdp_url"; readonly url: string } | null;
   };
   readonly sitePreferences?: {
     /**
@@ -1268,13 +1268,13 @@ export interface LabelSettings {
      *
      * `session.page_check`.
      */
-    readonly pageCheck?: { readonly expected_page?: { readonly kind: "glob"; readonly pattern: string } | { readonly kind: "regex"; readonly pattern: string } | { readonly kind: "css"; readonly selector: string } | { readonly kind: "xpath"; readonly selector: string } | { readonly kind: "text"; readonly text: string } | null; readonly login_page?: { readonly kind: "glob"; readonly pattern: string } | { readonly kind: "regex"; readonly pattern: string } | { readonly kind: "css"; readonly selector: string } | { readonly kind: "xpath"; readonly selector: string } | { readonly kind: "text"; readonly text: string } | null } | null;
+    readonly pageCheck?: { readonly expectedPage?: { readonly kind: "glob"; readonly pattern: string } | { readonly kind: "regex"; readonly pattern: string } | { readonly kind: "css"; readonly selector: string } | { readonly kind: "xpath"; readonly selector: string } | { readonly kind: "text"; readonly text: string } | null; readonly loginPage?: { readonly kind: "glob"; readonly pattern: string } | { readonly kind: "regex"; readonly pattern: string } | { readonly kind: "css"; readonly selector: string } | { readonly kind: "xpath"; readonly selector: string } | { readonly kind: "text"; readonly text: string } | null } | null;
     /**
      * Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users.
      *
      * `session.source`.
      */
-    readonly source?: { readonly kind: "saved_identity"; readonly name: string } | { readonly domains?: readonly string[] | null; readonly format?: "storage_state" | "cookies_txt" | "cdp_cookies" | "session_export" | null; readonly key?: string | null; readonly kind: "state_file"; readonly path: string } | { readonly domain: string; readonly header: string; readonly kind: "cookie_header" } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly chromium_profile?: string | null; readonly domains: readonly string[]; readonly kind: "profile_directory"; readonly path: string } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly chromium_profile?: string | null; readonly domains: readonly string[]; readonly kind: "installed_browser" } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly domains: readonly string[]; readonly kind: "running_browser" } | { readonly domains?: readonly string[] | null; readonly exclusive?: boolean | null; readonly headers?: { readonly [key: string]: string } | null; readonly kind: "cdp_url"; readonly url: string } | null;
+    readonly source?: { readonly kind: "saved_identity"; readonly name: string } | { readonly domains?: readonly string[] | null; readonly format?: "storage_state" | "cookies_txt" | "cdp_cookies" | "session_export" | null; readonly key?: string | null; readonly kind: "state_file"; readonly path: string } | { readonly domain: string; readonly header: string; readonly kind: "cookie_header" } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly chromiumProfile?: string | null; readonly domains: readonly string[]; readonly kind: "profile_directory"; readonly path: string } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly chromiumProfile?: string | null; readonly domains: readonly string[]; readonly kind: "installed_browser" } | { readonly browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari"; readonly domains: readonly string[]; readonly kind: "running_browser" } | { readonly domains?: readonly string[] | null; readonly exclusive?: boolean | null; readonly headers?: { readonly [key: string]: string } | null; readonly kind: "cdp_url"; readonly url: string } | null;
   };
   readonly timeout?: {
     /**
@@ -1331,7 +1331,7 @@ const SPELLING: Spelling = {
     maxSitemapNesting: "max_sitemap_nesting",
     maxStagedEnqueues: "max_staged_enqueues",
     maxURLLength: "max_url_length",
-    pathBudgets: "path_budgets",
+    pathBudgets: { setting: "path_budgets", value: { items: { fields: { "max_requests": "maxRequests" } } } },
     payload: ["payload", {
       maxSize: "max_size",
     }],
@@ -1534,14 +1534,14 @@ const SPELLING: Spelling = {
     secureDelete: "secure_delete",
   }],
   session: ["session", {
-    pageCheck: "page_check",
+    pageCheck: { setting: "page_check", value: { fields: { "expected_page": "expectedPage", "login_page": "loginPage" } } },
     pool: ["pool", {
       maxAge: "max_age",
       maxErrorScore: "max_error_score",
       maxSize: "max_size",
       maxUses: "max_uses",
     }],
-    source: "source",
+    source: { setting: "source", value: { fields: { "chromium_profile": "chromiumProfile" } } },
   }],
   sitePreferences: ["site_preferences", {
     markRobotsTxtIgnored: "mark_robots_txt_ignored",

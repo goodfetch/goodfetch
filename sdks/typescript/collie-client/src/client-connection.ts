@@ -35,7 +35,7 @@ import {
 import type { JSONValue } from "./json.ts";
 import { limitList, type Limits } from "./limits.ts";
 import { logEngineEvent, logLevelOf, type Logger } from "./logger.ts";
-import { collieWire } from "./generated/wire.ts";
+import { collieWire, type CollieWireType } from "./generated/wire.ts";
 import { rawCall, type RawCallOptions, type RawParams } from "./raw-call.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
@@ -508,7 +508,11 @@ export class ClientConnection implements AsyncDisposable {
     };
     let answer: unknown;
     try {
-      const sent = toWire(params, { type: "HelloParams" }, collieWire.types);
+      const sent = toWire(
+        params,
+        { type: "HelloParams" satisfies CollieWireType },
+        collieWire.types,
+      );
       answer = await this.#answerWithin(this.#channel.call("hello", sent, { signal }), timeout);
     } catch (error) {
       throw daemon !== undefined && error instanceof EngineExitedError
@@ -534,7 +538,11 @@ export class ClientConnection implements AsyncDisposable {
       );
     }
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the one answer checked is the protocol version it speaks, above (STYLE.md).
-    const result = fromWire(answer, { type: "HelloResult" }, collieWire.types) as HelloResult;
+    const result = fromWire(
+      answer,
+      { type: "HelloResult" satisfies CollieWireType },
+      collieWire.types,
+    ) as HelloResult;
     this.#info = {
       kind: this.#reached.kind,
       product: result.product,

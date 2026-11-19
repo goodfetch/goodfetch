@@ -39,7 +39,7 @@ import {
   type RequestSeed,
 } from "./generated/index.ts";
 import { settingsOnWire, type CrawlSettings } from "./generated/settings.ts";
-import { foxhoundWire } from "./generated/wire.ts";
+import { foxhoundWire, type FoxhoundWireType } from "./generated/wire.ts";
 import { foxhound } from "./product.ts";
 
 /**
@@ -126,7 +126,7 @@ export class Foxhound implements Connection {
         // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the engine's requests are not validated beyond `hello`'s protocol version (STYLE.md): `crawl_request.handle` carries its params as the catalog types them, read in camelCase.
         fromWire(
           params,
-          { type: "CrawlRequestHandleParams" },
+          { type: "CrawlRequestHandleParams" satisfies FoxhoundWireType },
           foxhoundWire.types,
         ) as CrawlRequestHandleParams,
         signal,

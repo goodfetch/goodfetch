@@ -358,15 +358,6 @@ form = "runtime"
 
 [[member]]
 package = "@goodfetch/collie-client/runtime"
-receiver = "(module)"
-member = "toWire"
-entry = "none"
-reason = "Writes a value a program built in the engine's names: each field the schema declares by its wire name, at the places a Product's generated wire table names; data keys keep their spelling (ADR 0099)."
-words = ["to", "wire"]
-form = "runtime"
-
-[[member]]
-package = "@goodfetch/collie-client/runtime"
 receiver = "ClientConnection"
 member = "caller"
 entry = "none"

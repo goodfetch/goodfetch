@@ -19,6 +19,7 @@ use super::super::handles::{Form, Handle, Member};
 use super::super::layer::Setting;
 use super::super::naming::camel;
 use super::HEADER;
+use super::wire::{inline_path, path_value};
 
 /// The optional parameter that holds a scope's own settings (ADR 0083).
 pub(super) const SETTINGS: &str = "settings";
@@ -305,8 +306,21 @@ fn spelling(level: &BTreeMap<String, Node<'_>>, indent: &str) -> Result<String> 
     let mut text = "{\n".to_owned();
     for (name, segment, node) in spelled(level)? {
         match node {
-            Node::Setting(_) => {
-                let _ = writeln!(text, "{inner}{name}: {segment:?},");
+            Node::Setting(setting) => {
+                let value = inline_path(&setting.value)
+                    .with_context(|| format!("the value of the setting `{}`", setting.name))?;
+                match value {
+                    None => {
+                        let _ = writeln!(text, "{inner}{name}: {segment:?},");
+                    }
+                    Some(path) => {
+                        let _ = writeln!(
+                            text,
+                            "{inner}{name}: {{ setting: {segment:?}, value: {} }},",
+                            path_value(&path)
+                        );
+                    }
+                }
             }
             Node::Area(children) => {
                 let _ = writeln!(
@@ -417,8 +431,9 @@ fn schema_members(schema: &Value) -> Result<Vec<String>> {
         .collect()
 }
 
-/// An object value's type: its properties under their wire names, a value
-/// being sent as written, and its other keys' values.
+/// An object value's type: its properties by their camelCase names, which
+/// the walker sends by their wire names, and its other keys' values, which
+/// are data. Two properties that spell one name are refused.
 fn object_type(object: &Map<String, Value>) -> Result<String> {
     let required: Vec<&str> = object
         .get("required")
@@ -427,15 +442,21 @@ fn object_type(object: &Map<String, Value>) -> Result<String> {
         .unwrap_or_default();
     let mut members = Vec::new();
     if let Some(properties) = object.get("properties").and_then(Value::as_object) {
-        for (name, schema) in properties {
-            let optional = if required.contains(&name.as_str()) {
+        let mut seen = BTreeSet::new();
+        for (key, schema) in properties {
+            let name = camel(key);
+            ensure!(
+                seen.insert(name.clone()),
+                "two fields of a value are named `{name}` in TypeScript, one of them `{key}`"
+            );
+            let optional = if required.contains(&key.as_str()) {
                 ""
             } else {
                 "?"
             };
             members.push(format!(
                 "readonly {}{optional}: {}",
-                property_key(name),
+                property_key(&name),
                 union(schema_members(schema)?)
             ));
         }

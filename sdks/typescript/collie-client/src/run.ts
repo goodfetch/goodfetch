@@ -330,7 +330,7 @@ function hostIn<Id>(
     ): Subscription {
       ensureListenable(operation);
       return subscribe(
-        (options) => reach.stream(operation, onWire(operation, params), options),
+        (options) => reach.stream(operation, paramsOnWire(operation, params), options),
         listeningTo(operation, event, listener),
       );
     },
@@ -343,7 +343,7 @@ function hostIn<Id>(
     ): Subscription {
       ensureListenable(operation);
       return subscribePublished(
-        (options) => reach.stream(operation, onWire(operation, params), options),
+        (options) => reach.stream(operation, paramsOnWire(operation, params), options),
         reach.published,
         (data) =>
           typeof data === "object" &&
@@ -358,7 +358,7 @@ function hostIn<Id>(
 }
 
 /** `params` of `operation` as the engine takes them, each declared field in its spelling (ADR 0099). */
-function onWire(operation: keyof CollieOperationTypes, params: unknown): unknown {
+function paramsOnWire(operation: keyof CollieOperationTypes, params: unknown): unknown {
   return toWire(params, collieWire.params[operation], collieWire.types);
 }
 

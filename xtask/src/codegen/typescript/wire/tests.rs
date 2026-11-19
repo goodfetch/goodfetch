@@ -271,6 +271,17 @@ fn only_the_types_the_layer_owns_are_listed_and_references_to_others_stay_named(
 }
 
 #[test]
+fn a_type_that_holds_a_field_to_rename_where_the_table_does_not_look_is_refused() {
+    let defs = definitions(json!({
+        "Odd": { "type": "object", "x-shape": { "properties": { "page_id": { "type": "string" } } } },
+    }));
+
+    let error = table_of(&defs, &[]).unwrap_err();
+
+    assert!(format!("{error:#}").contains("Odd"), "{error:#}");
+}
+
+#[test]
 fn params_results_and_event_payloads_are_listed_by_operation_and_event() {
     let defs = definitions(json!({
         "GotoParams": { "type": "object", "properties": { "page_id": { "type": "string" } } },

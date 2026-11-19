@@ -41,7 +41,7 @@ import type {
   DatasetRecord,
   FoxhoundOperationTypes,
 } from "./generated/index.ts";
-import { foxhoundWire } from "./generated/wire.ts";
+import { foxhoundWire, type FoxhoundWireType } from "./generated/wire.ts";
 
 /** How many Records `records()` lets the engine send before the program has read any. */
 const RECORD_CREDITS = 64;
@@ -249,7 +249,11 @@ export function handleRequest(
 function recordOf(method: string, params: unknown): DatasetRecord | undefined {
   if (method !== "$/record" || typeof params !== "object" || params === null) return undefined;
   if (!("record" in params)) return undefined;
-  const record = fromWire(params.record, { type: "DatasetRecord" }, foxhoundWire.types);
+  const record = fromWire(
+    params.record,
+    { type: "DatasetRecord" satisfies FoxhoundWireType },
+    foxhoundWire.types,
+  );
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine messages are not validated beyond `hello`'s protocol version (STYLE.md): a `$/record` carries a Dataset's Record, its declared fields in camelCase and its points in time read as `Date`s.
   return record as DatasetRecord;
 }

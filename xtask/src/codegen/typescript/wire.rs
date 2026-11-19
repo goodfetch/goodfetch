@@ -414,9 +414,12 @@ pub(super) fn wire<'a>(
             .found(schema)
             .with_context(|| format!("the type `{name}`"))?
             .and_then(|found| found.path());
-        if let Some(path) = path {
-            types.insert(name.clone(), path);
-        }
+        let Some(path) = path else {
+            bail!(
+                "the type `{name}` holds a field to rename or a point in time where the wire table does not look"
+            );
+        };
+        types.insert(name.clone(), path);
     }
     let path_of = |name: &str| walk.reference(name).and_then(|found| found.path());
     let mut params = BTreeMap::new();
@@ -441,6 +444,15 @@ pub(super) fn wire<'a>(
     })
 }
 
+/// Where a value schema that references no type, such as a setting's,
+/// holds fields to rename or points in time; `None` when it holds neither.
+pub(super) fn inline_path(schema: &Value) -> Result<Option<WirePath>> {
+    let definitions = Map::new();
+    Ok(Walk::new(&definitions)
+        .found(schema)?
+        .and_then(|found| found.path()))
+}
+
 /// Names each field a generator's input declares in camelCase, in each
 /// object's `properties` and `required`, and leaves values (`const`,
 /// `enum`, `default`, `examples`) as they are. Two fields of one object
@@ -449,14 +461,11 @@ pub(super) fn camel_fields(input: &mut Value) -> Result<()> {
     match input {
         Value::Object(object) => {
             for (keyword, value) in object.iter_mut() {
-                match keyword.as_str() {
-                    keyword if VALUES.contains(&keyword) => {}
-                    "properties" if value.is_object() => {
-                        let Value::Object(properties) = std::mem::take(value) else {
-                            unreachable!("checked above")
-                        };
+                match (keyword.as_str(), value) {
+                    (keyword, _) if VALUES.contains(&keyword) => {}
+                    ("properties", Value::Object(properties)) => {
                         let mut named = Map::new();
-                        for (key, mut property) in properties {
+                        for (key, mut property) in std::mem::take(properties) {
                             camel_fields(&mut property)
                                 .with_context(|| format!("the field `{key}`"))?;
                             let name = camel(&key);
@@ -467,18 +476,18 @@ pub(super) fn camel_fields(input: &mut Value) -> Result<()> {
                             }
                             named.insert(name, property);
                         }
-                        *value = Value::Object(named);
+                        *properties = named;
                     }
-                    "required" if value.is_array() => {
-                        if let Value::Array(names) = value {
-                            for name in names.iter_mut() {
-                                if let Value::String(text) = name {
-                                    *text = camel(text);
-                                }
+                    ("required", Value::Array(names)) => {
+                        for name in names.iter_mut() {
+                            if let Value::String(text) = name {
+                                *text = camel(text);
                             }
                         }
                     }
-                    _ => camel_fields(value).with_context(|| format!("under `{keyword}`"))?,
+                    (keyword, value) => {
+                        camel_fields(value).with_context(|| format!("under `{keyword}`"))?;
+                    }
                 }
             }
             Ok(())
@@ -514,7 +523,7 @@ fn literal(text: &str) -> String {
 }
 
 /// `path` as the runtime's `WirePath` value.
-fn path_value(path: &WirePath) -> String {
+pub(super) fn path_value(path: &WirePath) -> String {
     match path {
         WirePath::Time => literal("time"),
         WirePath::Type(name) => format!("{{ type: {} }}", literal(name)),

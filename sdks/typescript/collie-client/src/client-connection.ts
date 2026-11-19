@@ -39,6 +39,7 @@ import { rawCall, type RawCallOptions, type RawParams } from "./raw-call.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
 import { settingsOnWire, type RunSettings } from "./generated/settings.ts";
+import { SharedSubscription } from "./shared-subscription.ts";
 import {
   Channel,
   type ChannelBounds,
@@ -203,6 +204,10 @@ export class ClientConnection implements AsyncDisposable {
       raw: (operation, params, callOptions) => this.#raw(operation, params, callOptions),
       reachable: () => !this.#ended,
       stream: (method, params, opened) => this.stream(method, params, opened),
+      published: new SharedSubscription(
+        (opened) => this.stream("events.subscribe", {}, opened),
+        this.#logger,
+      ),
       forget: (run) => this.#runs.delete(run),
       logger: this.#logger,
       keyValueStore: {

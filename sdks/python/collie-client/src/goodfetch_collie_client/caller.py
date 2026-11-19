@@ -56,11 +56,10 @@ def result_of(model: type[_Model], result: object) -> _Model:
     Each field is built as the type it declares: a model, a list or a map of
     them, a point in time in UTC, or, for a field that is one of several
     models, the one whose tag and required fields the value carries. Nothing
-    is validated, so a field,
-    value or variant a newer engine added never raises (ADR 0082): an unknown
-    field stays in its model's `model_extra`, and a value no declared type
-    matches, such as a variant the SDK does not know, stays as the engine sent
-    it.
+    is validated, so a field, value or variant a newer engine added never
+    raises (ADR 0082): an unknown field stays in its model's `model_extra`,
+    and a value no declared type matches, such as a variant the SDK does not
+    know, stays as the engine sent it.
     """
     return model.model_construct(**_fields(model, cast("dict[str, object]", result)))
 

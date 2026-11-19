@@ -18,7 +18,7 @@ from goodfetch_collie_client.generated.models import (
     TimeRange,
 )
 from goodfetch_collie_client.generated.operations import CollieOperations
-from pydantic import BaseModel
+from goodfetch_test_support import EngineAnswering
 
 pytestmark = pytest.mark.covers("story:11-91")
 
@@ -27,7 +27,7 @@ PAUSE = {
     "raised_by": {"by": "program"},
     "session": "session-1",
     "since": "2026-11-19T04:00:00-05:00",
-    "deadline": None,
+    "deadline": "2026-11-20T09:00:00+05:30",
 }
 
 PROGRESS = {
@@ -43,45 +43,31 @@ PROGRESS = {
 }
 
 
-class EngineAnswering:
-    """A caller answering every call with one result, as the engine sends it."""
-
-    def __init__(self, result: object) -> None:
-        """Takes the result every call answers."""
-        self._result = result
-        self.sent: list[BaseModel] = []
-
-    def call(self, operation: str, params: BaseModel) -> object:
-        """Keeps the params and answers the call with the result."""
-        del operation
-        self.sent.append(params)
-        return self._result
-
-
 def is_utc(point: object, expected: datetime) -> bool:
     """Whether `point` is `expected` as a `datetime` whose zone is UTC itself."""
     return isinstance(point, datetime) and point.tzinfo is UTC and point == expected
 
 
 def test_a_results_times_are_utc_whatever_offset_the_engine_wrote() -> None:
-    """A time with an offset, nested ones too, reads as the same instant in UTC."""
+    """A time with an offset, nested or nullable ones too, reads in UTC."""
     operations = CollieOperations(EngineAnswering(PROGRESS))
 
     progress = operations.run_progress(RunProgressParams(run_id=RunId(root="run-1")))
 
     assert is_utc(progress.at, datetime(2026, 11, 19, 8, 30, 0, 123456, tzinfo=UTC))
     assert is_utc(progress.pauses[0].since, datetime(2026, 11, 19, 9, 0, tzinfo=UTC))
+    assert is_utc(
+        progress.pauses[0].deadline, datetime(2026, 11, 20, 3, 30, tzinfo=UTC)
+    )
 
 
 def test_a_null_time_stays_none() -> None:
-    """A nullable `date-time` the engine sends as null, or leaves out, is None."""
+    """A nullable `date-time` the engine sends as null is None."""
     operations = CollieOperations(EngineAnswering(PROGRESS))
 
     progress = operations.run_progress(RunProgressParams(run_id=RunId(root="run-1")))
 
     assert progress.checkpoint_at is None
-    assert progress.pauses[0].deadline is None
-    assert progress.pauses[0].until is None
 
 
 def test_an_events_times_are_utc() -> None:

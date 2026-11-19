@@ -3,7 +3,7 @@
 
 use serde_json::json;
 
-use super::{POINT_IN_TIME, map};
+use super::{POINT_IN_TIME, use_client_type};
 
 /// The protocol's point in time leaves `$defs`, and every reference to it,
 /// at any depth and beside a description of its own, and every inline
@@ -39,7 +39,7 @@ fn every_date_time_becomes_the_client_packages_point_in_time() {
         },
     });
 
-    map(&mut input).unwrap();
+    use_client_type(&mut input).unwrap();
 
     assert_eq!(
         input,
@@ -79,7 +79,7 @@ fn a_date_time_entry_under_another_name_is_refused() {
         },
     });
 
-    let refused = map(&mut input).unwrap_err().to_string();
+    let refused = use_client_type(&mut input).unwrap_err().to_string();
 
     assert!(refused.contains("`Deadline`"), "{refused}");
 }

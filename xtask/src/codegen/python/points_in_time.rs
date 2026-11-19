@@ -12,19 +12,26 @@ use goodfetch_protocol::run::PointInTime;
 
 /// The client package's point in time, which `result_of` builds from the
 /// engine's text.
-pub(super) const POINT_IN_TIME: &str = "goodfetch_collie_client.point_in_time.PointInTime";
+const POINT_IN_TIME: &str = "goodfetch_collie_client.point_in_time.PointInTime";
 
 /// The name of the protocol's point in time, the `$defs` entry every
 /// `date-time` field refers to.
-pub(super) fn protocol_name() -> String {
+fn protocol_name() -> String {
     PointInTime::schema_name().into_owned()
+}
+
+/// The client package's point in time when `name`, a Collie type a layer
+/// refers to, is the protocol's: Foxhound's layer imports it from where
+/// Collie's does.
+pub(super) fn client_type(name: &str) -> Option<&'static str> {
+    (name == protocol_name()).then_some(POINT_IN_TIME)
 }
 
 /// `input`, a generator input, with the protocol's point in time out of its
 /// `$defs` and every reference to it, and every inline `date-time`, naming
 /// the client package's type instead. A `date-time` entry under another name
 /// is refused: Foxhound's layer imports Collie's by the protocol's name.
-pub(super) fn map(input: &mut Value) -> Result<()> {
+pub(super) fn use_client_type(input: &mut Value) -> Result<()> {
     let name = protocol_name();
     if let Some(definitions) = input.get_mut("$defs").and_then(Value::as_object_mut) {
         for (other, schema) in definitions.iter() {
@@ -48,14 +55,14 @@ fn replace(value: &mut Value, reference: &str) -> Result<()> {
         Value::Object(object) => {
             if object.get("$ref").and_then(Value::as_str) == Some(reference) {
                 object.remove("$ref");
-                point_in_time(object);
+                name_client_type(object);
             } else if is_date_time(object) {
                 if object.get("type").and_then(Value::as_str) != Some("string") {
                     bail!("a `date-time` whose type is not `string` alone: {object:?}");
                 }
                 object.remove("type");
                 object.remove("format");
-                point_in_time(object);
+                name_client_type(object);
             }
             object
                 .values_mut()
@@ -68,7 +75,7 @@ fn replace(value: &mut Value, reference: &str) -> Result<()> {
     }
 }
 
-fn point_in_time(object: &mut Map<String, Value>) {
+fn name_client_type(object: &mut Map<String, Value>) {
     object.insert(
         "customTypePath".to_owned(),
         Value::String(POINT_IN_TIME.to_owned()),

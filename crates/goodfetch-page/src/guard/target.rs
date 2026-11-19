@@ -39,3 +39,23 @@ fn single_quoted(text: &str) -> String {
     quoted.push('\'');
     quoted
 }
+
+#[cfg(test)]
+mod tests {
+    use goodfetch_protocol::connection::Form;
+    use rstest::rstest;
+
+    use super::render;
+
+    /// A locator renders as the code its caller's form writes, quotes and
+    /// escapes included, so an ambiguous target's matches read as that
+    /// caller's own code.
+    #[rstest]
+    #[case::typescript(Form::Typescript, "page.locator('a[title=\"it\\'s\"]').nth(1)")]
+    #[case::python(Form::Python, "page.locator(\"a[title=\\\"it's\\\"]\").nth(1)")]
+    #[case::rust(Form::Rust, "page.locator(\"a[title=\\\"it's\\\"]\").nth(1)")]
+    #[case::cli(Form::Cli, "page.locator(\"a[title=\\\"it's\\\"]\").nth(1)")]
+    fn a_target_renders_in_its_callers_form(#[case] form: Form, #[case] rendered: &str) {
+        assert_eq!(render(form, "a[title=\"it's\"]", Some(1)), rendered);
+    }
+}

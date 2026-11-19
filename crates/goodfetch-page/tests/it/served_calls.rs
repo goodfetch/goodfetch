@@ -282,19 +282,21 @@ fn a_call_on_an_enclosed_page_ends_at_the_enclosing_calls_end(
 /// The same failed call heads its message with its operation in the form
 /// the Client's `hello` declares, and names it canonically in `operation`
 /// (ADRs 0079 and 0099): a locator action and the page and locator waits,
-/// each on a page that is gone.
+/// each on a page that is gone. A `hello` that declares no form takes
+/// its surface's, here Rust's.
 #[rstest]
-#[case::action_typescript("typescript", "locator.click", "locator.click")]
-#[case::action_python("python", "locator.click", "locator.click")]
-#[case::action_rust("rust", "locator.click", "locator.click")]
-#[case::page_wait_typescript("typescript", "page.wait_for_url", "page.waitForURL")]
-#[case::page_wait_python("python", "page.wait_for_url", "page.wait_for_url")]
-#[case::page_wait_rust("rust", "page.wait_for_url", "page.wait_for_url")]
-#[case::locator_wait_typescript("typescript", "locator.wait_for", "locator.waitFor")]
-#[case::locator_wait_python("python", "locator.wait_for", "locator.wait_for")]
-#[case::locator_wait_rust("rust", "locator.wait_for", "locator.wait_for")]
+#[case::action_typescript(Some("typescript"), "locator.click", "locator.click")]
+#[case::action_python(Some("python"), "locator.click", "locator.click")]
+#[case::action_rust(Some("rust"), "locator.click", "locator.click")]
+#[case::page_wait_typescript(Some("typescript"), "page.wait_for_url", "page.waitForURL")]
+#[case::page_wait_python(Some("python"), "page.wait_for_url", "page.wait_for_url")]
+#[case::page_wait_rust(Some("rust"), "page.wait_for_url", "page.wait_for_url")]
+#[case::locator_wait_typescript(Some("typescript"), "locator.wait_for", "locator.waitFor")]
+#[case::locator_wait_python(Some("python"), "locator.wait_for", "locator.wait_for")]
+#[case::locator_wait_rust(Some("rust"), "locator.wait_for", "locator.wait_for")]
+#[case::page_wait_undeclared(None, "page.wait_for_url", "page.wait_for_url")]
 fn a_failed_call_names_its_operation_in_the_declared_form(
-    #[case] form: &str,
+    #[case] form: Option<&str>,
     #[case] method: &str,
     #[case] spelled: &str,
 ) {
@@ -305,7 +307,7 @@ fn a_failed_call_names_its_operation_in_the_declared_form(
         _ => json!({ "locator": { "selector": "#go", "page_id": "gone" } }),
     };
 
-    let (reply, _) = called_in(Some(form), Served, method, &params);
+    let (reply, _) = called_in(form, Served, method, &params);
 
     assert_eq!(
         (

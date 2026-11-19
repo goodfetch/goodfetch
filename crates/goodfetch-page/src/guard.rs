@@ -639,15 +639,15 @@ fn at_deadline(asked: Asked<'_>, last: Seen, elapsed: Duration) -> CallError {
     CallError::new(
         &DEADLINE_EXCEEDED,
         format!(
-            "`{}` ({} ms, {}) passed while it waited for {target} to be {}: {observed}.",
-            limit.key,
-            limit.value,
-            limit.layer.as_str(),
+            "it waited for {target} to be {} until `{}` ({} ms, {}) passed: {observed}.",
             match step {
                 Step::ReceivesEvents => "receiving the event",
                 Step::Count => "matched as often as its count allows",
                 other => other.as_str(),
             },
+            limit.key,
+            limit.value,
+            limit.layer.as_str(),
         ),
         &DeadlineExceededDetails {
             limit,

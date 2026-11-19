@@ -280,7 +280,7 @@ fn with_function_handlers(contribution: Contribution, pages: &Pages) -> Contribu
                             &params.page_id,
                             (&expression, params.world),
                             (Injection::Evaluate, PAGE_EVALUATE.name),
-                            context.surface(),
+                            context.form(),
                         )
                         .await
                 }
@@ -301,7 +301,7 @@ fn with_function_handlers(contribution: Contribution, pages: &Pages) -> Contribu
                             &params.locator.page_id,
                             (&expression, params.world),
                             (Injection::EvaluateAll, LOCATOR_EVALUATE_ALL.name),
-                            context.surface(),
+                            context.form(),
                         )
                         .await
                 }
@@ -400,7 +400,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                 let armed = waiting.get(&params.page_id).and_then(|events| {
                     let pattern = params.url.as_ref().map(pattern_of).transpose()?;
                     let deadline = events.wait_deadline(params.timeout)?;
-                    Ok(events.wait_for_request_finished(pattern, context.surface(), deadline))
+                    Ok(events.wait_for_request_finished(pattern, context.form(), deadline))
                 });
                 let pages = finishing.clone();
                 in_call(
@@ -416,7 +416,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok((events, deadline))
                 });
-                let (surface, pages) = (context.surface(), reading_pages.clone());
+                let (form, pages) = (context.form(), reading_pages.clone());
                 // A body the engine kept reads from the Run's folder, even on
                 // a crashed page (ADR 0085); any other read is a call on the
                 // page, as its waits are: a page that ends under it raises
@@ -426,7 +426,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                     if let Some(kept) = events.kept(&params.request_id) {
                         return kept;
                     }
-                    let body = Box::pin(events.body(&params.request_id, surface, deadline));
+                    let body = Box::pin(events.body(&params.request_id, form, deadline));
                     pages.waited(&params.page_id, body).await
                 }
             },
@@ -822,7 +822,7 @@ fn with_page_read_handlers(contribution: Contribution, pages: &Pages) -> Contrib
 /// writing names in the form named second: its failure headed by the
 /// operation in that form, with `operation` its canonical name (ADRs 0079
 /// and 0099).
-pub(super) async fn in_call<T>(
+async fn in_call<T>(
     (operation, form): (&'static str, Form),
     call: impl Future<Output = Result<T, CallError>>,
 ) -> Result<T, CallError> {
@@ -1405,14 +1405,14 @@ impl Pages {
     /// it, on the page `page_id`, in `world`, the main world when absent,
     /// for the operation `operation`, and answers its JSON; a main-world
     /// call marks the Session in Provenance as `injection`. Its errors are
-    /// spelled for `surface`.
+    /// spelled in `form`.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %page_id.0, operation = operation, run_id = tracing::field::Empty))]
     async fn evaluate(
         &self,
         page_id: &PageId,
         (expression, world): (&str, Option<World>),
         (injection, operation): (Injection, &'static str),
-        surface: Surface,
+        form: Form,
     ) -> Result<Evaluated, CallError> {
         let (page, _) = self
             .open(page_id, |page| {
@@ -1433,7 +1433,7 @@ impl Pages {
                 page.driver.evaluate(expression, world, operation),
             )
             .await?;
-        page_functions::answered(returns, (surface, operation))
+        page_functions::answered(returns, (form, operation))
     }
 
     /// Registers the init script `params` names on its page, `pending`

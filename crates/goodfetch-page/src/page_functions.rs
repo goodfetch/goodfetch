@@ -26,7 +26,6 @@ use goodfetch_cdp::generated::runtime;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::runs::Run;
-use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::functions::{
     Evaluated, PAGE_FUNCTION_FAILED, PAGE_VALUE_INVALID, PageFunctionFailedDetails,
@@ -35,6 +34,7 @@ use goodfetch_protocol::page::functions::{
 use goodfetch_protocol::page::functions::{LOCATOR_EVALUATE_ALL, PAGE_EVALUATE};
 use goodfetch_protocol::page::waits::{LOCATOR_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_FUNCTION};
 use goodfetch_protocol::page::{PageId, SessionId};
+use goodfetch_protocol::{connection::Form, naming};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use tokio::sync::watch;
@@ -149,7 +149,7 @@ struct Thrown {
 /// Runs `expression`, as [`expression`] built it, in `world` of the page
 /// `driver` drives, again every `interval` on `clock`, and in each new
 /// document, until its result is truthy as JavaScript judges it, and
-/// answers that result; its errors are spelled for `surface`.
+/// answers that result; its errors are spelled in `form`.
 ///
 /// # Errors
 ///
@@ -164,11 +164,11 @@ pub(crate) async fn until_truthy(
     (expression, operation): (&str, &'static str),
     world: World,
     (interval, clock): (Duration, &Clock),
-    surface: Surface,
+    form: Form,
 ) -> Result<Evaluated, CallError> {
     loop {
         let returns = driver.evaluate(expression, world, operation).await?;
-        let evaluated = answered(returns, (surface, operation))?;
+        let evaluated = answered(returns, (form, operation))?;
         if truthy(evaluated.value.as_ref()) {
             return Ok(evaluated);
         }
@@ -190,11 +190,11 @@ fn truthy(value: Option<&Value>) -> bool {
 }
 
 /// The answer to a page function `Runtime.evaluate` ran as [`expression`]
-/// built it for the operation `operation`, its errors spelled for
-/// `surface`.
+/// built it for the operation `operation`, its errors spelled in
+/// `form`.
 pub(crate) fn answered(
     returns: runtime::EvaluateReturns,
-    spelled: (Surface, &'static str),
+    spelled: (Form, &'static str),
 ) -> Result<Evaluated, CallError> {
     if let Some(details) = returns.exception_details {
         return Err(failed(not_run(&details), spelled));
@@ -265,45 +265,37 @@ pub(crate) fn error_message(name: Option<&str>, description: &str) -> String {
 }
 
 /// The call of the operation `operation` that passes `missing` as its
-/// argument, spelled for `surface`: a locator's page function takes its
+/// argument, spelled in `form`: a locator's page function takes its
 /// matches first and the argument second.
-fn passing(missing: &str, (surface, operation): (Surface, &'static str)) -> String {
-    let (typescript, other, matches) = match operation {
-        name if name == LOCATOR_EVALUATE_ALL.name => {
-            ("locator.evaluateAll", name, Some("elements"))
-        }
-        name if name == LOCATOR_WAIT_FOR_FUNCTION.name => {
-            ("locator.waitForFunction", name, Some("element"))
-        }
-        name if name == PAGE_WAIT_FOR_FUNCTION.name => ("page.waitForFunction", name, None),
-        _ => ("page.evaluate", PAGE_EVALUATE.name, None),
+fn passing(missing: &str, (form, operation): (Form, &'static str)) -> String {
+    let (operation, matches) = match operation {
+        name if name == LOCATOR_EVALUATE_ALL.name => (name, Some("elements")),
+        name if name == LOCATOR_WAIT_FOR_FUNCTION.name => (name, Some("element")),
+        name if name == PAGE_WAIT_FOR_FUNCTION.name => (name, None),
+        _ => (PAGE_EVALUATE.name, None),
     };
     let parameters = matches.map_or_else(
         || missing.to_owned(),
         |matches| format!("{matches}, {missing}"),
     );
-    match surface {
-        Surface::SdkTypescript => format!("{typescript}(({parameters}) => …, {missing})"),
-        Surface::SdkPython
-        | Surface::Rust
-        | Surface::Cli
-        | Surface::Mcp
-        | Surface::Kennel
-        | Surface::Cloud
-        | Surface::BrowserHost
-        | Surface::Worker => format!("{other}(\"({parameters}) => …\", {missing})"),
+    let call = naming::operation(form, operation);
+    match form {
+        Form::Typescript => format!("{call}(({parameters}) => …, {missing})"),
+        Form::Python | Form::Rust | Form::Cli | Form::Tool | Form::Catalog => {
+            format!("{call}(\"({parameters}) => …\", {missing})")
+        }
     }
 }
 
 /// `page_function_failed` for what the page threw in the operation
 /// `operation`; a `ReferenceError`'s fix names the argument, its call
-/// spelled for `surface`.
-fn failed(thrown: Thrown, (surface, operation): (Surface, &'static str)) -> CallError {
+/// spelled in `form`.
+fn failed(thrown: Thrown, (form, operation): (Form, &'static str)) -> CallError {
     let fix = (thrown.name.as_deref() == Some("ReferenceError"))
         .then(|| thrown.message.strip_suffix(" is not defined"))
         .flatten()
         .map(|missing| {
-            let call = passing(missing, (surface, operation));
+            let call = passing(missing, (form, operation));
             format!(
                 "A page function sees only the page and its one argument, never the program's variables: pass `{missing}` as the argument, as `{call}` does."
             )

@@ -121,15 +121,16 @@ impl Surface {
 
     /// The form a Client of this surface writes names in when its `hello`
     /// declares none (ADR 0099): an SDK's own language, the CLI's and the
-    /// MCP server's, and the catalog's for every other surface.
+    /// MCP server's, TypeScript for a Script sandbox worker, which runs Code
+    /// mode, and the catalog's for every other surface.
     pub fn form(self) -> Form {
         match self {
-            Self::SdkTypescript => Form::Typescript,
+            Self::SdkTypescript | Self::Worker => Form::Typescript,
             Self::SdkPython => Form::Python,
             Self::Rust => Form::Rust,
             Self::Cli => Form::Cli,
             Self::Mcp => Form::Tool,
-            Self::Kennel | Self::Cloud | Self::BrowserHost | Self::Worker => Form::Catalog,
+            Self::Kennel | Self::Cloud | Self::BrowserHost => Form::Catalog,
         }
     }
 

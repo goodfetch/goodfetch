@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::connection::CLOSED;
-use goodfetch_protocol::connection::{Surface, WaitedFor};
+use goodfetch_protocol::connection::{Form, WaitedFor};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::functions::{Evaluated, World};
 use goodfetch_protocol::page::waits::{
@@ -150,7 +150,7 @@ fn with_checking_handlers(contribution: Contribution, pages: &Pages) -> Contribu
                         timeout: params.timeout,
                         by: (Injection::WaitForFunction, PAGE_WAIT_FOR_FUNCTION.name),
                     };
-                    Box::pin(pages.wait_for_function(wait, context.surface())).await
+                    Box::pin(pages.wait_for_function(wait, context.form())).await
                 })
             },
         ))
@@ -177,7 +177,7 @@ fn with_checking_handlers(contribution: Contribution, pages: &Pages) -> Contribu
                                 LOCATOR_WAIT_FOR_FUNCTION.name,
                             ),
                         };
-                        Box::pin(pages.wait_for_function(wait, context.surface())).await
+                        Box::pin(pages.wait_for_function(wait, context.form())).await
                     },
                 )
             },
@@ -290,13 +290,13 @@ impl Pages {
     /// Runs the page function of `wait` on its page, again at its interval
     /// and in each new document, until its result is truthy, and answers
     /// that result, unless its deadline passes first; a main-world call
-    /// marks the Session in Provenance. Its errors are spelled for
-    /// `surface`.
+    /// marks the Session in Provenance. Its errors are spelled in
+    /// `form`.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %wait.page_id.0, operation = wait.by.1, run_id = tracing::field::Empty))]
     async fn wait_for_function(
         &self,
         wait: FunctionWait<'_>,
-        surface: Surface,
+        form: Form,
     ) -> Result<Evaluated, CallError> {
         let (injection, operation) = wait.by;
         let interval = match wait.polling_interval {
@@ -332,7 +332,7 @@ impl Pages {
             (wait.expression, operation),
             world,
             (interval, deadline.clock()),
-            surface,
+            form,
         ));
         page.life
             .call(PageEvent::Read, async {

@@ -1567,7 +1567,7 @@
     {
       "id": "error:listener_failed",
       "kind": "error",
-      "area": null,
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [

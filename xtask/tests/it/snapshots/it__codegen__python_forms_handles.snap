@@ -106,6 +106,9 @@ class AsyncPage(AsyncHandle):
     @deprecated("Since 0.1, removed no earlier than 1.0: use `complete` instead. The same state under its new name.", category=None)
     async def wait_for_ready(self, *, expected: Any | NotGiven = not_given, poll: int | None | NotGiven = not_given, state: Literal["loaded"], timeout: timedelta | None | NotGiven = not_given) -> models.Acted: ...
 
+    @overload
+    async def wait_for_ready(self, *, expected: Any | NotGiven = not_given, poll: int | None | NotGiven = not_given, state: Literal["interactive", "complete", "loaded"] | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given) -> models.Acted: ...
+
     async def wait_for_ready(self, *, expected: Any | NotGiven = not_given, poll: int | None | NotGiven = not_given, state: Literal["interactive", "complete", "loaded"] | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given) -> models.Acted:
         """Waits until the page's document has loaded.
 
@@ -238,6 +241,9 @@ class Page(Handle):
     @overload
     @deprecated("Since 0.1, removed no earlier than 1.0: use `complete` instead. The same state under its new name.", category=None)
     def wait_for_ready(self, *, expected: Any | NotGiven = not_given, poll: int | None | NotGiven = not_given, state: Literal["loaded"], timeout: timedelta | None | NotGiven = not_given) -> models.Acted: ...
+
+    @overload
+    def wait_for_ready(self, *, expected: Any | NotGiven = not_given, poll: int | None | NotGiven = not_given, state: Literal["interactive", "complete", "loaded"] | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given) -> models.Acted: ...
 
     def wait_for_ready(self, *, expected: Any | NotGiven = not_given, poll: int | None | NotGiven = not_given, state: Literal["interactive", "complete", "loaded"] | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given) -> models.Acted:
         """Waits until the page's document has loaded.

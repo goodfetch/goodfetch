@@ -1169,7 +1169,7 @@ fn workspace_with_the_forms_catalog() -> Workspace {
 /// refuses a catalog that says otherwise, naming the operation, in place of
 /// writing a member whose name, options or result lie.
 ///
-/// Covers: story:11-178, story:11-182
+/// Covers: story:11-178
 #[rstest]
 #[case::a_waiter_without_the_prefix(
     "\"page.wait_for_ready\"",
@@ -1233,16 +1233,19 @@ fn workspace_with_the_forms_catalog() -> Workspace {
     "",
     "operation `page.goto`"
 )]
+/// Covers: story:11-182
 #[case::a_deprecated_required_parameter(
     "    /// The URL to navigate to.\n",
     "    /// The URL to navigate to.\n    #[schemars(extend(\"deprecation\" = {\"since\": \"0.1\", \"replacement\": null, \"earliest_removal\": \"1.0\", \"note\": \"\"}))]\n",
     "operation `page.goto`: its required parameter `url` is deprecated"
 )]
+/// Covers: story:11-182
 #[case::every_value_deprecated(
     "    /// Parsed.\n    Interactive,\n    /// Loaded, with its subresources.\n    Complete,\n",
     "",
     "operation `page.wait_for_ready`: every value of its parameter `state` is deprecated"
 )]
+/// Covers: story:11-182
 #[case::a_deprecated_value_that_is_no_string(
     "    Loaded,\n}",
     "    Loaded(u64),\n}",

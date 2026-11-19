@@ -37,7 +37,9 @@
 //!   value of a choice, has an `@overload` free of them, then one for each,
 //!   marked with PEP 702's `@deprecated`, which takes that keyword or that
 //!   value alone, so pyright and mypy report a call that uses it and no
-//!   other (ADR 0099).
+//!   other (ADR 0099), and last one that takes every form, as the
+//!   implementation does, so a call whose value only its type gives still
+//!   resolves.
 //!
 //! Each parameter's annotation is read from its schema; one the generator
 //! cannot spell fails `xtask codegen` with the operation named, and the
@@ -50,7 +52,9 @@ use std::fmt::Write as _;
 use anyhow::{Context as _, Result, bail};
 use serde_json::Value;
 
-use super::super::handles::{Builder, Form, Handle, HandleId, Member, Overload, Parameters};
+use super::super::handles::{
+    Builder, DEPRECATION, Form, Handle, HandleId, Member, Overload, Parameters,
+};
 use super::super::layer::{Layer, Stability};
 use super::super::naming::{pascal, snake};
 use super::super::settings_tree::SETTINGS;
@@ -240,7 +244,7 @@ const ANNOTATIONS: [&str; 8] = [
     "arrived_in",
     "default",
     "deprecated",
-    "deprecation",
+    DEPRECATION,
     "description",
     "examples",
     "title",
@@ -381,7 +385,7 @@ fn signature(
             overload.takes(name, value)
         }) {
             // A deprecated value's overload takes that value alone.
-            let nullable = nullable && !overload.chosen_by(name);
+            let nullable = nullable && !overload.chosen_value_of(name);
             return Ok(if nullable {
                 (
                     format!("{annotation} | None"),
@@ -564,6 +568,11 @@ fn member(
                 deprecated.declared
             );
         }
+        let _ = write!(
+            text,
+            "    @overload\n    {asynchronous}def {}(self{}) -> {returns}: ...\n\n",
+            member.name, signature.declared
+        );
     }
     let _ = writeln!(
         text,

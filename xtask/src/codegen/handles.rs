@@ -44,7 +44,9 @@
 //!   parameter's choice of strings marked so, is a deprecated form of a
 //!   member that is not deprecated itself: a language with overloads gives
 //!   each its own overload carrying the deprecation, so a type checker
-//!   reports a call that uses it and no other (ADR 0099). A required
+//!   reports a call that uses it and no other (ADR 0099), and ends with one
+//!   that takes every form, so a call whose value only its type gives, a
+//!   union or an optional one, still resolves. A required
 //!   parameter, which every call passes, or every value of a choice, which
 //!   leaves no call free of it, is refused.
 
@@ -165,7 +167,7 @@ pub(super) struct Unwrapped {
 
 /// The schema keyword that marks a deprecated parameter, or a deprecated
 /// value of a choice of strings, with its deprecation (ADR 0099).
-const DEPRECATION: &str = "deprecation";
+pub(super) const DEPRECATION: &str = "deprecation";
 
 /// A deprecated form of a member's call (ADR 0099): passing an optional
 /// parameter, or one value of a parameter's choice of strings.
@@ -209,7 +211,8 @@ pub(super) struct Member<'a> {
 /// Which of a member's signatures a generator declares (ADR 0099): an
 /// overload free of the deprecated forms leaves out a deprecated parameter
 /// and narrows a choice to its current values; a deprecated form's overload
-/// requires that parameter, narrowed to the deprecated value for one.
+/// requires that parameter, narrowed to the deprecated value for one. The
+/// last overload takes every form, as the implementation does.
 #[derive(Clone, Copy)]
 pub(super) enum Overload<'f> {
     /// The implementation, which takes every form.
@@ -236,6 +239,12 @@ impl Overload<'_> {
     /// which a call passes to choose it.
     pub(super) fn chosen_by(self, param: &str) -> bool {
         matches!(self, Self::Deprecated(form) if form.param == param)
+    }
+
+    /// Whether this overload is the deprecated value of the parameter
+    /// `param`, which it takes alone, without the language's none.
+    pub(super) fn chosen_value_of(self, param: &str) -> bool {
+        matches!(self, Self::Deprecated(form) if form.param == param && form.value.is_some())
     }
 
     /// Whether the parameter `param` is left out: passing it is a

@@ -551,9 +551,10 @@ fn answer(member: &Member<'_>, call: &str) -> String {
 }
 
 /// The documented signatures that come before `member`'s implementation:
-/// its doc alone, or each overload, the current one then one per deprecated
-/// form, which a call resolves to and a linter reports; the implementation's
-/// signature, which takes every form, is then hidden (ADR 0099).
+/// its doc alone, or each overload: the current one, then one per
+/// deprecated form, which a call resolves to and a linter reports, then one
+/// that takes every form; the implementation's signature is then hidden
+/// (ADR 0099).
 fn overloads(
     member: &Member<'_>,
     name: &str,
@@ -591,6 +592,17 @@ fn overloads(
         ));
         let _ = writeln!(text, "  {name}{generics}({declared}): {returns};");
     }
+    // Last, one that takes every form, as the implementation does, so a
+    // call whose value only its type gives, a union or an optional one,
+    // still resolves: an overload free of no form, which has no default.
+    let (every, _) = signature_of(Overload::Current(&[]));
+    text.push_str(&doc(
+        "  ",
+        &operation.description,
+        operation.stability,
+        None,
+    ));
+    let _ = writeln!(text, "  {name}{generics}({every}): {returns};");
     text
 }
 

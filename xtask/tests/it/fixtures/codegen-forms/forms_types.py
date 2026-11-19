@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
-from typing import assert_type
+from typing import Literal, assert_type
 
 from goodfetch_collie_client.generated.handles import (
     AsyncLocator,
@@ -21,6 +21,7 @@ from goodfetch_collie_client.generated.handles import (
     PageKeyboard,
     Run,
 )
+from goodfetch_collie_client.handle import NotGiven
 from goodfetch_collie_client.generated.models import (
     Acted,
     Navigated,
@@ -111,6 +112,8 @@ def sync_forms(
     page: Page,
     other_keyboard: PageKeyboard,
     fields: dict[str, PageField],
+    any_state: Literal["interactive", "complete", "loaded"] | None,
+    any_poll: int | None | NotGiven,
 ) -> None:
     """The sync twins: the same members under the same names, each plain."""
     assert_type(page.goto(URL, REFERRER, fresh=True), Navigated)
@@ -130,6 +133,11 @@ def sync_forms(
     assert_type(page.wait_for_ready(poll=100, state=None), Acted)  # type: ignore[deprecated]
     assert_type(page.wait_for_ready(state="loaded"), Acted)  # type: ignore[deprecated]
     page.wait_for_ready(poll="often")  # type: ignore[call-overload]
+    # A value only its type gives, a union with a deprecated value or one
+    # forwarded as given or not, resolves to the last overload, which takes
+    # every form.
+    assert_type(page.wait_for_ready(state=any_state), Acted)
+    assert_type(page.wait_for_ready(poll=any_poll), Acted)
     page.keyboard.press(1)  # type: ignore[arg-type,deprecated]
 
     assert_type(run.new_page(), Page)

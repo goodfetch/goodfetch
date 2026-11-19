@@ -3,11 +3,13 @@
 // and oxlint's `no-deprecated` on a deprecated use without its directive.
 import { expectTypeOf } from "vitest";
 import type { Locator, Page, PageKeyboard, Run } from "./generated/handles.ts";
-import type { Acted, Navigated, PageField, Readiness } from "./generated/types.ts";
+import type { Acted, Navigated, PageField, Readiness, ReadyState } from "./generated/types.ts";
 
 declare const run: Run;
 declare const page: Page;
 declare const otherKeyboard: PageKeyboard;
+declare const anyState: ReadyState;
+declare const anyPoll: number | undefined;
 
 // A round trip: its required texts are positional in the catalog's order,
 // which is not the alphabet's, its required boolean and its optional
@@ -67,6 +69,10 @@ void page.waitForReady({ poll: 100, state: null });
 void page.waitForReady({ state: "loaded" });
 // @ts-expect-error a deprecated option keeps its type
 void page.waitForReady({ poll: "often" });
+// A value only its type gives, a union with a deprecated value or an
+// optional one, resolves to the last overload, which takes every form.
+void page.waitForReady({ state: anyState });
+void page.waitForReady({ poll: anyPoll });
 
 // A `new` member returns the value it opens, which closes with its scope.
 expectTypeOf(run.newPage).returns.toEqualTypeOf<Promise<Page>>();

@@ -29,6 +29,10 @@ type Read<T> = Box<dyn FnOnce(Value) -> Result<T, Error> + Send + 'static>;
 /// caller reads it: a Run notes that it ended.
 type Note = Box<dyn FnOnce(&Value) + Send + 'static>;
 
+/// What answers a call before it is sent, so that it is not: a close of a
+/// value already closed answers at once.
+type Settled = Box<dyn FnOnce() -> Option<Value> + Send + 'static>;
+
 /// The name of the params member an operation's own `timeout` travels in
 /// (ADR 0080).
 const WIRE_TIMEOUT: &str = "timeout";
@@ -106,6 +110,16 @@ impl<T, P> Call<T, P> {
     /// Runs `note` with the reply's JSON once it has come.
     pub(crate) fn note(mut self, note: impl FnOnce(&Value) + Send + 'static) -> Self {
         self.request.note = Some(Box::new(note));
+        self
+    }
+
+    /// Runs `settled` when the call is awaited, before anything is sent:
+    /// the JSON it returns is the call's reply, and the call is not sent.
+    pub(crate) fn settled(
+        mut self,
+        settled: impl FnOnce() -> Option<Value> + Send + 'static,
+    ) -> Self {
+        self.request.settled = Some(Box::new(settled));
         self
     }
 
@@ -236,6 +250,7 @@ struct Request<P> {
     method: String,
     params: Result<P, Error>,
     note: Option<Note>,
+    settled: Option<Settled>,
 }
 
 impl<P> Request<P> {
@@ -245,6 +260,7 @@ impl<P> Request<P> {
             method: method.to_owned(),
             params,
             note: None,
+            settled: None,
         }
     }
 }
@@ -252,12 +268,16 @@ impl<P> Request<P> {
 impl<P: Serialize> Request<P> {
     /// Sends the request, its params as JSON once `edit` changed them,
     /// and answers its reply's JSON once the handle noted it; a timer of
-    /// the client's fails it past `timeout`.
+    /// the client's fails it past `timeout`. A request its handle settles
+    /// first is not sent.
     async fn send(
         self,
         timeout: Option<Duration>,
         edit: impl FnOnce(&mut Value),
     ) -> Result<Value, Error> {
+        if let Some(answer) = self.settled.and_then(|settled| settled()) {
+            return Ok(answer);
+        }
         let mut params = serde_json::to_value(self.params?).map_err(Error::Shape)?;
         edit(&mut params);
         let (reply, replied) = oneshot::channel();

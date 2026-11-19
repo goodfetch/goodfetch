@@ -22,6 +22,7 @@ use goodfetch_protocol::connection::{CANCEL, CancelParams, HELLO, HelloParams, H
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::{BodyHandle, CHUNK, Chunk};
+use goodfetch_protocol::settings::TIMEOUT_CLOSE;
 use serde::Serialize;
 use serde::de::{DeserializeOwned, Error as _};
 use serde_json::Value;
@@ -372,18 +373,40 @@ impl ClientConnection {
     /// open, as [`crate::Run::close`] does, then every call in flight fails with
     /// [`Error::Closed`], as does every later one; the engine reads the end
     /// of its input, and an Attached engine exits. Returns once the
-    /// Connection's tasks have ended. Closing again does nothing.
+    /// Connection's tasks have ended, or once `timeout.close` has run out.
+    /// Closing again does nothing. A Connection to a Daemon only
+    /// disconnects: the Daemon goes on.
     ///
     /// # Errors
     ///
-    /// The first error a Run's close failed with; the Connection closes
-    /// all the same.
+    /// The first error a Run's close failed with, and [`Error::TimedOut`]
+    /// when `timeout.close` ran out first; the Connection closes all the
+    /// same.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future before it completes leaves the Runs it had not
     /// closed yet open and the Connection open.
     pub async fn close(&self) -> Result<(), Error> {
+        // The timer is the Connection's runtime's, so the close runs on
+        // any executor (ADR 0081).
+        let bounded = {
+            let _entered = self.0.handle.enter();
+            tokio::time::timeout(close_timeout(), self.close_unbounded())
+        };
+        match bounded.await {
+            Ok(closed) => closed,
+            Err(_elapsed) => {
+                self.0.sender.close();
+                self.0.tasks.close();
+                Err(Error::TimedOut)
+            }
+        }
+    }
+
+    /// Closes the Connection as [`ClientConnection::close`] says, however
+    /// long it takes.
+    async fn close_unbounded(&self) -> Result<(), Error> {
         let runs: Vec<Arc<dyn Closes>> = std::mem::take(&mut *self.runs())
             .iter()
             .filter_map(Weak::upgrade)
@@ -570,6 +593,14 @@ impl Drop for Inner {
             self.tasks.close();
         }
     }
+}
+
+/// How long a close waits: `timeout.close`'s default (ADR 0078).
+pub(crate) fn close_timeout() -> Duration {
+    let millis = (TIMEOUT_CLOSE.default)()
+        .as_u64()
+        .expect("invariant: `timeout.close` defaults to a duration in milliseconds");
+    Duration::from_millis(millis)
 }
 
 /// `params` as the call sends them.

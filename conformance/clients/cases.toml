@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "20"
+version = "21"
 
 [[capability]]
 name = "lifecycle"
@@ -29,20 +29,20 @@ name = "lifecycle"
 [[capability.case]]
 id = "two-connections-at-once"
 covers = ["story:11-15"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "connect-after-close"
 covers = ["story:11-15"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "closed-after-close"
 covers = ["story:11-17"]
-surfaces = ["sdk-typescript", "sdk-python"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "nothing-at-import-or-connect"
@@ -56,30 +56,31 @@ modes = ["attached"]
 # Connection's close cancels its calls in flight and waits for its Attached
 # engine, and a failed close raises its typed error, a `SuppressedError`
 # under `await using`. TypeScript leads; the Python SDK joins with issue
-# 2927 and the Rust SDK with issue 2928.
+# 2927; the Rust SDK runs them linked (issue 2928), played by the Scripted
+# engine as a Daemon, whose Connection close only disconnects.
 [[capability.case]]
 id = "children-close-with-their-parent"
 covers = ["story:11-16"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "close-stops-a-running-run"
 covers = ["story:11-18"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "connection-close-stops-its-engine"
 covers = ["story:11-19"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-rust"]
+modes = ["attached", "linked"]
 
 [[capability.case]]
 id = "failed-close-raises-a-typed-error"
 covers = ["story:11-20"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-rust"]
+modes = ["attached", "linked"]
 
 # The catalog's operations reach the engine through the members generated
 # from them (ADR 0099; issues 2399, 1233 and 2793): attached in TypeScript

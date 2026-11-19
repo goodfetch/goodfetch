@@ -8,8 +8,10 @@
 //! command of the executable, reads the canonical names.
 //!
 //! A mark is the name between two characters of Unicode's Private Use Area,
-//! which no message of the engine writes otherwise; text that only looks
-//! like a mark, as a page's text might, renders as it is.
+//! which no message of the engine writes otherwise. Text a message quotes
+//! is rendered with it: a malformed mark in it, as a page's text might
+//! hold, renders as it is, and a well-formed one shows a name in the
+//! Client's form, which only spells a name differently.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -17,6 +19,7 @@ use std::fmt;
 use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::connection::Form;
 use goodfetch_protocol::naming;
+use goodfetch_protocol::settings::SettingsLayer;
 use serde_json::Value;
 
 /// Opens a mark, followed by its kind's letter.
@@ -56,7 +59,8 @@ impl Kind {
 /// A name a message shows, marked for its Client's form: written into the
 /// message with `format!`, as `` "`{}`" ``.
 pub struct Named<'a> {
-    kind: Kind,
+    /// Its kind; `None` for a name every Client reads as written.
+    kind: Option<Kind>,
     name: &'a str,
     /// An event's payload type, which names Rust's marker of an event whose
     /// own name would end in `Error`; empty for the other kinds.
@@ -65,10 +69,13 @@ pub struct Named<'a> {
 
 impl fmt::Display for Named<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if !is_name(self.name) || !is_payload(&self.payload) {
+        let Some(kind) = self
+            .kind
+            .filter(|_| is_name(self.name) && is_payload(&self.payload))
+        else {
             return formatter.write_str(self.name);
-        }
-        write!(formatter, "{OPEN}{}{}", self.kind.letter(), self.name)?;
+        };
+        write!(formatter, "{OPEN}{}{}", kind.letter(), self.name)?;
         if !self.payload.is_empty() {
             write!(formatter, "{PAYLOAD}{}", self.payload)?;
         }
@@ -81,7 +88,18 @@ impl fmt::Display for Named<'_> {
 /// Rust.
 pub fn setting(key: &str) -> Named<'_> {
     Named {
-        kind: Kind::Setting,
+        kind: Some(Kind::Setting),
+        name: key,
+        payload: Cow::Borrowed(""),
+    }
+}
+
+/// The setting `key` as `layer` set it: as its Client sets it when the
+/// Client did, at the Run's layer, and as a file writes it, by its
+/// canonical name, when a file or the Operator policy did.
+pub fn setting_in(key: &str, layer: SettingsLayer) -> Named<'_> {
+    Named {
+        kind: (layer == SettingsLayer::Run).then_some(Kind::Setting),
         name: key,
         payload: Cow::Borrowed(""),
     }
@@ -91,7 +109,7 @@ pub fn setting(key: &str) -> Named<'_> {
 /// reads `maxRedirects` in TypeScript.
 pub fn parameter(name: &str) -> Named<'_> {
     Named {
-        kind: Kind::Parameter,
+        kind: Some(Kind::Parameter),
         name,
         payload: Cow::Borrowed(""),
     }
@@ -104,7 +122,7 @@ pub fn parameter(name: &str) -> Named<'_> {
 pub fn event(event: &Event) -> Named<'static> {
     let (name, payload) = naming::listened(event);
     Named {
-        kind: Kind::Event,
+        kind: Some(Kind::Event),
         name,
         payload: payload.map_or(Cow::Borrowed(""), Cow::Owned),
     }
@@ -209,9 +227,10 @@ fn spelled(after: &str, form: Form) -> Option<(String, usize)> {
 mod tests {
     use goodfetch_protocol::connection::Form;
     use goodfetch_protocol::page::events::{PAGE_PAGE_ERROR, PAGE_REQUEST_FINISHED};
+    use goodfetch_protocol::settings::SettingsLayer;
     use rstest::rstest;
 
-    use super::{event, parameter, render, setting};
+    use super::{event, parameter, render, setting, setting_in};
 
     /// Each kind of name renders in each SDK's form, and canonically for
     /// the catalog, around the text the message writes itself.
@@ -250,6 +269,21 @@ mod tests {
         );
 
         assert_eq!(render(&text, form), expected);
+    }
+
+    /// A key a file set reads as the file writes it, whatever the form.
+    #[test]
+    fn a_setting_a_file_set_shows_as_written() {
+        let text = format!(
+            "`{}` in `{}`",
+            setting_in("timeout.first_byte", SettingsLayer::UserConfiguration),
+            setting_in("timeout.first_byte", SettingsLayer::Run)
+        );
+
+        assert_eq!(
+            render(&text, Form::Typescript),
+            "`timeout.first_byte` in `timeout.firstByte`"
+        );
     }
 
     /// A name no catalog writes, as a Client may send one, shows as it

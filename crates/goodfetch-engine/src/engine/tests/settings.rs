@@ -435,16 +435,18 @@ fn a_runs_trusted_cas_is_locked_and_the_same_value_from_configuration_starts_the
 /// does the key closest to one the catalog lacks, which keeps its own
 /// spelling; the details name both canonically (ADR 0099).
 #[rstest]
-#[case::invalid_typescript("typescript", json!({ "first_byte": "soon" }), "`timeout.firstByte` is not valid")]
-#[case::invalid_python("python", json!({ "first_byte": "soon" }), "`timeout.first_byte` is not valid")]
-#[case::invalid_rust("rust", json!({ "first_byte": "soon" }), "`timeout::FIRST_BYTE` is not valid")]
-#[case::unknown_typescript("typescript", json!({ "first_bytes": 1000 }), "`timeout.first_bytes` in run is no setting; did you mean `timeout.firstByte`?")]
-#[case::unknown_python("python", json!({ "first_bytes": 1000 }), "`timeout.first_bytes` in run is no setting; did you mean `timeout.first_byte`?")]
-#[case::unknown_rust("rust", json!({ "first_bytes": 1000 }), "`timeout.first_bytes` in run is no setting; did you mean `timeout::FIRST_BYTE`?")]
+#[case::invalid_typescript("typescript", json!({ "first_byte": "soon" }), "`timeout.firstByte` is not valid", "timeout.first_byte", json!(null))]
+#[case::invalid_python("python", json!({ "first_byte": "soon" }), "`timeout.first_byte` is not valid", "timeout.first_byte", json!(null))]
+#[case::invalid_rust("rust", json!({ "first_byte": "soon" }), "`timeout::FIRST_BYTE` is not valid", "timeout.first_byte", json!(null))]
+#[case::unknown_typescript("typescript", json!({ "first_bytes": 1000 }), "`timeout.first_bytes` in run is no setting; did you mean `timeout.firstByte`?", "timeout.first_bytes", json!("timeout.first_byte"))]
+#[case::unknown_python("python", json!({ "first_bytes": 1000 }), "`timeout.first_bytes` in run is no setting; did you mean `timeout.first_byte`?", "timeout.first_bytes", json!("timeout.first_byte"))]
+#[case::unknown_rust("rust", json!({ "first_bytes": 1000 }), "`timeout.first_bytes` in run is no setting; did you mean `timeout::FIRST_BYTE`?", "timeout.first_bytes", json!("timeout.first_byte"))]
 fn a_refused_setting_reads_in_the_declared_form(
     #[case] form: &str,
     #[case] timeout: Value,
     #[case] spelled: &str,
+    #[case] key: &str,
+    #[case] closest: Value,
 ) {
     let env = TestEnv::new();
     let mut said = hello("collie", "0.1");
@@ -463,17 +465,12 @@ fn a_refused_setting_reads_in_the_declared_form(
 
     let message = started["error"]["message"].as_str().unwrap_or_default();
     assert!(message.contains(spelled), "{started}");
-    let canonical = (
-        &started["error"]["data"]["key"],
-        started["error"]["data"].get("closest"),
-    );
-    assert!(
-        canonical == (&json!("timeout.first_byte"), None)
-            || canonical
-                == (
-                    &json!("timeout.first_bytes"),
-                    Some(&json!("timeout.first_byte"))
-                ),
+    assert_eq!(
+        (
+            &started["error"]["data"]["key"],
+            &started["error"]["data"]["closest"],
+        ),
+        (&json!(key), &closest),
         "{started}"
     );
 }

@@ -36,6 +36,7 @@ use std::hash::{BuildHasherDefault, DefaultHasher};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use goodfetch_protocol::catalog::Setting;
+use goodfetch_protocol::connection::Form;
 use goodfetch_protocol::egress::{
     EGRESS_ALLOWED_DOMAINS, EGRESS_BLOCKED_DOMAINS, EGRESS_NO_PRIVATE_ENDPOINTS,
     EGRESS_PRIVATE_RANGES, EGRESS_REFUSED, EVERY_HOST, EgressRefusedDetails, EgressRule,
@@ -365,17 +366,7 @@ impl Refused {
     /// The failure the call that waited for the request answers with, the
     /// setting that would allow it in its Client's form (ADR 0099).
     pub fn error(&self) -> CallError {
-        let message = self.setting.map_or_else(
-            || self.to_string(),
-            |setting| {
-                format!(
-                    "{}; `{}` would allow it",
-                    self.refused(),
-                    named::setting(setting)
-                )
-            },
-        );
-        CallError::new(&EGRESS_REFUSED, message, &self.details())
+        CallError::new(&EGRESS_REFUSED, self.message(), &self.details())
     }
 
     /// The failure as an event carries it, for a request no call waited
@@ -394,23 +385,24 @@ impl Refused {
 }
 
 impl Refused {
-    /// What it refused and by which rule, the head of its message.
-    fn refused(&self) -> String {
-        format!(
+    /// What it refused, by which rule, and the setting that would allow it,
+    /// marked for its Client's form.
+    fn message(&self) -> String {
+        let refused = format!(
             "the egress policy refused a request to {} ({})",
             self.url,
             self.rule.as_str()
-        )
+        );
+        match self.setting {
+            Some(setting) => format!("{refused}; `{}` would allow it", named::setting(setting)),
+            None => refused,
+        }
     }
 }
 
 impl std::fmt::Display for Refused {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.refused())?;
-        if let Some(setting) = self.setting {
-            write!(formatter, "; `{setting}` would allow it")?;
-        }
-        Ok(())
+        formatter.write_str(&named::render(&self.message(), Form::Catalog))
     }
 }
 

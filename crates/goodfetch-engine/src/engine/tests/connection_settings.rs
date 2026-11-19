@@ -28,6 +28,35 @@ fn keyed(explained: &Value) -> Vec<Value> {
         .collect()
 }
 
+/// A setting a `hello` refuses reads in the form that `hello` declares,
+/// and its details keep its key canonical (ADR 0099).
+#[rstest]
+#[case::typescript("typescript", "`timeout.firstByte` is not valid")]
+#[case::python("python", "`timeout.first_byte` is not valid")]
+#[case::rust("rust", "`timeout::FIRST_BYTE` is not valid")]
+fn a_setting_a_hello_refuses_reads_in_its_declared_form(#[case] form: &str, #[case] spelled: &str) {
+    let env = TestEnv::new();
+    let mut said = hello_setting(json!({ "timeout": { "first_byte": "soon" } }));
+    said["params"]["form"] = json!(form);
+
+    let refused = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            client.send(&[said]).await;
+            client.next().await.unwrap()
+        },
+    );
+
+    let message = refused["error"]["message"].as_str().unwrap_or_default();
+    assert!(message.contains(spelled), "{refused}");
+    assert_eq!(
+        refused["error"]["data"]["key"],
+        json!("timeout.first_byte"),
+        "{refused}"
+    );
+}
+
 /// A key no program's code sets refuses the `hello` that gives it, naming
 /// where it is set, and the Connection opens no further: an Operator
 /// policy's key is locked by its default, and the project file's own key

@@ -187,16 +187,10 @@ impl CallError {
     /// Its error object, as the wire carries it and as a CLI command that
     /// fails before any call prints it: each name it marks canonical.
     pub fn to_error_object(&self) -> ErrorObject {
-        let (code, retryable, details) = self.wire_parts();
-        ErrorObject {
-            code,
-            message: self.message().to_owned(),
-            data: ErrorData {
-                code: self.code().to_owned(),
-                retryable,
-                details,
-            },
-        }
+        self.object(
+            self.message().to_owned(),
+            self.details().cloned().unwrap_or_default(),
+        )
     }
 
     /// Its error object as a Connection whose Client writes `form` receives
@@ -204,15 +198,29 @@ impl CallError {
     /// spelled in that form, its structured fields, such as `limit`'s
     /// `key`, canonical.
     pub fn to_error_object_in(&self, form: Form) -> ErrorObject {
-        let mut object = self.to_error_object();
-        if let Failure::Code {
-            marked: Some(marked),
-            ..
-        } = &*self.0
-        {
-            (object.message, object.data.details) = marked.rendered(form);
+        match &*self.0 {
+            Failure::Code {
+                marked: Some(marked),
+                ..
+            } => {
+                let (message, details) = marked.rendered(form);
+                self.object(message, details)
+            }
+            Failure::Code { .. } | Failure::Protocol { .. } => self.to_error_object(),
         }
-        object
+    }
+
+    /// Its error object with `message` and `details`.
+    fn object(&self, message: String, details: Map<String, Value>) -> ErrorObject {
+        ErrorObject {
+            code: self.wire_code(),
+            message,
+            data: ErrorData {
+                code: self.code().to_owned(),
+                retryable: self.retryable(),
+                details,
+            },
+        }
     }
 }
 

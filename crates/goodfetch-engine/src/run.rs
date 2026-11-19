@@ -401,21 +401,33 @@ fn unbuilt(
     )
 }
 
-/// `error`'s message with the setting it names, and the closest one an
-/// unknown key gets, marked, which its Client reads in its own form; a key
-/// the catalog lacks, as a Client may write one, stays as written.
+/// `error`'s message with the setting keys the Client set marked, which the
+/// Client reads in its own form (ADR 0099): the key refused at the Run's
+/// layer where the message first names it, and the closest one an unknown
+/// key gets. A key read from a file or the environment reads as written
+/// there, canonically, as does a key a `fix` names in a file to edit, and
+/// one the catalog lacks, as a Client may write one, as written.
 fn keys_marked(error: &SettingsError) -> String {
     let message = error.to_string();
-    let keys = match error {
-        SettingsError::Unknown { key, closest, .. } => [Some(key.as_str()), closest.as_deref()],
-        SettingsError::Invalid { key, .. }
-        | SettingsError::NotApplicable { key, .. }
-        | SettingsError::Locked { key, .. }
-        | SettingsError::Unavailable { key, .. } => [Some(key.as_str()), None],
+    let (layer, keys) = match error {
+        SettingsError::Unknown {
+            key,
+            layer,
+            closest,
+        } => (*layer, [Some(key.as_str()), closest.as_deref()]),
+        SettingsError::Invalid { key, layer, .. } => (*layer, [Some(key.as_str()), None]),
+        SettingsError::NotApplicable { key, layer, .. }
+        | SettingsError::Locked { key, layer, .. }
+        | SettingsError::Unavailable { key, layer, .. } => {
+            (Some(*layer), [Some(key.as_str()), None])
+        }
         SettingsError::NotInProduct { .. }
         | SettingsError::Format { .. }
-        | SettingsError::OlderMajorPolicy { .. } => [None, None],
+        | SettingsError::OlderMajorPolicy { .. } => (None, [None, None]),
     };
+    if layer != Some(SettingsLayer::Run) {
+        return message;
+    }
     keys.into_iter()
         .flatten()
         .filter(|key| settings::setting(key).is_some())
@@ -1161,3 +1173,6 @@ async fn abort(params: RunAbortParams, context: CallContext) -> Result<RunReport
         .await
         .map_err(|error| run_error(error, &context))
 }
+
+#[cfg(test)]
+mod tests;

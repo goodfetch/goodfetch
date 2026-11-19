@@ -68,5 +68,10 @@ fn each_listened_event_is_the_catalogs(
     )]
     event: PageEventName,
 ) {
-    assert!(super::listened(event).is_some());
+    let listened = super::listened(event);
+
+    assert_eq!(
+        listened.name.strip_prefix("page."),
+        Some(goodfetch_protocol::wire_name::of(&event))
+    );
 }

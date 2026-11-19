@@ -1013,13 +1013,15 @@ impl Session<'_> {
             Ok((accepted, surface, form, log_level, settings)) => self
                 .checked_settings(&settings, surface, accepted.behind_gateway)
                 .await
-                .map(|()| (accepted, surface, form, log_level, settings)),
+                .map(|()| (accepted, surface, form, log_level, settings))
+                // A refused setting reads in the form the `hello` declares.
+                .map_err(|error| (error, form)),
             Err(refusal) => {
                 let handover = match &daemon {
                     Some(daemon) if refusal.by_product_or_version() => daemon.refusing().await,
                     _ => false,
                 };
-                Err(refusal.into_error(handover))
+                Err((refusal.into_error(handover), self.form()))
             }
         };
         match answered {
@@ -1059,11 +1061,11 @@ impl Session<'_> {
                     Flow::Close
                 }
             }
-            Err(error) => {
+            Err((error, form)) => {
                 record(HELLO, Some(error.code()));
                 trace::record_failure(&span, error.code(), error.wire_code());
                 drop(span);
-                self.send(failure_line(Some(id), &error, self.form())).await;
+                self.send(failure_line(Some(id), &error, form)).await;
                 self.rejected()
             }
         }

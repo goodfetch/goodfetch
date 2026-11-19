@@ -324,51 +324,49 @@ fn a_failed_call_names_its_operation_in_the_declared_form(
     );
 }
 
-/// A failure names a setting's key and a call's parameter as the Client's
-/// `hello` declares its form spells them, and its details keep them
-/// canonical (ADR 0099): the enclosing call's timeout that ended a page's
-/// call, and `page.request`'s `max_redirects` past its count.
+/// A failure names a setting's key as the Client's `hello` declares its
+/// form spells it, and its `limit` keeps it canonical (ADR 0099): the
+/// enclosing call's timeout that ended a page's call.
 #[rstest]
-#[case::setting_typescript("typescript", Name::Setting, "`timeout.firstByte` (")]
-#[case::setting_python("python", Name::Setting, "`timeout.first_byte` (")]
-#[case::setting_rust("rust", Name::Setting, "`timeout::FIRST_BYTE` (")]
-#[case::parameter_typescript("typescript", Name::Parameter, "`maxRedirects` is 1000")]
-#[case::parameter_python("python", Name::Parameter, "`max_redirects` is 1000")]
-#[case::parameter_rust("rust", Name::Parameter, "`max_redirects` is 1000")]
-fn a_failure_names_its_setting_or_parameter_in_the_declared_form(
-    #[case] form: &str,
-    #[case] name: Name,
-    #[case] spelled: &str,
-) {
-    let (reply, data, canonical) = match name {
-        Name::Setting => {
-            let params = json!({ "page_id": SERVED, "url": "https://a.test/" });
-            let (reply, _) = called_in(
-                Some(form),
-                Enclosed(&TIMEOUT_FIRST_BYTE),
-                "page.goto",
-                &params,
-            );
-            let data = reply["error"]["data"]["limit"]["key"].clone();
-            (reply, data, "timeout.first_byte")
-        }
-        Name::Parameter => {
-            let params =
-                json!({ "page_id": "gone", "url": "https://a.test/", "max_redirects": 1000 });
-            let (reply, _) = called_in(Some(form), Served, "page.request", &params);
-            let data = reply["error"]["data"]["key"].clone();
-            (reply, data, "max_redirects")
-        }
-    };
+#[case::typescript("typescript", "`timeout.firstByte` (")]
+#[case::python("python", "`timeout.first_byte` (")]
+#[case::rust("rust", "`timeout::FIRST_BYTE` (")]
+fn a_failure_names_its_setting_in_the_declared_form(#[case] form: &str, #[case] spelled: &str) {
+    let params = json!({ "page_id": SERVED, "url": "https://a.test/" });
+
+    let (reply, _) = called_in(
+        Some(form),
+        Enclosed(&TIMEOUT_FIRST_BYTE),
+        "page.goto",
+        &params,
+    );
 
     let message = reply["error"]["message"].as_str().unwrap_or_default();
     assert!(message.contains(spelled), "{reply}");
-    assert_eq!(data, json!(canonical), "{reply}");
+    assert_eq!(
+        reply["error"]["data"]["limit"]["key"],
+        json!("timeout.first_byte"),
+        "{reply}"
+    );
 }
 
-/// The kind of name a failure's message shows.
-#[derive(Debug)]
-enum Name {
-    Setting,
-    Parameter,
+/// A failure names a call's parameter as the Client's `hello` declares its
+/// form spells it, and its details keep it canonical (ADR 0099):
+/// `page.request`'s `max_redirects` past its count.
+#[rstest]
+#[case::typescript("typescript", "`maxRedirects` is 1000")]
+#[case::python("python", "`max_redirects` is 1000")]
+#[case::rust("rust", "`max_redirects` is 1000")]
+fn a_failure_names_its_parameter_in_the_declared_form(#[case] form: &str, #[case] spelled: &str) {
+    let params = json!({ "page_id": "gone", "url": "https://a.test/", "max_redirects": 1000 });
+
+    let (reply, _) = called_in(Some(form), Served, "page.request", &params);
+
+    let message = reply["error"]["message"].as_str().unwrap_or_default();
+    assert!(message.contains(spelled), "{reply}");
+    assert_eq!(
+        reply["error"]["data"]["key"],
+        json!("max_redirects"),
+        "{reply}"
+    );
 }

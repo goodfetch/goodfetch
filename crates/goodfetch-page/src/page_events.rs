@@ -1116,28 +1116,26 @@ fn redirect_has_no_body(url: &str, request_id: &str) -> CallError {
 /// `page_id` whose Client took too few of its events, the event named as
 /// that Client listens to it (ADR 0099).
 fn listener_fell_behind(page_id: &PageId, event: PageEventName) -> CallError {
-    let listened = listened(event).map(named::event);
-    let event = listened.map_or_else(String::new, |listened| format!("`{listened}` "));
+    let event = named::event(listened(event));
     CallError::new(
         &PAGE_EVENTS_LOST,
         format!(
-            "{LISTENER_LIMIT} {event}events of the page `{}` waited unsent for this listener, whose Client granted too few credits: listen again, and grant credits as events are read",
+            "{LISTENER_LIMIT} `{event}` events of the page `{}` waited unsent for this listener, whose Client granted too few credits: listen again, and grant credits as events are read",
             page_id.0
         ),
         &serde_json::json!({ "page_id": page_id }),
     )
 }
 
-/// The catalog's event `page.on` sends for `event`; `None` for a name the
-/// catalog lacks, which none is.
-fn listened(event: PageEventName) -> Option<&'static Event> {
-    let name = serde_json::to_value(event).ok()?;
-    let name = name.as_str()?;
+/// The catalog's event `page.on` sends for `event`.
+fn listened(event: PageEventName) -> &'static Event {
+    let name = goodfetch_protocol::wire_name::of(&event);
     PAGE_ON
         .events
         .iter()
         .copied()
         .find(|listened| listened.name.strip_prefix("page.") == Some(name))
+        .expect("invariant: `page.on` sends each event it listens to")
 }
 
 /// `page_events_lost` for a call on events of the page `page_id`.

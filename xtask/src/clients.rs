@@ -189,7 +189,10 @@ struct Case {
 
 /// The modes a case exists in, for a capability that exists in some only.
 #[derive(Deserialize)]
-#[serde(untagged)]
+#[serde(
+    untagged,
+    expecting = "`modes` takes a list of modes, as [\"attached\"], or a table of each surface's modes, as { sdk-rust = [\"daemon\"] }"
+)]
 enum Modes {
     /// The same on every surface it lists, as `modes = ["attached"]`.
     Shared(Vec<Mode>),

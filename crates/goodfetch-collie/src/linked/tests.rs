@@ -19,6 +19,7 @@ use goodfetch_protocol::run::RunReport;
 use goodfetch_test_support::{TestEnv, real_time_runtime};
 
 use super::{Composed, ConnectOptions, ProductConnection, version};
+use crate::EngineChoice;
 
 /// The engine fails `hello` before any other call, with its Product and
 /// version, the Product needed, and a fix that names the install command
@@ -67,10 +68,12 @@ fn a_connection_that_needs_foxhound_fails_on_a_collie_engine_with_not_in_product
 #[test]
 fn a_linked_close_returns_once_its_engine_has_stopped() {
     let env = TestEnv::new();
-    let options = ConnectOptions::default().environment(env.env_os());
+    let options = ConnectOptions::default()
+        .environment(env.env_os())
+        .engine(EngineChoice::Linked);
 
     let stopped = real_time_runtime().block_on(async {
-        let linked = LinkedConnection::connect(MARKED, options).await.unwrap();
+        let linked = ProductConnection::connect(MARKED, options).await.unwrap();
         let _run = linked.connection().start().await.unwrap();
         linked.close().await.unwrap();
         ENGINE_DROPPED.get().is_some()

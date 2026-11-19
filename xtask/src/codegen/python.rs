@@ -202,8 +202,10 @@ fn docstring(
             escape(&deprecated.note)
         ));
     }
-    if paragraphs.len() == 1 {
-        return format!("{indent}\"\"\"{}\"\"\"\n", paragraphs[0]);
+    if let [one] = paragraphs.as_slice()
+        && !one.contains('\n')
+    {
+        return format!("{indent}\"\"\"{one}\"\"\"\n");
     }
     // The summary opens the docstring; every other line of the
     // description follows, indented, then each marker's paragraph.

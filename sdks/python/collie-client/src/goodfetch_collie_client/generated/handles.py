@@ -370,10 +370,11 @@ class AsyncPage:
 
     def locator(self, selector: str) -> AsyncLocator:
         """A locator (ADR 0085): what an action looks for on a page, resolved
-again at each use, never a handle on an element. This tracer's locators
-are CSS selectors.
+        again at each use, never a handle on an element. This tracer's locators
+        are CSS selectors.
 
-Built without a call (ADR 0099)."""
+        Built without a call (ADR 0099).
+        """
         return AsyncLocator(self._host.child(models.Locator(page_id=self._host.id, selector=selector)))
 
     async def __aenter__(self) -> Self:
@@ -826,10 +827,11 @@ class Page:
 
     def locator(self, selector: str) -> Locator:
         """A locator (ADR 0085): what an action looks for on a page, resolved
-again at each use, never a handle on an element. This tracer's locators
-are CSS selectors.
+        again at each use, never a handle on an element. This tracer's locators
+        are CSS selectors.
 
-Built without a call (ADR 0099)."""
+        Built without a call (ADR 0099).
+        """
         return Locator(self._host.child(models.Locator(page_id=self._host.id, selector=selector)))
 
     def __enter__(self) -> Self:

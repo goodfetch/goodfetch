@@ -23,7 +23,7 @@
 
 [suite]
 name = "clients"
-version = "30"
+version = "31"
 
 [[capability]]
 name = "lifecycle"
@@ -130,6 +130,22 @@ covers = ["story:11-23", "error:connection_forked"]
 surfaces = ["sdk-python"]
 modes = ["attached"]
 platforms = ["unix"]
+
+# The runtime's own errors read in the caller's form (ADRs 0079 and 0099;
+# issue 3012): a call on a closed Run or Connection, and each call the
+# end of the Connection fails, an Attached engine's exit or a dropped
+# Daemon connection, raise a message headed by the call's operation in the
+# caller's spelling, then what failed, then the fix, never repeating a
+# chained cause's text, while `operation` holds the catalog's name; a
+# secret the engine wrote to its stderr reaches no message. Python plays
+# it attached, an engine's exit ending its Connection; Rust as the Daemon's
+# Client, the Daemon dropping the Connection. TypeScript joins with issue
+# 3046.
+[[capability.case]]
+id = "runtime-errors-in-the-callers-form"
+covers = ["story:11-31", "story:11-192"]
+surfaces = ["sdk-python", "sdk-rust"]
+modes = { sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
 # The catalog's operations reach the engine through the members generated
 # from them (ADR 0099; issues 2399, 1233 and 2793): attached in TypeScript

@@ -21,6 +21,7 @@ dev = [
   "goodfetch-collie-client",
   "goodfetch-foxhound",
   "goodfetch-test-support",
+  "hypothesis>=6.170.15",
   "inline-snapshot>=0.36.1",
   "mypy>=2.4.0",
   "pip-audit>=2.10.1",

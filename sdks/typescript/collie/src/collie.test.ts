@@ -47,8 +47,8 @@ describe("a Collie Connection", () => {
           lifecycle: "finished",
           verdict: "verified",
           completeness: "complete",
-          started_at: "2026-01-01T00:00:00Z",
-          ended_at: "2026-01-01T00:00:00Z",
+          started_at: new Date("2026-01-01T00:00:00Z"),
+          ended_at: new Date("2026-01-01T00:00:00Z"),
           usage: {
             model: {
               calls: 0,

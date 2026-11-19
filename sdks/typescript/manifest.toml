@@ -355,10 +355,19 @@ form = "runtime"
 
 [[member]]
 package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "withTimes"
+entry = "none"
+reason = "Reads the points in time a value from the engine holds as `Date`s, at the places a Product's generated times table names, for what arrives outside a call's result, such as Foxhound's `$/record` (ADRs 0092 and 0099)."
+words = ["with", "times"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
 receiver = "ClientConnection"
 member = "caller"
 entry = "none"
-reason = "The Connection's calls, typed by a Product's generated operation table (ADR 0038)."
+reason = "The Connection's calls, typed by a Product's generated operation table (ADR 0038), their results' points in time read as `Date`s by its generated times table (ADRs 0092 and 0099)."
 words = ["caller"]
 form = "runtime"
 

@@ -21,6 +21,7 @@ use super::naming::{camel, pascal};
 use super::{Generated, TypesFile};
 
 mod errors;
+mod times;
 
 /// Where Foxhound's layer imports Collie's generated layer from.
 const CLIENT_PACKAGE: &str = "@goodfetch/collie-client/generated";
@@ -43,10 +44,11 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         Product::Collie => handles::handles(layer)?,
         Product::Foxhound => Vec::new(),
     };
-    let (input, replaced) = layer
+    let (mut input, replaced) = layer
         .generator_input(&format!("{}Types", layer.product.name()), |name| {
             ("tsType", name.to_owned())
         });
+    times::with_date_types(&mut input);
     // The header comes first, then the imports, then the generator's
     // output, which has no banner of its own.
     let prefix = if replaced.is_empty() {
@@ -62,6 +64,7 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         ("plugins.ts", plugins(layer)),
     ];
     files.push(("connection.ts", connection(layer)));
+    files.push(("times.ts", times::file(layer)?));
     if !layer.shared_types.is_empty() {
         files.push(("shared-types.ts", shared_types(layer)));
     }

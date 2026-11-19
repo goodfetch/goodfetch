@@ -1339,7 +1339,7 @@ fn each_declared_kind_generates_its_python_form_which_type_checks() {
     codegen(&workspace);
     let repository = repository();
     let package = format!("{PYTHON_CLIENT}/src/goodfetch_collie_client");
-    for module in ["caller.py", "handle.py"] {
+    for module in ["caller.py", "handle.py", "point_in_time.py"] {
         let contents = std::fs::read(repository.join(&package).join(module)).unwrap();
         workspace.write(&format!("{package}/{module}"), &contents);
     }

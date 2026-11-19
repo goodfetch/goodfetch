@@ -73,7 +73,7 @@ describe("a Collie Connection on an Attached engine", () => {
 
   test(
     "stops a Run its program closes unfinished, so a start under its Run ID resumes it",
-    { tags: ["story:11-17"] },
+    { tags: ["story:11-17", "story:11-18"] },
     async ({ env }) => {
       // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
       const collie = await Collie.connect({ env });
@@ -288,30 +288,41 @@ describe("a Collie Connection on the Scripted engine as its Attached engine", ()
     "runs beside another Connection in the same process",
     { tags: ["client_case/two-connections-at-once", "attached"] },
     async ({ testEnv, clientCase }) => {
-      const envs = ["first", "second"].map((name) =>
-        scriptedEngineEnv(
-          testEnv,
-          "collie",
-          "run/started-and-finished.json",
-          join(testEnv.folder, name),
-        ),
-      );
       const { logger, warned } = recordingLogger();
-      const [first, second] = await Promise.all(
+      // The second Connection alone sets a Limit: its own engine expects the
+      // `usage.set`, and the first's would fail on it.
+      const [first, second] = await Promise.all([
         // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
-        envs.map((env) => Collie.connect({ env, logger })),
-      );
-
-      const traced = await Promise.all([
-        startAndFinish(first ?? unreachable()),
-        startAndFinish(second ?? unreachable()),
+        Collie.connect({
+          env: scriptedEngineEnv(
+            testEnv,
+            "collie",
+            "run/started-and-finished.json",
+            join(testEnv.folder, "first"),
+          ),
+          logger,
+        }),
+        // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+        Collie.connect({
+          env: scriptedEngineEnv(
+            testEnv,
+            "collie",
+            "run/started-and-finished-under-a-limit.json",
+            join(testEnv.folder, "second"),
+          ),
+          logger,
+          limits: { modelCalls: 5 },
+        }),
       ]);
+
+      const traced = await Promise.all([startAndFinish(first), startAndFinish(second)]);
 
       await clientCase.check("each Connection's Run finished", () =>
         expect(traced.map(({ report }) => report.lifecycle)).toEqual(["finished", "finished"]),
       );
-      await clientCase.check("each script played to its end, so no engine wrote a failure", () =>
-        expect(warned).toEqual([]),
+      await clientCase.check(
+        "each engine got its own Connection's settings, the Limit the second's alone, and played its script to its end",
+        () => expect(warned).toEqual([]),
       );
     },
   );
@@ -565,10 +576,6 @@ describe("a worker_threads worker", () => {
     },
   );
 });
-
-function unreachable(): never {
-  throw new TypeError("invariant: each environment map opened one Connection");
-}
 
 /** The error `promise` rejects with. */
 async function failure(promise: Promise<unknown>): Promise<unknown> {

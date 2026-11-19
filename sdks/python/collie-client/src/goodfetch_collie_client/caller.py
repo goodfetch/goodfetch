@@ -24,7 +24,9 @@ from typing import (
     get_origin,
 )
 
-from pydantic import BaseModel, RootModel
+from pydantic import AwareDatetime, BaseModel, RootModel
+
+from goodfetch_collie_client.point_in_time import point_in_time
 
 if TYPE_CHECKING:
     from pydantic.fields import FieldInfo
@@ -52,12 +54,12 @@ def result_of(model: type[_Model], result: object) -> _Model:
     """Builds a result's model from the JSON object the engine sent, nested ones too.
 
     Each field is built as the type it declares: a model, a list or a map of
-    them, or, for a field that is one of several models, the one whose tag
-    and required fields the value carries. Nothing is validated, so a field,
-    value or variant a newer engine added never raises (ADR 0082): an unknown
-    field stays in its model's `model_extra`, and a value no declared type
-    matches, such as a variant the SDK does not know, stays as the engine sent
-    it.
+    them, a point in time in UTC, or, for a field that is one of several
+    models, the one whose tag and required fields the value carries. Nothing
+    is validated, so a field, value or variant a newer engine added never
+    raises (ADR 0082): an unknown field stays in its model's `model_extra`,
+    and a value no declared type matches, such as a variant the SDK does not
+    know, stays as the engine sent it.
     """
     return model.model_construct(**_fields(model, cast("dict[str, object]", result)))
 
@@ -77,9 +79,9 @@ def _fields(model: type[BaseModel], value: dict[str, object]) -> dict[str, Any]:
 
 @cache
 def _builds(model: type[BaseModel]) -> dict[str, _Build]:
-    """What builds each field of a model that holds a model, by its key.
+    """What builds each field of a model that holds a model or a time, by its key.
 
-    Worked out once per model. A field whose type holds no model is left out:
+    Worked out once per model. A field whose type holds neither is left out:
     its value stays as sent.
     """
     builds: dict[str, _Build] = {}
@@ -91,10 +93,16 @@ def _builds(model: type[BaseModel]) -> dict[str, _Build]:
 
 
 def _build(annotation: object) -> _Build | None:
-    """What builds a value of a type without validation; none when it holds no model."""
+    """What builds a value of a type unvalidated; none when it holds no model or time.
+
+    Pydantic gives a field typed `PointInTime` the annotation `AwareDatetime`,
+    the alias's first argument, and keeps the rest as the field's metadata.
+    """
     origin = get_origin(annotation)
     if origin is Annotated:
         return _build(get_args(annotation)[0])
+    if annotation is AwareDatetime:
+        return point_in_time
     if origin is Union or origin is UnionType:
         return _build_union([m for m in get_args(annotation) if m is not NoneType])
     if origin is list:

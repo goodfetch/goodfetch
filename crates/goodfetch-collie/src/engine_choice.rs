@@ -22,6 +22,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use goodfetch_collie_client::{Error, ErrorCode};
+use goodfetch_engine::Channel;
 use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::settings::deployment_variable;
@@ -173,6 +174,15 @@ impl DaemonReach {
         }
     }
 
+    /// The Goodfetch home it runs in, as [`EngineInfo::home`] gives it:
+    /// `home`, whose Daemon it is, or `None` for a remote Daemon.
+    pub(crate) fn home(&self, home: Option<&Home>) -> Option<PathBuf> {
+        match self.remote {
+            Some(_) => None,
+            None => home.map(|home| home.root().to_owned()),
+        }
+    }
+
     /// Where it listens, as [`EngineInfo::url`] gives it.
     pub(crate) fn url(&self) -> String {
         match &self.remote {
@@ -317,7 +327,8 @@ fn remote_reach(remote: RemoteDaemon, source: &'static str) -> Result<Reach, Err
 /// # Errors
 ///
 /// `setting_invalid` naming `source` otherwise, without the URL when it is
-/// no URL or holds more than an address, which may be a secret.
+/// no URL or holds more than a scheme and an address: a user, a password,
+/// a path, a query or a fragment, which may be a secret.
 fn remote_address(url: &str, source: &str) -> Result<SocketAddr, Error> {
     let refused = |why: &str, shown: bool| {
         let what = if shown {
@@ -341,9 +352,10 @@ fn remote_address(url: &str, source: &str) -> Result<SocketAddr, Error> {
     let Some((scheme, rest)) = url.split_once("://") else {
         return Err(refused("is no URL", false));
     };
-    if rest.contains(['@', '?', '#']) {
+    let authority = rest.strip_suffix('/').unwrap_or(rest);
+    if authority.contains(['@', '?', '#', '/']) {
         return Err(refused(
-            "holds more than an address: a Daemon's address has no user, password, query or fragment, and its token goes in its own setting",
+            "holds more than an address: a Daemon's address has no user, password, path, query or fragment, and its token goes in its own setting",
             false,
         ));
     }
@@ -353,16 +365,7 @@ fn remote_address(url: &str, source: &str) -> Result<SocketAddr, Error> {
             true,
         ));
     }
-    let authority = rest.strip_suffix('/').unwrap_or(rest);
-    let no_port = || {
-        refused(
-            "has no port, or has a path, where a Daemon's address has a port alone",
-            true,
-        )
-    };
-    if authority.contains('/') {
-        return Err(no_port());
-    }
+    let no_port = || refused("has no port, where a Daemon's address has one", true);
     let address = match authority.rsplit_once(':') {
         Some((host, port)) if host.eq_ignore_ascii_case("localhost") => port
             .parse::<u16>()
@@ -421,7 +424,7 @@ fn running(home: &Home, version: &ProductVersion) -> Result<Option<Reach>, Error
 /// `home`: a program linking the engine never starts one (ADR 0098), so
 /// its fix installs the Product's executable at `version` and starts it.
 fn none_running(home: &Home, product: Product, version: &ProductVersion) -> Error {
-    let executable = format!("goodfetch-{}", product.as_str());
+    let executable = product.executable_name();
     Error::daemon_unreachable(
         format!(
             "No Daemon of {} {} runs in {}, and a program linking the engine starts none",
@@ -430,8 +433,9 @@ fn none_running(home: &Home, product: Product, version: &ProductVersion) -> Erro
             home.root().display()
         ),
         format!(
-            "Install {}'s executable with `cargo binstall {executable}@{version}`, start the Daemon with `{executable} daemon start`, then connect again; or leave `engine` at `Auto` to link the engine.",
-            product.name()
+            "Install {}'s executable at {version} (`{}`), start the Daemon with `{executable} daemon start`, then connect again; or leave `engine` at `Auto` to link the engine.",
+            product.name(),
+            Channel::CratesIo.install_command(product)
         ),
     )
 }

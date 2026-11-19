@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use goodfetch_collie::{
     Collie, ConnectOptions, EngineChoice, EngineInfo, EngineKind, ErrorCode, RemoteDaemon, blocking,
 };
-use goodfetch_collie_client::logging::{CLIENT, engine_log_level};
+use goodfetch_collie_client::logging::engine_log_level;
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::daemon::DaemonUnreachableDetails;
@@ -109,10 +109,10 @@ fn played_whole(process: &Process) {
     );
 }
 
-/// A subscriber recording the SDK's events at every level, and what it
-/// writes.
-fn client_log() -> (impl tracing::Subscriber + Send + Sync, CapturedLog) {
-    capturing(&[(CLIENT, Level::TRACE)])
+/// A subscriber recording every Goodfetch event at every level, the SDK's
+/// and its engine's, and what it writes.
+fn goodfetch_log() -> (impl tracing::Subscriber + Send + Sync, CapturedLog) {
+    capturing(&[("goodfetch", Level::TRACE)])
 }
 
 /// The text `log` holds.
@@ -143,7 +143,7 @@ fn reached(kind: EngineKind, home: Option<PathBuf>, url: Option<String>) -> Engi
 #[test]
 fn auto_links_its_own_engine_when_no_daemon_runs_in_the_home() {
     let env = TestEnv::new();
-    let (subscriber, log) = client_log();
+    let (subscriber, log) = goodfetch_log();
 
     let engine = with_default(subscriber, || {
         real_time_runtime().block_on(async {
@@ -163,10 +163,10 @@ fn auto_links_its_own_engine_when_no_daemon_runs_in_the_home() {
     let written = text(&log);
     let chosen: Vec<&str> = written
         .lines()
-        .filter(|line| line.contains("INFO") && line.contains("reached"))
+        .filter(|line| line.contains("INFO") && line.contains("reached its engine"))
         .collect();
     assert_eq!(chosen.len(), 1, "{written}");
-    assert!(chosen[0].contains("linked"), "{}", chosen[0]);
+    assert!(chosen[0].contains("kind=linked"), "{}", chosen[0]);
 }
 
 /// The blocking connection reports the engine it reached too.
@@ -228,7 +228,7 @@ fn the_daemon_running_in_the_home_is_reached(#[case] choice: EngineChoice) {
 #[test]
 fn auto_reaches_the_remote_daemon_goodfetch_url_names_and_shows_no_token() {
     let env = TestEnv::new();
-    let (subscriber, log) = client_log();
+    let (subscriber, log) = goodfetch_log();
 
     let (process, url, engine, shown) = with_default(subscriber, || {
         let (process, line) = scripted(&env, REACHED_REMOTE, &hello(CANARY), "tcp");
@@ -259,11 +259,10 @@ fn auto_reaches_the_remote_daemon_goodfetch_url_names_and_shows_no_token() {
     assert!(!text(&log).contains(CANARY), "{}", text(&log));
 }
 
-/// A remote Daemon given in code, `{url, token}`, is reached whatever
-/// `GOODFETCH_URL` says, and so is the engine `linked` names.
+/// The engine `linked` names is reached whatever `GOODFETCH_URL` says.
 /// Covers: story:11-2
 #[test]
-fn an_engine_given_in_code_wins_over_goodfetch_url() {
+fn linked_wins_over_goodfetch_url() {
     let env = TestEnv::new();
     let refused_by_auto = environment(
         &env,
@@ -287,6 +286,35 @@ fn an_engine_given_in_code_wins_over_goodfetch_url() {
     });
 
     assert_eq!(engine.kind, EngineKind::Linked);
+}
+
+/// A remote Daemon given in code, `{url, token}`, is reached with its own
+/// token whatever `GOODFETCH_URL` and `GOODFETCH_TOKEN` say.
+/// Covers: story:11-2
+#[test]
+fn a_remote_daemon_given_in_code_wins_over_goodfetch_url() {
+    let env = TestEnv::new();
+    let (process, line) = scripted(&env, REACHED_REMOTE, &hello(CANARY), "tcp");
+    let url = format!("ws://{}", line["address"].as_str().unwrap());
+    let options = ConnectOptions::default()
+        .environment(environment(
+            &env,
+            &[
+                ("GOODFETCH_URL", "ws://127.0.0.1:1"),
+                ("GOODFETCH_TOKEN", "not-the-token"),
+            ],
+        ))
+        .engine(EngineChoice::Remote(RemoteDaemon::new(url.clone(), CANARY)));
+
+    let engine = real_time_runtime().block_on(async {
+        let collie = Collie::connect(options).await.unwrap();
+        let engine = collie.engine().clone();
+        collie.close().await.unwrap();
+        engine
+    });
+
+    played_whole(&process);
+    assert_eq!(engine, reached(EngineKind::Remote, None, Some(url)));
 }
 
 /// A linked program never starts the Daemon (ADR 0098): `daemon` with none
@@ -355,7 +383,8 @@ fn a_remote_daemon_nothing_answers_for_is_unreachable() {
 #[case::wss("wss://127.0.0.1:7878")]
 #[case::beyond_loopback("ws://192.0.2.1:7878")]
 #[case::no_port("ws://127.0.0.1")]
-#[case::path("ws://127.0.0.1:7878/daemon")]
+#[case::path("ws://127.0.0.1:7878/canary-secret")]
+#[case::other_scheme_with_a_path("https://example.test/canary-secret")]
 fn a_url_that_names_no_loopback_daemon_is_refused(#[case] url: &str) {
     let env = TestEnv::new();
     let options = |choice| {

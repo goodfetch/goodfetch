@@ -369,15 +369,16 @@ impl ProductConnection {
             ClientConnection::open_within(runtime, &Network::Os, &endpoint, hello, timeout)
                 .await
                 .map_err(|error| daemon.unreached(error, home.as_ref()))?;
-        let home = match daemon.kind() {
-            EngineKind::Daemon => home.map(|home| home.root().to_owned()),
-            EngineKind::Linked | EngineKind::Remote => None,
-        };
         let opened = Self {
             connection,
             engine: None,
             handle,
-            info: Arc::new(info(daemon.kind(), Some(daemon.url()), said, home)),
+            info: Arc::new(info(
+                daemon.kind(),
+                Some(daemon.url()),
+                said,
+                daemon.home(home.as_ref()),
+            )),
         };
         opened.limited(limits).await
     }
@@ -385,15 +386,14 @@ impl ProductConnection {
     /// The connection, opened, once it logged the engine it reached and
     /// set each of `limits`; when a Limit is refused, it is closed.
     async fn limited(self, limits: Limits) -> Result<Self, Error> {
-        let opened = self;
         tracing::info!(
             target: CLIENT,
-            url = opened.info.url,
-            "connect() reached the {} engine",
-            opened.info.kind
+            kind = %self.info.kind,
+            url = self.info.url,
+            "connect() reached its engine"
         );
-        if let Err(refused) = opened.set(limits).await {
-            if let Err(error) = opened.close().await {
+        if let Err(refused) = self.set(limits).await {
+            if let Err(error) = self.close().await {
                 tracing::warn!(
                     target: "goodfetch::collie",
                     %error,
@@ -402,7 +402,7 @@ impl ProductConnection {
             }
             return Err(refused);
         }
-        Ok(opened)
+        Ok(self)
     }
 
     /// Sets each of `limits` on the connection, one `usage.set` on its own

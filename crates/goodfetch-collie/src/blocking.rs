@@ -1,6 +1,6 @@
 //! Collie for a program that does not use async (ADR 0081), under the same
-//! names: a call ends in `send()`. The connection owns the runtime its
-//! linked engine runs on; each call is handed to it, and the calling thread
+//! names: a call ends in `send()`. The connection owns the runtime it and
+//! its linked engine, if any, run on; each call is handed to it, and the calling thread
 //! waits for its end on a channel. Nothing here enters a runtime, so it
 //! works inside one too, where it blocks only the thread that calls it.
 
@@ -40,7 +40,7 @@ pub struct Collie {
 }
 
 impl Collie {
-    /// Opens a connection to a linked engine of its own, as
+    /// Opens a connection to the engine `options` choose, as
     /// [`crate::Collie::connect`] does, and blocks the calling thread until
     /// it is open.
     ///
@@ -69,7 +69,7 @@ impl Collie {
     }
 
     /// Closes the connection for every clone, as [`crate::Collie::close`]
-    /// does, and returns once its linked engine has stopped.
+    /// does, and returns once its linked engine, if any, has stopped.
     ///
     /// # Errors
     ///

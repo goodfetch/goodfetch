@@ -12,10 +12,7 @@
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{Connection, ConnectionRuntime, Error};
 use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams};
-use goodfetch_protocol::run::{
-    RUN_ID_PATTERN, RUN_START, RunConflictDetails, RunDetails, RunId, RunIdInvalidDetails,
-    RunStartParams, RunStarted, StartInput, StartedAs, Tags,
-};
+use goodfetch_protocol::run::{RunConflictDetails, RunDetails, RunId, StartInput, StartedAs, Tags};
 use goodfetch_test_support::{
     RuntimeFile, SCRIPTED_DAEMON_TOKEN, TestEnv, Tool, engine_script, logged, reported_address,
     tools,
@@ -92,7 +89,6 @@ struct Played {
     no_work: (String, bool, Value),
     in_use: (String, bool, Value),
     conflict: (String, bool, Value),
-    invalid: (String, bool, Value),
     reached: (String, bool, Value),
 }
 
@@ -122,17 +118,6 @@ async fn play(endpoint: DaemonEndpoint) -> Played {
     let no_work = failure(ended.new_page().await);
     let in_use = failure(connection.start().run_id(&id("busy")).await);
     let conflict = failure(connection.start().run_id(&id("crawled")).await);
-    // `RunId::parse` refuses this ID before anything is sent, so the
-    // script's step goes as a bare call, for the engine's refusal.
-    let off_pattern = RunStartParams {
-        run_id: Some("Nightly".to_owned()),
-        ..RunStartParams::default()
-    };
-    let invalid = failure(
-        connection
-            .call::<RunStarted>(RUN_START.name, &off_pattern)
-            .await,
-    );
     let reached = failure(connection.start().run_id(&id("capped")).await);
     connection.close().await.unwrap();
     Played {
@@ -141,7 +126,6 @@ async fn play(endpoint: DaemonEndpoint) -> Played {
         no_work,
         in_use,
         conflict,
-        invalid,
         reached,
     }
 }
@@ -180,7 +164,6 @@ fn a_start_reaches_the_run_its_run_id_names_logs_a_resume_and_an_end_and_fails_e
         no_work,
         in_use,
         conflict,
-        invalid,
         reached,
     } = played;
 
@@ -239,13 +222,6 @@ fn a_start_reaches_the_run_its_run_id_names_logs_a_resume_and_an_end_and_fails_e
             &json!("requests"),
             &json!("2026-02-01T00:00:00Z"),
         )
-    );
-    assert_eq!(
-        (
-            invalid.0.as_str(),
-            details::<RunIdInvalidDetails>(&invalid.2).pattern
-        ),
-        ("run_id_invalid", RUN_ID_PATTERN.to_owned())
     );
     let status = process.child().wait().unwrap();
     assert!(

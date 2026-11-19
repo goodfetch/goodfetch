@@ -143,7 +143,9 @@ modes = ["attached"]
 # ID begins it, an interrupted Run's resumes it, logged at info, and a
 # finished Run's returns it ended, logged at warning, where a call that would
 # give it work raises `run_ended`; `run.id()` sends nothing; and each start
-# the engine refuses raises its generated class with its fields. Attached in
+# the engine refuses raises its generated class with its fields. A Run ID off
+# its pattern is no message the corpus may hold, so its `run_id_invalid`
+# plays on the engine of the same commit. Attached in
 # TypeScript and Python, linked in Rust, each surface taking the modes it
 # has.
 [[capability]]

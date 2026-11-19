@@ -5,7 +5,8 @@ Run's returns it ended, each start the engine refuses raising its generated
 class. The case plays on the Scripted engine started as the executable, which
 checks every message the SDK sends, three ways: async on asyncio, async on
 Trio and through the sync `Collie`; the last test runs a start's answers on
-the executable of the same commit. TypeScript's `start.test.ts` is its twin.
+the executable of the same commit, with the Run ID off its pattern that no
+script may send. TypeScript's `start.test.ts` is its twin.
 """
 
 import logging
@@ -80,7 +81,6 @@ async def test_reaches_the_run_its_run_id_names_and_raises_each_refusals_class(
     no_work = await failure(ended.new_page())
     in_use = await failure(collie.start(run_id="busy"))
     conflict = await failure(collie.start(run_id="crawled"))
-    invalid = await failure(collie.start(run_id="Nightly"))
     reached = await failure(collie.start(run_id="capped"))
     await collie.close()
 
@@ -144,10 +144,6 @@ async def test_reaches_the_run_its_run_id_names_and_raises_each_refusals_class(
                 "differences": ["product", "kind", "caller", "seeds"],
             },
         )
-    with client_case.check("a Run ID the engine refuses raises run_id_invalid"):
-        assert isinstance(invalid, RunIdInvalidError)
-        assert invalid.code == "run_id_invalid"
-        assert isinstance(invalid.details["pattern"], str)
     with client_case.check("a Run whose Limit is used up raises limit_reached"):
         assert isinstance(reached, LimitReachedError)
         assert (
@@ -196,6 +192,8 @@ async def test_begins_resumes_and_returns_a_finished_run_ended_on_the_executable
         StartedAs.ended,
     ]
     assert (in_use.code, in_use.details["run_id"]) == ("run_in_use", "held")
+    assert isinstance(invalid, RunIdInvalidError)
+    assert isinstance(invalid.details["pattern"], str)
     assert [error.code for error in (invalid, too_many, too_long)] == [
         "run_id_invalid",
         "invalid_params",

@@ -221,28 +221,6 @@
       "expect": {
         "method": "run.start",
         "params": {
-          "run_id": "Nightly"
-        }
-      }
-    },
-    {
-      "reply": {
-        "error": {
-          "code": -32001,
-          "message": "`Nightly` is not a Run ID.",
-          "data": {
-            "code": "run_id_invalid",
-            "retryable": false,
-            "pattern": "^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$",
-            "fix": "Name the Run with lowercase letters, digits, `.`, `_` and `-`."
-          }
-        }
-      }
-    },
-    {
-      "expect": {
-        "method": "run.start",
-        "params": {
           "run_id": "capped"
         }
       }

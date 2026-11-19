@@ -3,7 +3,8 @@
 // ended, each start the engine refuses raising its generated class. The case
 // plays on the Scripted engine, which checks every message the SDK sends;
 // the last test runs a start's answers on an Attached engine of Collie's
-// executable of the same commit.
+// executable of the same commit, with the Run ID off its pattern that no
+// script may send.
 import {
   Collie,
   LimitReachedError,
@@ -35,7 +36,6 @@ describe("A start on the Scripted engine as the Attached engine", () => {
       const noWork = await failure(ended.newPage());
       const inUse = await failure(collie.start({ runId: "busy" }));
       const conflict = await failure(collie.start({ runId: "crawled" }));
-      const invalid = await failure(collie.start({ runId: "Nightly" }));
       const reached = await failure(collie.start({ runId: "capped" }));
       await collie.close();
 
@@ -88,13 +88,6 @@ describe("A start on the Scripted engine as the Attached engine", () => {
           details: { run_id: "crawled", differences: ["product", "kind", "caller", "seeds"] },
         });
       });
-      await clientCase.check("a Run ID the engine refuses raises run_id_invalid", () => {
-        expect(invalid).toBeInstanceOf(RunIdInvalidError);
-        expect(invalid).toMatchObject({
-          code: "run_id_invalid",
-          details: { pattern: expect.any(String) },
-        });
-      });
       await clientCase.check("a Run whose Limit is used up raises limit_reached", () => {
         expect(reached).toBeInstanceOf(LimitReachedError);
         expect(reached).toMatchObject({
@@ -131,6 +124,7 @@ describe("A start on an Attached engine", () => {
       const tooMany = await failure(collie.start({ tags: Array.from({ length: 17 }, () => "t") }));
       const tooLong = await failure(collie.start({ tags: ["t".repeat(65)] }));
 
+      expect(invalid).toBeInstanceOf(RunIdInvalidError);
       expect({
         startedAs: [begun, resumed, ended].map((run) => run.startedAs()),
         inUse,
@@ -140,7 +134,7 @@ describe("A start on an Attached engine", () => {
       }).toMatchObject({
         startedAs: ["new", "resumed", "ended"],
         inUse: { code: "run_in_use", details: { run_id: "held" } },
-        invalid: { code: "run_id_invalid" },
+        invalid: { code: "run_id_invalid", details: { pattern: expect.any(String) } },
         tooMany: { code: "invalid_params" },
         tooLong: { code: "invalid_params" },
       });

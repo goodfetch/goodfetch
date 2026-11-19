@@ -41,7 +41,7 @@ import {
   type FoxhoundOperationTypes,
   type RequestSeed,
 } from "./generated/index.ts";
-import { settingsOnWire, type CrawlSettings } from "./generated/settings.ts";
+import { settingsOnWire, type CrawlSettings, type FoxhoundSettings } from "./generated/settings.ts";
 import { foxhoundWire, type FoxhoundWireType } from "./generated/wire.ts";
 import { foxhound } from "./product.ts";
 
@@ -59,13 +59,13 @@ export interface FoxhoundLimits extends Limits {
     | undefined;
 }
 
-/** Options of `connectOver()`, with Foxhound's Limits. */
-export interface FoxhoundConnectOverOptions extends ConnectOverOptions {
+/** Options of `connectOver()`, with Foxhound's settings and Limits. */
+export interface FoxhoundConnectOverOptions extends ConnectOverOptions<FoxhoundSettings> {
   readonly limits?: FoxhoundLimits | undefined;
 }
 
-/** Options of `connect()`, with Foxhound's Limits. */
-export interface FoxhoundConnectOptions extends ConnectOptions {
+/** Options of `connect()`, with Foxhound's settings and Limits. */
+export interface FoxhoundConnectOptions extends ConnectOptions<FoxhoundSettings> {
   readonly limits?: FoxhoundLimits | undefined;
 }
 

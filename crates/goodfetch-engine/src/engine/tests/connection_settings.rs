@@ -194,17 +194,29 @@ fn config_explain_shows_the_connections_settings_beneath_the_runs() {
     );
 }
 
-/// `config.explain` naming a Run explains only a live one: a Run ID no
-/// live Run has fails with `run_not_found`, and one that is no Run ID with
-/// `run_id_invalid`.
+/// `config.explain` naming a Run explains only a live one, with the
+/// settings it opened with: a Run ID no live Run has fails with
+/// `run_not_found`, one that is no Run ID with `run_id_invalid`, and one
+/// given with values to resolve, which the Run would not read, with
+/// `invalid_params`.
 ///
 /// Covers: operation:config.explain, error:run_not_found, error:run_id_invalid
 #[rstest]
-#[case::not_live("ended", "run_not_found")]
-#[case::not_a_run_id("not a Run ID", "run_id_invalid")]
-fn config_explain_naming_no_live_run_fails(#[case] run_id: &str, #[case] code: &str) {
+#[case::not_live(json!({ "run_id": "ended" }), "run_not_found")]
+#[case::not_a_run_id(json!({ "run_id": "not a Run ID" }), "run_id_invalid")]
+#[case::with_run_values(
+    json!({ "run_id": "ended", "settings": { "timeout": { "wait": 1000 } } }),
+    "invalid_params"
+)]
+#[case::with_a_project(
+    json!({ "run_id": "ended", "missing_project": "goodfetch.toml" }),
+    "invalid_params"
+)]
+fn config_explain_naming_a_run_fails_on_anything_but_a_live_run_alone(
+    #[case] params: Value,
+    #[case] code: &str,
+) {
     let env = TestEnv::new();
-    let params = json!({ "run_id": run_id });
 
     let explained = attached_on(
         &engine_with(Product::Collie, None),

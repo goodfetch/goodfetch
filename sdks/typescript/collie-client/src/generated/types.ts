@@ -1760,10 +1760,11 @@ export interface ConfigExplainParams {
    */
   project?: ProjectSettings | null;
   /**
-   * The Run ID of a live Run of this Connection to explain, with the
-   * settings it opened with, in place of `project` and `settings`; none
-   * explains the Connection's own, the run values given set over them
-   * (ADR 0083). One that is no Run ID fails with `run_id_invalid`.
+   * The Run ID of a live Run to explain, with the settings it opened
+   * with; none explains the Connection's own, the run values given set
+   * over them (ADR 0083). One that is no Run ID fails with
+   * `run_id_invalid`, and one given with `settings`, `origin`,
+   * `project` or `missing_project` with `invalid_params`.
    */
   runId?: string | null;
   /**

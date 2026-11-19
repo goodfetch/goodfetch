@@ -3,11 +3,10 @@
 //! layer takes the Connection's values beneath its own.
 
 use goodfetch_protocol::catalog::{Product, SettingScope};
-use goodfetch_protocol::settings::SettingsLayer;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use super::super::{SettingsError, Values, beneath_connection, check_scope};
+use super::super::{SettingsError, beneath_connection, check_scope};
 
 fn map(value: Value) -> Map<String, Value> {
     match value {
@@ -16,14 +15,10 @@ fn map(value: Value) -> Map<String, Value> {
     }
 }
 
-fn own(value: Value) -> Values {
-    Values::read(SettingsLayer::Run, &map(value), Product::Foxhound).unwrap()
-}
-
 /// What `check_scope` refuses `value` at `scope` with: its code, key and
 /// fix.
 fn refused(value: Value, scope: SettingScope) -> Option<(&'static str, String, String)> {
-    match check_scope(&own(value), scope) {
+    match check_scope(&map(value), scope, Product::Foxhound) {
         Ok(()) => None,
         Err(error) => {
             let code = error.code();

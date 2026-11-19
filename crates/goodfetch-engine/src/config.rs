@@ -52,8 +52,21 @@ async fn explain(
     context: CallContext,
 ) -> Result<SettingsExplanation, CallError> {
     let settings = context.engine().settings();
-    // The run values given, over the Connection's own (ADR 0083); a live
-    // Run's are the ones it opened with.
+    // A live Run's settings are the ones it opened with: values to resolve
+    // beside it would be read by nothing (ADR 0083 ignores nothing given).
+    if params.run_id.is_some()
+        && (params.project.is_some()
+            || params.missing_project.is_some()
+            || !params.settings.is_empty()
+            || params.origin.is_some())
+    {
+        return Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            "`run_id` explains the settings that Run opened with: give it without \
+             `settings`, `origin`, `project` or `missing_project`",
+        ));
+    }
+    // The run values given, over the Connection's own (ADR 0083).
     let given = beneath_connection(
         context.connection_settings(),
         &params.settings,

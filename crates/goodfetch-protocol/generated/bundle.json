@@ -1603,7 +1603,7 @@
         },
         "run_id": {
           "arrived_in": "0.1",
-          "description": "The Run ID of a live Run of this Connection to explain, with the\nsettings it opened with, in place of `project` and `settings`; none\nexplains the Connection's own, the run values given set over them\n(ADR 0083). One that is no Run ID fails with `run_id_invalid`.",
+          "description": "The Run ID of a live Run to explain, with the settings it opened\nwith; none explains the Connection's own, the run values given set\nover them (ADR 0083). One that is no Run ID fails with\n`run_id_invalid`, and one given with `settings`, `origin`,\n`project` or `missing_project` with `invalid_params`.",
           "type": [
             "string",
             "null"

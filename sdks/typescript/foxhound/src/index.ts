@@ -41,6 +41,7 @@ export type {
   Enqueued,
   EnqueuedLink,
   EnqueuedLinks,
+  FoxhoundSettings,
   LabelSettings,
   RequestSeed,
 } from "./generated/index.ts";

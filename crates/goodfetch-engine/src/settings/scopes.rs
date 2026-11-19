@@ -1,9 +1,8 @@
-//! A program's own settings at each scope it opens (ADR 0083): a scope's
-//! `settings` take only the keys `setting_scopes` gives it, a key another
-//! scope's code sets refused with `setting_not_applicable` naming those
-//! scopes; and a Run's run layer takes its Connection's own settings
-//! beneath the Run's, key by key, so what the Run leaves out it inherits,
-//! its `null` clears and its value sets.
+//! What a scope's own `settings` take, and inherit from the scope opened
+//! above it (ADR 0083): only the keys `setting_scopes` gives the scope, a
+//! key another scope's code sets refused with `setting_not_applicable`
+//! naming those scopes, over the Connection's own settings key by key, so
+//! what a Run leaves out it inherits, its `null` clears and its value sets.
 
 use goodfetch_protocol::catalog::{Product, SettingScope};
 use goodfetch_protocol::setting_scopes;
@@ -14,17 +13,23 @@ use super::error::SettingsError;
 use super::setting;
 use super::values::Values;
 
-/// Refuses `own`, the values a scope's own `settings` give, when one sets
-/// a key that a program's code sets only at other scopes, as `timeout.run`,
-/// which only the Connection takes. A key no program's code sets at any
-/// scope, as `proxy.providers`, is left to [`Settings::open`](super::Settings::open),
-/// which refuses it naming the layer and the file that set it.
+/// Refuses `own`, a scope's own `settings` as `engine` reads them, when
+/// one sets a key that a program's code sets only at other scopes, as
+/// `timeout.run`, which only the Connection takes. A key no program's code
+/// sets at any scope, as `proxy.providers`, is left to
+/// [`Settings::open`](super::Settings::open), which refuses it naming the
+/// layer and the file that set it.
 ///
 /// # Errors
 ///
 /// `setting_not_applicable` for the first such key, its `fix` naming the
-/// scopes that take it.
-pub fn check_scope(own: &Values, scope: SettingScope) -> Result<(), SettingsError> {
+/// scopes that take it; as [`Values::read`] for values it cannot read.
+pub fn check_scope(
+    own: &Map<String, Value>,
+    scope: SettingScope,
+    engine: Product,
+) -> Result<(), SettingsError> {
+    let own = Values::read(SettingsLayer::Run, own, engine)?;
     for key in own.keys() {
         let Some(setting) = setting(key) else {
             continue;

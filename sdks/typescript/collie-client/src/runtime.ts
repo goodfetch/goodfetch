@@ -29,6 +29,7 @@ export { ensureRunOpen, pageOf, type RunHost } from "./run.ts";
 export { Sequence, type SequenceOptions } from "./sequence.ts";
 export { onWire, type SettingsOnWire, type Spelling } from "./settings.ts";
 export { idOfLocator } from "./generated/handles.ts";
+export { settingsOnWire } from "./generated/settings.ts";
 export { collieWire, type CollieWireType } from "./generated/wire.ts";
 export { fromWire, type Wire, type WireField, type WirePath, type WireTypes } from "./wire.ts";
 export {

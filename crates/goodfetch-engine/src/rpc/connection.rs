@@ -63,7 +63,7 @@ use goodfetch_protocol::connection::{
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
 use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId};
-use goodfetch_protocol::settings::{RunOrigin, SettingsLayer};
+use goodfetch_protocol::settings::RunOrigin;
 use serde_json::{Map, Value};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::{mpsc, oneshot};
@@ -97,9 +97,7 @@ use crate::metrics::Metrics;
 use crate::product::{Identity, Requested};
 use crate::run::translated;
 use crate::runs::Runs;
-use crate::settings::{
-    Opening as SettingsOpening, SettingsError, Values, check_scope, get_or_default,
-};
+use crate::settings::{Opening as SettingsOpening, SettingsError, check_scope, get_or_default};
 use crate::tasks::{OwnerKind, TaskOwner};
 use crate::trace;
 use crate::transition::engine::{
@@ -1028,6 +1026,7 @@ impl Session<'_> {
                 }
                 // A Connection answers one `hello`: the first sets it.
                 let _ = self.connection.surface.set(surface);
+                let _ = self.connection.settings.set(settings);
                 // Each CLI command is a Connection of its own, and the Runs
                 // it starts on the Daemon outlive it (ADRs 0024 and 0088);
                 // so do those a person starts or resumes from the Kennel
@@ -1038,7 +1037,6 @@ impl Session<'_> {
                 let holding = accepted.holding;
                 self.opened_client = daemon.map(|daemon| daemon.opened(surface, holding));
                 let _ = self.connection.behind_gateway.set(accepted.behind_gateway);
-                let _ = self.connection.settings.set(settings);
                 if let Access::Attached(private_endpoint) = &self.access {
                     accepted
                         .result
@@ -1064,7 +1062,6 @@ impl Session<'_> {
         }
     }
 
-    /// Its `hello` was refused: it closes.
     /// Checks `own`, the Connection's own settings as its `hello` gives
     /// them, from `surface`: each key at the connection scope, then every
     /// layer resolved over them as beneath a Run it starts, so a locked or
@@ -1081,8 +1078,7 @@ impl Session<'_> {
         }
         let identity = &self.dispatch.identity;
         let refused = |error: SettingsError| translated(&error, identity, behind_gateway);
-        let values = Values::read(SettingsLayer::Run, own, identity.product).map_err(refused)?;
-        check_scope(&values, SettingScope::Connection).map_err(refused)?;
+        check_scope(own, SettingScope::Connection, identity.product).map_err(refused)?;
         self.connection
             .engine
             .settings()
@@ -1099,6 +1095,7 @@ impl Session<'_> {
             .map_err(refused)
     }
 
+    /// Its `hello` was refused: it closes.
     fn rejected(&mut self) -> Flow {
         if let Err(refused) = self.transition(ConnectionEvent::Rejected) {
             let _ = refused.logged();

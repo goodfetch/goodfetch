@@ -75,7 +75,7 @@ use crate::runs::{
 };
 use crate::secrets::SecretError;
 use crate::settings::{
-    Opening, Resolved, RunSettings, SettingsError, Values, beneath_connection, check_scope,
+    Opening, Resolved, RunSettings, SettingsError, beneath_connection, check_scope,
 };
 
 /// The `run.*` handlers.
@@ -370,8 +370,7 @@ pub fn run_layer(
 ) -> Result<Map<String, Value>, CallError> {
     let engine = context.identity().product;
     let refused = |error: SettingsError| settings_error(&error, context);
-    let values = Values::read(SettingsLayer::Run, own, engine).map_err(refused)?;
-    check_scope(&values, SettingScope::Run).map_err(refused)?;
+    check_scope(own, SettingScope::Run, engine).map_err(refused)?;
     beneath_connection(context.connection_settings(), own, engine).map_err(refused)
 }
 

@@ -17,15 +17,19 @@ import {
   type Product,
   type RunLimit,
 } from "./generated/index.ts";
-import { settingsOnWire, type Settings } from "./generated/settings.ts";
+import type { Settings } from "./generated/settings.ts";
 import { timeoutOf } from "./handle.ts";
 import { limitList, type Limits } from "./limits.ts";
 import type { Logger } from "./logger.ts";
 import { boundsOf, type ChannelBounds, type Transport } from "./rpc.ts";
 import type { SettingsOnWire } from "./settings.ts";
 
-/** Options of opening a Connection, over an Attached engine's stdio or a transport a test holds. */
-export interface ConnectOverOptions {
+/**
+ * Options of opening a Connection, over an Attached engine's stdio or a
+ * transport a test holds, with `S`, the settings its Product's `connect()`
+ * takes: Collie's `Settings` by default.
+ */
+export interface ConnectOverOptions<S = Settings> {
   /**
    * Cancels the opening: it rejects with the signal's reason, once the
    * Attached engine it started has stopped and its streams are closed.
@@ -61,7 +65,7 @@ export interface ConnectOverOptions {
    * only. A key the Connection does not take fails the opening with the
    * engine's error, such as `setting_not_applicable` or `setting_locked`.
    */
-  readonly settings?: Settings | undefined;
+  readonly settings?: S | undefined;
   /**
    * How long the opening waits for the engine to answer `hello`, in
    * milliseconds (ADRs 0080 and 0083): `timeout.connect`'s 30 s when left
@@ -83,8 +87,8 @@ export interface ConnectOverOptions {
   readonly logger?: Logger | undefined;
 }
 
-/** Options of `connect()`. */
-export interface ConnectOptions extends ConnectOverOptions {
+/** Options of `connect()`, with `S`, the settings it takes. */
+export interface ConnectOptions<S = Settings> extends ConnectOverOptions<S> {
   /**
    * The engine to reach (ADR 0078): `auto` when left out, which takes the
    * remote Daemon `GOODFETCH_URL` names with `GOODFETCH_TOKEN`'s token, else
@@ -105,8 +109,11 @@ export interface ConnectOptions extends ConnectOverOptions {
   readonly env?: Readonly<Record<string, string>> | undefined;
 }
 
-/** What tells one Product's package from the other's when it connects. */
-export interface ProductPackage {
+/**
+ * What tells one Product's package from the other's when it connects, with
+ * `S`, the settings its `connect()` takes.
+ */
+export interface ProductPackage<S = Settings> {
   /** The Product its Client needs, which `hello` names. */
   readonly needs: Product;
   /** The Product's name in an error's message and `fix`, such as `Collie`. */
@@ -121,6 +128,8 @@ export interface ProductPackage {
   readonly errorClasses: ErrorClasses;
   /** A module of the package, as `import.meta.url` gives it: where its platform package is resolved from. */
   readonly moduleUrl: string;
+  /** Sends its `connect()`'s settings by their wire spelling, which `hello` carries. */
+  readonly settingsOnWire: (settings: S | undefined) => SettingsOnWire | undefined;
 }
 
 /** Where to start a Product's engine, and what to do when it is not there. */
@@ -136,9 +145,9 @@ export interface EngineLocation {
  * @throws {EngineNotFoundError} when the variable is unset and the platform package is not installed.
  * @throws {SettingInvalidError} when the variable is set but empty.
  */
-export function locateEngine(
+export function locateEngine<S>(
   env: Readonly<Record<string, string>>,
-  product: ProductPackage,
+  product: ProductPackage<S>,
 ): EngineLocation {
   const { name, executable, enginePathVariable: variable } = product;
   const named = env[variable];
@@ -184,13 +193,13 @@ export function locateEngine(
  * (`not_in_product`) or version fails here, with a `fix`, leaving no engine
  * behind; then logs the engine reached at info.
  */
-export async function openEngine(
-  product: ProductPackage,
-  options: ConnectOptions,
+export async function openEngine<S>(
+  product: ProductPackage<S>,
+  options: ConnectOptions<S>,
 ): Promise<ClientConnection> {
   options.signal?.throwIfAborted();
   // Read before an engine starts, so a refused option leaves none behind.
-  const common = opening(options);
+  const common = opening(product, options);
   const env = options.env ?? processEnvironment();
   const reach = await reachEngine(options.engine ?? "auto", {
     env,
@@ -207,8 +216,8 @@ export async function openEngine(
 }
 
 /** Starts `product`'s engine as an Attached engine with `env` and finishes `hello`. */
-async function openAttached(
-  product: ProductPackage,
+async function openAttached<S>(
+  product: ProductPackage<S>,
   env: Readonly<Record<string, string>>,
   home: string | null,
   common: Opening,
@@ -234,8 +243,8 @@ async function openAttached(
  * Finishes `hello` with a Daemon, its token in it: one that closes the
  * Connection before it answers fails with `daemon_unreachable`.
  */
-function openDaemon(
-  product: ProductPackage,
+function openDaemon<S>(
+  product: ProductPackage<S>,
   reach: Exclude<Reach, { kind: "attached" }>,
   common: Opening,
 ): Promise<ClientConnection> {
@@ -250,7 +259,7 @@ function openDaemon(
 }
 
 /** The line logged once `connect()` reached `engine`. */
-function reachedText(product: ProductPackage, engine: EngineInfo): string {
+function reachedText<S>(product: ProductPackage<S>, engine: EngineInfo): string {
   const version = `${engine.product} ${engine.version}`;
   switch (engine.kind) {
     case "attached":
@@ -271,16 +280,16 @@ function reachedText(product: ProductPackage, engine: EngineInfo): string {
  * Scripted engine's in-memory player (ADR 0069): `connect()`'s Connection
  * with no process behind it.
  */
-export function openOver(
-  product: ProductPackage,
+export function openOver<S>(
+  product: ProductPackage<S>,
   transport: Transport,
-  options: ConnectOverOptions,
+  options: ConnectOverOptions<S>,
 ): Promise<ClientConnection> {
   return ClientConnection.open({
     transport,
     needs: product.needs,
     errorClasses: product.errorClasses,
-    ...opening(options),
+    ...opening(product, options),
   });
 }
 
@@ -295,19 +304,20 @@ interface Opening {
 }
 
 /**
- * The common Connection's part of `options`.
+ * The common Connection's part of `options`, their settings sent as
+ * `product` spells them.
  *
  * @throws {SettingInvalidError} when a bound is no whole number of 1 or more,
  * a Limit's amount does not turn exactly into the wire's, or the `timeout`
  * is 0, negative, fractional or not finite.
  */
-function opening(options: ConnectOverOptions): Opening {
+function opening<S>(product: ProductPackage<S>, options: ConnectOverOptions<S>): Opening {
   const { signal, maxPendingCalls, maxQueuedWriteBytes, logger } = options;
   return {
     bounds: boundsOf({ maxPendingCalls, maxQueuedWriteBytes }),
     signal,
     limits: limitList(options.limits),
-    settings: settingsOnWire(options.settings),
+    settings: product.settingsOnWire(options.settings),
     timeout: timeoutOf(options.timeout, "timeout.connect"),
     logger,
   };

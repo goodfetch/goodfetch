@@ -223,13 +223,12 @@ impl CallContext {
     }
 
     /// The Connection's own settings, nested by key, as its `hello` gave
-    /// them: none before it is answered, or when it gave none (ADR 0083).
+    /// them: empty when it gave none (ADR 0083).
     pub fn connection_settings(&self) -> &Map<String, Value> {
-        static NONE: OnceLock<Map<String, Value>> = OnceLock::new();
         self.connection
             .settings
             .get()
-            .unwrap_or_else(|| NONE.get_or_init(Map::new))
+            .expect("invariant: a call runs only on a Connection whose `hello` was answered")
     }
 
     /// Whether the Connection's `hello` came from Goodfetch Cloud's gateway

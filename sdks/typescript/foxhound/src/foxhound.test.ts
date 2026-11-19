@@ -119,6 +119,21 @@ describe("a Foxhound Connection", () => {
     },
   );
 
+  test(
+    "sends its Connection's settings in hello, Foxhound's keys in the wire's spelling",
+    { tags: ["story:11-70"] },
+    async () => {
+      const played = playScript("connect/foxhound-connection-settings.json");
+
+      const foxhound = await connectOver(played.transport, {
+        settings: { timeout: { run: 60_000 }, crawl: { maxDepth: 3, handler: { concurrency: 2 } } },
+      });
+      await foxhound.close();
+
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
   test("connects again after a close", { tags: ["story:11-1002"] }, async () => {
     const first = playScript("connect/foxhound-accepted.json");
     await (await connectOver(first.transport)).close();

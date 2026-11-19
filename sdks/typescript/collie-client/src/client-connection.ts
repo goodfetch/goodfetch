@@ -271,7 +271,7 @@ export class ClientConnection implements AsyncDisposable {
   static async open(options: ClientConnectionOptions): Promise<ClientConnection> {
     const connection = new ClientConnection(options);
     try {
-      await connection.#hello(options, options.daemon);
+      await connection.#hello(options);
       await connection.#setLimits(options.limits ?? [], options.signal);
     } catch (error) {
       await connection.#end();
@@ -511,8 +511,8 @@ export class ClientConnection implements AsyncDisposable {
     }
   }
 
-  async #hello(options: ClientConnectionOptions, daemon: DaemonHello | undefined): Promise<void> {
-    const { needs, signal, timeout, settings } = options;
+  async #hello(options: ClientConnectionOptions): Promise<void> {
+    const { needs, daemon, signal, timeout, settings } = options;
     const params: HelloParams = {
       protocolVersion: PROTOCOL_VERSION,
       surface: "sdk_typescript",

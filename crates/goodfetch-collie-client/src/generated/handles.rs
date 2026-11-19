@@ -33,8 +33,10 @@ impl Run {
     /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn abort(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunAbortParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
+        ::goodfetch_protocol::run::RunAbortParams,
+    > {
         crate::markers::warn("run.abort", true, None);
         self.host.call(
             "run.abort",
@@ -55,7 +57,7 @@ impl Run {
     pub fn checkpoint(
         &self,
     ) -> crate::Call<
-        ::goodfetch_protocol::run::Checkpoint,
+        crate::Answer<::goodfetch_protocol::run::Checkpoint>,
         ::goodfetch_protocol::checkpoint::RunCheckpointParams,
     > {
         crate::markers::warn("run.checkpoint", true, None);
@@ -100,8 +102,10 @@ impl Run {
     /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn finish(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunFinishParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
+        ::goodfetch_protocol::run::RunFinishParams,
+    > {
         crate::markers::warn("run.finish", true, None);
         self.host
             .call(
@@ -124,7 +128,7 @@ impl Run {
     pub fn migrate(
         &self,
     ) -> crate::Call<
-        ::goodfetch_protocol::run::RunReport,
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
         ::goodfetch_protocol::checkpoint::RunCheckpointParams,
     > {
         crate::markers::warn("run.migrate", true, None);
@@ -199,8 +203,10 @@ impl Run {
     /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn pause(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
+        ::goodfetch_protocol::run::RunParams,
+    > {
         crate::markers::warn("run.pause", true, None);
         self.host.call(
             "run.pause",
@@ -220,7 +226,7 @@ impl Run {
     pub fn progress(
         &self,
     ) -> crate::Call<
-        ::goodfetch_protocol::run::RunProgress,
+        crate::Answer<::goodfetch_protocol::run::RunProgress>,
         ::goodfetch_protocol::run::RunProgressParams,
     > {
         crate::markers::warn("run.progress", true, None);
@@ -242,8 +248,10 @@ impl Run {
     /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn report(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
+        ::goodfetch_protocol::run::RunParams,
+    > {
         crate::markers::warn("run.report", true, None);
         self.host.call(
             "run.report",
@@ -264,7 +272,7 @@ impl Run {
         &self,
         message: ::goodfetch_protocol::run::ProgressMessage,
     ) -> crate::Call<
-        ::goodfetch_protocol::run::RunProgress,
+        crate::Answer<::goodfetch_protocol::run::RunProgress>,
         ::goodfetch_protocol::run::RunSetProgressMessageParams,
     > {
         crate::markers::warn("run.set_progress_message", true, None);
@@ -286,8 +294,10 @@ impl Run {
     /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn stop(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunReport, ::goodfetch_protocol::run::RunStopParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
+        ::goodfetch_protocol::run::RunStopParams,
+    > {
         crate::markers::warn("run.stop", true, None);
         self.host
             .call(
@@ -309,8 +319,10 @@ impl Run {
     /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn usage(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::run::RunUsage, ::goodfetch_protocol::run::RunParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::run::RunUsage>,
+        ::goodfetch_protocol::run::RunParams,
+    > {
         crate::markers::warn("run.usage", true, None);
         self.host.call(
             "run.usage",
@@ -521,7 +533,7 @@ impl Page {
         &self,
         formats: ::goodfetch_protocol::page::FormatsRequest,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::PageFormats,
+        crate::Answer<::goodfetch_protocol::page::PageFormats>,
         ::goodfetch_protocol::page::FormatsParams,
     > {
         crate::markers::warn("page.formats", true, None);
@@ -633,7 +645,7 @@ impl Page {
         &self,
         fields: ::std::collections::BTreeMap<String, ::goodfetch_protocol::page::read::PageField>,
     ) -> crate::Query<
-        ::goodfetch_protocol::page::read::PageRead,
+        crate::Answer<::goodfetch_protocol::page::read::PageRead>,
         ::goodfetch_protocol::page::read::PageReadParams,
     > {
         crate::markers::warn("page.read", true, None);
@@ -746,7 +758,7 @@ impl Page {
     pub fn wait_for_load_state(
         &self,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::waits::Reached,
+        crate::Answer<::goodfetch_protocol::page::waits::Reached>,
         ::goodfetch_protocol::page::waits::WaitForLoadStateParams,
     > {
         crate::markers::warn("page.wait_for_load_state", true, None);
@@ -772,7 +784,7 @@ impl Page {
     pub fn wait_for_request(
         &self,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::events::PageRequest,
+        crate::Answer<::goodfetch_protocol::page::events::PageRequest>,
         ::goodfetch_protocol::page::waits::WaitForExchangeParams,
     > {
         crate::markers::warn("page.wait_for_request", true, None);
@@ -857,7 +869,7 @@ impl Page {
         &self,
         url: ::goodfetch_protocol::page::route::UrlMatcher,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::waits::Reached,
+        crate::Answer<::goodfetch_protocol::page::waits::Reached>,
         ::goodfetch_protocol::page::waits::WaitForUrlParams,
     > {
         crate::markers::warn("page.wait_for_url", true, None);
@@ -942,8 +954,10 @@ impl Locator {
     /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
     pub fn click(
         &self,
-    ) -> crate::Call<::goodfetch_protocol::page::Acted, ::goodfetch_protocol::page::ClickParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::ClickParams,
+    > {
         crate::markers::warn("locator.click", true, None);
         self.host.call(
             "locator.click",
@@ -993,8 +1007,10 @@ impl Locator {
     pub fn fill(
         &self,
         value: impl Into<String>,
-    ) -> crate::Call<::goodfetch_protocol::page::Acted, ::goodfetch_protocol::page::FillParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::FillParams,
+    > {
         crate::markers::warn("locator.fill", true, None);
         self.host.call(
             "locator.fill",
@@ -1015,8 +1031,10 @@ impl Locator {
     pub fn press(
         &self,
         key: impl Into<String>,
-    ) -> crate::Call<::goodfetch_protocol::page::Acted, ::goodfetch_protocol::page::PressParams>
-    {
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::PressParams,
+    > {
         crate::markers::warn("locator.press", true, None);
         self.host.call(
             "locator.press",
@@ -1037,7 +1055,7 @@ impl Locator {
     pub fn wait_for(
         &self,
     ) -> crate::Call<
-        ::goodfetch_protocol::page::waits::Reached,
+        crate::Answer<::goodfetch_protocol::page::waits::Reached>,
         ::goodfetch_protocol::page::waits::LocatorWaitForParams,
     > {
         crate::markers::warn("locator.wait_for", true, None);

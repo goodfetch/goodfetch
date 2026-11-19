@@ -38,13 +38,14 @@
 //! - the browser's CDP messages and the JSON-RPC channel, which holds its own
 //!   `message_too_deep`.
 
+use goodfetch_protocol::connection::Form;
 use goodfetch_protocol::response_limits::{
     DEFAULT_MAX_BODY_SIZE, DEFAULT_MAX_DECOMPRESSION_RATIO, DEFAULT_MAX_JSON_DEPTH, LimitSetting,
     MAX_JSON_DEPTH_CEILING, NETWORK_MAX_BODY_SIZE, NETWORK_MAX_DECOMPRESSION_RATIO,
     NETWORK_MAX_JSON_DEPTH, RESPONSE_LIMIT_EXCEEDED, ResponseLimitExceededDetails,
 };
 
-use crate::call_error::CallError;
+use crate::call_error::{CallError, named};
 use crate::settings::{Resolved, RunSettings};
 
 /// The decoded size past which `network.max_decompression_ratio` applies:
@@ -164,7 +165,7 @@ impl LimitExceeded {
     pub fn error(&self) -> CallError {
         CallError::new(
             &RESPONSE_LIMIT_EXCEEDED,
-            self.to_string(),
+            self.message(),
             &ResponseLimitExceededDetails {
                 url: self.url.clone(),
                 setting: self.setting,
@@ -174,20 +175,27 @@ impl LimitExceeded {
     }
 }
 
-impl std::fmt::Display for LimitExceeded {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl LimitExceeded {
+    /// What its body did past which setting, marked for its Client's form
+    /// (ADR 0099).
+    fn message(&self) -> String {
         let what = match self.setting {
             LimitSetting::MaxBodySize => "decodes to more bytes than",
             LimitSetting::MaxDecompressionRatio => "decodes to more bytes per received byte than",
             LimitSetting::MaxJsonDepth => "holds JSON nested deeper than",
         };
-        write!(
-            formatter,
+        format!(
             "the body of {} {what} `{}` allows ({})",
             self.url,
-            self.setting.setting().name,
+            named::setting(self.setting.setting().name),
             self.limit
         )
+    }
+}
+
+impl std::fmt::Display for LimitExceeded {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&named::render(&self.message(), Form::Catalog))
     }
 }
 

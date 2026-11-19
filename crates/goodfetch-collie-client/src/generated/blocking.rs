@@ -34,7 +34,7 @@ impl Run {
     pub fn abort(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::run::RunReport,
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
         ::goodfetch_protocol::run::RunAbortParams,
     > {
         crate::blocking::Call::new(self.inner.abort(), self.inner.host.connection())
@@ -50,7 +50,7 @@ impl Run {
     pub fn checkpoint(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::run::Checkpoint,
+        crate::Answer<::goodfetch_protocol::run::Checkpoint>,
         ::goodfetch_protocol::checkpoint::RunCheckpointParams,
     > {
         crate::blocking::Call::new(self.inner.checkpoint(), self.inner.host.connection())
@@ -80,7 +80,7 @@ impl Run {
     pub fn finish(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::run::RunReport,
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
         ::goodfetch_protocol::run::RunFinishParams,
     > {
         crate::blocking::Call::new(self.inner.finish(), self.inner.host.connection())
@@ -96,7 +96,7 @@ impl Run {
     pub fn migrate(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::run::RunReport,
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
         ::goodfetch_protocol::checkpoint::RunCheckpointParams,
     > {
         crate::blocking::Call::new(self.inner.migrate(), self.inner.host.connection())
@@ -144,7 +144,7 @@ impl Run {
     pub fn pause(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::run::RunReport,
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
         ::goodfetch_protocol::run::RunParams,
     > {
         crate::blocking::Call::new(self.inner.pause(), self.inner.host.connection())
@@ -160,7 +160,7 @@ impl Run {
     pub fn progress(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::run::RunProgress,
+        crate::Answer<::goodfetch_protocol::run::RunProgress>,
         ::goodfetch_protocol::run::RunProgressParams,
     > {
         crate::blocking::Call::new(self.inner.progress(), self.inner.host.connection())
@@ -176,7 +176,7 @@ impl Run {
     pub fn report(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::run::RunReport,
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
         ::goodfetch_protocol::run::RunParams,
     > {
         crate::blocking::Call::new(self.inner.report(), self.inner.host.connection())
@@ -193,7 +193,7 @@ impl Run {
         &self,
         message: ::goodfetch_protocol::run::ProgressMessage,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::run::RunProgress,
+        crate::Answer<::goodfetch_protocol::run::RunProgress>,
         ::goodfetch_protocol::run::RunSetProgressMessageParams,
     > {
         crate::blocking::Call::new(
@@ -212,7 +212,7 @@ impl Run {
     pub fn stop(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::run::RunReport,
+        crate::Answer<::goodfetch_protocol::run::RunReport>,
         ::goodfetch_protocol::run::RunStopParams,
     > {
         crate::blocking::Call::new(self.inner.stop(), self.inner.host.connection())
@@ -228,7 +228,7 @@ impl Run {
     pub fn usage(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::run::RunUsage,
+        crate::Answer<::goodfetch_protocol::run::RunUsage>,
         ::goodfetch_protocol::run::RunParams,
     > {
         crate::blocking::Call::new(self.inner.usage(), self.inner.host.connection())
@@ -388,7 +388,7 @@ impl Page {
         &self,
         formats: ::goodfetch_protocol::page::FormatsRequest,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::PageFormats,
+        crate::Answer<::goodfetch_protocol::page::PageFormats>,
         ::goodfetch_protocol::page::FormatsParams,
     > {
         crate::blocking::Call::new(self.inner.formats(formats), self.inner.host.connection())
@@ -469,7 +469,7 @@ impl Page {
         &self,
         fields: ::std::collections::BTreeMap<String, ::goodfetch_protocol::page::read::PageField>,
     ) -> crate::blocking::Query<
-        ::goodfetch_protocol::page::read::PageRead,
+        crate::Answer<::goodfetch_protocol::page::read::PageRead>,
         ::goodfetch_protocol::page::read::PageReadParams,
     > {
         crate::blocking::Query::new(self.inner.read(fields), self.inner.host.connection())
@@ -546,7 +546,7 @@ impl Page {
     pub fn wait_for_load_state(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::waits::Reached,
+        crate::Answer<::goodfetch_protocol::page::waits::Reached>,
         ::goodfetch_protocol::page::waits::WaitForLoadStateParams,
     > {
         crate::blocking::Call::new(
@@ -565,7 +565,7 @@ impl Page {
     pub fn wait_for_request(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::events::PageRequest,
+        crate::Answer<::goodfetch_protocol::page::events::PageRequest>,
         ::goodfetch_protocol::page::waits::WaitForExchangeParams,
     > {
         crate::blocking::Call::new(self.inner.wait_for_request(), self.inner.host.connection())
@@ -624,7 +624,7 @@ impl Page {
         &self,
         url: ::goodfetch_protocol::page::route::UrlMatcher,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::waits::Reached,
+        crate::Answer<::goodfetch_protocol::page::waits::Reached>,
         ::goodfetch_protocol::page::waits::WaitForUrlParams,
     > {
         crate::blocking::Call::new(self.inner.wait_for_url(url), self.inner.host.connection())
@@ -691,7 +691,7 @@ impl Locator {
     pub fn click(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::Acted,
+        crate::Answer<::goodfetch_protocol::page::Acted>,
         ::goodfetch_protocol::page::ClickParams,
     > {
         crate::blocking::Call::new(self.inner.click(), self.inner.host.connection())
@@ -728,7 +728,7 @@ impl Locator {
         &self,
         value: impl Into<String>,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::Acted,
+        crate::Answer<::goodfetch_protocol::page::Acted>,
         ::goodfetch_protocol::page::FillParams,
     > {
         crate::blocking::Call::new(self.inner.fill(value), self.inner.host.connection())
@@ -745,7 +745,7 @@ impl Locator {
         &self,
         key: impl Into<String>,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::Acted,
+        crate::Answer<::goodfetch_protocol::page::Acted>,
         ::goodfetch_protocol::page::PressParams,
     > {
         crate::blocking::Call::new(self.inner.press(key), self.inner.host.connection())
@@ -761,7 +761,7 @@ impl Locator {
     pub fn wait_for(
         &self,
     ) -> crate::blocking::Call<
-        ::goodfetch_protocol::page::waits::Reached,
+        crate::Answer<::goodfetch_protocol::page::waits::Reached>,
         ::goodfetch_protocol::page::waits::LocatorWaitForParams,
     > {
         crate::blocking::Call::new(self.inner.wait_for(), self.inner.host.connection())

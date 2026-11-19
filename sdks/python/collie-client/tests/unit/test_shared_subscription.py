@@ -1,9 +1,12 @@
 """The Connection's own Subscription, shared by a Session's listeners (ADR 0081).
 
-The Collie tests play one shared Subscription on the Scripted engine; these
-cover what a script cannot show: the credits several listeners hold
-together, a listener leaving while others stay, the Subscription ending
-unasked, and the warning the engine's falling behind logs. TypeScript's
+The Collie tests play one shared Subscription on the Scripted engine, a
+stalled listener losing its own events among them; these pin each
+listener's own queue at the client's interface, which gives an event's
+credit back as it takes it and past its bound ends its listener with
+`listener_events_lost`, and cover what a script cannot show: a listener
+leaving while others stay, the Subscription ending unasked, and the
+warning the engine's falling behind logs. TypeScript's
 `shared-subscription.test.ts` is its twin.
 """
 
@@ -16,10 +19,14 @@ import anyio
 import anyio.lowlevel
 import pytest
 from goodfetch_collie_client.framing import object_members
-from goodfetch_collie_client.generated.errors import EnginePanickedError
+from goodfetch_collie_client.generated.errors import (
+    EnginePanickedError,
+    ListenerEventsLostError,
+)
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
 from goodfetch_collie_client.listeners import (
     EVENTS,
+    MAX_LISTENER_QUEUE,
     Listening,
     Order,
     subscribe_published,
@@ -113,9 +120,11 @@ class _Engine:
 class _Listeners:
     """Session listeners on one Connection's Subscription, and what they heard."""
 
-    def __init__(self, engine: _Engine) -> None:
+    def __init__(
+        self, engine: _Engine, listener_queue: int = MAX_LISTENER_QUEUE
+    ) -> None:
         self._engine = engine
-        self._shared = SharedSubscription(engine)
+        self._shared = SharedSubscription(engine, listener_queue)
         self._order = Order()
         self.failures: list[Exception | BaseGoodfetchError] = []
         self.endings: list[BaseGoodfetchError] = []
@@ -151,8 +160,10 @@ async def _settled() -> None:
 
 @pytest.mark.covers("story:11-61", "story:11-62")
 @pytest.mark.anyio
-async def test_a_removed_listener_gives_back_its_credits_while_others_keep_it() -> None:
-    """Its events settle as it leaves: 8 settled grant 8, and the Subscription stays."""
+async def test_a_removed_listener_leaves_while_the_others_keep_the_subscription() -> (
+    None
+):
+    """Its `on` alone is cancelled; the last to leave cancels the Subscription."""
     engine = _Engine()
     listeners = _Listeners(engine)
     stuck = anyio.Event()
@@ -163,22 +174,20 @@ async def test_a_removed_listener_gives_back_its_credits_while_others_keep_it() 
     await _settled()
     engine.publish(*["session-1"] * 7, "session-2")
     await _settled()
-    granted_while_held = engine.credits()
     blocked.close()
     await _settled()
     kept.close()
     await _settled()
     stuck.set()
 
-    assert granted_while_held == [16]
     assert heard == ["page-8"]
     assert engine.sent == [
         ("events.subscribe", 1),
         ("$/credit", 16),
         ("session.on", 2),
         ("session.on", 3),
-        ("$/cancel", 2),
         ("$/credit", 8),
+        ("$/cancel", 2),
         ("$/cancel", 3),
         ("$/cancel", 1),
     ]
@@ -188,25 +197,64 @@ async def test_a_removed_listener_gives_back_its_credits_while_others_keep_it() 
 
 @pytest.mark.covers("story:11-63")
 @pytest.mark.anyio
-async def test_grants_an_event_back_once_each_listener_that_took_it_is_through() -> (
+async def test_gives_a_stalled_listeners_events_back_as_its_own_queue_takes_them() -> (
     None
 ):
-    """Two listeners of one Session: the slower one holds the credits of both."""
+    """A stalled listener delays neither the stream's credits nor another's pages."""
     engine = _Engine()
     listeners = _Listeners(engine)
     stuck = anyio.Event()
+    heard: list[str] = []
 
     listeners.listen("session-1", lambda _: stuck.wait())
-    listeners.listen("session-1", lambda _: None)
+    listeners.listen("session-2", lambda opened: heard.append(opened.page_id))
     await _settled()
-    engine.publish(*["session-1"] * 8)
+    engine.publish(*["session-1"] * 16, "session-2")
     await _settled()
-    granted_while_held = engine.credits()
+
+    assert engine.credits() == [16, 8, 8]
+    assert heard == ["page-17"]
+    assert listeners.endings == []
+
+
+@pytest.mark.covers("story:11-63", "error:listener_events_lost")
+@pytest.mark.anyio
+async def test_removes_a_listener_whose_queue_is_full_once_it_got_what_it_held() -> (
+    None
+):
+    """It ends with `listener_events_lost` naming how many it lost; the rest go on."""
+    engine = _Engine()
+    listeners = _Listeners(engine, listener_queue=3)
+    stuck = anyio.Event()
+    seen: list[str] = []
+    heard: list[str] = []
+
+    async def stalls(opened: _Opened) -> None:
+        seen.append(opened.page_id)
+        await stuck.wait()
+
+    listeners.listen("session-1", stalls)
+    listeners.listen("session-2", lambda opened: heard.append(opened.page_id))
+    await _settled()
+    engine.publish(*["session-1"] * 5)
+    await _settled()
+    engine.publish("session-1", "session-2")
+    await _settled()
+    sent_while_stalled = list(engine.sent)
     stuck.set()
     await _settled()
 
-    assert granted_while_held == [16]
-    assert engine.credits() == [16, 8]
+    assert heard == ["page-7"]
+    assert ("$/cancel", 2) not in sent_while_stalled
+    assert seen == ["page-1", "page-2", "page-3"]
+    [ending] = listeners.endings
+    assert isinstance(ending, ListenerEventsLostError)
+    assert (ending.code, ending.details) == (
+        "listener_events_lost",
+        {"event": "session.page", "lost": 3},
+    )
+    assert ("$/cancel", 2) in engine.sent
+    assert ("$/cancel", 1) not in engine.sent
 
 
 @pytest.mark.covers("story:11-63")

@@ -1,0 +1,5 @@
+error[E0599]: no method named `carbon` found for struct `goodfetch_collie_client::Call<T, P>` in the current scope
+ --> tests/ui/inputs/unknown_field_on_a_finish.rs:4:32
+  |
+4 |     let _finish = run.finish().carbon(1.5);
+  |                                ^^^^^^ method not found in `goodfetch_collie_client::Call<goodfetch_collie_client::Answer<goodfetch_protocol::run::report::RunReport>, goodfetch_protocol::run::RunFinishParams>`

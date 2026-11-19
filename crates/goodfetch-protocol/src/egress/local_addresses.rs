@@ -62,6 +62,17 @@ impl fmt::Display for Ipv6Prefix {
     }
 }
 
+/// The JSON [`LocalAddresses::parse`] reads it back from.
+impl Serialize for LocalAddresses {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Addresses(addresses) => addresses.serialize(serializer),
+            Self::Interface(name) => serializer.serialize_str(name),
+            Self::Prefix(prefix) => serializer.collect_str(prefix),
+        }
+    }
+}
+
 impl LocalAddresses {
     /// Reads `egress.local_addresses`' value: a list of IP addresses, an
     /// IPv6 prefix such as `2001:db8:1::/48`, or an interface's name.

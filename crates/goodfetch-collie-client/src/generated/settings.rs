@@ -393,14 +393,15 @@ pub mod egress {
     /// The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `["192.0.2.10", "2001:db8::10"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.
     ///
     /// `egress.local_addresses`. `None` clears it.
-    pub const LOCAL_ADDRESSES: crate::settings::Setting<Option<::serde_json::Value>> =
-        crate::settings::Setting::new(
-            "egress.local_addresses",
-            &[
-                ::goodfetch_protocol::catalog::SettingScope::Connection,
-                ::goodfetch_protocol::catalog::SettingScope::Run,
-            ],
-        );
+    pub const LOCAL_ADDRESSES: crate::settings::Setting<
+        Option<::goodfetch_protocol::egress::LocalAddresses>,
+    > = crate::settings::Setting::new(
+        "egress.local_addresses",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+        ],
+    );
 
     /// Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.
     ///
@@ -1088,38 +1089,41 @@ pub mod run_state {
         /// Write the Run's changes once they hold this many bytes of rows. This bounds the memory that changes not yet written take.
         ///
         /// `run_state.batch.bytes`.
-        pub const BYTES: crate::settings::Setting<::serde_json::Value> =
-            crate::settings::Setting::new(
-                "run_state.batch.bytes",
-                &[
-                    ::goodfetch_protocol::catalog::SettingScope::Connection,
-                    ::goodfetch_protocol::catalog::SettingScope::Run,
-                ],
-            );
+        pub const BYTES: crate::settings::Setting<
+            ::goodfetch_protocol::run::durability::BatchThreshold,
+        > = crate::settings::Setting::new(
+            "run_state.batch.bytes",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
 
         /// Write the Run's changes at least this often. A crash loses at most about this much work.
         ///
         /// `run_state.batch.interval`.
-        pub const INTERVAL: crate::settings::Setting<::serde_json::Value> =
-            crate::settings::Setting::new(
-                "run_state.batch.interval",
-                &[
-                    ::goodfetch_protocol::catalog::SettingScope::Connection,
-                    ::goodfetch_protocol::catalog::SettingScope::Run,
-                ],
-            );
+        pub const INTERVAL: crate::settings::Setting<
+            ::goodfetch_protocol::run::durability::BatchThreshold,
+        > = crate::settings::Setting::new(
+            "run_state.batch.interval",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
 
         /// Write the Run's changes once this many attempts have ended since the last batch. Lower loses less to a crash and writes more often.
         ///
         /// `run_state.batch.pages`.
-        pub const PAGES: crate::settings::Setting<::serde_json::Value> =
-            crate::settings::Setting::new(
-                "run_state.batch.pages",
-                &[
-                    ::goodfetch_protocol::catalog::SettingScope::Connection,
-                    ::goodfetch_protocol::catalog::SettingScope::Run,
-                ],
-            );
+        pub const PAGES: crate::settings::Setting<
+            ::goodfetch_protocol::run::durability::BatchThreshold,
+        > = crate::settings::Setting::new(
+            "run_state.batch.pages",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
 
         /// Write each attempt's claim before its fetch and its outcome before anything is told outside, as its own batch. Slowest, and a crash then loses only the attempts in flight.
         ///
@@ -1293,29 +1297,31 @@ pub mod session {
     /// The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`.
     ///
     /// `session.page_check`. `None` clears it.
-    pub const PAGE_CHECK: crate::settings::Setting<Option<::serde_json::Value>> =
-        crate::settings::Setting::new(
-            "session.page_check",
-            &[
-                ::goodfetch_protocol::catalog::SettingScope::Connection,
-                ::goodfetch_protocol::catalog::SettingScope::Run,
-                ::goodfetch_protocol::catalog::SettingScope::Label,
-                ::goodfetch_protocol::catalog::SettingScope::Session,
-            ],
-        );
+    pub const PAGE_CHECK: crate::settings::Setting<
+        Option<::goodfetch_protocol::settings::page_check::PageCheck>,
+    > = crate::settings::Setting::new(
+        "session.page_check",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Label,
+            ::goodfetch_protocol::catalog::SettingScope::Session,
+        ],
+    );
 
     /// Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users.
     ///
     /// `session.source`. `None` clears it.
-    pub const SOURCE: crate::settings::Setting<Option<::serde_json::Value>> =
-        crate::settings::Setting::new(
-            "session.source",
-            &[
-                ::goodfetch_protocol::catalog::SettingScope::Connection,
-                ::goodfetch_protocol::catalog::SettingScope::Run,
-                ::goodfetch_protocol::catalog::SettingScope::Label,
-            ],
-        );
+    pub const SOURCE: crate::settings::Setting<
+        Option<::goodfetch_protocol::settings::session_source::SessionSource>,
+    > = crate::settings::Setting::new(
+        "session.source",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Label,
+        ],
+    );
 }
 
 /// The `site_preferences.*` settings.
@@ -1700,7 +1706,10 @@ pub mod tls {
     ///
     /// `tls.client_certificates`.
     pub const CLIENT_CERTIFICATES: crate::settings::Setting<
-        ::std::collections::BTreeMap<String, ::serde_json::Value>,
+        ::std::collections::BTreeMap<
+            String,
+            ::goodfetch_protocol::tls::ClientCertificateConfiguration,
+        >,
     > = crate::settings::Setting::new(
         "tls.client_certificates",
         &[
@@ -1736,3 +1745,53 @@ pub mod wall {
             ],
         );
 }
+
+/// The protocol's own JSON of the value.
+impl crate::settings::sealed::Wire for ::goodfetch_protocol::egress::LocalAddresses {
+    fn into_wire(self) -> ::serde_json::Value {
+        ::serde_json::to_value(self).expect("invariant: a value of the protocol's shapes is JSON")
+    }
+}
+
+impl crate::settings::SettingValue for ::goodfetch_protocol::egress::LocalAddresses {}
+
+/// The protocol's own JSON of the value.
+impl crate::settings::sealed::Wire for ::goodfetch_protocol::run::durability::BatchThreshold {
+    fn into_wire(self) -> ::serde_json::Value {
+        ::serde_json::to_value(self).expect("invariant: a value of the protocol's shapes is JSON")
+    }
+}
+
+impl crate::settings::SettingValue for ::goodfetch_protocol::run::durability::BatchThreshold {}
+
+/// The protocol's own JSON of the value.
+impl crate::settings::sealed::Wire for ::goodfetch_protocol::settings::page_check::PageCheck {
+    fn into_wire(self) -> ::serde_json::Value {
+        ::serde_json::to_value(self).expect("invariant: a value of the protocol's shapes is JSON")
+    }
+}
+
+impl crate::settings::SettingValue for ::goodfetch_protocol::settings::page_check::PageCheck {}
+
+/// The protocol's own JSON of the value.
+impl crate::settings::sealed::Wire
+    for ::goodfetch_protocol::settings::session_source::SessionSource
+{
+    fn into_wire(self) -> ::serde_json::Value {
+        ::serde_json::to_value(self).expect("invariant: a value of the protocol's shapes is JSON")
+    }
+}
+
+impl crate::settings::SettingValue
+    for ::goodfetch_protocol::settings::session_source::SessionSource
+{
+}
+
+/// The protocol's own JSON of the value.
+impl crate::settings::sealed::Wire for ::goodfetch_protocol::tls::ClientCertificateConfiguration {
+    fn into_wire(self) -> ::serde_json::Value {
+        ::serde_json::to_value(self).expect("invariant: a value of the protocol's shapes is JSON")
+    }
+}
+
+impl crate::settings::SettingValue for ::goodfetch_protocol::tls::ClientCertificateConfiguration {}

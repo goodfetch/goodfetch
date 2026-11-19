@@ -27,6 +27,17 @@
           "maximum": 255,
           "minimum": 0,
           "type": "integer"
+        },
+        "stderr": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StderrLines"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the engine writes to its stderr just before it exits, as a\ncrash prints its output; nothing when absent."
         }
       },
       "required": [
@@ -122,6 +133,27 @@
           "type": "object"
         }
       ]
+    },
+    "StderrLines": {
+      "additionalProperties": false,
+      "description": "Lines an exiting engine writes to its stderr: one line written `times`\ntimes, so a script can write more than an SDK keeps of it (64 KiB, ADR\n0078) without holding all of it.",
+      "properties": {
+        "line": {
+          "description": "The line, written with a newline after it.",
+          "type": "string"
+        },
+        "times": {
+          "description": "How many times it is written.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "line",
+        "times"
+      ],
+      "type": "object"
     },
     "Step": {
       "description": "One step of a script.",
@@ -221,7 +253,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "The engine's process exits at once with this code, as a crash does.",
+          "description": "The engine's process exits at once with this code, as a crash does,\nfirst writing its crash output to its stderr when the step has one.",
           "properties": {
             "exit": {
               "$ref": "#/$defs/Exit"

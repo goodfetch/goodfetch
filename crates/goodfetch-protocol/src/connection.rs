@@ -878,6 +878,18 @@ pub const CLOSED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A Connection, or a value under it, used in a process other than the one
+/// that opened it, such as a forked child (ADR 0078), raised by the SDK
+/// runtime itself, which leaves the opening process's engine untouched.
+pub const CONNECTION_FORKED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "connection_forked",
+    description: "The call was made in another process than the one that opened its Connection, such as a child created by `fork`: a Connection and every Run, Session or Page under it belong to the process that opened them. Connect in the child process.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A transition a lifecycle table refuses that only a bug in Goodfetch can
 /// cause (ADRs 0079 and 0128), logged at `error` with the same details.
 pub const INTERNAL: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -1004,6 +1016,7 @@ pub const ENTRIES: Entries = Entries {
         CALL_CANCELLED,
         DEADLINE_EXCEEDED,
         CLOSED,
+        CONNECTION_FORKED,
         INTERNAL,
         ENGINE_PANICKED,
         CONNECTION_OVERLOADED,

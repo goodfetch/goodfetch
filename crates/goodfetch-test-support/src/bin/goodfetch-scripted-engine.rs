@@ -142,7 +142,18 @@ fn main() -> ExitCode {
     let arguments = Arguments::parse();
     match run(&arguments) {
         Ok(Ending::Finished | Ending::Closed) => ExitCode::SUCCESS,
-        Ok(Ending::Exit(code)) => ExitCode::from(code),
+        Ok(Ending::Exit(exit)) => {
+            if let Some(lines) = &exit.stderr {
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "the test-only Scripted engine writes a script's crash output on its own stderr (ADRs 0060 and 0069)"
+                )]
+                let mut stderr = io::stderr().lock();
+                // A crash's output: the process ends next, whatever came of it.
+                let _ = stderr.write_all(lines.text().as_bytes());
+            }
+            ExitCode::from(exit.code)
+        }
         Err(failure) => {
             #[expect(
                 clippy::print_stderr,

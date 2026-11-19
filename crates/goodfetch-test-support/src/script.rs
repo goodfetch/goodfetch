@@ -86,7 +86,8 @@ pub enum Step {
     Close {},
     /// Bytes the engine writes that are not JSON-RPC, which the check skips.
     Raw(Raw),
-    /// The engine's process exits at once with this code, as a crash does.
+    /// The engine's process exits at once with this code, as a crash does,
+    /// first writing its crash output to its stderr when the step has one.
     Exit(Exit),
 }
 
@@ -159,6 +160,34 @@ pub struct Raw {
 pub struct Exit {
     /// The exit code.
     pub code: u8,
+    /// What the engine writes to its stderr just before it exits, as a
+    /// crash prints its output; nothing when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stderr: Option<StderrLines>,
+}
+
+/// Lines an exiting engine writes to its stderr: one line written `times`
+/// times, so a script can write more than an SDK keeps of it (64 KiB, ADR
+/// 0078) without holding all of it.
+#[derive(
+    Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct StderrLines {
+    /// The line, written with a newline after it.
+    pub line: String,
+    /// How many times it is written.
+    pub times: u32,
+}
+
+impl StderrLines {
+    /// The text written: `line` and a newline, `times` times.
+    #[must_use]
+    pub fn text(&self) -> String {
+        let mut line = self.line.clone();
+        line.push('\n');
+        line.repeat(usize::try_from(self.times).unwrap_or(usize::MAX))
+    }
 }
 
 /// Why a script cannot be read.

@@ -1234,6 +1234,11 @@ prefix = "closed"
 [[area]]
 number = 11
 kind = "error"
+prefix = "connection_forked"
+
+[[area]]
+number = 11
+kind = "error"
 prefix = "engine_exited"
 
 [[area]]

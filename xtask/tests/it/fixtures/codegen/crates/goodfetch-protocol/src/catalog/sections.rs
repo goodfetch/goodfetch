@@ -8,12 +8,17 @@ use serde_json::{Value, json};
 
 use super::{
     Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, HandlerRequest, HookStage,
-    Metric, Operation, PROTOCOL_VERSION, PluginKind, Product, Setting, SharedTypeValue,
+    Metric, Operation, PROTOCOL_VERSION, PluginKind, Product, Setting, SettingScope,
+    SharedTypeValue,
 };
 
+/// The scopes whose own `settings` a program's code sets a Setting at
+/// (ADR 0083), outermost first.
+pub type ScopesOf = fn(&Setting) -> &'static [SettingScope];
+
 /// The catalog's sections, filled one module's [`Entries`] at a time.
-#[derive(Default)]
 pub struct Sections {
+    scopes_of: ScopesOf,
     operations: Vec<Value>,
     events: Vec<Value>,
     handler_requests: Vec<Value>,
@@ -26,6 +31,23 @@ pub struct Sections {
 }
 
 impl Sections {
+    /// Empty sections, whose settings list the scopes `scopes_of` gives
+    /// them.
+    pub fn new(scopes_of: ScopesOf) -> Self {
+        Self {
+            scopes_of,
+            operations: Vec::new(),
+            events: Vec::new(),
+            handler_requests: Vec::new(),
+            error_codes: Vec::new(),
+            plugin_kinds: Vec::new(),
+            metrics: Vec::new(),
+            settings: Vec::new(),
+            hook_stages: Vec::new(),
+            shared_type_values: Vec::new(),
+        }
+    }
+
     /// Adds every entry of `entries`, marked with the Product of the module
     /// that defines it, generating its types' schemas with `generator`.
     pub fn add(&mut self, entries: &Entries, generator: &mut SchemaGenerator) {
@@ -70,7 +92,7 @@ impl Sections {
             entries
                 .settings
                 .iter()
-                .map(|setting| setting_entry(product, setting)),
+                .map(|setting| setting_entry(product, setting, (self.scopes_of)(setting))),
         );
         self.hook_stages.extend(
             entries
@@ -257,7 +279,7 @@ fn metric_entry(product: Product, metric: &Metric) -> Value {
 /// authority, and the Products that honour it, read from its mark: both for
 /// Collie's, which Foxhound contains, only Foxhound for Foxhound's (ADRs
 /// 0087 and 0095).
-fn setting_entry(product: Product, setting: &Setting) -> Value {
+fn setting_entry(product: Product, setting: &Setting, scopes: &[SettingScope]) -> Value {
     let products: Vec<&str> = [Product::Collie, Product::Foxhound]
         .into_iter()
         .filter(|honours| honours.contains(product))
@@ -273,6 +295,8 @@ fn setting_entry(product: Product, setting: &Setting) -> Value {
         "clearable": setting.clearable,
         "authority": setting.authority.as_str(),
         "weakens": setting.weakens.is_some(),
+        "fixed_for_run": setting.fixed_for_run,
+        "scopes": scopes.iter().map(|scope| scope.as_str()).collect::<Vec<_>>(),
         "arrived_in": setting.arrived_in.to_string(),
     })
 }

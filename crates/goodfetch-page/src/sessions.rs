@@ -68,7 +68,7 @@ use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::browser_cache::PinnedBy;
-use goodfetch_protocol::catalog::Authority;
+use goodfetch_protocol::catalog::{Authority, SettingScope};
 use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
 use goodfetch_protocol::egress::{EGRESS_LOCAL_ADDRESSES, LocalAddressFailure};
 use goodfetch_protocol::governor::WorkKind;
@@ -78,12 +78,13 @@ use goodfetch_protocol::page::access_mode::{
 };
 use goodfetch_protocol::page::proxy::PROXY_PROVIDER;
 use goodfetch_protocol::page::session::{NewSessionParams, SessionOpened};
-use goodfetch_protocol::page::{CONTENT_EXTRACTOR, PageId, PageOpened, SessionId};
+use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 use goodfetch_protocol::run::{Lifecycle, RUN_ENDED, RUN_NOT_FOUND, RunDetails, RunId};
+use goodfetch_protocol::settings::scope as settings_scope;
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{
-    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SESSION_PAGE_CHECK,
-    SESSION_SOURCE, SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_WAIT,
+    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SESSION_SOURCE, SettingLimit,
+    SettingsLayer, TIMEOUT_ACTION, TIMEOUT_WAIT,
 };
 use goodfetch_protocol::usage::PROXY_BYTES;
 use serde_json::{Map, Value, json};
@@ -104,7 +105,7 @@ use crate::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::egress_relay::{self, EgressRelay};
 use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
-use crate::interception::{HeldBrowser, Interception, Lookups, SESSION_KEYS};
+use crate::interception::{HeldBrowser, Interception, Lookups};
 use crate::launch::Launcher;
 use crate::page_events;
 use crate::page_functions::{FrameScripts, Injections};
@@ -1318,12 +1319,7 @@ fn own_settings(
     } else {
         values
             .keys()
-            .find(|key| {
-                !SESSION_KEYS.contains(key)
-                    && *key != SESSION_PAGE_CHECK.name
-                    && *key != CONTENT_EXTRACTOR.name
-                    && !fixed_for_the_session(key)
-            })
+            .find(|key| !applies_to(key, SettingScope::Session))
             .map(|key| {
                 let operator_alone = setting(key).is_some_and(|setting| {
                     matches!(setting.authority, Authority::OperatorPolicyAlone)
@@ -1403,7 +1399,10 @@ fn page_settings(
     if context.surface().acts_for_model() {
         values = values.from_model();
     }
-    if let Some(key) = values.keys().find(|key| *key != CONTENT_EXTRACTOR.name) {
+    if let Some(key) = values
+        .keys()
+        .find(|key| !applies_to(key, SettingScope::Page))
+    {
         let fix = if fixed_for_the_session(key) {
             "a Session keeps its Access mode, Identity profile and proxy for its life: open a new Session with it"
         } else {
@@ -1419,6 +1418,12 @@ fn page_settings(
         ));
     }
     not_locked(values, run, "page", context)
+}
+
+/// Whether the setting `key` names is one `scope`'s own `settings` set
+/// (ADR 0083).
+fn applies_to(key: &str, scope: SettingScope) -> bool {
+    setting(key).is_some_and(|setting| settings_scope::of(setting).contains(&scope))
 }
 
 /// What starts the `proxy.*` keys a Session's own `settings` may set.

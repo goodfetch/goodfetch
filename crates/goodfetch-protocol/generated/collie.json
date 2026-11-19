@@ -14097,11 +14097,16 @@
       "clearable": true,
       "default": null,
       "description": "How many requests a Run admits in a minute at most, spaced evenly (GCRA), whatever its concurrency; none by default. An Operator policy cap bounds it even when unset.",
+      "fixed_for_run": false,
       "name": "admission.max_requests_per_minute",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -14115,12 +14120,14 @@
       "clearable": false,
       "default": false,
       "description": "Whether an engine process also sends each new Audit log entry, the hash with it, as an OpenTelemetry event to the OTLP/HTTP collector `otlp.logs_endpoint` names: off by default, and nothing is sent while `otlp.logs_endpoint` is unset. Read when the process starts; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "audit.otlp",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -14132,12 +14139,14 @@
       "clearable": false,
       "default": 10,
       "description": "How many of one listener's refusals the Audit log records in a minute, from its first: 10. Each refusal past them is still logged, and once the minute ends one `endpoint_refusals_folded` entry counts them, so a peer that retries a wrong token cannot make the engine write an entry per attempt. 0 records none but the counts. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "audit.refusals_per_minute",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -14150,12 +14159,14 @@
       "clearable": true,
       "default": null,
       "description": "How long the user's Audit log keeps an entry, in milliseconds, such as 15552000000 for the six months the EU AI Act asks of high-risk deployers. Unset, the default, nothing is ever pruned. Set, the engine prunes the entries older than it as it starts and then once a day, so an entry may stay up to a day longer, from the log's beginning only, leaving an anchor entry that carries the last pruned hash, from which `audit verify` checks the rest, and a pruning record at the tail. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "audit.retention",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,
@@ -14169,11 +14180,17 @@
       "clearable": false,
       "default": "standard",
       "description": "The Access mode a Session opens in and keeps for its life: `standard` (the default), the browser's own identity; `identified`, which declares who the program is, signing each request it sends with `identified.signing_key` (Web Bot Auth), and masks nothing; or `stealth`, which turns on the whole stealth catalog, each `stealth.*` item of which can be switched off. A non-`none` `stealth.fingerprint_method` makes the Session `stealth`; an explicit `standard` or `identified` beside one at the same scope is `setting_invalid` naming both keys. A stealth item set explicitly where a `standard` Session opens is `setting_not_applicable`, and one set explicitly on an `identified` Session is `setting_invalid` naming both keys; an inherited one yields, which `config explain` names in the item's `yields_to`. `stealth` on WebKit is `capability_unavailable`; a Borrowed browser stays `standard` with its own identity, and `stealth` set where one opens is `setting_not_applicable`, as is `identified` at an import or on a Profile directory used in place. Changing the mode, the Identity profile or the proxy means opening a new Session. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "browser.access_mode",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "enum": [
@@ -14190,11 +14207,17 @@
       "clearable": false,
       "default": [],
       "description": "The resource kinds the Session's pages never load, failed as `BlockedByClient` by its interception before every navigation: any of `image`, `media`, `font` and `stylesheet`; none by default. The never-block list still loads a challenge's own. In `standard` and `stealth` the Run warns once per Session that the site can see the missing loads.",
+      "fixed_for_run": false,
       "name": "browser.block_resources",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "items": {
@@ -14215,11 +14238,16 @@
       "clearable": false,
       "default": false,
       "description": "Whether the Run trace keeps its CDP command log, `trace/cdp-commands.jsonl`: one line for each command the engine sends a Session's browser, its method only, never its params, up to the launch's last `Browser.close`. Off by default: no command's method goes to the Run trace's writer and the file is never written. Turn it on to see every command the engine sent, such as to debug a Run. No result, Record or Provenance entry reads the log, so off weakens no guarantee.",
+      "fixed_for_run": false,
       "name": "browser.cdp_command_log",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -14232,11 +14260,16 @@
       "clearable": false,
       "default": true,
       "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent.",
+      "fixed_for_run": false,
       "name": "browser.headless",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -14249,11 +14282,17 @@
       "clearable": false,
       "default": "allow",
       "description": "Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.",
+      "fixed_for_run": false,
       "name": "browser.service_workers",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "enum": [
@@ -14269,12 +14308,14 @@
       "clearable": true,
       "default": 2592000000,
       "description": "How long a Pinned artifact no installed executable pins stays in the Browser cache unused before the clean-up deletes it, and how long an executable's entry counts as installed after it was last seen: 30 days. `null` turns the automatic clean-up off. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "browser_cache.max_unused_age",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,
@@ -14288,11 +14329,16 @@
       "clearable": true,
       "default": null,
       "description": "How often a live Run writes a Checkpoint where the engine keeps its Checkpoints, on the engine's clock; none by default locally.",
+      "fixed_for_run": false,
       "name": "checkpoint.interval",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -14307,12 +14353,14 @@
       "clearable": false,
       "default": "ghcr.io/goodfetch/clean-up-rules",
       "description": "The OCI repository the daily channel is pulled from, `host[:port]/path`: Goodfetch's own on ghcr.io by default, or a mirror of it, which `clean_up.update = daily` makes the configured destination. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
+      "fixed_for_run": false,
       "name": "clean_up.channel",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -14324,11 +14372,16 @@
       "clearable": false,
       "default": 30000,
       "description": "How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.",
+      "fixed_for_run": false,
       "name": "clean_up.fetch_timeout",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -14348,12 +14401,14 @@
         "unbreak": "https://raw.githubusercontent.com/brave/adblock-lists/master/brave-unbreak.txt"
       },
       "description": "The URL `clean_up.update = upstream` fetches each Filter list from, by list: `ads` (EasyList), `trackers` (EasyPrivacy), `annoyances` (Fanboy Annoyance) and `unbreak` (Brave's unbreak list); their authors' own URLs by default, or a mirror's. Each must be `https`. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
+      "fixed_for_run": false,
       "name": "clean_up.lists",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "additionalProperties": {
           "type": "string"
@@ -14368,11 +14423,16 @@
       "clearable": false,
       "default": "release",
       "description": "Where a new Run's Clean-up rules come from: `release` (the default), the set this release pins, with the embedded part as fallback; `daily`, the opt-in daily channel, whose registry it makes a configured destination, refused with `capability_unavailable` until the engine checks the channel's signature; `upstream`, the Filter lists from their authors' URLs, which it makes configured destinations. A Run holds to the version it starts with for its whole life, a resume included; `egress.offline` turns the fetching off. Operator policy can lock it.",
+      "fixed_for_run": false,
       "name": "clean_up.update",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -14389,11 +14449,16 @@
       "clearable": true,
       "default": null,
       "description": "The exact version of the Clean-up rules a new Run holds to, by its digest `sha256:<hex>` as Provenance names it, instead of the newest one `clean_up.update` gives: a daily version it names is fetched from the daily channel, and it is exempt from the channel's expiry and its refusal of older versions. None by default.",
+      "fixed_for_run": false,
       "name": "clean_up.version",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "string"
@@ -14406,11 +14471,16 @@
       "clearable": false,
       "default": [],
       "description": "The registrable domains on which a run accepts a consent wall, a Consent prompt with no refusal that covers the content or offers payment instead, rather than raising `blocked` with `consent_required`; `*` only when written. A prompt that offers a refusal is still refused there. A Recipe or a run only narrows it; it is widened only in an Operator policy, user or project configuration, or by a person's answer.",
+      "fixed_for_run": false,
       "name": "consent.domains",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -14426,11 +14496,16 @@
       "clearable": false,
       "default": "answer",
       "description": "What a browser Session does with Consent prompts: `answer` (the default, in every Access mode) refuses each prompt in every frame and hides one with no refusal that leaves the content readable; `detect` only looks: nothing is clicked or hidden, the wall test still runs, and a consent wall is still `consent_required`; `off` registers and starts no Consent prompt runner and lets no cosmetic rule act on the live page or in extracted content, so no consent wall is reported and the page's text is returned as served, while the Filter lists still block requests; the Run report lists `off` in `weakened`. A Recipe, and a Client acting for a model, never set `off` unless the layers below already give it: `setting_locked`; set it in the program's own code, in configuration or in an Operator policy.",
+      "fixed_for_run": false,
       "name": "consent.handling",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -14447,11 +14522,16 @@
       "clearable": false,
       "default": "report",
       "description": "What a consent wall on a domain outside `consent.domains` does: `report` (the default) leaves the page at `consent_required`, raised as `blocked`; `ask` raises a Human pause for a person's answer, for this run or always for the domain. Until the Human pause takes a person's answer, `ask` opens no page: `capability_unavailable`.",
+      "fixed_for_run": false,
       "name": "consent.on_wall",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -14467,11 +14547,18 @@
       "clearable": false,
       "default": "dom_smoothie",
       "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
+      "fixed_for_run": false,
       "name": "content.extractor",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session",
+        "page"
       ],
       "value": {
         "enum": [
@@ -14487,12 +14574,14 @@
       "clearable": false,
       "default": "127.0.0.1:7600",
       "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+      "fixed_for_run": false,
       "name": "daemon.address",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -14504,12 +14593,14 @@
       "clearable": false,
       "default": 110000,
       "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. An Attached engine that stops on a panic in a part every run shares waits as long for its runs to stop, leaving each one not stopped resumable from its run file, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+      "fixed_for_run": false,
       "name": "daemon.drain_grace",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,
@@ -14523,12 +14614,14 @@
       "clearable": false,
       "default": 600000,
       "description": "How long a Daemon with no connected Client waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "daemon.idle_timeout",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,
@@ -14542,11 +14635,16 @@
       "clearable": false,
       "default": 65536,
       "description": "The most bytes of JSON an Effect's body may return for the Effect journal to keep (ADR 0106), 64 KiB by default as `crawl.payload.max_size`. A larger value is `effect_output_invalid` when nothing was sent, and leaves the Effect uncertain after a send.",
+      "fixed_for_run": false,
       "name": "effect.output.max_size",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -14562,11 +14660,16 @@
         "*"
       ],
       "description": "The hosts a run's requests may reach: each entry its host and their subdomains, matched on the host as a browser's URL parser leaves it (punycode, dotted-decimal IPv4), and `*` every host, only when written. `[\"*\"]` by default; set for a connection or a Run, and only narrowed by a Recipe or a Client acting for a model, whose value listing a host the value below does not cover is `setting_locked`. A request to a host it does not list fails with `egress_refused`.",
+      "fixed_for_run": false,
       "name": "egress.allowed_domains",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -14582,11 +14685,16 @@
       "clearable": false,
       "default": [],
       "description": "The hosts no request of a run may reach, whatever `egress.allowed_domains` allows: each entry its host and their subdomains, matched as `egress.allowed_domains` matches, and `*` every host. Empty by default; set for a connection or a Run, and only added to by a Recipe or a Client acting for a model, whose value that leaves a host the value below lists uncovered is `setting_locked`. A request to a host it lists fails with `egress_refused`.",
+      "fixed_for_run": false,
       "name": "egress.blocked_domains",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -14602,11 +14710,16 @@
       "clearable": true,
       "default": null,
       "description": "The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `[\"192.0.2.10\", \"2001:db8::10\"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.",
+      "fixed_for_run": false,
       "name": "egress.local_addresses",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "oneOf": [
@@ -14633,12 +14746,14 @@
       "clearable": false,
       "default": false,
       "description": "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification webhooks, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
+      "fixed_for_run": false,
       "name": "egress.no_private_endpoints",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -14650,11 +14765,16 @@
       "clearable": false,
       "default": false,
       "description": "Whether the engine opens no connection nobody configured: every pinned download, such as a Pinned artifact missing from the Browser cache, fails with `artifact_unavailable_offline` before it connects, naming the command that supplies it beforehand. `false` by default; set at every layer, and an Operator policy can lock it.",
+      "fixed_for_run": false,
       "name": "egress.offline",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -14667,11 +14787,16 @@
       "clearable": false,
       "default": [],
       "description": "The ranges and hosts that addresses a page can reach may use although they are not globally reachable, for tests against a local site or an intranet: CIDR ranges such as `127.0.0.0/8`, IP addresses, and host names, each name's connections allowed any address that is not globally reachable. A cloud-metadata address (`169.254.169.254`, `fd00:ec2::254`, `100.100.100.200`) is reached only when listed by its exact address, never through a range or a host name that covers it. Empty by default; set by the program's own code, configuration or an Operator policy, by a Recipe only where the Operator policy's `egress.recipe_private_ranges` allows it, and never by a Client acting for a model, whose value is `setting_locked`. A run that lists any records it once in the Audit log as `private_addresses_allowed` and in its Run report's `weakened`.",
+      "fixed_for_run": false,
       "name": "egress.private_ranges",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -14688,12 +14813,14 @@
       "clearable": false,
       "default": false,
       "description": "Whether a Recipe may set `egress.private_ranges`. `false` by default, so a Recipe's value is `setting_locked`; set only in an Operator policy.",
+      "fixed_for_run": false,
       "name": "egress.recipe_private_ranges",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -14705,11 +14832,16 @@
       "clearable": false,
       "default": 24,
       "description": "The prefix length of the IPv4 blocks new Sessions are spread across, round-robin, when `egress.local_addresses` gives several: 24 by default, so consecutive Sessions leave from different /24 networks while the addresses allow it. Set for a connection or a Run.",
+      "fixed_for_run": false,
       "name": "egress.rotation_block.ipv4",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "maximum": 32,
@@ -14724,11 +14856,16 @@
       "clearable": false,
       "default": 64,
       "description": "The prefix length of the IPv6 blocks new Sessions are spread across, round-robin, when `egress.local_addresses` gives several: 64 by default, the block a rate limiter such as Cloudflare's counts as one client. Set for a connection or a Run.",
+      "fixed_for_run": false,
       "name": "egress.rotation_block.ipv6",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "maximum": 128,
@@ -14743,11 +14880,16 @@
       "clearable": false,
       "default": "retry",
       "description": "How many times the main-content step may try a page. `retry` (the default) tries up to four times while it finds under 500 characters, keeping the best. `single_attempt` tries once, which is faster and may keep less text on short pages. The trafilatura Extractor always tries once.",
+      "fixed_for_run": false,
       "name": "extraction.readability",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -14763,11 +14905,16 @@
       "clearable": false,
       "default": "estimate",
       "description": "How a `page.formats` call that read its main content measures the share of that text the Clean-up rules removed, which its Provenance entry records, flagged above a fifth: `estimate` (the default), the text removed over that text plus the main content's text left, an upper bound of the exact share that runs no second main-content step; or `exact`, the main content's text of the page as served against the cleaned page's, at the cost of one more main-content step. The entry names the measure it holds.",
+      "fixed_for_run": false,
       "name": "extraction.removal_share",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -14783,11 +14930,17 @@
       "clearable": false,
       "default": true,
       "description": "Whether a browser Session blocks ads by EasyList, as a blocker does: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+      "fixed_for_run": false,
       "name": "filter_lists.ads",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "boolean"
@@ -14800,11 +14953,17 @@
       "clearable": false,
       "default": true,
       "description": "Whether a browser Session blocks page annoyances (social widgets, newsletter and notification prompts) by Fanboy Annoyance, its cookie sections left to the Consent prompt runner: on by default in every Access mode.",
+      "fixed_for_run": false,
       "name": "filter_lists.annoyances",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "boolean"
@@ -14817,11 +14976,16 @@
       "clearable": false,
       "default": [],
       "description": "Extra Filter lists, by URL or path. Their scriptlets run only when the value comes from an Operator policy or user or project configuration; from a Recipe or a run, only their blocking rules apply.",
+      "fixed_for_run": false,
       "name": "filter_lists.extra",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -14837,11 +15001,17 @@
       "clearable": false,
       "default": false,
       "description": "Whether a site's own scripts load whatever the Filter lists say: off by default.",
+      "fixed_for_run": false,
       "name": "filter_lists.first_party_scripts",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "boolean"
@@ -14854,11 +15024,16 @@
       "clearable": false,
       "default": 1024,
       "description": "How many hosts' Clean-up rules this Run keeps built: 1,024, the least used dropped first, and none once the Resource governor finds memory critical. A page on a host it keeps builds no rule list. 0 builds each page's rule list, as before.",
+      "fixed_for_run": false,
       "name": "filter_lists.host_cache",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -14872,11 +15047,16 @@
       "clearable": false,
       "default": false,
       "description": "Whether the Filter lists' scriptlets that patch a page's JavaScript run, from uBlock Origin's resources downloaded with the lists that name them: off by default, since a site can see them.",
+      "fixed_for_run": false,
       "name": "filter_lists.page_scriptlets",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -14889,11 +15069,17 @@
       "clearable": false,
       "default": true,
       "description": "Whether a browser Session blocks trackers by EasyPrivacy: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.",
+      "fixed_for_run": false,
       "name": "filter_lists.trackers",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "boolean"
@@ -14906,12 +15092,14 @@
       "clearable": false,
       "default": "per_core",
       "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: `per_core` for one a core, or a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
+      "fixed_for_run": false,
       "name": "governor.blocking_threads",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "oneOf": [
           {
@@ -14933,11 +15121,16 @@
       "clearable": false,
       "default": 8,
       "description": "How many of a Run's Sessions share one browser process, each in a browser context of its own: 8. The Run's next Session past it gets a process of its own; Sessions of different Runs never share one.",
+      "fixed_for_run": false,
       "name": "governor.browser.contexts_per_process",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -14951,11 +15144,16 @@
       "clearable": true,
       "default": null,
       "description": "The memory, in bytes, of a browser and its processes past which it is recycled; unset by default, when the cap is twice what the browser used once it had opened its first page.",
+      "fixed_for_run": false,
       "name": "governor.browser.memory_cap",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -14969,11 +15167,16 @@
       "clearable": false,
       "default": 1073741824,
       "description": "The memory, in bytes, of one page's JavaScript heap and the buffers it holds, past which the Resource governor ends the page while memory is critical: 1 GiB. The page ends at its safe point, once no call on it is in flight, and its calls raise `page_memory_exceeded`, which is retryable.",
+      "fixed_for_run": false,
       "name": "governor.browser.page_memory_cap",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -14987,11 +15190,16 @@
       "clearable": false,
       "default": 300000,
       "description": "How long a browser may hold no open page before it closes, each of its Sessions keeping its cookies and storage for the browser that replaces it: 5 minutes.",
+      "fixed_for_run": false,
       "name": "governor.browser.recycle_idle",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -15006,11 +15214,16 @@
       "clearable": false,
       "default": 100,
       "description": "How many pages a browser opens before it is recycled: 100. Recycled, it opens no new page, closes once its pages are done and is replaced, each of its Sessions keeping its cookies and storage.",
+      "fixed_for_run": false,
       "name": "governor.browser.recycle_pages",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -15024,12 +15237,14 @@
       "clearable": false,
       "default": 32,
       "description": "The most browser pages the engine's Resource governor admits open at once, across its Runs: 32.",
+      "fixed_for_run": false,
       "name": "governor.browser_page.ceiling",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15042,12 +15257,14 @@
       "clearable": false,
       "default": 1,
       "description": "The fewest browser pages the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.browser_page.ceiling`, it fixes the concurrency there.",
+      "fixed_for_run": false,
       "name": "governor.browser_page.floor",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15060,12 +15277,14 @@
       "clearable": false,
       "default": 95,
       "description": "The share of the Memory allowance in use, in percent, from which the engine's memory is critical: 95.",
+      "fixed_for_run": false,
       "name": "governor.critical",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15078,12 +15297,14 @@
       "clearable": false,
       "default": true,
       "description": "Whether the engine's Resource governor also judges the host's own memory, its memory in use against `governor.pressure` and `governor.critical` and the operating system's memory-pressure signal, and treats its pressure as the engine's: on. Off, the engine's own memory against its Memory allowance alone sets the level, as on a host whose other workloads are not the engine's to answer for.",
+      "fixed_for_run": false,
       "name": "governor.host_memory",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -15095,12 +15316,14 @@
       "clearable": false,
       "default": 200,
       "description": "The most HTTP and discovered-API fetches the engine's Resource governor admits at once, across its Runs: 200.",
+      "fixed_for_run": false,
       "name": "governor.http.ceiling",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15113,12 +15336,14 @@
       "clearable": false,
       "default": 1,
       "description": "The fewest HTTP and discovered-API fetches the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.http.ceiling`, it fixes the concurrency there.",
+      "fixed_for_run": false,
       "name": "governor.http.floor",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15131,12 +15356,14 @@
       "clearable": false,
       "default": false,
       "description": "Whether the engine's own memory may be backed by the operating system's transparent huge pages: off, so the allocator reserves no memory the engine never touches, and the engine's resident memory is smaller. On, huge pages may back it, which is faster for some workloads and holds more memory. Read once, when the engine starts, on Linux; elsewhere it changes nothing. The browsers and other programs the engine starts keep the state the engine itself was started with either way.",
+      "fixed_for_run": false,
       "name": "governor.huge_pages",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -15148,12 +15375,14 @@
       "clearable": false,
       "default": 60000,
       "description": "How long the engine's memory may stay critical with its concurrency at the floor before the Resource governor reaches its last resort, when a Daemon's `/readyz` fails: 60 s.",
+      "fixed_for_run": false,
       "name": "governor.last_resort_after",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,
@@ -15167,12 +15396,14 @@
       "clearable": true,
       "default": null,
       "description": "The most memory, in bytes, the engine and its children may use, as its Memory allowance when it is tighter than the process's own cgroup limit, its Windows Job object's limit or half of physical memory; unset by default. Each sample reads it from the engine's settings: the engine's own write (`config.user_write`, `config.policy_write`) is seen at the next sample, a hand edit at the engine's next read of the file, by the next Run's start at the latest.",
+      "fixed_for_run": false,
       "name": "governor.memory_allowance",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15185,12 +15416,14 @@
       "clearable": false,
       "default": 16,
       "description": "The most model calls the engine's Resource governor admits at once, across its Runs: 16.",
+      "fixed_for_run": false,
       "name": "governor.model_call.ceiling",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15203,12 +15436,14 @@
       "clearable": false,
       "default": 1,
       "description": "The fewest model calls the engine's Resource governor keeps admitting at once, however loaded the machine: 1. Equal to `governor.model_call.ceiling`, it fixes the concurrency there.",
+      "fixed_for_run": false,
       "name": "governor.model_call.floor",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15221,12 +15456,14 @@
       "clearable": false,
       "default": 85,
       "description": "The share of the Memory allowance in use, in percent, from which the engine is under pressure and its Resource governor lowers its concurrency; also the CPU and Tokio workers' busy share from which they hold it: 85.",
+      "fixed_for_run": false,
       "name": "governor.pressure",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15239,11 +15476,16 @@
       "clearable": false,
       "default": 100,
       "description": "The share, in percent, of each kind's concurrency one Run may hold at once, at least one: 100. An Operator policy cap bounds every Run's share.",
+      "fixed_for_run": false,
       "name": "governor.run_share",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -15257,12 +15499,14 @@
       "clearable": false,
       "default": 1000,
       "description": "How often the engine's Resource governor reads memory, CPU and Tokio saturation, sizes its concurrency and sends `engine.system_info`: every second.",
+      "fixed_for_run": false,
       "name": "governor.sample_interval",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,
@@ -15276,12 +15520,14 @@
       "clearable": false,
       "default": 2,
       "description": "How many worker threads run the engine's async tasks: 2, a whole number of at least 1, or `per_core` for one a core. A crawl's parsing runs on threads of its own, one a core at most, so few workers keep its memory low without slowing it. Read once, when the engine starts.",
+      "fixed_for_run": false,
       "name": "governor.worker_threads",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "oneOf": [
           {
@@ -15303,11 +15549,17 @@
       "clearable": true,
       "default": null,
       "description": "Where a site reads the key directory of an `identified` Session's key, sent with each signed request as `Signature-Agent`, in the string form Cloudflare accepts: the `https://` origin that serves `goodfetch signing-key directory`'s output at `/.well-known/http-message-signatures-directory`, such as `https://bot.example`, or an inline `data:application/http-message-signatures-directory;base64,` directory. None by default; an `identified` Session needs it, with `identified.signing_key`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "identified.signature_agent",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "description": "Where a site reads the key directory: an `https://` or `http://` URL of the origin that serves it at `/.well-known/http-message-signatures-directory`, or an inline `data:application/http-message-signatures-directory;base64,` directory.",
@@ -15323,11 +15575,17 @@
       "clearable": true,
       "default": null,
       "description": "The Secret reference of the Ed25519 key an `identified` Session signs each of its requests with (Web Bot Auth), such as `env:BOT_KEY`: never a value. It resolves to the key as a private JSON Web Key (`kty` `OKP`, `crv` `Ed25519`, with `d` and `x`), resolved once when the Session opens and never written to a log, a trace, a process's arguments or a file; a rotated key is read by the next Session. None by default; an `identified` Session needs it, with `identified.signature_agent`. Set where a Session that is not `identified` opens, `setting_not_applicable`; inherited, it yields to the Access mode. Set only by the program's own code, configuration and an Operator policy: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "identified.signing_key",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "description": "A Secret reference, such as `env:NAME`.",
@@ -15342,11 +15600,17 @@
       "clearable": false,
       "default": "auto",
       "description": "Whether a Session's pages hide, on the live page, the elements the Filter lists' cosmetic rules match: `auto` (the default) and `always` hide them through a style sheet the site cannot see on Chromium, in every frame and every new document; `off` leaves the live page as served. When the guard finds an action's target hidden, it lifts the rule for the Session and acts. Extracted content has the elements removed whatever this says.",
+      "fixed_for_run": false,
       "name": "live_view.hiding",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "enum": [
@@ -15363,12 +15627,14 @@
       "clearable": false,
       "default": 5,
       "description": "How many log files an engine process keeps where `log.output` is `file`, the one it writes included: 5, so a Daemon's logs stay under about 50 MiB. The oldest goes at each rotation. A process other than the Daemon writes a set of files of its own, and at its start keeps as many of its executable's sets, its own included, the ones written last. Read when the process starts; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "log.file.max_files",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15381,12 +15647,14 @@
       "clearable": false,
       "default": 10485760,
       "description": "The size, in bytes, at which an engine process's log file rotates where `log.output` is `file`: 10 MiB. A file holds at most this much and one line more. Read when the process starts; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "log.file.max_size",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -15399,12 +15667,14 @@
       "clearable": true,
       "default": null,
       "description": "How an engine process writes its logs on stderr, or on stdout under `daemon run`: `text`, lines for a person reading a terminal, or `json`, JSON lines. Unset, the logs are text on stderr and JSON lines on stdout under `daemon run`; a log file holds JSON lines whatever it says. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "log.format",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "enum": [
           "text",
@@ -15419,12 +15689,14 @@
       "clearable": false,
       "default": "info",
       "description": "Which of its logs an engine process writes: `info`, the default, which logs state changes only (a Run started, resumed or stopped, a domain backing off, a storage level changing, a Daemon draining) and never one line per request, or any `tracing` filter directive, such as `warn` or `info,goodfetch::rpc=debug`. Read when the process starts; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "log.level",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -15436,12 +15708,14 @@
       "clearable": true,
       "default": null,
       "description": "Where an engine process writes its logs beside stderr: `stdout`, JSON lines for the platform to collect and rotate, `file`, JSON lines in its own files of the Goodfetch home's log folder, rotated at `log.file.max_size` and kept to `log.file.max_files`, or `none`. Unset, it is `stdout` under `daemon run`, `file` for every other Daemon and `none` for an Attached engine, whose logs go to its Client as log events; `stdout` on an Attached engine, whose stdout is its protocol, fails with `setting_not_applicable`. Read when the process starts; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "log.output",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "enum": [
           "stdout",
@@ -15457,11 +15731,16 @@
       "clearable": false,
       "default": 67108864,
       "description": "The most decoded bytes of one body the engine itself reads: a page `request`'s response, a kept response, an Operator-configured endpoint's reply. Never a download, which the disk governor bounds. 64 MiB (67108864) by default; set for a connection or a Run. A longer body fails the call with `response_limit_exceeded`.",
+      "fixed_for_run": false,
       "name": "network.max_body_size",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -15475,11 +15754,16 @@
       "clearable": false,
       "default": 100,
       "description": "The most decoded bytes per received byte of a body the engine reads, once its decoded bytes pass 1 MiB, so a decompression bomb is stopped as it expands. 100 by default; set for a connection or a Run. A body past it fails the call with `response_limit_exceeded`.",
+      "fixed_for_run": false,
       "name": "network.max_decompression_ratio",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -15493,12 +15777,14 @@
       "clearable": false,
       "default": 65536,
       "description": "The most bytes of one line a Connection to a listener that takes a token may send before its `hello` is accepted, up to the 16 MiB (16777216) of any message: 64 KiB (65536) by default, many times any `hello`. A longer line closes the Connection unanswered as soon as it passes the limit, without being decoded, and the refusal is logged and recorded as `hello_too_large`. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "network.max_hello_size",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "maximum": 16777216,
         "minimum": 0,
@@ -15512,11 +15798,16 @@
       "clearable": false,
       "default": 128,
       "description": "The deepest nesting of arrays and objects in JSON the engine parses from outside, from 0 to 1024: 128 by default; set for a connection or a Run. Deeper JSON fails the call with `response_limit_exceeded`.",
+      "fixed_for_run": false,
       "name": "network.max_json_depth",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "maximum": 1024,
@@ -15531,11 +15822,16 @@
       "clearable": false,
       "default": {},
       "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
+      "fixed_for_run": false,
       "name": "network.resolve",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "additionalProperties": {
@@ -15555,12 +15851,14 @@
       "clearable": true,
       "default": null,
       "description": "Where `daemon run`, the foreground Daemon, serves its ops listener, as `host:port`: `/livez` and `/readyz` answer a status and no body to anyone, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token. Unset by default: no ops listener and no Prometheus export. Any address, so a cluster's probes and scrapers reach it; a request whose `Host` is a name other than `localhost`, or that carries an `Origin`, is refused. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_OPS_ADDRESS`.",
+      "fixed_for_run": false,
       "name": "ops.address",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -15572,12 +15870,14 @@
       "clearable": true,
       "default": null,
       "description": "Where an Attached engine that runs its Runs itself serves an ops listener, as a loopback `host:port` such as `127.0.0.1:9465`: `/livez` and `/readyz` answer a status and no body, and `/metrics`, Prometheus' text, only with the ops token, the `ops.token` file of the major's folder, as a bearer token; its `goodfetch_counted_work_total` gives the engine's Counted work, such as the CDP commands it sent and the requests it paused. Unset by default: no ops listener, and the engine keeps no meter for one. An Attached engine in the per-install layout hands its Runs to the Daemon, whose `ops.address` serves them, and opens none. One address serves one engine: a second engine started with it fails to start.",
+      "fixed_for_run": false,
       "name": "ops.attached_address",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -15589,12 +15889,14 @@
       "clearable": true,
       "default": null,
       "description": "The OTLP/HTTP endpoint an engine process sends its OpenTelemetry events to, such as `http://localhost:4318/v1/logs`: today the Audit log's entries, while `audit.otlp` is on. Unset, the default, sends nothing, and nothing leaves the machine. Read when the process starts; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "otlp.logs_endpoint",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -15606,12 +15908,14 @@
       "clearable": true,
       "default": null,
       "description": "The OTLP/HTTP endpoint `daemon run`, the foreground Daemon, exports its metrics to, in protobuf, every 60 seconds and once more as it exits: a full URL such as `http://collector:4318/v1/metrics`. Unset by default: nothing is exported (ADR 0043).",
+      "fixed_for_run": false,
       "name": "otlp.metrics_endpoint",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -15623,12 +15927,14 @@
       "clearable": true,
       "default": null,
       "description": "The OTLP/HTTP endpoint an engine process exports its `tracing` spans to, such as `http://localhost:4318/v1/traces`; unset, the default, exports nothing, and nothing leaves the machine. The spans cover each run, page and CDP command, with glossary IDs and bounded values as fields and a URL as its origin. Span names, span fields and the engine's targets are Experimental: a minor may change them, and its release notes list the change. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "otlp.traces_endpoint",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -15640,11 +15946,16 @@
       "clearable": true,
       "default": null,
       "description": "How many page navigations may be in flight at once through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run sends one only while that combined count is below its own value and below the ceiling the proxy's own refusals taught. At least 1; none by default, for no cap.",
+      "fixed_for_run": false,
       "name": "politeness.proxy.concurrency",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -15658,11 +15969,16 @@
       "clearable": true,
       "default": null,
       "description": "How many page navigations a second may start through one proxy endpoint and credential, counted across every run of the user that shares Politeness, each redirect hop of a page's main frame counted, a program's own navigation included (a page's other requests and `page.request` are not counted): a run starts one only once a second divided by its own value has passed since the last start there by any sharing run. None by default.",
+      "fixed_for_run": false,
       "name": "politeness.proxy.rate",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -15676,11 +15992,16 @@
       "clearable": false,
       "default": "shared",
       "description": "How a Run shares Politeness with the other runs of its user: `shared` with every engine of the user (through the Politeness store when one is configured, else on the machine), `per_daemon` on the machine only, ignoring a store, or `run` for Politeness of its own. Anything but `shared` is listed in the Run's result.",
+      "fixed_for_run": false,
       "name": "politeness.sharing",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -15697,11 +16018,17 @@
       "clearable": true,
       "default": null,
       "description": "The hosts the Session reaches without its proxy, as Playwright's `bypass`: a comma-separated list such as `.example.com, chromium.org`, a leading dot naming a domain's subdomains. None by default: every request goes through `proxy.server`. Set as `proxy.server` is.",
+      "fixed_for_run": false,
       "name": "proxy.bypass",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "string"
@@ -15714,11 +16041,17 @@
       "clearable": true,
       "default": null,
       "description": "The country, an ISO 3166-1 alpha-2 code such as `US`, a Session's proxy exit is in. None by default: any country the provider offers. A country the provider does not offer for the Session's proxy kind is refused with `setting_invalid` when the Session opens. A Recipe never sets it (`setting_locked`).",
+      "fixed_for_run": false,
       "name": "proxy.country",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "description": "An ISO 3166-1 alpha-2 country code, such as `US`.",
@@ -15733,11 +16066,17 @@
       "clearable": true,
       "default": null,
       "description": "The proxy kind a Session's proxy is drawn from, `datacenter`, `isp`, `residential` or `mobile`: the provider's default when unset, for `list` the kind of its first server. A kind the provider does not offer is refused with `setting_invalid` when the Session opens. A Recipe may set it; a Client acting for a model is refused with `setting_locked`, since the kinds' prices differ by an order of magnitude and the person pays.",
+      "fixed_for_run": false,
       "name": "proxy.kind",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "enum": [
@@ -15755,11 +16094,17 @@
       "clearable": true,
       "default": null,
       "description": "The Secret reference of the password the Session gives `proxy.server` with `proxy.username`, such as `env:PROXY_PASSWORD`: never a value, resolved when the Session opens and never written to a log, a trace, a process's arguments or a file. None by default. Set as `proxy.server` is.",
+      "fixed_for_run": false,
       "name": "proxy.password",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "description": "A Secret reference, such as `env:NAME`.",
@@ -15774,11 +16119,17 @@
       "clearable": true,
       "default": null,
       "description": "The Proxy provider each Session of the Run, or the Session it is set on, draws its one proxy from when it opens, fixed for the Session's life: `bright_data`, `oxylabs` or `apify`, whose adapters build the provider's sticky-session username from the account in `proxy.providers.<name>` and ask for the provider's longest sticky lifetime, or `list`, the user's own servers in `proxy.providers.list.servers`. None by default. A Session that resolves both `proxy.server` and `proxy.provider` is refused with `setting_invalid`. Set as `proxy.server` is: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`.",
+      "fixed_for_run": false,
       "name": "proxy.provider",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "string"
@@ -15791,12 +16142,14 @@
       "clearable": false,
       "default": {},
       "description": "What each Proxy provider takes, by name, such as `proxy.providers.list`: `username`, the account's; `password`, a Secret reference resolved when a Session opens; `endpoint`, the provider's proxy URL in place of its public one (`http://brd.superproxy.io:33335` for `bright_data`, `http://pr.oxylabs.io:7777` for `oxylabs`, `http://proxy.apify.com:8000` for `apify`), an `http://`, `socks5://` or `socks5h://` URL, never `https://`, which the Session's loopback relay speaks no TLS to; `servers`, for `list` only, the user's own proxies, each a table of `server` (an `http://`, `socks5://` or `socks5h://` URL), `kind` and an optional `country`; `zones`, for `bright_data` only, the name of each proxy kind's zone as its customer named it, such as `{ residential = \"residential_proxy1\" }`, a kind it leaves out being the zone of the kind's own name, and the entry's `password` every zone's; and `price`, the price of a GB (10^9 bytes) through the provider, such as `5 USD`, which a currency Limit on `proxy_bytes` charges: under such a Limit a Session of an unpriced provider, or one priced in another currency, is refused with `setting_invalid`. Empty by default. Set only in an Operator policy and user and project configuration: a Recipe's or a run's value is `setting_locked`, so no Client lowers a price, and so is a project configuration's entry that names a `price`, which only user configuration and an Operator policy set, since a currency Limit trusts it.",
+      "fixed_for_run": false,
       "name": "proxy.providers",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "additionalProperties": {
           "additionalProperties": false,
@@ -15878,11 +16231,17 @@
       "clearable": true,
       "default": null,
       "description": "The proxy every request of the Session goes through, as Playwright's `server`: an `http://`, `https://`, `socks5://` or `socks5h://` URL with a host and a port, such as `http://proxy.example:3128`. None by default: the machine's own address. Set on a Run, every Session of it takes it; set in `run.new_session`'s `settings`, that Session alone; a page or a request has no proxy of its own, so the address a site sees never changes under the same cookies. A URL carrying credentials and `socks4` are refused with `setting_invalid`: give the credentials as `proxy.username` and `proxy.password`. Set only by the program's own code, configuration and an Operator policy: a Recipe may expose it but never sets it, and a Client acting for a model is refused with `setting_locked`, since whoever sets it receives `proxy.password`. On Chromium, a SOCKS5 proxy's credentials go through a loopback relay the engine opens for the Session.",
+      "fixed_for_run": false,
       "name": "proxy.server",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "description": "A proxy URL, `http://`, `https://`, `socks5://` or `socks5h://`, with a host and an optional port and never credentials, such as `http://proxy.example:3128`.",
@@ -15897,11 +16256,17 @@
       "clearable": true,
       "default": null,
       "description": "How long, in milliseconds, a Session asks its provider to keep its proxy exit: the provider's longest when unset. A Session that outlives it is named by the Run report's `proxy_exit_may_change` warning; the engine never looks the exit up. A `list` server's exit never changes.",
+      "fixed_for_run": false,
       "name": "proxy.sticky_lifetime",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -15916,11 +16281,17 @@
       "clearable": true,
       "default": null,
       "description": "The username the Session gives `proxy.server`, as Playwright's `username`. None by default. Set as `proxy.server` is.",
+      "fixed_for_run": false,
       "name": "proxy.username",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "string"
@@ -15933,11 +16304,16 @@
       "clearable": false,
       "default": 250,
       "description": "How long the engine's HTTP transports let a connection attempt to one of a host's addresses run before they start the next one beside it: 250 ms, RFC 8305's Connection Attempt Delay. An attempt that fails starts the next at once.",
+      "fixed_for_run": false,
       "name": "resolver.attempt_delay",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -15952,11 +16328,16 @@
       "clearable": false,
       "default": 50,
       "description": "How long the engine's HTTP transports wait for a host's IPv6 addresses once its IPv4 addresses arrived first, before they start connecting over IPv4: 50 ms, RFC 8305's Resolution Delay.",
+      "fixed_for_run": false,
       "name": "resolver.resolution_delay",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -15971,11 +16352,16 @@
       "clearable": false,
       "default": 8388608,
       "description": "Write the Run's changes once they hold this many bytes of rows. This bounds the memory that changes not yet written take.",
+      "fixed_for_run": false,
       "name": "run_state.batch.bytes",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "oneOf": [
@@ -15998,11 +16384,16 @@
       "clearable": false,
       "default": 1000,
       "description": "Write the Run's changes at least this often. A crash loses at most about this much work.",
+      "fixed_for_run": false,
       "name": "run_state.batch.interval",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "oneOf": [
@@ -16025,11 +16416,16 @@
       "clearable": false,
       "default": 1000,
       "description": "Write the Run's changes once this many attempts have ended since the last batch. Lower loses less to a crash and writes more often.",
+      "fixed_for_run": false,
       "name": "run_state.batch.pages",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "oneOf": [
@@ -16052,11 +16448,16 @@
       "clearable": false,
       "default": false,
       "description": "Write each attempt's claim before its fetch and its outcome before anything is told outside, as its own batch. Slowest, and a crash then loses only the attempts in flight.",
+      "fixed_for_run": false,
       "name": "run_state.batch.per_attempt",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -16069,11 +16470,16 @@
       "clearable": false,
       "default": "each",
       "description": "Which batches reach the disk before the next one starts. `each` survives a power cut; `interval` syncs one batch per `run_state.commit_interval`; `never` survives a process crash only; `off` syncs nothing, so a crash discards the run file and the Run starts again.",
+      "fixed_for_run": false,
       "name": "run_state.batch.sync",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -16091,11 +16497,16 @@
       "clearable": false,
       "default": 5000,
       "description": "How often `run_state.batch.sync: interval` syncs a batch, and an idle Run's last changes.",
+      "fixed_for_run": false,
       "name": "run_state.commit_interval",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -16110,11 +16521,16 @@
       "clearable": false,
       "default": "batch",
       "description": "How a Run's state reaches the disk, its Durability level, each value a preset of `run_state.batch.*` and `run_state.commit_interval`: `batch`, the default, writes the Run's changes in Run-state batches, of 1,000 attempts, 1 s or 8 MiB, whichever comes first, each synced, so a crash or a power cut loses at most the last batch; `full` writes each attempt's claim and outcome as a synced batch of its own (`synchronous=FULL`, with `fullfsync` on macOS), so only the attempts in flight are lost; `fast` is `full` unsynced (`synchronous=NORMAL`): it survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state; `periodic` is `fast` with one synced batch every `run_state.commit_interval`, so a power cut loses at most that interval of work; `off` writes as `batch` does and syncs nothing (`synchronous=OFF`), and a run file a crash or a power cut left is discarded when the Run is next started or resumed, so the Run starts again from nothing. A level unfolds into its preset's keys at the layer that set it: a key set at that layer or a higher one overrides the preset's value, and a lock on the level locks every key of its preset. At every level a clean stop writes and syncs everything, so a paused Run resumes. The run report's `weakened` names `off`, and each preset key whose value weakens the Run.",
+      "fixed_for_run": false,
       "name": "run_state.durability",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -16133,12 +16549,14 @@
       "clearable": true,
       "default": "keychain:goodfetch/run-state-key",
       "description": "The Secret reference of the key-encryption key that wraps each Run's data key. One set in a layer is resolved when a Run starts: a Run whose reference does not resolve is refused with `secret_unavailable`. Taken only from an Operator policy and user and project configuration. By default the OS keychain's `keychain:goodfetch/run-state-key`, or, on a host with no OS keychain, the encrypted local file's `secretfile:run-state-key`, which `config explain` shows as the default it chose; the engine makes the default's item, a random 256-bit key, where it is missing when a Run first seals a field. A Run's data key is stored only wrapped by this key, so a resume, such as of a Checkpoint moved to another machine, unwraps it with the key this setting names for the resume, which a Client may send in `run.resume`'s project configuration: one that gives no value fails the resume with `secret_unavailable`, one that does not open the data key with `run_key_mismatch`. The encrypted local file, `secrets/<name>.age` in Goodfetch home encrypted with age to the X25519 identity in `secrets/identity.txt`, a file only its owner may read, protects copies and backups of the home, not the value from another process of the same user.",
+      "fixed_for_run": false,
       "name": "run_state.key_reference",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A Secret reference, such as `env:NAME`.",
         "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
@@ -16152,12 +16570,14 @@
       "clearable": false,
       "default": "per_run",
       "description": "Where Runs keep their run state: `per_run`, the default, one SQLite file in each run folder; `per_install`, one database, `run-state.sqlite` in the per-major folder, holding every Run of the install and major and written by the Daemon alone, to which an Attached engine then hands its Runs. Export, import and Checkpoint give the same per-run file in both. Taken only from the machine's own layers, and read when the Daemon starts.",
+      "fixed_for_run": false,
       "name": "run_state.layout",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "enum": [
           "per_run",
@@ -16172,11 +16592,16 @@
       "clearable": true,
       "default": null,
       "description": "The folder that holds the run folders, each named by its Run ID; by default the per-user, per-major data folder of the Goodfetch home.",
+      "fixed_for_run": false,
       "name": "run_state.location",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "string"
@@ -16189,11 +16614,16 @@
       "clearable": false,
       "default": 67108864,
       "description": "The most memory this Run's Frontier, Leases and changes not yet written may hold, in bytes. Past it, or under memory pressure, state already written leaves memory and is read back from the run file. 0 keeps the Frontier in the run file. A budget of 0 with `run_state.batch.pages`, `.interval` and `.bytes` all `none` is refused, since nothing would ever leave memory.",
+      "fixed_for_run": false,
       "name": "run_state.memory.budget",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -16207,11 +16637,16 @@
       "clearable": false,
       "default": 1,
       "description": "How many times the sample operation repeats a text.",
+      "fixed_for_run": false,
       "name": "sample.echo_repeats",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "minimum": 0,
@@ -16225,12 +16660,14 @@
       "clearable": true,
       "default": null,
       "description": "The URL of the Secrets Manager endpoint that answers `aws-sm:` Secret references, such as a VPC endpoint's: unset, the default, the Region's public endpoint, `https://secretsmanager.<region>.amazonaws.com`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.aws_sm.endpoint",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16242,12 +16679,14 @@
       "clearable": true,
       "default": null,
       "description": "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.aws_sm.region",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16259,12 +16698,14 @@
       "clearable": false,
       "default": "https://login.microsoftonline.com",
       "description": "The URL of the Microsoft Entra ID authority that issues the access token `azure-kv:` references are read with, `https://login.microsoftonline.com` by default, or a sovereign cloud's, such as `https://login.chinacloudapi.cn`: the engine asks `<authority>/<AZURE_TENANT_ID>/oauth2/v2.0/token` for a token of the client-credentials grant. It is an Operator-configured endpoint, judged and verified as `secret_providers.azure_kv.endpoint` is. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.azure_kv.authority",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16276,12 +16717,14 @@
       "clearable": false,
       "default": "https://{vault}.vault.azure.net",
       "description": "The URL of the Azure Key Vault that answers `azure-kv:vault/secret` Secret references, `{vault}` standing for the reference's vault name: `https://{vault}.vault.azure.net` by default, or a sovereign cloud's, such as `https://{vault}.vault.azure.cn`. The engine reads the secret's current version with an access token for Key Vault that Microsoft Entra ID (`secret_providers.azure_kv.authority`) issues to the service principal in its environment's `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`. With any of them unset, an `azure-kv:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.azure_kv.endpoint",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16293,12 +16736,14 @@
       "clearable": true,
       "default": null,
       "description": "The absolute path of the Bitwarden CLI, `bw`, that answers `bw:item/field` Secret references from Bitwarden or, once `bw config server` points it there, a Vaultwarden server: the engine runs `bw get` without interaction and with its own environment, so `BW_SESSION` unlocks the vault. `field` is `password`, `username`, `totp` (the current code, never the seed), `notes`, `uri` or the name of a custom field. Unset, the default, a `bw:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.bw.command",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16310,12 +16755,14 @@
       "clearable": false,
       "default": "https://secretmanager.googleapis.com",
       "description": "The URL of the Google Cloud Secret Manager API that answers `gcp-sm:project/secret/version` Secret references, `https://secretmanager.googleapis.com` by default, or a regional or Private Service Connect endpoint: the engine accesses the secret's version (`latest` for the newest) with the OAuth 2.0 access token in its environment's `GOOGLE_OAUTH_ACCESS_TOKEN`, such as `gcloud auth print-access-token` prints, and answers its payload as text. With no token, a `gcp-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.gcp_sm.endpoint",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16327,12 +16774,14 @@
       "clearable": true,
       "default": null,
       "description": "The absolute path of the 1Password CLI, `op`, that answers `op://vault/item/field` Secret references: the engine runs `op read` with its own environment, so `OP_SERVICE_ACCOUNT_TOKEN` or the desktop app's integration signs it in. Unset, the default, an `op://` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.op.command",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16344,12 +16793,14 @@
       "clearable": true,
       "default": null,
       "description": "The URL of the HashiCorp Vault or OpenBao server that answers `vault:mount/path#field` Secret references, such as `https://vault.example.com:8200`: the engine reads `field` of the KV version 2 secret `path` in the secrets engine mounted at `mount`, with the token in its environment's `VAULT_TOKEN`, or `BAO_TOKEN`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address, as a development server's. Unset, the default, a `vault:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "fixed_for_run": false,
       "name": "secret_providers.vault.address",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "string"
       },
@@ -16361,12 +16812,14 @@
       "clearable": false,
       "default": true,
       "description": "Secrets are given by Secret reference, never as values, an honesty guarantee that stays locked whatever the layer.",
+      "fixed_for_run": false,
       "name": "secrets.by_reference",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -16378,11 +16831,16 @@
       "clearable": false,
       "default": [],
       "description": "The Secret references a Run resolves again at each use, such as a rotating token's. Any other reference is resolved once for each placeholder it fills and its value reused for the rest of the Run, its domain binding checked at each use; none by default.",
+      "fixed_for_run": false,
       "name": "secrets.resolve_each_use",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -16400,11 +16858,16 @@
       "clearable": false,
       "default": true,
       "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.",
+      "fixed_for_run": false,
       "name": "security.audit_chain",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -16417,12 +16880,14 @@
       "clearable": false,
       "default": true,
       "description": "Whether Chromium's renderers run in their sandbox (ADRs 0017 and 0049): the engine never passes `--no-sandbox` while it is on. On by default, except on a host whose platform allows no sandbox (AWS Lambda, Fargate, Azure Container Apps), where the engine switches it off. Only an Operator policy or configuration switches it off; a Recipe's or a run's value is `setting_locked`. Off, the renderers run unsandboxed, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "fixed_for_run": false,
       "name": "security.browser_sandbox",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -16434,11 +16899,16 @@
       "clearable": false,
       "default": true,
       "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "fixed_for_run": false,
       "name": "security.field_encryption",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -16451,11 +16921,16 @@
       "clearable": false,
       "default": true,
       "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.",
+      "fixed_for_run": false,
       "name": "security.raw_cdp_egress_proxy",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -16468,11 +16943,16 @@
       "clearable": false,
       "default": true,
       "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "fixed_for_run": false,
       "name": "security.redaction",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -16485,11 +16965,16 @@
       "clearable": false,
       "default": true,
       "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "fixed_for_run": false,
       "name": "security.resolved_ip_check",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -16502,11 +16987,16 @@
       "clearable": false,
       "default": true,
       "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "fixed_for_run": false,
       "name": "security.secure_delete",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -16519,11 +17009,17 @@
       "clearable": true,
       "default": null,
       "description": "The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`.",
+      "fixed_for_run": false,
       "name": "session.page_check",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "additionalProperties": false,
@@ -16768,11 +17264,16 @@
       "clearable": true,
       "default": null,
       "description": "Where a Session's login comes from: exactly one kind of ADR 0056's tagged union, or none for a fresh Session. Set at a Run or a connection, it is the default of the Sessions opened beneath; opening a Session takes its own as the call's `source`, and in that Session's own `settings` it is refused with `setting_not_applicable`. A Recipe never sets or locks it; it may only expose it to its users.",
+      "fixed_for_run": false,
       "name": "session.source",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "Where a Session's login comes from (ADR 0056): exactly one kind.",
@@ -17158,11 +17659,16 @@
       "clearable": false,
       "default": "search",
       "description": "What the run's results are for, against which the AI-use signals are judged while `site_preferences.respect_use_signals` is on: `search` (the default, which no signal is judged against), `ai-input` (input to an AI model), `ai-train` (training an AI model) or `collect` (plain collection, text and data mining).",
+      "fixed_for_run": false,
       "name": "site_preferences.purpose",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "enum": [
@@ -17180,11 +17686,16 @@
       "clearable": false,
       "default": false,
       "description": "Whether the AI-use signals a site sends (IETF aipref's `Content-Usage` header, TDMRep's `tdm-reservation` header) are applied to the run's `site_preferences.purpose`: on, a crawl request whose response's signal refuses the Purpose ends `skipped` with `use_signals` and its handler never runs. Off by default; the signals are read either way.",
+      "fixed_for_run": false,
       "name": "site_preferences.respect_use_signals",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "type": "boolean"
@@ -17197,12 +17708,14 @@
       "clearable": false,
       "default": [],
       "description": "The digests of the third-party stealth builds the Operator allows; empty by default. Set only in an Operator policy: set at any other layer, `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "stealth.allowed_builds",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "items": {
           "type": "string"
@@ -17217,11 +17730,17 @@
       "clearable": false,
       "default": "goodfetch",
       "description": "The Chromium build a `stealth` Session runs: `goodfetch` (the default), `fingerprint_chromium` or `clearcote`, the last two only where `stealth.allowed_builds` allows their digest. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "stealth.chromium_build",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "enum": [
@@ -17238,11 +17757,17 @@
       "clearable": false,
       "default": "none",
       "description": "How a `stealth` Session masks its browser's fingerprint: `none`, `js_injection`, `basic` or `engine`, the default under `stealth`; `none` elsewhere. Any method but `none` makes the Session `stealth`, its other items keeping the values set and the rest taking `stealth`'s defaults. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "stealth.fingerprint_method",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "enum": [
@@ -17260,11 +17785,17 @@
       "clearable": false,
       "default": false,
       "description": "Whether a `stealth` Session runs under an identity generated from real traffic's shares: `true` under `stealth`, `false` elsewhere. Off, the Goodfetch Chromium keeps its own identity, matched to the exit as in `standard`. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "stealth.generated_identity",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "boolean"
@@ -17277,11 +17808,17 @@
       "clearable": false,
       "default": false,
       "description": "Whether a `stealth` Session moves, clicks and types as a person does: `true` under `stealth`, `false` elsewhere. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "stealth.human_input",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "type": "boolean"
@@ -17294,11 +17831,17 @@
       "clearable": false,
       "default": [],
       "description": "The browser brands a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "stealth.identity.brand",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "items": {
@@ -17314,11 +17857,17 @@
       "clearable": false,
       "default": [],
       "description": "The devices a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "stealth.identity.device",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "items": {
@@ -17334,11 +17883,17 @@
       "clearable": false,
       "default": [],
       "description": "The operating systems a `stealth` Session's generated identity is drawn from; empty by default, which draws from real traffic's shares. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
       "name": "stealth.identity.os",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
       ],
       "value": {
         "items": {
@@ -17354,12 +17909,14 @@
       "clearable": true,
       "default": null,
       "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `critical` storage level: every Run with an essential write on it stops resumably at its next safe point, with `resource: \"storage\"`, and a new Run whose run file would go there is refused with `resources_exhausted`. Unset, each filesystem takes the smaller of 1 GiB and 2 % of its size, and free inodes go by 2 %; `0` turns the level off, which the Run's report lists in `weakened`. Each sample of the Resource governor reads it from the engine's settings: the engine's own write (`config.user_write`, `config.policy_write`) is seen at the next sample, a hand edit at the engine's next read of the file, by the next Run's start at the latest; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "storage.critical_free",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -17372,12 +17929,14 @@
       "clearable": true,
       "default": null,
       "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `low` storage level: its Runs go on, record no Run trace video, store no new Response cache entry, skip their periodic Checkpoints onto it, and carry the warning `storage_low`. Unset, each filesystem takes the smaller of 5 GiB and 10 % of its size, and free inodes go by 10 %; `0` turns the level off, which the Run's report lists in `weakened`. Each sample of the Resource governor reads it from the engine's settings: the engine's own write (`config.user_write`, `config.policy_write`) is seen at the next sample, a hand edit at the engine's next read of the file, by the next Run's start at the latest; set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "storage.low_free",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "minimum": 0,
         "type": "integer"
@@ -17390,11 +17949,16 @@
       "clearable": false,
       "default": 30000,
       "description": "How long a locator action waits for its target to be unique and actionable, and replays a gesture that landed elsewhere, before it fails with `deadline_exceeded`, or `target_not_unique` for a target still ambiguous: 30 s.",
+      "fixed_for_run": false,
       "name": "timeout.action",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17409,11 +17973,16 @@
       "clearable": false,
       "default": 600000,
       "description": "How long an Agent's task may run, its actions and model calls nested inside, before it stops with `ended: stopped` and the reason `timeout`: 10 min.",
+      "fixed_for_run": false,
       "name": "timeout.agent",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17428,11 +17997,16 @@
       "clearable": false,
       "default": 120000,
       "description": "How long an AI verb may take from its call to its return, its model calls and a Repair included, before it fails with `deadline_exceeded`: 120 s.",
+      "fixed_for_run": false,
       "name": "timeout.ai",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17447,11 +18021,16 @@
       "clearable": false,
       "default": 30000,
       "description": "How long a stop of a Run, `run.stop` or a scope's close, waits for its next safe point before it fails with `deadline_exceeded`, the Run still stopping there: 30 s.",
+      "fixed_for_run": false,
       "name": "timeout.close",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17466,11 +18045,16 @@
       "clearable": false,
       "default": 30000,
       "description": "How long a request may wait for its response's first byte before its attempt fails with `deadline_exceeded`: 30 s.",
+      "fixed_for_run": false,
       "name": "timeout.first_byte",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17485,12 +18069,14 @@
       "clearable": false,
       "default": 5000,
       "description": "How long a Connection to a listener that takes a token, a Daemon's or an Attached engine's private endpoint, may take to send its complete `hello`, from its accept: 5 s. One that has not by then is closed unanswered, and the refusal logged and recorded as `hello_timed_out`. An Attached engine's stdio takes no token and has no such deadline. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "timeout.hello",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "description": "A duration in milliseconds.",
         "minimum": 0,
@@ -17504,11 +18090,16 @@
       "clearable": false,
       "default": 10000,
       "description": "How long each call of a Hook may run before it fails with `deadline_exceeded`: 10 s. A crawl's Label may set it for the Hooks on its requests.",
+      "fixed_for_run": false,
       "name": "timeout.hook",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17523,11 +18114,16 @@
       "clearable": false,
       "default": 86400000,
       "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
+      "fixed_for_run": false,
       "name": "timeout.human_pause",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17542,11 +18138,16 @@
       "clearable": false,
       "default": 30000,
       "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
+      "fixed_for_run": false,
       "name": "timeout.launch",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17561,11 +18162,16 @@
       "clearable": false,
       "default": 60000,
       "description": "How long one attempt of one model request may take before it is retried within the call that made it: 60 s.",
+      "fixed_for_run": false,
       "name": "timeout.model",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17580,11 +18186,16 @@
       "clearable": false,
       "default": 30000,
       "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+      "fixed_for_run": false,
       "name": "timeout.navigation",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17599,11 +18210,15 @@
       "clearable": true,
       "default": null,
       "description": "How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default.",
+      "fixed_for_run": false,
       "name": "timeout.run",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17618,11 +18233,16 @@
       "clearable": false,
       "default": 30000,
       "description": "How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: \"timed_out\"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.",
+      "fixed_for_run": false,
       "name": "timeout.secret",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17637,11 +18257,16 @@
       "clearable": false,
       "default": 30000,
       "description": "How long one write to a Sink may take before it fails with `deadline_exceeded`: 30 s.",
+      "fixed_for_run": false,
       "name": "timeout.sink_write",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17656,11 +18281,16 @@
       "clearable": false,
       "default": 30000,
       "description": "How long a wait for an application state, such as `page.wait_for_request_finished`, may take before it fails with `deadline_exceeded`: 30 s.",
+      "fixed_for_run": false,
       "name": "timeout.wait",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "description": "A duration in milliseconds.",
@@ -17675,11 +18305,16 @@
       "clearable": false,
       "default": {},
       "description": "Domains whose certificate may fail verification, each with a pin, `any`, or `null` for trust on first use. A pin and `any` are taken only from an Operator policy and user and project configuration; a Recipe or a run may list a domain only for trust on first use.",
+      "fixed_for_run": false,
       "name": "tls.accept_invalid_certs",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "additionalProperties": {
@@ -17702,11 +18337,16 @@
       "clearable": false,
       "default": {},
       "description": "Client certificates for mutual TLS by domain: a host or a registrable domain with its subdomains, mapped to a table of `certificate`, the file of the certificate and its chain (PEM or DER), and `key`, the Secret reference of its private key, such as `env:CLIENT_KEY`, resolved only when a handshake with a host of that domain starts; a key given as a value is refused with `setting_invalid`. The certificate goes to the domain's hosts and nowhere else, and never to a host reached through an exception of `tls.accept_invalid_certs`. Set from every layer, a Recipe and a run included; nothing is installed on the machine.",
+      "fixed_for_run": false,
       "name": "tls.client_certificates",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "additionalProperties": {
@@ -17738,12 +18378,14 @@
       "clearable": false,
       "default": {},
       "description": "Extra certificate authorities by domain: a host or a registrable domain with its subdomains, mapped to certificate files or Secret references, trusted beside the default roots for that domain and nowhere else. Taken only from an Operator policy and user and project configuration, never from a Recipe or a run; on a Daemon with accounts only the operator role writes it, in the Operator policy.",
+      "fixed_for_run": false,
       "name": "tls.trusted_cas",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "additionalProperties": {
           "items": {
@@ -17761,12 +18403,14 @@
       "clearable": false,
       "default": true,
       "description": "Whether an executable more than three months past its release date prints one line a day on stderr saying so, from its own release date alone, with no network call. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
       "name": "version.age_notice",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },
@@ -17778,12 +18422,14 @@
       "clearable": false,
       "default": [],
       "description": "The domains whose Walls no run reads past, whatever another layer allows. Set only in an Operator policy.",
+      "fixed_for_run": false,
       "name": "wall.denied_domains",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "items": {
           "type": "string"
@@ -17798,11 +18444,16 @@
       "clearable": false,
       "default": [],
       "description": "The domains whose Walls a run may read past by generic means. A Recipe or a run only narrows it; it is widened only in configuration or by a person's answer.",
+      "fixed_for_run": false,
       "name": "wall.domains",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -17818,11 +18469,16 @@
       "clearable": false,
       "default": [],
       "description": "The domains on which reading past a Wall may fetch a page again. A Recipe or a run only narrows it; it is widened only in configuration, never by an answer.",
+      "fixed_for_run": false,
       "name": "wall.refetch_domains",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
       ],
       "value": {
         "items": {
@@ -17838,12 +18494,14 @@
       "clearable": false,
       "default": true,
       "description": "Every webhook Goodfetch sends is signed, an honesty guarantee that stays locked whatever the layer.",
+      "fixed_for_run": false,
       "name": "webhook.signing",
       "product": "collie",
       "products": [
         "collie",
         "foxhound"
       ],
+      "scopes": [],
       "value": {
         "type": "boolean"
       },

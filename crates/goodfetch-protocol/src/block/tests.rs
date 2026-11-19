@@ -9,7 +9,7 @@ use crate::entries::MODULES;
 /// The catalog file's sections of every module's entries.
 fn catalog() -> Value {
     let mut generator = SchemaSettings::draft2020_12().into_generator();
-    let mut sections = Sections::default();
+    let mut sections = Sections::new(crate::settings::scope::of);
     for entries in MODULES {
         sections.add(entries, &mut generator);
     }

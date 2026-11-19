@@ -198,6 +198,86 @@ def test_an_error_with_no_call_log_has_an_empty_one() -> None:
     assert error.call_log == []
 
 
+@pytest.mark.covers("story:11-190")
+@pytest.mark.parametrize(
+    ("code", "class_name", "group", "retryable"),
+    [
+        pytest.param(
+            "browser_host_unreachable",
+            "BrowserHostUnreachableError",
+            "unavailable",
+            True,
+            id="browser_host_unreachable",
+        ),
+        pytest.param(
+            "browser_host_outdated",
+            "BrowserHostOutdatedError",
+            "unavailable",
+            False,
+            id="browser_host_outdated",
+        ),
+        pytest.param(
+            "executable_blocked_by_smart_app_control",
+            "ExecutableBlockedBySmartAppControlError",
+            "refused",
+            False,
+            id="executable_blocked_by_smart_app_control",
+        ),
+        pytest.param(
+            "confinement_unavailable",
+            "ConfinementUnavailableError",
+            "refused",
+            False,
+            id="confinement_unavailable",
+        ),
+        pytest.param(
+            "challenge_unsolved",
+            "ChallengeUnsolvedError",
+            "page",
+            False,
+            id="challenge_unsolved",
+        ),
+        pytest.param(
+            "plugin_crashed",
+            "PluginCrashedError",
+            "unavailable",
+            True,
+            id="plugin_crashed",
+        ),
+        pytest.param(
+            "person_required",
+            "PersonRequiredError",
+            "refused",
+            False,
+            id="person_required",
+        ),
+    ],
+)
+def test_the_codes_areas_5_7_and_8_add_have_their_class_under_their_group(
+    code: str, class_name: str, group: ErrorGroup, retryable: bool
+) -> None:
+    """Each code has its own class under the group its ADRs fix.
+
+    ADRs 0033, 0035, 0039, 0079 and 0092; Windows' refusal to start a file
+    is `executable_blocked_by_smart_app_control` (ADR 0039's note of
+    2026-10-20).
+    """
+    known = ERROR_CLASSES.get(code)
+    error = None if known is None else known("failed")
+
+    assert {
+        "name": None if error is None else error.name,
+        "is_group_class": isinstance(error, ERROR_GROUP_CLASSES[group]),
+        "group": None if error is None else error.group,
+        "retryable": None if error is None else error.retryable,
+    } == {
+        "name": class_name,
+        "is_group_class": True,
+        "group": group,
+        "retryable": retryable,
+    }
+
+
 @pytest.mark.covers("story:11-28", "story:11-37")
 @pytest.mark.parametrize("code", _CODES, ids=lambda code: str(code["name"]))
 def test_each_error_code_has_its_class_under_its_group(code: dict[str, object]) -> None:

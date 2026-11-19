@@ -617,6 +617,17 @@ pub const BLOCKED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A Challenge the ladder ended without passing, on a Session a program or
+/// an Agent opened (ADRs 0035, 0088 and 0092).
+pub const CHALLENGE_UNSOLVED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "challenge_unsolved",
+    description: "The page met a Challenge that every step of the ladder ended without passing: a timed wait for an invisible challenge, the Challenge solver when `challenge.solve` is on, and a Human pause when a person can answer and `session.recovery.human_pause` is on. Only the Page check declares a Challenge passed. The Session stays open with its cookies; an Agent's page gets it as its action's outcome. The details name the Block cause, `challenge` or `captcha`, the URL, the status and `steps`, each step tried with why it ended.",
+    group: ErrorGroup::Page,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A navigation past the count of redirects it may follow (ADR 0118).
 pub const TOO_MANY_REDIRECTS: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "too_many_redirects",
@@ -687,6 +698,17 @@ pub const BROWSER_HOST_OUTDATED: ErrorCodeDefinition = ErrorCodeDefinition {
     group: ErrorGroup::Unavailable,
     retryable: false,
     exit_code: Some(12),
+    arrived_in: ARRIVED_IN,
+};
+
+/// An operator's hosted Browser host whose link the engine lost (ADRs 0022
+/// and 0056).
+pub const BROWSER_HOST_UNREACHABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "browser_host_unreachable",
+    description: "The link to the hosted Browser host that runs the Session's browser is lost: the call fails, as does each later call until the link returns, and the Session stays open; while the Session is opening, the lost link is the open's failure. A person's own Browser host never raises it: its Session goes offline and the Run waits in a Human pause until the host is back.",
+    group: ErrorGroup::Unavailable,
+    retryable: true,
+    exit_code: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1826,6 +1848,7 @@ pub const ENTRIES: Entries = Entries {
         PAGE_CHECK_FAILED,
         LOGGED_OUT,
         BLOCKED,
+        CHALLENGE_UNSOLVED,
         TOO_MANY_REDIRECTS,
         RESPONSE_TRUNCATED,
         RESPONSE_NOT_JSON,
@@ -1833,6 +1856,7 @@ pub const ENTRIES: Entries = Entries {
         PAGE_CRASHED,
         BROWSER_LAUNCH_FAILED,
         BROWSER_HOST_OUTDATED,
+        BROWSER_HOST_UNREACHABLE,
         TARGET_NOT_UNIQUE,
         PATTERN_UNSUPPORTED,
         PAGE_HANDLER_FAILED,

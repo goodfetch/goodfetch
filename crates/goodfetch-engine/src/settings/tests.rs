@@ -298,6 +298,81 @@ fn an_operator_policy_lock_refuses_every_higher_layers_value(#[case] layer: Sett
     );
 }
 
+/// A program's registered handler is the run layer's value with the origin
+/// `registered`, which the program never wrote: a lock, from an Operator
+/// policy or a Recipe, wins over it with no refusal (ADR 0104's amendment
+/// of ADR 0083).
+#[rstest]
+#[case::by_an_operator_policy(
+    Layers {
+        operator_policy: policy(json!({}), json!({ "timeout": { "navigation": 10_000 } }), json!({})),
+        ..Layers::default()
+    },
+    SettingsLayer::OperatorPolicy,
+    json!(10_000)
+)]
+#[case::by_a_recipe(
+    Layers {
+        recipe: Some(recipe(json!({ "timeout": { "navigation": 4_000 } }), &[])),
+        ..Layers::default()
+    },
+    SettingsLayer::Recipe,
+    json!(4_000)
+)]
+fn a_lock_wins_over_a_registered_value_with_no_refusal(
+    #[case] mut layers: Layers,
+    #[case] locking: SettingsLayer,
+    #[case] locked: Value,
+) {
+    layers.run = values(
+        SettingsLayer::Run,
+        json!({ "timeout": { "navigation": 9_000 } }),
+    )
+    .from_origin(RunOrigin::Registered);
+
+    let effective = resolved(&layers);
+
+    let navigation = effective
+        .effective(catalog_key("timeout.navigation"))
+        .unwrap();
+    assert_eq!(
+        (
+            &navigation.value,
+            navigation.layer,
+            navigation.origin,
+            navigation.locked_by
+        ),
+        (&locked, locking, None, Some(locking))
+    );
+}
+
+/// Unlocked, the registered value is the run layer's, with its origin.
+#[test]
+fn an_unlocked_registered_value_is_the_run_layers_with_its_origin() {
+    let layers = Layers {
+        run: values(
+            SettingsLayer::Run,
+            json!({ "timeout": { "navigation": 9_000 } }),
+        )
+        .from_origin(RunOrigin::Registered),
+        ..every_layer_sets_navigation()
+    };
+
+    let effective = resolved(&layers);
+
+    let navigation = effective
+        .effective(catalog_key("timeout.navigation"))
+        .unwrap();
+    assert_eq!(
+        (&navigation.value, navigation.layer, navigation.origin),
+        (
+            &json!(9_000),
+            SettingsLayer::Run,
+            Some(RunOrigin::Registered)
+        )
+    );
+}
+
 /// Covers: story:3-88, story:3-89
 #[test]
 fn a_locked_value_says_the_layer_that_locked_it() {

@@ -215,6 +215,15 @@ export class BrowserHostOutdatedError extends UnavailableError<"browser_host_out
 }
 
 /**
+ * The link to the hosted Browser host that runs the Session's browser is lost: the call fails, as does each later call until the link returns, and the Session stays open; while the Session is opening, the lost link is the open's failure. A person's own Browser host never raises it: its Session goes offline and the Run waits in a Human pause until the host is back.
+ */
+export class BrowserHostUnreachableError extends UnavailableError<"browser_host_unreachable"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "BrowserHostUnreachableError", code: "browser_host_unreachable", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * The browser's build is installed, but it did not start or did not open the page: it exited, or its connection refused or fell silent. The details name its executable and how it ended.
  */
 export class BrowserLaunchFailedError extends UnavailableError<"browser_launch_failed"> {
@@ -287,11 +296,29 @@ export class CertificateInvalidError extends PageError<"certificate_invalid"> {
 }
 
 /**
+ * The page met a Challenge that every step of the ladder ended without passing: a timed wait for an invisible challenge, the Challenge solver when `challenge.solve` is on, and a Human pause when a person can answer and `session.recovery.human_pause` is on. Only the Page check declares a Challenge passed. The Session stays open with its cookies; an Agent's page gets it as its action's outcome. The details name the Block cause, `challenge` or `captcha`, the URL, the status and `steps`, each step tried with why it ended.
+ */
+export class ChallengeUnsolvedError extends PageError<"challenge_unsolved"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "ChallengeUnsolvedError", code: "challenge_unsolved", group: "page", retryable: false });
+  }
+}
+
+/**
  * The call was made on a value its program had closed: a Connection, or a Run, Session or Page under it. A value never reopens: connect again, or start the Run again by its Run ID.
  */
 export class ClosedError extends ProgramError<"closed"> {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ClosedError", code: "closed", group: "program", retryable: false });
+  }
+}
+
+/**
+ * The host cannot confine the Plugin as it must run: it has no seccomp at all (WSL1), or neither user namespaces nor Landlock ABI 6 (a container under Docker's default seccomp profile on a kernel before 6.12), or it cannot provide the network level the Plugin's manifest declares, which is never silently weakened. A third-party Plugin is always refused; a first-party one, shipped in the engine's own release, too, unless the Operator policy's `plugins.<name>.reduced_confinement` lets it run with the confinement the host offers. A Bridge Sink is refused with it under a container runtime that runs as root.
+ */
+export class ConfinementUnavailableError extends RefusedError<"confinement_unavailable"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "ConfinementUnavailableError", code: "confinement_unavailable", group: "refused", retryable: false });
   }
 }
 
@@ -674,6 +701,15 @@ export class PersonRequiredError extends RefusedError<"person_required"> {
 }
 
 /**
+ * The process Plugin crashed while it held the call, and restarts with backoff. A read or an idempotent write fails with it and is retried under its lease; an Effect with no check is never retried blindly, but reported uncertain for Reconciliation instead. Repeated crashes quarantine the Plugin.
+ */
+export class PluginCrashedError extends UnavailableError<"plugin_crashed"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "PluginCrashedError", code: "plugin_crashed", group: "unavailable", retryable: true });
+  }
+}
+
+/**
  * The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again.
  */
 export class PolicyConflictError extends RefusedError<"policy_conflict"> {
@@ -1024,6 +1060,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   body_not_found: BodyNotFoundError,
   body_unavailable: BodyUnavailableError,
   browser_host_outdated: BrowserHostOutdatedError,
+  browser_host_unreachable: BrowserHostUnreachableError,
   browser_launch_failed: BrowserLaunchFailedError,
   browser_not_installed: BrowserNotInstalledError,
   browser_sandbox_unavailable: BrowserSandboxUnavailableError,
@@ -1032,7 +1069,9 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   cdp_url_not_allowed: CDPURLNotAllowedError,
   certificate_changed: CertificateChangedError,
   certificate_invalid: CertificateInvalidError,
+  challenge_unsolved: ChallengeUnsolvedError,
   closed: ClosedError,
+  confinement_unavailable: ConfinementUnavailableError,
   connection_lost: ConnectionLostError,
   connection_overloaded: ConnectionOverloadedError,
   daemon_draining: DaemonDrainingError,
@@ -1075,6 +1114,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   path_unsafe: PathUnsafeError,
   pattern_unsupported: PatternUnsupportedError,
   person_required: PersonRequiredError,
+  plugin_crashed: PluginCrashedError,
   policy_conflict: PolicyConflictError,
   protocol_version_unsupported: ProtocolVersionUnsupportedError,
   proxy_auth_failed: ProxyAuthFailedError,
@@ -1124,6 +1164,7 @@ export type CollieErrorCode =
   | "body_not_found"
   | "body_unavailable"
   | "browser_host_outdated"
+  | "browser_host_unreachable"
   | "browser_launch_failed"
   | "browser_not_installed"
   | "browser_sandbox_unavailable"
@@ -1132,7 +1173,9 @@ export type CollieErrorCode =
   | "cdp_url_not_allowed"
   | "certificate_changed"
   | "certificate_invalid"
+  | "challenge_unsolved"
   | "closed"
+  | "confinement_unavailable"
   | "connection_lost"
   | "connection_overloaded"
   | "daemon_draining"
@@ -1177,6 +1220,7 @@ export type CollieErrorCode =
   | "path_unsafe"
   | "pattern_unsupported"
   | "person_required"
+  | "plugin_crashed"
   | "policy_conflict"
   | "protocol_version_unsupported"
   | "proxy_auth_failed"
@@ -1216,7 +1260,7 @@ export type CollieErrorCode =
   | "upgrade_source_unsupported"
   | "value_invalid";
 
-const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_launch_failed", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "certificate_changed", "certificate_invalid", "closed", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "dialog_already_handled", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "executable_blocked_by_smart_app_control", "file_write_failed", "format_version_unsupported", "header_value_invalid", "hook_failed", "internal", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_failed", "local_address_unavailable", "logged_out", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_unavailable", "sample_refused", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid"]);
+const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "certificate_changed", "certificate_invalid", "challenge_unsolved", "closed", "confinement_unavailable", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "dialog_already_handled", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "executable_blocked_by_smart_app_control", "file_write_failed", "format_version_unsupported", "header_value_invalid", "hook_failed", "internal", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_failed", "local_address_unavailable", "logged_out", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_unavailable", "sample_refused", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid"]);
 
 /** An error with one of the Error codes Collie raises, which its `code` narrows to the code's class. */
 export type CollieError =
@@ -1227,6 +1271,7 @@ export type CollieError =
   | BodyNotFoundError
   | BodyUnavailableError
   | BrowserHostOutdatedError
+  | BrowserHostUnreachableError
   | BrowserLaunchFailedError
   | BrowserNotInstalledError
   | BrowserSandboxUnavailableError
@@ -1235,7 +1280,9 @@ export type CollieError =
   | CDPURLNotAllowedError
   | CertificateChangedError
   | CertificateInvalidError
+  | ChallengeUnsolvedError
   | ClosedError
+  | ConfinementUnavailableError
   | ConnectionLostError
   | ConnectionOverloadedError
   | DaemonDrainingError
@@ -1280,6 +1327,7 @@ export type CollieError =
   | PathUnsafeError
   | PatternUnsupportedError
   | PersonRequiredError
+  | PluginCrashedError
   | PolicyConflictError
   | ProtocolVersionUnsupportedError
   | ProxyAuthFailedError

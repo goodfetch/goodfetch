@@ -295,7 +295,7 @@ status = "active"
 
 [[story]]
 id = 37
-title = "As a developer, I want every Error code to have a generated class under its group in the package of its Product, none shadowing a built-in name, including `NotInProductError`, `BrowserHostOutdatedError`, `BrowserHostUnreachableError`, `ChallengeUnsolvedError`, `ExecutableBlockedError` and `PluginCrashedError`, and the CLI's `person_required` (a `RefusedError`, not retryable), so that no code is a bare string (ADRs 0079, 0087; P10)."
+title = "As a developer, I want every Error code to have a generated class under its group in the package of its Product, none shadowing a built-in name, including `NotInProductError`, `BrowserHostOutdatedError`, `BrowserHostUnreachableError`, `ChallengeUnsolvedError`, `ExecutableBlockedBySmartAppControlError` and `PluginCrashedError`, and the CLI's `person_required` (a `RefusedError`, not retryable), so that no code is a bare string (ADRs 0079, 0087; P10)."
 milestone = "M2 Client surfaces"
 journey = false
 not_journey = "part"
@@ -1498,7 +1498,7 @@ status = "active"
 
 [[story]]
 id = 190
-title = "As a developer, I want the Error codes areas 5, 7 and 8 added to have generated classes (`BrowserHostUnreachableError` retryable, `BrowserHostOutdatedError`, `ExecutableBlockedError` and `ConfinementUnavailableError` as `RefusedError`, `ChallengeUnsolvedError`, `PluginCrashedError`) and `person_required` to be a `RefusedError`, so that every code has a class (ADRs 0038, 0079)."
+title = "As a developer, I want the Error codes areas 5, 7 and 8 added to have generated classes (`BrowserHostUnreachableError` retryable, `BrowserHostOutdatedError`, `ExecutableBlockedBySmartAppControlError` and `ConfinementUnavailableError` as `RefusedError`, `ChallengeUnsolvedError`, `PluginCrashedError`) and `person_required` to be a `RefusedError`, so that every code has a class (ADRs 0038, 0079)."
 milestone = "M2 Client surfaces"
 journey = false
 not_journey = "part"

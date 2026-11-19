@@ -111,11 +111,23 @@ pub enum RunOrigin {
     Flag,
     /// An Integration's form.
     Form,
+    /// A program's only SDK handler of a kind that one setting chooses,
+    /// registered on its connection: the lowest of the run layer's origins,
+    /// which every other replaces and configuration does not. A lock wins
+    /// over it with no refusal, since the program never wrote the key (ADR
+    /// 0104's amendment of ADR 0083).
+    Registered,
 }
 
 impl RunOrigin {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 4] = [Self::Argument, Self::Settings, Self::Flag, Self::Form];
+    pub const ALL: [Self; 5] = [
+        Self::Argument,
+        Self::Settings,
+        Self::Flag,
+        Self::Form,
+        Self::Registered,
+    ];
 
     /// Its name as the wire and messages write it.
     pub fn as_str(self) -> &'static str {

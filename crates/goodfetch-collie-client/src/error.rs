@@ -37,6 +37,27 @@ pub enum Error {
     /// engine, could not start or failed (ADR 0087).
     #[error("the linked engine failed: {0}")]
     Engine(#[source] Box<dyn std::error::Error + Send + Sync>),
+    /// The file the engine keeps a response's body in could not be read
+    /// whole, or no longer holds the body's bytes. Its source is the OS's
+    /// error.
+    #[error("could not read the response's body from `{}`: {source}", .path.display())]
+    BodyUnreadable {
+        /// The file.
+        path: PathBuf,
+        /// Why.
+        #[source]
+        source: io::Error,
+    },
+    /// A response's body is not JSON, or not the JSON the program reads
+    /// it as: `response_not_json` (ADR 0085).
+    #[error("response_not_json: the body of {url} is not the JSON asked for: {source}")]
+    ResponseNotJson {
+        /// The response's URL.
+        url: String,
+        /// Why.
+        #[source]
+        source: serde_json::Error,
+    },
     /// The program's path cannot be written for a reason the path causes,
     /// such as a folder the user cannot write: `path_not_writable`
     /// (ADR 0116). Its source is the OS's error, where there is one.

@@ -13,6 +13,11 @@ publish.workspace = true
 [dependencies]
 # The Base64 of the `$/chunk` notifications a Daemon streams a file in.
 data-encoding.workspace = true
+# The encodings a Response's `text()` decodes a body in (ADR 0119).
+encoding_rs.workspace = true
+# The Encoding a body declares in its own bytes, read as Chrome reads it,
+# as the fetch tiers read it (ADR 0119).
+goodfetch-encoding.workspace = true
 goodfetch-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true

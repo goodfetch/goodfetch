@@ -1240,6 +1240,13 @@ number = 11
 kind = "error"
 prefix = "connection_overloaded"
 
+# The Error code an SDK's `json()` raises itself for a body that is not
+# the JSON asked for (ADR 0085; issue 2803).
+[[area]]
+number = 11
+kind = "error"
+prefix = "response_not_json"
+
 # Area 11, the Client surfaces (spec #608): ADR 0069's exit-code table,
 # every row of which is a CLI exit code (#1188).
 [[area]]

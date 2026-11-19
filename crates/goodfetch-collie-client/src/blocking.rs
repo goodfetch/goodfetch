@@ -6,16 +6,20 @@
 //! thread waits for its end on a channel. It never enters a runtime, so it
 //! works inside one too, where it blocks only the thread that calls it.
 
+use std::collections::BTreeMap;
 use std::future::IntoFuture;
 use std::path::Path;
 use std::time::Duration;
 
+use goodfetch_protocol::page::events::PageRequest;
+use goodfetch_protocol::page::read::{PageRead, PageReadParams};
 use goodfetch_protocol::run::{RunId, RunReport, StartedAs, Tags};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::error::Error;
+use crate::field_values::FieldValues;
 pub use twins::{Locator, Page, Run, Session};
 
 /// The blocking twins of the handles, which `xtask codegen` writes.
@@ -253,6 +257,155 @@ impl Start {
     }
 }
 
+impl Query<PageRead, PageReadParams> {
+    /// The read whose values are read into `T`, as
+    /// [`crate::Query::typed`] reads them.
+    ///
+    /// # Errors
+    ///
+    /// Once sent, [`Error::Shape`] when the values do not fit `T`, and
+    /// the errors of the read.
+    pub fn typed<T: DeserializeOwned + Send + 'static>(
+        self,
+    ) -> Query<FieldValues<T>, PageReadParams> {
+        Query {
+            query: self.query.typed(),
+            connection: self.connection,
+        }
+    }
+}
+
+/// The response a page's request got, as [`crate::Response`], its body
+/// read by blocking the calling thread.
+#[derive(Clone, Debug)]
+pub struct Response {
+    inner: crate::Response,
+}
+
+impl Response {
+    /// The blocking face of `inner`.
+    pub(crate) fn new(inner: crate::Response) -> Self {
+        Self { inner }
+    }
+
+    /// Its final URL.
+    #[must_use]
+    pub fn url(&self) -> &str {
+        self.inner.url()
+    }
+
+    /// Its HTTP status.
+    #[must_use]
+    pub fn status(&self) -> u16 {
+        self.inner.status()
+    }
+
+    /// Its status text.
+    #[must_use]
+    pub fn status_text(&self) -> &str {
+        self.inner.status_text()
+    }
+
+    /// Whether its status is a success, as [`crate::Response::ok`] says:
+    /// a login page answered with a 200 is `ok`.
+    #[must_use]
+    pub fn ok(&self) -> bool {
+        self.inner.ok()
+    }
+
+    /// Its headers, their names lower-cased, as the browser received them.
+    #[must_use]
+    pub fn headers(&self) -> &BTreeMap<String, String> {
+        self.inner.headers()
+    }
+
+    /// For a navigation's document, the encoding the browser decoded it
+    /// with, as [`crate::Response::encoding`].
+    #[must_use]
+    pub fn encoding(&self) -> Option<&str> {
+        self.inner.encoding()
+    }
+
+    /// The engine's ID for its request's hop.
+    #[must_use]
+    pub fn request_id(&self) -> &str {
+        self.inner.request_id()
+    }
+
+    /// Whether a site's service worker supplied it (ADR 0121).
+    #[must_use]
+    pub fn from_service_worker(&self) -> bool {
+        self.inner.from_service_worker()
+    }
+
+    /// Its body's bytes, as [`crate::Response::body`] reads them.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::Response::body`]: `response_truncated` for a body that
+    /// broke off and `body_unavailable` for one the browser no longer
+    /// holds, whose fix names `page.wait_for_request_finished`.
+    pub fn body(&self) -> Result<Vec<u8>, Error> {
+        self.inner.connection().wait(self.inner.body())
+    }
+
+    /// Its body as text, decoded with the response's own encoding, as
+    /// [`crate::Response::text`] decodes it: a legacy charset is honoured,
+    /// a BOM left out, unlike Playwright's `text()`, which decodes every
+    /// body as UTF-8.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::Response::text`]: `response_truncated` for a body that
+    /// broke off, never decoded as whole.
+    pub fn text(&self) -> Result<String, Error> {
+        self.inner.connection().wait(self.inner.text())
+    }
+
+    /// Its body parsed as JSON into `T`, as [`crate::Response::json`]
+    /// parses it: UTF-8 whatever its charset, a leading BOM ignored.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::Response::json`]: `response_truncated` for a body that
+    /// broke off, and [`Error::ResponseNotJson`] for one that is not JSON.
+    pub fn json<T: DeserializeOwned + Send + 'static>(&self) -> Result<T, Error> {
+        self.inner.connection().wait(self.inner.json())
+    }
+}
+
+/// A request a page sent and the response it got, as
+/// [`crate::Exchange`], its response's body read by blocking the calling
+/// thread.
+#[derive(Clone, Debug)]
+pub struct Exchange {
+    request: PageRequest,
+    response: Response,
+}
+
+impl Exchange {
+    /// The blocking face of `inner`.
+    pub(crate) fn new(inner: crate::Exchange) -> Self {
+        let (request, response) = inner.into_parts();
+        Self {
+            request,
+            response: Response::new(response),
+        }
+    }
+
+    /// The request, as the browser sent it.
+    #[must_use]
+    pub fn request(&self) -> &PageRequest {
+        &self.request
+    }
+
+    /// The response it got.
+    #[must_use]
+    pub fn response(&self) -> &Response {
+        &self.response
+    }
+}
+
 impl Run {
     /// Whether the start began the Run, went on with it, or found it ended.
     pub fn started_as(&self) -> StartedAs {
@@ -282,6 +435,8 @@ const _: () = {
     send_sync_static::<Connection>();
     send_sync_static::<Run>();
     send_sync_static::<Page>();
+    send_sync_static::<Response>();
+    send_sync_static::<Exchange>();
     send_static::<Call<RunReport>>();
     send_static::<Query<Value>>();
     send_static::<Start>();

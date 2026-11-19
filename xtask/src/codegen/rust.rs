@@ -16,9 +16,13 @@
 //! - A `new_<value>` member answers the handle it opens, a value built
 //!   without a call is a plain method, and so is a sub-object.
 //! - A result typed by the fields its call declares (ADR 0147) is the
-//!   result type: the crate's `Map` of values by field name.
+//!   result type: the crate's `Map` of values by field name, which the
+//!   crate's hand-written `typed()` reads into a type of the program's.
 //! - A result of one property answers that property's value, its field's
 //!   type in the protocol crate, `Option` for an optional one (issue 2517).
+//! - A page's member whose answer is a `PageResponse`, or an optional one,
+//!   answers the crate's hand-written `Response` instead, which holds the
+//!   page and reads the response's body (ADR 0085).
 //!
 //! Each params type's fields are read from the protocol crate's source
 //! (`index`), so a member sets each by name; a type or field the handles
@@ -67,7 +71,7 @@ const HANDLE_NAMES: [&str; 4] = ["host", "id", "inner", "new"];
 
 /// The methods `Call` and `Query` already have, which no option may
 /// shadow.
-const BUILDER_NAMES: [&str; 8] = [
+const BUILDER_NAMES: [&str; 10] = [
     "edit",
     "into_future",
     "map",
@@ -75,8 +79,21 @@ const BUILDER_NAMES: [&str; 8] = [
     "no_timeout",
     "send",
     TIMEOUT,
+    "try_map",
+    "typed",
     "wire_timeout",
 ];
+
+/// The protocol's response to a page's request, which a member answers as
+/// the crate's `Response` (ADR 0085).
+const PAGE_RESPONSE: &str = "::goodfetch_protocol::page::PageResponse";
+
+/// The protocol's request a page sent and the response it got, which a
+/// member answers as the crate's `Exchange`, its response a `Response`.
+const PAGE_EXCHANGE: &str = "::goodfetch_protocol::page::events::PageExchange";
+
+/// The ID of the page a `Response` reads its body through.
+const PAGE_ID: &str = "::goodfetch_protocol::page::PageId";
 
 /// Collie's Rust handles, `handles.rs` and `blocking.rs` under [`FOLDER`],
 /// or nothing when the workspace has no Rust client.
@@ -175,6 +192,73 @@ struct MemberModel {
     wire_timeout: bool,
     /// What it answers of its result.
     answers: Answers,
+    /// Whether what it answers is a page's response, which it wraps.
+    responds: Responds,
+}
+
+/// Whether a member answers a page's response, which it answers as the
+/// crate's `Response`, or a request with its response, which it answers
+/// as the crate's `Exchange`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Responds {
+    /// It answers something else.
+    No,
+    /// It answers a `PageResponse`.
+    Always,
+    /// It answers an optional `PageResponse`.
+    Optionally,
+    /// It answers a `PageExchange`.
+    Exchanged,
+}
+
+impl Responds {
+    /// Whether `answered`, the type a member answers, is a page's
+    /// response.
+    fn of(answered: &str) -> Self {
+        if answered == PAGE_RESPONSE {
+            Self::Always
+        } else if answered == format!("Option<{PAGE_RESPONSE}>") {
+            Self::Optionally
+        } else if answered == PAGE_EXCHANGE {
+            Self::Exchanged
+        } else {
+            Self::No
+        }
+    }
+
+    /// The type a member answers once a response is wrapped, as `twin`
+    /// spells it: `answered` itself when it is not one.
+    fn answered(self, answered: String, twin: Twin) -> String {
+        match self {
+            Self::No => answered,
+            Self::Always => format!("{}::Response", twin.builders()),
+            Self::Optionally => format!("Option<{}::Response>", twin.builders()),
+            Self::Exchanged => format!("{}::Exchange", twin.builders()),
+        }
+    }
+
+    /// An async member's answer, `value`, wrapped: each response with the
+    /// page's `host`.
+    fn wrapped(self, value: &str) -> String {
+        match self {
+            Self::No => value.to_owned(),
+            Self::Always => format!("crate::Response::new(host, {value})"),
+            Self::Optionally => {
+                format!("{value}.map(|response| crate::Response::new(host, response))")
+            }
+            Self::Exchanged => format!("crate::Exchange::new(host, {value})"),
+        }
+    }
+
+    /// The function from an async member's answer to its blocking twin's.
+    fn blocking(self) -> &'static str {
+        match self {
+            Self::No => "",
+            Self::Always => "crate::blocking::Response::new",
+            Self::Optionally => "|answered| answered.map(crate::blocking::Response::new)",
+            Self::Exchanged => "crate::blocking::Exchange::new",
+        }
+    }
 }
 
 /// What a member answers of its operation's result.
@@ -202,6 +286,7 @@ impl MemberModel {
             (_, Answers::Field { ty, .. }) => ty.clone(),
             (_, Answers::Result) => self.result.clone(),
         };
+        let answered = self.responds.answered(answered, twin);
         format!(
             "{}::{}<{answered}, {}>",
             twin.builders(),
@@ -502,6 +587,7 @@ fn member_model(
         }
         (_, None) => Answers::Result,
     };
+    let responds = responds(index, member, id, &answers, &result, &owner)?;
     Ok(MemberModel {
         ident: ident(member.name, &owner)?,
         doc: doc(
@@ -533,7 +619,37 @@ fn member_model(
         literal,
         wire_timeout,
         answers,
+        responds,
     })
+}
+
+/// Whether `member` of the handle `id`, whose answer is `answers` of the
+/// result type `result`, answers a page's response, which its Rust form
+/// wraps in the `Response` that reads its body.
+fn responds(
+    index: &Index,
+    member: &Member<'_>,
+    id: &HandleId,
+    answers: &Answers,
+    result: &str,
+    owner: &str,
+) -> Result<Responds> {
+    let responds = Responds::of(match answers {
+        Answers::Field { ty, .. } => ty,
+        Answers::Opened { .. } => "",
+        Answers::Result => result,
+    });
+    if responds != Responds::No {
+        if member.form == Form::Query {
+            bail!("{owner}: a query answers no page's response, which a call reads the body of");
+        }
+        if index.type_path(&id.type_name)? != PAGE_ID {
+            bail!(
+                "{owner}: only a page's member answers a response, which reads its body through the page"
+            );
+        }
+    }
+    Ok(responds)
 }
 
 fn builder_model(index: &Index, built: &Builder, id: &HandleId) -> Result<BuilderModel> {
@@ -728,9 +844,23 @@ impl Module {
                         "let host = self.host.clone();\n        let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}.map(move |opened| {handle} {{ host: host.child(opened.{carried}) }})",
                         member.result, member.params
                     ),
+                    (_, Answers::Field { ident, .. }) if member.responds != Responds::No => {
+                        format!(
+                            "let host = self.host.clone();\n        let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}.map(move |result| {})",
+                            member.result,
+                            member.params,
+                            member.responds.wrapped(&format!("result.{ident}"))
+                        )
+                    }
                     (_, Answers::Field { ident, .. }) => format!(
                         "let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}.map(|result| result.{ident})",
                         member.result, member.params
+                    ),
+                    (_, Answers::Result) if member.responds != Responds::No => format!(
+                        "let host = self.host.clone();\n        let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}.map(move |result| {})",
+                        member.result,
+                        member.params,
+                        member.responds.wrapped("result")
                     ),
                     (_, Answers::Result) => format!("self.host.call({sent}){wire}"),
                 }
@@ -739,6 +869,9 @@ impl Module {
                 let mut built = format!("self.inner.{}({})", member.ident, member.forwarded());
                 if let Answers::Opened { handle, .. } = &member.answers {
                     let _ = write!(built, ".map(|inner| {handle} {{ inner }})");
+                }
+                if member.responds != Responds::No {
+                    let _ = write!(built, ".map({})", member.responds.blocking());
                 }
                 format!(
                     "crate::blocking::{}::new({built}, self.inner.host.connection())",

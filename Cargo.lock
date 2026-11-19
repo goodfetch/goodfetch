@@ -2390,6 +2390,8 @@ name = "goodfetch-collie-client"
 version = "0.0.0"
 dependencies = [
  "data-encoding",
+ "encoding_rs",
+ "goodfetch-encoding",
  "goodfetch-engine",
  "goodfetch-protocol",
  "goodfetch-runtime",
@@ -2508,6 +2510,16 @@ dependencies = [
  "tracing",
  "zip",
  "zstd",
+]
+
+[[package]]
+name = "goodfetch-encoding"
+version = "0.0.0"
+dependencies = [
+ "encoding_rs",
+ "goodfetch-workspace-hack",
+ "html5ever 0.39.0",
+ "rstest",
 ]
 
 [[package]]
@@ -2639,6 +2651,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "goodfetch-counted-work",
+ "goodfetch-encoding",
  "goodfetch-engine",
  "goodfetch-extractor",
  "goodfetch-frontier",

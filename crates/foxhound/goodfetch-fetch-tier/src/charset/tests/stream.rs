@@ -4,10 +4,11 @@
 
 use bytes::Bytes;
 use encoding_rs::{Encoding, UTF_8, WINDOWS_1251};
+use goodfetch_encoding::Kind;
 use proptest::prelude::*;
 use rstest::rstest;
 
-use crate::charset::{Kind, Read, Source, Stream, Streamed, Text, decode, read};
+use crate::charset::{Read, Source, Stream, Streamed, Text, decode, read};
 
 /// A label of every WHATWG encoding, then labels no encoding has.
 const LABELS: &[&str] = &[

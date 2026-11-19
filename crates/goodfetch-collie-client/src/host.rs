@@ -71,17 +71,8 @@ impl<Id> Host<Id> {
     /// The host of a value this handle opened or built, named `id`, in the
     /// same Run: it closes with this handle's value.
     pub(crate) fn child<C: Held>(&self, id: C) -> Host<C> {
-        let value = HeldValue {
-            run: Arc::clone(&self.run),
-            parent: self.value.clone(),
-            closed: AtomicBool::new(false),
-            dropped: id.dropped(),
-        };
-        Host {
-            id,
-            run: Arc::clone(&self.run),
-            value: Some(Arc::new(value)),
-        }
+        let dropped = id.dropped();
+        self.held(id, dropped)
     }
 
     /// The call of `method` with `params`, whose reply reads as `T`.
@@ -167,11 +158,17 @@ impl<Id> Host<Id> {
     /// Session: it closes with this handle's value, and dropping its last
     /// handle closes nothing, since the program did not open it.
     pub(crate) fn reached<C>(&self, id: C) -> Host<C> {
+        self.held(id, None)
+    }
+
+    /// The value `id` this one holds, which sends `dropped`, if any, once
+    /// dropped.
+    fn held<C>(&self, id: C, dropped: Option<Dropped>) -> Host<C> {
         let value = HeldValue {
             run: Arc::clone(&self.run),
             parent: self.value.clone(),
             closed: AtomicBool::new(false),
-            dropped: None,
+            dropped,
         };
         Host {
             id,

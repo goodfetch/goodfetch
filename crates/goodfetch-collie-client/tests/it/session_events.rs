@@ -3,9 +3,11 @@
 //! Scripted engine as the Attached engine: the first Session stream sends
 //! `events.subscribe` with its credits before its `session.on`, the next
 //! shares it, each hands only its own Session's pages as working pages, a
-//! dropped stream gives back the credits of the events it never read, and
-//! the last one dropped cancels the Subscription. Rust has no handler
-//! callbacks, so `listener_failed` has no Rust form.
+//! dropped stream gives back the credits of the events it never read, the
+//! last one dropped cancels the Subscription, and a stream whose
+//! `session.on` the engine answers still hands the pages published before
+//! the answer. Rust has no handler callbacks, so `listener_failed` has no
+//! Rust form.
 
 use goodfetch_collie_client::transport::{AttachedEngine, Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, blocking, events};
@@ -44,20 +46,24 @@ fn scripted_engine(env: &TestEnv) -> Endpoint {
     })
 }
 
-/// What both forms read: each stream's first page, and what each page's
-/// `evaluate` answered.
-type Read = ([String; 2], [Option<Value>; 2]);
+/// What both forms read: the pages the streams handed, in the order read,
+/// what the first two pages' `evaluate` answered, and whether the last
+/// stream ended once its `session.on` was answered.
+type Read = ([String; 5], [Option<Value>; 2], bool);
 
-/// What the script makes each form read: the first Session's page, then
-/// the second's, each reached by its `evaluate`.
+/// What the script makes each form read: the first Session's first page,
+/// the second Session's two, past the first's page, the first Session's
+/// second, past the second's last, then the new stream's page; the first
+/// two reached by their `evaluate`, and the new stream ended.
 fn expected() -> Read {
     (
-        ["page-2".to_owned(), "page-3".to_owned()],
+        ["page-1", "page-3", "page-4", "page-2", "page-6"].map(str::to_owned),
         [Some(json!(1)), Some(json!(2))],
+        true,
     )
 }
 
-/// Covers: story:11-61, story:11-62
+/// Covers: story:11-61, story:11-62, story:11-63
 #[test]
 fn a_sessions_streams_share_one_subscription_and_each_hands_its_own_sessions_pages() {
     let env = TestEnv::new();
@@ -77,23 +83,32 @@ fn a_sessions_streams_share_one_subscription_and_each_hands_its_own_sessions_pag
 
         let mut firsts = first.events(events::Page);
         let mut seconds = second.events(events::Page);
-        // The first Session's page is the batch's last event, so the
+        // The first Session's last page is the batch's last event, so the
         // second's unread page is already in its stream.
-        let first_page = firsts.next().await.unwrap().unwrap();
-        let second_page = seconds.next().await.unwrap().unwrap();
+        let pages = [
+            firsts.next().await.unwrap().unwrap(),
+            seconds.next().await.unwrap().unwrap(),
+            seconds.next().await.unwrap().unwrap(),
+            firsts.next().await.unwrap().unwrap(),
+        ];
         let values = [
-            first_page.evaluate("() => 1").await.unwrap(),
-            second_page.evaluate("() => 1").await.unwrap(),
+            pages[0].evaluate("() => 1").await.unwrap(),
+            pages[1].evaluate("() => 1").await.unwrap(),
         ];
         drop(seconds);
         drop(firsts);
-        drop(first.events(events::Page));
+        let mut thirds = first.events(events::Page);
+        let third = thirds.next().await.unwrap().unwrap();
+        let ended = thirds.next().await.is_none();
+        drop(thirds);
 
         run.finish().await.unwrap();
         connection.close().await.unwrap();
+        let [one, two, three, four] = &pages;
         (
-            [first_page.id().0.clone(), second_page.id().0.clone()],
+            [one, two, three, four, &third].map(|page| page.id().0.clone()),
             values,
+            ended,
         )
     });
 
@@ -102,7 +117,7 @@ fn a_sessions_streams_share_one_subscription_and_each_hands_its_own_sessions_pag
 
 /// The same script through `blocking`: each Session's `events` iterates
 /// its own pages, each a working blocking page.
-/// Covers: story:11-61, story:11-62
+/// Covers: story:11-61, story:11-62, story:11-63
 #[test]
 fn a_sessions_events_iterate_its_own_pages_through_blocking() {
     let env = TestEnv::new();
@@ -128,21 +143,30 @@ fn a_sessions_events_iterate_its_own_pages_through_blocking() {
 
     let mut firsts = first.events(events::Page);
     let mut seconds = second.events(events::Page);
-    let first_page = firsts.next().unwrap().unwrap();
-    let second_page = seconds.next().unwrap().unwrap();
+    let pages = [
+        firsts.next().unwrap().unwrap(),
+        seconds.next().unwrap().unwrap(),
+        seconds.next().unwrap().unwrap(),
+        firsts.next().unwrap().unwrap(),
+    ];
     let values = [
-        first_page.evaluate("() => 1").send().unwrap(),
-        second_page.evaluate("() => 1").send().unwrap(),
+        pages[0].evaluate("() => 1").send().unwrap(),
+        pages[1].evaluate("() => 1").send().unwrap(),
     ];
     drop(seconds);
     drop(firsts);
-    drop(first.events(events::Page));
+    let mut thirds = first.events(events::Page);
+    let third = thirds.next().unwrap().unwrap();
+    let ended = thirds.next().is_none();
+    drop(thirds);
 
     run.finish().send().unwrap();
     connection.close().unwrap();
+    let [one, two, three, four] = &pages;
     let read = (
-        [first_page.id().0.clone(), second_page.id().0.clone()],
+        [one, two, three, four, &third].map(|page| page.id().0.clone()),
         values,
+        ended,
     );
 
     assert_eq!(read, expected());

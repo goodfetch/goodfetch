@@ -12,7 +12,9 @@
 use std::sync::{Arc, PoisonError};
 
 use goodfetch_protocol::error_code::ErrorCode;
-use goodfetch_protocol::events::{EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventsSubscribeParams};
+use goodfetch_protocol::events::{
+    EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventsSubscribeParams, RESYNC,
+};
 use serde_json::Value;
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
@@ -22,17 +24,14 @@ use crate::error::Error;
 use crate::rpc::{CallId, Heard, Outgoing, Sender};
 use crate::sync::{Mutex, MutexGuard};
 
-/// The credits the Subscription grants when it is sent: at most this many
-/// of its events wait in its readers.
-const CREDITS: u32 = 16;
+/// The credits a stream of events grants when its call is sent, the
+/// Subscription's or a call's own: at most this many of its events wait
+/// for the program.
+pub(crate) const CREDITS: u32 = 16;
 
-/// How many of its events its readers settle before it grants as many
-/// again.
-const REGRANT: u32 = 8;
-
-/// The event that says the engine no longer held the Subscription's
-/// position: the events since are gone.
-const RESYNC: &str = "events.resync";
+/// How many of its events the program settles before the stream grants as
+/// many again.
+pub(crate) const REGRANT: u32 = 8;
 
 /// What a reader hears of the Subscription.
 #[derive(Debug)]
@@ -74,6 +73,9 @@ struct Subscription {
     sender: Sender,
     /// Its call's id, once sent.
     call: CallId,
+    /// Where a reader whose own call ended asks its task to let it go once
+    /// it handed the events heard before.
+    finished: mpsc::UnboundedSender<u64>,
     state: Mutex<State>,
 }
 
@@ -117,31 +119,18 @@ pub(crate) struct Membership {
     key: u64,
 }
 
+impl Membership {
+    /// Leaves once the Subscription handed every event heard before this
+    /// call, such as those the engine published before it answered the
+    /// reader's own call: its receiver then ends.
+    pub(crate) fn finish(&self) {
+        let _ended = self.subscription.finished.send(self.key);
+    }
+}
+
 impl Drop for Membership {
     fn drop(&mut self) {
-        let mut current = lock(&self.core.current);
-        let mut state = self.subscription.lock();
-        state.readers.retain(|reader| reader.key != self.key);
-        // Others still read it, or it ended, and its task with it.
-        if !state.readers.is_empty() || state.stopped {
-            return;
-        }
-        state.stopped = true;
-        // Cancelled in order: after its call and the calls queued before
-        // the leave, such as its last reader's own, and before anything sent
-        // after it, such as the next reader's Subscription, even while its
-        // id is not heard yet.
-        self.subscription
-            .sender
-            .cancel_sent(&self.subscription.call);
-        state.stop = None;
-        drop(state);
-        if current
-            .as_ref()
-            .is_some_and(|held| Arc::ptr_eq(held, &self.subscription))
-        {
-            *current = None;
-        }
+        self.subscription.leave(&self.core, self.key);
     }
 }
 
@@ -195,6 +184,7 @@ impl Published {
         let (notified, heard) = mpsc::channel(CREDITS as usize + 1);
         let (reply, replied) = oneshot::channel();
         let (stop, stopped) = oneshot::channel();
+        let (finished, finishing) = mpsc::unbounded_channel();
         let params = serde_json::to_value(EventsSubscribeParams::default())
             .expect("invariant: `events.subscribe`'s params serialize");
         let call = self.0.sender.call_granting(
@@ -210,6 +200,7 @@ impl Published {
         let subscription = Arc::new(Subscription {
             sender: self.0.sender.clone(),
             call,
+            finished,
             state: Mutex::new(State {
                 readers: Vec::new(),
                 next_key: 0,
@@ -224,6 +215,7 @@ impl Published {
             heard,
             replied,
             stopped,
+            finishing,
         );
         self.0.tasks.spawn_on(reading, &self.0.handle);
         subscription
@@ -231,19 +223,28 @@ impl Published {
 }
 
 /// Reads `subscription` until its last reader leaves, or it ends: hands
-/// each batch's events to their readers, and tells them it ended.
+/// each batch's events to their readers, lets a finished reader go once
+/// it handed what was heard before, and tells them it ended.
 async fn read(
     core: Arc<Core>,
     subscription: Arc<Subscription>,
     mut heard: mpsc::Receiver<Heard>,
     mut replied: oneshot::Receiver<Result<Value, Error>>,
     mut stopped: oneshot::Receiver<()>,
+    mut finishing: mpsc::UnboundedReceiver<u64>,
 ) {
     loop {
         tokio::select! {
             biased;
             _ = &mut stopped => return,
             Some(heard) = heard.recv() => subscription.hear(heard),
+            Some(key) = finishing.recv() => {
+                // Its call's answer came after these on the Connection.
+                while let Ok(heard) = heard.try_recv() {
+                    subscription.hear(heard);
+                }
+                subscription.leave(&core, key);
+            }
             reply = &mut replied => {
                 let failure = match reply {
                     Ok(Ok(_)) => None,
@@ -260,6 +261,36 @@ async fn read(
 impl Subscription {
     fn lock(&self) -> MutexGuard<'_, State> {
         lock(&self.state)
+    }
+
+    /// Lets the reader `key` go, if it has not left yet; the last to leave
+    /// cancels it and stops its task.
+    fn leave(&self, core: &Core, key: u64) {
+        let mut current = lock(&core.current);
+        let mut state = self.lock();
+        let Some(at) = state.readers.iter().position(|reader| reader.key == key) else {
+            return;
+        };
+        // Dropped last, so that its stream ends after the cancel is queued.
+        let _left = state.readers.swap_remove(at);
+        // Others still read it, or it ended, and its task with it.
+        if !state.readers.is_empty() || state.stopped {
+            return;
+        }
+        state.stopped = true;
+        // Cancelled in order: after its call and the calls queued before
+        // the leave, such as its last reader's own, and before anything sent
+        // after it, such as the next reader's Subscription, even while its
+        // id is not heard yet.
+        self.sender.cancel_sent(&self.call);
+        state.stop = None;
+        drop(state);
+        if current
+            .as_ref()
+            .is_some_and(|held| std::ptr::eq(Arc::as_ptr(held), self))
+        {
+            *current = None;
+        }
     }
 
     /// Hands a batch's events to their readers.
@@ -283,10 +314,10 @@ impl Subscription {
     /// none takes is settled at once.
     fn hand(self: &Arc<Self>, batch: EventBatch) {
         for envelope in batch.events {
-            if envelope.event == RESYNC {
+            if envelope.event == RESYNC.name {
                 tracing::warn!(
                     target: "goodfetch::client",
-                    event = RESYNC,
+                    event = RESYNC.name,
                     "The Connection's Subscription fell behind: the events published since its last read are gone, so a Session's stream may have missed pages its `pages()` lists"
                 );
             }
@@ -338,10 +369,16 @@ impl Subscription {
             state.stopped = true;
             std::mem::take(&mut state.readers)
         };
+        // The last reader gets the error itself, the others a copy.
+        let last = readers.len().saturating_sub(1);
         let mut failure = failure;
-        for reader in readers {
-            let told = failure.as_ref().map(copied);
-            let _gone = reader.taken.send(Taken::Ended(failure.take().or(told)));
+        for (at, reader) in readers.into_iter().enumerate() {
+            let told = if at == last {
+                failure.take()
+            } else {
+                failure.as_ref().map(copied)
+            };
+            let _gone = reader.taken.send(Taken::Ended(told));
         }
     }
 }

@@ -133,25 +133,10 @@ impl Sender {
         }
     }
 
-    /// Sends the notification `method` with `params`; one sent once the
-    /// Connection is closed goes nowhere.
-    pub(crate) fn notify(&self, method: &str, params: Value) {
-        let _closed = self.0.send(Command::Notify(Notification {
-            jsonrpc: Version,
-            method: method.to_owned(),
-            params: Some(params),
-        }));
-    }
-
     /// Grants the streaming call `id` `credits` more items with
     /// `$/credit`.
     pub(crate) fn credit(&self, id: i64, credits: u32) {
-        if let Ok(params) = serde_json::to_value(CreditParams {
-            id: RequestId::Number(id),
-            credits,
-        }) {
-            self.notify(CREDIT, params);
-        }
+        let _closed = self.0.send(Command::Notify(credited(id, credits)));
     }
 
     /// Cancels the streaming call `id` with `$/cancel`.

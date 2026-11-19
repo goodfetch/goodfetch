@@ -27,16 +27,8 @@ use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::Error;
-use crate::published::{Interest, Membership, Published, Taken};
+use crate::published::{CREDITS, Interest, Membership, Published, REGRANT, Taken};
 use crate::rpc::{Heard, Outgoing, Sender};
-
-/// The credits a stream grants when its call is sent: at most this many
-/// events wait in it for the program.
-const CREDITS: u32 = 16;
-
-/// How many events the program reads before the stream grants as many
-/// again.
-const REGRANT: u32 = 8;
 
 /// What a stream builds each event's payload into.
 type Build<T> = Box<dyn Fn(Value) -> Result<T, Error> + Send + Sync>;
@@ -331,9 +323,9 @@ impl Flow {
                     self.ended = true;
                     return Poll::Ready(None);
                 }
-                Poll::Pending if membership.is_none() => return Poll::Pending,
                 Poll::Pending => {}
             }
+            // Its call ended: it waits for the Subscription to let it go.
             let Some(reply) = self.reply.as_mut() else {
                 return Poll::Pending;
             };
@@ -342,15 +334,21 @@ impl Flow {
                 Poll::Pending => return Poll::Pending,
             };
             self.reply = None;
-            self.leave();
             match replied {
-                // Its call ended: the events it took before are still read.
-                Ok(Ok(_)) => {}
+                // Its call ended: the events published before its answer
+                // are still handed, then its receiver ends.
+                Ok(Ok(_)) => {
+                    if let Some(membership) = membership {
+                        membership.finish();
+                    }
+                }
                 Ok(Err(error)) => {
+                    self.leave();
                     self.ended = true;
                     return Poll::Ready(Some(Err(error)));
                 }
                 Err(_) => {
+                    self.leave();
                     self.ended = true;
                     return Poll::Ready(Some(Err(Error::closed())));
                 }

@@ -6,13 +6,12 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_protocol::point_in_time;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::formats::{Compatibility, Format, RUN_INDEX};
-use goodfetch_protocol::run::{
-    Lifecycle, PointInTime, Presence, RunId, RunIndexRow, RunKind, Tags,
-};
+use goodfetch_protocol::run::{Lifecycle, Presence, RunId, RunIndexRow, RunKind, Tags};
 use goodfetch_test_support::{TestEnv, wal_of};
 use rusqlite::Connection;
 
@@ -74,7 +73,7 @@ fn row(run_id: &str) -> RunIndexRow {
         lifecycle: Lifecycle::Running,
         verdict: None,
         completeness: None,
-        started_at: PointInTime::from_rfc3339("2026-10-21T08:00:00Z".to_owned()),
+        started_at: point_in_time::from_rfc3339("2026-10-21T08:00:00Z").unwrap(),
         ended_at: None,
         owner: None,
         presence: Presence::Present,

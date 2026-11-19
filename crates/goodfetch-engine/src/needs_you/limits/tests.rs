@@ -9,14 +9,15 @@
     reason = "tests run on the test Clock (ADR 0059)"
 )]
 
+use goodfetch_protocol::point_in_time;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::run::{
-    Completeness, Lifecycle, LimitScope, LimitSetter, Period, PeriodLength, PointInTime, Presence,
-    ReachedLimit, RunId, RunIndexRow, RunKind, StopReason, Tags,
+    Completeness, Lifecycle, LimitScope, LimitSetter, Period, PeriodLength, Presence, ReachedLimit,
+    RunId, RunIndexRow, RunKind, StopReason, Tags,
 };
 use goodfetch_protocol::usage::Limit;
 use jiff::Timestamp;
@@ -60,7 +61,7 @@ fn daily(scope: &str, amount: u64, set_by: LimitSetter) -> Limit {
 
 /// The Run `capped`, stopped by the install's daily Limit.
 fn stopped() -> RunIndexRow {
-    let at = PointInTime::from_rfc3339(STOPPED_AT.to_owned());
+    let at = point_in_time::from_rfc3339(STOPPED_AT).unwrap();
     RunIndexRow {
         run_id: RunId::parse("capped").unwrap(),
         location: "runs/capped".to_owned(),
@@ -86,7 +87,7 @@ fn stopped() -> RunIndexRow {
                 every: PeriodLength::Day,
                 time_zone: "UTC".to_owned(),
             }),
-            resets_at: Some(PointInTime::from_rfc3339("2026-10-25T00:00:00Z".to_owned())),
+            resets_at: Some(point_in_time::from_rfc3339("2026-10-25T00:00:00Z").unwrap()),
         }))),
         replayed: false,
     }

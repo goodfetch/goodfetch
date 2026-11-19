@@ -51,7 +51,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tracing::Instrument as _;
 
 use goodfetch_protocol::audit::{Actor, CERTIFICATE_EXCEPTIONS_USED};
@@ -68,8 +68,8 @@ use goodfetch_protocol::page::BodyHandle;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, HumanPause, Lifecycle,
-    LimitScope, MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, PointInTime,
-    Presence, ProgressMessage, RUN_IN_USE, RUN_STATE_BATCH_BYTES, RUN_STATE_BATCH_INTERVAL,
+    LimitScope, MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, Presence,
+    ProgressMessage, RUN_IN_USE, RUN_STATE_BATCH_BYTES, RUN_STATE_BATCH_INTERVAL,
     RUN_STATE_BATCH_PAGES, RUN_STATE_BATCH_PER_ATTEMPT, RUN_STATE_BATCH_SYNC,
     RUN_STATE_COMMIT_INTERVAL, RUN_STATE_MEMORY_BUDGET, ReachedLimit, RunAxes, RunId, RunIndexRow,
     RunKind, RunListParams, RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage,
@@ -2269,13 +2269,13 @@ impl Run {
     }
 
     /// The wall time now, as a point in time of the Run's (ADR 0102).
-    pub fn point_in_time(&self) -> PointInTime {
+    pub fn point_in_time(&self) -> SystemTime {
         self.clock.point_in_time()
     }
 
     /// The wall time `wait` from now, as a point in time of the Run's, such
     /// as when a domain is next admitted (ADR 0102).
-    pub fn point_in_time_after(&self, wait: Duration) -> PointInTime {
+    pub fn point_in_time_after(&self, wait: Duration) -> SystemTime {
         self.clock.point_in_time_after(wait)
     }
 
@@ -4202,7 +4202,7 @@ struct Live {
     tags: Tags,
     inputs: String,
     ended_by: EndedBy,
-    started_at: PointInTime,
+    started_at: SystemTime,
     policy_version: Option<String>,
     weakened: Vec<WeakenedSetting>,
     report: watch::Sender<Option<Ended>>,
@@ -5160,7 +5160,7 @@ impl Registry {
         )
     }
 
-    fn now(&self) -> PointInTime {
+    fn now(&self) -> SystemTime {
         self.setup.engine.clock().point_in_time()
     }
 
@@ -6914,7 +6914,7 @@ struct Closing {
     run: Run,
     writer: Arc<TaskOwner>,
     lock: Arc<File>,
-    started_at: PointInTime,
+    started_at: SystemTime,
     policy_version: Option<String>,
     weakened: Vec<WeakenedSetting>,
     clock: Clock,

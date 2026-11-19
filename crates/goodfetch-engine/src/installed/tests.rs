@@ -11,7 +11,7 @@
     reason = "the tests lay out and read the list's file themselves; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
@@ -54,10 +54,10 @@ fn entry(product: Product, version: &str, kind: ExecutableKind) -> InstalledExec
             product.as_str()
         ),
         size: 1,
-        modified_at: days_ago(100),
+        modified_at: SystemTime::from(days_ago(100)),
         pins: vec![build("chrome-for-testing")],
         copy: None,
-        last_seen: now(),
+        last_seen: SystemTime::from(now()),
     }
 }
 
@@ -68,7 +68,7 @@ fn executable(product: Product, version: &str) -> InstalledExecutable {
 /// `entry`, last seen `days` ago.
 fn last_seen(entry: InstalledExecutable, days: u64) -> InstalledExecutable {
     InstalledExecutable {
-        last_seen: days_ago(days),
+        last_seen: SystemTime::from(days_ago(days)),
         ..entry
     }
 }
@@ -98,7 +98,7 @@ fn an_entry_counts_as_installed_at_its_path_or_within_the_unused_age(
     #[case] counts: bool,
 ) {
     assert_eq!(
-        counts_as_installed(still_at_path, days_ago(days), now(), age),
+        counts_as_installed(still_at_path, SystemTime::from(days_ago(days)), now(), age),
         counts
     );
 }

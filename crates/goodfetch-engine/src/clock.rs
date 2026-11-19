@@ -11,7 +11,6 @@
 
 use std::time::{Duration, SystemTime};
 
-use goodfetch_protocol::run::PointInTime;
 use jiff::Timestamp;
 use tokio::time::Instant;
 
@@ -75,7 +74,7 @@ impl Clock {
     /// # Panics
     ///
     /// As [`Self::timestamp`].
-    pub fn point_in_time(&self) -> PointInTime {
+    pub fn point_in_time(&self) -> SystemTime {
         to_the_millisecond(self.timestamp())
     }
 
@@ -85,7 +84,7 @@ impl Clock {
     /// # Panics
     ///
     /// As [`Self::timestamp`].
-    pub fn point_in_time_after(&self, wait: Duration) -> PointInTime {
+    pub fn point_in_time_after(&self, wait: Duration) -> SystemTime {
         to_the_millisecond(timestamp(self.wall() + wait))
     }
 
@@ -113,12 +112,23 @@ impl Clock {
     }
 }
 
+/// The RFC 3339 text in UTC of `at`, a point in time the engine holds,
+/// such as a "Needs you" item's ID or a list's cursor names.
+///
+/// # Panics
+///
+/// When `at` is outside the years -9999 to 9999, which no point in time
+/// the engine holds is: each came from a clock or from RFC 3339 text.
+pub fn rfc3339(at: SystemTime) -> String {
+    timestamp(at).to_string()
+}
+
 fn timestamp(wall: SystemTime) -> Timestamp {
     Timestamp::try_from(wall).expect("invariant: the clock reads a time jiff can hold")
 }
 
-fn to_the_millisecond(at: Timestamp) -> PointInTime {
-    PointInTime::from_rfc3339(at.round(jiff::Unit::Millisecond).unwrap_or(at).to_string())
+fn to_the_millisecond(at: Timestamp) -> SystemTime {
+    SystemTime::from(at.round(jiff::Unit::Millisecond).unwrap_or(at))
 }
 
 fn monotonic() -> Instant {

@@ -4,8 +4,10 @@
 //! transaction, so an entry left by a body no engine runs is judged before
 //! the journal answers about it.
 
+use std::time::SystemTime;
+
 use goodfetch_protocol::effect::UncertainReason;
-use goodfetch_protocol::run::{PointInTime, RunReport, UncertainEffect};
+use goodfetch_protocol::run::{RunReport, UncertainEffect};
 use hkdf::Hkdf;
 use rusqlite::types::Type;
 use rusqlite::{Connection, OptionalExtension as _};
@@ -15,6 +17,7 @@ use super::Reconciliation;
 use super::lifecycle::{EffectEvent, EffectState, InvalidEffectTransition, Next, apply};
 use crate::run_state::RunStateTables;
 use crate::runs::ReportPart;
+use crate::stored_time::StoredTime;
 
 /// The Effect journal's tables in every run file: an entry per Effect key
 /// of a namespace, the crawl request of a handler's attempt or `""` for
@@ -75,10 +78,10 @@ pub(super) enum Declared {
     /// A body returned this output, at this point in time.
     Journal {
         output: Option<String>,
-        performed_at: String,
+        performed_at: SystemTime,
     },
     /// A person answered "it happened".
-    Reconciled { by: String, at: String },
+    Reconciled { by: String, at: SystemTime },
     /// The Effect is uncertain.
     Uncertain(UncertainEffect),
     /// The transition table refused the declaration.
@@ -106,10 +109,10 @@ pub(super) struct Row {
     pub(super) output: Option<String>,
     pub(super) reason: Option<String>,
     pub(super) first_command: Option<String>,
-    pub(super) since: Option<String>,
-    pub(super) performed_at: Option<String>,
+    pub(super) since: Option<SystemTime>,
+    pub(super) performed_at: Option<SystemTime>,
     pub(super) reconciled_by: Option<String>,
-    pub(super) reconciled_at: Option<String>,
+    pub(super) reconciled_at: Option<SystemTime>,
 }
 
 impl Row {
@@ -123,10 +126,10 @@ impl Row {
             output: row.get(5)?,
             reason: row.get(6)?,
             first_command: row.get(7)?,
-            since: row.get(8)?,
-            performed_at: row.get(9)?,
+            since: row.get::<_, Option<StoredTime>>(8)?.map(|at| at.0),
+            performed_at: row.get::<_, Option<StoredTime>>(9)?.map(|at| at.0),
             reconciled_by: row.get(10)?,
-            reconciled_at: row.get(11)?,
+            reconciled_at: row.get::<_, Option<StoredTime>>(11)?.map(|at| at.0),
         })
     }
 
@@ -154,7 +157,9 @@ impl Row {
                 .clone()
                 .unwrap_or_else(|| UncertainReason::Interrupted.as_str().to_owned()),
             first_command: self.first_command.clone(),
-            since: PointInTime::from_rfc3339(self.since.clone().unwrap_or_default()),
+            since: self
+                .since
+                .expect("invariant: the journal's CHECK keeps a sent or uncertain entry's `since`"),
         }
     }
 }
@@ -249,11 +254,15 @@ pub(super) fn declare(
             Ok(match state {
                 EffectState::Reconciled => Declared::Reconciled {
                     by: row.reconciled_by.unwrap_or_default(),
-                    at: row.reconciled_at.unwrap_or_default(),
+                    at: row
+                        .reconciled_at
+                        .expect("invariant: the journal's CHECK keeps a reconciled entry's time"),
                 },
                 _ => Declared::Journal {
                     output: row.output,
-                    performed_at: row.performed_at.unwrap_or_default(),
+                    performed_at: row
+                        .performed_at
+                        .expect("invariant: the journal's CHECK keeps a done entry's time"),
                 },
             })
         }
@@ -271,14 +280,14 @@ pub(super) fn mark_sent(
     connection: &Connection,
     entries: &[i64],
     first_command: &str,
-    since: &str,
+    since: SystemTime,
 ) -> rusqlite::Result<()> {
     let mut statement = connection.prepare_cached(
         "UPDATE effect_journal SET state = 'sent', first_command = ?2, since = ?3 \
          WHERE entry = ?1 AND state = 'open'",
     )?;
     for entry in entries {
-        statement.execute((entry, first_command, since))?;
+        statement.execute((entry, first_command, StoredTime(since)))?;
     }
     Ok(())
 }
@@ -289,13 +298,13 @@ pub(super) fn done(
     connection: &Connection,
     entry: i64,
     output: Option<&str>,
-    performed_at: &str,
+    performed_at: SystemTime,
 ) -> rusqlite::Result<()> {
     connection
         .prepare_cached(
             "UPDATE effect_journal SET state = 'done', output = ?2, performed_at = ?3 WHERE entry = ?1",
         )?
-        .execute((entry, output, performed_at))?;
+        .execute((entry, output, StoredTime(performed_at)))?;
     Ok(())
 }
 
@@ -327,7 +336,7 @@ pub(super) fn answer_about(
     entry: i64,
     answer: Reconciliation,
     by: &str,
-    at: &str,
+    at: SystemTime,
 ) -> rusqlite::Result<Answering> {
     let Some(found) = row(connection, entry)? else {
         return Ok(Answering::NotUncertain);
@@ -344,7 +353,7 @@ pub(super) fn answer_about(
                     "UPDATE effect_journal SET state = 'reconciled', reconciled_by = ?2, reconciled_at = ?3 \
                      WHERE entry = ?1",
                 )?
-                .execute((entry, by, at))?;
+                .execute((entry, by, StoredTime(at)))?;
         }
         Ok(Next::Dropped) => drop_entry(connection, entry)?,
         Ok(Next::To(_) | Next::Unchanged) => {}

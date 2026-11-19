@@ -7,6 +7,9 @@
 //! its Client's credits, so a reader never slows the crawl; and the Error
 //! codes of a declaration or a Record that does not hold. Foxhound's own.
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -18,7 +21,7 @@ use crate::catalog::{
 use crate::foxhound::dataset_view::DATASET_PAGE;
 use crate::foxhound::provenance::RecordProvenance;
 use crate::jsonrpc::RequestId;
-use crate::run::{PointInTime, RunId};
+use crate::run::RunId;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -139,8 +142,9 @@ pub struct DatasetRecord {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub url: String,
     /// When it was committed.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub committed_at: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub committed_at: SystemTime,
     /// How it was obtained (ADR 0123's Provenance of a Record).
     #[schemars(extend("arrived_in" = "0.1"))]
     pub provenance: RecordProvenance,

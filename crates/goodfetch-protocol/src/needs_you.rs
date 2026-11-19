@@ -10,6 +10,9 @@
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -18,7 +21,7 @@ use crate::catalog::{
     Entries, Event, EventClass, Operation, OperationClass, OperationKind, ProtocolVersion, Reach,
     SharedType, SharedTypeValue, Stability, schema_of,
 };
-use crate::run::{PointInTime, RunId};
+use crate::run::RunId;
 use crate::settings::SettingsLayer;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -66,8 +69,9 @@ pub struct NeedsYouItem {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub kind: String,
     /// Since when it waits.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub since: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub since: SystemTime,
     /// The Run it is about, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]

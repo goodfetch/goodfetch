@@ -24,6 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use futures_util::StreamExt as _;
 use futures_util::stream::BoxStream;
@@ -31,10 +32,10 @@ use goodfetch_protocol::needs_you::{
     NEEDS_YOU_DISMISS, NeedsYouChange, NeedsYouItem, NeedsYouList, NeedsYouListParams,
     NeedsYouRemoval, PAGE,
 };
-use goodfetch_protocol::run::PointInTime;
+use goodfetch_protocol::point_in_time;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::clock::Clock;
+use crate::clock::{self, Clock};
 use crate::events::Events;
 use crate::governor::StorageSample;
 use crate::known_certificates::KnownCertificates;
@@ -173,7 +174,7 @@ impl SourceContext {
     }
 
     /// The point in time it is now.
-    pub fn now(&self) -> PointInTime {
+    pub fn now(&self) -> SystemTime {
         self.clock.point_in_time()
     }
 }
@@ -330,27 +331,30 @@ async fn watch_source(
     }
 }
 
-/// Where an item stands in the list: the longest waiting first, by the
-/// time its `since` names rather than its text, since sources write
-/// fractions of a second and offsets differently; a `since` that does not
-/// parse after every one that does; then by ID.
+/// Where an item stands in the list: the longest waiting first, then by
+/// ID; a cursor whose `since` names no point in time comes after every
+/// item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Waited<'a> {
     unknown: bool,
-    since: Option<jiff::Timestamp>,
+    since: Option<SystemTime>,
     id: &'a str,
 }
 
 impl<'a> Waited<'a> {
     /// The place of `item`.
     fn of(item: &'a NeedsYouItem) -> Self {
-        Self::new(item.since.as_str(), &item.id)
+        Self {
+            unknown: false,
+            since: Some(item.since),
+            id: &item.id,
+        }
     }
 
     /// The place of the item `id` waiting since `since`, as a cursor
     /// names it.
     fn new(since: &str, id: &'a str) -> Self {
-        let since = since.parse::<jiff::Timestamp>().ok();
+        let since = point_in_time::from_rfc3339(since).ok();
         Self {
             unknown: since.is_none(),
             since,
@@ -550,7 +554,7 @@ impl Driver {
         let next = more
             .then(|| items.last())
             .flatten()
-            .map(|last| format!("{} {}", last.since.as_str(), last.id));
+            .map(|last| format!("{} {}", clock::rfc3339(last.since), last.id));
         Ok(NeedsYouList {
             items: items.into_iter().cloned().collect(),
             next,

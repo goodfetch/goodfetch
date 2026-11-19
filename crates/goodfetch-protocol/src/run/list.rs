@@ -6,6 +6,9 @@
 //! reads its Recipe, Schedule, occurrence, trigger and role; a Watch run,
 //! role `watch`, is left out unless the filter asks for Watch runs.
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -13,7 +16,7 @@ use crate::catalog::{
     Operation, OperationClass, OperationKind, Product, ProtocolVersion, Reach, Stability, schema_of,
 };
 
-use super::{Completeness, Lifecycle, PointInTime, RunIndexRow, Tag, Tags, Verdict};
+use super::{Completeness, Lifecycle, RunIndexRow, Tag, Tags, Verdict};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -88,13 +91,21 @@ impl RunTrigger {
 #[serde(deny_unknown_fields)]
 pub struct TimeRange {
     /// Its first point, included.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub from: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub from: Option<SystemTime>,
     /// The point it ends before, excluded.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub until: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub until: Option<SystemTime>,
 }
 
 /// What `run.list` sorts its rows by.

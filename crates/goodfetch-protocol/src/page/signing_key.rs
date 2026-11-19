@@ -7,6 +7,9 @@
 //! check each signed request. The CLI's commands are `signing-key create`
 //! and `signing-key directory`.
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +17,6 @@ use super::ARRIVED_IN;
 use crate::catalog::{
     Entries, Operation, OperationClass, OperationKind, Reach, Stability, schema_of,
 };
-use crate::run::PointInTime;
 use crate::secret_reference::REFERENCE_PATTERN;
 
 /// The media type a key directory is served as.
@@ -139,8 +141,9 @@ pub struct SigningKeyDirectory {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub key_ids: Vec<String>,
     /// When its signatures expire, by which it is exported again.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub expires: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub expires: SystemTime,
 }
 
 /// `signing_key.directory` (ADR 0045).

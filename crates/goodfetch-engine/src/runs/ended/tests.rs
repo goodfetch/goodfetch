@@ -1,4 +1,5 @@
-use goodfetch_protocol::run::{Checkpoint, PointInTime, RunId};
+use goodfetch_protocol::point_in_time;
+use goodfetch_protocol::run::{Checkpoint, RunId};
 
 use super::{EndedHere, EndedRuns};
 
@@ -14,7 +15,7 @@ fn checkpoint(name: &str) -> Checkpoint {
         digest: "0".repeat(64),
         run_epoch: 1,
         journal_position: 3,
-        time: PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned()),
+        time: point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap(),
     }
 }
 

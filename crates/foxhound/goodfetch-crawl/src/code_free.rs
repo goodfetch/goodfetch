@@ -22,6 +22,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_dataset::Datasets;
@@ -42,7 +43,6 @@ use goodfetch_protocol::foxhound::frontier::CrawlRequestEnqueueLinksParams;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::read::{FieldLocator, PageField};
 use goodfetch_protocol::page::{FormatsRequest, Locator, PageFormats, PageId, page_formats_schema};
-use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
 use tokio::sync::Mutex;
@@ -393,7 +393,7 @@ fn sitemap_seeds<'a>(
 pub(crate) fn record_of(
     mut formats: PageFormats,
     status: Option<u16>,
-    fetched_at: &PointInTime,
+    fetched_at: &SystemTime,
     fields: Map<String, Value>,
 ) -> Value {
     let texts = [
@@ -479,7 +479,7 @@ impl CodeFree {
     pub(crate) async fn handled(
         &self,
         params: &CrawlRequestHandleParams,
-        fetched_at: PointInTime,
+        fetched_at: SystemTime,
     ) -> Result<(CrawlRequestHandled, FieldsRead), CallError> {
         let Some(page_id) = &params.page_id else {
             return Err(CallError::new(

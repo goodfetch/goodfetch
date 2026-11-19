@@ -10,6 +10,9 @@
 //! Effect uncertain unless it is repeatable: never run again, and raised
 //! as `effect_uncertain` until a person reconciles it (ADR 0029).
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -17,7 +20,7 @@ use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
     ProtocolVersion, Reach, Setting, SharedType, SharedTypeValue, Stability, ValueKind, schema_of,
 };
-use crate::run::{PointInTime, RunId, UncertainEffect};
+use crate::run::{RunId, UncertainEffect};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -88,8 +91,9 @@ pub enum EffectOpened {
         #[schemars(extend("arrived_in" = "0.1"))]
         output: Option<Value>,
         /// When it was performed.
-        #[schemars(extend("arrived_in" = "0.1"))]
-        performed_at: PointInTime,
+        #[serde(with = "crate::point_in_time")]
+        #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+        performed_at: SystemTime,
     },
     /// A person answered "it happened" (ADR 0029): the body does not run,
     /// and no output is known.
@@ -98,8 +102,9 @@ pub enum EffectOpened {
         #[schemars(extend("arrived_in" = "0.1"))]
         reconciled_by: String,
         /// When they answered.
-        #[schemars(extend("arrived_in" = "0.1"))]
-        reconciled_at: PointInTime,
+        #[serde(with = "crate::point_in_time")]
+        #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+        reconciled_at: SystemTime,
     },
 }
 
@@ -148,8 +153,9 @@ pub enum EffectClosed {
     /// again under its key, and the SDK answers `performed`.
     Done {
         /// When it was performed.
-        #[schemars(extend("arrived_in" = "0.1"))]
-        performed_at: PointInTime,
+        #[serde(with = "crate::point_in_time")]
+        #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+        performed_at: SystemTime,
     },
     /// The body did not return, and nothing was sent or the Effect is
     /// repeatable: the entry is dropped, the SDK propagates the body's
@@ -340,7 +346,6 @@ mod tests {
     use serde_json::json;
 
     use super::{EffectClosed, EffectOpened, EffectOutcome};
-    use crate::run::PointInTime;
 
     /// The answers are tagged by what they are, so an SDK narrows them by
     /// one field (ADR 0106's `source`).
@@ -348,11 +353,11 @@ mod tests {
     /// Covers: operation:effect.open, operation:effect.close
     #[test]
     fn the_answers_are_tagged() {
-        let at = PointInTime::from_rfc3339("2026-11-17T00:00:00Z".to_owned());
+        let at = crate::point_in_time::from_rfc3339("2026-11-17T00:00:00Z").unwrap();
         assert_eq!(
             serde_json::to_value(EffectOpened::Journal {
                 output: Some(json!({"order": 1})),
-                performed_at: at.clone(),
+                performed_at: at,
             })
             .unwrap(),
             json!({"answer": "journal", "output": {"order": 1}, "performed_at": "2026-11-17T00:00:00Z"})

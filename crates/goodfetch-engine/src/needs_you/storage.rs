@@ -13,6 +13,7 @@ use goodfetch_protocol::storage::StorageLevel;
 use serde_json::{Map, Value, json};
 
 use super::{Answering, Changes, NeedsYouSource, Primitives, SourceContext, SourceError};
+use crate::clock;
 
 /// Each filesystem at `low` or `critical`, with its folder.
 pub fn levels() -> NeedsYouSource {
@@ -113,10 +114,7 @@ fn stopped(row: &RunIndexRow) -> NeedsYouItem {
         }) => folder.clone(),
         _ => None,
     };
-    let since = row
-        .ended_at
-        .clone()
-        .unwrap_or_else(|| row.started_at.clone());
+    let since = row.ended_at.unwrap_or(row.started_at);
     let run_id = row.run_id.as_str();
     let summary = match &folder {
         Some(folder) => format!(
@@ -127,7 +125,10 @@ fn stopped(row: &RunIndexRow) -> NeedsYouItem {
         ),
     };
     NeedsYouItem {
-        id: format!("{RUN_STOPPED_BY_STORAGE}:{run_id}:{}", since.as_str()),
+        id: format!(
+            "{RUN_STOPPED_BY_STORAGE}:{run_id}:{}",
+            clock::rfc3339(since)
+        ),
         kind: RUN_STOPPED_BY_STORAGE.to_owned(),
         since,
         run: Some(row.run_id.clone()),

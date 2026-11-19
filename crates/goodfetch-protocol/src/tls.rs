@@ -14,6 +14,9 @@
 //! person's answers, offered only in an interactive CLI prompt (ADRs 0011
 //! and 0042).
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -22,7 +25,7 @@ use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
     ProtocolVersion, Reach, Setting, Stability, ValueKind, ValueShape, schema_of,
 };
-use crate::run::{PointInTime, RunId};
+use crate::run::RunId;
 use crate::secret_reference::{REFERENCE_PATTERN, SecretReference};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -269,9 +272,13 @@ pub struct CertificatePin {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub spki_sha256: Option<String>,
     /// When it was pinned; none when the row cannot be read.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub pinned_at: Option<PointInTime>,
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub pinned_at: Option<SystemTime>,
     /// The Run whose connection pinned it; none outside a Run or when the
     /// row cannot be read.
     #[serde(default, skip_serializing_if = "Option::is_none")]

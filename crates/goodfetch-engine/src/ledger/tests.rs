@@ -9,13 +9,14 @@
     reason = "a test's own statements, on no Shared path (ADR 0140)"
 )]
 
+use goodfetch_protocol::point_in_time;
 use std::collections::BTreeMap;
 
 use goodfetch_counted_work::{CountedWork, Row as CountedRow};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::run::LimitSetter;
-use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, PointInTime, ReachedLimit};
+use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, ReachedLimit};
 use goodfetch_protocol::usage::{Limit, LimitStanding};
 use goodfetch_test_support::{TestEnv, damage_table, wal_of};
 use jiff::Timestamp;
@@ -291,7 +292,7 @@ fn a_new_run_is_refused_once_a_period_limit_has_nothing_left_until_its_next_peri
                 usage_kind: "requests".to_owned(),
                 currency: None,
                 period: Some(paris_day),
-                resets_at: Some(PointInTime::from_rfc3339("2026-03-10T23:00:00Z".to_owned())),
+                resets_at: Some(point_in_time::from_rfc3339("2026-03-10T23:00:00Z").unwrap()),
             }))),
             Ok(())
         )

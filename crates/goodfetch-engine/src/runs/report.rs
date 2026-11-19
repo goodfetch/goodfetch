@@ -8,12 +8,13 @@
 //! is the one answered.
 
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use goodfetch_protocol::page::proxy::ProxyKind;
 use goodfetch_protocol::run::completeness::{FAILED, STOPPED};
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, KindUsage, Lifecycle,
-    NothingDone, PointInTime, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
+    NothingDone, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
     UNCERTAIN_EFFECTS, UsageAmount, Verdict,
 };
 use goodfetch_protocol::settings::{ExplainedSetting, WeakenedSetting};
@@ -50,8 +51,8 @@ pub(super) struct EndFacts {
     pub(super) run_id: RunId,
     pub(super) lifecycle: Lifecycle,
     pub(super) stop_reason: Option<StopReason>,
-    pub(super) started_at: PointInTime,
-    pub(super) ended_at: PointInTime,
+    pub(super) started_at: SystemTime,
+    pub(super) ended_at: SystemTime,
     pub(super) policy_version: Option<String>,
     pub(super) weakened: Vec<WeakenedSetting>,
     pub(super) settings: Option<Vec<ExplainedSetting>>,

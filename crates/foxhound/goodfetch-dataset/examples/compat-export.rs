@@ -12,6 +12,7 @@
     reason = "a synchronous corpus writer that writes files (ADR 0066)"
 )]
 
+use goodfetch_protocol::point_in_time;
 use std::path::{Path, PathBuf};
 
 use goodfetch_dataset::{Committing, Datasets, ExportOptions, TABLES, commit, write_export};
@@ -20,7 +21,6 @@ use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
 use goodfetch_protocol::foxhound::export::{ExportCompression, ExportFormat};
 use goodfetch_protocol::foxhound::provenance::{RecordProvenance, WallKind, WallMarker};
-use goodfetch_protocol::run::PointInTime;
 use goodfetch_test_support::unicode_record;
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
@@ -70,7 +70,7 @@ fn committed() -> Connection {
         unicode,
         json!({ "title": "Ünïcode", "price": null, "in_stock": false, "tags": [] }),
     ];
-    let at = PointInTime::from_rfc3339(START.to_owned());
+    let at = point_in_time::from_rfc3339(START).unwrap();
     for (request, value) in values.into_iter().enumerate() {
         let checked = datasets
             .check(

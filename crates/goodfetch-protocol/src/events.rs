@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::catalog::{
-    Entries, Event, EventClass, Operation, OperationClass, OperationKind, ProtocolVersion, Reach,
-    Stability, schema_of,
+    Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Operation, OperationClass,
+    OperationKind, ProtocolVersion, Reach, Stability, schema_of,
 };
 use crate::connection::EngineInstance;
 use crate::governor::SYSTEM_INFO;
@@ -193,13 +193,24 @@ pub const EVENTS_SUBSCRIBE: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// A program's listener that threw (ADR 0081), raised by the SDK runtime
+/// itself, as `closed` is.
+pub const LISTENER_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "listener_failed",
+    description: "A listener the program registered with `on` threw, or its awaitable failed, so the SDK removed it. Raised once, by the next call on the value it listened to, which is not sent and leaves the value open, or by the `close()` that closes that value, its own or one above it, after closing it; when the value is released first, the SDK logs it at error instead. Its details name the event, and its cause is the listener's exception: fix the listener and listen again.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[EVENTS_SUBSCRIBE],
     events: &[RESYNC],
     handler_requests: &[],
-    error_codes: &[],
+    error_codes: &[LISTENER_FAILED],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[],

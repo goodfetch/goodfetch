@@ -6,10 +6,16 @@
 // by its Client, resumable by its Run ID. Any other call on a closed Run
 // fails with `closed`. A Product's package also builds, with `pageOf`, the
 // page the engine lends a handler of the Run for one attempt, and fails its
-// own Run type's calls on a closed Run with `ensureRunOpen`.
+// own Run type's calls on a closed Run with `ensureRunOpen`. A listener a
+// program registers on a value (ADR 0081) that throws is removed, and its
+// failure waits in the Run for the next call on that value, or the `close()`
+// that closes it, to raise `listener_failed`; a value released first logs it.
 import type { CallOptions, Caller, OperationTypes } from "./caller.ts";
+import type { Stream } from "./client-connection.ts";
 import {
+  CallCancelledError,
   ClosedError,
+  ListenerFailedError,
   Run as RunMembers,
   type CollieOperationTypes,
   type PageId,
@@ -17,9 +23,12 @@ import {
   type StartedAs,
 } from "./generated/index.ts";
 import { Page } from "./generated/handles.ts";
-import type { HandleHost } from "./handle.ts";
+import type { HandleHost, Listener, Subscription } from "./handle.ts";
 import { KeyValueStore, type KeyValueStoreHost } from "./key-value-store.ts";
+import { subscribe } from "./listeners.ts";
+import type { Logger } from "./logger.ts";
 import { holdInRealm } from "./realm.ts";
+import type { ChannelOpenOptions } from "./rpc.ts";
 
 /** What a Run reaches its engine through: its Connection. */
 export interface RunHost {
@@ -27,16 +36,31 @@ export interface RunHost {
   readonly calls: Caller<CollieOperationTypes>;
   /** Whether the Connection can still reach the engine. */
   reachable(): boolean;
+  /** Sends a call the engine streams to, such as a listener's `on`. */
+  stream(method: string, params: unknown, options: ChannelOpenOptions): Stream;
   /** Forgets a closed Run. */
   forget(run: Run): void;
   /** Its Key-value store's calls. */
   readonly keyValueStore: KeyValueStoreHost;
+  /** The host's logger, which gets a failed listener its value never raised. */
+  readonly logger: Logger | undefined;
 }
 
-/** What a Run and the calls made through it share: its ID and where it stands. */
+/** What the handles of a Run reach the engine through: its host's calls, streams and logger. */
+type HandlesHost = Pick<RunHost, "calls" | "stream" | "logger">;
+
+/** A listener that threw, which `listener_failed` has not yet raised. */
+interface ListenerFailure {
+  /** The value it listened to. */
+  readonly value: ValueScope | undefined;
+  readonly error: ListenerFailedError;
+}
+
+/** What a Run and the calls made through it share: its ID, where it stands, and its listeners that failed. */
 interface RunScope {
   readonly id: string;
   state: "running" | "ended" | "closed";
+  readonly failures: ListenerFailure[];
 }
 
 /** A value a program holds under a Run: a Session, a page, or a Locator built on one. */
@@ -47,6 +71,15 @@ interface ValueScope {
   closed: boolean;
   /** Its `close` in flight. */
   closing: Promise<void> | undefined;
+  /** Whether its handle is watched for release, which a listener on it asks for. */
+  watched: boolean;
+  /** Whether its program released its handle: a listener of it that throws then is logged at once. */
+  released: boolean;
+}
+
+/** A value a Run, or `parent`, opens or builds. */
+function valueIn(parent: ValueScope | undefined): ValueScope {
+  return { parent, closed: false, closing: undefined, watched: false, released: false };
 }
 
 function ensureOpen(scope: RunScope, operation: string): void {
@@ -68,6 +101,80 @@ function isClosed(value: ValueScope | undefined): boolean {
   return false;
 }
 
+/** Whether `value` is `within`, or a value `within` opened or built. */
+function isWithin(value: ValueScope | undefined, within: ValueScope | undefined): boolean {
+  if (within === undefined) return true;
+  for (let held = value; held !== undefined; held = held.parent) {
+    if (held === within) return true;
+  }
+  return false;
+}
+
+/** Takes from `run` the failed listeners `which` picks. */
+function takeFailures(
+  run: RunScope,
+  which: (failure: ListenerFailure) => boolean,
+): ListenerFailedError[] {
+  const taken = run.failures.filter(which);
+  const kept = run.failures.filter((failure) => !which(failure));
+  run.failures.splice(0, run.failures.length, ...kept);
+  return taken.map((failure) => failure.error);
+}
+
+/** Logs `message` at error level; a logger that throws loses it, since the SDK has nowhere else to say so. */
+function logError(
+  logger: Logger | undefined,
+  message: string,
+  fields: Record<string, unknown>,
+): void {
+  try {
+    logger?.error(message, fields);
+  } catch {
+    // Nowhere else to say it.
+  }
+}
+
+/** Logs each of `errors` at error level. */
+function logFailures(logger: Logger | undefined, errors: readonly ListenerFailedError[]): void {
+  for (const error of errors) {
+    logError(logger, error.message, {
+      code: error.code,
+      details: error.details,
+      cause: error.cause,
+    });
+  }
+}
+
+/**
+ * Raises the first failed listener of `value` or of a value it opened or
+ * built, once `value` is closed (ADR 0081), and logs the others, which no
+ * later call on a closed value could raise.
+ */
+function raiseFailuresWithin(
+  run: RunScope,
+  value: ValueScope | undefined,
+  logger: Logger | undefined,
+): void {
+  const [first, ...rest] = takeFailures(run, (failure) => isWithin(failure.value, value));
+  logFailures(logger, rest);
+  if (first !== undefined) {
+    throw first;
+  }
+}
+
+/** Logs a failed listener of `value` that nothing raised, once its handle is released (ADR 0081). */
+const released = new FinalizationRegistry<{
+  readonly run: RunScope;
+  readonly value: ValueScope;
+  readonly logger: Logger | undefined;
+}>(({ run, value, logger }) => {
+  value.released = true;
+  logFailures(
+    logger,
+    takeFailures(run, (failure) => failure.value === value),
+  );
+});
+
 /** Whether `result` is an answer that says its Run is no longer running. */
 function saysEnded(result: unknown): boolean {
   return (
@@ -86,33 +193,46 @@ function saysEnded(result: unknown): boolean {
  * says when the Run ended.
  */
 function hostIn<Id>(
-  calls: Caller<CollieOperationTypes>,
+  reach: HandlesHost,
   run: RunScope,
   value: ValueScope | undefined,
   id: Id,
 ): HandleHost<Id, CollieOperationTypes> {
-  return {
+  const { calls } = reach;
+  // A call on `value` is sent only once nothing stops it: a closed Run or
+  // value, or a listener that threw of `value` or of the value that opened
+  // or built it, which it raises in place.
+  const ensureCallable = (operation: string): void => {
+    ensureOpen(run, operation);
+    if (isClosed(value)) {
+      throw new ClosedError(
+        `${operation}: the value it is called on is closed, or the one that opened it is`,
+        { fix: "Open another from its Run: a closed value never reopens." },
+      );
+    }
+    const [failed] = takeFailures(
+      run,
+      (failure) => failure.value !== undefined && isWithin(value, failure.value),
+    );
+    if (failed !== undefined) {
+      throw failed;
+    }
+  };
+  const host: HandleHost<Id, CollieOperationTypes> = {
     id,
     async call<Name extends keyof CollieOperationTypes>(
       operation: Name,
       params: CollieOperationTypes[Name]["params"],
       options: CallOptions,
     ): Promise<CollieOperationTypes[Name]["result"]> {
-      ensureOpen(run, operation);
-      if (isClosed(value)) {
-        throw new ClosedError(
-          `${operation}: the value it is called on is closed, or the one that opened it is`,
-          { fix: "Open another from its Run: a closed value never reopens." },
-        );
-      }
+      ensureCallable(operation);
       const result = await calls.call(operation, params, options);
       if (value === undefined && run.state === "running" && saysEnded(result)) {
         run.state = "ended";
       }
       return result;
     },
-    child: <ChildId>(childId: ChildId) =>
-      hostIn(calls, run, { parent: value, closed: false, closing: undefined }, childId),
+    child: <ChildId>(childId: ChildId) => hostIn(reach, run, valueIn(value), childId),
     async close<Name extends keyof CollieOperationTypes>(
       operation: Name,
       params: CollieOperationTypes[Name]["params"],
@@ -138,8 +258,55 @@ function hostIn<Id>(
         value.closing = undefined;
         throw error;
       }
+      raiseFailuresWithin(run, value, reach.logger);
+    },
+    listen<Name extends keyof CollieOperationTypes, Payload>(
+      operation: Name,
+      params: CollieOperationTypes[Name]["params"],
+      event: string,
+      listener: Listener<Payload>,
+    ): Subscription {
+      ensureCallable(operation);
+      if (value !== undefined && !value.watched) {
+        value.watched = true;
+        released.register(host, { run, value, logger: reach.logger });
+      }
+      return subscribe((options) => reach.stream(operation, params, options), {
+        event,
+        listener,
+        failed: (cause) => {
+          const error = new ListenerFailedError(
+            `${operation}: the listener of \`${event}\` threw, so it was removed`,
+            {
+              fix: "Fix the listener, then listen again with `on`.",
+              details: { event },
+              cause,
+            },
+          );
+          // Released first, nothing could raise it: it is logged.
+          if (value?.released === true) {
+            logFailures(reach.logger, [error]);
+          } else {
+            run.failures.push({ value, error });
+          }
+        },
+        // A call its Connection's close cancelled, or that stopped as its
+        // value closed (a handler's attempt ending), ended with everything
+        // else; any other error, such as `page_events_lost`, ended this
+        // listener alone, and nothing else would say so.
+        ended: (error) => {
+          if (error instanceof CallCancelledError || error instanceof ClosedError) {
+            return;
+          }
+          logError(reach.logger, `${operation}: the listener of \`${event}\` stopped`, {
+            event,
+            error,
+          });
+        },
+      });
     },
   };
+  return host;
 }
 
 /** `calls`, each of which also stops when `signal` aborts. */
@@ -190,9 +357,18 @@ export class Run extends RunMembers implements AsyncDisposable {
     pageIn = (run, pageId, signal) =>
       new Page(
         hostIn(
-          signalled(run.#host.calls, signal),
+          {
+            calls: signalled(run.#host.calls, signal),
+            stream: (method, params, options) =>
+              run.#host.stream(method, params, {
+                ...options,
+                signal:
+                  options.signal === undefined ? signal : AbortSignal.any([options.signal, signal]),
+              }),
+            logger: run.#host.logger,
+          },
           run.#scope,
-          { parent: undefined, closed: false, closing: undefined },
+          valueIn(undefined),
           pageId,
         ),
       );
@@ -210,8 +386,9 @@ export class Run extends RunMembers implements AsyncDisposable {
     const scope: RunScope = {
       id: started.run_id,
       state: started.lifecycle === "running" ? "running" : "ended",
+      failures: [],
     };
-    super(hostIn(host.calls, scope, undefined, started.run_id));
+    super(hostIn(host, scope, undefined, started.run_id));
     this.#host = host;
     this.#scope = scope;
     this.#startedAs = started.started_as;
@@ -234,11 +411,15 @@ export class Run extends RunMembers implements AsyncDisposable {
   /**
    * Closes the Run's value; idempotent. A Run still running is stopped
    * first, `stopped` and `incomplete` as an abort by its Client, and can be
-   * resumed by starting its Run ID again.
+   * resumed by starting its Run ID again. A listener of one of its values
+   * that threw and that nothing raised yet is raised then, as
+   * `listener_failed`, once the Run is closed.
    */
-  close(): Promise<void> {
+  async close(): Promise<void> {
     this.#closing ??= this.#close();
-    return this.#closing;
+    await this.#closing;
+    // After the close, so each failure is raised once, by whichever close takes it.
+    raiseFailuresWithin(this.#scope, undefined, this.#host.logger);
   }
 
   async [Symbol.asyncDispose](): Promise<void> {

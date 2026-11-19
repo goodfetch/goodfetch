@@ -2,7 +2,7 @@
 //! [`PAID_FETCHES`], the Usage kind only Foxhound counts, caps the
 //! connection at connect and a Run at its start, a price in millionths.
 
-use goodfetch_collie::linked::{Composed, LinkedConnection};
+use goodfetch_collie::linked::{Composed, ProductConnection};
 use goodfetch_foxhound::{Limits, Money, PAID_FETCHES};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::usage::{USAGE_LIST, UsageListParams, UsageListResult};
@@ -21,7 +21,7 @@ fn paid_fetches_cap_a_foxhound_connection_and_its_run() {
     let connect = Limits::new().count(PAID_FETCHES, 3);
     let run = Limits::new().price(PAID_FETCHES, Money::new("0.25", "USD").unwrap());
     real_time_runtime().block_on(async {
-        let linked = LinkedConnection::connect(engine, options(&env).limits(connect))
+        let linked = ProductConnection::connect(engine, options(&env).limits(connect))
             .await
             .unwrap();
 

@@ -38,17 +38,26 @@ from goodfetch_collie_client.generated.operations import (
 )
 from goodfetch_collie_client.handle import Subscription
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
+from goodfetch_collie_client.key_value_store import (
+    KEYS,
+    AsyncKeyValueStore,
+    KeyValueStore,
+    key_of,
+    keys_params,
+)
 from goodfetch_collie_client.listeners import (
     Listening,
     Order,
     Streams,
     Subscribed,
+    spawner,
     subscribe,
     subscribe_published,
 )
 from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.once import Once
 from goodfetch_collie_client.portal import LoopStopped
+from goodfetch_collie_client.sequence import AsyncSequence, Reading, Sequence
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
@@ -71,6 +80,7 @@ _Id = TypeVar("_Id")
 _ChildId = TypeVar("_ChildId")
 _Model = TypeVar("_Model", bound="BaseModel")
 _Result = TypeVar("_Result")
+_Item = TypeVar("_Item")
 
 _logger = logging.getLogger(CLIENT_LOGGER)
 
@@ -372,6 +382,25 @@ class _AsyncHost(Generic[_Id]):
             self.run.state = "ended"
         return result
 
+    def read(
+        self,
+        operation: str,
+        params: Mapping[str, object],
+        item_of: Callable[[str, object], _Item | None],
+    ) -> AsyncSequence[_Item]:
+        """Sends the Sequence `operation`, after what came before, as an iterator.
+
+        Raises:
+            ClosedError: The Run, the value or a value above it is closed.
+            ListenerFailedError: A listener of the value, or above it, threw.
+            RuntimeError: No asyncio or Trio loop runs on this thread.
+        """
+        self._ensure_callable(operation)
+        spawn = spawner()
+        reading = Reading(self._connection, operation, params, item_of, self.run.order)
+        spawn(reading.run)
+        return AsyncSequence(reading)
+
     def child(self, id: _ChildId) -> AsyncHandleHost[_ChildId]:
         """The host of a handle this one opens or builds, whose calls carry `id`."""
         return self.child_host(id)
@@ -564,6 +593,29 @@ class _SyncHost(Generic[_Id]):
             # Its Connection closed the Run before stopping the loop.
             raise self._host.run.closed_error(operation) from None
 
+    def read(
+        self,
+        operation: str,
+        params: Mapping[str, object],
+        item_of: Callable[[str, object], _Item | None],
+    ) -> Sequence[_Item]:
+        """Sends the Sequence `operation` on the private loop, as an iterator.
+
+        Any thread may read the iterator.
+        """
+
+        async def reading() -> AsyncSequence[_Item]:
+            return self._host.read(operation, params, item_of)
+
+        try:
+            sequence = self._loop.call(reading)
+        except LoopStopped:
+            # Its Connection closed the Run before stopping the loop.
+            raise self._host.run.closed_error(operation) from None
+        return Sequence(
+            self._loop, sequence, lambda: self._host.run.closed_error(operation)
+        )
+
     def child(self, id: _ChildId) -> HandleHost[_ChildId]:
         """The host of a handle this one opens or builds, whose calls carry `id`."""
         return _SyncHost(self._loop, self._host.child_host(id))
@@ -671,6 +723,10 @@ class AsyncRun(AsyncRunMembers):
         self._scope = scope
         self._started_as = started.started_as
         self._closing = Once()
+        self.key_value_store = AsyncKeyValueStore(
+            lambda prefix: host.read(KEYS, keys_params(self.id, prefix), key_of)
+        )
+        """Its Key-value store (ADR 0103)."""
 
     @property
     def id(self) -> str:
@@ -732,9 +788,14 @@ class Run(RunMembers):
 
     def __init__(self, loop: PrivateLoop, run: AsyncRun) -> None:
         """Takes its Connection's private loop and the Run it drives there."""
-        super().__init__(_SyncHost(loop, _hosts[run]))
+        host = _SyncHost(loop, _hosts[run])
+        super().__init__(host)
         self._loop = loop
         self._run = run
+        self.key_value_store = KeyValueStore(
+            lambda prefix: host.read(KEYS, keys_params(run.id, prefix), key_of)
+        )
+        """Its Key-value store (ADR 0103)."""
 
     @property
     def id(self) -> str:

@@ -5,8 +5,8 @@
 //! Nothing here enters a runtime, so it works inside one too, where it
 //! blocks only the thread that calls it.
 
-use goodfetch_collie::ConnectOptions;
-use goodfetch_collie::linked::LinkedConnection;
+use goodfetch_collie::linked::ProductConnection;
+use goodfetch_collie::{ConnectOptions, EngineInfo};
 use goodfetch_collie_client::{Error, blocking};
 
 pub use goodfetch_collie_client::blocking::{
@@ -37,7 +37,7 @@ use crate::foxhound::ENGINE;
 /// ```
 #[derive(Clone, Debug)]
 pub struct Foxhound {
-    linked: LinkedConnection,
+    linked: ProductConnection,
     connection: blocking::ClientConnection,
 }
 
@@ -50,11 +50,17 @@ impl Foxhound {
     ///
     /// As [`crate::Foxhound::connect`].
     pub fn connect(options: ConnectOptions) -> Result<Self, Error> {
-        let linked = LinkedConnection::connect_blocking(ENGINE, options)?;
+        let linked = ProductConnection::connect_blocking(ENGINE, options)?;
         Ok(Self {
             connection: blocking::ClientConnection::from(linked.connection().clone()),
             linked,
         })
+    }
+
+    /// The engine the connection reached, as [`crate::Foxhound::engine`]
+    /// reports it.
+    pub fn engine(&self) -> &EngineInfo {
+        self.linked.engine()
     }
 
     /// The start of a Run the program drives (`run.start`), which `send()`

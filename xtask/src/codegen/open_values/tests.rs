@@ -118,10 +118,13 @@ fn a_tagged_union_marked_open_gives_its_tag_and_its_members_in_order() {
     );
 }
 
-#[test]
-fn a_tagged_union_not_marked_open_and_an_open_enumeration_are_no_open_union() {
-    assert!(OpenUnion::of(&stop_reason(false)).is_none());
-    assert!(OpenUnion::of(&verdict(true)).is_none());
+#[rstest::rstest]
+#[case::a_tagged_union_not_marked_open(stop_reason(false))]
+#[case::an_open_enumeration(verdict(true))]
+fn is_no_open_union(#[case] schema: serde_json::Value) {
+    let union = OpenUnion::of(&schema);
+
+    assert!(union.is_none());
 }
 
 #[test]
@@ -164,17 +167,22 @@ fn python_builds_the_unknown_member_on_the_runtimes_base() {
     );
 }
 
-#[test]
-fn an_open_union_that_already_names_a_member_unknown_or_a_field_tag_is_refused() {
-    let mut named_unknown = stop_reason(true);
-    named_unknown["oneOf"][1]["properties"]["kind"]["const"] = json!("unknown");
-    let mut field_tag = stop_reason(true);
-    field_tag["oneOf"][0]["properties"]["tag"] = json!({ "type": "string" });
+#[rstest::rstest]
+#[case::a_member_named_unknown("/oneOf/1/properties", "kind", json!({ "const": "unknown" }))]
+#[case::a_member_with_a_field_tag("/oneOf/0/properties", "tag", json!({ "type": "string" }))]
+#[case::a_field_tag_every_member_shares("", "properties", json!({ "tag": { "type": "string" } }))]
+fn an_open_union_whose_unknown_member_would_collide_is_refused(
+    #[case] parent: &str,
+    #[case] key: &str,
+    #[case] value: serde_json::Value,
+) {
+    let mut schema = stop_reason(true);
+    schema.pointer_mut(parent).unwrap()[key] = value;
+    let mut input = json!({ "$defs": { "StopReason": schema } });
 
-    for schema in [named_unknown, field_tag] {
-        let mut input = json!({ "$defs": { "StopReason": schema } });
-        assert!(super::unknown_members(&mut input, None).is_err());
-    }
+    let refused = super::unknown_members(&mut input, None);
+
+    assert!(refused.is_err());
 }
 
 #[test]

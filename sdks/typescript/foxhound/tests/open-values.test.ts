@@ -3,8 +3,8 @@
 // know reads as the string the engine sent, typed by its open enumeration,
 // a member of an open tagged union it does not know reads as its `unknown`
 // member with the tag it received, and an unknown Verdict is never
-// `verified`. Foxhound's values of a type
-// both Products share reach a Collie program the same way (ADR 0095).
+// `verified`. Foxhound's values of a type both Products share reach a Collie
+// program the same way (ADR 0095).
 import type {
   LimitScope as CollieLimitScope,
   UsageKind as CollieUsageKind,
@@ -49,7 +49,7 @@ describe("a value a newer engine adds", () => {
     });
   });
 
-  test("in a tagged union reads as its `unknown` member, keeping the tag and the rest", () => {
+  test("in an outcome reads as its `unknown` member, the fields every outcome shares read and the rest as sent", () => {
     const sent = {
       outcomes: [
         {
@@ -67,12 +67,10 @@ describe("a value a newer engine adds", () => {
         },
       ],
     };
-    const report = { run_id: "run-1", stop_reason: { kind: "a_newer_reason", by_whom: "x" } };
 
-    const outcomes = fromWire(sent, foxhoundWire.results["run.outcomes"], foxhoundWire.types);
-    const read = fromWire(report, { type: "CrawlRunReport" }, foxhoundWire.types);
+    const read = fromWire(sent, foxhoundWire.results["run.outcomes"], foxhoundWire.types);
 
-    expect(outcomes).toStrictEqual({
+    expect(read).toStrictEqual({
       outcomes: [
         {
           kind: "unknown",
@@ -90,9 +88,24 @@ describe("a value a newer engine adds", () => {
         },
       ],
     });
+  });
+
+  test("in a Collie union a Foxhound result holds reads as its `unknown` member", () => {
+    const report = {
+      run_id: "run-1",
+      stop_reason: { kind: "a_newer_reason", by_whom: "x", resets_at: "2026-11-19T08:00:00Z" },
+    };
+
+    const read = fromWire(report, { type: "CrawlRunReport" }, foxhoundWire.types);
+
     expect(read).toStrictEqual({
       runId: "run-1",
-      stopReason: { kind: "unknown", tag: "a_newer_reason", by_whom: "x" },
+      stopReason: {
+        kind: "unknown",
+        tag: "a_newer_reason",
+        by_whom: "x",
+        resets_at: "2026-11-19T08:00:00Z",
+      },
     });
   });
 

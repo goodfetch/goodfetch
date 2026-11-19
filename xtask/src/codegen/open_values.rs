@@ -78,9 +78,9 @@ pub(super) struct OpenUnion {
     pub(super) known: Vec<String>,
 }
 
-/// The member a member the SDK does not know reads as, and the field that
-/// keeps the tag it was sent.
+/// The tag of the member a member the SDK does not know reads as.
 const UNKNOWN: &str = "unknown";
+/// The field of the `unknown` member that keeps the tag it was sent.
 const TAG: &str = "tag";
 
 impl OpenUnion {
@@ -135,11 +135,11 @@ impl OpenUnion {
     }
 
     /// Its `unknown` member: the tag `unknown`, the tag it was sent in
-    /// `tag`, and any other field as sent; built on `base` where the layer
-    /// names one.
+    /// `tag`, the fields every member shares, and any other field as sent;
+    /// built on `base` where the layer names one.
     fn unknown_member(&self, base: Option<&str>) -> Value {
         let mut member = json!({
-            "description": "A member this package does not know, which a newer engine may send: the tag it was sent in `tag`, and what else it carries as sent (ADR 0079).",
+            "description": "A member this package does not know, which a newer engine may send: the tag it was sent in `tag`, the fields every member shares, and what else it carries as sent (ADR 0079).",
             "type": "object",
             "properties": {
                 (self.tag.clone()): { "const": UNKNOWN, "type": "string" },
@@ -172,28 +172,22 @@ pub(super) fn unknown_members(input: &mut Value, base: Option<&str>) -> Result<(
         let Some(union) = OpenUnion::of(schema) else {
             bail!("`{name}` is marked open but is neither an enumeration nor a tagged union");
         };
-        if union.tag == TAG || union.known.iter().any(|known| known == UNKNOWN) {
-            bail!("the open union `{name}` already uses the member `{UNKNOWN}` or the tag `{TAG}`");
-        }
+        // A union tagged by `tag` has the field in each member.
         let field = format!("/properties/{TAG}");
-        if schema.pointer(&field).is_some() {
+        let members = schema.get("oneOf").and_then(Value::as_array);
+        let has_field = std::iter::once(&*schema)
+            .chain(members.into_iter().flatten())
+            .any(|schema| schema.pointer(&field).is_some());
+        if has_field || union.known.iter().any(|known| known == UNKNOWN) {
             bail!(
-                "the open union `{name}` has a field `{TAG}`, which its `unknown` member keeps the tag in"
+                "the open union `{name}` already has the member `{UNKNOWN}` or a field `{TAG}`, which its `unknown` member needs"
             );
         }
-        let members = schema
+        schema
             .get_mut("oneOf")
             .and_then(Value::as_array_mut)
-            .expect("invariant: an open union has a `oneOf`");
-        if members
-            .iter()
-            .any(|member| member.pointer(&field).is_some())
-        {
-            bail!(
-                "a member of the open union `{name}` has a field `{TAG}`, which its `unknown` member keeps the tag in"
-            );
-        }
-        members.push(union.unknown_member(base));
+            .expect("invariant: an open union has a `oneOf`")
+            .push(union.unknown_member(base));
     }
     Ok(())
 }

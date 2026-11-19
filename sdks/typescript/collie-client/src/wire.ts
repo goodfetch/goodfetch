@@ -29,12 +29,14 @@ export type WirePath =
 
 /**
  * An open tagged union (ADR 0079): the field that tags it, the tag of each
- * member the table knows, and where its members hold something.
+ * member the table knows, where its members hold something, and where the
+ * fields every member shares do, by which a member it does not know is read.
  */
 export interface WireUnion {
   readonly tag: string;
   readonly known: readonly string[];
   readonly path?: WirePath;
+  readonly common?: WirePath;
 }
 
 /**
@@ -178,7 +180,7 @@ export function fromWire(value: unknown, path: WirePath | undefined, types: Wire
     return fromWire(value, named(path, types), types);
   }
   if ("union" in path) {
-    return asMember(value, fromWire(value, path.union.path, types), path.union);
+    return readMember(value, path.union, types);
   }
   if ("items" in path) {
     return Array.isArray(value)
@@ -206,16 +208,18 @@ export function fromWire(value: unknown, path: WirePath | undefined, types: Wire
 }
 
 /**
- * `read`, the value `sent` read, as its union's `unknown` member when `sent`
- * is tagged by a member the table does not know: the tag `unknown`, the tag
- * it was sent in `tag`, and the rest as read.
+ * A member of an open tagged union, read as its members are, or as the
+ * union's `unknown` member when its tag names a member the table does not
+ * know: the tag `unknown`, the tag it was sent in `tag`, the fields every
+ * member shares read, and the rest as sent.
  */
-function asMember(sent: unknown, read: unknown, union: WireUnion): unknown {
-  if (!isRecord(sent) || !isRecord(read) || !Object.hasOwn(sent, union.tag)) {
-    return read;
-  }
-  const tag = sent[union.tag];
+function readMember(sent: unknown, union: WireUnion, types: WireTypes): unknown {
+  const tag = isRecord(sent) && Object.hasOwn(sent, union.tag) ? sent[union.tag] : undefined;
   if (typeof tag !== "string" || union.known.includes(tag)) {
+    return fromWire(sent, union.path, types);
+  }
+  const read = fromWire(sent, union.common, types);
+  if (!isRecord(read)) {
     return read;
   }
   const member: Record<string, unknown> = {};

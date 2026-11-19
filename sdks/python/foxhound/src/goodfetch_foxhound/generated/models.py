@@ -1874,7 +1874,7 @@ class CrawlRequestOutcome4(BaseModel):
 
 
 class CrawlRequestOutcome5(UnknownMember):
-    """A member this package does not know, which a newer engine may send: the tag it was sent in `tag`, and what else it carries as sent (ADR 0079)."""
+    """A member this package does not know, which a newer engine may send: the tag it was sent in `tag`, the fields every member shares, and what else it carries as sent (ADR 0079)."""
 
     model_config = ConfigDict(
         extra="allow",

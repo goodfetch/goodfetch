@@ -205,10 +205,11 @@ fn the_variants_of_a_union_merge_their_fields() {
 }
 
 #[test]
-fn an_open_union_names_its_tag_and_known_members_and_is_listed_even_when_it_holds_nothing_else() {
+fn an_open_union_names_its_tag_known_members_and_shared_fields_and_is_listed_even_when_it_holds_nothing_else()
+ {
     let defs = definitions(json!({
         "PointInTime": point_in_time(),
-        "Ending": { "open": true, "oneOf": [
+        "Ending": { "open": true, "properties": { "request_id": { "type": "string" } }, "oneOf": [
             { "type": "object", "properties": {
                 "kind": { "const": "failed" }, "ended_at": reference("PointInTime"),
             } },
@@ -222,11 +223,13 @@ fn an_open_union_names_its_tag_and_known_members_and_is_listed_even_when_it_hold
 
     let table = table_of(&defs, &[("run.report", "Report")]).unwrap();
 
-    let union = |known: &[&str], path: Option<WirePath>| WirePath::Union {
-        tag: "kind".to_owned(),
-        known: known.iter().map(|name| (*name).to_owned()).collect(),
-        path: path.map(Box::new),
-    };
+    let union =
+        |known: &[&str], path: Option<WirePath>, common: Option<WirePath>| WirePath::Union {
+            tag: "kind".to_owned(),
+            known: known.iter().map(|name| (*name).to_owned()).collect(),
+            path: path.map(Box::new),
+            common: common.map(Box::new),
+        };
     assert_eq!(
         table.types.into_iter().collect::<Vec<_>>(),
         [
@@ -234,18 +237,18 @@ fn an_open_union_names_its_tag_and_known_members_and_is_listed_even_when_it_hold
                 "Ending".to_owned(),
                 union(
                     &["failed", "skipped"],
-                    Some(fields(vec![field(
-                        "ended_at",
-                        "endedAt",
-                        Some(WirePath::Time)
-                    )]))
+                    Some(fields(vec![
+                        field("ended_at", "endedAt", Some(WirePath::Time)),
+                        field("request_id", "requestId", None),
+                    ])),
+                    Some(fields(vec![field("request_id", "requestId", None)]))
                 )
             ),
             (
                 "Report".to_owned(),
                 fields(vec![field("stop", "stop", Some(named("Stop")))])
             ),
-            ("Stop".to_owned(), union(&["pause"], None)),
+            ("Stop".to_owned(), union(&["pause"], None, None)),
         ]
     );
     assert_eq!(table.results.get("run.report"), Some(&named("Report")));
@@ -257,11 +260,12 @@ fn an_open_union_is_written_as_the_runtimes_union_path() {
         tag: "kind".to_owned(),
         known: vec!["pause".to_owned()],
         path: Some(Box::new(named("Pause"))),
+        common: Some(Box::new(named("Shared"))),
     };
 
     assert_eq!(
         super::path_value(&path),
-        r#"{ union: { tag: "kind", known: ["pause"], path: { type: "Pause" } } }"#
+        r#"{ union: { tag: "kind", known: ["pause"], path: { type: "Pause" }, common: { type: "Shared" } } }"#
     );
 }
 

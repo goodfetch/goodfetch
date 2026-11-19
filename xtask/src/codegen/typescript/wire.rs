@@ -75,11 +75,13 @@ pub(super) enum WirePath {
     /// Each value of the map.
     Values(Box<WirePath>),
     /// An open tagged union: the field that tags it, the members it knows,
-    /// and where its members hold something.
+    /// where its members hold something, and where the fields every member
+    /// shares do, which a member it does not know is read by.
     Union {
         tag: String,
         known: Vec<String>,
         path: Option<Box<WirePath>>,
+        common: Option<Box<WirePath>>,
     },
 }
 
@@ -112,7 +114,8 @@ enum Found {
     Union {
         tag: String,
         known: Vec<String>,
-        inner: Option<Box<Found>>,
+        path: Option<Box<Found>>,
+        common: Option<Box<Found>>,
     },
 }
 
@@ -138,10 +141,16 @@ impl Found {
             }
             Self::Items(found) => found.path().map(|path| WirePath::Items(Box::new(path))),
             Self::Values(found) => found.path().map(|path| WirePath::Values(Box::new(path))),
-            Self::Union { tag, known, inner } => Some(WirePath::Union {
+            Self::Union {
+                tag,
+                known,
+                path,
+                common,
+            } => Some(WirePath::Union {
                 tag: tag.clone(),
                 known: known.clone(),
-                path: inner.as_ref().and_then(|found| found.path()).map(Box::new),
+                path: path.as_ref().and_then(|found| found.path()).map(Box::new),
+                common: common.as_ref().and_then(|found| found.path()).map(Box::new),
             }),
         }
     }
@@ -258,12 +267,12 @@ impl<'a> Walk<'a> {
             Found::Type(name) => self.timed.contains(name),
             Found::Fields(fields) => fields.values().flatten().any(|found| self.timed(found)),
             Found::Items(found) | Found::Values(found) => self.timed(found),
-            Found::Union { inner, .. } => inner.as_ref().is_some_and(|found| self.timed(found)),
+            Found::Union { path, .. } => path.as_ref().is_some_and(|found| self.timed(found)),
         }
     }
 
-    /// What `schema` holds: an open tagged union with what its members
-    /// hold, or as `shape` finds.
+    /// What `schema` holds: an open tagged union with what its members hold
+    /// and what the fields they all share hold, or as `shape` finds.
     fn found(&self, schema: &Value) -> Result<Option<Found>> {
         let Some(OpenUnion { tag, known }) = OpenUnion::of(schema) else {
             return self.shape(schema);
@@ -271,10 +280,15 @@ impl<'a> Walk<'a> {
         if camel(&tag) != tag {
             bail!("the open union's tag `{tag}` is spelled otherwise in TypeScript");
         }
+        let mut shared = schema.clone();
+        if let Some(object) = shared.as_object_mut() {
+            object.remove("oneOf");
+        }
         Ok(Some(Found::Union {
             tag,
             known,
-            inner: self.shape(schema)?.map(Box::new),
+            path: self.shape(schema)?.map(Box::new),
+            common: self.shape(&shared)?.map(Box::new),
         }))
     }
 
@@ -582,16 +596,24 @@ pub(super) fn path_value(path: &WirePath) -> String {
         }
         WirePath::Items(path) => format!("{{ items: {} }}", path_value(path)),
         WirePath::Values(path) => format!("{{ values: {} }}", path_value(path)),
-        WirePath::Union { tag, known, path } => {
+        WirePath::Union {
+            tag,
+            known,
+            path,
+            common,
+        } => {
             let known: Vec<String> = known.iter().map(|name| literal(name)).collect();
-            let path = path
-                .as_ref()
-                .map(|path| format!(", path: {}", path_value(path)))
-                .unwrap_or_default();
+            let entry = |name: &str, path: &Option<Box<WirePath>>| {
+                path.as_ref()
+                    .map(|path| format!(", {name}: {}", path_value(path)))
+                    .unwrap_or_default()
+            };
             format!(
-                "{{ union: {{ tag: {}, known: [{}]{path} }} }}",
+                "{{ union: {{ tag: {}, known: [{}]{}{} }} }}",
                 literal(tag),
-                known.join(", ")
+                known.join(", "),
+                entry("path", path),
+                entry("common", common)
             )
         }
     }

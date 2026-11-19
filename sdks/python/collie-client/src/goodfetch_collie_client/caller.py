@@ -15,6 +15,7 @@ from typing import (
     Annotated,
     Any,
     Literal,
+    NamedTuple,
     Protocol,
     TypeGuard,
     TypeVar,
@@ -130,25 +131,41 @@ def _build_union(members: list[object]) -> _Build | None:
     builds = [(member, _build(member)) for member in members]
     if all(build is None for _, build in builds):
         return None
-    return partial(_build_one_of, builds)
+    return partial(_build_one_of, builds, _open_union(members))
 
 
 def _build_optional(build: _Build, value: object) -> object:
     return None if value is None else build(value)
 
 
-def _build_one_of(builds: list[tuple[object, _Build | None]], value: object) -> object:
+class _OpenUnion(NamedTuple):
+    """An open tagged union: its `unknown` member, its tag, its other members."""
+
+    unknown: type[UnknownMember]
+    tag: str
+    known: list[object]
+
+
+def _open_union(members: list[object]) -> _OpenUnion | None:
+    """The open union `members` make, when one of them is its `unknown` member."""
+    for member in members:
+        if (unknown := _unknown_member(member)) is not None:
+            known = [other for other in members if other is not member]
+            return _OpenUnion(*unknown, known)
+    return None
+
+
+def _build_one_of(
+    builds: list[tuple[object, _Build | None]],
+    union: _OpenUnion | None,
+    value: object,
+) -> object:
     for member, build in builds:
         if _matches(member, value):
             return value if build is None else build(value)
-    if not isinstance(value, dict):
+    if union is None or not isinstance(value, dict):
         return value
-    sent = cast("dict[str, object]", value)
-    for member, _ in builds:
-        if (unknown := _unknown_member(member)) is not None:
-            known = [other for other, _ in builds if other is not member]
-            return _build_unknown(*unknown, known, sent)
-    return sent
+    return _build_unknown(union, cast("dict[str, object]", value))
 
 
 def _unknown_member(member: object) -> tuple[type[UnknownMember], str] | None:
@@ -163,18 +180,18 @@ def _unknown_member(member: object) -> tuple[type[UnknownMember], str] | None:
     return None
 
 
-def _build_unknown(
-    member: type[UnknownMember], tag: str, known: list[object], value: dict[str, object]
-) -> object:
+def _build_unknown(union: _OpenUnion, value: dict[str, object]) -> object:
     """A member the SDK does not know as the `unknown` one, its tag in `tag`.
 
     A value tagged by a member it knows, which matched none for another
     reason, stays as sent, as any other value no declared type matches.
     """
-    sent = value.get(tag)
-    if not isinstance(sent, str) or any(_tagged(other, tag, sent) for other in known):
+    sent = value.get(union.tag)
+    if not isinstance(sent, str) or any(
+        _tagged(other, union.tag, sent) for other in union.known
+    ):
         return value
-    return _build_model(member, {**value, tag: "unknown", "tag": sent})
+    return _build_model(union.unknown, {**value, union.tag: "unknown", "tag": sent})
 
 
 def _tagged(member: object, tag: str, sent: str) -> bool:

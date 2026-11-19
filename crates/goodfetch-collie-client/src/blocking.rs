@@ -135,6 +135,15 @@ impl<T, P> Call<T, P> {
         }
     }
 
+    /// Changes the params before they are sent, or fails the call with
+    /// the error `edit` returns, as [`crate::Call`]'s does.
+    pub(crate) fn try_edit(self, edit: impl FnOnce(&mut P) -> Result<(), Error>) -> Self {
+        Self {
+            call: self.call.try_edit(edit),
+            ..self
+        }
+    }
+
     /// Fails the call if its reply has not come within `timeout`, as
     /// [`crate::Call::timeout`] does.
     pub fn timeout(self, timeout: Duration) -> Self {
@@ -316,6 +325,11 @@ impl Start {
     /// Tags the Run, as [`crate::Start::tags`] does.
     pub fn tags(self, tags: Tags) -> Self {
         Self(self.0.tags(tags), self.1)
+    }
+
+    /// Sets the Run's own settings, as [`crate::Start::settings`] does.
+    pub fn settings(self, settings: crate::settings::Settings) -> Self {
+        Self(self.0.settings(settings), self.1)
     }
 
     /// Starts the Run and blocks the calling thread until it is started.

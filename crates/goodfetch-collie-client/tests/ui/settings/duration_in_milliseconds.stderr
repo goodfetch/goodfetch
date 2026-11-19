@@ -1,0 +1,14 @@
+error[E0277]: the trait bound `Duration: From<u64>` is not satisfied
+ --> tests/ui/settings/duration_in_milliseconds.rs:6:62
+  |
+6 |     let _settings = Settings::new().set(timeout::NAVIGATION, 30_000_u64);
+  |                                     ---                      ^^^^^^^^^^ the trait `From<u64>` is not implemented for `Duration`
+  |                                     |
+  |                                     required by a bound introduced by this call
+  |
+  = note: required for `u64` to implement `Into<Duration>`
+note: required by a bound in `Settings::set`
+ --> src/settings.rs
+  |
+  |     pub fn set<T: SettingValue>(mut self, setting: Setting<T>, value: impl Into<T>) -> Self {
+  |                                                                            ^^^^^^^ required by this bound in `Settings::set`

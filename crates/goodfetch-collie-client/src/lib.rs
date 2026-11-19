@@ -34,6 +34,7 @@ mod markers;
 mod response;
 mod rpc;
 mod run;
+pub mod settings;
 mod sync;
 pub mod transport;
 

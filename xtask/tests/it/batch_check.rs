@@ -1,16 +1,18 @@
 //! `just batch-check` (`ci/batch-check.sh`): before `just merge` of a batch
 //! branch, what the batch's combined tree can break that each pull request's
-//! own `just quick` did not read. The checks of the whole change (sign-offs,
-//! subjects, the floor guard, the scan for secrets, the notices), the checks
-//! that read every document and the drift checks (`just lint-documents`,
-//! `just lint-drift`), then the Quick suite over the members that two or more
-//! of the batch's branches reach: each branch a merge brought, and the
-//! commits made on the batch branch itself as one more. A merge of the base
-//! itself, as the gate's merge of `main`'s tip, brings no branch. The steps
-//! run through a stand-in `just` that records each call, and `xtask
-//! affected` through a stand-in `cargo` that prints the selection written for
-//! the head it is asked about. Repository tooling: the module declares no
-//! Feature.
+//! own `just quick` did not read. In the batch's fresh worktree it first
+//! installs the locked JavaScript and Python dependencies, then runs the
+//! checks of the whole change (sign-offs, subjects, the floor guard, the scan
+//! for secrets, the notices), the checks that read every document and the
+//! drift checks (`just lint-documents`, `just lint-drift`), then the Quick
+//! suite over the members that two or more of the batch's branches reach:
+//! each branch a merge brought, and the commits made on the batch branch
+//! itself as one more. A merge of the base itself, as the gate's merge of
+//! `main`'s tip, brings no branch. The steps run through a stand-in `just`,
+//! and the installs through stand-in `pnpm` and `uv`, that record each call,
+//! and `xtask affected` through a stand-in `cargo` that prints the selection
+//! written for the head it is asked about. Repository tooling: the module
+//! declares no Feature.
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt as _;
@@ -18,22 +20,27 @@ use std::path::{Path, PathBuf};
 
 use crate::workspace::Workspace;
 
-/// A stand-in `just` that appends its arguments to `calls` and fails when
-/// they are `failing`'s content, and a stand-in `cargo` that appends its own
-/// to `cargo-calls` and prints `selection-<head>` for `--head <head>`, an
-/// empty selection when there is none, or fails when `cargo-fails` exists.
+/// Stand-in `just`, `pnpm` and `uv` that append their call to `calls` (the
+/// arguments alone for `just`, behind the program's name for the others) and
+/// fail when it is `failing`'s content, and a stand-in `cargo` that appends
+/// its own to `cargo-calls` and prints `selection-<head>` for
+/// `--head <head>`, an empty selection when there is none, or fails when
+/// `cargo-fails` exists.
 fn stand_ins(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
-    let just = format!(
-        r#"#!/bin/sh
-echo "$*" >>"{folder}/calls"
-if [ -f "{folder}/failing" ] && [ "$*" = "$(cat "{folder}/failing")" ]; then
+    let recorder = |prefix: &str| {
+        format!(
+            r#"#!/bin/sh
+call="{prefix}$*"
+echo "$call" >>"{folder}/calls"
+if [ -f "{folder}/failing" ] && [ "$call" = "$(cat "{folder}/failing")" ]; then
   exit 3
 fi
 "#,
-        folder = folder.display(),
-    );
+            folder = folder.display(),
+        )
+    };
     let cargo = format!(
         r#"#!/bin/sh
 echo "$*" >>"{folder}/cargo-calls"
@@ -51,7 +58,12 @@ fi
 "#,
         folder = folder.display(),
     );
-    for (name, script) in [("just", just), ("cargo", cargo)] {
+    for (name, script) in [
+        ("just", recorder("")),
+        ("pnpm", recorder("pnpm ")),
+        ("uv", recorder("uv ")),
+        ("cargo", cargo),
+    ] {
         let path = folder.join(name);
         std::fs::write(&path, script).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -100,8 +112,10 @@ fn batch_check(workspace: &Workspace, stand_in: &Path) -> Run {
     }
 }
 
-/// The checks every batch runs before its suite, in their order.
-const CHECKS: [&str; 7] = [
+/// The installs and checks every batch runs before its suite, in their order.
+const CHECKS: [&str; 9] = [
+    "pnpm install --frozen-lockfile",
+    "uv sync --frozen --all-extras",
     "dco origin/main",
     "commit-messages origin/main",
     "floor-guard origin/main",
@@ -280,4 +294,35 @@ fn a_red_affected_runs_no_suite_and_fails() {
     assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
     assert_eq!(run.calls, CHECKS);
     assert!(run.stderr.contains("xtask affected"), "{}", run.stderr);
+}
+
+/// A batch's fresh worktree has no `node_modules` or `.venv` until the
+/// installs run (batches k and l, 2026-11-19: `notices` red on a missing
+/// package). A red install fails the run and skips, named so, every step
+/// that reads the installed packages; the checks of the commits still run.
+#[test]
+fn a_red_install_skips_the_steps_that_read_the_packages() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_ins(&workspace);
+    repository(&workspace);
+    let first = branch(&workspace, "first", "a.txt");
+    let second = branch(&workspace, "second", "b.txt");
+    reaches(&stand_in, &first, "goodfetch-shared", "");
+    reaches(&stand_in, &second, "goodfetch-shared", "");
+    batch(&workspace, &["first", "second"]);
+    std::fs::write(stand_in.join("failing"), "uv sync --frozen --all-extras").unwrap();
+
+    let run = batch_check(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert_eq!(run.calls, &CHECKS[..6]);
+    for skipped in ["notices", "lint-documents", "lint-drift", "quick-suite"] {
+        assert!(
+            run.stdout
+                .contains(&format!("skipped  {skipped}: uv-sync did not pass")),
+            "{}",
+            run.stdout
+        );
+    }
+    assert!(run.stdout.contains("failed   uv-sync: "), "{}", run.stdout);
 }

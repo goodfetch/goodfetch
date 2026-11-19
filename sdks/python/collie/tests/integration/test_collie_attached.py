@@ -23,6 +23,7 @@ import sys
 from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
+from typing import cast
 
 import anyio
 import pytest
@@ -57,6 +58,52 @@ PROGRAMS = Path(__file__).parents[1] / "programs"
 
 CLIENT_SOURCE = Path(__file__).parents[3] / "collie-client"
 """The Collie client package's source, whose wheel the tests build."""
+
+CATALOG = Path(__file__).parents[5] / "crates/goodfetch-protocol/generated/collie.json"
+"""Collie's catalog, whose markers are the documented ones (ADR 0030)."""
+
+
+def undocumented(heard: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Each warning `heard` that no marker of Collie's catalog documents.
+
+    A documented one is ADR 0030's run-time warning (ADR 0099): an
+    Experimental entry's whole text, or the start of a deprecated entry's,
+    whose own text follows.
+    """
+    catalog: dict[str, object] = json.loads(CATALOG.read_text("utf-8"))
+    marked: list[dict[str, object]] = [
+        entry
+        for section in catalog.values()
+        if isinstance(section, list)
+        for entry in cast("list[object]", section)
+        if isinstance(entry, dict)
+    ]
+    experimental = {
+        f"`{entry['name']}` is Experimental: outside semver until it is promoted "
+        "(ADR 0030)."
+        for entry in marked
+        if entry.get("stability") == "experimental"
+    }
+    deprecated = tuple(
+        f"`{entry['name']}` is deprecated. "
+        for entry in marked
+        if entry.get("deprecated") is not None
+    )
+    return [
+        warning
+        for warning in heard
+        if not (
+            (
+                warning["category"] == "ExperimentalWarning"
+                and warning["message"] in experimental
+            )
+            or (
+                warning["category"] == "DeprecationWarning"
+                and warning["message"].startswith(deprecated)
+            )
+        )
+    ]
+
 
 PROGRAM_DEADLINE_SECONDS = 60.0
 """How long a program the tests start may take, its engine's start included."""
@@ -117,7 +164,11 @@ async def test_starts_a_run_finishes_it_and_answers_its_run_report(
 def test_imports_connects_and_closes_as_a_guest(
     way: str, env: Mapping[str, str], test_env: TestEnv, client_case: ClientCaseRecord
 ) -> None:
-    """Nothing is read, patched or left running, by import, connect or close."""
+    """Nothing is read, patched or left running, by import, connect or close.
+
+    Nothing is written at import or connect, and after that only the
+    catalog's marker warnings, each once.
+    """
     out = test_env.folder / "guest.json"
 
     guest = subprocess.run(
@@ -130,11 +181,24 @@ def test_imports_connects_and_closes_as_a_guest(
     )
 
     with client_case.check("the program ended at once with exit code 0"):
-        assert (guest.returncode, guest.stderr.decode(errors="replace")) == (0, "")
+        assert guest.returncode == 0, guest.stderr.decode(errors="replace")
     with client_case.check("the SDK wrote nothing to stdout"):
         assert guest.stdout == b""
     seen = json.loads(out.read_text("utf-8"))
     client_case.message(seen)
+    heard: list[dict[str, str]] = seen["warnings"]
+    # The guest records each warning where Python's filters would show it.
+    with client_case.check(
+        "the SDK wrote nothing to stderr but the warnings it emitted"
+    ):
+        assert guest.stderr == b""
+    with client_case.check("no warning came at import or connect"):
+        assert [warning for warning in heard if warning["stage"] != "run"] == []
+    with client_case.check("after connect, only documented marker warnings, each once"):
+        assert undocumented(heard) == []
+        assert [
+            warning for index, warning in enumerate(heard) if warning in heard[:index]
+        ] == []
     with client_case.check("importing read no variable"):
         assert (seen["read_at_import"], seen["lifecycle"]) == ([], "finished")
     with client_case.check("no handler or hook was added at import or connect"):

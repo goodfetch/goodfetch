@@ -186,6 +186,8 @@ Decided in [Mapping the catalog to each language and surface](https://github.com
 
 - **The catalog's deprecation of an entry** records `since`, the canonical name of its replacement and the earliest removal. Every marker's text is rendered from it, so there is one text, as ADR 0038 requires.
 
+  > Note (agent decision, on a default, not read by the owner), 2026-11-19, [#2958](https://github.com/goodfetch/goodfetch/issues/2958): `Deprecation` holds `since`, an optional `replacement` in the same catalog section, `earliest_removal`, a later major's `.0`, and the `note`; `Deprecation::message` renders the one text, `` Since <since>, removed no earlier than <earliest removal>: use `<replacement>` instead. <note> ``, which every SDK's marker and warning and the CLI read. A hand-written member warns of its entry's markers once per process as a generated one does: TypeScript's and Python's read the generated registries (`collieOperations`, `EXPERIMENTAL_OPERATIONS`, `DEPRECATED_OPERATIONS`) through `warnEntry` and `warn_entry`, Rust's the catalog itself. A listener's `on` warns the same way of the event it listens to, from the events' registries.
+
   | Where | Marker |
   |---|---|
   | TypeScript | TSDoc `@deprecated` on the method, property, option field or type; a deprecated argument shape or enum value gets its own overload carrying it. `tsc` reports nothing, so typescript-eslint's and oxlint's `no-deprecated` rules are what flag a use (CM C4) |

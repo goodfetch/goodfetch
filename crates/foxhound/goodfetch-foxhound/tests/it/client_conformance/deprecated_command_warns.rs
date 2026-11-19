@@ -24,7 +24,7 @@ fn attached() {
       "text": "hello"
     }
     ----- stderr -----
-    warning: `sample echo`: Deprecated since protocol 0.1, and removed no earlier than the next major: A sample entry, which the real catalog replaces.
+    warning: `sample echo` is deprecated. Since 0.1, removed no earlier than 1.0: A sample entry, which the real catalog replaces.
     [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="hello"
     [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="sample.echo"
     "#);

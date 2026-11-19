@@ -26,11 +26,13 @@ import {
   openOver,
   type ClientConnection,
   type Transport,
+  warnEntry,
 } from "@goodfetch/collie-client/runtime";
 import { checkCrawlStartable, crawlDeclaration, type Crawl } from "./crawl.ts";
 import { CrawlRun, handleRequest, type CrawlHost } from "./crawl-run.ts";
 import {
   FoxhoundOperations,
+  foxhoundOperations,
   type CrawlRequestHandleParams,
   type CrawlRequestHandled,
   type CrawlStartParams,
@@ -160,6 +162,7 @@ export class Foxhound implements Connection {
    * declare with `label_unknown` (a seed carries its Label's name only).
    */
   async startCrawl(crawl: Crawl, options: StartCrawlOptions): Promise<CrawlRun> {
+    warnEntry(foxhoundOperations, "crawl.start");
     checkCrawlStartable(crawl, options.seeds);
     const params: CrawlStartParams = {
       ...crawlDeclaration(crawl),

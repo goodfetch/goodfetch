@@ -151,10 +151,7 @@ fn sorted(mut entries: Vec<Value>) -> Vec<Value> {
 }
 
 fn deprecation(deprecation: Option<Deprecation>) -> Value {
-    deprecation.map_or(
-        Value::Null,
-        |deprecation| json!({ "since": deprecation.since.to_string(), "note": deprecation.note }),
-    )
+    json!(deprecation)
 }
 
 fn operation_entry(

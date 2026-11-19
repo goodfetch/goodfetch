@@ -1,11 +1,15 @@
 //! ADR 0030's run-time warning for a deprecated or Experimental catalog
-//! entry (ADR 0099): each generated member of one calls it, and it warns
-//! once per process per name and marker, through `tracing`, the host's
-//! channel (ADR 0078). The type-level markers, `#[deprecated]` and the
-//! rustdoc line, are the generated member's own.
+//! entry (ADR 0099): each generated member of one calls it, each
+//! hand-written member serving one reads its markers from the catalog, and
+//! it warns once per process per name and marker, through `tracing`, the
+//! host's channel (ADR 0078). The type-level markers, `#[deprecated]` and
+//! the rustdoc line, are the generated member's own.
 
 use std::collections::BTreeSet;
 use std::sync::PoisonError;
+
+use goodfetch_protocol::catalog::Stability;
+use goodfetch_protocol::entries::MODULES;
 
 use crate::sync::Mutex;
 
@@ -24,7 +28,7 @@ static WARNED: Mutex<BTreeSet<(Marker, &'static str)>> = Mutex::new(BTreeSet::ne
 /// deprecated, when it has a `deprecation`: its deprecation's one text,
 /// `Since <version>: <note>`, which the TypeScript and Python SDKs' markers
 /// carry too.
-pub(crate) fn warn(name: &'static str, experimental: bool, deprecation: Option<&'static str>) {
+pub(crate) fn warn(name: &'static str, experimental: bool, deprecation: Option<&str>) {
     if experimental && first(Marker::Experimental, name) {
         tracing::warn!(
             entry = name,
@@ -36,6 +40,25 @@ pub(crate) fn warn(name: &'static str, experimental: bool, deprecation: Option<&
     {
         tracing::warn!(entry = name, "`{name}` is deprecated. {text}");
     }
+}
+
+/// Warns, the first time in the process, of each marker the catalog gives
+/// the operation `name`: what a hand-written member serving it calls
+/// first, as a generated member calls [`warn`].
+pub(crate) fn warn_operation(name: &'static str) {
+    let operation = MODULES
+        .into_iter()
+        .flat_map(|entries| entries.operations)
+        .find(|operation| operation.name == name)
+        .expect("invariant: a hand-written member serves a catalog operation");
+    warn(
+        name,
+        operation.stability == Stability::Experimental,
+        operation
+            .deprecated
+            .map(|deprecated| deprecated.message())
+            .as_deref(),
+    );
 }
 
 /// Whether this is the first warning of `marker` for `name`.

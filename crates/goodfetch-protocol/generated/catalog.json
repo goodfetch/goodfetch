@@ -4367,7 +4367,9 @@
       "cancellable": true,
       "class": "read",
       "deprecated": {
+        "earliest_removal": "1.0",
         "note": "A sample entry, which the real catalog replaces.",
+        "replacement": null,
         "since": "0.1"
       },
       "description": "Repeats a text back to the caller.",

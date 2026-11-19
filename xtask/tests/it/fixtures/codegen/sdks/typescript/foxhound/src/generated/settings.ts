@@ -3,6 +3,16 @@
 import { onWire, type SettingsOnWire, type Spelling } from "@goodfetch/collie-client/runtime";
 
 /**
+ * The settings `Foxhound.connect()` takes, Collie's and Foxhound's, which every Run it starts inherits (ADR 0083).
+ *
+ * A key left out inherits, `null` clears a setting that can be cleared,
+ * and a value sets it; the program needs `exactOptionalPropertyTypes`, so
+ * that `undefined` is never a value.
+ */
+export interface FoxhoundSettings {
+}
+
+/**
  * The settings starting a crawl takes, Collie's and Foxhound's, which its Labels and requests inherit (ADRs 0083 and 0093).
  *
  * A key left out inherits, `null` clears a setting that can be cleared,
@@ -27,6 +37,6 @@ const SPELLING: Spelling = {
 };
 
 /** @internal A scope's `settings` as the wire takes them; `undefined` when left out. */
-export function settingsOnWire(settings: CrawlSettings | undefined): SettingsOnWire | undefined {
+export function settingsOnWire(settings: FoxhoundSettings | undefined): SettingsOnWire | undefined {
   return onWire(settings, SPELLING);
 }

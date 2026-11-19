@@ -1,7 +1,8 @@
 //! The TypeScript types of each scope's `settings` option (ADR 0083):
 //! `Settings` for `connect()`, `RunSettings`, `SessionSettings` and
-//! `PageSettings` in Collie's client package, `CrawlSettings` and
-//! `LabelSettings` in Foxhound's (ADR 0093), each nesting the settings a
+//! `PageSettings` in Collie's client package, `FoxhoundSettings` for
+//! `Foxhound.connect()`, `CrawlSettings` and `LabelSettings` in
+//! Foxhound's (ADR 0093), each nesting the settings a
 //! program's code sets there by their camelCase segments (ADR 0099), so
 //! that a key outside its scope, a misspelled one or a wrong value fails to
 //! compile, and the spelling the hand-written walker sends each segment
@@ -66,10 +67,16 @@ const COLLIE_SCOPES: [ScopeType; 4] = [
     },
 ];
 
-/// The scopes a crawl opens with its own `settings`, outermost first,
-/// which Foxhound's package types: its Run's, Collie's and Foxhound's
-/// keys, and each Label's (ADR 0093).
-const FOXHOUND_SCOPES: [ScopeType; 2] = [
+/// The scopes a Foxhound program's code opens with its own `settings`,
+/// outermost first, which Foxhound's package types: its Connection's and
+/// its crawl's Run's, Collie's and Foxhound's keys, and each Label's (ADR
+/// 0093).
+const FOXHOUND_SCOPES: [ScopeType; 3] = [
+    ScopeType {
+        scope: SettingScope::Connection,
+        name: "FoxhoundSettings",
+        doc: "The settings `Foxhound.connect()` takes, Collie's and Foxhound's, which every Run it starts inherits (ADR 0083).",
+    },
     ScopeType {
         scope: SettingScope::Run,
         name: "CrawlSettings",
@@ -127,8 +134,9 @@ pub(super) fn settings_module(settings: &[Setting]) -> Result<String> {
     module(settings, &COLLIE_SCOPES, COLLIE_WALKER)
 }
 
-/// The settings module of Foxhound's package: a crawl's and a Label's
-/// types, and `settingsOnWire`, which sends either by its wire spelling.
+/// The settings module of Foxhound's package: its Connection's, a
+/// crawl's and a Label's types, and `settingsOnWire`, which sends any of
+/// them by its wire spelling.
 pub(super) fn foxhound_settings_module(settings: &[Setting]) -> Result<String> {
     module(settings, &FOXHOUND_SCOPES, FOXHOUND_WALKER)
 }

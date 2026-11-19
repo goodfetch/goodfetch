@@ -95,8 +95,26 @@ fn on_the_daemon(daemon: &Daemon) -> DaemonClient {
     client
 }
 
-fn opened(mut engine: Attached) -> Attached {
-    let opened = engine.open(&Hello::needing(Product::Foxhound).id("hello"));
+fn opened(engine: Attached) -> Attached {
+    opened_by(engine, Hello::needing(Product::Foxhound))
+}
+
+/// [`attached`], on a Connection whose `hello` sets `settings`, its own,
+/// which each crawl it starts takes beneath its own (ADR 0083).
+fn attached_setting(env: &TestEnv, settings: &serde_json::Value) -> Attached {
+    let settings = settings
+        .as_object()
+        .cloned()
+        .expect("a Connection's settings are a map");
+    opened_by(
+        Attached::start_with(env, FOXHOUND, MESSAGE_DEADLINE, |_| {}),
+        Hello::needing(Product::Foxhound).with(|params| params.settings = settings),
+    )
+}
+
+/// [`opened`] by `hello`.
+fn opened_by(mut engine: Attached, hello: Hello) -> Attached {
+    let opened = engine.open(&hello.id("hello"));
     assert_eq!(opened["result"]["product"], "foxhound");
     engine.declaring_by_default(&PUSHED_INTO)
 }

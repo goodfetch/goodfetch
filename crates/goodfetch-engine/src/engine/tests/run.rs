@@ -417,29 +417,26 @@ fn an_aborted_run_is_stopped_and_incomplete_and_a_start_under_its_run_id_resumes
     );
 }
 
-/// A Run its program drives stops at once when its `timeout.run` passes:
-/// the engine holds nothing in flight for it. Its clock starts at its
-/// start, so before then it still runs.
+/// A Run its program drives stops at once when its `timeout.run`, which
+/// its Connection sets (ADR 0083), passes: the engine holds nothing in
+/// flight for it. Its clock starts at its start, so before then it still
+/// runs.
 ///
 /// Covers: story:3-52, setting:timeout.run
 #[test]
 fn a_run_past_its_run_timeout_stops_incomplete_with_the_stop_reason_timeout() {
     let env = TestEnv::new();
     let listed = &env;
+    let mut timed = hello("collie", "0.1");
+    timed["params"]["settings"] = json!({ "timeout": { "run": 60_000 } });
 
     let (before, report) = attached_on(
         &engine_with(Product::Collie, None),
         &env,
         |mut client| async move {
-            client.send(&[hello("collie", "0.1")]).await;
+            client.send(&[timed]).await;
             client.next().await;
-            call(
-                &mut client,
-                1,
-                "run.start",
-                json!({ "run_id": "timed", "settings": { "timeout": { "run": 60_000 } } }),
-            )
-            .await;
+            call(&mut client, 1, "run.start", json!({ "run_id": "timed" })).await;
             tokio::time::sleep(std::time::Duration::from_secs(59)).await;
             let before = index_row(listed, "timed");
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;

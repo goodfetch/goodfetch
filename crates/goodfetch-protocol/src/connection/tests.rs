@@ -156,6 +156,7 @@ fn a_clients_hello_reads_with_the_product_it_needs() {
             log_level: None,
             client_surface: None,
             keep_daemon_alive: false,
+            settings: serde_json::Map::new(),
         }
     );
 }
@@ -184,5 +185,5 @@ fn every_field_records_the_minor_that_added_it() {
         .values()
         .map(|field| &field["arrived_in"])
         .collect();
-    assert_eq!(minors, vec![&json!("0.1"); 9]);
+    assert_eq!(minors, vec![&json!("0.1"); 10]);
 }

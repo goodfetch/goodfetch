@@ -10,7 +10,7 @@ use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use super::{Reply, crawl, dependencies, page_of, run_file, work_items};
+use super::{Reply, crawl_connected, dependencies, page_of, run_file, work_items};
 
 fn seeds(urls: &[&str]) -> Value {
     urls.iter()
@@ -23,7 +23,8 @@ fn seeds(urls: &[&str]) -> Value {
 fn a_crawl_past_its_run_timeout_admits_nothing_new_and_stops_with_the_stop_reason_timeout() {
     let env = TestEnv::new();
 
-    let report = crawl(
+    let report = crawl_connected(
+        &json!({ "timeout": { "run": 15_000 } }),
         || dependencies(&env, RunStateOptions::default()),
         async |client| {
             client
@@ -33,10 +34,7 @@ fn a_crawl_past_its_run_timeout_admits_nothing_new_and_stops_with_the_stop_reaso
                         "labels": { "page": {} },
                         "run_id": "timed",
                         "seeds": seeds(&["https://a.test/1", "https://b.test/1", "https://c.test/1"]),
-                        "settings": {
-                            "timeout": { "run": 15_000 },
-                            "admission": { "max_requests_per_minute": 6 },
-                        },
+                        "settings": { "admission": { "max_requests_per_minute": 6 } },
                     }),
                     &mut |_| Reply::Silent,
                 )
@@ -81,7 +79,8 @@ fn a_crawl_past_its_run_timeout_admits_nothing_new_and_stops_with_the_stop_reaso
 fn an_attempt_in_flight_at_the_run_timeout_ends_under_its_lease_before_the_run_stops() {
     let env = TestEnv::new();
 
-    let (report, arrivals) = crawl(
+    let (report, arrivals) = crawl_connected(
+        &json!({ "timeout": { "run": 5_000 } }),
         || dependencies(&env, RunStateOptions::default()),
         async |client| {
             client
@@ -91,7 +90,6 @@ fn an_attempt_in_flight_at_the_run_timeout_ends_under_its_lease_before_the_run_s
                         "labels": { "page": {} },
                         "run_id": "held",
                         "seeds": seeds(&["https://a.test/1", "https://a.test/2"]),
-                        "settings": { "timeout": { "run": 5_000 } },
                     }),
                     &mut |_| Reply::Silent,
                 )

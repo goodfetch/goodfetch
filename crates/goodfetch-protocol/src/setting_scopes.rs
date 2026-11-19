@@ -3,9 +3,8 @@
 //! Label, opening a Session and opening a page, each taking the settings
 //! that apply within it. The catalog records each setting's scopes from
 //! this rule, the SDKs type each scope's option from the catalog, and the
-//! engine refuses a Label's, a Session's or a page's own setting outside
-//! its scopes with `setting_not_applicable`. Starting a Run does not check
-//! it yet: issue 2952 brings that with the connection's own settings.
+//! engine refuses a scope's own setting outside its scopes with
+//! `setting_not_applicable`, as the scope opens.
 
 use crate::catalog::SettingScope::{Connection, Label, Page, Run, Session};
 use crate::catalog::{Authority, Setting, SettingScope};

@@ -193,7 +193,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "Checkpoint": { fields: { "journal_position": "journalPosition", "run_epoch": "runEpoch", "run_id": "runId", "time": ["time", "time"] } },
     "ClickParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "Concurrency": { fields: { "browser_page": ["browserPage", { type: "KindConcurrency" }], "http": ["http", { type: "KindConcurrency" }], "model_call": ["modelCall", { type: "KindConcurrency" }] } },
-    "ConfigExplainParams": { fields: { "missing_project": "missingProject" } },
+    "ConfigExplainParams": { fields: { "missing_project": "missingProject", "run_id": "runId" } },
     "ConsoleLocation": { fields: { "column_number": "columnNumber", "line_number": "lineNumber" } },
     "ConsoleMessage": { fields: { "location": ["location", { type: "ConsoleLocation" }], "page_id": "pageId" } },
     "CpuReading": { fields: { "tokio_busy": "tokioBusy" } },

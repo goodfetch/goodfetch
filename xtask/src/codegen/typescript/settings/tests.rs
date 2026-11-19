@@ -181,11 +181,43 @@ fn a_crawl_types_collie_and_foxhound_run_settings_and_a_label_only_its_own() {
         "{label}"
     );
     assert!(
-        module.contains("from \"@goodfetch/collie-client/runtime\";")
-            && module.contains("settingsOnWire(settings: CrawlSettings | undefined)"),
+        module.contains("from \"@goodfetch/collie-client/runtime\";"),
         "{module}"
     );
     assert!(!module.contains("interface RunSettings"), "{module}");
+}
+
+#[test]
+fn foxhounds_connect_types_its_connection_settings_and_sends_every_scopes_by_them() {
+    let settings = [
+        setting(
+            "timeout.run",
+            json!({ "type": "integer", "minimum": 1 }),
+            true,
+            &["connection"],
+        ),
+        setting(
+            "crawl.max_depth",
+            json!({ "type": "integer", "minimum": 0 }),
+            false,
+            &["connection", "run"],
+        ),
+    ];
+
+    let module = foxhound_settings_module(&settings).unwrap();
+
+    let connection = interface(&module, "FoxhoundSettings");
+    let crawl = interface(&module, "CrawlSettings");
+    assert!(
+        connection.contains("readonly run?: number | null;")
+            && connection.contains("readonly maxDepth?: number;"),
+        "{connection}"
+    );
+    assert!(!crawl.contains("readonly run?:"), "{crawl}");
+    assert!(
+        module.contains("settingsOnWire(settings: FoxhoundSettings | undefined)"),
+        "{module}"
+    );
 }
 
 #[test]

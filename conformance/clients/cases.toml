@@ -278,6 +278,20 @@ covers = ["story:11-126", "story:11-127"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
+# A scope's settings (ADR 0083; issue 2952): `connect()`'s own reach the
+# engine in `hello`, and a Run's own sit over them in three states, a key
+# left out inheriting, `null` clearing and a value setting, as
+# `explainSettings()` on the Connection and on the Run answers. Python
+# joins with issue 3023 and Rust with issue 3024.
+[[capability]]
+name = "settings"
+
+[[capability.case]]
+id = "settings-three-states"
+covers = ["story:11-70", "story:11-72"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
 [[capability]]
 name = "time"
 

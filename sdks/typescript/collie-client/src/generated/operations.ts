@@ -217,7 +217,7 @@ export class CollieOperations {
   }
 
   /**
-   * Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's.
+   * Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration, the project configuration given and the run layer: the Connection's own settings with the run values given over them, or a live Run's as it opened when `run_id` names one; and lists the keys only the other Product honours as that Product's.
    */
   configExplain(params: ConfigExplainParams): Promise<SettingsExplanation> {
     return this.#caller.call("config.explain", params, {});

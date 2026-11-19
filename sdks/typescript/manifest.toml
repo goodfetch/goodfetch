@@ -51,6 +51,14 @@ form = "opener"
 [[member]]
 package = "@goodfetch/collie"
 receiver = "Collie"
+member = "explainSettings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie"
+receiver = "Collie"
 member = "close"
 entry = "none"
 reason = "Closes the Connection's Runs, then ends its Attached engine's input and waits for it (ADR 0078)."
@@ -91,6 +99,15 @@ member = "start"
 entry = "run.start"
 words = ["start"]
 form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Foxhound"
+member = "explainSettings"
+entry = "config.explain"
+only = "Rust's `explain_settings` is issue 3024's."
+words = ["explain", "settings"]
+form = "round_trip"
 
 [[member]]
 package = "@goodfetch/foxhound"
@@ -252,6 +269,14 @@ form = "opener"
 [[member]]
 package = "@goodfetch/collie-client"
 receiver = "Connection"
+member = "explainSettings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Connection"
 member = "close"
 entry = "none"
 reason = "The interface every Product's Connection type implements (ADR 0095); `Collie.close`'s line holds."
@@ -274,6 +299,14 @@ member = "startedAs"
 entry = "run.start"
 words = ["started", "as"]
 form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Run"
+member = "explainSettings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
 
 [[member]]
 package = "@goodfetch/collie-client"
@@ -1612,6 +1645,14 @@ member = "start"
 entry = "run.start"
 words = ["start"]
 form = "opener"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "explainSettings"
+entry = "config.explain"
+words = ["explain", "settings"]
+form = "round_trip"
 
 [[member]]
 package = "@goodfetch/collie-client/runtime"

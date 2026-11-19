@@ -22,6 +22,7 @@ mod files;
 mod hosts;
 mod keys;
 mod resolve;
+mod scopes;
 #[cfg(test)]
 mod tests;
 mod values;
@@ -45,6 +46,7 @@ pub use resolve::{
     Effective, HostDefaults, Layers, Policy, Recipe, Resolved, SettingValue, Unapplied,
     catalog_default, catalog_value, get_or_default, resolve, value_as,
 };
+pub use scopes::{beneath_connection, check_scope};
 pub use values::Values;
 
 use crate::tasks::TaskOwner;

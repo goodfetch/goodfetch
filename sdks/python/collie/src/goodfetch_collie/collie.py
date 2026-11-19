@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 
     from anyio.abc import ByteStream
     from goodfetch_collie_client.connection import EngineInfo
+    from goodfetch_collie_client.generated.settings import RunSettings
     from goodfetch_collie_client.limits import Limits
     from pydantic import JsonValue
 
@@ -113,6 +114,7 @@ class AsyncCollie(AsyncConnection):
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
+        settings: RunSettings | None = None,
     ) -> AsyncRun:
         """Leaving the scope or `close()` stops the Run with a Checkpoint.
 
@@ -134,8 +136,14 @@ class AsyncCollie(AsyncConnection):
                 (ADR 0036).
             limits: Caps the Run: a start that names it again lowers its
                 Limits, never raises them (`limit_raise_refused`).
+            settings: The Run's own settings, over the Connection's, which
+                its Sessions and pages inherit (ADR 0083): a key left out
+                inherits, `None` clears one that can be cleared, and a
+                duration is a `timedelta`, sent in whole milliseconds.
         """
-        return await self._connection.start(run_id=run_id, tags=tags, limits=limits)
+        return await self._connection.start(
+            run_id=run_id, tags=tags, limits=limits, settings=settings
+        )
 
     async def call(
         self,
@@ -255,6 +263,7 @@ class Collie(Connection):
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
+        settings: RunSettings | None = None,
     ) -> Run:
         """Leaving the scope or `close()` stops the Run with a Checkpoint.
 
@@ -276,12 +285,17 @@ class Collie(Connection):
                 (ADR 0036).
             limits: Caps the Run: a start that names it again lowers its
                 Limits, never raises them (`limit_raise_refused`).
+            settings: The Run's own settings, over the Connection's, which
+                its Sessions and pages inherit (ADR 0083): a key left out
+                inherits, `None` clears one that can be cleared, and a
+                duration is a `timedelta`, sent in whole milliseconds.
         """
         starting = functools.partial(
             self._connection.start,
             run_id=run_id,
             tags=None if tags is None else list(tags),
             limits=limits,
+            settings=settings,
         )
         try:
             run = self._loop.call(starting)

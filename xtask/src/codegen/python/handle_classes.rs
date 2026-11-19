@@ -21,6 +21,9 @@
 //! - A parameter whose model wraps one wire value, a string, number or
 //!   boolean of a type of its own or a choice of strings, takes that value,
 //!   a choice as its `Literal` strings, and the member wraps it.
+//! - A `new_<value>` member's `settings` takes the scope's settings type,
+//!   which `settings_on_wire` sends, durations in whole milliseconds
+//!   (`settings`, ADR 0083).
 //! - A call's own `timeout` takes a `timedelta`, never a number of
 //!   milliseconds, which `timeout_of` sends in whole milliseconds, rounded
 //!   up, refusing one of zero or less before it is sent; the docstring
@@ -44,6 +47,7 @@ use serde_json::Value;
 use super::super::handles::{Builder, Form, Handle, HandleId, Member, Parameters};
 use super::super::layer::{Layer, Stability};
 use super::super::naming::{pascal, snake};
+use super::settings::{SETTINGS, SETTINGS_ON_WIRE, SETTINGS_ON_WIRE_MODULE, scope_settings};
 use super::{CALLER_MODULE, deprecated_decorator, docstring, header, markers_import, warnings};
 
 mod listeners;
@@ -120,6 +124,9 @@ struct Imports {
     /// `not_given` sentinel when a member takes an optional parameter, and
     /// [`TIMEOUT_OF`] when a member takes its own `timeout`, a `timedelta`.
     handle: BTreeSet<&'static str>,
+    /// The settings types its members take, from the generated settings
+    /// module, with [`SETTINGS_ON_WIRE`] when there is one.
+    settings: BTreeSet<&'static str>,
 }
 
 impl Imports {
@@ -307,12 +314,21 @@ struct Signature {
     optional: Vec<(String, String)>,
 }
 
+/// The optional parameters a member types from the catalog rather than the
+/// bundle: `timeout` after its timeout setting (ADR 0080), and `settings`
+/// as the type of the scope it opens (ADR 0083).
+#[derive(Clone, Copy, Default)]
+struct CatalogTyped<'a> {
+    timeout_setting: Option<&'a str>,
+    settings_type: Option<&'static str>,
+}
+
 fn signature(
     layer: &Layer,
     owner: &str,
     model: &str,
     parameters: &Parameters,
-    timeout_setting: Option<&str>,
+    typed: CatalogTyped<'_>,
     id: &HandleId,
     imports: &mut Imports,
 ) -> Result<Signature> {
@@ -368,15 +384,22 @@ fn signature(
     }
     let mut optional = Vec::new();
     for name in &parameters.optional {
-        let (spelled, passed) = match timeout_setting.filter(|_| name == TIMEOUT) {
-            Some(setting) => {
+        let (spelled, passed) = match (
+            typed.timeout_setting.filter(|_| name == TIMEOUT),
+            typed.settings_type.filter(|_| name == SETTINGS),
+        ) {
+            (Some(setting), _) => {
                 imports.handle.insert(TIMEOUT_OF);
                 (
                     "timedelta | None".to_owned(),
                     format!("{TIMEOUT_OF}({name}, {setting:?})"),
                 )
             }
-            None => spell(name, imports)?,
+            (None, Some(settings)) => {
+                imports.settings.insert(settings);
+                (settings.to_owned(), format!("{SETTINGS_ON_WIRE}({name})"))
+            }
+            (None, None) => spell(name, imports)?,
         };
         imports.handle.extend(["NotGiven", "not_given"]);
         declared.push(format!("{name}: {spelled} | NotGiven = not_given"));
@@ -425,7 +448,10 @@ fn member(
         &operation.name,
         params,
         &member.parameters,
-        member.timeout_setting.as_deref(),
+        CatalogTyped {
+            timeout_setting: member.timeout_setting.as_deref(),
+            settings_type: scope_settings(member)?,
+        },
         id,
         imports,
     )?;
@@ -540,7 +566,7 @@ fn builder(
         &builder.builds,
         &builder.type_name,
         &builder.parameters,
-        None,
+        CatalogTyped::default(),
         id,
         imports,
     )?;
@@ -691,8 +717,18 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
     );
     text.push_str(&markers_import(&imports.markers));
     let _ = writeln!(text, "from {RAW_CALL_MODULE} import AsyncHandle, Handle");
+    if !imports.settings.is_empty() {
+        let _ = writeln!(
+            text,
+            "from {SETTINGS_ON_WIRE_MODULE} import {SETTINGS_ON_WIRE}"
+        );
+    }
     if imports.models {
         text.push_str("\nfrom . import models\n");
+    }
+    if !imports.settings.is_empty() {
+        let types: Vec<&str> = imports.settings.iter().copied().collect();
+        let _ = writeln!(text, "from .settings import {}", types.join(", "));
     }
     text.push_str(&body);
     Ok(text)

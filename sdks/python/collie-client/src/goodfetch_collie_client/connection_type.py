@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from pydantic import JsonValue
 
     from goodfetch_collie_client.connection import EngineInfo
+    from goodfetch_collie_client.generated.settings import RunSettings
     from goodfetch_collie_client.limits import Limits
     from goodfetch_collie_client.run import AsyncRun, Run
 
@@ -47,11 +48,13 @@ class AsyncConnection(ABC):
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
+        settings: RunSettings | None = None,
     ) -> AsyncRun:
         """Starts a Run and returns once it is started (ADR 0102).
 
         A `run_id` naming an interrupted Run resumes it, and one naming a
-        finished Run returns it as it ended. Raises `closed` once the
+        finished Run returns it as it ended. `settings` are the Run's own,
+        over the Connection's (ADR 0083). Raises `closed` once the
         Connection is closed.
         """
 
@@ -111,11 +114,13 @@ class Connection(ABC):
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
+        settings: RunSettings | None = None,
     ) -> Run:
         """Starts a Run and returns once it is started (ADR 0102).
 
         A `run_id` naming an interrupted Run resumes it, and one naming a
-        finished Run returns it as it ended. Raises `closed` once the
+        finished Run returns it as it ended. `settings` are the Run's own,
+        over the Connection's (ADR 0083). Raises `closed` once the
         Connection is closed.
         """
 

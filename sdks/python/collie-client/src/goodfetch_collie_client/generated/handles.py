@@ -14,8 +14,10 @@ from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost, AsyncListener, Listener, NotGiven, Subscription, not_given, timeout_of
 from goodfetch_collie_client.markers import warn_experimental
 from goodfetch_collie_client.raw_call import AsyncHandle, Handle
+from goodfetch_collie_client.settings import settings_on_wire
 
 from . import models
+from .settings import PageSettings, SessionSettings
 
 
 class AsyncRun(AsyncHandle):
@@ -80,7 +82,7 @@ class AsyncRun(AsyncHandle):
             params.location = location
         return result_of(models.RunReport, await self._host.call("run.migrate", params))
 
-    async def new_page(self, *, settings: dict[str, Any] | NotGiven = not_given) -> AsyncPage:
+    async def new_page(self, *, settings: PageSettings | NotGiven = not_given) -> AsyncPage:
         """Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -88,11 +90,11 @@ class AsyncRun(AsyncHandle):
         warn_experimental("run.new_page")
         params = models.NewPageParams(run_id=self._host.id)
         if not isinstance(settings, NotGiven):
-            params.settings = settings
+            params.settings = settings_on_wire(settings)
         opened = result_of(models.PageOpened, await self._host.call("run.new_page", params))
         return AsyncPage(self._host.child(opened.page_id))
 
-    async def new_session(self, *, settings: dict[str, Any] | NotGiven = not_given, source: models.SessionSource | None | NotGiven = not_given) -> AsyncSession:
+    async def new_session(self, *, settings: SessionSettings | NotGiven = not_given, source: models.SessionSource | None | NotGiven = not_given) -> AsyncSession:
         """Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. It opens from `source`, or else from the Run's `session.source`, or fresh; `session.source` in its own `settings` is refused with `setting_not_applicable`. The Run's first Session launches its browser, so a missing browser build raises its code from this call.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -100,7 +102,7 @@ class AsyncRun(AsyncHandle):
         warn_experimental("run.new_session")
         params = models.NewSessionParams(run_id=self._host.id)
         if not isinstance(settings, NotGiven):
-            params.settings = settings
+            params.settings = settings_on_wire(settings)
         if not isinstance(source, NotGiven):
             params.source = source
         opened = result_of(models.SessionOpened, await self._host.call("run.new_session", params))
@@ -179,7 +181,7 @@ class AsyncSession(AsyncHandle):
         warn_experimental("session.close")
         await self._host.close("session.close", models.SessionParams(session_id=self._host.id))
 
-    async def new_page(self, *, settings: dict[str, Any] | NotGiven = not_given) -> AsyncPage:
+    async def new_page(self, *, settings: PageSettings | NotGiven = not_given) -> AsyncPage:
         """Opens a page in the Session, with its cookies and storage, and its own settings. Once the Session is closed, it raises `closed`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -187,7 +189,7 @@ class AsyncSession(AsyncHandle):
         warn_experimental("session.new_page")
         params = models.NewSessionPageParams(session_id=self._host.id)
         if not isinstance(settings, NotGiven):
-            params.settings = settings
+            params.settings = settings_on_wire(settings)
         opened = result_of(models.PageOpened, await self._host.call("session.new_page", params))
         return AsyncPage(self._host.child(opened.page_id))
 
@@ -641,7 +643,7 @@ class Run(Handle):
             params.location = location
         return result_of(models.RunReport, self._host.call("run.migrate", params))
 
-    def new_page(self, *, settings: dict[str, Any] | NotGiven = not_given) -> Page:
+    def new_page(self, *, settings: PageSettings | NotGiven = not_given) -> Page:
         """Opens a page in the Run's default Session, which the first call opens with the Run's settings and every later call shares; `page.session()` reaches it. The first page launches the Run's browser, so a missing browser build raises its code from this call.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -649,11 +651,11 @@ class Run(Handle):
         warn_experimental("run.new_page")
         params = models.NewPageParams(run_id=self._host.id)
         if not isinstance(settings, NotGiven):
-            params.settings = settings
+            params.settings = settings_on_wire(settings)
         opened = result_of(models.PageOpened, self._host.call("run.new_page", params))
         return Page(self._host.child(opened.page_id))
 
-    def new_session(self, *, settings: dict[str, Any] | NotGiven = not_given, source: models.SessionSource | None | NotGiven = not_given) -> Session:
+    def new_session(self, *, settings: SessionSettings | NotGiven = not_given, source: models.SessionSource | None | NotGiven = not_given) -> Session:
         """Opens a Session of the Run's own: its own browser context, with its own cookies, storage, identity and proxy, sharing the Run's browser process, so two Sessions of a Run never share a login. It opens from `source`, or else from the Run's `session.source`, or fresh; `session.source` in its own `settings` is refused with `setting_not_applicable`. The Run's first Session launches its browser, so a missing browser build raises its code from this call.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -661,7 +663,7 @@ class Run(Handle):
         warn_experimental("run.new_session")
         params = models.NewSessionParams(run_id=self._host.id)
         if not isinstance(settings, NotGiven):
-            params.settings = settings
+            params.settings = settings_on_wire(settings)
         if not isinstance(source, NotGiven):
             params.source = source
         opened = result_of(models.SessionOpened, self._host.call("run.new_session", params))
@@ -740,7 +742,7 @@ class Session(Handle):
         warn_experimental("session.close")
         self._host.close("session.close", models.SessionParams(session_id=self._host.id))
 
-    def new_page(self, *, settings: dict[str, Any] | NotGiven = not_given) -> Page:
+    def new_page(self, *, settings: PageSettings | NotGiven = not_given) -> Page:
         """Opens a page in the Session, with its cookies and storage, and its own settings. Once the Session is closed, it raises `closed`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
@@ -748,7 +750,7 @@ class Session(Handle):
         warn_experimental("session.new_page")
         params = models.NewSessionPageParams(session_id=self._host.id)
         if not isinstance(settings, NotGiven):
-            params.settings = settings
+            params.settings = settings_on_wire(settings)
         opened = result_of(models.PageOpened, self._host.call("session.new_page", params))
         return Page(self._host.child(opened.page_id))
 

@@ -3,7 +3,9 @@
 Where the main types live (ADR 0117): this package, `goodfetch_collie`,
 holds `AsyncCollie` and the sync `Collie`; the Collie client package,
 `goodfetch_collie_client`, holds `AsyncRun` and `Run`, the results, the
-errors, a listener's `Subscription`, and `AsyncConnection` and
+errors, a listener's `Subscription`, each scope's settings types
+(`Settings`, `RunSettings`, `SessionSettings`, `PageSettings`), and
+`AsyncConnection` and
 `Connection`, which both Products' Connections extend, all of which this
 package re-exports;
 `goodfetch_foxhound` holds Foxhound's.
@@ -42,6 +44,12 @@ from goodfetch_collie_client.generated.models import (
     RunStarted,
     StartedAs,
 )
+from goodfetch_collie_client.generated.settings import (
+    PageSettings,
+    RunSettings,
+    SessionSettings,
+    Settings,
+)
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
 from goodfetch_collie_client.handle import Subscription
 from goodfetch_collie_client.limits import Limits, Money, Prices
@@ -71,6 +79,7 @@ __all__ = [
     "ListenerFailedError",
     "Money",
     "NotInProductError",
+    "PageSettings",
     "Prices",
     "Product",
     "ProtocolVersionUnsupportedError",
@@ -80,9 +89,12 @@ __all__ = [
     "RunIdInvalidError",
     "RunInUseError",
     "RunReport",
+    "RunSettings",
     "RunStarted",
     "RunStateUnavailableError",
+    "SessionSettings",
     "SettingInvalidError",
+    "Settings",
     "StartedAs",
     "Subscription",
 ]

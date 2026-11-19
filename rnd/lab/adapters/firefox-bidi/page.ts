@@ -1,20 +1,20 @@
 // One browsing context of stock Firefox driven over WebDriver BiDi, as the lab's tasks drive a page. Every action goes
 // through the Goodfetch Guard (guard.ts) and trusted input (`input.performActions`, `input.setFiles`); every read runs
 // in the Guard's sandbox. Nothing is called in the page's main world.
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BrowserPage } from '../node/browser-tasks.ts';
 import { gestureEvents } from '../browser-scripts/scripts.ts';
 import { Bidi, BidiError, fromRemote } from './bidi.ts';
-import { act, callInSandbox, isWorldGone, sandboxWorld, SANDBOX, type Acted, type Kind, type Point } from './guard.ts';
+import { act, callInSandbox, isWorldGone, sandboxWorld, SANDBOX, settled, type Acted, type Kind, type Point } from './guard.ts';
 
 // The events a hover's arm watches: the pointer's arrival on the target. Not `pointerenter` or `mouseenter`, which
 // also fire on each ancestor the pointer enters, as events of their own whose path does not hold the target.
 const hoverEvents = ['pointerover', 'mouseover', 'pointermove', 'mousemove'] as const;
-// WebDriver's key for Enter.
-const ENTER = '';
-const DELETE = '';
+// WebDriver's key values, for the keys the tasks press and for clearing a field.
+const KEYS = { Enter: '\uE007' } as const;
+const DELETE = '\uE017';
 
 type PointerAction = { type: 'pointerMove'; x: number; y: number } | { type: 'pointerDown' | 'pointerUp'; button: number } | { type: 'pause'; duration: number };
 
@@ -62,8 +62,7 @@ export class BidiPage implements BrowserPage {
   }
 
   press(selector: string, key: 'Enter'): Promise<void> {
-    const value = key === 'Enter' ? ENTER : key;
-    return this.text('press', selector, 'text', () => this.keys([value]));
+    return this.text('press', selector, 'text', async () => { await this.keys([KEYS[key]]); await settled(sandboxWorld(this.bidi, this.context)); });
   }
 
   // The Guard focuses the field and selects its text; the text then arrives as typed, one grapheme per key.
@@ -84,11 +83,11 @@ export class BidiPage implements BrowserPage {
     const loaded = new Set<string>(); const stop = this.bidi.on('browsingContext.domContentLoaded', event => { if (String(event.url).endsWith('/popup')) loaded.add(String(event.context)); });
     try {
       await this.click(trigger);
-      const popup = String((await created).context);
-      if (!loaded.has(popup)) await this.bidi.next('browsingContext.domContentLoaded', event => event.context === popup && String(event.url).endsWith('/popup'), this.timeoutMs);
+      const popup = String((await created.promise).context);
+      if (!loaded.has(popup)) await this.bidi.next('browsingContext.domContentLoaded', event => event.context === popup && String(event.url).endsWith('/popup'), this.timeoutMs).promise;
       const page = new BidiPage(this.bidi, popup, this.timeoutMs, this.acted);
       try { await task(page); } finally { await page.close(); }
-    } finally { stop(); }
+    } finally { created.cancel(); stop(); }
   }
 
   // The frame is the child context of the element's content window, read in the sandbox.
@@ -112,12 +111,14 @@ export class BidiPage implements BrowserPage {
   // A guarded click on the link, the download allowed into a fresh folder, read once BiDi reports it complete.
   async download(selector: string): Promise<string> {
     const folder = await mkdtemp(join(tmpdir(), 'goodfetch-bidi-download-'));
-    await this.bidi.send('browser.setDownloadBehavior', { downloadBehavior: { type: 'allowed', destinationFolder: folder }, userContexts: ['default'] });
     const ended = this.bidi.next('browsingContext.downloadEnd', event => event.context === this.context, this.timeoutMs * 3);
-    await this.click(selector);
-    const end = await ended as { status?: string; filepath?: string | null };
-    if (end.status !== 'complete' || !end.filepath) throw new Error(`download ended ${end.status}`);
-    return readFile(end.filepath, 'utf8');
+    try {
+      await this.bidi.send('browser.setDownloadBehavior', { downloadBehavior: { type: 'allowed', destinationFolder: folder }, userContexts: ['default'] });
+      await this.click(selector);
+      const end = await ended.promise as { status?: string; filepath?: string | null };
+      if (end.status !== 'complete' || !end.filepath) throw new Error(`download ended ${end.status}`);
+      return await readFile(end.filepath, 'utf8');
+    } finally { ended.cancel(); await rm(folder, { recursive: true, force: true }); }
   }
 
   private async pointer(kind: string, selector: string, events: readonly string[], perform: (point: Point) => Promise<void>): Promise<void> {

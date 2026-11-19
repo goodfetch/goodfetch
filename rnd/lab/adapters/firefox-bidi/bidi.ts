@@ -61,13 +61,15 @@ export class Bidi {
     } catch (error) { browser.kill('SIGKILL'); await rm(profile, { recursive: true, force: true }); throw error; }
   }
 
-  // Sends one command and answers its result; every command is logged as sent, before its answer.
-  send(method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+  // Sends one command and answers its result; every command is logged as sent, before its answer. A command left
+  // without an answer (a stalled browser, a dropped context) fails after `timeoutMs` instead of waiting forever.
+  send(method: string, params: Record<string, unknown> = {}, timeoutMs = 60_000): Promise<Record<string, unknown>> {
     const id = ++this.sequence;
     const target = params.target as { context?: string; sandbox?: string } | undefined;
     this.sent.push({ method, ...(target?.sandbox !== undefined ? { sandbox: target.sandbox } : {}), ...(target?.context !== undefined ? { context: target.context } : {}) });
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${method}: no answer within ${timeoutMs} ms`)); }, timeoutMs);
+      this.pending.set(id, { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } });
       this.socket.send(JSON.stringify({ id, method, params }));
     });
   }
@@ -78,18 +80,22 @@ export class Bidi {
     return () => { this.listeners.delete(entry); };
   }
 
-  // Resolves with the first `event` that `accept` takes, or rejects after `timeoutMs`.
-  next(event: string, accept: (params: Record<string, unknown>) => boolean, timeoutMs: number): Promise<Record<string, unknown>> {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { off(); reject(new Error(`no ${event} within ${timeoutMs} ms`)); }, timeoutMs);
-      const off = this.on(event, params => { if (accept(params)) { clearTimeout(timer); off(); resolve(params); } });
+  // Waits for the first `event` that `accept` takes, failing after `timeoutMs`. Registered before the command that
+  // causes the event, so the event cannot be missed; `cancel` stops the wait when that command failed, and the wait's
+  // own failure is then dropped.
+  next(event: string, accept: (params: Record<string, unknown>) => boolean, timeoutMs: number): { promise: Promise<Record<string, unknown>>; cancel(): void } {
+    let off = () => {}; let timer: NodeJS.Timeout | undefined;
+    const promise = new Promise<Record<string, unknown>>((resolve, reject) => {
+      timer = setTimeout(() => { off(); reject(new Error(`no ${event} within ${timeoutMs} ms`)); }, timeoutMs);
+      off = this.on(event, params => { if (accept(params)) { clearTimeout(timer); off(); resolve(params); } });
     });
+    return { promise, cancel: () => { off(); clearTimeout(timer); promise.catch(() => {}); } };
   }
 
   async close(): Promise<void> {
-    try { await Promise.race([this.send('browser.close'), new Promise(resolve => setTimeout(resolve, 3000))]); } catch { /* the browser may already be gone */ }
+    if (this.running()) await this.send('browser.close', {}, 3000).catch(() => { /* gone, or stalled: killed below */ });
     this.socket.close();
-    if (this.browser.exitCode === null) {
+    if (this.running()) {
       const exited = new Promise(resolve => this.browser.once('exit', resolve));
       const timer = setTimeout(() => this.browser.kill('SIGKILL'), 5000);
       await exited; clearTimeout(timer);
@@ -106,6 +112,9 @@ export class Bidi {
     if (message.type === 'success') wait.resolve(message.result ?? {});
     else wait.reject(new BidiError(this.sent[message.id - 1]?.method ?? 'unknown', message.error ?? 'unknown error', message.message ?? ''));
   }
+
+  // A browser that exited with a code or was killed by a signal has emitted its `exit` already.
+  private running(): boolean { return this.browser.exitCode === null && this.browser.signalCode === null; }
 
   private failAll(error: Error) { for (const wait of this.pending.values()) wait.reject(error); this.pending.clear(); }
 }

@@ -13,7 +13,7 @@ const pages: Record<string, { type: string; body: string }> = {
   '/worker.js': { type: 'text/javascript', body: 'fetch("/from-worker").then(()=>postMessage("worker ran"))' },
   '/from-worker': { type: 'text/plain', body: 'ok' },
   '/big': { type: 'text/plain', body: 'goodfetch '.repeat(200_000) },
-  '/hide': { type: 'text/html', body: '<!doctype html><div id=ad>ad</div><output id=seen></output><script>setInterval(()=>{document.querySelector("#seen").textContent=document.adoptedStyleSheets.length+"/"+document.styleSheets.length},20)</script>' },
+  '/hide': { type: 'text/html', body: '<!doctype html><div id=ad>ad</div><output id=seen></output><script>const show=()=>{document.querySelector("#seen").textContent=document.adoptedStyleSheets.length+"/"+document.styleSheets.length};show();setInterval(show,20)</script>' },
   '/socket': { type: 'text/html', body: '<!doctype html><output id=echo></output><script>const socket=new WebSocket(`ws://${location.host}/echo`);socket.onopen=()=>socket.send("ping");socket.onmessage=e=>{document.querySelector("#echo").textContent=e.data}</script>' },
   '/worker-page': { type: 'text/html', body: '<!doctype html><output id=state></output><script>navigator.serviceWorker.register("/sw.js").then(()=>navigator.serviceWorker.ready).then(()=>{document.querySelector("#state").textContent=navigator.serviceWorker.controller?"controlled":"ready"})</script>' },
   '/sw.js': { type: 'text/javascript', body: 'self.addEventListener("install",()=>self.skipWaiting());self.addEventListener("activate",e=>e.waitUntil(clients.claim()));self.addEventListener("fetch",e=>{if(new URL(e.request.url).pathname==="/probe")e.respondWith(new Response("from-service-worker"))})' },
@@ -87,7 +87,7 @@ async function main(executablePath: string) {
       const paused = bidi.next('network.responseStarted', event => event.isBlocked === true, 10_000);
       const completedEvents: string[] = []; const offCompleted = bidi.on('network.responseCompleted', event => completedEvents.push(String((event.request as { request: string }).request)));
       void bidi.send('browsingContext.navigate', { context, url: `${origin}/big`, wait: 'none' }).catch(() => {});
-      const request = String(((await paused).request as { request: string }).request); step('response paused at responseStarted');
+      const request = String(((await paused.promise).request as { request: string }).request); step('response paused at responseStarted');
       const whilePaused = size(await within(bidi.send('network.getData', { dataType: 'response', request }), 5_000)); step(`getData while paused: ${JSON.stringify(whilePaused)}`);
       await within(bidi.send('network.continueResponse', { request }), 5_000); step('response continued');
       for (let waited = 0; !completedEvents.includes(request) && waited < 5_000; waited += 100) await settle(100);

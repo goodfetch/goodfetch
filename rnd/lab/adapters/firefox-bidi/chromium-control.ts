@@ -3,54 +3,24 @@
 // `Input.dispatchMouseEvent`), on the actionability cells, with the same fixtures and private oracle. A cell that fails
 // on both browsers fails on the Guard, not on the WebDriver BiDi route.
 // Usage: node adapters/firefox-bidi/chromium-control.ts <chrome> [blocks] [variant...]
-import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { startFixtures, type RunSpec } from '../../fixtures/server.ts';
+import { launchBrowser, type HostedBrowser } from '../../src/core/browser-host.ts';
 import { condition, gestureEvents, waitScript } from '../browser-scripts/scripts.ts';
+import { CdpConnection } from '../cdp-node/cdp.ts';
 import { act, WorldGone, type GuardWorld } from './guard.ts';
 
 type Variant = NonNullable<RunSpec['variant']>;
 const variants: Variant[] = ['normal', 'overlay', 'delayed', 'hidden', 'moving', 'rerender', 'never-enabled', 'never-uncovered', 'ambiguous'];
 const negatives: Variant[] = ['never-enabled', 'never-uncovered', 'ambiguous'];
 
-class Cdp {
-  readonly sent: string[] = [];
-  private sequence = 0;
-  private readonly pending = new Map<number, { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void }>();
-  private readonly socket: WebSocket;
-  constructor(socket: WebSocket) {
-    this.socket = socket;
-    socket.addEventListener('message', message => {
-      const answer = JSON.parse(String(message.data)) as { id?: number; result?: Record<string, unknown>; error?: { message: string } };
-      const wait = answer.id === undefined ? undefined : this.pending.get(answer.id); if (!wait) return;
-      this.pending.delete(answer.id!);
-      if (answer.error) wait.reject(new Error(answer.error.message)); else wait.resolve(answer.result ?? {});
-    });
-  }
-  send(method: string, params: Record<string, unknown> = {}, sessionId?: string): Promise<Record<string, unknown>> {
-    const id = ++this.sequence; this.sent.push(method);
-    return new Promise((resolve, reject) => { this.pending.set(id, { resolve, reject }); this.socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) })); });
-  }
-}
-
-async function launch(executablePath: string) {
-  const profile = await mkdtemp(join(tmpdir(), 'goodfetch-chromium-control-'));
-  const browser = spawn(executablePath, ['--headless', '--no-first-run', `--user-data-dir=${profile}`, '--remote-debugging-port=0', ...(process.getuid?.() === 0 ? ['--no-sandbox'] : []), 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
-  const endpoint = await new Promise<string>((resolve, reject) => {
-    let text = ''; const timer = setTimeout(() => reject(new Error(`no DevTools endpoint: ${text}`)), 30_000);
-    browser.stderr.setEncoding('utf8');
-    browser.stderr.on('data', (data: string) => { text += data; const found = text.match(/DevTools listening on (ws:\/\/\S+)/); if (found) { clearTimeout(timer); resolve(found[1]!); } });
-  });
-  const socket = new WebSocket(endpoint);
-  await new Promise(resolve => socket.addEventListener('open', resolve, { once: true }));
-  return { cdp: new Cdp(socket), close: async () => { socket.close(); browser.kill('SIGKILL'); await new Promise(resolve => browser.once('exit', resolve)); await rm(profile, { recursive: true, force: true }); } };
-}
-
 async function runCell(executablePath: string, variant: Variant, seed: number, timeoutMs: number) {
-  const fixtures = await startFixtures(); const { cdp, close } = await launch(executablePath);
+  const fixtures = await startFixtures(); let browser: HostedBrowser | undefined; let connection: CdpConnection | undefined;
   try {
+    browser = await launchBrowser(executablePath, 30_000, process.getuid?.() === 0 ? ['--no-sandbox'] : []);
+    connection = await CdpConnection.connect(browser.wsEndpoint);
+    // The lab's connection, with the log of every command sent that the Guard's loop counts.
+    const sent: string[] = []; const open = connection;
+    const cdp = { sent, send: (method: string, params: Record<string, unknown> = {}, sessionId?: string) => { sent.push(method); return open.send(method, params, sessionId); } };
     const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' }) as { targetId: string };
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string };
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false }, sessionId);
@@ -81,7 +51,7 @@ async function runCell(executablePath: string, variant: Variant, seed: number, t
     if (!negatives.includes(variant)) await world.call(`async()=>${waitScript(condition('action-saved'), timeoutMs)}`);
     return { variant, ...await fixtures.verify(fixture.id, { status: 'ok', metrics: { nativeRejected } }), ...fixtures.snapshot(fixture.id) };
   } catch (error) { return { variant, status: 'failed', reasons: [String(error)] }; }
-  finally { await close(); await fixtures.close(); }
+  finally { connection?.close(); await browser?.close(); await fixtures.close(); }
 }
 
 if (process.argv[1]?.endsWith('chromium-control.ts')) {

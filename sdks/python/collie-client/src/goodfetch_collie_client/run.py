@@ -67,7 +67,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel, JsonValue
 
     from goodfetch_collie_client.generated.models import RunStarted, StartedAs
-    from goodfetch_collie_client.goodfetch_error import GoodfetchError
+    from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError
     from goodfetch_collie_client.handle import (
         AsyncHandleHost,
         AsyncListener,
@@ -533,7 +533,7 @@ class _AsyncHost(Generic[_Id]):
             # The callback holds the scopes, never the host it watches.
             weakref.finalize(self, run.released, value).atexit = False
 
-        def failed(cause: Exception) -> None:
+        def failed(cause: Exception | BaseGoodfetchError) -> None:
             error = ListenerFailedError(
                 f"{operation}: the listener of `{event}` threw, so it was removed",
                 fix="Fix the listener, then listen again with `on`.",
@@ -542,7 +542,7 @@ class _AsyncHost(Generic[_Id]):
             error.__cause__ = cause
             run.failed(_Failure(value, error))
 
-        def ended(error: GoodfetchError) -> None:
+        def ended(error: BaseGoodfetchError) -> None:
             # A call its Connection's close cancelled, or that stopped as its
             # value closed, ended with everything else; any other error,
             # such as `page_events_lost`, ended this listener alone, and

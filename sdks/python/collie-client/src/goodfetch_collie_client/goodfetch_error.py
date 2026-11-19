@@ -1,13 +1,13 @@
-"""The base of every error a Goodfetch SDK raises (ADR 0079).
+"""The bases of every error a Goodfetch SDK raises (ADR 0079).
 
-Each Error code's generated class extends it through its group's.
-Hand-written: only the seven groups and the codes' classes come from the
-catalog.
+Each Error code's generated class extends `GoodfetchError` through its
+group's, except Foxhound's `AttemptEndedError`, which extends
+`BaseGoodfetchError` alone, outside `Exception` (ADR 0093). Hand-written:
+only the seven groups and the codes' classes come from the catalog.
 """
 
 from __future__ import annotations
 
-import copy
 from typing import TYPE_CHECKING, Protocol, TypedDict, TypeVar
 
 if TYPE_CHECKING:
@@ -50,10 +50,15 @@ class ErrorFields(TypedDict, total=False):
     """The code's details, as the engine sent them, in wire names."""
 
 
-class GoodfetchError(Exception):
-    """The base of every error a Goodfetch SDK raises (ADR 0079).
+class BaseGoodfetchError(BaseException):
+    """What every error a Goodfetch SDK raises carries, `AttemptEndedError`'s included.
 
-    The sync and the async clients raise the same classes.
+    As `BaseExceptionGroup` is to `ExceptionGroup`: `GoodfetchError` adds
+    `Exception`, and Foxhound's `AttemptEndedError`, which ends a crawl
+    handler's attempt, does not, so a handler's `except Exception:` lets it
+    through, as it lets `asyncio.CancelledError` through (ADR 0093). A
+    program catches `GoodfetchError`; catching this class also stops the
+    end of an attempt.
     """
 
     code: str
@@ -121,7 +126,15 @@ class GoodfetchError(Exception):
         return type(self).__name__
 
 
-_Error = TypeVar("_Error", bound=GoodfetchError)
+class GoodfetchError(BaseGoodfetchError, Exception):
+    """The base of every error a Goodfetch SDK raises, `AttemptEndedError` aside.
+
+    ADRs 0079 and 0093. The sync and the async clients raise the same
+    classes.
+    """
+
+
+_Error = TypeVar("_Error", bound=BaseGoodfetchError)
 
 
 def runtime_message(
@@ -146,7 +159,8 @@ def in_call(error: _Error, operation: str) -> _Error:
     """
     if error.operation is not None:
         return error
-    copied = copy.copy(error)
+    copied = type(error).__new__(type(error))
+    copied.__dict__.update(error.__dict__)
     copied.args = (f"{operation}: {error}",)
     copied.operation = operation
     copied.__cause__ = error.__cause__
@@ -156,6 +170,8 @@ def in_call(error: _Error, operation: str) -> _Error:
 class ErrorClass(Protocol):
     """The class of one Error code: its message, then what it carries."""
 
-    def __call__(self, message: str, **fields: Unpack[ErrorFields]) -> GoodfetchError:
+    def __call__(
+        self, message: str, **fields: Unpack[ErrorFields]
+    ) -> BaseGoodfetchError:
         """Makes the error from the message the engine rendered."""
         ...

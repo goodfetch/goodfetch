@@ -1,0 +1,37 @@
+{
+  "description": "A handler's stream the engine refuses with `attempt_ended` once its credits came: its attempt already ended, so no key was sent.",
+  "steps": [
+    {
+      "expect": {
+        "method": "key_value_store.keys",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "prefix": "item-"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 0,
+          "credits": 16
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32001,
+          "message": "Attempt 1 of crawl request `7` already ended, so no key was sent.",
+          "data": {
+            "code": "attempt_ended",
+            "retryable": false,
+            "operation": "key_value_store.keys",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+          }
+        }
+      }
+    }
+  ]
+}

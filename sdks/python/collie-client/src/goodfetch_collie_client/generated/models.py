@@ -8,6 +8,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
+from goodfetch_collie_client.generated.open_values import Verdict
 from goodfetch_collie_client.point_in_time import PointInTime
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
@@ -3492,20 +3493,6 @@ class ValueTransform(StrEnum):
     """An exact text looked up in the transform's table."""
 
 
-class Verdict(StrEnum):
-    """Whether a Run's own checks prove what it committed (ADR 0029)."""
-
-    verified = "verified"
-    """
-    Every check the Run relies on passed, none was switched off, and no
-    Effect is left uncertain.
-    """
-    rejected = "rejected"
-    """A declared Success check failed."""
-    needs_review = "needs_review"
-    """Everything else: a person reviews it."""
-
-
 class WaitForExchangeParams(BaseModel):
     """
     What `page.wait_for_request` and `page.wait_for_response` take: the
@@ -5503,6 +5490,7 @@ class RunAxes(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     completeness: Completeness | None = None
     """Whether its results cover its scope, once it ended."""
@@ -5579,6 +5567,7 @@ class RunListParams(BaseModel):
 
     model_config = ConfigDict(
         extra="forbid",
+        arbitrary_types_allowed=True,
     )
     completeness: Completeness | None = None
     """Their Completeness: only Runs that ended have one."""

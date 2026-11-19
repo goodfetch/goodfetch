@@ -11,6 +11,7 @@ import {
   errorGroupClasses,
   InternalError,
   isCollieError,
+  PageError,
   ProgramError,
   SettingInvalidError,
   type ErrorGroup,
@@ -86,6 +87,31 @@ describe("errorOfReply", () => {
       });
     },
   );
+
+  // ADR 0079: a code a newer engine adds raises the class of the group its
+  // JSON-RPC error code names, keeping the code as received.
+  test("raises a code it does not know in its group's class, keeping the code", () => {
+    const error = errorOfReply(
+      {
+        code: -32003,
+        message: "the page went away",
+        data: { code: "a_code_from_a_newer_engine", retryable: true },
+      },
+      collieErrorClasses,
+    );
+
+    expect({
+      isGroupClass: error instanceof PageError,
+      code: error.code,
+      group: error.group,
+      retryable: error.retryable,
+    }).toEqual({
+      isGroupClass: true,
+      code: "a_code_from_a_newer_engine",
+      group: "page",
+      retryable: true,
+    });
+  });
 
   test(
     "raises the code's class with the fields every error carries, leaving the code's own details",

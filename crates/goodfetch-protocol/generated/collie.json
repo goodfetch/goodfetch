@@ -9786,7 +9786,8 @@
           "description": "Everything else: a person reviews it.",
           "type": "string"
         }
-      ]
+      ],
+      "open": true
     },
     "WaitForCountParams": {
       "additionalProperties": false,

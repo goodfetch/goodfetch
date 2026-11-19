@@ -13,6 +13,7 @@ const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 /// Why a site refused a page (ADR 0035), on the wire as written.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true))]
 pub enum BlockCause {
     /// A page that checks the browser before it lets it through.
     Challenge,

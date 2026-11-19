@@ -346,6 +346,7 @@ impl Lifecycle {
 /// Whether a Run's own checks prove what it committed (ADR 0029).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true))]
 pub enum Verdict {
     /// Every check the Run relies on passed, none was switched off, and no
     /// Effect is left uncertain.

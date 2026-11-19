@@ -25,6 +25,7 @@ use goodfetch_protocol::settings::{COLLIE_ENGINE_PATH_VARIABLE, FOXHOUND_ENGINE_
 use super::handles;
 use super::layer::{Deprecation, Layer, Stability};
 use super::naming::{pascal, snake};
+use super::open_values::{self, OpenValues};
 use super::{Generated, TypesFile};
 
 /// Collie's generated layer, as Foxhound's layer imports it.
@@ -37,6 +38,37 @@ const CALLER_MODULE: &str = "goodfetch_collie_client.caller";
 /// The hand-written module of Collie's client package whose functions give
 /// ADR 0030's run-time warning of a deprecated or Experimental member.
 const MARKERS_MODULE: &str = "goodfetch_collie_client.markers";
+
+/// The generated module of a layer's open enumerations (ADR 0079).
+const OPEN_VALUES: &str = "open_values";
+
+/// The generated package of `product`'s layer.
+fn own_package(product: Product) -> &'static str {
+    match product {
+        Product::Collie => CLIENT_PACKAGE,
+        Product::Foxhound => "goodfetch_foxhound.generated",
+    }
+}
+
+/// The module of a layer's open enumerations (ADR 0079): each its known
+/// values or any other string, which its models refer to, since
+/// `datamodel-code-generator` writes a closed `StrEnum` for one.
+fn open_values_module(layer: &Layer, open: &[(String, OpenValues)]) -> String {
+    let mut text = header(&format!(
+        "{}'s open enumerations: each its known values or a value a newer engine adds (ADR 0079).",
+        layer.product.name()
+    ));
+    text.push_str("\nfrom typing import Literal, TypeAlias\n");
+    for (name, values) in open {
+        let _ = writeln!(
+            text,
+            "\n{name}: TypeAlias = Literal[{}] | str",
+            values.literals().join(", ")
+        );
+        let _ = writeln!(text, "\"\"\"{}\n\"\"\"", escape(&values.documentation()));
+    }
+    text
+}
 
 /// The hand-written module of Collie's client package that declares the
 /// base of every exception class, which every layer's classes extend.
@@ -85,11 +117,29 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         Product::Foxhound => Vec::new(),
     };
     let (mut input, _) = layer.generator_input(&format!("{}Types", layer.product.name()), |name| {
-        let path = points_in_time::client_type(name)
-            .map_or_else(|| format!("{CLIENT_PACKAGE}.models.{name}"), str::to_owned);
+        let path = points_in_time::client_type(name).map_or_else(
+            || {
+                let module = if layer
+                    .collie_definitions
+                    .get(name)
+                    .and_then(OpenValues::of)
+                    .is_some()
+                {
+                    OPEN_VALUES
+                } else {
+                    "models"
+                };
+                format!("{CLIENT_PACKAGE}.{module}.{name}")
+            },
+            str::to_owned,
+        );
         ("customTypePath", path)
     });
     points_in_time::use_client_type(&mut input)?;
+    let open = open_values::python_input(
+        &mut input,
+        &format!("{}.{OPEN_VALUES}", own_package(layer.product)),
+    );
     // The root holds no value: an empty model with a docstring, never
     // `RootModel[Any]`.
     input["type"] = Value::from("object");
@@ -105,6 +155,9 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
     ];
     if !layer.shared_types.is_empty() {
         files.push(("shared_types.py", shared_types(layer)));
+    }
+    if !open.is_empty() {
+        files.push(("open_values.py", open_values_module(layer, &open)));
     }
     if !handles.is_empty() {
         files.push((

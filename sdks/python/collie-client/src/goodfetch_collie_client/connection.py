@@ -38,11 +38,19 @@ from goodfetch_collie_client.generated.models import (
     ProductVersion,
     ProtocolVersion,
     RunStartParams,
+    SetLogLevelParams,
     StartedAs,
     Surface,
     UsageSetParams,
 )
 from goodfetch_collie_client.generated.operations import AsyncCollieOperations
+from goodfetch_collie_client.goodfetch_error import GoodfetchError
+from goodfetch_collie_client.host_logging import (
+    CLIENT_LOGGER,
+    RUN_LOGGER,
+    log_engine_event,
+    log_level,
+)
 from goodfetch_collie_client.limits import Limits, limit_list
 from goodfetch_collie_client.once import Once
 from goodfetch_collie_client.rpc import Channel, InvalidLine, ReadFailed, WriteFailed
@@ -56,7 +64,7 @@ if TYPE_CHECKING:
 
     from goodfetch_collie_client.attached_engine import AttachedEngine
     from goodfetch_collie_client.generated.models import RunLimit, RunStarted
-    from goodfetch_collie_client.goodfetch_error import ErrorClass, GoodfetchError
+    from goodfetch_collie_client.goodfetch_error import ErrorClass
     from goodfetch_collie_client.rpc import TransportEnd
 
 CLOSE_TIMEOUT = 30.0
@@ -70,8 +78,8 @@ EXIT_GRACE = 2.0
 
 _CONNECT_AGAIN = "Connect again: a closed Connection never reopens."
 
-START_LOGGER_NAME = "goodfetch.client.run"
-"""The logger a resumed or ended start goes to, silent unless the host listens."""
+LOG = "$/log"
+"""The notification that carries one of the engine's log events."""
 
 
 @dataclass(frozen=True)
@@ -112,6 +120,11 @@ class ClientConnection:
         self._ended = False
         self._closing = Once()
         self._close_timeout = close_timeout
+        self._log_level = log_level()
+        """The level of the engine's logs the engine was last told.
+
+        By `hello` or `connection.set_log_level`.
+        """
 
     @classmethod
     async def open(
@@ -195,7 +208,9 @@ class ClientConnection:
         (ADR 0102). A start that resumed its Run is logged at info, and one
         that found it ended at warning, on the `goodfetch.client.run` logger.
         A `limits` amount the SDK cannot turn exactly fails with
-        `setting_invalid` before anything is sent.
+        `setting_invalid` before anything is sent. When the effective level
+        of `goodfetch.engine` changed since the engine was last told, the
+        start tells it first with `connection.set_log_level`.
         """
         self.ensure_open("run.start")
         fields: dict[str, object] = {}
@@ -206,6 +221,8 @@ class ClientConnection:
         run_limits = limit_list(limits)
         if run_limits:
             fields["limits"] = run_limits
+        await self._follow_log_level()
+        self.ensure_open("run.start")
         started = await self._operations.run_start(
             RunStartParams.model_construct(None, **fields)
         )
@@ -213,6 +230,11 @@ class ClientConnection:
         run = AsyncRun(self, started)
         self._runs[run] = None
         return run
+
+    def notified(self, method: str, params: object) -> None:
+        """Logs each of the engine's `$/log` events; drops any other notification."""
+        if method == LOG:
+            log_engine_event(params)
 
     def reachable(self) -> bool:
         """Whether the Connection can still reach the engine."""
@@ -285,6 +307,7 @@ class ClientConnection:
             needs=needs,
             product_version=ProductVersion(PRODUCT_VERSION),
             form=Form.python,
+            log_level=self._log_level,
         )
         answer = await self.call("hello", params)
         fields = object_members(answer) or {}
@@ -300,6 +323,47 @@ class ClientConnection:
             protocol_version=spoken,
             engine_path=None if self._engine is None else self._engine.path,
         )
+
+    async def _follow_log_level(self) -> None:
+        """Tells the engine the level `goodfetch.engine` records, if it changed.
+
+        With `connection.set_log_level`, once the engine answered; nothing
+        is sent when it did not change, and nothing polls it. The engine's
+        logs are telemetry, so a refusal fails no start: it goes to the
+        `goodfetch.client` logger at warning, and the level the engine kept
+        stays the one told, so the next Run's start tells it again, as after
+        a cancelled call. A Connection that ended or is closing fails with
+        its own error.
+        """
+        level = log_level()
+        before = self._log_level
+        if level == before:
+            return
+        self._log_level = level
+        try:
+            await self._operations.connection_set_log_level(
+                SetLogLevelParams(log_level=level)
+            )
+        except BaseException as error:
+            # Refused, failed or cancelled: the engine may keep the level it
+            # had, so the next start tells it again, unless a start begun
+            # meanwhile told it a newer one.
+            if self._log_level == level:
+                self._log_level = before
+            if (
+                not isinstance(error, GoodfetchError)
+                or self._ended
+                or self._closing.started
+            ):
+                raise
+            logging.getLogger(CLIENT_LOGGER).warning(
+                "The engine refused the log level `%s`; it keeps sending its logs "
+                "at `%s`.",
+                level,
+                before,
+                exc_info=error,
+                extra={"log_level": str(level)},
+            )
 
     async def _set_limit(self, limit: RunLimit) -> None:
         """Sets `limit` on the Connection: no `scope_id`, no period (ADR 0080)."""
@@ -397,7 +461,7 @@ def _log_start(started: RunStarted) -> None:
     run_id = started.run_id.root
     # Engine answers are not validated (STYLE.md): `started_as` may be a bare string.
     fields = {"run_id": run_id, "started_as": str(started.started_as)}
-    logger = logging.getLogger(START_LOGGER_NAME)
+    logger = logging.getLogger(RUN_LOGGER)
     match started.started_as:
         case StartedAs.new:
             return

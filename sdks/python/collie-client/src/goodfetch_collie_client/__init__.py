@@ -6,7 +6,8 @@ codegen` writes from Collie's entries of the catalog, whose operations take
 
 Its loggers sit under `goodfetch`, which gets a `NullHandler` and nothing
 else (ADR 0078): a host that configures no logging sees none of the engine's
-stderr lines, which Python's last-resort handler would otherwise print.
+stderr lines or log events, which Python's last-resort handler would
+otherwise print. `host_logging` names them.
 """
 
 import logging

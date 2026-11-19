@@ -114,6 +114,22 @@ lint-drift:
     step --after xtask xtask-compat 'cargo run --quiet --bin xtask -- compat check'
     steps_end
 
+# The type checks of the TypeScript and Python code, over the workspace: the
+# root's scripts, each pnpm package's `typecheck`, pyright and mypy. `just
+# lint` runs them, and `just batch-check` on a batch's combined tree, where
+# one package's types can break another's though each change passed alone.
+# Every check runs even after one failed.
+lint-types:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source ci/keep-going.sh
+    steps_begin lint-types
+    step tsc 'pnpm exec tsc -p tsconfig.json'
+    step pnpm-typecheck 'pnpm -r --if-present run typecheck'
+    step pyright 'uv run pyright'
+    step mypy 'uv run mypy .'
+    steps_end
+
 # Formatting checks and the checks that read documents, then every linter and
 # the repository's own static checks. Every check runs even after one failed,
 # and the run ends with the list of those that failed, each with its log
@@ -137,12 +153,9 @@ lint:
     step lint-drift '{{ just_executable() }} lint-drift'
     step xtask 'cargo build --quiet --bin xtask'
     step --after cargo-lock clippy 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
-    step tsc 'pnpm exec tsc -p tsconfig.json'
-    step pnpm-typecheck 'pnpm -r --if-present run typecheck'
+    step lint-types '{{ just_executable() }} lint-types'
     step oxlint 'pnpm exec oxlint'
     step ruff 'uv run ruff check .'
-    step pyright 'uv run pyright'
-    step mypy 'uv run mypy .'
     step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
     step actionlint 'ci/tool.sh actionlint actionlint'
     step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
@@ -1013,7 +1026,7 @@ quick-steps:
     echo "# gate=docs: just lint-documents, and nothing after it."
     echo "# Any other gate: just notices, just lint, then the Quick suite, which runs after a red lint too."
     echo "just notices"
-    for recipe in fmt-check lint-documents lint-drift lint; do
+    for recipe in fmt-check lint-documents lint-drift lint-types lint; do
       echo "# just $recipe:"
       GOODFETCH_STEPS_LIST=1 "$just" "$recipe"
     done
@@ -1028,9 +1041,12 @@ quick-steps:
 # of the locked JavaScript and Python dependencies, which the batch's fresh
 # worktree lacks, the checks of the whole change's commits against `base`,
 # the licence allowlist, the checks that read documents and the drift checks
-# (`just lint-drift`), then the Quick suite over the members two or more of
-# the batch's branches reach. Every step runs even after one failed, except
-# that a failed install skips the steps that read the installed packages.
+# (`just lint-drift`), the TypeScript and Python type checks over the
+# workspace (`just lint-types`), then Clippy, with `just lint`'s flags, over
+# the crates and the Quick suite over the members two or more of the batch's
+# branches reach.
+# Every step runs even after one failed, except that a failed install skips
+# the steps that read the installed packages.
 batch-check base="origin/main":
     PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/batch-check.sh {{ quote(base) }}
 

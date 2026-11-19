@@ -4,20 +4,23 @@
 //! installs the locked JavaScript and Python dependencies, then runs the
 //! checks of the whole change (sign-offs, subjects, the floor guard, the scan
 //! for secrets, the notices), the checks that read every document and the
-//! drift checks (`just lint-documents`, `just lint-drift`), then the Quick
-//! suite over the members that two or more of the batch's branches reach:
-//! each branch a merge brought, and the commits made on the batch branch
-//! itself as one more. A merge of the base itself, as the gate's merge of
-//! `main`'s tip, brings no branch. The steps run through a stand-in `just`,
-//! and the installs through stand-in `pnpm` and `uv`, that record each call,
-//! and `xtask affected` through a stand-in `cargo` that prints the selection
-//! written for the head it is asked about. Repository tooling: the module
-//! declares no Feature.
+//! drift checks (`just lint-documents`, `just lint-drift`), the TypeScript
+//! and Python type checks over the workspace (`just lint-types`), then Clippy
+//! over the crates and the Quick suite over the members that two or more of
+//! the batch's branches
+//! reach: each branch a merge brought, and the commits made on the batch
+//! branch itself as one more. A merge of the base itself, as the gate's merge
+//! of `main`'s tip, brings no branch. The steps run through a stand-in
+//! `just`, and the installs through stand-in `pnpm` and `uv`, that record
+//! each call, and `xtask affected` and Clippy through a stand-in
+//! `cargo` that prints the selection written for the head it is asked about.
+//! Repository tooling: the module declares no Feature.
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
+use crate::register::steps;
 use crate::workspace::Workspace;
 
 /// Stand-in `just`, `pnpm` and `uv` that append their call to `calls` (the
@@ -25,7 +28,7 @@ use crate::workspace::Workspace;
 /// fail when it is `failing`'s content, and a stand-in `cargo` that appends
 /// its own to `cargo-calls` and prints `selection-<head>` for
 /// `--head <head>`, an empty selection when there is none, or fails when
-/// `cargo-fails` exists.
+/// `cargo-fails` exists, or `clippy-fails` for a `cargo clippy`.
 fn stand_ins(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
@@ -45,6 +48,7 @@ fi
         r#"#!/bin/sh
 echo "$*" >>"{folder}/cargo-calls"
 [ ! -f "{folder}/cargo-fails" ] || exit 101
+[ "$1" != clippy ] || [ ! -f "{folder}/clippy-fails" ] || exit 101
 head=
 while [ $# -gt 0 ]; do
   if [ "$1" = --head ]; then head=$2; fi
@@ -112,8 +116,9 @@ fn batch_check(workspace: &Workspace, stand_in: &Path) -> Run {
     }
 }
 
-/// The installs and checks every batch runs before its suite, in their order.
-const CHECKS: [&str; 9] = [
+/// The installs and checks every batch runs before Clippy and its suite, in
+/// their order.
+const CHECKS: [&str; 10] = [
     "pnpm install --frozen-lockfile",
     "uv sync --frozen --all-extras",
     "dco origin/main",
@@ -123,7 +128,24 @@ const CHECKS: [&str; 9] = [
     "notices",
     "lint-documents",
     "lint-drift",
+    "lint-types",
 ];
+
+/// What the script asks `cargo` for Clippy over `crates`: the repository's
+/// `just lint` Clippy step, the gate's, with the crates by name in place of
+/// `--workspace`, so a change of the gate's flags fails here until the script
+/// takes it too.
+fn clippy(crates: &str) -> String {
+    let lint = steps("lint");
+    let gate = lint
+        .iter()
+        .find(|command| command.starts_with("cargo clippy --workspace "))
+        .unwrap_or_else(|| panic!("`just lint` has no Clippy step over the workspace: {lint:#?}"));
+    let packages: Vec<String> = crates.split(' ').map(|name| format!("-p {name}")).collect();
+    gate.strip_prefix("cargo ")
+        .unwrap()
+        .replacen("--workspace", &packages.join(" "), 1)
+}
 
 /// What the script asks `xtask affected` for a branch from `base` to `head`.
 fn affected(base: &str, head: &str) -> String {
@@ -158,11 +180,12 @@ fn batch(workspace: &Workspace, branches: &[&str]) {
 }
 
 /// Two branches green alone can break on their combined tree only where both
-/// reach (batch h, 2026-11-18: a corpus test of a crate both reached). The
-/// suite runs over those members alone; a later merge of `main`'s newer tip,
-/// as the gate makes, brings no branch and is asked nothing.
+/// reach (batch h, 2026-11-18: a corpus test of a crate both reached; batch
+/// z, 2026-11-19: clippy on a crate both reached). Clippy runs over those
+/// crates and the suite over those members alone; a later merge of `main`'s
+/// newer tip, as the gate makes, brings no branch and is asked nothing.
 #[test]
-fn the_suite_runs_over_the_members_two_branches_reach() {
+fn clippy_and_the_suite_run_over_the_members_two_branches_reach() {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_ins(&workspace);
     repository(&workspace);
@@ -171,13 +194,13 @@ fn the_suite_runs_over_the_members_two_branches_reach() {
     reaches(
         &stand_in,
         &first,
-        "goodfetch-a goodfetch-shared",
+        "goodfetch-a goodfetch-shared goodfetch-z",
         "sdks/typescript/collie",
     );
     reaches(
         &stand_in,
         &second,
-        "goodfetch-b goodfetch-shared",
+        "goodfetch-b goodfetch-shared goodfetch-z",
         "sdks/typescript/collie",
     );
     batch(&workspace, &["first", "second"]);
@@ -192,11 +215,12 @@ fn the_suite_runs_over_the_members_two_branches_reach() {
 
     assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
     let mut calls: Vec<String> = CHECKS.iter().map(|call| (*call).to_owned()).collect();
-    calls.push("test quick goodfetch-shared sdks/typescript/collie".to_owned());
+    calls.push("test quick goodfetch-shared goodfetch-z sdks/typescript/collie".to_owned());
     assert_eq!(run.calls, calls);
     let mut asked = vec![
         affected("origin/main", &second),
         affected("origin/main", &first),
+        clippy("goodfetch-shared goodfetch-z"),
     ];
     asked.sort();
     let mut cargo_calls = run.cargo_calls.clone();
@@ -205,9 +229,9 @@ fn the_suite_runs_over_the_members_two_branches_reach() {
 }
 
 /// A batch of one branch has nothing combined: the branch's own `just quick`
-/// ran its suite, so no suite runs, and the run says why.
+/// ran Clippy and its suite, so neither runs.
 #[test]
-fn one_branch_runs_no_suite() {
+fn one_branch_runs_neither_clippy_nor_the_suite() {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_ins(&workspace);
     repository(&workspace);
@@ -219,7 +243,7 @@ fn one_branch_runs_no_suite() {
 
     assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
     assert_eq!(run.calls, CHECKS);
-    assert!(run.stdout.contains("no suite"), "{}", run.stdout);
+    assert_eq!(run.cargo_calls, [affected("origin/main", &only)]);
 }
 
 /// The commits made on the batch branch itself, such as a fix of the
@@ -278,10 +302,41 @@ fn a_red_check_still_runs_every_later_step_and_the_suite() {
     assert!(run.stdout.contains("failed   notices: "), "{}", run.stdout);
 }
 
-/// Without a branch's selection the script cannot tell which members two
-/// branches share: it runs no suite and fails, after the checks.
+/// Two branches can each pass Clippy alone and fail it together (batch z,
+/// 2026-11-19: a borrow of a field the other branch made `Copy`). A red
+/// Clippy still lets the suite run, and the end names it with its log.
 #[test]
-fn a_red_affected_runs_no_suite_and_fails() {
+fn a_red_clippy_on_the_combined_tree_is_named_with_its_log() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_ins(&workspace);
+    repository(&workspace);
+    let first = branch(&workspace, "first", "a.txt");
+    let second = branch(&workspace, "second", "b.txt");
+    reaches(&stand_in, &first, "goodfetch-shared", "");
+    reaches(&stand_in, &second, "goodfetch-shared", "");
+    batch(&workspace, &["first", "second"]);
+    std::fs::write(stand_in.join("clippy-fails"), "").unwrap();
+
+    let run = batch_check(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert_eq!(
+        run.calls.last().map(String::as_str),
+        Some("test quick goodfetch-shared")
+    );
+    assert!(
+        run.stdout.contains("failed   clippy: ")
+            && run.stdout.contains("target/steps/batch-check/clippy.log"),
+        "{}",
+        run.stdout
+    );
+}
+
+/// Without a branch's selection the script cannot tell which members two
+/// branches share: it runs neither Clippy nor the suite and fails, after the
+/// checks.
+#[test]
+fn a_red_affected_runs_neither_clippy_nor_the_suite_and_fails() {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_ins(&workspace);
     repository(&workspace);
@@ -293,6 +348,13 @@ fn a_red_affected_runs_no_suite_and_fails() {
 
     assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
     assert_eq!(run.calls, CHECKS);
+    assert!(
+        run.cargo_calls
+            .iter()
+            .all(|call| !call.starts_with("clippy")),
+        "{:?}",
+        run.cargo_calls
+    );
     assert!(run.stderr.contains("xtask affected"), "{}", run.stderr);
 }
 
@@ -316,7 +378,13 @@ fn a_red_install_skips_the_steps_that_read_the_packages() {
 
     assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
     assert_eq!(run.calls, &CHECKS[..6]);
-    for skipped in ["notices", "lint-documents", "lint-drift", "quick-suite"] {
+    for skipped in [
+        "notices",
+        "lint-documents",
+        "lint-drift",
+        "lint-types",
+        "quick-suite",
+    ] {
         assert!(
             run.stdout
                 .contains(&format!("skipped  {skipped}: uv-sync did not pass")),

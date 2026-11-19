@@ -177,7 +177,7 @@ pub struct StderrLines {
     /// The line, written with a newline after it.
     pub line: String,
     /// How many times it is written.
-    pub times: u32,
+    pub times: u16,
 }
 
 impl StderrLines {
@@ -186,7 +186,7 @@ impl StderrLines {
     pub fn text(&self) -> String {
         let mut line = self.line.clone();
         line.push('\n');
-        line.repeat(usize::try_from(self.times).unwrap_or(usize::MAX))
+        line.repeat(usize::from(self.times))
     }
 }
 

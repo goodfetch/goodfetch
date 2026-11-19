@@ -144,7 +144,8 @@
         },
         "times": {
           "description": "How many times it is written.",
-          "format": "uint32",
+          "format": "uint16",
+          "maximum": 65535,
           "minimum": 0,
           "type": "integer"
         }

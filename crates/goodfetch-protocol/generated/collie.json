@@ -9713,7 +9713,7 @@
     },
     "ValueField": {
       "additionalProperties": false,
-      "description": "A value field (ADRs 0123 and 0147): the first element its locator finds\nin the page, its text, its runs of white space read as one space and\ntrimmed, or one of its attributes, an `href` or `src` resolved against\nthe document's base URL; optionally a capture group of a regular\nexpression over that text; then its Value transform. A field the page\ndoes not give is null, with why.",
+      "description": "A value field (ADRs 0123 and 0147): the first element its locator\nladder finds in the page, its locator tried first, then each of its\n`fallbacks` in turn until one finds an element; its text, its runs of\nwhite space read as one space and trimmed, or one of its attributes, an\n`href` or `src` resolved against the document's base URL; optionally a\ncapture group of a regular expression over that text; then its Value\ntransform. A field the page does not give is null, with why.",
       "properties": {
         "attribute": {
           "arrived_in": "0.1",
@@ -9722,6 +9722,14 @@
             "string",
             "null"
           ]
+        },
+        "fallbacks": {
+          "arrived_in": "0.1",
+          "description": "Its locator ladder's further rungs: when `locator` finds no\nelement, the first of these, in order, that finds one supplies it;\nin a list, the first that finds any; in rows, the first that finds\none under the row's element. Each is checked as `locator` is when\nthe call or crawl starts.",
+          "items": {
+            "$ref": "#/$defs/FieldLocator"
+          },
+          "type": "array"
         },
         "locator": {
           "$ref": "#/$defs/FieldLocator",

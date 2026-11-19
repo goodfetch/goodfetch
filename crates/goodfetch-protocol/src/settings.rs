@@ -483,12 +483,20 @@ pub struct ConfigExplainParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub origin: Option<RunOrigin>,
+    /// The Run ID of a live Run to explain, with the settings it opened
+    /// with; none explains the Connection's own, the run values given set
+    /// over them (ADR 0083). One that is no Run ID fails with
+    /// `run_id_invalid`, and one given with `settings`, `origin`,
+    /// `project` or `missing_project` with `invalid_params`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: Option<String>,
 }
 
 /// `config.explain`.
 pub const CONFIG_EXPLAIN: Operation = Operation {
     name: "config.explain",
-    description: "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's.",
+    description: "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration, the project configuration given and the run layer: the Connection's own settings with the run values given over them, or a live Run's as it opened when `run_id` names one; and lists the keys only the other Product honours as that Product's.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,

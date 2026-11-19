@@ -11,7 +11,7 @@ use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use super::{Client, Reply, answer_all, crawl, dependencies, seeds};
+use super::{Client, Reply, answer_all, crawl, crawl_connected, dependencies, seeds};
 
 /// Starts the keep-alive crawl `run_id` of one seed with `settings` beside
 /// `crawl.keep_alive`, and waits until its seed's outcome is committed.
@@ -91,10 +91,11 @@ fn a_keep_alive_crawl_stays_running_once_drained_until_run_finish_lets_it_end() 
 fn a_keep_alive_crawls_idle_time_counts_toward_its_run_timeout() {
     let env = TestEnv::new();
 
-    let report = crawl(
+    let report = crawl_connected(
+        &json!({ "timeout": { "run": 60_000 } }),
         || dependencies(&env, RunStateOptions::default()),
         async |client| {
-            started_and_drained(client, "idle", json!({ "timeout": { "run": 60_000 } })).await;
+            started_and_drained(client, "idle", json!({})).await;
             client
                 .call("crawl.serve", json!({ "run_id": "idle" }), &mut answer_all)
                 .await

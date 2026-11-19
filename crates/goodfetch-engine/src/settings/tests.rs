@@ -1648,6 +1648,7 @@ proptest! {
 
 mod operator_policy;
 mod presets;
+mod scopes;
 mod unbuilt;
 mod versions;
 

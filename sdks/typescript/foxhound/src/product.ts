@@ -7,8 +7,9 @@ import { collieErrorClasses } from "@goodfetch/collie-client";
 import type { ProductPackage } from "@goodfetch/collie-client/runtime";
 import { FOXHOUND_ENGINE_PATH_VARIABLE, FOXHOUND_EXECUTABLE } from "./generated/connection.ts";
 import { foxhoundErrorClasses } from "./generated/errors.ts";
+import { settingsOnWire, type FoxhoundSettings } from "./generated/settings.ts";
 
-export const foxhound: ProductPackage = {
+export const foxhound: ProductPackage<FoxhoundSettings> = {
   needs: "foxhound",
   name: "Foxhound",
   package: "@goodfetch/foxhound",
@@ -16,4 +17,5 @@ export const foxhound: ProductPackage = {
   enginePathVariable: FOXHOUND_ENGINE_PATH_VARIABLE,
   errorClasses: { ...collieErrorClasses, ...foxhoundErrorClasses },
   moduleUrl: import.meta.url,
+  settingsOnWire,
 };

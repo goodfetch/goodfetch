@@ -14,6 +14,7 @@
 mod call_input;
 mod changed_certificates;
 mod checkpoint;
+mod connection_settings;
 mod consent_walls;
 mod controls;
 mod daemon;

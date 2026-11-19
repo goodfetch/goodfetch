@@ -1,5 +1,5 @@
 {
-  "description": "After an accepted hello, the engine answers a Run's start with a line that is not JSON-RPC on stdout, then waits for the Client to close.",
+  "description": "A Collie Client's hello accepted, then `run.list` with `started.from` sent as RFC 3339 in UTC, `2026-11-19T08:00:00Z`, for a `datetime` of 10:00 at +02:00 (ADR 0092); the Client then closes.",
   "steps": [
     {
       "expect": {
@@ -26,17 +26,20 @@
     },
     {
       "expect": {
-        "method": "run.start",
-        "params": {}
+        "method": "run.list",
+        "params": {
+          "started": {
+            "from": "2026-11-19T08:00:00Z"
+          }
+        }
       }
     },
     {
-      "raw": {
-        "text": "INFO engine started\n"
+      "reply": {
+        "result": {
+          "runs": []
+        }
       }
-    },
-    {
-      "stall": {}
     }
   ]
 }

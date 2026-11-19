@@ -951,6 +951,14 @@
           "arrived_in": "0.1",
           "description": "The project configuration to explain with."
         },
+        "run_id": {
+          "arrived_in": "0.1",
+          "description": "The Run ID of a live Run to explain, with the settings it opened\nwith; none explains the Connection's own, the run values given set\nover them (ADR 0083). One that is no Run ID fails with\n`run_id_invalid`, and one given with `settings`, `origin`,\n`project` or `missing_project` with `invalid_params`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
@@ -1878,6 +1886,7 @@
           "type": "object"
         }
       ],
+      "open": true,
       "properties": {
         "attempts": {
           "arrived_in": "0.1",
@@ -13237,7 +13246,8 @@
           ],
           "type": "object"
         }
-      ]
+      ],
+      "open": true
     },
     "StoppedBy": {
       "description": "Who stopped a call (ADR 0113).",
@@ -17221,7 +17231,7 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
-      "description": "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's.",
+      "description": "Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration, the project configuration given and the run layer: the Connection's own settings with the run values given over them, or a live Run's as it opened when `run_id` names one; and lists the keys only the other Product honours as that Product's.",
       "events": [],
       "kind": "round_trip",
       "name": "config.explain",

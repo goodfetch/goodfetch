@@ -48,7 +48,7 @@ class AsyncCollieOperations:
         return result_of(CertsListed, await self._caller.call("certs.list", params))
 
     async def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
-        """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's."""
+        """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration, the project configuration given and the run layer: the Connection's own settings with the run values given over them, or a live Run's as it opened when `run_id` names one; and lists the keys only the other Product honours as that Product's."""
         return result_of(SettingsExplanation, await self._caller.call("config.explain", params))
 
     async def connection_set_log_level(self, params: SetLogLevelParams) -> LogLevelSet:
@@ -696,7 +696,7 @@ class CollieOperations:
         return result_of(CertsListed, self._caller.call("certs.list", params))
 
     def config_explain(self, params: ConfigExplainParams) -> SettingsExplanation:
-        """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration and the project configuration and run values given, and lists the keys only the other Product honours as that Product's."""
+        """Shows each setting's effective value, the layer that set it and the layer that locked it, from the built-in defaults, the Operator policy, user configuration, the project configuration given and the run layer: the Connection's own settings with the run values given over them, or a live Run's as it opened when `run_id` names one; and lists the keys only the other Product honours as that Product's."""
         return result_of(SettingsExplanation, self._caller.call("config.explain", params))
 
     def connection_set_log_level(self, params: SetLogLevelParams) -> LogLevelSet:

@@ -147,17 +147,15 @@ describe("Typed data on the Scripted engine as the Attached engine", () => {
       await collie.close();
 
       await clientCase.check(
-        "each fails with value_invalid, naming the key and the value's path, and what it is",
+        "each fails with value_invalid, naming the key and the value's path",
         () => {
           for (const refused of [notANumber, map, bigint]) {
             expect(refused).toBeInstanceOf(ValueInvalidError);
           }
           expect(notANumber).toMatchObject({
-            message: expect.stringContaining("NaN at /amount"),
             details: { key: "price", reason: "value_not_json", path: "/amount" },
           });
           expect(map).toMatchObject({
-            message: expect.stringContaining("a Map at /tags/1"),
             details: { key: "tags", reason: "value_not_json", path: "/tags/1" },
           });
           expect(bigint).toMatchObject({

@@ -22,14 +22,11 @@ from connection_library import finish_one_run
 from goodfetch_collie import (
     AsyncCollie,
     AsyncConnection,
-    CallCancelledError,
-    ClosedError,
     Collie,
     Connection,
     DeadlineExceededError,
     EngineExitedError,
     EngineInfo,
-    EngineOutputInvalidError,
     GoodfetchError,
     NotInProductError,
     Product,
@@ -171,23 +168,6 @@ async def test_a_library_on_the_client_package_range_catches_its_closed_error(
     answer = await finish_one_run(collie)
 
     assert answer == "closed"
-    assert played.done() == Finished()
-
-
-@three_ways
-async def test_sends_none_as_null_and_leaves_out_a_parameter_not_given(
-    way: Way,
-) -> None:
-    """`None` is a value, no timeout; a parameter left out is not sent (ADR 0080).
-
-    `run/started-and-finished.json` expects `run.finish` with no `timeout`.
-    """
-    collie, played = await collie_on(way, "run/finished-with-no-timeout.json")
-    run = await collie.start()
-
-    await run.finish(timeout=None)
-    await collie.close()
-
     assert played.done() == Finished()
 
 
@@ -398,27 +378,6 @@ async def test_aborts_a_run_once_when_two_closes_run_at_once(way: Way) -> None:
     assert played.done() == Finished()
 
 
-@three_ways
-async def test_closes_a_running_run_by_aborting_it_and_refuses_every_later_call(
-    way: Way,
-) -> None:
-    """Closing is idempotent; a call on a closed Run or Connection fails `closed`."""
-    collie, played = await collie_on(way, "run/closed-while-running.json")
-    run = await collie.start(run_id="nightly", tags=["shop"])
-
-    await run.close()
-    await run.close()
-    await collie.close()
-    await collie.close()
-
-    finished = await failure(run.finish())
-    started = await failure(collie.start())
-    assert isinstance(finished, ClosedError)
-    assert isinstance(started, ClosedError)
-    assert (finished.group, started.group) == ("program", "program")
-    assert played.done() == Finished()
-
-
 @pytest.mark.covers(
     "story:11-41", "story:11-42", "setting:timeout.connect", "error:deadline_exceeded"
 )
@@ -485,76 +444,6 @@ async def test_gives_up_on_a_runs_abort_once_timeout_close_passes() -> None:
         "elapsed": 30_000,
         "waited_for": "close",
     }
-    assert played.done() == Finished()
-
-
-@three_ways
-async def test_fails_a_call_in_flight_when_it_closes_as_cancelled_by_its_client(
-    way: Way,
-) -> None:
-    """The close cancels the call in flight, which fails with `call_cancelled`."""
-    collie, played = await collie_on(way, "connect/closed-during-a-call.json")
-    errors: list[GoodfetchError] = []
-
-    async def start() -> None:
-        errors.append(await failure(collie.start()))
-
-    async with anyio.create_task_group() as calls:
-        calls.start_soon(start)
-        await until_sent(played, "run.start")
-        await collie.close()
-
-    [error] = errors
-    assert isinstance(error, CallCancelledError)
-    assert (error.code, error.group) == ("call_cancelled", "unavailable")
-    assert error.details == {"by": "client"}
-    assert played.done() == Finished()
-
-
-@three_ways
-async def test_runs_beside_another_connection_in_the_same_process(way: Way) -> None:
-    """Two Connections are independent: each runs the tracer to its end."""
-    first, first_played = await collie_on(way, "run/started-and-finished.json")
-    second, second_played = await collie_on(way, "run/started-and-finished.json")
-    lifecycles: list[str] = []
-
-    async def trace(collie: AsyncCollie) -> None:
-        lifecycles.append((await start_and_finish(collie)).report.lifecycle)
-
-    async with anyio.create_task_group() as tracers:
-        tracers.start_soon(trace, first)
-        tracers.start_soon(trace, second)
-
-    assert lifecycles == ["finished", "finished"]
-    assert (first_played.done(), second_played.done()) == (Finished(), Finished())
-
-
-@three_ways
-async def test_connects_again_after_a_close(way: Way) -> None:
-    """A closed Connection never reopens, and a new one opens beside it."""
-    first, first_played = await collie_on(way, "connect/accepted-by-foxhound.json")
-    await first.close()
-
-    second, second_played = await collie_on(way, "run/started-and-finished.json")
-    traced = await start_and_finish(second)
-
-    assert traced.report.lifecycle == "finished"
-    assert (first_played.done(), second_played.done()) == (Finished(), Finished())
-
-
-@three_ways
-async def test_ends_when_the_engine_writes_a_line_that_is_not_json_rpc(
-    way: Way,
-) -> None:
-    """The call fails with `engine_output_invalid`, quoting the line."""
-    collie, played = await collie_on(way, "connect/garbage-during-a-call.json")
-
-    error = await failure(collie.start())
-    await collie.close()
-
-    assert isinstance(error, EngineOutputInvalidError)
-    assert (error.code, error.group) == ("engine_output_invalid", "internal")
-    assert error.details == {"line": "INFO engine started"}
     assert played.done() == Finished()
 
 

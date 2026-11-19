@@ -1,5 +1,5 @@
 {
-  "description": "A Collie Client's hello accepted, then a Run started and finished with `timeout` null, no timeout, answering its Run report; the Client then closes.",
+  "description": "A Collie Client in Python starts a Run and finishes it, and the engine answers each with a field the SDK does not know, as a newer engine would (ADR 0082, G3): the Run report the SDK hands the program keeps its field; the start reply's builds no object the program reads.",
   "steps": [
     {
       "expect": {
@@ -27,16 +27,19 @@
     {
       "expect": {
         "method": "run.start",
-        "params": {}
+        "params": {
+          "run_id": "newer"
+        }
       }
     },
     {
       "reply": {
         "result": {
-          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "run_id": "newer",
           "lifecycle": "running",
           "needs": "collie",
-          "started_as": "new"
+          "started_as": "new",
+          "queued_behind": 2
         }
       }
     },
@@ -44,15 +47,14 @@
       "expect": {
         "method": "run.finish",
         "params": {
-          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
-          "timeout": null
+          "run_id": "newer"
         }
       }
     },
     {
       "reply": {
         "result": {
-          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "run_id": "newer",
           "lifecycle": "finished",
           "verdict": "verified",
           "completeness": "complete",
@@ -72,6 +74,9 @@
             "browser_time": 0,
             "proxy_bytes": 0,
             "requests": 0
+          },
+          "carbon": {
+            "grams": 1.5
           }
         }
       }

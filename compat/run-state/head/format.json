@@ -563,7 +563,8 @@
             ],
             "type": "object"
           }
-        ]
+        ],
+        "open": true
       },
       "StoppedBy": {
         "description": "Who stopped a call (ADR 0113).",

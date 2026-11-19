@@ -117,6 +117,7 @@ fn session(home: &Path, start: SystemTime, seed: u64, calls: &[(&str, Value)]) -
                     .surface(Surface::Rust)
                     .with(|params| {
                         params.product_version = ProductVersion::parse(PRODUCT_VERSION).unwrap();
+                        params.settings = connection_settings();
                     })
                     .params(),
             );
@@ -160,15 +161,23 @@ fn session(home: &Path, start: SystemTime, seed: u64, calls: &[(&str, Value)]) -
     })
 }
 
+/// The Connection's own settings, which each start of the Run inherits: a
+/// 15 s Run, which only the Connection sets (ADR 0083).
+fn connection_settings() -> serde_json::Map<String, Value> {
+    json!({ "timeout": { "run": 15_000 } })
+        .as_object()
+        .cloned()
+        .unwrap()
+}
+
 /// The Run's settings, at its start and at its resume: its pages fetched on
-/// the `http` tier, one request every 10 s and a 15 s Run, so the Run
-/// stops with `/c` pending.
+/// the `http` tier and one request every 10 s, so the Run, under its
+/// Connection's 15 s, stops with `/c` pending.
 fn settings() -> Value {
     json!({
         "fetch": { "tier": "http" },
         "politeness": { "domain": { "delay": 0 } },
         "admission": { "max_requests_per_minute": 6 },
-        "timeout": { "run": 15_000 },
         "network": { "resolve": { "site.test": ["127.0.0.1"] } },
         "egress": { "private_ranges": ["site.test"] },
     })

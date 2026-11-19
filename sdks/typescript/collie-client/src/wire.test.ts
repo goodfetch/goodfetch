@@ -187,6 +187,65 @@ describe("fromWire", () => {
   );
 });
 
+describe("fromWire of an open tagged union", () => {
+  /**
+   * A union tagged by `kind` whose known members are `failed` and `skipped`,
+   * the fields of its members named as `Report`'s, and `run_id` the one field
+   * they all share.
+   */
+  const union = {
+    union: {
+      tag: "kind",
+      known: ["failed", "skipped"],
+      path: { type: "Report" },
+      common: { fields: { run_id: "runId" } },
+    },
+  } as const;
+
+  test("reads a member it knows as it reads the rest of the table", () => {
+    const read = fromWire(
+      { kind: "skipped", run_id: "run-1", ended_at: "2026-11-19T12:31:00Z" },
+      union,
+      types,
+    );
+
+    expect(read).toStrictEqual({
+      kind: "skipped",
+      runId: "run-1",
+      endedAt: new Date("2026-11-19T12:31:00.000Z"),
+    });
+  });
+
+  test("reads a member a newer engine adds as `unknown`, its shared fields read and the rest as sent", () => {
+    const sent = {
+      kind: "a_newer_kind",
+      run_id: "run-1",
+      ended_at: "2026-11-19T12:31:00Z",
+      its_own_field: { nested_key: 1 },
+    };
+
+    const read = fromWire(sent, union, types);
+
+    expect(read).toStrictEqual({
+      kind: "unknown",
+      tag: "a_newer_kind",
+      runId: "run-1",
+      ended_at: "2026-11-19T12:31:00Z",
+      its_own_field: { nested_key: 1 },
+    });
+  });
+
+  test("leaves a value that is no object as sent", () => {
+    expect(fromWire("pause", union, types)).toBe("pause");
+  });
+
+  test("reads an object without a tag as its members are", () => {
+    const read = fromWire({ run_id: "run-1" }, union, types);
+
+    expect(read).toStrictEqual({ runId: "run-1" });
+  });
+});
+
 describe("toWire", () => {
   test("sends each declared field in the engine's spelling and the program's data keys as written", () => {
     const usage = { resetsAt: new Date("2026-11-19T12:30:00Z") };

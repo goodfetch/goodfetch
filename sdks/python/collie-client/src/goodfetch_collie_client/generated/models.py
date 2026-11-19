@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal
 
 from goodfetch_collie_client.generated.open_values import Verdict
 from goodfetch_collie_client.point_in_time import PointInTime
+from goodfetch_collie_client.unknown_member import UnknownMember
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
@@ -3095,6 +3096,17 @@ class StopReason10(BaseModel):
     """The resource that ran out."""
 
 
+class StopReason11(UnknownMember):
+    """A member this package does not know, which a newer engine may send: the tag it was sent in `tag`, the fields every member shares, and what else it carries as sent (ADR 0079)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["unknown"]
+    tag: str
+    """The tag the engine sent."""
+
+
 class StoppedBy(StrEnum):
     """Who stopped a call (ADR 0113)."""
 
@@ -3939,6 +3951,14 @@ class ConfigExplainParams(BaseModel):
     """
     project: ProjectSettings | None = None
     """The project configuration to explain with."""
+    run_id: str | None = None
+    """
+    The Run ID of a live Run to explain, with the settings it opened
+    with; none explains the Connection's own, the run values given set
+    over them (ADR 0083). One that is no Run ID fails with
+    `run_id_invalid`, and one given with `settings`, `origin`,
+    `project` or `missing_project` with `invalid_params`.
+    """
     settings: dict[str, Any] | None = None
     """
     Run-layer values to explain with, as a Run's `settings` would give
@@ -4458,6 +4478,13 @@ class HelloParams(BaseModel):
     """The sender's own Product version."""
     protocol_version: ProtocolVersion
     """The protocol version the sender speaks."""
+    settings: dict[str, Any] | None = None
+    """
+    The Connection's own settings, nested by key: the run layer at the
+    connection scope, which every Run it starts inherits beneath its
+    own (ADR 0083). A key the connection scope does not take is refused
+    with `setting_not_applicable`, and the `hello` with it.
+    """
     surface: Surface
     """The surface it comes from."""
     token: str | None = None
@@ -5874,6 +5901,7 @@ class StopReason(
         | StopReason8
         | StopReason9
         | StopReason10
+        | StopReason11
     ]
 ):
     root: (
@@ -5887,6 +5915,7 @@ class StopReason(
         | StopReason8
         | StopReason9
         | StopReason10
+        | StopReason11
     )
     """Why a Run stopped (ADRs 0029, 0080 and 0102)."""
 

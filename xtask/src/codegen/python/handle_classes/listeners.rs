@@ -12,7 +12,7 @@ use super::super::super::handles::{Handle, Listener};
 use super::super::super::layer::Layer;
 use super::super::super::naming::snake;
 use super::super::{deprecated_decorator, docstring, warnings};
-use super::{ASYNC, Imports, Mode, Wrapped, wrapped};
+use super::{ASYNC, Imports, Mode, WARN_ENTRY, Wrapped, wrapped};
 
 /// The name of the map that names each of a handle's events: `_PAGE_EVENTS`
 /// for `page`.
@@ -50,7 +50,9 @@ pub(super) fn declarations(handle: &Handle<'_>, imports: &mut Imports) -> String
 
 /// A handle's `on` in `mode` (ADR 0081): one overload a payload, which
 /// types the listener of the events that carry it, then the method that
-/// registers `listener` and returns the `Subscription` that removes it.
+/// warns of the markers of the event listened to, once per process (ADR
+/// 0030), registers `listener` and returns the `Subscription` that removes
+/// it.
 pub(super) fn member(
     layer: &Layer,
     handle: &Handle<'_>,
@@ -115,15 +117,17 @@ pub(super) fn member(
         operation.deprecated.as_ref(),
         &mut imports.markers,
     ));
+    imports.markers.insert(WARN_ENTRY);
     let _ = writeln!(
         text,
-        "        listened, payload = {}[event]\n        return self._host.listen({:?}, {}({}=self._host.id, {}={event}(listened)), f\"{}.{{listened}}\", payload, listener)",
+        "        listened, payload = {}[event]\n        warn_entry(f\"{namespace}.{{listened}}\", EXPERIMENTAL_EVENTS, DEPRECATED_EVENTS)\n        return self._host.listen({:?}, {}({}=self._host.id, {}={event}(listened)), f\"{}.{{listened}}\", payload, listener)",
         events_constant(handle),
         operation.name,
         imports.model(params),
         handle.id.param,
         listener.param,
         handle.namespace,
+        namespace = handle.namespace,
     );
     Ok(text)
 }

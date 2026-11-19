@@ -53,10 +53,11 @@
     reason = "the model reads the test Clock and the seeded Entropy (ADR 0059); its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
+use goodfetch_protocol::point_in_time;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::admission::Keys;
@@ -74,8 +75,8 @@ use goodfetch_protocol::foxhound::frontier::{
 };
 use goodfetch_protocol::foxhound::outcomes::OutcomeKind;
 use goodfetch_protocol::page::{Locator, PageId};
+use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::run::durability::BatchThreshold;
-use goodfetch_protocol::run::{PointInTime, RunId};
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
 use proptest::sample::Index;
@@ -916,8 +917,8 @@ fn page(url: &str) -> usize {
 
 /// When the model's attempts end: their outcomes' times are not its
 /// subject.
-fn ended_at() -> PointInTime {
-    PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned())
+fn ended_at() -> SystemTime {
+    point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap()
 }
 
 fn failure(code: &str) -> Failure {

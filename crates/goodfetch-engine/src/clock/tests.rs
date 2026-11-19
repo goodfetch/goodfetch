@@ -64,8 +64,6 @@ fn a_clocks_point_in_time_is_its_wall_time_to_the_millisecond() {
         (now, after)
     });
 
-    assert_eq!(
-        (points.0.as_str(), points.1.as_str()),
-        ("2026-01-05T09:00:00.002Z", "2026-01-05T09:00:00.002Z")
-    );
+    let two_millis = start() + Duration::from_millis(2);
+    assert_eq!(points, (two_millis, two_millis));
 }

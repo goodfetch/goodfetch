@@ -13,6 +13,7 @@
     reason = "a test's own statements, on no Shared path (ADR 0140)"
 )]
 
+use goodfetch_protocol::point_in_time;
 use std::collections::BTreeMap;
 
 use goodfetch_engine::runs::CompletenessReason;
@@ -20,7 +21,7 @@ use goodfetch_frontier::{BOUNDS_TABLES, RULES_TABLES};
 use goodfetch_protocol::foxhound::outcomes::{
     AttemptError, CrawlRequestOutcome, DatasetRecords, Ending, OutcomeRequest, SkipReason,
 };
-use goodfetch_protocol::run::{AxisReason, Completeness, PointInTime};
+use goodfetch_protocol::run::{AxisReason, Completeness};
 use rusqlite::Connection;
 
 use super::short_of_scope;
@@ -52,7 +53,7 @@ fn run_file(outcomes: &[(&str, Ending)]) -> Connection {
             },
             attempts: 1,
             errors: Vec::new(),
-            ended_at: PointInTime::from_rfc3339("2026-10-24T06:00:00Z".to_owned()),
+            ended_at: point_in_time::from_rfc3339("2026-10-24T06:00:00Z").unwrap(),
             ending: ending.clone(),
         };
         connection

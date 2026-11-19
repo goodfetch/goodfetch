@@ -259,9 +259,7 @@ fn rate_limit(
         let before = now();
         let went = connection.goto(&page, &url)?;
         let after = now();
-        let asked = blocked(&went)
-            .and_then(|details| details.retry_after)
-            .map(SystemTime::from);
+        let asked = blocked(&went).and_then(|details| details.retry_after);
         checks.check(
             format!("a 429 whose `Retry-After` is in {form} raises `blocked` from its `goto` with `rate_limit`, its URL and status"),
             raised(&went, BlockCause::RateLimit, &path, 429),
@@ -456,7 +454,6 @@ fn corpus(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
         "the corpus's rate limit names the two minutes its `Retry-After` asks for",
         blocked(&went)
             .and_then(|details| details.retry_after)
-            .map(SystemTime::from)
             .is_some_and(|asked| {
                 asked.duration_since(before).is_ok_and(|wait| {
                     wait >= Duration::from_secs(110) && wait <= Duration::from_secs(150)

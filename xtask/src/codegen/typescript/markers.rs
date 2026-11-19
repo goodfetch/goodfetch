@@ -8,6 +8,14 @@ use std::fmt::Write as _;
 
 use super::super::layer::{Operation, Stability};
 
+/// The type of an entry's markers in a generated registry, which
+/// `warnEntry` reads.
+pub(super) const ENTRY_MARKERS: &str = "type EntryMarkers";
+
+/// The hand-written function a hand-written member, or a listener, warns of
+/// its entry's markers with, read from a generated registry.
+pub(super) const WARN_ENTRY: &str = "warnEntry";
+
 /// The hand-written module of Collie's client package whose functions give
 /// ADR 0030's run-time warning of a deprecated or Experimental member.
 pub(super) const MARKERS_MODULE: &str = "../markers.ts";
@@ -34,12 +42,14 @@ pub(super) fn warnings(operation: &Operation) -> String {
 }
 
 /// The import of the [`warnings`] members of `operations` call, from
-/// `module`, or nothing.
+/// `module`, with the `also` names the module uses besides, such as the
+/// `type EntryMarkers` of a registry, or nothing.
 pub(super) fn markers_import<'a>(
     operations: impl IntoIterator<Item = &'a Operation>,
     module: &str,
+    also: &[&'static str],
 ) -> String {
-    let mut names = BTreeSet::new();
+    let mut names: BTreeSet<&str> = also.iter().copied().collect();
     for operation in operations {
         if operation.stability == Stability::Experimental {
             names.insert("warnExperimental");
@@ -50,6 +60,16 @@ pub(super) fn markers_import<'a>(
     }
     if names.is_empty() {
         return String::new();
+    }
+    if let Some(types) = names
+        .iter()
+        .map(|name| name.strip_prefix("type "))
+        .collect::<Option<Vec<_>>>()
+    {
+        return format!(
+            "import type {{ {} }} from \"{module}\";\n",
+            types.join(", ")
+        );
     }
     let names: Vec<&str> = names.into_iter().collect();
     format!("import {{ {} }} from \"{module}\";\n", names.join(", "))

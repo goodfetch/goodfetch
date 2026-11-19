@@ -29,6 +29,8 @@
 //! operations, Error codes and `browser.*` settings, kept whole so each
 //! entry sits beside the others it is listed with.
 
+use std::time::SystemTime;
+
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
@@ -407,8 +409,9 @@ pub struct BlockedDetails {
     /// The time the site's `Retry-After` asks for, in RFC 3339, read in
     /// either of its forms; `null` when it asks for none. The engine never
     /// waits on it for a program's own navigation.
+    #[serde(default, with = "crate::point_in_time::nullable")]
     #[schemars(with = "Option<String>", extend("format" = "date-time", "arrived_in" = "0.1"))]
-    pub retry_after: Option<jiff::Timestamp>,
+    pub retry_after: Option<SystemTime>,
 }
 
 /// The count of redirects a fetch follows at most, and what set it (ADR

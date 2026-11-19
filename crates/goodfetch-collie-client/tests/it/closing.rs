@@ -14,7 +14,7 @@
 use std::time::Duration;
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
-use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error};
+use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, ErrorCode};
 use goodfetch_protocol::connection::DaemonEndpoint;
 use goodfetch_protocol::run::{RunId, Tags};
 use goodfetch_test_support::{TestEnv, logged};
@@ -54,8 +54,8 @@ fn assert_played_whole(process: &goodfetch_test_support::Process) {
 /// The `children-close-with-their-parent` client conformance case, played
 /// by the Scripted engine's Daemon: a Session's close closes its page,
 /// whose own close then sends nothing and whose calls fail with
-/// [`Error::Closed`]; the Connection's close aborts the Run once, and
-/// every handle of it then refuses its calls with [`Error::Closed`];
+/// `closed`; the Connection's close aborts the Run once, and
+/// every handle of it then refuses its calls with `closed`;
 /// closing the Connection again does nothing.
 /// Covers: story:11-16, story:11-17
 #[test]
@@ -84,13 +84,14 @@ fn children_close_with_their_parent_and_refuse_every_later_call_with_closed() {
     });
 
     assert!(
-        matches!(after_session, Err(Error::Closed)),
+        matches!(&after_session, Err(error) if error.code() == ErrorCode::CLOSED),
         "{after_session:?}"
     );
     assert!(
         matches!(
-            after_connection,
-            (Err(Error::Closed), Err(Error::Closed), Err(Error::Closed))
+            &after_connection,
+            (Err(a), Err(b), Err(c))
+                if [a, b, c].iter().all(|error| error.code() == ErrorCode::CLOSED)
         ),
         "{after_connection:?}"
     );
@@ -100,7 +101,7 @@ fn children_close_with_their_parent_and_refuse_every_later_call_with_closed() {
 /// The `closed-after-close` client conformance case, played by the
 /// Scripted engine's Daemon: closing a running Run aborts it once, and
 /// closing it or the Connection again does nothing; the Run's finish and
-/// a start then fail with [`Error::Closed`].
+/// a start then fail with `closed`.
 /// Covers: story:11-17
 #[test]
 fn a_closed_run_and_connection_refuse_every_later_call_with_closed() {
@@ -124,8 +125,14 @@ fn a_closed_run_and_connection_refuse_every_later_call_with_closed() {
         (run.finish().await, connection.start().await)
     });
 
-    assert!(matches!(finished, Err(Error::Closed)), "{finished:?}");
-    assert!(matches!(started, Err(Error::Closed)), "{started:?}");
+    assert!(
+        matches!(&finished, Err(error) if error.code() == ErrorCode::CLOSED),
+        "{finished:?}"
+    );
+    assert!(
+        matches!(&started, Err(error) if error.code() == ErrorCode::CLOSED),
+        "{started:?}"
+    );
     assert_played_whole(&process);
 }
 
@@ -155,7 +162,10 @@ fn a_close_stops_a_running_run_once_and_frees_an_ended_runs_value_without_a_call
         after_close
     });
 
-    assert!(matches!(after_close, Err(Error::Closed)), "{after_close:?}");
+    assert!(
+        matches!(&after_close, Err(error) if error.code() == ErrorCode::CLOSED),
+        "{after_close:?}"
+    );
     assert_played_whole(&process);
 }
 
@@ -177,10 +187,10 @@ fn a_failed_close_fails_with_the_engines_error() {
         (closed, connection.close().await)
     });
 
-    let Err(Error::Failed(failure)) = closed else {
+    let Err(failure) = &closed else {
         panic!("{closed:?}");
     };
-    assert_eq!(failure.data.code, "run_state_unavailable");
+    assert_eq!(failure.code(), ErrorCode::RUN_STATE_UNAVAILABLE);
     assert!(again.is_ok(), "{again:?}");
     assert_played_whole(&process);
 }
@@ -231,7 +241,7 @@ fn stopped() -> Value {
 /// The call in flight of the `connection-close-stops-its-engine` client
 /// conformance case, hand-played over the in-memory network: the
 /// Connection's close aborts its running Run, then fails the call in
-/// flight with [`Error::Closed`] and ends the engine's input.
+/// flight with `closed` and ends the engine's input.
 /// Covers: story:11-19
 #[test]
 fn a_connection_close_aborts_its_run_fails_a_call_in_flight_and_ends_the_engines_input() {
@@ -271,13 +281,16 @@ fn a_connection_close_aborts_its_run_fails_a_call_in_flight_and_ends_the_engines
         (finished, closed, heard)
     });
 
-    assert!(matches!(finished, Err(Error::Closed)), "{finished:?}");
+    assert!(
+        matches!(&finished, Err(error) if error.code() == ErrorCode::CLOSED),
+        "{finished:?}"
+    );
     assert!(closed.is_ok(), "{closed:?}");
     assert_eq!(heard, ["run.finish", "run.abort", "the end of the input"]);
 }
 
 /// A page's close and a Connection's close the engine never answers each
-/// fail with [`Error::TimedOut`] once `timeout.close` has run out, and no
+/// fail with `deadline_exceeded` once `timeout.close` has run out, and no
 /// later; the Connection is closed all the same, and closing it again
 /// does nothing.
 /// Covers: story:11-20
@@ -336,7 +349,10 @@ fn a_close_the_engine_never_answers_fails_once_timeout_close_runs_out() {
     let (connection_closed, again) = connection_closed;
 
     for (closed, took) in [&page_closed, &connection_closed] {
-        assert!(matches!(closed, Err(Error::TimedOut)), "{closed:?}");
+        assert!(
+            matches!(&closed, Err(error) if error.code() == ErrorCode::DEADLINE_EXCEEDED),
+            "{closed:?}"
+        );
         assert!(
             *took >= CLOSE_TIMEOUT && *took < CLOSE_TIMEOUT + Duration::from_secs(1),
             "{took:?}"

@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_clean_up_rules::rules::{EMBEDDED_MANIFEST, without_cookie_sections};
 use goodfetch_engine::clock::Clock;
@@ -201,8 +201,11 @@ async fn fetched(sources: &Sources, now: jiff::Timestamp) -> Result<Version, Uno
     let manifest = CleanUpRulesManifest {
         format_version: CLEAN_UP_RULES.version,
         source: RulesSource::Upstream,
-        published_at: now,
-        expires_at: now.checked_add(expiry.unwrap_or(DEFAULT_EXPIRY)).ok(),
+        published_at: SystemTime::from(now),
+        expires_at: now
+            .checked_add(expiry.unwrap_or(DEFAULT_EXPIRY))
+            .ok()
+            .map(SystemTime::from),
         lists,
     };
     files.push((MANIFEST_FILE.to_owned(), super::manifest_file(&manifest)));

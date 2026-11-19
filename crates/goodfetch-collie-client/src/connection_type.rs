@@ -33,11 +33,11 @@ pub trait Connection {
 
     /// Closes the connection for every clone: first every Run it started
     /// that still runs, then its engine; returns once it has stopped. Any
-    /// later call fails with [`Error::Closed`]. Closing again does nothing.
+    /// later call fails with `closed`. Closing again does nothing.
     ///
     /// # Errors
     ///
-    /// What closing a Run fails with, and [`Error::Engine`] when the
+    /// What closing a Run fails with, and `engine_exited` when the
     /// engine failed.
     ///
     /// # Cancel safety

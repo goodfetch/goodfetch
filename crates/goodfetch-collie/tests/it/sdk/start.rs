@@ -13,10 +13,10 @@ use super::options;
 
 /// The Error code `result` fails with.
 fn code<T: std::fmt::Debug>(result: Result<T, Error>) -> String {
-    let Err(Error::Failed(failure)) = result else {
+    let Err(failure) = result else {
         panic!("{result:?}");
     };
-    failure.data.code
+    failure.code().to_string()
 }
 
 /// Covers: story:11-126, story:11-127

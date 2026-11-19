@@ -3,7 +3,7 @@
 
 use goodfetch_test_support::logged;
 
-use super::warn;
+use super::{warn, warn_operation};
 
 /// How many times the captured `log` holds `text`.
 fn count(log: &[u8], text: &str) -> usize {
@@ -59,4 +59,25 @@ fn each_marker_of_one_entry_warns_once() {
 
     assert_eq!(count(&log, "`fixture.both` is Experimental"), 1);
     assert_eq!(count(&log, "`fixture.both` is deprecated"), 1);
+}
+
+/// A hand-written member reads its operation's markers from the catalog
+/// and warns of each once, as a generated member does.
+#[test]
+fn a_hand_written_member_warns_of_its_operations_catalog_markers_once() {
+    let ((), log) = logged(|| {
+        warn_operation("sample.echo");
+        warn_operation("sample.echo");
+    });
+
+    let shown = String::from_utf8_lossy(&log);
+    assert_eq!(count(&log, "`sample.echo` is Experimental"), 1, "{shown}");
+    assert_eq!(
+        count(
+            &log,
+            "`sample.echo` is deprecated. Since 0.1, removed no earlier than 1.0: A sample entry, which the real catalog replaces."
+        ),
+        1,
+        "{shown}"
+    );
 }

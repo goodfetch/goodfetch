@@ -17,6 +17,7 @@ use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
+use goodfetch_protocol::point_in_time;
 
 /// ADR 0059's test `Clock` start.
 const START: &str = "2026-01-05T09:00:00Z";
@@ -29,7 +30,7 @@ fn main() {
     );
     let scratch = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let list = InstalledList::of(&Home::new(scratch.path().to_owned()));
-    let start: jiff::Timestamp = START.parse().expect("invariant: an RFC 3339 time");
+    let start = point_in_time::from_rfc3339(START).expect("invariant: an RFC 3339 time");
     let version = ProductVersion::parse("0.0.0").expect("invariant: a Product version");
     let browser = ArtifactId {
         kind: ArtifactKind::Browser,
@@ -42,8 +43,7 @@ fn main() {
         product_version: version.clone(),
         path: "/home/someone/project/node_modules/.bin/goodfetch-collie".to_owned(),
         size: 41_943_040,
-        modified_at: "2026-01-02T08:00:00Z"
-            .parse()
+        modified_at: point_in_time::from_rfc3339("2026-01-02T08:00:00Z")
             .expect("invariant: an RFC 3339 time"),
         pins: vec![browser.clone()],
         copy: Some(ArtifactId {
@@ -59,8 +59,7 @@ fn main() {
         product_version: version,
         path: "/home/someone/crawler/target/release/crawler".to_owned(),
         size: 52_428_800,
-        modified_at: "2026-01-03T10:30:00Z"
-            .parse()
+        modified_at: point_in_time::from_rfc3339("2026-01-03T10:30:00Z")
             .expect("invariant: an RFC 3339 time"),
         pins: vec![browser],
         copy: None,

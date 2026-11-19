@@ -11,7 +11,7 @@ use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
 use goodfetch_protocol::foxhound::export::{ExportCompression, ExportFormat};
 use goodfetch_protocol::foxhound::provenance::RecordProvenance;
-use goodfetch_protocol::run::PointInTime;
+use goodfetch_protocol::point_in_time;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -55,7 +55,8 @@ fn declared() -> (Connection, Datasets) {
 /// Record, and answers the run file.
 pub(crate) fn commit_all(values: Vec<Value>) -> Connection {
     let (connection, datasets) = declared();
-    let at = PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned());
+    let at = point_in_time::from_rfc3339("2026-01-05T09:00:00Z")
+        .expect("invariant: the scenarios' time is RFC 3339");
     let masks = Masks::new();
     for (request, value) in values.into_iter().enumerate() {
         let checked = datasets

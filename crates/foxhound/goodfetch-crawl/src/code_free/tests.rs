@@ -2,13 +2,13 @@
 //! Dataset `pages` declared from the formats request, a Record of a page
 //! checked against it, and the sitemap seeds `follow: sitemap` adds.
 
+use goodfetch_protocol::point_in_time;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_dataset::Datasets;
 use goodfetch_protocol::foxhound::crawl::{CrawlExtraction, PushedRecord, Seed};
 use goodfetch_protocol::page::PageFormats;
-use goodfetch_protocol::run::PointInTime;
 use serde_json::{Map, Value, json};
 
 use super::{Pages, dataset, declare_into, record_of, sitemap_seeds};
@@ -46,7 +46,7 @@ fn the_pages_schema_is_generated_from_the_formats_request_and_a_pages_record_hol
         "markdown": "# A",
         "links": [{ "url": "http://site.test/b", "href": "/b", "text": "B", "rel": [] }],
     }));
-    let at = PointInTime::from_rfc3339("2026-10-26T10:00:00Z".to_owned());
+    let at = point_in_time::from_rfc3339("2026-10-26T10:00:00Z").unwrap();
     let record = record_of(page, Some(200), &at, Map::new());
     let mut without_links = record.clone();
     without_links.as_object_mut().unwrap().remove("links");
@@ -192,7 +192,7 @@ fn the_pages_schema_holds_each_fields_type() {
         "main_content": "found",
         "markdown": "# A",
     }));
-    let at = PointInTime::from_rfc3339("2026-10-26T10:00:00Z".to_owned());
+    let at = point_in_time::from_rfc3339("2026-10-26T10:00:00Z").unwrap();
     let with = |name: Value, price: Value| {
         let mut fields = Map::new();
         fields.insert("name".to_owned(), name);
@@ -312,7 +312,7 @@ fn a_pages_record_holds_the_pages_text_where_the_page_read_it() {
     }));
     let read_at =
         [&page.markdown, &page.html, &page.text].map(|text| text.as_ref().unwrap().as_ptr());
-    let at = PointInTime::from_rfc3339("2026-10-26T10:00:00Z".to_owned());
+    let at = point_in_time::from_rfc3339("2026-10-26T10:00:00Z").unwrap();
     let mut fields = Map::new();
     fields.insert("name".to_owned(), json!("Delta kite"));
 

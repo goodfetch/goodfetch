@@ -79,7 +79,7 @@ impl Sender {
     /// Sends `call`; its reply fails as closed when the Connection is.
     pub(crate) fn call(&self, call: Outgoing) {
         if let Err(mpsc::error::SendError(Command::Call(call))) = self.0.send(Command::Call(call)) {
-            let _closed = call.reply.send(Err(Error::Closed));
+            let _closed = call.reply.send(Err(Error::closed()));
         }
     }
 
@@ -188,12 +188,12 @@ async fn correlate(
                     let line = match line::encode(&request) {
                         Ok(line) => line,
                         Err(error) => {
-                            let _gone = call.reply.send(Err(Error::Shape(error)));
+                            let _gone = call.reply.send(Err(Error::shape(error)));
                             continue;
                         }
                     };
                     if lines.send(line).is_err() {
-                        let _gone = call.reply.send(Err(Error::Closed));
+                        let _gone = call.reply.send(Err(Error::closed()));
                         continue;
                     }
                     let deadline = call.timeout.map(|timeout| deadlines.insert(id, timeout));
@@ -213,7 +213,7 @@ async fn correlate(
                 let id = expired.into_inner();
                 if let Some(call) = pending.remove(&id) {
                     tracing::debug!(target: "goodfetch::client", id, "a call timed out");
-                    let _gone = call.reply.send(Err(Error::TimedOut));
+                    let _gone = call.reply.send(Err(Error::timed_out()));
                 }
             }
             line = input.next_line() => match line {
@@ -233,11 +233,11 @@ async fn correlate(
     commands.close();
     while let Ok(command) = commands.try_recv() {
         if let Command::Call(call) = command {
-            let _gone = call.reply.send(Err(Error::Closed));
+            let _gone = call.reply.send(Err(Error::closed()));
         }
     }
     for call in std::mem::take(&mut pending).into_values() {
-        let _gone = call.reply.send(Err(Error::Closed));
+        let _gone = call.reply.send(Err(Error::closed()));
     }
 }
 
@@ -275,7 +275,7 @@ fn answer(
 ) {
     let (id, outcome) = match serde_json::from_str::<Message>(line) {
         Ok(Message::Response(response)) => (Some(response.id), Ok(response.result)),
-        Ok(Message::Error(failure)) => (failure.id, Err(Error::Failed(Box::new(failure.error)))),
+        Ok(Message::Error(failure)) => (failure.id, Err(Error::answered(failure.error))),
         Ok(Message::Notification(notification)) => {
             hand_over(notification, pending, deadlines);
             return;
@@ -334,7 +334,7 @@ fn hand_over(
             deadlines.remove(&key);
         }
         tracing::debug!(target: "goodfetch::client", id, "a streaming call's engine sent past its credits");
-        let _gone = call.reply.send(Err(Error::Shape(serde::de::Error::custom(
+        let _gone = call.reply.send(Err(Error::shape(serde::de::Error::custom(
             "the engine streamed past the credits the call granted",
         ))));
     }

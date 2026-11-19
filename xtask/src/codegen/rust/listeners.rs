@@ -18,7 +18,7 @@ use super::index::Index;
 use super::{Twin, comment, doc, field, indent, type_name, warning};
 
 /// The `# Errors` section of an `events` member.
-const EVENTS_ERRORS: &str = "# Errors\n\nIts stream hands [`crate::Error::Closed`] when its handle or the Connection is closed, [`crate::Error::Failed`] with the engine's error, such as `page_events_lost`, and [`crate::Error::Shape`] for an event that does not fit its type.";
+const EVENTS_ERRORS: &str = "# Errors\n\nIts stream hands `closed` when its handle or the Connection is closed, the engine's error, such as `page_events_lost`, and `internal` for an event that does not fit its type.";
 
 /// A handle's listener, resolved against the protocol crate.
 pub(super) struct ListenerModel {

@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::tasks::{BlockingPolicy, BlockingThreads, TaskOwner};
 
@@ -516,7 +516,7 @@ fn an_entry_counts_as_installed_while_at_its_path_or_seen_within_the_age() {
     let env = TestEnv::new();
     let entry = |still_at_path, seen_days_ago, build: &str| InstalledExecutable {
         still_at_path,
-        last_seen: days_before(&env, seen_days_ago),
+        last_seen: SystemTime::from(days_before(&env, seen_days_ago)),
         pins: vec![browser(build)],
     };
     let installed = [
@@ -585,7 +585,7 @@ fn the_clean_up_deletes_only_what_nothing_pins_uses_or_holds() {
     let kept = kept_artifacts(
         &[InstalledExecutable {
             still_at_path: false,
-            last_seen: days_before(&env, 2),
+            last_seen: SystemTime::from(days_before(&env, 2)),
             pins: vec![pinned_by_counting_entry.clone()],
         }],
         std::slice::from_ref(&declared_by_plugin),

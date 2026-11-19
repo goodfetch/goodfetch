@@ -18,7 +18,7 @@ use tempfile::TempDir;
 use tokio::runtime::Handle;
 
 use super::Collie;
-use crate::Error;
+use crate::ErrorCode;
 
 /// What the linked engine runs on, its clock paused at the epoch, on a
 /// Goodfetch home in `home`.
@@ -65,7 +65,10 @@ fn a_collie_starts_a_run_finishes_it_and_closes_on_the_paused_runtime() {
         assert_eq!(run.started_as(), StartedAs::New);
         assert_eq!(report.lifecycle, Lifecycle::Finished);
         let after = run.finish().await;
-        assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+        assert!(
+            matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+            "{after:?}"
+        );
     });
 }
 
@@ -82,9 +85,15 @@ fn closing_a_collie_from_a_clone_stops_its_running_run_and_closes_every_clone() 
         collie.clone().close().await.unwrap();
 
         let after = collie.start().await;
-        assert!(matches!(after, Err(Error::Closed)), "{after:?}");
+        assert!(
+            matches!(&after, Err(error) if error.code() == ErrorCode::CLOSED),
+            "{after:?}"
+        );
         let finished = run.finish().await;
-        assert!(matches!(finished, Err(Error::Closed)), "{finished:?}");
+        assert!(
+            matches!(&finished, Err(error) if error.code() == ErrorCode::CLOSED),
+            "{finished:?}"
+        );
     });
     runtime.block_on(async {
         let again = open(&home).await;

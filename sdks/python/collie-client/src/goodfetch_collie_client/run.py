@@ -36,6 +36,7 @@ from goodfetch_collie_client.generated.operations import (
     DEPRECATED_OPERATIONS,
     EXPERIMENTAL_OPERATIONS,
 )
+from goodfetch_collie_client.goodfetch_error import runtime_message
 from goodfetch_collie_client.handle import Subscription
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
 from goodfetch_collie_client.key_value_store import (
@@ -250,12 +251,11 @@ class _RunScope:
 
     def closed_error(self, operation: str) -> ClosedError:
         """The error a call on the closed Run fails with."""
-        message = (
-            f"{operation}: the Run {self.id} is closed; start it again by its Run ID"
+        fix = "Start the Run again by its Run ID to reach it."
+        message = runtime_message(
+            f"the Run {self.id} is closed", operation=operation, fix=fix
         )
-        return ClosedError(
-            message, fix="Start the Run again by its Run ID to reach it."
-        )
+        return ClosedError(message, operation=operation, fix=fix)
 
 
 class _ValueScope:
@@ -343,13 +343,13 @@ class _AsyncHost(Generic[_Id]):
         self.run.ensure_open(operation)
         value = self._value
         if value is not None and value.is_closed():
-            message = (
-                f"{operation}: the value it is called on is closed,"
-                " or the one that opened it is"
+            fix = "Open another from its Run: a closed value never reopens."
+            message = runtime_message(
+                "the value it is called on is closed, or the one that opened it is",
+                operation=operation,
+                fix=fix,
             )
-            raise ClosedError(
-                message, fix="Open another from its Run: a closed value never reopens."
-            )
+            raise ClosedError(message, operation=operation, fix=fix)
         failed = self.run.take_first(
             lambda failure: failure.value is not None and _within(value, failure.value)
         )

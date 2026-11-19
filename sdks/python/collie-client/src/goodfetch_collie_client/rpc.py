@@ -39,6 +39,7 @@ from goodfetch_collie_client.generated.errors import (
     ERROR_GROUP_OF_WIRE_CLASS,
 )
 from goodfetch_collie_client.generated.models import ModelUsage, SettingLimit
+from goodfetch_collie_client.goodfetch_error import in_call
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -111,6 +112,8 @@ class _Answered:
 @dataclass(frozen=True)
 class _Raised:
     error: GoodfetchError
+    answered: bool = False
+    """Whether the engine answered with it, rather than the runtime raising it."""
 
 
 @dataclass(eq=False)
@@ -182,7 +185,7 @@ class Channel:
                 channel ended or was cancelled before the reply.
         """
         if self._failure is not None:
-            raise self._failure
+            raise in_call(self._failure, method)
         message_id = self._next_id
         self._next_id += 1
         waiter = _Waiter()
@@ -204,7 +207,7 @@ class Channel:
         finally:
             self._listeners.pop(message_id, None)
         if isinstance(outcome, _Raised):
-            raise outcome.error
+            raise outcome.error if outcome.answered else in_call(outcome.error, method)
         return outcome.result
 
     async def notify(self, method: str, params: object) -> None:
@@ -347,7 +350,8 @@ class Channel:
         if isinstance(reply, Result):
             waiter.settle(_Answered(reply.result))
         else:
-            waiter.settle(_Raised(error_of_reply(reply.error, self._error_classes)))
+            error = error_of_reply(reply.error, self._error_classes)
+            waiter.settle(_Raised(error, answered=True))
 
     async def _write(self, message: Mapping[str, object]) -> None:
         data = encode_message(message)

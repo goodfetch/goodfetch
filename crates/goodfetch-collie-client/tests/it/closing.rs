@@ -137,6 +137,71 @@ fn a_closed_run_and_connection_refuse_every_later_call_with_closed() {
     assert_played_whole(&process);
 }
 
+/// The `runtime-errors-in-the-callers-form` client conformance case,
+/// played by the Scripted engine's Daemon: a call on the closed
+/// Connection, and the call in flight when the Daemon drops the
+/// Connection, each fail with a message headed by the call's operation in
+/// Rust's spelling, then what failed, then the fix, while `operation`
+/// holds the catalog's name.
+/// Covers: story:11-31, story:11-192
+#[test]
+fn the_runtimes_own_errors_head_each_call_in_one_layout() {
+    let env = TestEnv::new();
+    let (closing, closing_endpoint) = scripted_daemon(&env, "run/closed-while-running.json");
+    let nightly = RunId::parse("nightly").unwrap();
+    let runtime = goodfetch_test_support::real_time_runtime();
+    let started = runtime.block_on(async {
+        let connection = connect(closing_endpoint).await;
+        let _run = connection
+            .start()
+            .run_id(&nightly)
+            .tags(Tags::parse(["shop"]).unwrap())
+            .await
+            .unwrap();
+        connection.close().await.unwrap();
+        connection.start().await
+    });
+    assert_played_whole(&closing);
+    let dropping_env = TestEnv::new();
+    let (dropping, dropping_endpoint) =
+        scripted_daemon(&dropping_env, "run/dropped-during-a-start.json");
+    let in_flight = runtime.block_on(async {
+        let connection = connect(dropping_endpoint).await;
+        connection.start().await
+    });
+    assert_played_whole(&dropping);
+
+    let read = |result: &Result<_, goodfetch_collie_client::Error>| {
+        result.as_ref().err().map(|error| {
+            (
+                error.code(),
+                error.message().to_owned(),
+                error.operation().map(str::to_owned),
+            )
+        })
+    };
+    assert_eq!(
+        read(&started),
+        Some((
+            ErrorCode::CLOSED,
+            "run.start: the Connection, or the value the call was made on, is closed. \
+             Connect again, or open the value again: a closed one never reopens."
+                .to_owned(),
+            Some("run.start".to_owned()),
+        ))
+    );
+    assert_eq!(
+        read(&in_flight),
+        Some((
+            ErrorCode::CLOSED,
+            "run.start: the engine ended the Connection before it answered. \
+             Connect again: a closed Connection never reopens."
+                .to_owned(),
+            Some("run.start".to_owned()),
+        ))
+    );
+}
+
 /// The `close-stops-a-running-run` client conformance case, played by the
 /// Scripted engine's Daemon: closing a running Run aborts it once, a
 /// second close and a later call send nothing, a start of its Run ID

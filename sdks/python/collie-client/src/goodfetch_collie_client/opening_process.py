@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 
 from goodfetch_collie_client.generated.errors import ConnectionForkedError
+from goodfetch_collie_client.goodfetch_error import runtime_message
 
 _FIX = (
     "Connect in the child process: a Connection and every Run, Session or"
@@ -41,12 +42,10 @@ class OpeningProcess:
         """
         if self.is_current():
             return
-        message = (
+        message = runtime_message(
             "this Connection was opened by another process, such as the parent"
-            " of a fork; connect in the child process"
-        )
-        raise ConnectionForkedError(
-            message if operation is None else f"{operation}: {message}",
+            " of a fork",
             operation=operation,
             fix=_FIX,
         )
+        raise ConnectionForkedError(message, operation=operation, fix=_FIX)

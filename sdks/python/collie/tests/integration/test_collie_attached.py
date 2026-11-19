@@ -42,11 +42,14 @@ from goodfetch_collie import (
     StartedAs,
 )
 from goodfetch_test_support import (
+    Canary,
     ClientCaseRecord,
+    NamedOutput,
     TestEnv,
     Way,
     scripted_engine_env,
     scripted_engine_record,
+    search_canaries,
     three_ways,
 )
 from goodfetch_test_support import Product as ToolProduct
@@ -413,6 +416,88 @@ async def test_closes_a_running_run_by_aborting_it_and_refuses_every_later_call(
         "the close aborted the Run once, so its engine wrote no failure"
     ):
         assert engine_warnings(caplog) == []
+
+
+CRASH_CANARY = Canary(
+    id="crash-model-api-key",
+    kind="model_api_key",
+    value="model-api-key-canary-7c1e4a90d2b3",
+)
+"""The key `connect/exit-with-a-canary-on-stderr.json` writes in its crash line."""
+
+
+@pytest.mark.client_case(id="runtime-errors-in-the-callers-form", mode="attached")
+@three_ways
+async def test_the_runtimes_own_errors_head_each_call_in_one_layout(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+) -> None:
+    """`closed` and `engine_exited` read as the call that failed with them.
+
+    The operation in Python's spelling, what failed, then the fix, and
+    `operation` holds the catalog's name; the secret an engine's crash
+    wrote to its stderr reaches no message.
+    """
+    closing_env = scripted_engine_env(
+        test_env,
+        product,
+        "sdk-python/run/closed-while-running.json",
+        test_env.folder / "closing",
+    )
+    collie = await open_collie(way, closing_env)
+    run = await collie.start(run_id="nightly", tags=["shop"])
+    await collie.close()
+    run_closed = await failure(run.finish())
+    connection_closed = await failure(collie.start())
+    crashing_env = scripted_engine_env(
+        test_env,
+        product,
+        "sdk-python/connect/exit-with-a-canary-on-stderr.json",
+        test_env.folder / "crashing",
+    )
+    crashing = await open_collie(way, crashing_env)
+    in_flight = await failure(crashing.start())
+    later = await failure(crashing.call("sample.echo", {}))
+    await crashing.close()
+    errors = [run_closed, connection_closed, in_flight, later]
+
+    with client_case.check(
+        "a call on a closed Run or Connection names its operation, what failed,"
+        " then the fix"
+    ):
+        assert [str(run_closed), str(connection_closed)] == [
+            "run.finish: the Run nightly is closed."
+            " Start the Run again by its Run ID to reach it.",
+            "run.start: this Connection is closed."
+            " Connect again: a closed Connection never reopens.",
+        ]
+    with client_case.check(
+        "the engine's exit fails the call in flight and a later call, each headed"
+        " by its own operation"
+    ):
+        assert [str(in_flight), str(later)] == [
+            "run.start: the engine ended before its Connection was closed,"
+            " with exit code 101",
+            "sample.echo: the engine ended before its Connection was closed,"
+            " with exit code 101",
+        ]
+    with client_case.check("operation holds the catalog's name of each call"):
+        assert [error.operation for error in errors] == [
+            "run.finish",
+            "run.start",
+            "run.start",
+            "sample.echo",
+        ]
+    with client_case.check(
+        "the secret the engine wrote to its stderr is in no message"
+    ):
+        messages = [
+            NamedOutput(f"message {index}", str(error))
+            for index, error in enumerate(errors)
+        ]
+        assert search_canaries([CRASH_CANARY], messages) == []
 
 
 @pytest.mark.covers("story:11-40", "story:11-42")

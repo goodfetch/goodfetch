@@ -137,7 +137,7 @@ impl RawCall {
         let mut note = None;
         if let Some(value) = value {
             if (value.closed)() {
-                return Err(Error::closed());
+                return Err(Error::closed().in_call(&operation));
             }
             params.insert(value.param.to_owned(), value.id?);
             note = value.note;

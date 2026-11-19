@@ -46,6 +46,9 @@ use crate::work_items::{self, Changed, CleanUpRules, Fetched, FieldsRead};
 /// The `tracing` target of the run fencing model's transitions.
 pub(crate) const TARGET: &str = "goodfetch::lease";
 
+/// How often a permit's wait renews its lease, as a share of its length.
+const RENEWALS_PER_LENGTH: u32 = 4;
+
 /// One attempt's lease of a work item, as a value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Lease {
@@ -186,6 +189,7 @@ impl Leases {
             lease,
             released: false,
             expired: false,
+            permit_waits: 0,
         });
         let granted = WorkItemLease(Arc::new(Shared {
             leases: self.clone(),
@@ -230,6 +234,9 @@ struct Held {
     released: bool,
     /// Whether its end was traced.
     expired: bool,
+    /// How many of its handler's waits for a navigation-gate permit are
+    /// under way, which its handler's time does not count (ADR 0093).
+    permit_waits: u32,
 }
 
 /// What an attempt's commit committed, for its caller to finish.
@@ -383,33 +390,87 @@ impl WorkItemLease {
         self.0.length
     }
 
+    /// Holds it through a wait of its handler's for a navigation gate's
+    /// permit, until `wait_ended` (ADR 0093): renews it now and every
+    /// quarter of its length, and its handler's time does not run
+    /// meanwhile; at the wait's end, renews it once more, and the
+    /// handler's time runs again from there.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future stops renewing it and leaves the wait counted,
+    /// until the lease runs out.
+    pub(crate) async fn held_through_permit_wait(&self, wait_ended: impl Future) {
+        let length = self.0.length;
+        self.permit_wait(1);
+        tokio::pin!(wait_ended);
+        loop {
+            tokio::select! {
+                _ = &mut wait_ended => break,
+                () = self.0.leases.clock.sleep(length / RENEWALS_PER_LENGTH) => self.renew(length),
+            }
+        }
+        self.permit_wait(-1);
+    }
+
+    /// Counts `change` more of its handler's permit waits under way,
+    /// renewing it for its length in the same step, so its handler's end
+    /// never reads a wait's count without the renewal that goes with it.
+    fn permit_wait(&self, change: i32) {
+        let now = self.0.leases.clock.now();
+        let length = self.0.length;
+        let mut renewed = None;
+        self.0.state.send_modify(|held| {
+            held.permit_waits = held.permit_waits.saturating_add_signed(change);
+            if !held.released && held.lease.holds_at(now) {
+                held.lease = held.lease.renewed(now, length);
+                renewed = Some(held.lease);
+            }
+        });
+        if let Some(lease) = renewed {
+            self.trace("renew", &lease, None);
+        }
+    }
+
     /// Keeps the handler call `id`, sent under it, as the call enclosing
     /// the calls its handler makes from now on (ADR 0080). Its end is the
     /// lease's end less the lease's margin over the Run's
-    /// `timeout.handler`, so a renewal moves it as it moves the lease: a
-    /// navigation-gate permit's wait (ADR 0093) renews the lease at its
-    /// end, and the handler's time runs again from there.
+    /// `timeout.handler`, so a renewal moves it as it moves the lease.
+    /// While a navigation-gate permit's wait is under way (ADR 0093) its
+    /// time does not run: its end stays the timeout ahead, and the wait's
+    /// last renewal, at its end, starts the handler's time again from
+    /// there.
     pub(crate) fn handler_sent(&self, id: RequestId) {
         let timeout = &self.0.leases.handler_timeout;
         let call = EnclosingCall {
             operation: CRAWL_REQUEST_HANDLE.name.to_owned(),
             call_id: id,
         };
-        let margin = self.0.length.saturating_sub(timeout.duration());
+        let (clock, duration) = (self.0.leases.clock, timeout.duration());
+        let margin = self.0.length.saturating_sub(duration);
         // The end reads the lease's state rather than the lease, which
         // holds it: the lease would never drop.
         let held = self.0.state.subscribe();
         self.0
             .handler
             .send_replace(Some(Enclosing::new(timeout, call, move || {
-                let expires_at = held.borrow().lease.expires_at();
+                let held = *held.borrow();
+                let (now, expires_at) = (clock.now(), held.lease.expires_at());
+                if held.permit_waits > 0 && held.lease.holds_at(now) {
+                    return now.checked_add(duration).unwrap_or(expires_at);
+                }
                 expires_at.checked_sub(margin).unwrap_or(expires_at)
             })));
     }
 
     /// The end of the handler call last sent under it ([`Self::handler_sent`]);
-    /// none until one is sent, and a code-free crawl sends none.
+    /// none until one is sent, and a code-free crawl sends none. None too
+    /// once the lease ended: the lease check then refuses its page's calls
+    /// with `attempt_ended` (ADRs 0003 and 0087), which the handler's end,
+    /// passed before the lease's, would otherwise answer first with
+    /// `deadline_exceeded`.
     pub(crate) fn enclosing(&self) -> Option<Enclosing> {
+        self.check().ok()?;
         self.0.handler.borrow().clone()
     }
 

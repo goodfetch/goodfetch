@@ -15,11 +15,12 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::lease::{LeaseCheck as _, LeaseEnded};
 use goodfetch_protocol::connection::WaitedFor;
-use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
+use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, TIMEOUT_HANDLER};
 use goodfetch_protocol::jsonrpc::RequestId;
-use goodfetch_protocol::settings::TIMEOUT_ACTION;
+use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_ACTION};
 use proptest::prelude::*;
 use serde_json::{Value, json};
+use tokio::sync::oneshot;
 use tokio::time::Instant;
 
 use super::{Lease, Leases};
@@ -247,5 +248,80 @@ fn a_renewal_during_a_permit_wait_moves_the_handlers_end_later() {
         );
 
         assert_eq!(answer.ok(), Some("clicked"));
+    });
+}
+
+/// A handler's wait for a navigation-gate permit does not count toward its
+/// `timeout.handler` (ADR 0093), however much longer than that timeout it
+/// lasts: a call answered after the wait keeps its answer, and the
+/// handler's time runs again from the wait's end, where a call never
+/// answered ends one timeout later.
+///
+/// The timeout is 1 s and the lease 11 s, so the wait's renewals, a
+/// quarter of the lease apart, are further apart than the timeout.
+///
+/// Covers: story:11-41
+#[test]
+fn a_permit_wait_longer_than_the_handlers_timeout_ends_none_of_its_calls() {
+    goodfetch_test_support::runtime().block_on(async {
+        let clock = Clock::paused(std::time::UNIX_EPOCH);
+        let leases = Leases::new(clock, "waiting", 1).handled_under(Deadline::given(
+            &TIMEOUT_HANDLER,
+            1_000,
+            SettingsLayer::Run,
+        ));
+        let start = clock.now();
+        let lease = leases.grant("1", 1, Duration::from_secs(11));
+        lease.handler_sent(RequestId::Number(4));
+        let handler = lease.enclosing().expect("a handler call was sent");
+        let (permitted, wait_ended) = oneshot::channel::<()>();
+        let waiting = async {
+            clock.sleep(Duration::from_secs(12)).await;
+            drop(permitted);
+        };
+        let answered = async {
+            clock.sleep(Duration::from_millis(12_500)).await;
+            Ok("answered")
+        };
+        let never_answered = async {
+            let ended = handler
+                .bound(&clock, std::future::pending::<Result<(), _>>(), || None)
+                .await;
+            (
+                ended.map_err(|error| error.code()),
+                clock.now().duration_since(start),
+            )
+        };
+
+        let ((), (), answer, never) = tokio::join!(
+            lease.held_through_permit_wait(wait_ended),
+            waiting,
+            handler.bound(&clock, answered, || None),
+            never_answered,
+        );
+
+        assert_eq!(
+            (answer.ok(), never),
+            (
+                Some("answered"),
+                (Err("deadline_exceeded"), Duration::from_secs(13))
+            )
+        );
+    });
+}
+
+/// Once the lease ended, nothing encloses its handler's page calls: the
+/// lease check refuses them with `attempt_ended` (ADRs 0003 and 0087), not
+/// the handler's end, passed long before, with `deadline_exceeded`.
+///
+/// Covers: story:3-42
+#[test]
+fn an_ended_lease_encloses_nothing() {
+    on_paused_clock(async |leases, clock| {
+        let lease = leases.grant("1", 1, DEFAULT_LEASE);
+        lease.handler_sent(RequestId::Number(4));
+        clock.sleep(DEFAULT_LEASE).await;
+
+        assert!(lease.enclosing().is_none());
     });
 }

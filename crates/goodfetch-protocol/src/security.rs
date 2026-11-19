@@ -44,6 +44,7 @@ const fn control(
         weakens: Some(switched_off),
         fixed_for_run: false,
         unbuilt,
+        deprecated: None,
         arrived_in: ARRIVED_IN,
     }
 }

@@ -42,6 +42,7 @@ pub const POLITENESS_SHARING: Setting = Setting {
     weakens: Some(not_shared),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -56,6 +57,7 @@ pub const POLITENESS_PROXY_CONCURRENCY: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -70,6 +72,7 @@ pub const POLITENESS_PROXY_RATE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

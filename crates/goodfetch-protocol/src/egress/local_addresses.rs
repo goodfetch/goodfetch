@@ -181,6 +181,7 @@ pub const EGRESS_LOCAL_ADDRESSES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -229,6 +230,7 @@ pub const EGRESS_ROTATION_BLOCK_IPV4: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -243,6 +245,7 @@ pub const EGRESS_ROTATION_BLOCK_IPV6: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

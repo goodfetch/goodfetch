@@ -47,6 +47,18 @@ export function warnDeprecated(name: string, text: string): void {
   });
 }
 
+/**
+ * Warns, the first time in the process, that the program set the
+ * deprecated setting `key`, its dotted wire key. `text` is its deprecation's
+ * one text, as its `@deprecated` renders it.
+ */
+export function warnDeprecatedSetting(key: string, text: string): void {
+  warnOnce(`deprecated setting ${key}`, `The setting \`${key}\` is deprecated. ${text}`, {
+    type: "DeprecationWarning",
+    code: "GOODFETCH_DEPRECATED",
+  });
+}
+
 /** Warns, the first time in the process, that the entry `name` is Experimental. */
 export function warnExperimental(name: string): void {
   warnOnce(

@@ -19,6 +19,8 @@ use crate::sync::Mutex;
 enum Marker {
     Deprecated,
     Experimental,
+    /// A deprecated setting a program set, which its key names.
+    DeprecatedSetting,
 }
 
 /// The names this process has warned of, with the marker each was for.
@@ -61,6 +63,19 @@ pub(crate) fn warn_operation(name: &'static str) {
             .map(|deprecated| deprecated.message())
             .as_deref(),
     );
+}
+
+/// Warns, the first time in the process, that the program set the
+/// deprecated setting `key`, its dotted wire key; `text` is its
+/// deprecation's one text, as the setting's `#[deprecated]` carries it.
+pub(crate) fn warn_setting(key: &'static str, text: &str) {
+    if first(Marker::DeprecatedSetting, key) {
+        tracing::warn!(
+            target: logging::CLIENT,
+            setting = key,
+            "The setting `{key}` is deprecated. {text}"
+        );
+    }
 }
 
 /// Whether this is the first warning of `marker` for `name`.

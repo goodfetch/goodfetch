@@ -28,8 +28,9 @@ from goodfetch_collie_client.generated.operations import (
     DEPRECATED_OPERATIONS,
     EXPERIMENTAL_OPERATIONS,
 )
+from goodfetch_collie_client.generated.settings import DEPRECATED_SETTINGS
 from goodfetch_collie_client.handle import NotGiven, not_given
-from goodfetch_collie_client.markers import warn_entry
+from goodfetch_collie_client.markers import warn_deprecated_settings, warn_entry
 from goodfetch_collie_client.portal import LoopStopped, PrivateLoop
 from goodfetch_collie_client.product_connection import (
     ProductPackage,
@@ -164,6 +165,7 @@ class AsyncCollie(AsyncConnection):
                 duration is a `timedelta`, sent in whole milliseconds.
         """
         warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
         return await self._connection.start(
             run_id=run_id, tags=tags, limits=limits, settings=settings
         )
@@ -330,6 +332,7 @@ class Collie(Connection):
                 duration is a `timedelta`, sent in whole milliseconds.
         """
         warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
         starting = functools.partial(
             self._connection.start,
             run_id=run_id,

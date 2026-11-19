@@ -45,6 +45,7 @@ pub const TLS_TRUSTED_CAS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -69,6 +70,7 @@ pub const TLS_ACCEPT_INVALID_CERTS: Setting = Setting {
     weakens: Some(accepts_any_invalid_certificate),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -186,6 +188,7 @@ pub const TLS_CLIENT_CERTIFICATES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

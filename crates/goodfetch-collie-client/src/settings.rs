@@ -37,16 +37,20 @@ use serde_json::{Map, Value};
 
 use crate::call::wire_millis;
 use crate::error::Error;
+use crate::markers;
 
 include!("generated/settings.rs");
 
 /// A key of the catalog's settings whose values are `T`: one of the
 /// constants of this module's submodules, `timeout::NAVIGATION` for
 /// `timeout.navigation`. A setting that can be cleared takes an `Option`,
-/// whose `None` sends null.
+/// whose `None` sends null. Setting a deprecated one warns once per
+/// process through `tracing` (ADR 0099).
 pub struct Setting<T> {
     name: &'static str,
     scopes: &'static [SettingScope],
+    /// Its deprecation's one text, when it is deprecated.
+    deprecation: Option<&'static str>,
     value: PhantomData<fn(T)>,
 }
 
@@ -56,6 +60,22 @@ impl<T> Setting<T> {
         Self {
             name,
             scopes,
+            deprecation: None,
+            value: PhantomData,
+        }
+    }
+
+    /// The deprecated setting `name`, which the settings of `scopes` set,
+    /// with its deprecation's one text.
+    pub(crate) const fn deprecated(
+        name: &'static str,
+        scopes: &'static [SettingScope],
+        deprecation: &'static str,
+    ) -> Self {
+        Self {
+            name,
+            scopes,
+            deprecation: Some(deprecation),
             value: PhantomData,
         }
     }
@@ -104,13 +124,17 @@ impl Settings {
     }
 
     /// Sets `setting` to `value`, in place of any value given it before;
-    /// `None` clears a setting that can be cleared.
+    /// `None` clears a setting that can be cleared. Setting a deprecated
+    /// one warns once per process (ADR 0099).
     #[must_use]
     pub fn set<T: SettingValue>(
         mut self,
         setting: Setting<T>,
         value: impl IntoSettingValue<T>,
     ) -> Self {
+        if let Some(deprecation) = setting.deprecation {
+            markers::warn_setting(setting.name, deprecation);
+        }
         self.values.insert(
             setting.name,
             Given {

@@ -135,6 +135,7 @@ pub const EGRESS_PRIVATE_RANGES: Setting = Setting {
     weakens: Some(lists_any),
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -151,5 +152,6 @@ pub const EGRESS_RECIPE_PRIVATE_RANGES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };

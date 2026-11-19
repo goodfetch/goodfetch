@@ -12,13 +12,13 @@ from pydantic import BaseModel
 
 from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.handle import AsyncHandleHost, HandleHost, AsyncListener, Listener, NotGiven, Subscription, not_given, timeout_of
-from goodfetch_collie_client.markers import warn_entry, warn_experimental
+from goodfetch_collie_client.markers import warn_deprecated_settings, warn_entry, warn_experimental
 from goodfetch_collie_client.raw_call import AsyncHandle, Handle
 from goodfetch_collie_client.settings import settings_on_wire
 
 from . import models
 from .events import DEPRECATED_EVENTS, EXPERIMENTAL_EVENTS
-from .settings import PageSettings, SessionSettings
+from .settings import DEPRECATED_SETTINGS, PageSettings, SessionSettings
 
 
 class AsyncRun(AsyncHandle):
@@ -91,6 +91,7 @@ class AsyncRun(AsyncHandle):
         warn_experimental("run.new_page")
         params = models.NewPageParams(run_id=self._host.id)
         if not isinstance(settings, NotGiven):
+            warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
             params.settings = settings_on_wire(settings)
         opened = result_of(models.PageOpened, await self._host.call("run.new_page", params))
         return AsyncPage(self._host.child(opened.page_id))
@@ -103,6 +104,7 @@ class AsyncRun(AsyncHandle):
         warn_experimental("run.new_session")
         params = models.NewSessionParams(run_id=self._host.id)
         if not isinstance(settings, NotGiven):
+            warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
             params.settings = settings_on_wire(settings)
         if not isinstance(source, NotGiven):
             params.source = source
@@ -190,6 +192,7 @@ class AsyncSession(AsyncHandle):
         warn_experimental("session.new_page")
         params = models.NewSessionPageParams(session_id=self._host.id)
         if not isinstance(settings, NotGiven):
+            warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
             params.settings = settings_on_wire(settings)
         opened = result_of(models.PageOpened, await self._host.call("session.new_page", params))
         return AsyncPage(self._host.child(opened.page_id))
@@ -666,6 +669,7 @@ class Run(Handle):
         warn_experimental("run.new_page")
         params = models.NewPageParams(run_id=self._host.id)
         if not isinstance(settings, NotGiven):
+            warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
             params.settings = settings_on_wire(settings)
         opened = result_of(models.PageOpened, self._host.call("run.new_page", params))
         return Page(self._host.child(opened.page_id))
@@ -678,6 +682,7 @@ class Run(Handle):
         warn_experimental("run.new_session")
         params = models.NewSessionParams(run_id=self._host.id)
         if not isinstance(settings, NotGiven):
+            warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
             params.settings = settings_on_wire(settings)
         if not isinstance(source, NotGiven):
             params.source = source
@@ -765,6 +770,7 @@ class Session(Handle):
         warn_experimental("session.new_page")
         params = models.NewSessionPageParams(session_id=self._host.id)
         if not isinstance(settings, NotGiven):
+            warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
             params.settings = settings_on_wire(settings)
         opened = result_of(models.PageOpened, self._host.call("session.new_page", params))
         return Page(self._host.child(opened.page_id))

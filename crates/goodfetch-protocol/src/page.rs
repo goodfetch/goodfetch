@@ -1020,6 +1020,7 @@ pub const BROWSER_HEADLESS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1038,6 +1039,7 @@ pub const BROWSER_CDP_COMMAND_LOG: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1060,6 +1062,7 @@ pub const BROWSER_BLOCK_RESOURCES: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1081,6 +1084,7 @@ pub const BROWSER_SERVICE_WORKERS: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1103,6 +1107,7 @@ pub const CONTENT_EXTRACTOR: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1125,6 +1130,7 @@ pub const EXTRACTION_REMOVAL_SHARE: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1148,6 +1154,7 @@ pub const EXTRACTION_READABILITY: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1198,6 +1205,7 @@ pub const LIVE_VIEW_HIDING: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    deprecated: None,
     arrived_in: ARRIVED_IN,
 };
 

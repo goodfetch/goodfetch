@@ -4,8 +4,9 @@
 Experimental. Each program runs in a process of its own, since the warning
 comes once per process, and prints what Python's own warning channel shows
 under `-W always`, which repeats a warning at every call. TypeScript's
-`markers.test.ts` and Rust's `markers/tests.rs` are its twins. Story 11-182
-is declared with its release-notes list (issue 1256).
+`markers.test.ts` and Rust's `markers/tests.rs` are its twins, and
+`settings.test.ts` and Rust's `settings/tests.rs` for a deprecated setting,
+`sample.echo_repeats`.
 """
 
 from __future__ import annotations
@@ -65,6 +66,21 @@ page.on("console", print)
 """
 
 
+DEPRECATED_SETTING_TWICE = """
+from goodfetch_collie_client.generated.settings import DEPRECATED_SETTINGS
+from goodfetch_collie_client.markers import warn_deprecated_settings
+
+
+def start(settings):
+    warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
+
+
+start({"sample": {"echo_repeats": 3}})
+start({"sample": {"echo_repeats": 2}})
+start({"timeout": {"navigation": 1}})
+"""
+
+
 def shown(program: str) -> list[str]:
     """The warning lines Python shows while `program` runs in its own process."""
     ran = subprocess.run(
@@ -121,4 +137,20 @@ def test_a_listener_warns_of_its_events_markers_once_per_process() -> None:
         "outside semver until it is promoted (ADR 0030).",
         "<string>:13: ExperimentalWarning: `page.console` is Experimental: "
         "outside semver until it is promoted (ADR 0030).",
+    ]
+
+
+@pytest.mark.covers("story:11-182")
+def test_setting_a_deprecated_key_warns_once_per_process() -> None:
+    """Starting two Runs that set it warns once, at the caller's line.
+
+    `start` checks its settings as `AsyncConnection.start` and `Collie.start`
+    do; a generated member that takes settings checks them the same way.
+    """
+    lines = shown(DEPRECATED_SETTING_TWICE)
+
+    assert lines == [
+        "<string>:10: DeprecationWarning: The setting `sample.echo_repeats` is "
+        "deprecated. Since 0.1, removed no earlier than 1.0: A sample setting, "
+        "which the real catalog replaces.",
     ]

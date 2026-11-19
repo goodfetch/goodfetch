@@ -139,6 +139,11 @@ fn every_deprecation_names_an_entry_of_its_section_and_a_later_major() {
         .flat_map(|entries| entries.handler_requests)
         .map(|request| request.name)
         .collect();
+    let settings: Vec<&str> = modules
+        .iter()
+        .flat_map(|entries| entries.settings)
+        .map(|setting| setting.name)
+        .collect();
     let deprecations = modules.iter().flat_map(|entries| {
         let operations = entries
             .operations
@@ -152,7 +157,11 @@ fn every_deprecation_names_an_entry_of_its_section_and_a_later_major() {
             .handler_requests
             .iter()
             .map(|request| (request.name, request.deprecated, &requests));
-        operations.chain(events).chain(requests)
+        let settings = entries
+            .settings
+            .iter()
+            .map(|setting| (setting.name, setting.deprecated, &settings));
+        operations.chain(events).chain(requests).chain(settings)
     });
 
     let wrong: Vec<&str> = deprecations

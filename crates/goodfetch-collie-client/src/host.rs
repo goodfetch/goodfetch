@@ -318,25 +318,28 @@ impl HeldRun {
         self.started_as
     }
 
-    /// Closes the Run for every handle, as [`crate::Run::close`] says.
-    pub(crate) async fn close(&self) -> Result<(), Error> {
+    /// Closes the Run for every handle, as [`crate::Run::close`] says: it
+    /// is closed at once, and the future sends its abort if it still ran.
+    pub(crate) fn close(&self) -> impl Future<Output = Result<(), Error>> + Send + 'static {
         let was = std::mem::replace(&mut *self.lock(), State::Closed);
-        if was != State::Running {
-            return Ok(());
-        }
-        let params = RunAbortParams {
-            run_id: self.run_id.clone(),
-            forwarded: false,
-        };
-        let aborted: Result<RunReport, Error> = self
-            .connection
-            .call(RUN_ABORT.name, &params)
-            .timeout(close_timeout())
-            .await;
-        match aborted {
-            Ok(_) => Ok(()),
-            Err(error) if error.code() == ErrorCode::CLOSED => Ok(()),
-            Err(error) => Err(error),
+        let abort = (was == State::Running).then(|| {
+            let params = RunAbortParams {
+                run_id: self.run_id.clone(),
+                forwarded: false,
+            };
+            self.connection
+                .call::<RunReport>(RUN_ABORT.name, &params)
+                .timeout(close_timeout())
+        });
+        async move {
+            let Some(abort) = abort else {
+                return Ok(());
+            };
+            match abort.await {
+                Ok(_) => Ok(()),
+                Err(error) if error.code() == ErrorCode::CLOSED => Ok(()),
+                Err(error) => Err(error),
+            }
         }
     }
 
@@ -365,7 +368,7 @@ impl HeldRun {
 
 impl Closes for HeldRun {
     fn close(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>> {
-        Box::pin(async move { HeldRun::close(&self).await })
+        Box::pin(HeldRun::close(&self))
     }
 }
 

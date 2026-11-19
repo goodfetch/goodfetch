@@ -23,6 +23,7 @@ export {
 export type { Transport } from "./rpc.ts";
 export { holdInRealm } from "./realm.ts";
 export { ensureRunOpen, pageOf, type RunHost } from "./run.ts";
+export { Sequence, type SequenceOptions } from "./sequence.ts";
 export { idOfLocator } from "./generated/handles.ts";
 export {
   locateEngine,

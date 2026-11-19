@@ -66,6 +66,7 @@ pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 19] = [
 
 mod handle_classes;
 pub(super) mod model_defaults;
+mod points_in_time;
 
 const EXPERIMENTAL: &str = "Experimental: outside semver until it is promoted (ADR 0030).";
 
@@ -78,8 +79,11 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         Product::Foxhound => Vec::new(),
     };
     let (mut input, _) = layer.generator_input(&format!("{}Types", layer.product.name()), |name| {
-        ("customTypePath", format!("{CLIENT_PACKAGE}.models.{name}"))
+        let path = points_in_time::client_type(name)
+            .map_or_else(|| format!("{CLIENT_PACKAGE}.models.{name}"), str::to_owned);
+        ("customTypePath", path)
     });
+    points_in_time::use_client_type(&mut input)?;
     // The root holds no value: an empty model with a docstring, never
     // `RootModel[Any]`.
     input["type"] = Value::from("object");

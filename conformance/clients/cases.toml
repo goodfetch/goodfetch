@@ -50,6 +50,37 @@ covers = ["story:11-15"]
 surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
+# Closing the tree Connection, Run, Session, page (ADR 0078; issue 1266):
+# each value closes its children first, a running Run's close aborts it,
+# resumable by its Run ID, while an ended Run's frees only the value, the
+# Connection's close cancels its calls in flight and waits for its Attached
+# engine, and a failed close raises its typed error, a `SuppressedError`
+# under `await using`. TypeScript leads; the Python SDK joins with issue
+# 2927 and the Rust SDK with issue 2928.
+[[capability.case]]
+id = "children-close-with-their-parent"
+covers = ["story:11-16"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "close-stops-a-running-run"
+covers = ["story:11-18"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "connection-close-stops-its-engine"
+covers = ["story:11-19"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "failed-close-raises-a-typed-error"
+covers = ["story:11-20"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
 # The catalog's operations reach the engine through the members generated
 # from them (ADR 0099; issues 2399, 1233 and 2793): attached in TypeScript
 # and Python, linked in Rust, each surface taking the modes it has.

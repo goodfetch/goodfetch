@@ -12,7 +12,7 @@ import {
   type CallOptions,
   type Page,
 } from "@goodfetch/collie-client";
-import type { Caller, RunStarted } from "@goodfetch/collie-client/generated";
+import { collieOperations, type Caller, type RunStarted } from "@goodfetch/collie-client/generated";
 import {
   alsoInNamespace,
   ensureRunOpen,
@@ -22,6 +22,7 @@ import {
   type ClientConnection,
   fromWire,
   type RunHost,
+  warnEntry,
 } from "@goodfetch/collie-client/runtime";
 import {
   declaredLabel,
@@ -35,11 +36,12 @@ import {
   type Dataset,
 } from "./crawl.ts";
 import { HandlerFailedError, ResponseNotDocumentError } from "./generated/errors.ts";
-import type {
-  CrawlRequestHandleParams,
-  CrawlRequestHandled,
-  DatasetRecord,
-  FoxhoundOperationTypes,
+import {
+  foxhoundOperations,
+  type CrawlRequestHandleParams,
+  type CrawlRequestHandled,
+  type DatasetRecord,
+  type FoxhoundOperationTypes,
 } from "./generated/index.ts";
 import { foxhoundWire, type FoxhoundWireType } from "./generated/wire.ts";
 
@@ -104,6 +106,7 @@ export class CrawlRun extends Run {
     dataset: Dataset<I>,
     options: RecordsOptions = {},
   ): Sequence<DatasetRecord> {
+    warnEntry(foxhoundOperations, "run.records");
     ensureRunOpen(this, "run.records");
     const connection = this.#crawlHost.connection;
     const params = { run_id: this.id(), dataset: dataset.name };
@@ -123,6 +126,7 @@ export class CrawlRun extends Run {
    * stops any Run.
    */
   override close(): Promise<void> {
+    warnEntry(collieOperations, "run.abort");
     if (this.#closed) return super.close();
     this.#closed = true;
     for (const attempt of this.#attempts) {
@@ -189,6 +193,7 @@ export class CrawlRun extends Run {
         return page;
       },
       async enqueue(url, label, payload, requestOptionsGiven = {}) {
+        warnEntry(foxhoundOperations, "crawl_request.enqueue");
         signal.throwIfAborted();
         return calls.call(
           "crawl_request.enqueue",
@@ -203,6 +208,7 @@ export class CrawlRun extends Run {
         );
       },
       async enqueueLinks(locator, label, payload, optionsGiven = {}) {
+        warnEntry(foxhoundOperations, "crawl_request.enqueue_links");
         signal.throwIfAborted();
         return calls.call(
           "crawl_request.enqueue_links",
@@ -217,6 +223,7 @@ export class CrawlRun extends Run {
         );
       },
       async push(dataset, records) {
+        warnEntry(foxhoundOperations, "crawl_request.push");
         signal.throwIfAborted();
         // A Record is a JSON object, never a list, so a list is the Records of one push.
         const [first, ...rest] = Array.isArray(records) ? records : [records];

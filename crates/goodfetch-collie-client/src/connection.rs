@@ -20,6 +20,7 @@ use std::time::Duration;
 
 use data_encoding::BASE64;
 use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult};
+use goodfetch_protocol::error_code::ErrorCode;
 use goodfetch_protocol::page::{BodyHandle, CHUNK, Chunk};
 use goodfetch_protocol::settings::TIMEOUT_CLOSE;
 use serde::Serialize;
@@ -129,7 +130,7 @@ impl ClientConnection {
     ///
     /// # Errors
     ///
-    /// [`Error::Unreachable`] when the transport cannot reach the engine,
+    /// `connection_lost` when the transport cannot reach the engine,
     /// and whatever `hello`'s call fails with.
     pub async fn open(
         runtime: ConnectionRuntime,
@@ -147,7 +148,7 @@ impl ClientConnection {
     /// # Errors
     ///
     /// As [`ClientConnection::open`], [`ConnectTimeout::check`]'s refusal,
-    /// and [`Error::Failed`] with `deadline_exceeded` when `hello`'s answer
+    /// and `deadline_exceeded` when `hello`'s answer
     /// did not come within `timeout`, its `limit` naming `timeout.connect`
     /// and the layer that set it, and `waited_for` `hello`.
     pub async fn open_within(
@@ -165,7 +166,7 @@ impl ClientConnection {
             async move { transport::open(&network, &endpoint).await },
             &handle,
         );
-        let opened = joined(opening.await)?.map_err(Error::Unreachable)?;
+        let opened = joined(opening.await)?.map_err(Error::unreachable)?;
         if let Some(process) = opened.process {
             tasks.spawn_on(process.watch(), &handle);
         }
@@ -193,7 +194,9 @@ impl ClientConnection {
             Err(error) => {
                 connection.close().await?;
                 Err(match (error, deadline) {
-                    (Error::TimedOut, Some((after, limit))) => {
+                    (error, Some((after, limit)))
+                        if !error.is_answer() && error.code() == ErrorCode::DEADLINE_EXCEEDED =>
+                    {
                         connect_timeout::exceeded(after, limit)
                     }
                     (error, _) => error,
@@ -269,12 +272,16 @@ impl ClientConnection {
             tokio::select! {
                 biased;
                 Some(heard) = heard.recv() => self.hear(heard, &mut saving).await?,
-                result = &mut replied => break result.map_err(|_| Error::Closed),
+                result = &mut replied => break result.map_err(|_| Error::closed()),
             }
         };
         // A call the engine answered is over; one the Connection failed, as
         // timed out, is not, and the dropped save stops it.
-        saving.answered = matches!(result, Ok(Ok(_) | Err(Error::Failed(_))));
+        saving.answered = match &result {
+            Ok(Ok(_)) => true,
+            Ok(Err(error)) => error.is_answer(),
+            Err(_) => false,
+        };
         let result = result??;
         while let Ok(heard) = heard.try_recv() {
             self.hear(heard, &mut saving).await?;
@@ -295,9 +302,9 @@ impl ClientConnection {
                 Ok(())
             }
             Heard::Notified { method, params } if method == CHUNK => {
-                let chunk: Chunk = serde_json::from_value(params).map_err(Error::Shape)?;
+                let chunk: Chunk = serde_json::from_value(params).map_err(Error::shape)?;
                 let bytes = BASE64.decode(chunk.data.as_bytes()).map_err(|error| {
-                    Error::Shape(serde_json::Error::custom(format!(
+                    Error::shape(serde_json::Error::custom(format!(
                         "a chunk's data is no Base64: {error}"
                     )))
                 })?;
@@ -352,10 +359,7 @@ impl ClientConnection {
     pub(crate) async fn read_body(&self, handle: BodyHandle) -> Result<Vec<u8>, Error> {
         self.blocking(move || {
             let path = PathBuf::from(handle.path);
-            let unreadable = |source| Error::BodyUnreadable {
-                path: path.clone(),
-                source,
-            };
+            let unreadable = |source| Error::body_unreadable(&path, source);
             #[expect(
                 clippy::disallowed_methods,
                 reason = "a blocking task on the Connection's tracker reads the file"
@@ -392,15 +396,15 @@ impl ClientConnection {
     ///
     /// # Errors
     ///
-    /// [`Error::AlreadyServed`] while another stream serves `method`, and
-    /// [`Error::Closed`] once the Connection has ended.
+    /// `internal` while another stream serves `method`, and
+    /// `closed` once the Connection has ended.
     pub fn handler_requests(&self, method: &str) -> Result<HandlerRequests, Error> {
         self.0.streams.open(method)
     }
 
     /// Closes the Connection: first every Run it started that is still
     /// open, as [`crate::Run::close`] does, then every call in flight fails with
-    /// [`Error::Closed`], as does every later one; the engine reads the end
+    /// `closed`, as does every later one; the engine reads the end
     /// of its input, and an Attached engine exits. Returns once the
     /// Connection's tasks have ended, or once `timeout.close` has run out.
     /// Closing again does nothing. A Connection to a Daemon only
@@ -408,7 +412,7 @@ impl ClientConnection {
     ///
     /// # Errors
     ///
-    /// The first error a Run's close failed with, and [`Error::TimedOut`]
+    /// The first error a Run's close failed with, and `deadline_exceeded`
     /// when `timeout.close` ran out first; the Connection closes all the
     /// same.
     ///
@@ -431,7 +435,7 @@ impl ClientConnection {
             Err(_elapsed) => {
                 self.0.sender.close();
                 self.0.tasks.close();
-                Err(Error::TimedOut)
+                Err(Error::timed_out())
             }
         };
         self.0.closed.store(true, Ordering::Release);
@@ -497,7 +501,7 @@ impl ClientConnection {
             &self.0.handle,
         );
         // The task ends without sending only when the runtime shut down.
-        ended.recv().unwrap_or(Err(Error::Closed))
+        ended.recv().unwrap_or_else(|_| Err(Error::closed()))
     }
 
     /// The Runs it started, which a panic elsewhere leaves as they were.
@@ -509,8 +513,8 @@ impl ClientConnection {
 /// The save of a file to the program's path, whose reply reads as `T`.
 /// Nothing is sent until it is awaited.
 ///
-/// Awaiting it fails with [`Error::PathNotWritable`] or
-/// [`Error::FileWriteFailed`] when the Connection cannot write the path,
+/// Awaiting it fails with `path_not_writable` or
+/// `file_write_failed` when the Connection cannot write the path,
 /// and with whatever the call fails with; none leaves a file beside the
 /// path or changes it.
 ///
@@ -530,7 +534,7 @@ pub struct SaveFile<T> {
 }
 
 impl<T> SaveFile<T> {
-    /// Fails the save with [`Error::TimedOut`] if its reply has not come
+    /// Fails the save with `deadline_exceeded` if its reply has not come
     /// within `timeout`, the file it was writing removed.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
@@ -562,7 +566,7 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for SaveFile<T> {
             let path = file_saving::absolute(&given, &call)?;
             let mut params = params?;
             let Value::Object(fields) = &mut params else {
-                return Err(Error::Shape(serde_json::Error::custom(
+                return Err(Error::shape(serde_json::Error::custom(
                     "a save's params are an object",
                 )));
             };
@@ -577,7 +581,7 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for SaveFile<T> {
                 sender: connection.0.sender.clone(),
             };
             let result = connection.saved(method, params, timeout, saving).await?;
-            serde_json::from_value(result).map_err(Error::Shape)
+            serde_json::from_value(result).map_err(Error::shape)
         })
     }
 }
@@ -635,7 +639,7 @@ pub(crate) fn close_timeout() -> Duration {
 
 /// `params` as the call sends them.
 fn to_value(params: &impl Serialize) -> Result<serde_json::Value, Error> {
-    serde_json::to_value(params).map_err(Error::Shape)
+    serde_json::to_value(params).map_err(Error::shape)
 }
 
 /// What a task on the Connection's runtime returned. A panic in it carries
@@ -646,7 +650,7 @@ fn joined<T>(result: Result<T, JoinError>) -> Result<T, Error> {
         if error.is_panic() {
             panic::resume_unwind(error.into_panic());
         }
-        Error::Closed
+        Error::closed()
     })
 }
 

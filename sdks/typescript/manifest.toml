@@ -421,6 +421,24 @@ form = "runtime"
 
 [[member]]
 package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "warnEntry"
+entry = "none"
+reason = "ADR 0030's run-time warning of each marker an entry's generated markers give, once per process (ADR 0099), which a hand-written member serving that entry calls."
+words = ["warn", "entry"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "EntryMarkers"
+entry = "none"
+reason = "An entry's markers in a generated registry of operations or events (ADR 0099), which `warnEntry` reads."
+words = ["entry", "markers"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
 receiver = "FileSaving"
 member = "create"
 entry = "none"

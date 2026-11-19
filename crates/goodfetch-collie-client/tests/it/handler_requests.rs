@@ -13,11 +13,10 @@
 use std::future::Future;
 
 use goodfetch_collie_client::transport::{AttachedEngine, Endpoint, Network};
-use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error};
+use goodfetch_collie_client::{BoxError, ClientConnection, ConnectionRuntime, ErrorCode};
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfoParams};
-use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject};
 use goodfetch_test_support::{ATTACHED_SCRIPT, TestEnv, Tool, tools};
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt as _;
 use tokio::sync::oneshot;
 
@@ -83,18 +82,30 @@ fn with_message(mut error: Value, message: &str) -> Value {
 }
 
 /// The handler's own failure the tests answer with.
-fn failure() -> ErrorObject {
-    let mut details = Map::new();
-    details.insert("fix".to_owned(), json!("retry later"));
-    ErrorObject {
-        code: -32009,
-        message: "the handler gave up".to_owned(),
-        data: ErrorData {
-            code: "handler_failed".to_owned(),
-            retryable: true,
-            details,
+fn failure() -> Value {
+    json!({
+        "code": -32001,
+        "message": "the program's code failed with BoxError: invalid digit found in string",
+        "data": {
+            "code": "handler_failed",
+            "retryable": true,
+            "exception_type": "BoxError",
+            "exception_message": "invalid digit found in string",
+            "exception_stack": "",
         },
-    }
+    })
+}
+
+/// A handler of the program's own, which `?` turns any error into a
+/// `BoxError` in (ADR 0109).
+fn handle(text: &str) -> Result<u32, BoxError> {
+    Ok(text.parse::<u32>()?)
+}
+
+/// The code the engine's handler requests fail with when the program's
+/// own handler fails.
+fn handler_failed() -> ErrorCode {
+    ErrorCode::new("handler_failed").unwrap()
 }
 
 /// Opens a Connection over `network` on the runtime driving the test.
@@ -139,7 +150,7 @@ fn the_program_answers_the_engines_requests_with_a_result_and_with_an_error_obje
                 serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
             assert_eq!(
                 failed,
-                json!({"jsonrpc": "2.0", "id": "two", "error": serde_json::to_value(failure()).unwrap()})
+                json!({"jsonrpc": "2.0", "id": "two", "error": failure()})
             );
             assert_eq!(lines.next_line().await.unwrap(), None, "the Client closed");
         };
@@ -153,9 +164,14 @@ fn the_program_answers_the_engines_requests_with_a_result_and_with_an_error_obje
             first.answer(json!({"handled": 1})).unwrap();
             let second = requests.next().await.unwrap();
             assert_eq!(second.params(), &json!({"n": 2}));
-            second.fail(failure()).unwrap();
+            second
+                .fail(handle("two").unwrap_err(), handler_failed())
+                .unwrap();
             connection.close().await.unwrap();
-            assert!(requests.next().await.is_none(), "a closed Connection ends its streams");
+            assert!(
+                requests.next().await.is_none(),
+                "a closed Connection ends its streams"
+            );
         };
         tokio::join!(peer, program);
     });
@@ -246,7 +262,7 @@ fn a_second_stream_of_a_served_method_is_refused() {
         let _serving = connection.handler_requests(HANDLE).unwrap();
         assert!(matches!(
             connection.handler_requests(HANDLE),
-            Err(Error::AlreadyServed { method }) if method == HANDLE
+            Err(error) if error.code() == ErrorCode::INTERNAL && error.message().contains(HANDLE)
         ));
         connection.close().await.unwrap();
     });
@@ -265,10 +281,9 @@ fn a_dropped_stream_frees_its_method() {
 fn a_closed_connection_opens_no_stream() {
     on_a_quiet_connection(|connection| async move {
         connection.close().await.unwrap();
-        assert!(matches!(
-            connection.handler_requests(HANDLE),
-            Err(Error::Closed)
-        ));
+        assert!(
+            matches!(&connection.handler_requests(HANDLE), Err(error) if error.code() == ErrorCode::CLOSED)
+        );
     });
 }
 
@@ -372,7 +387,9 @@ fn a_request_held_past_close_cannot_be_answered() {
             serving.send(()).unwrap();
             let held = requests.next().await.unwrap();
             connection.close().await.unwrap();
-            assert!(matches!(held.answer(json!({})), Err(Error::Closed)));
+            assert!(
+                matches!(&held.answer(json!({})), Err(error) if error.code() == ErrorCode::CLOSED)
+            );
         };
         tokio::join!(peer, program);
     });
@@ -396,7 +413,7 @@ fn attached_script() -> Value {
             request(HANDLE, 1),
             {"await_reply": {"result": {"handled": 1}}},
             request(HANDLE, 2),
-            {"await_reply": {"error": serde_json::to_value(failure()).unwrap()}},
+            {"await_reply": {"error": failure()}},
             request("nobody.serves", 3),
             {"await_reply": {"error": with_message(unserved(), "this Client serves no `nobody.serves`")}},
             request(HANDLE, 4),
@@ -440,7 +457,12 @@ fn an_attached_engine_reaches_the_program_over_stdio() {
             .unwrap();
         let first = requests.next().await.unwrap();
         first.answer(json!({"handled": 1})).unwrap();
-        requests.next().await.unwrap().fail(failure()).unwrap();
+        requests
+            .next()
+            .await
+            .unwrap()
+            .fail(handle("two").unwrap_err(), handler_failed())
+            .unwrap();
         drop(requests.next().await.unwrap());
         let last = requests.next().await.unwrap();
         assert_eq!(

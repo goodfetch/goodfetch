@@ -10,10 +10,12 @@
     reason = "the tests read the corpus files and edit the store's rows as a damaged disk would; its SQL statements are its own, on no Shared path (ADR 0140)"
 )]
 
+use goodfetch_protocol::point_in_time;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use goodfetch_protocol::formats::Compatibility;
-use goodfetch_protocol::run::{PointInTime, RunId};
+use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::tls::CertificatePin;
 use goodfetch_test_support::{TestEnv, wal_of};
 use jiff::Timestamp;
@@ -30,8 +32,8 @@ fn now() -> Timestamp {
 }
 
 /// The same moment, as a pin's `pinned_at` reads.
-fn at_start() -> PointInTime {
-    PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned())
+fn at_start() -> SystemTime {
+    point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap()
 }
 
 fn store(env: &TestEnv) -> KnownCertificates {
@@ -296,7 +298,7 @@ async fn an_accepted_change_replaces_the_pin_with_the_key_that_stopped_the_host(
     let pin = CertificatePin {
         host: "intranet.example".to_owned(),
         spki_sha256: Some(key(2).to_string()),
-        pinned_at: Some(PointInTime::from_rfc3339("2026-01-05T10:00:00Z".to_owned())),
+        pinned_at: Some(point_in_time::from_rfc3339("2026-01-05T10:00:00Z").unwrap()),
         run_id: Some(run("stopped")),
         changed_spki_sha256: None,
     };

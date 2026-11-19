@@ -32,6 +32,10 @@ from goodfetch_collie_client.generated.errors import (
 from goodfetch_collie_client.generated.handles import AsyncRun as AsyncRunMembers
 from goodfetch_collie_client.generated.handles import Run as RunMembers
 from goodfetch_collie_client.generated.models import Lifecycle, RunAbortParams, RunId
+from goodfetch_collie_client.generated.operations import (
+    DEPRECATED_OPERATIONS,
+    EXPERIMENTAL_OPERATIONS,
+)
 from goodfetch_collie_client.handle import Subscription
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
 from goodfetch_collie_client.listeners import (
@@ -41,6 +45,7 @@ from goodfetch_collie_client.listeners import (
     Subscribed,
     subscribe,
 )
+from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.once import Once
 from goodfetch_collie_client.portal import LoopStopped
 
@@ -581,6 +586,7 @@ class AsyncRun(AsyncRunMembers):
     @property
     def started_as(self) -> StartedAs:
         """Whether its start began it, resumed it or found it ended."""
+        warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         return self._started_as
 
     async def close(self) -> None:
@@ -592,6 +598,7 @@ class AsyncRun(AsyncRunMembers):
             ListenerFailedError: A listener of the Run, or of a value it
                 opened, threw; it is raised once the Run is closed.
         """
+        warn_entry("run.abort", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         await self._closing.run(self._close)
         self._scope.raise_failures_within(None)
 
@@ -643,6 +650,7 @@ class Run(RunMembers):
     @property
     def started_as(self) -> StartedAs:
         """Whether its start began it, resumed it or found it ended."""
+        warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         return self._run.started_as
 
     def close(self) -> None:
@@ -650,6 +658,7 @@ class Run(RunMembers):
 
         A Run still running is stopped, resumable by its Run ID.
         """
+        warn_entry("run.abort", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         try:
             self._loop.call(self._run.close)
         except LoopStopped:

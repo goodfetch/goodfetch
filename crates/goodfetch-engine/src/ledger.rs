@@ -33,13 +33,13 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_counted_work::{CountedWork, Row as CountedRow};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::{Compatibility, USAGE_LEDGER};
 use goodfetch_protocol::run::LimitSetter;
-use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, PointInTime, ReachedLimit};
+use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, ReachedLimit};
 use goodfetch_protocol::usage::{Limit, LimitUsage};
 use jiff::Timestamp;
 use rusqlite::{Connection, Row};
@@ -296,8 +296,8 @@ impl StoredLimit {
 }
 
 /// A point in time of the protocol's, from a timestamp.
-pub fn point_in_time(at: Timestamp) -> PointInTime {
-    PointInTime::from_rfc3339(at.to_string())
+pub fn point_in_time(at: Timestamp) -> SystemTime {
+    SystemTime::from(at)
 }
 
 /// The Usage ledger of one user: its file and the VFS it opens through.

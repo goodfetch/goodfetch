@@ -1,6 +1,7 @@
 //! The check of the SDK's public items (ADRs 0081, 0095 and 0117): the
 //! crate re-exports only items of Foxhound's catalog from
-//! `goodfetch-protocol`, every value a connection hands out from
+//! `goodfetch-protocol`, and its `foxhound::error_code` module of
+//! Foxhound's Error codes (ADR 0099), every value a connection hands out from
 //! `goodfetch-collie-client`, never a glob; its connections carry Collie's
 //! members under the same names; and no public type of its own has a
 //! lifetime parameter.
@@ -15,6 +16,10 @@ use std::path::Path;
 use goodfetch_test_support::{
     public_methods, public_types_with_lifetimes, re_exports, sdk_sources,
 };
+
+/// The module of Foxhound's Error codes, the one module of
+/// `goodfetch-protocol` the crate re-exports (ADR 0099).
+const ERROR_CODES: &str = "goodfetch_protocol::foxhound::error_code";
 
 /// The crate's own folder.
 fn crate_folder() -> &'static Path {
@@ -37,9 +42,13 @@ fn the_sdk_re_exports_the_client_crates_values_and_foxhounds_protocol_items() {
 
     let protocol: Vec<&String> = paths
         .iter()
-        .filter(|path| path.starts_with("goodfetch_protocol::"))
+        .filter(|path| path.starts_with("goodfetch_protocol::") && *path != ERROR_CODES)
         .collect();
     assert!(!protocol.is_empty(), "{paths:?}");
+    assert!(
+        paths.iter().any(|path| path == ERROR_CODES),
+        "{ERROR_CODES} is not re-exported: {paths:?}"
+    );
     for path in protocol {
         let name = path.rsplit("::").next().unwrap();
         assert!(

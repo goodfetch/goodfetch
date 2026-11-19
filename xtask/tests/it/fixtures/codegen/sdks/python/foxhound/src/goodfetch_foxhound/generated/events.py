@@ -26,4 +26,4 @@ EXPERIMENTAL_EVENTS: Final[frozenset[str]] = frozenset({
 
 DEPRECATED_EVENTS: Final[Mapping[str, str]] = {
 }
-"""Each deprecated event, with its deprecation."""
+"""Each deprecated event, with its deprecation's one text."""

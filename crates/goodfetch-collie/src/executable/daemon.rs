@@ -49,7 +49,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::Identity;
 use goodfetch_engine::browser_cache::{self, CacheLocation, HOME_FOLDER, MaxUnusedAge};
@@ -663,7 +663,7 @@ impl Machine<'_> {
                     .map(|artifact| artifact.id)
                     .collect(),
                 copy: None,
-                last_seen: self.now(),
+                last_seen: SystemTime::from(self.now()),
             })
         });
         if let Err(error) = recorded {

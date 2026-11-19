@@ -367,6 +367,8 @@ pub const ENTRIES: Entries = Entries {
             stability: Stability::Experimental,
             deprecated: Some(Deprecation {
                 since: ARRIVED_IN,
+                replacement: None,
+                earliest_removal: ProtocolVersion { major: 1, minor: 0 },
                 note: "A fixture entry, which no program should call.",
             }),
             ..operation(

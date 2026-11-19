@@ -3,7 +3,7 @@
 //! that names the handle's value. The members the catalog gives a handle,
 //! which `xtask codegen` writes, build their calls here, so a call on any
 //! handle of a closed Run, or of a value closed with its parent, fails
-//! with [`Error::Closed`] before it is sent, and a reply that says the Run
+//! with `closed` before it is sent, and a reply that says the Run
 //! ended notes it, which `close()` and the handle's drop read (ADR 0078).
 
 use std::future::Future;
@@ -11,6 +11,7 @@ use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError};
 
+use goodfetch_protocol::error_code::ErrorCode;
 use goodfetch_protocol::page::session::{SESSION_CLOSE, SessionParams};
 use goodfetch_protocol::page::session_pages::{PAGE_CLOSE, PageCloseParams};
 use goodfetch_protocol::page::{Locator, PageId, SessionId};
@@ -108,7 +109,7 @@ impl<Id> Host<Id> {
 
     /// The stream of the events named `event` the call of `method` with
     /// `params` streams, which is sent now; once the value is closed it
-    /// sends nothing and the stream hands [`Error::Closed`] once.
+    /// sends nothing and the stream hands `closed` once.
     pub(crate) fn listen<T, P>(
         &self,
         method: &str,
@@ -121,7 +122,7 @@ impl<Id> Host<Id> {
     {
         let params = self
             .open(params)
-            .and_then(|params| serde_json::to_value(params).map_err(Error::Shape));
+            .and_then(|params| serde_json::to_value(params).map_err(Error::shape));
         EventStream::open(self.connection().sender(), method, params, event)
     }
 
@@ -147,10 +148,10 @@ impl<Id> Host<Id> {
             .map(drop)
     }
 
-    /// `params`, or [`Error::Closed`] once the value is closed.
+    /// `params`, or `closed` once the value is closed.
     fn open<P>(&self, params: P) -> Result<P, Error> {
         if closed(&self.run, self.value.as_deref()) {
-            Err(Error::Closed)
+            Err(Error::closed())
         } else {
             Ok(params)
         }
@@ -333,7 +334,8 @@ impl HeldRun {
             .timeout(close_timeout())
             .await;
         match aborted {
-            Ok(_) | Err(Error::Closed) => Ok(()),
+            Ok(_) => Ok(()),
+            Err(error) if error.code() == ErrorCode::CLOSED => Ok(()),
             Err(error) => Err(error),
         }
     }

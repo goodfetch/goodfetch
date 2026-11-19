@@ -24,10 +24,10 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::formats::{Compatibility, KNOWN_CERTIFICATES};
-use goodfetch_protocol::run::{PointInTime, RunId};
+use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::tls::CertificatePin;
 use jiff::Timestamp;
 use rusqlite::{Connection, OptionalExtension as _};
@@ -179,7 +179,7 @@ pub struct Waiting {
     /// The key it presented instead.
     pub presented: KeyHash,
     /// When it presented it.
-    pub seen_at: PointInTime,
+    pub seen_at: SystemTime,
     /// The Run that met it.
     pub run_id: Option<RunId>,
 }
@@ -295,7 +295,7 @@ impl Row {
             Some(read) => CertificatePin {
                 host: self.host,
                 spki_sha256: Some(read.key.to_string()),
-                pinned_at: Some(PointInTime::from_rfc3339(read.pinned_at.to_string())),
+                pinned_at: Some(SystemTime::from(read.pinned_at)),
                 run_id: read.run_id,
                 changed_spki_sha256: None,
             },
@@ -484,7 +484,7 @@ impl KnownCertificates {
                         previous,
                         pin: CertificatePin {
                             spki_sha256: Some(changed.to_string()),
-                            pinned_at: Some(PointInTime::from_rfc3339(now.to_string())),
+                            pinned_at: Some(SystemTime::from(now)),
                             run_id,
                             changed_spki_sha256: None,
                             host,
@@ -591,7 +591,7 @@ impl KnownCertificates {
                 waiting.push(Waiting {
                     pinned,
                     presented,
-                    seen_at: PointInTime::from_rfc3339(seen_at.to_string()),
+                    seen_at: SystemTime::from(seen_at),
                     run_id: run_id.and_then(|run_id| RunId::parse(&run_id).ok()),
                     host,
                 });

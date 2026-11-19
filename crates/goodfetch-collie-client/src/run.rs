@@ -110,6 +110,7 @@ fn log_start(started: &RunStarted) {
 impl Run {
     /// Whether the start began the Run, went on with it, or found it ended.
     pub fn started_as(&self) -> StartedAs {
+        crate::markers::warn_operation("run.start");
         self.host.held_run().started_as()
     }
 
@@ -117,12 +118,12 @@ impl Run {
     /// next safe point, `stopped` and `incomplete`, as an abort by its
     /// program (`run.abort`), resumable by its Run ID; an ended one stays
     /// as it is. Any later call on it, or on a handle it opened, fails
-    /// with [`Error::Closed`]. Closing again does nothing.
+    /// with `closed`. Closing again does nothing.
     ///
     /// # Errors
     ///
     /// What `run.abort` fails with, unless the Connection is closed: its
-    /// engine then stops the Run itself. [`Error::TimedOut`] once
+    /// engine then stops the Run itself. `deadline_exceeded` once
     /// `timeout.close` has run out, the value closed all the same.
     ///
     /// # Cancel safety
@@ -130,6 +131,7 @@ impl Run {
     /// Dropping the future after its first poll leaves the value closed
     /// and the abort sent.
     pub async fn close(&self) -> Result<(), Error> {
+        crate::markers::warn_operation("run.abort");
         self.host.held_run().close().await
     }
 }
@@ -139,6 +141,7 @@ impl ClientConnection {
     /// `finish()` ends it. The start of a Run this Connection drives
     /// (`run.start`), which awaiting sends.
     pub fn start(&self) -> Start {
+        crate::markers::warn_operation("run.start");
         Start::new(self.clone())
     }
 }

@@ -16,9 +16,10 @@ use goodfetch_protocol::foxhound::outcomes::{
     CrawlRequestOutcome, Ending, OutcomeKind, SkipReason,
 };
 use goodfetch_protocol::foxhound::report::{CountOf, RequestCounts};
-use goodfetch_protocol::run::PointInTime;
+use goodfetch_protocol::point_in_time;
 use proptest::prelude::*;
 use rusqlite::Connection;
+use std::time::SystemTime;
 
 use super::super::{Filter, latest_of_readmitted, page};
 use crate::invariants::fixture;
@@ -44,8 +45,8 @@ fn first() -> impl Strategy<Value = First> {
     ]
 }
 
-fn ended_at() -> PointInTime {
-    PointInTime::from_rfc3339("2026-01-05T09:00:00Z".to_owned())
+fn ended_at() -> SystemTime {
+    point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap()
 }
 
 fn crawl_of(count: usize) -> Connection {

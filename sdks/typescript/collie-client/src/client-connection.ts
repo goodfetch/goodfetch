@@ -14,6 +14,7 @@ import {
   CallCancelledError,
   ClosedError,
   CollieOperations,
+  collieOperations,
   DeadlineExceededError,
   EngineExitedError,
   EngineOutputInvalidError,
@@ -37,6 +38,7 @@ import { limitList, type Limits } from "./limits.ts";
 import { logEngineEvent, logLevelOf, type Logger } from "./logger.ts";
 import { collieWire, type CollieWireType } from "./generated/wire.ts";
 import { rawCall, type RawCallOptions, type RawParams } from "./raw-call.ts";
+import { warnEntry } from "./markers.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
 import { settingsOnWire, type RunSettings } from "./generated/settings.ts";
@@ -288,6 +290,7 @@ export class ClientConnection implements AsyncDisposable {
    * (ADR 0102).
    */
   async start(options: StartOptions = {}): Promise<Run> {
+    warnEntry(collieOperations, "run.start");
     const limits = limitList(options.limits);
     const settings = settingsOnWire(options.settings);
     const params: RunStartParams = {

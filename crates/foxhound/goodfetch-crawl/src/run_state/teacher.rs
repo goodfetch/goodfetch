@@ -16,12 +16,12 @@
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::SystemTime;
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::run_state::BatchEnd;
 use goodfetch_frontier::EndMerged;
-use goodfetch_protocol::run::PointInTime;
 use rusqlite::Connection;
 use tokio::sync::{Notify, watch};
 
@@ -191,7 +191,7 @@ impl BatchEnd for Teacher {
 /// ended at `ended_at`, and those its stop made pending again, and what
 /// both changed of the crawl's requests by state.
 struct Merged {
-    ended_at: PointInTime,
+    ended_at: SystemTime,
     moved: Vec<Move>,
     changed: Changed,
 }

@@ -12,6 +12,9 @@
 //! many; on an ended Run it returns the Run to `running` first (ADR 0102).
 //! Foxhound's own.
 
+use crate::point_in_time::PointInTime;
+use std::time::SystemTime;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -21,7 +24,7 @@ use crate::catalog::{
     Entries, Operation, OperationClass, OperationKind, ProtocolVersion, Reach, Stability, schema_of,
 };
 use crate::foxhound::frontier::NotAddedReason;
-use crate::run::{PointInTime, RunId};
+use crate::run::RunId;
 use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -251,8 +254,9 @@ pub struct CrawlRequestOutcome {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub errors: Vec<AttemptError>,
     /// When it ended.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub ended_at: PointInTime,
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub ended_at: SystemTime,
     /// How it ended.
     #[serde(flatten)]
     pub ending: Ending,

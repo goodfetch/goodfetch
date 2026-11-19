@@ -18,6 +18,7 @@ export type { Logger } from "./logger.ts";
 export { Run } from "./run.ts";
 export { Locator, Page, Session, type PageEvents } from "./generated/handles.ts";
 export type { Listener, Subscription } from "./handle.ts";
+export type { Handle, RawCallOptions, RawParams } from "./raw-call.ts";
 export type { Sequence } from "./sequence.ts";
 export { KeyValueStore, type StoredBytes, type StoredValue } from "./key-value-store.ts";
 export type { JSONObject, JSONValue } from "./json.ts";

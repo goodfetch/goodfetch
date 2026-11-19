@@ -577,3 +577,89 @@ entry = "none"
 reason = "The scoped form of `close()`, synchronous since nothing waits (ADR 0081)."
 words = ["close"]
 form = "closer"
+
+# The raw catalog call (ADR 0099, G8; issue 1254): the way down to an
+# operation the SDK does not generate, its params and result the wire's
+# JSON. Rust's `call` builder joins with its part of issue 1254.
+
+[[member]]
+package = "@goodfetch/collie"
+receiver = "Collie"
+member = "call"
+entry = "none"
+reason = "The raw catalog call on the Connection, for an operation acting on no value that the SDK does not generate (ADR 0099): any catalog operation, so no entry is its own."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Foxhound"
+member = "call"
+entry = "none"
+reason = "The raw catalog call on the Connection, as `Collie.call` is (ADR 0099)."
+words = ["call"]
+form = "round_trip"
+only = "Rust's raw call, a `call` builder (ADR 0099), joins with its part of issue 1254."
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Connection"
+member = "call"
+entry = "none"
+reason = "The interface every Product's Connection type implements (ADR 0095); `Collie.call`'s line holds."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Handle"
+entry = "none"
+reason = "The base every generated handle extends, which gives it the raw catalog call on its value (ADR 0099)."
+words = ["handle"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Handle"
+member = "call"
+entry = "none"
+reason = "The raw catalog call on a value, for an operation of its namespace the SDK does not generate, the value's ID filling its parameter (ADR 0099): any operation of that namespace, so no entry is its own."
+words = ["call"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "RawParams"
+entry = "none"
+reason = "What the raw catalog call sends: the wire's JSON, a second value named by its ID (ADR 0099)."
+words = ["raw", "params"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "RawCallOptions"
+entry = "none"
+reason = "What the raw catalog call takes beside its params: the operation's own `timeout` and a `signal` (ADR 0099)."
+words = ["raw", "call", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "call"
+entry = "none"
+reason = "The common Connection's raw catalog call, which each Product's Connection type's `call` is (ADR 0099)."
+words = ["call"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "alsoInNamespace"
+entry = "none"
+reason = "Lets a Product's handle that extends another take its own namespace's operations in its raw call, as a crawl's Run takes `crawl`'s beside a Run's (ADR 0099)."
+words = ["also", "in", "namespace"]
+form = "runtime"

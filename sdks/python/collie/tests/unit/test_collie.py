@@ -65,13 +65,13 @@ async def collie_on(way: Way, script: str) -> tuple[AsyncCollie, PlayedScript]:
         pytest.param(
             AsyncConnection,
             AsyncCollie,
-            {"close", "engine", "start", "__aenter__", "__aexit__"},
+            {"call", "close", "engine", "start", "__aenter__", "__aexit__"},
             id="async",
         ),
         pytest.param(
             Connection,
             Collie,
-            {"close", "engine", "start", "__enter__", "__exit__"},
+            {"call", "close", "engine", "start", "__enter__", "__exit__"},
             id="sync",
         ),
     ],
@@ -583,3 +583,19 @@ async def test_fails_connect_when_its_engine_path_is_set_but_empty(
             "reason": "an empty value names no executable",
         },
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.covers("story:11-181")
+async def test_cancels_a_raw_call_with_the_task_it_runs_in() -> None:
+    """Cancelling its task cancels the raw call: `$/cancel` reaches the engine."""
+    played = play_script("sdk-python/connect/raw-call-cancelled.json")
+    collie = await async_connect_over(played.transport)
+
+    async with anyio.create_task_group() as calls:
+        calls.start_soon(collie.call, "run.list", {"lifecycle": "running"})
+        await until_sent(played, "run.list")
+        calls.cancel_scope.cancel()
+    await collie.close()
+
+    assert played.done() == Finished()

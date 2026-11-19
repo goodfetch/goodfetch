@@ -7,6 +7,9 @@ import type {
   ConnectOverOptions,
   Connection,
   EngineInfo,
+  JSONValue,
+  RawCallOptions,
+  RawParams,
   Run,
   StartOptions,
 } from "@goodfetch/collie-client";
@@ -63,6 +66,18 @@ export class Collie implements Connection {
    */
   start(options?: StartOptions): Promise<Run> {
     return this.#connection.start(options);
+  }
+
+  /**
+   * Sends `operation`, one the SDK may not generate that acts on no value
+   * or whose `params` name every value, with `params` as the wire's JSON in
+   * snake_case, and answers its result as the engine sent it (ADR 0099).
+   * `timeout` is sent as the operation's own; `signal` cancels the call. It
+   * fails with the same classes as any call, `closed` once the Connection
+   * is closed, and is never retried.
+   */
+  call(operation: string, params?: RawParams, options?: RawCallOptions): Promise<JSONValue> {
+    return this.#connection.call(operation, params, options);
   }
 
   /**

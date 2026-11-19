@@ -46,6 +46,9 @@ use super::{CALLER_MODULE, deprecation_message, docstring, header};
 /// The hand-written module of Collie's client package that declares what a
 /// generated handle reaches its engine through.
 const HANDLE_MODULE: &str = "goodfetch_collie_client.handle";
+/// The module of the hand-written base each handle class extends: the raw
+/// call on its value (ADR 0099).
+const RAW_CALL_MODULE: &str = "goodfetch_collie_client.raw_call";
 
 /// A call's own optional parameter that bounds it (ADR 0080).
 const TIMEOUT: &str = "timeout";
@@ -61,6 +64,8 @@ struct Mode {
     prefix: &'static str,
     /// The host type the class takes.
     host: &'static str,
+    /// The hand-written class each handle extends, which gives its raw call.
+    base: &'static str,
     /// `async ` or nothing, before `def`.
     asynchronous: &'static str,
     /// `await ` or nothing, before a call.
@@ -75,6 +80,7 @@ struct Mode {
 const ASYNC: Mode = Mode {
     prefix: "Async",
     host: "AsyncHandleHost",
+    base: "AsyncHandle",
     asynchronous: "async ",
     awaits: "await ",
     enter: "__aenter__",
@@ -85,6 +91,7 @@ const ASYNC: Mode = Mode {
 const SYNC: Mode = Mode {
     prefix: "",
     host: "HandleHost",
+    base: "Handle",
     asynchronous: "",
     awaits: "",
     enter: "__enter__",
@@ -577,11 +584,13 @@ fn classes(
     }
     let _ = write!(
         text,
-        "\n\nclass {class}:\n    \"\"\"A `{}` a program holds: the members the catalog gives it (ADR 0099).\"\"\"\n{}",
+        "\n\nclass {class}({}):\n    \"\"\"A `{}` a program holds: the members the catalog gives it (ADR 0099).\"\"\"\n{}\n        super().__init__(host, {:?}, {:?})\n",
+        mode.base,
         handle.namespace,
-        constructor.trim_end()
+        constructor.trim_end(),
+        handle.namespace,
+        handle.id.param
     );
-    text.push('\n');
     for sub_object in &handle.sub_objects {
         let _ = writeln!(
             text,
@@ -652,7 +661,7 @@ pub(super) fn handles_module(layer: &Layer, handles: &[Handle<'_>]) -> Result<St
         .fold(String::new(), |names, name| names + ", " + name);
     let _ = writeln!(
         text,
-        "\nfrom {CALLER_MODULE} import result_of\nfrom {HANDLE_MODULE} import AsyncHandleHost, HandleHost{handle}"
+        "\nfrom {CALLER_MODULE} import result_of\nfrom {HANDLE_MODULE} import AsyncHandleHost, HandleHost{handle}\nfrom {RAW_CALL_MODULE} import AsyncHandle, Handle"
     );
     if imports.models {
         text.push_str("\nfrom . import models\n");

@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "20"
+version = "21"
 
 [[capability]]
 name = "lifecycle"
@@ -92,6 +92,16 @@ id = "catalog-mapping"
 covers = ["story:11-178"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
+
+# The raw catalog call (ADR 0099, G8; issue 1254): `call` on the Connection
+# and on each value reaches an operation the SDK does not generate, its
+# params and result the wire's JSON, under the main path's protections.
+# Rust's `call` builder joins with its part of issue 1254.
+[[capability.case]]
+id = "raw-call"
+covers = ["story:11-181"]
+surfaces = ["sdk-typescript", "sdk-python"]
+modes = ["attached"]
 
 # A program's first pages (issue 2400): opened, navigated, acted on through
 # locators, read and closed, on the Proving ground: attached through

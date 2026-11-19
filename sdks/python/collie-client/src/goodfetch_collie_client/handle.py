@@ -16,7 +16,9 @@ from typing import TYPE_CHECKING, Final, Literal, Protocol, TypeVar, final
 from .generated.errors import SettingInvalidError
 
 if TYPE_CHECKING:
-    from pydantic import BaseModel
+    from collections.abc import Mapping
+
+    from pydantic import BaseModel, JsonValue
 
 _Id = TypeVar("_Id", covariant=True)
 _ChildId = TypeVar("_ChildId")
@@ -107,6 +109,13 @@ class AsyncHandleHost(Protocol[_Id]):
         """Sends one call and returns its result as the engine sent it."""
         ...
 
+    async def raw(self, operation: str, params: Mapping[str, object]) -> JsonValue:
+        """Sends the raw call `operation` unless the value is closed (ADR 0099).
+
+        Its params and its result are the wire's JSON, unconverted.
+        """
+        ...
+
     def child(self, id: _ChildId) -> AsyncHandleHost[_ChildId]:
         """The host of a handle this one opens or builds, whose calls carry `id`."""
         ...
@@ -132,6 +141,10 @@ class HandleHost(Protocol[_Id]):
 
     def call(self, operation: str, params: BaseModel) -> object:
         """Sends one call and returns its result as the engine sent it."""
+        ...
+
+    def raw(self, operation: str, params: Mapping[str, object]) -> JsonValue:
+        """Sends the raw call `operation`, as `AsyncHandleHost.raw` does."""
         ...
 
     def child(self, id: _ChildId) -> HandleHost[_ChildId]:

@@ -582,6 +582,10 @@ fn plugins(layer: &Layer) -> String {
 /// generated handle reaches its engine through.
 const HANDLE_MODULE: &str = "../handle.ts";
 
+/// The hand-written module of Collie's client package that declares the
+/// base of every handle, which holds its raw call (ADR 0099).
+const RAW_CALL_MODULE: &str = "../raw-call.ts";
+
 /// The hand-written module of Collie's client package that types a result
 /// by the fields its call declares (ADR 0147).
 const FIELD_VALUES_MODULE: &str = "../field-values.ts";
@@ -864,7 +868,7 @@ fn handles_imports(handles: &[Handle<'_>], operation_types: &str) -> String {
         ""
     };
     format!(
-        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost{listens} }} from \"{HANDLE_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\nimport type * as types from \"./types.ts\";\n"
+        "{HEADER}\n{field_values}import {{ defined{timeout_of}, type HandleHost{listens} }} from \"{HANDLE_MODULE}\";\nimport {{ Handle }} from \"{RAW_CALL_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\nimport type * as types from \"./types.ts\";\n"
     )
 }
 
@@ -907,7 +911,7 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
         );
         let _ = write!(
             text,
-            "\n/** A `{}` a program holds: the members the catalog gives it (ADR 0099). */\nexport class {class}{implements} {{\n  static {{\n    idIn{class} = (handle) => handle.#host.id;\n  }}\n\n  readonly #host: {host};\n",
+            "\n/** A `{}` a program holds: the members the catalog gives it (ADR 0099). */\nexport class {class} extends Handle{implements} {{\n  static {{\n    idIn{class} = (handle) => handle.#host.id;\n  }}\n\n  readonly #host: {host};\n",
             handle.namespace
         );
         for sub_object in &handle.sub_objects {
@@ -920,7 +924,8 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
         }
         let _ = write!(
             text,
-            "\n  /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */\n  constructor(host: {host}) {{\n    this.#host = host;\n"
+            "\n  /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */\n  constructor(host: {host}) {{\n    super(host, {:?}, {:?});\n    this.#host = host;\n",
+            handle.namespace, handle.id.param
         );
         for sub_object in &handle.sub_objects {
             let _ = writeln!(

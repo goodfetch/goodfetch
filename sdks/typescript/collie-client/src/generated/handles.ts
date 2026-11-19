@@ -2,6 +2,7 @@
 
 import { typedBy, type TypedBy } from "../field-values.ts";
 import { defined, timeoutOf, type HandleHost, type Listener, type Subscription } from "../handle.ts";
+import { Handle } from "../raw-call.ts";
 import type { CollieOperationTypes } from "./operations.ts";
 import type * as types from "./types.ts";
 
@@ -13,7 +14,7 @@ export function idOfRun(handle: Run): types.RunId {
 }
 
 /** A `run` a program holds: the members the catalog gives it (ADR 0099). */
-export class Run {
+export class Run extends Handle {
   static {
     idInRun = (handle) => handle.#host.id;
   }
@@ -22,6 +23,7 @@ export class Run {
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
   constructor(host: HandleHost<types.RunId, CollieOperationTypes>) {
+    super(host, "run", "run_id");
     this.#host = host;
   }
 
@@ -153,7 +155,7 @@ export function idOfSession(handle: Session): types.SessionId {
 }
 
 /** A `session` a program holds: the members the catalog gives it (ADR 0099). */
-export class Session implements AsyncDisposable {
+export class Session extends Handle implements AsyncDisposable {
   static {
     idInSession = (handle) => handle.#host.id;
   }
@@ -162,6 +164,7 @@ export class Session implements AsyncDisposable {
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
   constructor(host: HandleHost<types.SessionId, CollieOperationTypes>) {
+    super(host, "session", "session_id");
     this.#host = host;
   }
 
@@ -274,7 +277,7 @@ export function idOfPage(handle: Page): types.PageId {
 }
 
 /** A `page` a program holds: the members the catalog gives it (ADR 0099). */
-export class Page implements AsyncDisposable {
+export class Page extends Handle implements AsyncDisposable {
   static {
     idInPage = (handle) => handle.#host.id;
   }
@@ -283,6 +286,7 @@ export class Page implements AsyncDisposable {
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
   constructor(host: HandleHost<types.PageId, CollieOperationTypes>) {
+    super(host, "page", "page_id");
     this.#host = host;
   }
 
@@ -455,7 +459,7 @@ export function idOfLocator(handle: Locator): types.Locator {
 }
 
 /** A `locator` a program holds: the members the catalog gives it (ADR 0099). */
-export class Locator {
+export class Locator extends Handle {
   static {
     idInLocator = (handle) => handle.#host.id;
   }
@@ -464,6 +468,7 @@ export class Locator {
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
   constructor(host: HandleHost<types.Locator, CollieOperationTypes>) {
+    super(host, "locator", "locator");
     this.#host = host;
   }
 

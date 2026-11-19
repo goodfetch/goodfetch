@@ -6,8 +6,8 @@
 # only a person may call, two members of one receiver for one entry, a
 # member with no entry not spelled from its words and form, a line naming a
 # member the generator writes, and a member whose words another SDK's
-# manifest lacks on the same receiver unless its `only` says why that SDK
-# lacks it. Matching this manifest to what the packages export is issue
+# manifest lacks on a receiver both manifests list unless its `only` says
+# why that SDK lacks it. Matching this manifest to what the packages export is issue
 # 2920's; until then a member added by hand gets its line here.
 #
 # Forms: `opener` (a round trip that returns a value the caller closes),

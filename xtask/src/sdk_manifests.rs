@@ -149,10 +149,10 @@ fn spelling(language: Language, member: &Member) -> Option<String> {
         return Some(words.to_uppercase());
     }
     match (language, member.form == TYPE) {
-        (Language::TypeScript, true) => Some(codegen::class_name(&words)),
-        (Language::TypeScript, false) => Some(codegen::typescript_member(&words)),
+        (Language::TypeScript, true) => Some(codegen::pascal(&words)),
+        (Language::TypeScript, false) => Some(codegen::camel(&words)),
         (Language::Rust, true) => codegen::rust_type(&words),
-        (Language::Rust, false) => codegen::rust_member(&words),
+        (Language::Rust, false) => codegen::rust_snake(&words),
     }
 }
 
@@ -162,7 +162,7 @@ fn spelling(language: Language, member: &Member) -> Option<String> {
 fn spelled(language: Language, member: &Member) -> bool {
     match (language, member.name.as_str()) {
         (Language::TypeScript, "constructor") => {
-            codegen::class_name(&member.joined()) == member.receiver
+            codegen::pascal(&member.joined()) == member.receiver
         }
         (Language::TypeScript, "[Symbol.asyncDispose]" | "[Symbol.dispose]") => {
             member.words == ["close"]
@@ -174,8 +174,8 @@ fn spelled(language: Language, member: &Member) -> bool {
 /// The member a generator writes, as `language` spells it.
 fn generated_name(language: Language, words: &str) -> Option<String> {
     match language {
-        Language::TypeScript => Some(codegen::typescript_member(words)),
-        Language::Rust => codegen::rust_member(words),
+        Language::TypeScript => Some(codegen::camel(words)),
+        Language::Rust => codegen::rust_snake(words),
     }
 }
 

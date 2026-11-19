@@ -363,7 +363,7 @@ enum Command {
     /// (ADRs 0041, 0080), two members of one receiver for one entry, a
     /// member with no entry not spelled from its words and form, a line
     /// naming a member the generator writes, and a member another SDK lacks
-    /// on the same receiver unless its line says why (ADR 0099).
+    /// on a receiver both list unless its line says why (ADR 0099).
     SdkManifests,
     /// Reference screenshots (ADR 0073).
     Screenshots {

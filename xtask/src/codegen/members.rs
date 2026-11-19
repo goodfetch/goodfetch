@@ -1,8 +1,7 @@
-//! What the generators write, for `xtask sdk-manifests` (ADR 0099): the
-//! members of Collie's handles, read from the committed bundle and Collie's
-//! projection by the same rules each generator applies, and each language's
-//! spelling of a name's words, so a manifest line is checked against the
-//! generators rather than a copy of their rules.
+//! The members the generators write on Collie's handles, for `xtask
+//! sdk-manifests` (ADR 0099): read from the committed bundle and Collie's
+//! projection by the same rules each generator applies, so a manifest line
+//! is checked against the generators rather than a copy of their rules.
 
 use std::path::Path;
 
@@ -10,7 +9,11 @@ use anyhow::{Context as _, Result};
 use goodfetch_protocol::catalog::Product;
 use serde_json::Value;
 
-use super::{PROTOCOL_GENERATED, handles, layer::Layer, naming};
+use super::{
+    PROTOCOL_GENERATED, handles,
+    layer::{Layer, input_name},
+    naming,
+};
 
 /// A member a generator writes on a handle.
 pub(crate) struct HandleMember {
@@ -34,7 +37,7 @@ fn read_json(root: &Path, name: &str) -> Result<Value> {
 /// yet: its generators write no handle.
 pub(crate) fn handle_members(root: &Path) -> Result<Vec<HandleMember>> {
     let bundle = read_json(root, "bundle.json")?;
-    let collie = read_json(root, "collie.json")?;
+    let collie = read_json(root, input_name(Product::Collie))?;
     // Collie's layer reads neither Foxhound's projection nor the version.
     let layer = Layer::new(&bundle, &collie, &Value::Null, Product::Collie, "")?;
     let mut members = Vec::new();
@@ -49,24 +52,4 @@ pub(crate) fn handle_members(root: &Path) -> Result<Vec<HandleMember>> {
         }
     }
     Ok(members)
-}
-
-/// A TypeScript member's spelling of `words`, joined by `_`.
-pub(crate) fn typescript_member(words: &str) -> String {
-    naming::camel(words)
-}
-
-/// A TypeScript or Python type's spelling of `words`.
-pub(crate) fn class_name(words: &str) -> String {
-    naming::pascal(words)
-}
-
-/// A Rust member's spelling of `words`; `None` for one Rust cannot spell.
-pub(crate) fn rust_member(words: &str) -> Option<String> {
-    naming::rust_snake(words)
-}
-
-/// A Rust type's spelling of `words`; `None` for one Rust cannot spell.
-pub(crate) fn rust_type(words: &str) -> Option<String> {
-    naming::rust_type(words)
 }

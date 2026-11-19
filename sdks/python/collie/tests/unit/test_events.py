@@ -8,7 +8,9 @@ program sees; a listener that throws is removed, and `listener_failed` is
 raised once, by the next call on its value or by the `close()` that closes
 the value or the Run above it, or logged at error when the value was
 released first. A Session's events come on the Connection's own
-Subscription, which its listeners share, rather than on their calls.
+Subscription, which its listeners share, rather than on their calls, each
+through its own bounded queue, so a stalled listener loses only its own
+events and ends with `listener_events_lost`.
 TypeScript's `events.test.ts` is its twin.
 """
 
@@ -24,6 +26,7 @@ from goodfetch_collie import (
     AsyncCollie,
     ClosedError,
     GoodfetchError,
+    ListenerEventsLostError,
     ListenerFailedError,
 )
 from goodfetch_collie.testing import async_connect_over, connect_over
@@ -364,6 +367,57 @@ async def test_a_sessions_listeners_share_one_subscription_and_hear_their_own_pa
     await collie.close()
 
     assert values == [1, 2]
+    assert played.done() == Finished()
+
+
+@pytest.mark.covers("story:11-63", "error:listener_events_lost")
+@pytest.mark.anyio
+async def test_a_stalled_session_listener_loses_only_its_own_pages(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Another listener's page is not delayed; the stalled one ends, logged at error.
+
+    Its queue holds 2 pages: once it got them, it is removed and
+    `listener_events_lost` names the 14 it lost.
+    """
+    played = play_script("sdk-python/page/session-listener-lost-events.json")
+    collie = await async_connect_over(played.transport, max_listener_queue=2)
+    run = await collie.start()
+    stalled_session = await run.new_session()
+    other_session = await run.new_session()
+    stalled = anyio.Event()
+    stalled_pages: list[AsyncPage] = []
+    other_pages: list[AsyncPage] = []
+
+    async def stalls(page: "AsyncPage") -> None:
+        stalled_pages.append(page)
+        await stalled.wait()
+
+    def lost() -> list[logging.LogRecord]:
+        return [record for record in caplog.records if record.name == CLIENT_LOGGER]
+
+    with caplog.at_level(logging.ERROR, CLIENT_LOGGER):
+        stalled_session.on("page", stalls)
+        other = other_session.on("page", other_pages.append)
+        await until(lambda: len(other_pages) == 1, "the other Session's page")
+        stalled_while_other = len(stalled_pages)
+        stalled.set()
+        await until(lambda: len(lost()) == 1, "the stalled listener's ending")
+        other.close()
+        await run.finish()
+        await collie.close()
+
+    [logged] = lost()
+    assert stalled_while_other == 1
+    assert len(stalled_pages) == 2
+    assert logged.levelno == logging.ERROR
+    assert logged.exc_info is not None
+    ended = logged.exc_info[1]
+    assert isinstance(ended, ListenerEventsLostError)
+    assert (ended.code, ended.details) == (
+        "listener_events_lost",
+        {"event": "session.page", "lost": 14},
+    )
     assert played.done() == Finished()
 
 

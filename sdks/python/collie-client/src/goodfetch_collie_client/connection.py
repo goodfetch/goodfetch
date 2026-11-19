@@ -60,6 +60,7 @@ from goodfetch_collie_client.host_logging import (
     log_level,
 )
 from goodfetch_collie_client.limits import Limits, limit_list
+from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE
 from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.once import Once
 from goodfetch_collie_client.opening_process import OpeningProcess
@@ -195,10 +196,13 @@ class ClientConnection:
         error_classes: Mapping[str, ErrorClass],
         close_timeout: float,
         reached: Reached = ATTACHED_ELSEWHERE,
+        listener_queue: int = MAX_LISTENER_QUEUE,
     ) -> None:
         """Takes the transport, its engine when one started, and the code classes.
 
-        `reached` says how the engine was reached, which `engine` reports.
+        `reached` says how the engine was reached, which `engine` reports;
+        `listener_queue`, already checked, bounds the queue of each listener
+        of its own Subscription.
         """
         self._engine = engine
         self._reached = reached
@@ -206,7 +210,7 @@ class ClientConnection:
         self._channel = Channel(transport, self, error_classes)
         self._operations = AsyncCollieOperations(self)
         self._runs: dict[AsyncRun, None] = {}
-        self._published = SharedSubscription(self)
+        self._published = SharedSubscription(self, listener_queue)
         self._info: EngineInfo | None = None
         self._ended = False
         self._closing = Once()
@@ -230,12 +234,15 @@ class ClientConnection:
         close_timeout: float = CLOSE_TIMEOUT,
         limits: Sequence[RunLimit] = (),
         connect_timeout: int | NotGiven | None = not_given,
+        listener_queue: int = MAX_LISTENER_QUEUE,
     ) -> ClientConnection:
         """Opens a Connection over `transport`, finishing `hello` before it returns.
 
         Then each of `limits`, the wire's list of the Connection's Limits,
         is set on it. `reached` says how the engine was reached, and
         `daemon` gives a Daemon's token, which `hello` carries.
+        `listener_queue`, already checked by `listener_queue_of`, bounds the
+        queue of each listener of its own Subscription.
         `connect_timeout`, already checked by `timeout_of`, is how many
         milliseconds `hello` waits for its answer: `timeout.connect`'s 30 s
         when left out, none for `None`. A refused Product, protocol version
@@ -245,7 +252,9 @@ class ClientConnection:
         closes the Connection before it answers `hello`, as one does for a
         token it does not take, fails it with `daemon`'s `closed_at_hello`.
         """
-        connection = cls(transport, engine, error_classes, close_timeout, reached)
+        connection = cls(
+            transport, engine, error_classes, close_timeout, reached, listener_queue
+        )
         try:
             await connection._hello(needs, daemon, connect_timeout)
             for limit in limits:

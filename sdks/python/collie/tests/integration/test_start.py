@@ -167,7 +167,7 @@ async def test_reaches_the_run_its_run_id_names_and_raises_each_refusals_class(
         ] == []
 
 
-@pytest.mark.covers("story:11-126", "story:11-127")
+@pytest.mark.covers("story:11-18", "story:11-126", "story:11-127")
 @three_ways
 async def test_begins_resumes_and_returns_a_finished_run_ended_on_the_executable(
     way: Way, env: Mapping[str, str]

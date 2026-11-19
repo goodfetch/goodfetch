@@ -35,6 +35,7 @@ from goodfetch_collie import (
     EngineInfo,
     EngineOutputInvalidError,
     GoodfetchError,
+    Limits,
     Product,
     SettingInvalidError,
     StartedAs,
@@ -464,26 +465,37 @@ async def test_runs_beside_another_connection_in_the_same_process(
     client_case: ClientCaseRecord,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Two Connections, each with its own engine and home, run at once."""
+    """Two Connections, each with its own engine, home and settings, run at once.
+
+    The second Connection alone sets a Limit: its own engine expects the
+    `usage.set`, and the first's would fail on it.
+    """
     traced: list[Traced] = []
 
-    async def trace(home: str) -> None:
+    async def trace(home: str, script: str, limits: Limits | None) -> None:
         env = scripted_engine_env(
-            test_env,
-            product,
-            "sdk-python/run/started-and-finished.json",
-            test_env.folder / home,
+            test_env, product, f"sdk-python/run/{script}", test_env.folder / home
         )
-        traced.append(await start_and_finish(await open_collie(way, env)))
+        collie = await way.open(
+            lambda: AsyncCollie.connect(env=env, limits=limits),
+            lambda: Collie.connect(env=env, limits=limits),
+        )
+        traced.append(await start_and_finish(collie))
 
     async with anyio.create_task_group() as group:
-        group.start_soon(trace, "first")
-        group.start_soon(trace, "second")
+        group.start_soon(trace, "first", "started-and-finished.json", None)
+        group.start_soon(
+            trace,
+            "second",
+            "started-and-finished-under-a-limit.json",
+            Limits(model_calls=5),
+        )
 
     with client_case.check("each Connection's Run finished"):
         assert [each.report.lifecycle for each in traced] == ["finished", "finished"]
     with client_case.check(
-        "each script played to its end, so no engine wrote a failure"
+        "each engine got its own Connection's settings, the Limit the second's"
+        " alone, and played its script to its end"
     ):
         assert engine_warnings(caplog) == []
 

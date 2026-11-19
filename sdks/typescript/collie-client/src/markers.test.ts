@@ -4,7 +4,7 @@
 // `markers/tests.rs` are its twins.
 import { setImmediate } from "node:timers/promises";
 import { expect, test } from "vitest";
-import { warnDeprecated, warnExperimental } from "./markers.ts";
+import { type EntryMarkers, warnDeprecated, warnEntry, warnExperimental } from "./markers.ts";
 
 /** The `[name, message]` of each warning the SDK emits while `act` runs. */
 async function emitted(act: () => void): Promise<[string, string][]> {
@@ -62,4 +62,31 @@ test("each marker of one entry warns once", async () => {
   });
 
   expect(warnings.map(([name]) => name)).toEqual(["ExperimentalWarning", "DeprecationWarning"]);
+});
+
+test("a hand-written member warns of each marker its entry's generated markers give, once", async () => {
+  const entries: Readonly<Record<"fixture.served" | "fixture.stable", EntryMarkers>> = {
+    "fixture.served": {
+      experimental: true,
+      deprecated: "Since 0.1, removed no earlier than 1.0: gone.",
+    },
+    "fixture.stable": { experimental: false, deprecated: undefined },
+  };
+
+  const warnings = await emitted(() => {
+    warnEntry(entries, "fixture.served");
+    warnEntry(entries, "fixture.stable");
+    warnEntry(entries, "fixture.served");
+  });
+
+  expect(warnings).toEqual([
+    [
+      "ExperimentalWarning",
+      "`fixture.served` is Experimental: outside semver until it is promoted (ADR 0030).",
+    ],
+    [
+      "DeprecationWarning",
+      "`fixture.served` is deprecated. Since 0.1, removed no earlier than 1.0: gone.",
+    ],
+  ]);
 });

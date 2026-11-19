@@ -42,19 +42,10 @@ pub(super) enum Kind {
     Event,
 }
 
-#[derive(Debug, Deserialize)]
-pub(super) struct Deprecation {
-    pub(super) since: String,
-    pub(super) note: String,
-}
-
-impl Deprecation {
-    /// The deprecation's one text, which each SDK's type-level marker and
-    /// its run-time warning carry (ADR 0099).
-    pub(super) fn message(&self) -> String {
-        format!("Since {}: {}", self.since, self.note)
-    }
-}
+/// An entry's deprecation as the catalog file holds it: the protocol
+/// crate's own type, so its one text (ADR 0099) is rendered by the
+/// function the CLI renders it with.
+pub(super) type Deprecation = goodfetch_protocol::catalog::Deprecation<String>;
 
 /// A reference to a type of the bundle, `{"$ref": "#/$defs/<name>"}`.
 #[derive(Debug, Deserialize)]

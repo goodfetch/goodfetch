@@ -2,8 +2,9 @@
 
 import { typedBy, type TypedBy } from "../field-values.ts";
 import { defined, timeoutOf, type HandleHost, type Listener, type Subscription } from "../handle.ts";
-import { warnExperimental } from "../markers.ts";
+import { warnEntry, warnExperimental } from "../markers.ts";
 import { Handle } from "../raw-call.ts";
+import { collieEvents } from "./events.ts";
 import type { CollieOperationTypes } from "./operations.ts";
 import { settingsOnWire, type PageSettings, type SessionSettings } from "./settings.ts";
 import type * as types from "./types.ts";
@@ -465,6 +466,7 @@ export class Page extends Handle implements AsyncDisposable {
    */
   on<Name extends keyof PageEvents>(event: Name, listener: Listener<PageEvents[Name]>): Subscription {
     const listened = PAGE_EVENTS[event];
+    warnEntry(collieEvents, `page.${listened}`);
     return this.#host.listen("page.on", { page_id: this.#host.id, event: listened }, `page.${listened}`, listener);
   }
 

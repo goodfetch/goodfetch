@@ -278,13 +278,35 @@ impl Stability {
     }
 }
 
-/// An entry's deprecation (ADR 0030).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Deprecation {
+/// An entry's deprecation (ADRs 0030 and 0099), declared with `'static`
+/// text in the catalog and read back with owned `Text` from its file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Deprecation<Text = &'static str> {
     /// The version that deprecated it.
     pub since: ProtocolVersion,
-    /// What to use instead, or why it goes.
-    pub note: &'static str,
+    /// The canonical name of the entry of its section that replaces it, if
+    /// one does.
+    pub replacement: Option<Text>,
+    /// The earliest version that may remove it: a major after `since`'s.
+    pub earliest_removal: ProtocolVersion,
+    /// Why it goes, and what moving off it takes beyond the replacement.
+    pub note: Text,
+}
+
+impl<Text: AsRef<str>> Deprecation<Text> {
+    /// The deprecation's one text, which every SDK's type-level marker and
+    /// run-time warning and the CLI's warning and `--help` carry (ADR 0099).
+    pub fn message(&self) -> String {
+        let note = self.note.as_ref();
+        let (since, removal) = (self.since, self.earliest_removal);
+        match &self.replacement {
+            Some(replacement) => format!(
+                "Since {since}, removed no earlier than {removal}: use `{}` instead. {note}",
+                replacement.as_ref()
+            ),
+            None => format!("Since {since}, removed no earlier than {removal}: {note}"),
+        }
+    }
 }
 
 /// Registers a type's JSON Schema with the bundle's generator and returns

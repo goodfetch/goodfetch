@@ -17,6 +17,7 @@ import {
   ClosedError,
   ListenerFailedError,
   Run as RunMembers,
+  collieOperations,
   type CollieOperationTypes,
   type PageId,
   type RunStarted,
@@ -28,6 +29,7 @@ import { KeyValueStore, type KeyValueStoreHost } from "./key-value-store.ts";
 import { subscribe } from "./listeners.ts";
 import type { Logger } from "./logger.ts";
 import type { RawSend } from "./raw-call.ts";
+import { warnEntry } from "./markers.ts";
 import { holdInRealm } from "./realm.ts";
 import type { ChannelOpenOptions } from "./rpc.ts";
 
@@ -418,6 +420,7 @@ export class Run extends RunMembers implements AsyncDisposable {
 
   /** Whether the start began the Run (`new`), resumed it (`resumed`) or found it finished (`ended`). Read without a round trip. */
   startedAs(): StartedAs {
+    warnEntry(collieOperations, "run.start");
     return this.#startedAs;
   }
 
@@ -429,6 +432,7 @@ export class Run extends RunMembers implements AsyncDisposable {
    * `listener_failed`, once the Run is closed.
    */
   async close(): Promise<void> {
+    warnEntry(collieOperations, "run.abort");
     this.#closing ??= this.#close();
     await this.#closing;
     // After the close, so each failure is raised once, by whichever close takes it.

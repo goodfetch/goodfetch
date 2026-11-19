@@ -24,7 +24,12 @@ from goodfetch_collie_client.generated.connection import (
 )
 from goodfetch_collie_client.generated.errors import ERROR_CLASSES
 from goodfetch_collie_client.generated.models import Product
+from goodfetch_collie_client.generated.operations import (
+    DEPRECATED_OPERATIONS,
+    EXPERIMENTAL_OPERATIONS,
+)
 from goodfetch_collie_client.handle import NotGiven, not_given
+from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.portal import LoopStopped, PrivateLoop
 from goodfetch_collie_client.product_connection import (
     ProductPackage,
@@ -126,6 +131,7 @@ class AsyncCollie(AsyncConnection):
             limits: Caps the Run: a start that names it again lowers its
                 Limits, never raises them (`limit_raise_refused`).
         """
+        warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         return await self._connection.start(run_id=run_id, tags=tags, limits=limits)
 
     async def call(
@@ -259,6 +265,7 @@ class Collie(Connection):
             limits: Caps the Run: a start that names it again lowers its
                 Limits, never raises them (`limit_raise_refused`).
         """
+        warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         starting = functools.partial(
             self._connection.start,
             run_id=run_id,

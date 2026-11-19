@@ -11,16 +11,20 @@ use super::super::naming::snake;
 use super::doc;
 
 /// What `handle`'s listener adds to its class, if it has one: the
-/// declarations before the class, and its `on` member.
-pub(super) fn emit(class: &str, handle: &Handle<'_>) -> (String, String) {
+/// declarations before the class, and its `on` member, which warns of the
+/// markers the `events` registry gives the event listened to.
+pub(super) fn emit(class: &str, handle: &Handle<'_>, events: &str) -> (String, String) {
     handle
         .listener
         .as_ref()
         .map_or_else(Default::default, |listener| {
-            let events = events_constant(handle);
+            let constant = events_constant(handle);
             (
-                listened_events(class, listener, &events),
-                format!("\n{}", listener_member(class, listener, handle, &events)),
+                listened_events(class, listener, &constant),
+                format!(
+                    "\n{}",
+                    listener_member(class, listener, handle, &constant, events)
+                ),
             )
         })
 }
@@ -64,13 +68,15 @@ fn listened_events(class: &str, listener: &Listener<'_>, events: &str) -> String
     text
 }
 
-/// A handle's `on` (ADR 0081): it registers `listener` for one of its
-/// events and returns the `Subscription` that removes it.
+/// A handle's `on` (ADR 0081): it warns of the markers the `registry`
+/// gives the event listened to, once per process (ADR 0030), registers
+/// `listener` for it and returns the `Subscription` that removes it.
 fn listener_member(
     class: &str,
     listener: &Listener<'_>,
     handle: &Handle<'_>,
     events: &str,
+    registry: &str,
 ) -> String {
     let operation = listener.operation;
     let namespace = handle.namespace;
@@ -82,7 +88,7 @@ fn listener_member(
     );
     let _ = write!(
         text,
-        "  on<Name extends keyof {class}Events>(event: Name, listener: Listener<{class}Events[Name]>): Subscription {{\n    const listened = {events}[event];\n    return this.#host.listen({:?}, {{ {}: this.#host.id, {}: listened }}, `{namespace}.${{listened}}`, listener);\n  }}\n",
+        "  on<Name extends keyof {class}Events>(event: Name, listener: Listener<{class}Events[Name]>): Subscription {{\n    const listened = {events}[event];\n    warnEntry({registry}, `{namespace}.${{listened}}`);\n    return this.#host.listen({:?}, {{ {}: this.#host.id, {}: listened }}, `{namespace}.${{listened}}`, listener);\n  }}\n",
         operation.name, handle.id.param, listener.param
     );
     text

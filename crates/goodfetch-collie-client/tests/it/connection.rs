@@ -205,9 +205,11 @@ pub(crate) fn reply(line: &str, result: &serde_json::Value) -> Vec<u8> {
     reply
 }
 
-/// Covers: story:11-40, story:11-42. A call's `timeout` left out is not
-/// sent, `no_timeout` sends null, and a duration its milliseconds rounded
-/// up (ADR 0080): the wire side of the `call-timeout-three-states` case.
+/// A call's `timeout` left out is not sent, `no_timeout` sends null, and a
+/// duration its milliseconds rounded up (ADR 0080): the wire side of the
+/// `call-timeout-three-states` case.
+///
+/// Covers: story:11-40, story:11-42
 #[test]
 fn a_call_sends_its_timeout_left_out_null_or_in_milliseconds_rounded_up() {
     use tokio::io::AsyncWriteExt as _;

@@ -137,6 +137,19 @@ impl ClientCertificateConfiguration {
     }
 }
 
+/// The table [`ClientCertificateConfiguration::read`] reads it back from,
+/// its key the reference's text.
+impl Serialize for ClientCertificateConfiguration {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct as _;
+
+        let mut table = serializer.serialize_struct("ClientCertificateConfiguration", 2)?;
+        table.serialize_field("certificate", &self.certificate)?;
+        table.serialize_field("key", self.key.as_str())?;
+        table.end()
+    }
+}
+
 /// A value of `tls.client_certificates`.
 pub const CLIENT_CERTIFICATE_SHAPE: ValueShape = ValueShape {
     name: "ClientCertificateConfiguration",

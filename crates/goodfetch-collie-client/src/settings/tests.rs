@@ -1,10 +1,15 @@
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::SettingScope;
+use goodfetch_protocol::run::durability::BatchThreshold;
+use goodfetch_protocol::settings::page_check::{PageCheck, PageMatch};
+use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{SettingNotApplicableDetails, SettingsLayer};
 use serde_json::json;
 
-use super::{Settings, browser, checkpoint, content, timeout};
+use super::{
+    Settings, browser, checkpoint, content, egress, governor, network, run_state, session, timeout,
+};
 use crate::ErrorCode;
 
 #[test]
@@ -27,6 +32,59 @@ fn settings_nest_by_segment_with_durations_in_whole_milliseconds_rounded_up_and_
             "checkpoint": { "interval": null },
             "content": { "extractor": "dom_smoothie" },
             "timeout": { "navigation": 2 },
+        })
+    );
+}
+
+#[test]
+fn a_whole_number_takes_a_bare_literal_whether_or_not_it_can_be_cleared() {
+    let settings = Settings::new()
+        .set(network::MAX_JSON_DEPTH, 64)
+        .set(governor::browser::MEMORY_CAP, 2_048);
+
+    let sent = settings.within(SettingScope::Run).unwrap();
+
+    assert_eq!(
+        serde_json::Value::Object(sent),
+        json!({
+            "governor": { "browser": { "memory_cap": 2048 } },
+            "network": { "max_json_depth": 64 },
+        })
+    );
+}
+
+#[test]
+fn a_shape_of_the_protocol_goes_as_its_json() {
+    let settings = Settings::new()
+        .set(
+            session::PAGE_CHECK,
+            PageCheck {
+                login_page: Some(PageMatch::Css {
+                    selector: "#login".to_owned(),
+                }),
+                expected_page: None,
+            },
+        )
+        .set(
+            session::SOURCE,
+            SessionSource::SavedIdentity {
+                name: "shop".to_owned(),
+            },
+        )
+        .set(run_state::batch::BYTES, BatchThreshold::Never)
+        .set(egress::LOCAL_ADDRESSES, None);
+
+    let sent = settings.within(SettingScope::Run).unwrap();
+
+    assert_eq!(
+        serde_json::Value::Object(sent),
+        json!({
+            "egress": { "local_addresses": null },
+            "run_state": { "batch": { "bytes": "none" } },
+            "session": {
+                "page_check": { "login_page": { "kind": "css", "selector": "#login" } },
+                "source": { "kind": "saved_identity", "name": "shop" },
+            },
         })
     );
 }

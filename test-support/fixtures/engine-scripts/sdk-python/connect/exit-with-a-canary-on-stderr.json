@@ -1,0 +1,43 @@
+{
+  "description": "After an accepted hello, the engine's process dies while a Run starts, after writing a crash line that holds a model API key canary to its stderr, leaving the Client a dead pipe and no answer.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "collie",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {}
+      }
+    },
+    {
+      "exit": {
+        "code": 101,
+        "stderr": {
+          "line": "thread 'main' panicked: provider refused the key model-api-key-canary-7c1e4a90d2b3",
+          "times": 1
+        }
+      }
+    }
+  ]
+}

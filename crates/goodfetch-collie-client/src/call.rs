@@ -290,7 +290,10 @@ impl<P: Serialize> Request<P> {
         if let Some(answer) = self.settled.and_then(|settled| settled()) {
             return Ok(answer);
         }
-        let mut params = serde_json::to_value(self.params?).map_err(Error::shape)?;
+        // A value closed before the call fails it headed by the call, as the
+        // Connection's own end does (ADR 0079's note of 2026-11-19).
+        let params = self.params.map_err(|error| error.in_call(&self.method))?;
+        let mut params = serde_json::to_value(params).map_err(Error::shape)?;
         edit(&mut params);
         let (reply, replied) = oneshot::channel();
         self.sender.call(Outgoing {

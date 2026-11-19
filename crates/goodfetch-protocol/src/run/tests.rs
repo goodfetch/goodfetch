@@ -281,3 +281,14 @@ fn a_model_usage_without_a_whole_price_keeps_each_models_priced_part() {
         (true, Some(4200), sent)
     );
 }
+
+/// A Rust program's batch threshold goes on the wire as the value it reads
+/// back from (ADRs 0083 and 0142).
+#[rstest]
+#[case::a_count(serde_json::json!(500))]
+#[case::none(serde_json::json!("none"))]
+fn a_batch_threshold_writes_the_value_it_is_read_from(#[case] value: serde_json::Value) {
+    let read = super::durability::BatchThreshold::read(&value).unwrap();
+
+    assert_eq!(serde_json::to_value(read).unwrap(), value);
+}

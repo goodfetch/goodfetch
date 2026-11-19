@@ -51,7 +51,7 @@ from goodfetch_collie_client.generated.operations import (
     EXPERIMENTAL_OPERATIONS,
     AsyncCollieOperations,
 )
-from goodfetch_collie_client.goodfetch_error import GoodfetchError
+from goodfetch_collie_client.goodfetch_error import GoodfetchError, runtime_message
 from goodfetch_collie_client.handle import NotGiven, not_given
 from goodfetch_collie_client.host_logging import (
     CLIENT_LOGGER,
@@ -96,6 +96,9 @@ EXIT_GRACE = 2.0
 """How long an ended transport waits for its engine's exit status, in seconds."""
 
 _CONNECT_AGAIN = "Connect again: a closed Connection never reopens."
+
+_CLOSED = "this Connection is closed"
+"""What failed, for a call on a closed Connection."""
 
 LOG = "$/log"
 """The notification that carries one of the engine's log events."""
@@ -402,7 +405,7 @@ class ClientConnection:
             )
         if self._closing.started:
             return ClosedError(
-                "this Connection is closed; connect again", fix=_CONNECT_AGAIN
+                runtime_message(_CLOSED, fix=_CONNECT_AGAIN), fix=_CONNECT_AGAIN
             )
         exit_ = await self._exit_of_engine()
         how = exit_.signal or (
@@ -686,8 +689,8 @@ def _phase_exceeded(
 
 def closed_error(operation: str) -> ClosedError:
     """The error a call on a closed Connection fails with."""
-    message = f"{operation}: this Connection is closed; connect again"
-    return ClosedError(message, fix=_CONNECT_AGAIN)
+    message = runtime_message(_CLOSED, operation=operation, fix=_CONNECT_AGAIN)
+    return ClosedError(message, operation=operation, fix=_CONNECT_AGAIN)
 
 
 def _product_of(value: object) -> Product | str:

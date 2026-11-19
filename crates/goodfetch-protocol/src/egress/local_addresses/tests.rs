@@ -91,3 +91,15 @@ fn local_address_unavailable_names_the_entry_and_why_on_the_wire() {
         })
     );
 }
+
+/// A Rust program's value of `egress.local_addresses` goes on the wire as
+/// the JSON it reads back from (ADR 0083).
+#[rstest]
+#[case::addresses(json!(["192.0.2.10", "2001:db8::10"]))]
+#[case::an_interface(json!("eth0"))]
+#[case::a_prefix(json!("2001:db8:1::/48"))]
+fn local_addresses_write_the_json_they_are_read_from(#[case] value: Value) {
+    let read = LocalAddresses::parse(&value).unwrap();
+
+    assert_eq!(serde_json::to_value(read).unwrap(), value);
+}

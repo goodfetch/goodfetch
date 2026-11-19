@@ -76,11 +76,15 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
     if !handles.is_empty() {
         files.push(("handles.ts", handle_classes(layer, &handles)?));
     }
-    // Collie's client package types each scope's `settings` (ADR 0083),
-    // which Foxhound's package takes from it.
-    if layer.product == Product::Collie {
-        files.push(("settings.ts", settings::settings_module(&layer.settings)?));
-    }
+    // Collie's client package types each scope's `settings` (ADR 0083);
+    // Foxhound's types a crawl's and a Label's (ADR 0093).
+    files.push((
+        "settings.ts",
+        match layer.product {
+            Product::Collie => settings::settings_module(&layer.settings)?,
+            Product::Foxhound => settings::foxhound_settings_module(&layer.settings)?,
+        },
+    ));
     Ok(Generated {
         files,
         types: TypesFile {
@@ -189,8 +193,15 @@ fn index(layer: &Layer, handles: &[Handle<'_>]) -> String {
     if !handles.is_empty() {
         text.push_str("export * from \"./handles.ts\";\n");
     }
-    if layer.product == Product::Collie {
-        text.push_str("export type { PageSettings, RunSettings, SessionSettings, Settings } from \"./settings.ts\";\n");
+    match layer.product {
+        Product::Collie => text.push_str("export type { PageSettings, RunSettings, SessionSettings, Settings } from \"./settings.ts\";\n"),
+        Product::Foxhound => {
+            let _ = writeln!(
+                text,
+                "export type {{ {} }} from \"./settings.ts\";",
+                settings::foxhound_types().join(", ")
+            );
+        }
     }
     text
 }

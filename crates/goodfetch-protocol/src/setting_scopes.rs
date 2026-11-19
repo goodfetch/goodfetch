@@ -1,21 +1,26 @@
 //! The scopes a program's code sets each Setting at (ADR 0083): one
-//! `settings` option on `connect()`, starting a Run, opening a Session and
-//! opening a page, each taking the settings that apply within it. The
-//! catalog records each setting's scopes from this rule, the SDKs type each
-//! scope's option from the catalog, and the engine refuses a Session's or a
-//! page's own setting outside its scopes with `setting_not_applicable`.
-//! Starting a Run does not check it yet: issue 1245 brings that with the
-//! connection's own settings.
+//! `settings` option on `connect()`, starting a Run, declaring a crawl's
+//! Label, opening a Session and opening a page, each taking the settings
+//! that apply within it. The catalog records each setting's scopes from
+//! this rule, the SDKs type each scope's option from the catalog, and the
+//! engine refuses a Label's, a Session's or a page's own setting outside
+//! its scopes with `setting_not_applicable`. Starting a Run does not check
+//! it yet: issue 2952 brings that with the connection's own settings.
 
-use crate::catalog::SettingScope::{Connection, Page, Run, Session};
+use crate::catalog::SettingScope::{Connection, Label, Page, Run, Session};
 use crate::catalog::{Authority, Setting, SettingScope};
+use crate::foxhound::crawl::{CRAWL_CONTENT_TYPES, CRAWL_RETRY_HANDLER_FAILED};
+use crate::foxhound::fetch::{
+    FETCH_ENCODING, FETCH_HTTP_FROM, FETCH_KEPT_RESPONSES_URLS, FETCH_TIER,
+};
+use crate::foxhound::frontier::CRAWL_KEEP_URL_FRAGMENT;
 use crate::page::access_mode::{BROWSER_ACCESS_MODE, IDENTIFIED_ITEMS, STEALTH_ITEMS};
 use crate::page::{
     BROWSER_BLOCK_RESOURCES, BROWSER_SERVICE_WORKERS, CONTENT_EXTRACTOR, LIVE_VIEW_HIDING,
 };
 use crate::settings::{
     FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_FIRST_PARTY_SCRIPTS,
-    FILTER_LISTS_TRACKERS, SESSION_PAGE_CHECK, SESSION_SOURCE, TIMEOUT_RUN,
+    FILTER_LISTS_TRACKERS, SESSION_PAGE_CHECK, SESSION_SOURCE, TIMEOUT_HOOK, TIMEOUT_RUN,
 };
 
 /// What starts the `proxy.*` keys, which a Session chooses as it opens.
@@ -36,30 +41,63 @@ const SESSION_SETTINGS: [&Setting; 8] = [
     &SESSION_PAGE_CHECK,
 ];
 
+/// The settings a crawl's Label sets over its Run's for its requests (ADR
+/// 0093): its fetch tier, where its HTTP leaves from, its encoding, the
+/// responses it keeps for its handler, the content types it takes, whether
+/// it keeps its URLs' fragments (ADR 0120), whether a failed handler is
+/// tried again, its main-content step, its Hooks' time, its page check and
+/// its Session source, which gives it a Session pool of its own. Every
+/// other key, the Run's Politeness, proxy and bounds among them, is the
+/// Run's alone.
+pub const LABEL_SETTINGS: [&Setting; 11] = [
+    &FETCH_TIER,
+    &FETCH_HTTP_FROM,
+    &FETCH_ENCODING,
+    &FETCH_KEPT_RESPONSES_URLS,
+    &CRAWL_CONTENT_TYPES,
+    &CRAWL_KEEP_URL_FRAGMENT,
+    &CRAWL_RETRY_HANDLER_FAILED,
+    &CONTENT_EXTRACTOR,
+    &TIMEOUT_HOOK,
+    &SESSION_PAGE_CHECK,
+    &SESSION_SOURCE,
+];
+
 /// The scopes whose own `settings` may set `setting`, outermost first:
 /// none for a setting only configuration or an Operator policy sets, the
 /// connection alone for `timeout.run`, which starting a Run takes as its
 /// `timeout` (ADR 0080), the connection and a Run for `session.source`,
 /// which opening a Session takes as its `source` (ADR 0092), down to the
 /// Session for what a Session sets for itself, and down to the page for
-/// the content extractor; the connection and a Run for the rest.
+/// the content extractor; the connection and a Run for the rest. A crawl's
+/// Label also sets [`LABEL_SETTINGS`].
 pub fn of(setting: &Setting) -> &'static [SettingScope] {
     let name = setting.name;
+    let label = label_sets(name);
     if !set_by_code(setting.authority) {
         &[]
     } else if name == TIMEOUT_RUN.name {
         &[Connection]
     } else if name == CONTENT_EXTRACTOR.name {
-        &[Connection, Run, Session, Page]
-    } else if name == SESSION_SOURCE.name {
-        &[Connection, Run]
+        &[Connection, Run, Label, Session, Page]
     } else if SESSION_SETTINGS.iter().any(|setting| setting.name == name)
         || fixed_for_the_session(name)
     {
-        &[Connection, Run, Session]
+        if label {
+            &[Connection, Run, Label, Session]
+        } else {
+            &[Connection, Run, Session]
+        }
+    } else if label {
+        &[Connection, Run, Label]
     } else {
         &[Connection, Run]
     }
+}
+
+/// Whether a crawl's Label sets the setting `key` names (ADR 0093).
+pub fn label_sets(key: &str) -> bool {
+    LABEL_SETTINGS.iter().any(|setting| setting.name == key)
 }
 
 /// Whether the key `name` is one of what a Session keeps for its life,

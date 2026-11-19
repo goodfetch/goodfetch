@@ -27,6 +27,7 @@ use goodfetch_protocol::foxhound::fetch::{
 };
 use goodfetch_protocol::foxhound::frontier::CRAWL_KEEP_URL_FRAGMENT;
 use goodfetch_protocol::page::{CONTENT_EXTRACTOR, CONTENT_EXTRACTORS};
+use goodfetch_protocol::setting_scopes::LABEL_SETTINGS;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::{
     SESSION_PAGE_CHECK, SESSION_SOURCE, SETTING_INVALID, SETTING_NOT_APPLICABLE,
@@ -385,8 +386,13 @@ fn not_taken(name: &str, key: String) -> CallError {
         } else {
             ""
         };
+        let taken: Vec<String> = LABEL_SETTINGS
+            .iter()
+            .map(|setting| format!("`{}`", setting.name))
+            .collect();
         format!(
-            "which a Label does not take in this engine{only}: only `fetch.tier`, `fetch.http_from`, `fetch.encoding`, `fetch.kept_responses.urls`, `crawl.content_types`, `crawl.keep_url_fragment`, `crawl.retry.handler_failed`, `content.extractor`, `timeout.hook`, `session.page_check` and `session.source` are set per Label"
+            "which a Label does not take{only}: only {} are set per Label",
+            taken.join(", ")
         )
     };
     CallError::new(

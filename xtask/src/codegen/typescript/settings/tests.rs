@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use super::{scope_type, settings_module};
+use super::{foxhound_settings_module, scope_type, settings_module};
 use crate::codegen::layer::Setting;
 
 fn setting(name: &str, value: Value, clearable: bool, scopes: &[&str]) -> Setting {
@@ -128,4 +128,62 @@ fn a_value_schema_keyword_without_a_typescript_form_is_refused() {
 fn only_a_scope_that_takes_settings_has_a_settings_type() {
     assert_eq!(scope_type("session").unwrap(), "SessionSettings");
     assert!(scope_type("locator").is_err());
+}
+
+#[test]
+fn a_crawl_types_collie_and_foxhound_run_settings_and_a_label_only_its_own() {
+    let settings = [
+        setting(
+            "fetch.tier",
+            json!({ "enum": ["auto", "http", "browser"] }),
+            false,
+            &["connection", "run", "label"],
+        ),
+        setting(
+            "politeness.domain.concurrency",
+            json!({ "type": "integer", "minimum": 1 }),
+            false,
+            &["connection", "run"],
+        ),
+        setting(
+            "content.extractor",
+            json!({ "enum": ["dom_smoothie", "trafilatura"] }),
+            false,
+            &["connection", "run", "label", "session", "page"],
+        ),
+        setting(
+            "proxy.base_url",
+            json!({ "type": "string" }),
+            true,
+            &["connection", "run", "session"],
+        ),
+    ];
+
+    let module = foxhound_settings_module(&settings).unwrap();
+
+    let crawl = interface(&module, "CrawlSettings");
+    for typed in [
+        "readonly tier?:",
+        "readonly concurrency?: number;",
+        "readonly extractor?:",
+        "readonly baseURL?: string | null;",
+    ] {
+        assert!(crawl.contains(typed), "{typed} in {crawl}");
+    }
+    let label = interface(&module, "LabelSettings");
+    assert!(
+        label.contains("readonly tier?: \"auto\" | \"http\" | \"browser\";")
+            && label.contains("readonly extractor?:"),
+        "{label}"
+    );
+    assert!(
+        !label.contains("politeness") && !label.contains("proxy"),
+        "{label}"
+    );
+    assert!(
+        module.contains("from \"@goodfetch/collie-client/runtime\";")
+            && module.contains("settingsOnWire(settings: CrawlSettings | undefined)"),
+        "{module}"
+    );
+    assert!(!module.contains("interface RunSettings"), "{module}");
 }

@@ -37,6 +37,7 @@ import {
   type FoxhoundOperationTypes,
   type RequestSeed,
 } from "./generated/index.ts";
+import { settingsOnWire, type CrawlSettings } from "./generated/settings.ts";
 import { foxhoundTimes } from "./generated/times.ts";
 import { foxhound } from "./product.ts";
 
@@ -77,8 +78,12 @@ export interface StartCrawlOptions {
   readonly runId?: string | undefined;
   /** Its tags: at most 16, each at most 64 characters (ADR 0036). */
   readonly tags?: readonly string[] | undefined;
-  /** Its settings, nested by key, such as `crawl.handler.concurrency`. */
-  readonly settings?: CrawlStartParams["settings"] | undefined;
+  /**
+   * Its settings, Collie's and Foxhound's, nested by camelCase segment,
+   * such as `{ crawl: { handler: { concurrency: 4 } } }` (ADRs 0083 and
+   * 0093).
+   */
+  readonly settings?: CrawlSettings | undefined;
 }
 
 let open: (connection: ClientConnection) => Foxhound;
@@ -161,12 +166,13 @@ export class Foxhound implements Connection {
    */
   async startCrawl(crawl: Crawl, options: StartCrawlOptions): Promise<CrawlRun> {
     checkCrawlStartable(crawl, options.seeds);
+    const settings = settingsOnWire(options.settings);
     const params: CrawlStartParams = {
       ...crawlDeclaration(crawl),
       seeds: [...options.seeds],
       ...(options.runId === undefined ? {} : { run_id: options.runId }),
       ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
-      ...(options.settings === undefined ? {} : { settings: options.settings }),
+      ...(settings === undefined ? {} : { settings }),
     };
     const starting = this.#connection.startRun(
       "crawl.start",

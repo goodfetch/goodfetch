@@ -17,14 +17,19 @@ import type {
   RequestSeed,
 } from "./generated/index.ts";
 import { LabelDuplicateError, LabelUnhandledError, LabelUnknownError } from "./generated/errors.ts";
+import { settingsOnWire, type LabelSettings } from "./generated/settings.ts";
 
 /** A JSON object the wire carries, such as a Payload or a Record. */
 type WireObject = Readonly<Record<string, unknown>>;
 
 /** What `crawl.label` takes. */
 export interface LabelOptions {
-  /** The Label's own settings, nested by key, such as `fetch.tier` (ADR 0093). */
-  readonly settings?: LabelDeclaration["settings"] | undefined;
+  /**
+   * The Label's own settings over its Run's, nested by camelCase segment,
+   * such as `{ fetch: { tier: "http" } }` (ADR 0093): a key a Label does not
+   * take, a Run-wide one such as `politeness`, fails to compile.
+   */
+  readonly settings?: LabelSettings | undefined;
 }
 
 /**
@@ -154,7 +159,7 @@ export type Handler = (context: CrawlContext) => unknown;
 /** What the engine leases a work item of one Label to. */
 interface Declared {
   readonly label: Label<object | undefined>;
-  readonly settings: LabelDeclaration["settings"] | undefined;
+  readonly settings: LabelSettings | undefined;
   handler: Handler | undefined;
 }
 
@@ -257,7 +262,8 @@ export class Crawl {
   #declaration(): Pick<CrawlStartParams, "labels" | "datasets"> {
     const labels: Record<string, LabelDeclaration> = {};
     for (const [name, { settings }] of this.#labels) {
-      labels[name] = settings === undefined ? {} : { settings };
+      const wire = settingsOnWire(settings);
+      labels[name] = wire === undefined ? {} : { settings: wire };
     }
     const datasets = [...this.#datasets.values()];
     return { labels, ...(datasets.length === 0 ? {} : { datasets }) };

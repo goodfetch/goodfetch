@@ -9,7 +9,7 @@ use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::page::PageResponse;
 
 /// A Block cause, and the name of the rule that gave it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Block {
     /// The cause.
     pub cause: BlockCause,
@@ -21,7 +21,7 @@ impl Block {
     /// Whether the site checks the browser before it lets it through: a
     /// Challenge or a captcha, which ADR 0047 retries with blocking off
     /// when the Filter lists touched it.
-    pub fn checks_the_browser(self) -> bool {
+    pub fn checks_the_browser(&self) -> bool {
         matches!(self.cause, BlockCause::Challenge | BlockCause::Captcha)
     }
 }

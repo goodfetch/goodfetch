@@ -173,8 +173,8 @@ impl AttemptFailure {
     }
 
     /// The cause its site blocked the request for, when it did.
-    pub(crate) fn block_cause(&self) -> Option<BlockCause> {
-        match self.why {
+    pub(crate) fn block_cause(&self) -> Option<&BlockCause> {
+        match &self.why {
             Why::Blocked(cause) => Some(cause),
             _ => None,
         }

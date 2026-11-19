@@ -219,6 +219,8 @@ fn stopped_for(reason: &StopReason) -> String {
             goodfetch_protocol::run::Resource::Memory => "memory ran out".to_owned(),
             goodfetch_protocol::run::Resource::Storage => "storage ran out".to_owned(),
         },
+        StopReason::Unknown(member) => format!("stopped for `{}`", member.tag()),
+        _ => "stopped".to_owned(),
     }
 }
 

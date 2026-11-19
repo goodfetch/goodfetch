@@ -678,7 +678,7 @@ fn insert(connection: &Connection, row: &RunIndexRow) -> rusqlite::Result<()> {
         text(&row.needs),
         serde_json::to_string(&row.tags).expect("invariant: tags encode"),
         row.lifecycle.as_str(),
-        row.verdict.map(Verdict::as_str),
+        row.verdict.as_ref().map(Verdict::as_str),
         row.completeness.map(Completeness::as_str),
         StoredTime(row.started_at),
         row.ended_at.map(StoredTime),

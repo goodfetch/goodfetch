@@ -174,6 +174,7 @@ fn a_collie_reader_keeps_what_it_does_not_know_of_a_report() {
 
     assert_eq!(read.warnings[0].code, "a_code_from_a_newer_engine");
     assert_eq!(read.usage.limits[0].scope.kind, "partitioned_crawl");
+    assert_eq!(read.usage.limits[0].usage_kind, "paid_fetch");
     assert_eq!(serde_json::to_value(&read).unwrap(), sent);
 }
 

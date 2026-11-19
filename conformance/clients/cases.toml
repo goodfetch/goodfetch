@@ -44,6 +44,11 @@ covers = ["story:11-17"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 
+# A guest program (ADR 0078): importing the SDK reads no variable, import
+# and connect add no handler, hook or global and write nothing to stdout or
+# stderr, and after them the SDK writes only its catalog markers' run-time
+# warnings (ADR 0030), each once, through the host's warning channel, and
+# nothing to stdout (issue 2989).
 [[capability.case]]
 id = "nothing-at-import-or-connect"
 covers = ["story:11-15"]

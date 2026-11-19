@@ -23,7 +23,6 @@ from goodfetch_collie_client.generated.models import (
     PageResponse,
     PlanReport,
     PluginRun,
-    PointInTime,
     ProjectSettings,
     RecordingReport,
     RunId,
@@ -38,6 +37,7 @@ from goodfetch_collie_client.generated.models import (
     Verdict,
     WeakenedSetting,
 )
+from goodfetch_collie_client.point_in_time import PointInTime
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 

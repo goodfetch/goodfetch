@@ -66,6 +66,7 @@ pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 19] = [
 
 mod handle_classes;
 pub(super) mod model_defaults;
+mod points_in_time;
 
 const EXPERIMENTAL: &str = "Experimental: outside semver until it is promoted (ADR 0030).";
 
@@ -77,9 +78,18 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         Product::Collie => handles::handles(layer)?,
         Product::Foxhound => Vec::new(),
     };
+    // Collie's point in time is the client package's own type, which
+    // Foxhound's layer imports from where Collie's does.
+    let point_in_time = points_in_time::protocol_name();
     let (mut input, _) = layer.generator_input(&format!("{}Types", layer.product.name()), |name| {
-        ("customTypePath", format!("{CLIENT_PACKAGE}.models.{name}"))
+        let path = if name == point_in_time {
+            points_in_time::POINT_IN_TIME.to_owned()
+        } else {
+            format!("{CLIENT_PACKAGE}.models.{name}")
+        };
+        ("customTypePath", path)
     });
+    points_in_time::map(&mut input)?;
     // The root holds no value: an empty model with a docstring, never
     // `RootModel[Any]`.
     input["type"] = Value::from("object");

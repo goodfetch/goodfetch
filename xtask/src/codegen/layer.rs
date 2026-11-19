@@ -326,6 +326,9 @@ pub(super) struct Layer {
     pub(super) definitions: Map<String, Value>,
     /// The types this layer's entries take from Collie's client package.
     pub(super) collie_types: BTreeSet<String>,
+    /// The definitions of `collie_types`, which say where they hold points
+    /// in time.
+    pub(super) collie_definitions: Map<String, Value>,
     /// Each setting's default, by name, which the Python handles document
     /// a call's own `timeout` with (ADR 0080).
     pub(super) setting_defaults: BTreeMap<String, Value>,
@@ -389,6 +392,7 @@ impl Layer {
                     shared_types,
                     definitions,
                     collie_types: BTreeSet::new(),
+                    collie_definitions: Map::new(),
                     setting_defaults: setting_defaults(&collie.settings),
                     settings: collie.settings,
                 })
@@ -452,6 +456,12 @@ impl Layer {
             error_codes,
             plugin_kinds,
             shared_types,
+            collie_definitions: all
+                .definitions
+                .iter()
+                .filter(|(name, _)| collie_types.contains(*name))
+                .map(|(name, schema)| (name.clone(), schema.clone()))
+                .collect(),
             definitions: all
                 .definitions
                 .into_iter()

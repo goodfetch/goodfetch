@@ -55,6 +55,7 @@ mod projection;
 mod python;
 mod refused;
 mod rust;
+mod settings_tree;
 mod special_purpose;
 mod test_support;
 mod typescript;

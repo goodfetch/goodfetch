@@ -21,13 +21,11 @@ use anyhow::{Context as _, Result, bail, ensure};
 use goodfetch_protocol::catalog::{SettingScope, ValueKind};
 use serde_json::{Map, Value};
 
-use super::super::handles::{Form, Member};
+use super::super::handles::Member;
 use super::super::layer::{Setting, Stability};
 use super::super::naming::{pascal, snake};
+use super::super::settings_tree::{Node, opened_scope, tree};
 use super::{docstring, docstring_header};
-
-/// The optional parameter that takes a scope's settings.
-pub(super) const SETTINGS: &str = "settings";
 
 /// The hand-written function that sends a scope's settings as the wire
 /// takes them.
@@ -107,53 +105,6 @@ const TYPED_KEYWORDS: [&str; 9] = [
     "additionalProperties",
 ];
 
-/// A segment of the settings tree: a setting, or an area of more segments.
-enum Node<'a> {
-    Setting(&'a Setting),
-    Area(BTreeMap<String, Node<'a>>),
-}
-
-/// The settings tree of those `settings` that `scope` sets, by wire segment.
-fn tree(settings: &[Setting], scope: SettingScope) -> Result<BTreeMap<String, Node<'_>>> {
-    let mut root = BTreeMap::new();
-    for setting in settings
-        .iter()
-        .filter(|setting| setting.scopes.iter().any(|named| named == scope.as_str()))
-    {
-        let segments: Vec<&str> = setting.name.split('.').collect();
-        ensure!(
-            segments.iter().all(|segment| key(segment)),
-            "the setting `{}` has a segment a `TypedDict` cannot declare",
-            setting.name
-        );
-        let (last, areas) = segments
-            .split_last()
-            .with_context(|| format!("the setting `{}` has no segment", setting.name))?;
-        let mut level = &mut root;
-        for area in areas {
-            let node = level
-                .entry((*area).to_owned())
-                .or_insert_with(|| Node::Area(BTreeMap::new()));
-            level = match node {
-                Node::Area(children) => children,
-                Node::Setting(other) => bail!(
-                    "the setting `{}` is inside the setting `{}`",
-                    setting.name,
-                    other.name
-                ),
-            };
-        }
-        ensure!(
-            level
-                .insert((*last).to_owned(), Node::Setting(setting))
-                .is_none(),
-            "the setting `{}` holds other settings",
-            setting.name
-        );
-    }
-    Ok(root)
-}
-
 /// Whether a `TypedDict` class can declare `name` as a key: an identifier
 /// and no keyword, as its own `snake_case` spelling.
 fn key(name: &str) -> bool {
@@ -170,7 +121,7 @@ fn key(name: &str) -> bool {
 pub(super) fn settings_module(settings: &[Setting]) -> Result<String> {
     let mut module = Module::default();
     for scope in &SCOPES {
-        let level = tree(settings, scope.scope)?;
+        let level = tree(settings, Some(scope.scope))?;
         module.area(&level, scope, "")?;
     }
     let mut text =
@@ -195,18 +146,7 @@ fn scope_type(opened: &str) -> Result<&'static str> {
 /// The settings type of the scope `member` opens, when it takes `settings`;
 /// an error when the scope it opens takes none.
 pub(super) fn scope_settings(member: &Member<'_>) -> Result<Option<&'static str>> {
-    match &member.form {
-        Form::Opens(opened)
-            if member
-                .parameters
-                .optional
-                .iter()
-                .any(|name| name == SETTINGS) =>
-        {
-            scope_type(opened).map(Some)
-        }
-        _ => Ok(None),
-    }
+    opened_scope(member).map(scope_type).transpose()
 }
 
 /// One member of a union: a literal value, which joins the union's one
@@ -279,6 +219,15 @@ impl Module {
             docstring("    ", &summary, Stability::Stable, None)
         );
         for (segment, node) in level {
+            let at = if path.is_empty() {
+                segment.clone()
+            } else {
+                format!("{path}.{segment}")
+            };
+            ensure!(
+                key(segment),
+                "`{at}` has a segment a `TypedDict` cannot declare"
+            );
             self.imports.insert(("typing", "NotRequired"));
             match node {
                 Node::Setting(setting) => {
@@ -297,12 +246,7 @@ impl Module {
                     );
                 }
                 Node::Area(children) => {
-                    let inner = if path.is_empty() {
-                        segment.clone()
-                    } else {
-                        format!("{path}.{segment}")
-                    };
-                    let child = self.area(children, scope, &inner)?;
+                    let child = self.area(children, scope, &at)?;
                     let _ = write!(class, "\n    {segment}: NotRequired[{child}]\n");
                 }
             }

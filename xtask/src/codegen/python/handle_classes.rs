@@ -47,7 +47,8 @@ use serde_json::Value;
 use super::super::handles::{Builder, Form, Handle, HandleId, Member, Parameters};
 use super::super::layer::{Layer, Stability};
 use super::super::naming::{pascal, snake};
-use super::settings::{SETTINGS, SETTINGS_ON_WIRE, SETTINGS_ON_WIRE_MODULE, scope_settings};
+use super::super::settings_tree::SETTINGS;
+use super::settings::{SETTINGS_ON_WIRE, SETTINGS_ON_WIRE_MODULE, scope_settings};
 use super::{CALLER_MODULE, deprecated_decorator, docstring, header, markers_import, warnings};
 
 mod listeners;

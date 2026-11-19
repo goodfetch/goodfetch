@@ -80,7 +80,7 @@ class AttachedEngine:
                 details={"path": path},
             )
 
-        if not await _is_executable_file(path):
+        if not await is_executable_file(path):
             raise not_found()
         read_end, write_end = os.pipe()
         try:
@@ -188,7 +188,7 @@ class _StderrReader:
                 pass
 
 
-async def _is_executable_file(path: str) -> bool:
+async def is_executable_file(path: str) -> bool:
     """Whether `path` names an executable file, checked off the event loop."""
     return await anyio.to_thread.run_sync(_executable_file, path)
 

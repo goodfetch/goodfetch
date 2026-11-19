@@ -12,7 +12,7 @@ TypeScript's `client-connection.ts` is its twin.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, cast
 
 import anyio
@@ -98,12 +98,33 @@ LOG = "$/log"
 """The notification that carries one of the engine's log events."""
 
 
+EngineKind = Literal["attached", "daemon", "remote"]
+"""How an engine is reached.
+
+An Attached engine the Connection started, the Daemon of this machine, or a
+remote Daemon.
+"""
+
+
+@dataclass(frozen=True)
+class EngineFallback:
+    """Why `auto` ran another engine than the Daemon it found, and what to do."""
+
+    cause: str
+    """Why it did."""
+    fix: str
+    """What to do about it."""
+
+
 @dataclass(frozen=True)
 class EngineInfo:
-    """The engine a Connection reached, fixed when it opened (G6)."""
+    """The engine a Connection reached, fixed when it opened (G6).
 
-    kind: Literal["attached", "daemon", "remote"]
-    """How it is reached; an Attached engine is the one kind so far."""
+    It never holds a Daemon's token.
+    """
+
+    kind: EngineKind
+    """How it is reached."""
     product: Product | str
     """The engine's Product, a newer one kept.
 
@@ -113,8 +134,52 @@ class EngineInfo:
     """The engine's Product version, reported, never compared (ADR 0090)."""
     protocol_version: str
     """The protocol version `major.minor` it speaks."""
+    project_file: str | None
+    """The project file the engine read, or `None` when it read none."""
+    home: str | None
+    """The Goodfetch home the engine runs in.
+
+    `None` for a remote Daemon, or when none is known.
+    """
     engine_path: str | None
     """The executable started, or `None` when none was."""
+    url: str | None
+    """Where a Daemon was reached.
+
+    A remote one's URL, or this machine's socket path or loopback address;
+    `None` for an Attached engine.
+    """
+    fallback: EngineFallback | None
+    """Why `auto` ran another engine than the Daemon it found, and what to do.
+
+    `None` when it ran the one it chose.
+    """
+
+
+@dataclass(frozen=True)
+class Reached:
+    """How a Connection's engine was reached, which `engine` reports."""
+
+    kind: EngineKind
+    """How it is reached."""
+    home: str | None
+    """The Goodfetch home it runs in, or `None` when none is known."""
+    url: str | None
+    """Where a Daemon was reached, or `None` for an Attached engine."""
+
+
+ATTACHED_ELSEWHERE = Reached("attached", None, None)
+"""An Attached engine with no home known, as over a transport a test gives."""
+
+
+@dataclass(frozen=True)
+class DaemonHello:
+    """What a Daemon's `hello` takes beyond an Attached engine's."""
+
+    token: str = field(repr=False)
+    """The Daemon's token, which `hello` carries and nothing else holds."""
+    closed_at_hello: Callable[[], GoodfetchError]
+    """What fails the opening when the Daemon closes before it answers."""
 
 
 class ClientConnection:
@@ -126,9 +191,14 @@ class ClientConnection:
         engine: AttachedEngine | None,
         error_classes: Mapping[str, ErrorClass],
         close_timeout: float,
+        reached: Reached = ATTACHED_ELSEWHERE,
     ) -> None:
-        """Takes the transport, its engine when one started, and the code classes."""
+        """Takes the transport, its engine when one started, and the code classes.
+
+        `reached` says how the engine was reached, which `engine` reports.
+        """
         self._engine = engine
+        self._reached = reached
         self._channel = Channel(transport, self, error_classes)
         self._operations = AsyncCollieOperations(self)
         self._runs: dict[AsyncRun, None] = {}
@@ -151,6 +221,8 @@ class ClientConnection:
         needs: Product,
         error_classes: Mapping[str, ErrorClass],
         engine: AttachedEngine | None = None,
+        reached: Reached = ATTACHED_ELSEWHERE,
+        daemon: DaemonHello | None = None,
         close_timeout: float = CLOSE_TIMEOUT,
         limits: Sequence[RunLimit] = (),
         connect_timeout: int | NotGiven | None = not_given,
@@ -158,16 +230,20 @@ class ClientConnection:
         """Opens a Connection over `transport`, finishing `hello` before it returns.
 
         Then each of `limits`, the wire's list of the Connection's Limits,
-        is set on it. `connect_timeout`, already checked by `timeout_of`, is
-        how many milliseconds `hello` waits for its answer:
-        `timeout.connect`'s 30 s when left out, none for `None`. A refused
-        Product, protocol version or Limit raises here, once the transport
-        and its engine are ended; so does a cancelled opening, and a `hello`
-        unanswered within `connect_timeout`, with `DeadlineExceededError`.
+        is set on it. `reached` says how the engine was reached, and
+        `daemon` gives a Daemon's token, which `hello` carries.
+        `connect_timeout`, already checked by `timeout_of`, is how many
+        milliseconds `hello` waits for its answer: `timeout.connect`'s 30 s
+        when left out, none for `None`. A refused Product, protocol version
+        or Limit raises here, once the transport and its engine are ended;
+        so does a cancelled opening, and a `hello` unanswered within
+        `connect_timeout`, with `DeadlineExceededError`. A Daemon that
+        closes the Connection before it answers `hello`, as one does for a
+        token it does not take, fails it with `daemon`'s `closed_at_hello`.
         """
-        connection = cls(transport, engine, error_classes, close_timeout)
+        connection = cls(transport, engine, error_classes, close_timeout, reached)
         try:
-            await connection._hello(needs, connect_timeout)
+            await connection._hello(needs, daemon, connect_timeout)
             for limit in limits:
                 await connection._set_limit(limit)
         except BaseException:
@@ -339,7 +415,10 @@ class ClientConnection:
             raise closed_error(operation)
 
     async def _hello(
-        self, needs: Product, connect_timeout: int | NotGiven | None
+        self,
+        needs: Product,
+        daemon: DaemonHello | None,
+        connect_timeout: int | NotGiven | None,
     ) -> None:
         params = HelloParams(
             protocol_version=ProtocolVersion(PROTOCOL_VERSION),
@@ -349,7 +428,15 @@ class ClientConnection:
             form=Form.python,
             log_level=self._log_level,
         )
-        answer = await self._hello_answer(params, connect_timeout)
+        if daemon is not None:
+            # Set only for a Daemon, so an Attached engine's hello holds no token.
+            params.token = daemon.token
+        try:
+            answer = await self._hello_answer(params, connect_timeout)
+        except EngineExitedError as error:
+            if daemon is None:
+                raise
+            raise daemon.closed_at_hello() from error
         fields = object_members(answer) or {}
         spoken = fields.get("protocol_version")
         if not isinstance(spoken, str) or not speaks(spoken):
@@ -357,11 +444,15 @@ class ClientConnection:
         product = fields.get("product")
         version = fields.get("product_version")
         self._info = EngineInfo(
-            kind="attached",
+            kind=self._reached.kind,
             product=_product_of(product),
             version=version if isinstance(version, str) else "",
             protocol_version=spoken,
+            project_file=None,
+            home=self._reached.home,
             engine_path=None if self._engine is None else self._engine.path,
+            url=self._reached.url,
+            fallback=None,
         )
 
     async def _hello_answer(

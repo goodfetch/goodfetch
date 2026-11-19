@@ -22,7 +22,7 @@ reason = "The root of the SDK's loggers, which the package gives its one `NullHa
 package = "goodfetch-collie-client"
 name = "goodfetch.client"
 constant = "CLIENT_LOGGER"
-reason = "The SDK's runtime: each line the engine writes on stderr, and a log level the engine refused, at warning."
+reason = "The SDK's runtime: the engine `connect()` reached, at info; each line the engine writes on stderr, and a log level the engine refused, at warning."
 
 [[logger]]
 package = "goodfetch-collie-client"

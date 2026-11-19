@@ -33,7 +33,7 @@ from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.portal import LoopStopped, PrivateLoop
 from goodfetch_collie_client.product_connection import (
     ProductPackage,
-    open_attached,
+    open_engine,
     open_over,
 )
 from goodfetch_collie_client.raw_call import raw_params
@@ -45,6 +45,7 @@ if TYPE_CHECKING:
 
     from anyio.abc import ByteStream
     from goodfetch_collie_client.connection import EngineInfo
+    from goodfetch_collie_client.engine_choice import EngineChoice
     from goodfetch_collie_client.limits import Limits
     from pydantic import JsonValue
 
@@ -79,28 +80,43 @@ class AsyncCollie(AsyncConnection):
     def connect(
         *,
         env: Mapping[str, str] | None = None,
+        engine: EngineChoice = "auto",
         limits: Limits | None = None,
         timeout: timedelta | NotGiven | None = not_given,
     ) -> Connecting:
-        """Starts Collie's engine as an Attached engine and finishes `hello`.
+        """Reaches Collie's engine and finishes `hello`.
 
-        Await it, or open it with `async with`, which closes it. `env` is
-        the environment map, read here and never at import: the process's
-        own when left out. `limits` caps the Connection (ADR 0080); it only
-        lowers what covers its work. `timeout` is how long `hello` waits for
-        the engine's answer: `timeout.connect`'s 30 s when left out, none for
-        `None`; past it, `DeadlineExceededError` naming `timeout.connect`
-        raises (ADR 0083). An amount the SDK cannot turn exactly or a
-        `timeout` of zero or less (`setting_invalid`), a missing executable
-        (`engine_not_found`), a refused Product (`not_in_product`) or
+        Await it, or open it with `async with`, which closes it. `engine`
+        chooses the engine (ADR 0024): `auto`, the default, takes the remote
+        Daemon `GOODFETCH_URL` names with `GOODFETCH_TOKEN`'s token, else
+        the running Daemon of the Goodfetch home, else starts an Attached
+        engine; `attached` always starts one; `daemon` reaches the Daemon,
+        starting it when none runs; `RemoteDaemon(url, token)` reaches that
+        remote Daemon, on a loopback `ws://` address. The engine reached is
+        logged at info on `goodfetch.client`. `env` is the environment map,
+        read here and never at import: the process's own when left out.
+        `limits` caps the Connection (ADR 0080); it only lowers what covers
+        its work. `timeout` is how long `hello` waits for the engine's
+        answer: `timeout.connect`'s 30 s when left out, none for `None`;
+        past it, `DeadlineExceededError` naming `timeout.connect` raises
+        (ADR 0083). An amount the SDK cannot turn exactly, a `timeout` of
+        zero or less or a refused `engine` or `GOODFETCH_URL`
+        (`setting_invalid`), a missing executable (`engine_not_found`), a
+        Daemon nothing reaches or that refuses its token
+        (`daemon_unreachable`), a refused Product (`not_in_product`) or
         version, or a refused Limit raises here, with a `fix`, leaving no
-        engine behind; so does a cancelled opening. The engine sends its
-        logs from the effective level of `goodfetch.engine`, read here
-        (ADR 0078).
+        Attached engine behind; so does a cancelled opening. The engine
+        sends its logs from the effective level of `goodfetch.engine`, read
+        here (ADR 0078).
         """
         return Connecting(
             functools.partial(
-                open_attached, COLLIE, env=env, limits=limits, connect_timeout=timeout
+                open_engine,
+                COLLIE,
+                env=env,
+                engine=engine,
+                limits=limits,
+                connect_timeout=timeout,
             )
         )
 
@@ -108,7 +124,8 @@ class AsyncCollie(AsyncConnection):
     def engine(self) -> EngineInfo:
         """The engine reached, read without a round trip.
 
-        Its kind, Product, Product version and protocol version.
+        How it was reached, its Product, Product version and protocol
+        version, its home, the executable started and a Daemon's address.
         """
         return self._connection.engine
 
@@ -166,8 +183,8 @@ class AsyncCollie(AsyncConnection):
         """Closes the Connection; idempotent.
 
         Closes every Run it opened first, stopping one still running, cancels
-        the calls in flight, then stops the Attached engine and waits for it.
-        Any later call fails with `closed`.
+        the calls in flight, then stops an Attached engine and waits for it;
+        a Daemon is only disconnected. Any later call fails with `closed`.
         """
         await self._connection.close()
 
@@ -222,28 +239,43 @@ class Collie(Connection):
     def connect(
         *,
         env: Mapping[str, str] | None = None,
+        engine: EngineChoice = "auto",
         limits: Limits | None = None,
         timeout: timedelta | NotGiven | None = not_given,
     ) -> Collie:
-        """Starts Collie's engine as an Attached engine and finishes `hello`.
+        """Reaches Collie's engine and finishes `hello`.
 
-        Open it with `with`, which closes it. `env` is the environment map,
+        Open it with `with`, which closes it. `engine` chooses the engine
+        (ADR 0024): `auto`, the default, takes the remote Daemon
+        `GOODFETCH_URL` names with `GOODFETCH_TOKEN`'s token, else the
+        running Daemon of the Goodfetch home, else starts an Attached
+        engine; `attached` always starts one; `daemon` reaches the Daemon,
+        starting it when none runs; `RemoteDaemon(url, token)` reaches that
+        remote Daemon, on a loopback `ws://` address. The engine reached is
+        logged at info on `goodfetch.client`. `env` is the environment map,
         read here and never at import: the process's own when left out.
         `limits` caps the Connection (ADR 0080); it only lowers what covers
         its work. `timeout` is how long `hello` waits for the engine's
         answer: `timeout.connect`'s 30 s when left out, none for `None`;
         past it, `DeadlineExceededError` naming `timeout.connect` raises
-        (ADR 0083). An amount the SDK cannot turn exactly or a `timeout` of
-        zero or less (`setting_invalid`), a missing executable
-        (`engine_not_found`), a refused Product (`not_in_product`) or
+        (ADR 0083). An amount the SDK cannot turn exactly, a `timeout` of
+        zero or less or a refused `engine` or `GOODFETCH_URL`
+        (`setting_invalid`), a missing executable (`engine_not_found`), a
+        Daemon nothing reaches or that refuses its token
+        (`daemon_unreachable`), a refused Product (`not_in_product`) or
         version, or a refused Limit raises here, with a `fix`, leaving
-        neither engine nor thread behind. The engine sends its
+        neither Attached engine nor thread behind. The engine sends its
         logs from the effective level of `goodfetch.engine`, read here
         (ADR 0078).
         """
         return _open_sync(
             functools.partial(
-                open_attached, COLLIE, env=env, limits=limits, connect_timeout=timeout
+                open_engine,
+                COLLIE,
+                env=env,
+                engine=engine,
+                limits=limits,
+                connect_timeout=timeout,
             )
         )
 
@@ -251,7 +283,8 @@ class Collie(Connection):
     def engine(self) -> EngineInfo:
         """The engine reached, read without a round trip.
 
-        Its kind, Product, Product version and protocol version.
+        How it was reached, its Product, Product version and protocol
+        version, its home, the executable started and a Daemon's address.
         """
         return self._connection.engine
 
@@ -316,9 +349,9 @@ class Collie(Connection):
         """Closes the Connection and joins its thread; idempotent, from any thread.
 
         Closes every Run it opened first, stopping one still running, cancels
-        the calls in flight, then stops the Attached engine and waits for it.
-        Any later call fails with `closed`; a later close raises the first
-        one's failure.
+        the calls in flight, then stops an Attached engine and waits for it;
+        a Daemon is only disconnected. Any later call fails with `closed`; a
+        later close raises the first one's failure.
         """
         with self._close_lock:
             if not self._closed:

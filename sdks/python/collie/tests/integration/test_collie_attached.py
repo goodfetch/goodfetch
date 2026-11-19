@@ -147,7 +147,11 @@ async def test_starts_a_run_finishes_it_and_answers_its_run_report(
         product=Product.collie,
         version="0.0.0",
         protocol_version="0.1",
+        project_file=None,
+        home=str(test_env.home),
         engine_path=env["GOODFETCH_COLLIE_ENGINE_PATH"],
+        url=None,
+        fallback=None,
     )
     assert traced.started_as == StartedAs.new
     assert RUN_ID.match(traced.run_id), traced.run_id
@@ -336,7 +340,11 @@ async def test_reports_the_engine_it_reached_of_either_product(
             product=Product.foxhound,
             version="0.0.0",
             protocol_version="0.1",
+            project_file=None,
+            home=env["GOODFETCH_HOME"],
             engine_path=env["GOODFETCH_COLLIE_ENGINE_PATH"],
+            url=None,
+            fallback=None,
         )
     with client_case.check(
         "the script played to its end, so its engine wrote no failure"

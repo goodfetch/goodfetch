@@ -274,7 +274,11 @@ async def test_reports_the_engine_it_reached_of_either_product(way: Way) -> None
         product=Product.foxhound,
         version="0.0.0",
         protocol_version="0.1",
+        project_file=None,
+        home=None,
         engine_path=None,
+        url=None,
+        fallback=None,
     )
     assert played.done() == Finished()
 

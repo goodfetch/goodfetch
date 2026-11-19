@@ -16,15 +16,15 @@
     }
   },
   "sdks/typescript/collie-client/src/generated/types.ts": {
-    "input": "4b5ad9f01c3109fbc434d1c7bd72a0fcebd94957752e736dc7817d51b76fc8f6",
-    "output": "776a281ac8f42e2232dccd36eb508a2ee80f2536d8dd1c2825b0c68d9f582268",
+    "input": "ba1f410a46c2ff05c6a9a423795b8610a6174372f27cf4b3228f359b3d63682e",
+    "output": "753fc7c23174b348428a460e28c98b04a6e1f777988be1233064f5d1cd5c4281",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }
   },
   "sdks/typescript/foxhound/src/generated/types.ts": {
-    "input": "a189f1aeaff48fa0e67d67204945a1b72187b4600b37959525080ac8fc897278",
-    "output": "db3910f74a65ab36ebe20260046315148ea95539378923d0aade11440d6888aa",
+    "input": "2b07e9c9174f4570f3774a8c20875f4416f5e2014aaea0f2d8964f03c6c5f4d6",
+    "output": "19ec4adb89dcd8f44a23bffd9ee7986aac1e85ad622dea31e679f4596a042837",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }
@@ -38,8 +38,8 @@
     }
   },
   "test-support/typescript/src/generated/result-document.ts": {
-    "input": "19733594314009103fbf0c3778bb98a38c3a7bc4b3d859a596de3fc31e5bf8b3",
-    "output": "9084afe233a58dc3a178f69f59a4158f84a522f72aed07244ad65b755d214aed",
+    "input": "1c95f34dd9e15f84109943db1dfb87608c44dd3eee4d772c45ed28decd3ce4fd",
+    "output": "331a253caa25d88f7f67425bfeeec1b2c23a86289d28a5e686adcd28733f7304",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }

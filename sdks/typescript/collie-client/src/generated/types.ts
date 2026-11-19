@@ -48,12 +48,26 @@ export type Actor =
       /**
        * Its surface.
        */
-      surface:
-        "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "kennel" | "cloud" | "browser_host" | "worker";
+      surface: Surface;
     }
   | {
       kind: "engine";
     };
+/**
+ * The surface a `hello` comes from (ADR 0024).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Surface".
+ */
+export type Surface =
+  "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "kennel" | "cloud" | "browser_host" | "worker";
+/**
+ * A page of a Run, named by the engine when it opens it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageId".
+ */
+export type PageId = string;
 /**
  * What set the Memory allowance: the tightest of them (ADR 0040).
  *
@@ -62,12 +76,26 @@ export type Actor =
  */
 export type AllowanceSource = "cgroup" | "job_object" | "setting" | "physical";
 /**
+ * How long a period Limit counts before it starts again (ADR 0041).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PeriodLength".
+ */
+export type PeriodLength = "day" | "week" | "month";
+/**
  * A point in time in UTC, as RFC 3339.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "PointInTime".
  */
 export type PointInTime = string;
+/**
+ * Who set a Limit, which decides whether it allows paying (ADR 0045).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LimitSetter".
+ */
+export type LimitSetter = "person" | "managed_policy" | "client";
 /**
  * What a Pinned artifact is (ADR 0098: the clean-up's rule covers every
  * kind). An entry of a kind the engine does not know is one it cannot read,
@@ -101,20 +129,19 @@ export type SettingsLayer =
  */
 export type RunId = string;
 /**
- * The surface a `hello` comes from (ADR 0024).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Surface".
- */
-export type Surface =
-  "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "kennel" | "cloud" | "browser_host" | "worker";
-/**
  * A browser family, as ADR 0056 names them.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "BrowserName".
  */
 export type BrowserName = "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari";
+/**
+ * A request's id, which its reply carries back.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RequestId".
+ */
+export type RequestId = number | string;
 /**
  * The kind of an invalid-certificate exception (ADR 0042).
  *
@@ -137,6 +164,13 @@ export type Completeness = "complete" | "incomplete" | "unverified";
  * via the `definition` "RunOrigin".
  */
 export type RunOrigin = "argument" | "settings" | "flag" | "form";
+/**
+ * A social network whose profiles the page links to.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SocialNetwork".
+ */
+export type SocialNetwork = "x" | "linkedin" | "facebook" | "instagram" | "youtube" | "tiktok" | "github" | "mastodon";
 /**
  * Where a Daemon or an Attached engine's private endpoint listens (ADR
  * 0024): a `0600` Unix socket on macOS and Linux, loopback TCP on
@@ -162,6 +196,21 @@ export type DaemonEndpoint =
 export type Unready =
   "draining" | "run_state_not_writable" | "browsers_missing" | "governor_last_resort" | "storage_critical";
 /**
+ * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
+ * writes it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Product".
+ */
+export type Product = "collie" | "foxhound";
+/**
+ * A Product version, `major.minor.patch` with an optional pre-release (ADR 0090).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProductVersion".
+ */
+export type ProductVersion = string;
+/**
  * Where a document's encoding came from, in the order the tiers look
  * (ADR 0119).
  *
@@ -178,17 +227,17 @@ export type EncodingSource = "bom" | "setting" | "header" | "meta" | "utf8" | "d
 export type ResponseOrigin =
   | {
       /**
-       * A point in time in UTC, as RFC 3339.
+       * When the cached response was fetched.
        */
-      fetched_at: string;
+      fetched_at: PointInTime;
       kind: "response_cache";
     }
   | {
       kind: "response_recording";
       /**
-       * A point in time in UTC, as RFC 3339.
+       * When the recorded response was received.
        */
-      recorded_at: string;
+      recorded_at: PointInTime;
     };
 /**
  * What a Record's Provenance says of the robots.txt of its page's origin
@@ -207,6 +256,13 @@ export type RobotsTxtMark = "ignored";
  */
 export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
 /**
+ * How the tier of a Record's document was chosen (ADRs 0023 and 0093).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TierChosen".
+ */
+export type TierChosen = "forced" | "compared" | "sample" | "escalation" | "race";
+/**
  * Which scope's `fetch.tier` forced a tier.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -214,12 +270,26 @@ export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_bro
  */
 export type ForcedBy = "run" | "label";
 /**
- * One dialog a handler answers, which `dialog.*` names.
+ * Why a field is null.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "DialogId".
+ * via the `definition` "UnreadReason".
  */
-export type DialogId = string;
+export type UnreadReason = "no_element" | "no_attribute" | "no_match" | "not_parsed" | "no_time_zone";
+/**
+ * One of the engine's closed list of Value transforms (ADR 0123).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ValueTransform".
+ */
+export type ValueTransform = "text" | "match" | "number" | "currency" | "date" | "date_time" | "relative_time" | "map";
+/**
+ * A Wall's kind (ADR 0052).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WallKind".
+ */
+export type WallKind = "paywall" | "consent_wall" | "ad_blocker_wall";
 /**
  * A dialog's kind, as Playwright's `dialog.type()` names it.
  *
@@ -228,6 +298,13 @@ export type DialogId = string;
  */
 export type DialogType = "alert" | "confirm" | "prompt" | "beforeunload";
 /**
+ * One dialog a handler answers, which `dialog.*` names.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "DialogId".
+ */
+export type DialogId = string;
+/**
  * A Download of a Run, named by the engine when it keeps its file:
  * `<run_id>.download-<position>`.
  *
@@ -235,6 +312,29 @@ export type DialogType = "alert" | "confirm" | "prompt" | "beforeunload";
  * via the `definition` "DownloadId".
  */
 export type DownloadId = string;
+/**
+ * How an Effect's body ended.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "EffectOutcome".
+ */
+export type EffectOutcome =
+  | {
+      ended: "returned";
+      /**
+       * What it returned: JSON up to `effect.output.max_size` bytes, or
+       * absent when it returned nothing.
+       */
+      output?: {
+        [k: string]: unknown;
+      };
+    }
+  | {
+      ended: "threw";
+    }
+  | {
+      ended: "cut_short";
+    };
 /**
  * What `effect.close` answers: how the engine judged the body by what it
  * sent for it.
@@ -246,9 +346,9 @@ export type EffectClosed =
   | {
       judged: "done";
       /**
-       * A point in time in UTC, as RFC 3339.
+       * When it was performed.
        */
-      performed_at: string;
+      performed_at: PointInTime;
     }
   | {
       judged: "dropped";
@@ -263,6 +363,9 @@ export type EffectClosed =
        * when it returned one the Effect journal does not keep.
        */
       cause?: string | null;
+      /**
+       * The Effect left uncertain, as the Run report lists it.
+       */
       effect: UncertainEffect;
       judged: "uncertain";
     };
@@ -295,43 +398,20 @@ export type EffectOpened =
         [k: string]: unknown;
       };
       /**
-       * A point in time in UTC, as RFC 3339.
+       * When it was performed.
        */
-      performed_at: string;
+      performed_at: PointInTime;
     }
   | {
       answer: "reconciled";
       /**
-       * A point in time in UTC, as RFC 3339.
+       * When they answered.
        */
-      reconciled_at: string;
+      reconciled_at: PointInTime;
       /**
        * Who answered.
        */
       reconciled_by: string;
-    };
-/**
- * How an Effect's body ended.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "EffectOutcome".
- */
-export type EffectOutcome =
-  | {
-      ended: "returned";
-      /**
-       * What it returned: JSON up to `effect.output.max_size` bytes, or
-       * absent when it returned nothing.
-       */
-      output?: {
-        [k: string]: unknown;
-      };
-    }
-  | {
-      ended: "threw";
-    }
-  | {
-      ended: "cut_short";
     };
 /**
  * A state of the element a locator matches (Playwright's `waitFor`).
@@ -340,6 +420,13 @@ export type EffectOutcome =
  * via the `definition` "ElementState".
  */
 export type ElementState = "attached" | "detached" | "visible" | "hidden";
+/**
+ * A version `major.minor` (ADR 0030).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ProtocolVersion".
+ */
+export type ProtocolVersion = string;
 /**
  * One engine process, new each time an engine starts: the positions of its events count within it. A Client compares it for equality only.
  *
@@ -379,28 +466,35 @@ export type Enqueued =
       /**
        * Why.
        */
-      reason:
-        | "duplicate"
-        | "out_of_scope"
-        | "domain_policy"
-        | "max_depth"
-        | "max_requests"
-        | "unsupported_scheme"
-        | "invalid_url"
-        | "max_url_length"
-        | "max_path_segments"
-        | "max_segment_repeats"
-        | "max_sitemap_nesting"
-        | "path_budget"
-        | "trap_path"
-        | "no_rule"
-        | "trap_link"
-        | "link_limit";
+      reason: NotAddedReason;
       /**
        * Its URL as it was given.
        */
       url: string;
     };
+/**
+ * Why the Frontier did not add a request (ADRs 0093 and 0120).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotAddedReason".
+ */
+export type NotAddedReason =
+  | "duplicate"
+  | "out_of_scope"
+  | "domain_policy"
+  | "max_depth"
+  | "max_requests"
+  | "unsupported_scheme"
+  | "invalid_url"
+  | "max_url_length"
+  | "max_path_segments"
+  | "max_segment_repeats"
+  | "max_sitemap_nesting"
+  | "path_budget"
+  | "trap_path"
+  | "no_rule"
+  | "trap_link"
+  | "link_limit";
 /**
  * Where a page function runs (ADR 0085).
  *
@@ -409,13 +503,12 @@ export type Enqueued =
  */
 export type World = "main" | "isolated";
 /**
- * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
- * writes it.
+ * An event's position among every event of one engine, which only goes up; for a `page.on` call's own events, among that call's, from 1.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Product".
+ * via the `definition` "Position".
  */
-export type Product = "collie" | "foxhound";
+export type Position = number;
 /**
  * What finds a field's element, named by `kind`: a CSS selector or an
  * `XPath` expression, each read alike on every tier, a page a fetch tier
@@ -496,14 +589,28 @@ export type Form = "typescript" | "python" | "rust" | "cli" | "tool" | "catalog"
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "HtmlFormat".
  */
-export type HtmlFormat = true | HtmlOptions;
+export type HtmlFormat = Asked | HtmlOptions;
+/**
+ * Which of the page's HTML an `html` format holds.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HtmlKind".
+ */
+export type HtmlKind = "raw" | "cleaned" | "main";
 /**
  * The `markdown` format of a request: `true`, or its options.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "MarkdownFormat".
  */
-export type MarkdownFormat = true | MarkdownOptions;
+export type MarkdownFormat = Asked | MarkdownOptions;
+/**
+ * How much of the page a Markdown format holds.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MarkdownContent".
+ */
+export type MarkdownContent = "main" | "full" | "fit";
 /**
  * When a navigation answers, by the state its document reached
  * (Playwright's `waitUntil`).
@@ -528,13 +635,6 @@ export type GovernorLevel = "normal" | "pressure" | "critical";
  */
 export type LogLevel = "off" | "error" | "warn" | "info" | "debug" | "trace";
 /**
- * Which of the page's HTML an `html` format holds.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "HtmlKind".
- */
-export type HtmlKind = "raw" | "cleaned" | "main";
-/**
  * The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -549,6 +649,23 @@ export type HttpBody = string;
  */
 export type HttpMethod = string;
 /**
+ * Who raised a Human pause.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PauseOrigin".
+ */
+export type PauseOrigin =
+  | {
+      by: "program";
+    }
+  | {
+      by: "engine";
+      /**
+       * The step.
+       */
+      step: EngineStep;
+    };
+/**
  * Bytes the Key-value store keeps, in Base64 (RFC 4648, with padding).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -562,13 +679,6 @@ export type KeyValueStoreContent = string;
  * via the `definition` "Lifecycle".
  */
 export type Lifecycle = "running" | "stopped" | "finished" | "failed";
-/**
- * Who set a Limit, which decides whether it allows paying (ADR 0045).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "LimitSetter".
- */
-export type LimitSetter = "person" | "managed_policy" | "client";
 /**
  * What the engine that read a Limit makes of it.
  *
@@ -591,13 +701,6 @@ export type LoadState = "domcontentloaded" | "load" | "networkidle";
  */
 export type MainContent = "found" | "none";
 /**
- * How much of the page a Markdown format holds.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "MarkdownContent".
- */
-export type MarkdownContent = "main" | "full" | "fit";
-/**
  * Whether a media source plays video or audio.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -610,7 +713,7 @@ export type MediaKind = "video" | "audio";
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "MicrodataValue".
  */
-export type MicrodataValue = string | MicrodataItem1;
+export type MicrodataValue = string | MicrodataItem;
 /**
  * What `needs_you.changed` carries: one change of the list.
  *
@@ -620,6 +723,9 @@ export type MicrodataValue = string | MicrodataItem1;
 export type NeedsYouChange =
   | {
       change: "listed";
+      /**
+       * The item.
+       */
       item: NeedsYouItem;
     }
   | {
@@ -631,7 +737,7 @@ export type NeedsYouChange =
       /**
        * Why.
        */
-      reason: "resolved" | "dismissed";
+      reason: NeedsYouRemoval;
     };
 /**
  * Why an item left the list.
@@ -640,6 +746,13 @@ export type NeedsYouChange =
  * via the `definition` "NeedsYouRemoval".
  */
 export type NeedsYouRemoval = "resolved" | "dismissed";
+/**
+ * A Session of a Run, named by the engine when it opens it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SessionId".
+ */
+export type SessionId = string;
 /**
  * Where a Session's login comes from (ADR 0056): exactly one kind.
  *
@@ -688,7 +801,7 @@ export type SessionSource =
       /**
        * Its browser family.
        */
-      browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari";
+      browser: BrowserName;
       /**
        * A Chromium-family profile within it.
        */
@@ -707,7 +820,7 @@ export type SessionSource =
       /**
        * Its browser family.
        */
-      browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari";
+      browser: BrowserName;
       /**
        * A Chromium-family profile of it.
        */
@@ -722,7 +835,7 @@ export type SessionSource =
       /**
        * Its browser family.
        */
-      browser: "chrome" | "edge" | "brave" | "chromium" | "firefox" | "safari";
+      browser: BrowserName;
       /**
        * The registrable domains its navigation is bound to.
        */
@@ -758,29 +871,6 @@ export type SessionSource =
  */
 export type StateFileFormat = "storage_state" | "cookies_txt" | "cdp_cookies" | "session_export";
 /**
- * Why the Frontier did not add a request (ADRs 0093 and 0120).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "NotAddedReason".
- */
-export type NotAddedReason =
-  | "duplicate"
-  | "out_of_scope"
-  | "domain_policy"
-  | "max_depth"
-  | "max_requests"
-  | "unsupported_scheme"
-  | "invalid_url"
-  | "max_url_length"
-  | "max_path_segments"
-  | "max_segment_repeats"
-  | "max_sitemap_nesting"
-  | "path_budget"
-  | "trap_path"
-  | "no_rule"
-  | "trap_link"
-  | "link_limit";
-/**
  * Why a call that ends a Run did nothing (ADR 0102's G1).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -789,9 +879,9 @@ export type NotAddedReason =
 export type NothingDone =
   | {
       /**
-       * A point in time in UTC, as RFC 3339.
+       * When it ended.
        */
-      ended_at: string;
+      ended_at: PointInTime;
       reason: "already_ended";
     }
   | {
@@ -806,6 +896,14 @@ export type NothingDone =
   | {
       reason: "nothing_pending";
     };
+/**
+ * A table of the Operator policy: what it sets, what it sets and locks, and
+ * its caps.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PolicyTable".
+ */
+export type PolicyTable = "settings" | "lock" | "cap";
 /**
  * A page's event a program listens to, by its words (ADR 0099): each
  * SDK joins them as Playwright spells the event, such as `pageerror`.
@@ -832,38 +930,31 @@ export type PageEventName =
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "PageField".
  */
-export type PageField = ValueField1 | ListField1 | RowsField;
+export type PageField = ValueField | ListField | RowsField;
 /**
- * A page of a Run, named by the engine when it opens it.
+ * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
+ * one, or a regular expression in the `regex` crate's syntax. A predicate
+ * runs in the program, which routes every URL and falls back for the
+ * requests it does not match.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "PageId".
+ * via the `definition` "UrlMatcher".
  */
-export type PageId = string;
-/**
- * Who raised a Human pause.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "PauseOrigin".
- */
-export type PauseOrigin =
+export type UrlMatcher =
   | {
-      by: "program";
+      kind: "glob";
+      /**
+       * The glob.
+       */
+      pattern: string;
     }
   | {
-      by: "engine";
+      kind: "regex";
       /**
-       * The step.
+       * The expression's source.
        */
-      step: "login_recovery" | "challenge_ladder";
+      pattern: string;
     };
-/**
- * How long a period Limit counts before it starts again (ADR 0041).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "PeriodLength".
- */
-export type PeriodLength = "day" | "week" | "month";
 /**
  * What became of a Run's new Plan versions (ADR 0091).
  *
@@ -871,21 +962,6 @@ export type PeriodLength = "day" | "week" | "month";
  * via the `definition` "PlanStatus".
  */
 export type PlanStatus = "unchanged" | "promoted" | "pending_review" | "frozen";
-/**
- * A table of the Operator policy: what it sets, what it sets and locks, and
- * its caps.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "PolicyTable".
- */
-export type PolicyTable = "settings" | "lock" | "cap";
-/**
- * An event's position among every event of one engine, which only goes up; for a `page.on` call's own events, among that call's, from 1.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Position".
- */
-export type Position = number;
 /**
  * Whether the state a Run index row points at is there (ADRs 0031 and
  * 0036).
@@ -902,33 +978,12 @@ export type Presence = "present" | "missing" | "erased";
  */
 export type PressureSource = "memory" | "host_memory" | "cpu" | "tokio";
 /**
- * A Product version, `major.minor.patch` with an optional pre-release (ADR 0090).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "ProductVersion".
- */
-export type ProductVersion = string;
-/**
  * A program's own status line about its Run (RT-15).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "ProgressMessage".
  */
 export type ProgressMessage = string;
-/**
- * A version `major.minor` (ADR 0030).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "ProtocolVersion".
- */
-export type ProtocolVersion = string;
-/**
- * A request's id, which its reply carries back.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "RequestId".
- */
-export type RequestId = number | string;
 /**
  * A resource the governor can run out of (ADR 0122).
  *
@@ -951,6 +1006,21 @@ export type Verdict = "verified" | "rejected" | "needs_review";
  * via the `definition` "RouteId".
  */
 export type RouteId = string;
+/**
+ * Who stopped a call (ADR 0113).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "StoppedBy".
+ */
+export type StoppedBy = "client" | "program" | "browser";
+/**
+ * What kind of Run it is: a Collie Run its program drives, or a crawl
+ * (ADR 0102), which its start's inputs name.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RunKind".
+ */
+export type RunKind = "collie" | "crawl";
 /**
  * Where the engine that owns a live Run is reached (ADR 0031).
  *
@@ -975,7 +1045,7 @@ export type StopReason =
       /**
        * Who stopped it.
        */
-      by: "client" | "program" | "browser";
+      by: StoppedBy;
       kind: "abort";
     }
   | {
@@ -990,8 +1060,12 @@ export type StopReason =
   | {
       kind: "drain";
     }
-  | ReachedLimit1
-  | NotUnderstoodLimit1
+  | (ReachedLimit & {
+      kind: "limit";
+    })
+  | (NotUnderstoodLimit & {
+      kind: "limit_not_understood";
+    })
   | {
       kind: "engine_lost";
     }
@@ -1007,7 +1081,7 @@ export type StopReason =
       /**
        * The resource that ran out.
        */
-      resource: "memory" | "storage";
+      resource: Resource;
     };
 /**
  * An opaque text a Run is tagged with (ADR 0036).
@@ -1017,19 +1091,14 @@ export type StopReason =
  */
 export type Tag = string;
 /**
- * Its tags (ADR 0036).
+ * A Run's tags, in the order given.
  *
  * @maxItems 16
- */
-export type Tags = Tag[];
-/**
- * What kind of Run it is: a Collie Run its program drives, or a crawl
- * (ADR 0102), which its start's inputs name.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "RunKind".
+ * via the `definition` "Tags".
  */
-export type RunKind = "collie" | "crawl";
+export type Tags = Tag[];
 /**
  * Which way `run.list` sorts.
  *
@@ -1064,11 +1133,12 @@ export type RunSortKey =
  */
 export type RunTrigger = "time" | "watch" | "after_run" | "run_now";
 /**
- * The Run's opaque tags.
+ * A filesystem's storage level (ADR 0122), from the best to the worst.
  *
- * @maxItems 16
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "StorageLevel".
  */
-export type Tags1 = Tag[];
+export type StorageLevel = "normal" | "low" | "critical";
 /**
  * Whether an engine works a Run (ADR 0102).
  *
@@ -1076,35 +1146,6 @@ export type Tags1 = Tag[];
  * via the `definition` "RunWriter".
  */
 export type RunWriter = "live" | "none";
-/**
- * What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
- * seeds the entries of a site's sitemaps.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Seed".
- */
-export type Seed = RequestSeed1 | SitemapSeed;
-/**
- * A Session's event a program listens to.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "SessionEventName".
- */
-export type SessionEventName = "page";
-/**
- * A Session of a Run, named by the engine when it opens it.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "SessionId".
- */
-export type SessionId = string;
-/**
- * A social network whose profiles the page links to.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "SocialNetwork".
- */
-export type SocialNetwork = "x" | "linkedin" | "facebook" | "instagram" | "youtube" | "tiktok" | "github" | "mastodon";
 /**
  * What a start did with its Run: began it, resumed it, or found it ended
  * (ADR 0102).
@@ -1114,80 +1155,20 @@ export type SocialNetwork = "x" | "linkedin" | "facebook" | "instagram" | "youtu
  */
 export type StartedAs = "new" | "resumed" | "ended";
 /**
- * Who stopped a call (ADR 0113).
+ * What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
+ * seeds the entries of a site's sitemaps.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "StoppedBy".
+ * via the `definition` "Seed".
  */
-export type StoppedBy = "client" | "program" | "browser";
+export type Seed = RequestSeed | SitemapSeed;
 /**
- * A filesystem's storage level (ADR 0122), from the best to the worst.
+ * A Session's event a program listens to.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "StorageLevel".
+ * via the `definition` "SessionEventName".
  */
-export type StorageLevel = "normal" | "low" | "critical";
-/**
- * A Run's tags, in the order given.
- *
- * @maxItems 16
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Tags".
- */
-export type Tags2 = Tag[];
-/**
- * How the tier of a Record's document was chosen (ADRs 0023 and 0093).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "TierChosen".
- */
-export type TierChosen = "forced" | "compared" | "sample" | "escalation" | "race";
-/**
- * Why a field is null.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "UnreadReason".
- */
-export type UnreadReason = "no_element" | "no_attribute" | "no_match" | "not_parsed" | "no_time_zone";
-/**
- * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
- * one, or a regular expression in the `regex` crate's syntax. A predicate
- * runs in the program, which routes every URL and falls back for the
- * requests it does not match.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "UrlMatcher".
- */
-export type UrlMatcher =
-  | {
-      kind: "glob";
-      /**
-       * The glob.
-       */
-      pattern: string;
-    }
-  | {
-      kind: "regex";
-      /**
-       * The expression's source.
-       */
-      pattern: string;
-    };
-/**
- * One of the engine's closed list of Value transforms (ADR 0123).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "ValueTransform".
- */
-export type ValueTransform = "text" | "match" | "number" | "currency" | "date" | "date_time" | "relative_time" | "map";
-/**
- * A Wall's kind (ADR 0052).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "WallKind".
- */
-export type WallKind = "paywall" | "consent_wall" | "ad_blocker_wall";
+export type SessionEventName = "page";
 
 /**
  * The root of the layer's types, which holds no value of its own.
@@ -1225,7 +1206,7 @@ export interface AddInitScriptParams {
   /**
    * The page.
    */
-  page_id: string;
+  page_id: PageId;
 }
 /**
  * A Limit that applies to a Run (ADRs 0041 and 0101): its scope's kind and
@@ -1256,11 +1237,14 @@ export interface AppliedLimit {
    * When its period starts again; none for a Limit without one.
    */
   resets_at?: PointInTime | null;
+  /**
+   * What it is on; a scope kind this reader does not know is kept.
+   */
   scope: LimitScope;
   /**
    * Who set it.
    */
-  set_by: "person" | "managed_policy" | "client";
+  set_by: LimitSetter;
   /**
    * The Usage kind it caps.
    */
@@ -1277,14 +1261,20 @@ export interface Period {
   /**
    * How long it counts.
    */
-  every: "day" | "week" | "month";
+  every: PeriodLength;
   /**
    * The IANA time zone its midnights are in, such as `Europe/Paris`.
    */
   time_zone: string;
 }
 /**
- * What it is on; a scope kind this reader does not know is kept.
+ * What a Limit is on: a scope kind, a value of a type both Products share
+ * (`install`, `daemon`, `person`, `token`, `connection`, and Foxhound's
+ * `partitioned_crawl`), and which one of its kind (ADR 0041). A kind this
+ * reader does not know is kept as it is.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LimitScope".
  */
 export interface LimitScope {
   /**
@@ -1312,7 +1302,7 @@ export interface ArtifactId {
   /**
    * What it is.
    */
-  kind: "browser" | "driver" | "executable_copy" | "engine_executable" | "clean_up_rules" | "mouse_movements";
+  kind: ArtifactKind;
   /**
    * Its name, such as `chrome-for-testing`.
    */
@@ -1349,32 +1339,7 @@ export interface ExportedAuditEntry {
   /**
    * Who did what it records.
    */
-  actor:
-    | {
-        kind: "person";
-        /**
-         * Their name.
-         */
-        name: string;
-      }
-    | {
-        kind: "named_token";
-        /**
-         * Its name.
-         */
-        name: string;
-      }
-    | {
-        kind: "client_surface";
-        /**
-         * Its surface.
-         */
-        surface:
-          "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "kennel" | "cloud" | "browser_host" | "worker";
-      }
-    | {
-        kind: "engine";
-      };
+  actor: Actor;
   /**
    * Whether its hash chains it to the entry before it: `false` for an
    * entry of a Run whose `security.audit_chain` was off, whose hash is
@@ -1418,9 +1383,9 @@ export interface ExportedAuditEntry {
    */
   surface?: Surface | null;
   /**
-   * A point in time in UTC, as RFC 3339.
+   * When it was recorded.
    */
-  time: string;
+  time: PointInTime;
 }
 /**
  * What `audit.verify` answers.
@@ -1495,9 +1460,9 @@ export interface BodyHandle {
    */
   path: string;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run whose folder holds it.
    */
-  run_id: string;
+  run_id: RunId;
   /**
    * Its size in bytes.
    */
@@ -1513,7 +1478,7 @@ export interface CancelParams {
   /**
    * The call's id.
    */
-  id: number | string;
+  id: RequestId;
 }
 /**
  * The invalid-certificate exception a Record's document was fetched
@@ -1526,7 +1491,7 @@ export interface CertificateExceptionMark {
   /**
    * The kind of exception.
    */
-  kind: "trust_on_first_use" | "any";
+  kind: CertificateExceptionKind;
   /**
    * The SHA-256 of the public key of the certificate it accepted, as
    * `sha256/<base64>`, the known-certificates store's spelling.
@@ -1661,17 +1626,17 @@ export interface Checkpoint {
    */
   run_epoch: number;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
   /**
    * Its size in bytes.
    */
   size: number;
   /**
-   * A point in time in UTC, as RFC 3339.
+   * When it was taken.
    */
-  time: string;
+  time: PointInTime;
 }
 /**
  * What `$/chunk` carries: the next bytes of the body a call reads.
@@ -1687,7 +1652,7 @@ export interface Chunk {
   /**
    * The id of the `page.body` call.
    */
-  id: number | string;
+  id: RequestId;
   /**
    * Where its bytes start in the body.
    */
@@ -1700,16 +1665,24 @@ export interface Chunk {
  * via the `definition` "ClickParams".
  */
 export interface ClickParams {
+  /**
+   * The locator.
+   */
   locator: Locator;
 }
 /**
- * The locator.
+ * A locator (ADR 0085): what an action looks for on a page, resolved
+ * again at each use, never a handle on an element. This tracer's locators
+ * are CSS selectors.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Locator".
  */
 export interface Locator {
   /**
    * The page it looks on.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * A CSS selector, which also matches inside open shadow roots.
    */
@@ -1722,56 +1695,26 @@ export interface Locator {
  * via the `definition` "Concurrency".
  */
 export interface Concurrency {
+  /**
+   * Open browser pages.
+   */
   browser_page: KindConcurrency;
-  http: KindConcurrency1;
-  model_call: KindConcurrency2;
+  /**
+   * HTTP and discovered-API fetches.
+   */
+  http: KindConcurrency;
+  /**
+   * Model calls.
+   */
+  model_call: KindConcurrency;
 }
 /**
- * Open browser pages.
+ * One kind's concurrency.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KindConcurrency".
  */
 export interface KindConcurrency {
-  /**
-   * Its ceiling.
-   */
-  ceiling: number;
-  /**
-   * Its floor.
-   */
-  floor: number;
-  /**
-   * How many are admitted now.
-   */
-  in_use: number;
-  /**
-   * How many the governor admits at once now.
-   */
-  target: number;
-}
-/**
- * HTTP and discovered-API fetches.
- */
-export interface KindConcurrency1 {
-  /**
-   * Its ceiling.
-   */
-  ceiling: number;
-  /**
-   * Its floor.
-   */
-  floor: number;
-  /**
-   * How many are admitted now.
-   */
-  in_use: number;
-  /**
-   * How many the governor admits at once now.
-   */
-  target: number;
-}
-/**
- * Model calls.
- */
-export interface KindConcurrency2 {
   /**
    * Its ceiling.
    */
@@ -1860,9 +1803,9 @@ export interface ConsentDomainAllowed {
    */
   domain: string;
   /**
-   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+   * The layer written: user configuration.
    */
-  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  layer: SettingsLayer;
   /**
    * What the person takes on, in plain words, as the person surface showed it
    * beside the answer and the Audit log records it.
@@ -1897,11 +1840,14 @@ export interface ConsoleLocation {
  * via the `definition` "ConsoleMessage".
  */
 export interface ConsoleMessage {
-  location: ConsoleLocation1;
+  /**
+   * Where it was written.
+   */
+  location: ConsoleLocation;
   /**
    * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * Its text: each argument, a primitive as its value and any other as
    * the browser describes it, joined by spaces.
@@ -1912,23 +1858,6 @@ export interface ConsoleMessage {
    * `error`.
    */
   type: string;
-}
-/**
- * Where it was written.
- */
-export interface ConsoleLocation1 {
-  /**
-   * The column, from 0.
-   */
-  column_number: number;
-  /**
-   * The line, from 0.
-   */
-  line_number: number;
-  /**
-   * The script's URL; empty for a script the page evaluated.
-   */
-  url: string;
 }
 /**
  * The contacts the page shows, each value once, where it first appears.
@@ -2002,7 +1931,7 @@ export interface SocialProfile {
   /**
    * Its network.
    */
-  network: "x" | "linkedin" | "facebook" | "instagram" | "youtube" | "tiktok" | "github" | "mastodon";
+  network: SocialNetwork;
   /**
    * Its link's text, white space collapsed.
    */
@@ -2079,7 +2008,7 @@ export interface CreditParams {
   /**
    * The streaming call's id.
    */
-  id: number | string;
+  id: RequestId;
 }
 /**
  * What `daemon.health` answers: what the ops listener's `/livez` and
@@ -2125,13 +2054,7 @@ export interface DaemonState {
   /**
    * Where it listens.
    */
-  endpoint:
-    | {
-        unix: string;
-      }
-    | {
-        tcp: string;
-      };
+  endpoint: DaemonEndpoint;
   /**
    * Its live heap: the bytes its own allocations hold now, as its
    * executable's allocator counts them, without the pages that
@@ -2159,11 +2082,11 @@ export interface DaemonState {
   /**
    * The Product the Daemon runs as.
    */
-  product: "collie" | "foxhound";
+  product: Product;
   /**
    * Its Product version.
    */
-  product_version: string;
+  product_version: ProductVersion;
 }
 /**
  * What `daemon.stop` answers, before the Daemon stops.
@@ -2185,13 +2108,16 @@ export interface DaemonStopping {
  */
 export interface DatasetRecord {
   /**
-   * A point in time in UTC, as RFC 3339.
+   * When it was committed.
    */
-  committed_at: string;
+  committed_at: PointInTime;
   /**
    * Its number in its Dataset, from 1, in commit order, with no gaps.
    */
   number: number;
+  /**
+   * How it was obtained (ADR 0123's Provenance of a Record).
+   */
   provenance: RecordProvenance;
   /**
    * The ID of the crawl request whose attempt committed it.
@@ -2209,7 +2135,10 @@ export interface DatasetRecord {
   };
 }
 /**
- * How it was obtained (ADR 0123's Provenance of a Record).
+ * How one committed Record was obtained.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RecordProvenance".
  */
 export interface RecordProvenance {
   /**
@@ -2333,16 +2262,18 @@ export interface TierProvenance {
   /**
    * How it was chosen.
    */
-  chosen: "forced" | "compared" | "sample" | "escalation" | "race";
+  chosen: TierChosen;
   /**
    * What forced it, when `chosen` is `forced`.
    */
   forced_by?: ForcedBy | null;
   /**
-   * A tier that fetches a crawl request's document (ADR 0020), from the
-   * cheapest up.
+   * The tier that sent the document's request, whoever chose it:
+   * `browser_fetch` when it left from inside the Session's browser, as
+   * under `auto`, and `http` when the Session's own HTTP transport sent
+   * it.
    */
-  tier: "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
+  tier: FetchTier;
 }
 /**
  * A field its page did not give, so its value is null (ADRs 0079 and
@@ -2360,7 +2291,7 @@ export interface UnreadField {
   /**
    * Why.
    */
-  reason: "no_element" | "no_attribute" | "no_match" | "not_parsed" | "no_time_zone";
+  reason: UnreadReason;
   /**
    * The text read, where one was: the text its `match` did not match, or
    * that its transform does not read as a value.
@@ -2402,7 +2333,7 @@ export interface TransformProvenance {
   /**
    * The transform.
    */
-  transform: "text" | "match" | "number" | "currency" | "date" | "date_time" | "relative_time" | "map";
+  transform: ValueTransform;
 }
 /**
  * The `wall` marker of a Record whose page was read past a Wall (ADR
@@ -2415,7 +2346,7 @@ export interface WallMarker {
   /**
    * The Wall's kind.
    */
-  kind: "paywall" | "consent_wall" | "ad_blocker_wall";
+  kind: WallKind;
   /**
    * The vendor detected, when one was.
    */
@@ -2439,7 +2370,7 @@ export interface Dialog {
   /**
    * Its kind.
    */
-  type: "alert" | "confirm" | "prompt" | "beforeunload";
+  type: DialogType;
 }
 /**
  * What `dialog.accept` takes: the dialog, and a prompt's text.
@@ -2451,7 +2382,7 @@ export interface DialogAcceptParams {
   /**
    * The dialog.
    */
-  dialog_id: string;
+  dialog_id: DialogId;
   /**
    * The text a prompt returns; its default value when absent.
    */
@@ -2474,7 +2405,7 @@ export interface DialogDismissParams {
   /**
    * The dialog.
    */
-  dialog_id: string;
+  dialog_id: DialogId;
 }
 /**
  * What `dialog.handle` gives the handler: the dialog, named by the ID its
@@ -2484,36 +2415,22 @@ export interface DialogDismissParams {
  * via the `definition` "DialogHandleParams".
  */
 export interface DialogHandleParams {
-  dialog: Dialog1;
+  /**
+   * The dialog.
+   */
+  dialog: Dialog;
   /**
    * The dialog, which an answer names.
    */
-  dialog_id: string;
+  dialog_id: DialogId;
   /**
    * The id of the `page.on_dialog` call whose handler is asked.
    */
-  id: number | string;
+  id: RequestId;
   /**
    * The page that opened it.
    */
-  page_id: string;
-}
-/**
- * The dialog.
- */
-export interface Dialog1 {
-  /**
-   * A prompt's default value; empty for any other kind.
-   */
-  default_value: string;
-  /**
-   * Its message.
-   */
-  message: string;
-  /**
-   * Its kind.
-   */
-  type: "alert" | "confirm" | "prompt" | "beforeunload";
+  page_id: PageId;
 }
 /**
  * What the handler replies to `dialog.handle` once it ended; a failure
@@ -2537,7 +2454,10 @@ export interface DialogsEnded {}
  * via the `definition` "DownloadProgress".
  */
 export interface DownloadProgress {
-  artifact: ArtifactId1;
+  /**
+   * The artifact being downloaded.
+   */
+  artifact: ArtifactId;
   /**
    * The host it comes from.
    */
@@ -2552,23 +2472,6 @@ export interface DownloadProgress {
   total_bytes?: number | null;
 }
 /**
- * The artifact being downloaded.
- */
-export interface ArtifactId1 {
-  /**
-   * Its build ID, such as `141.0.7390.54-linux64`.
-   */
-  build: string;
-  /**
-   * What it is.
-   */
-  kind: "browser" | "driver" | "executable_copy" | "engine_executable" | "clean_up_rules" | "mouse_movements";
-  /**
-   * Its name, such as `chrome-for-testing`.
-   */
-  name: string;
-}
-/**
  * What `download.save_as` takes.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -2578,7 +2481,7 @@ export interface DownloadSaveAsParams {
   /**
    * The Download.
    */
-  download_id: string;
+  download_id: DownloadId;
   /**
    * The program's path, absolute, which an Attached engine writes
    * itself; any other engine leaves it to the SDK and sends the file's
@@ -2640,30 +2543,17 @@ export interface EffectCloseParams {
   /**
    * How the body ended.
    */
-  outcome:
-    | {
-        ended: "returned";
-        /**
-         * What it returned: JSON up to `effect.output.max_size` bytes, or
-         * absent when it returned nothing.
-         */
-        output?: {
-          [k: string]: unknown;
-        };
-      }
-    | {
-        ended: "threw";
-      }
-    | {
-        ended: "cut_short";
-      };
+  outcome: EffectOutcome;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run whose Effect journal keeps the Effect.
    */
-  run_id: string;
+  run_id: RunId;
 }
 /**
- * The Effect left uncertain, as the Run report lists it.
+ * An Effect a Run left uncertain (ADR 0106), until a person reconciles it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UncertainEffect".
  */
 export interface UncertainEffect {
   /**
@@ -2691,9 +2581,9 @@ export interface UncertainEffect {
    */
   reason: string;
   /**
-   * A point in time in UTC, as RFC 3339.
+   * Since when it is uncertain.
    */
-  since: string;
+  since: PointInTime;
 }
 /**
  * What `effect.open` takes: the Run, the Effect key and whether its body
@@ -2722,9 +2612,9 @@ export interface EffectOpenParams {
    */
   repeatable?: boolean;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run whose Effect journal keeps the Effect.
    */
-  run_id: string;
+  run_id: RunId;
 }
 /**
  * An Error code a Run's ending raises, with its message and details.
@@ -2758,7 +2648,7 @@ export interface EngineInfo {
   /**
    * The Product the engine runs as.
    */
-  product: "collie" | "foxhound";
+  product: Product;
   /**
    * The major of its Product version, which names its per-major state.
    */
@@ -2766,11 +2656,11 @@ export interface EngineInfo {
   /**
    * The engine's Product version.
    */
-  product_version: string;
+  product_version: ProductVersion;
   /**
    * The protocol version the engine speaks.
    */
-  protocol_version: string;
+  protocol_version: ProtocolVersion;
 }
 /**
  * What `engine.info` takes: nothing.
@@ -2794,7 +2684,7 @@ export interface EnqueuedBatch {
   /**
    * The id of the `run.add_seeds` call.
    */
-  id: number | string;
+  id: RequestId;
 }
 /**
  * What a failure's `data` holds: its Error code, whether the same call may
@@ -2836,7 +2726,7 @@ export interface EvaluateParams {
   /**
    * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * Where it runs; the main world when absent.
    */
@@ -2874,7 +2764,7 @@ export interface EventBatch {
    * subscription's `events.subscribe` call, or a `page.on` call, whose
    * page's events go only to it.
    */
-  id: number | string;
+  id: RequestId;
 }
 /**
  * One event of a batch.
@@ -2901,7 +2791,7 @@ export interface EventEnvelope {
   /**
    * Its position.
    */
-  position: number;
+  position: Position;
 }
 /**
  * What `events.subscribe` takes.
@@ -2935,11 +2825,11 @@ export interface LastRead {
   /**
    * The engine instance, as its `hello` named it.
    */
-  engine_instance: string;
+  engine_instance: EngineInstance;
   /**
    * The event's position.
    */
-  position: number;
+  position: Position;
 }
 /**
  * One setting as `config explain` shows it.
@@ -2970,9 +2860,9 @@ export interface ExplainedSetting {
    */
   key: string;
   /**
-   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+   * The layer that set it.
    */
-  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  layer: SettingsLayer;
   /**
    * The layer that locked it, if any: an Operator policy's lock, a
    * Recipe that declares it without exposing it, or the default for an
@@ -3054,9 +2944,9 @@ export interface SettingLimit {
    */
   key: string;
   /**
-   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+   * The layer that set it.
    */
-  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  layer: SettingsLayer;
   /**
    * For the run layer, where the value came from, such as `argument`
    * for a call's own `timeout` (ADR 0083); absent when unknown or for
@@ -3096,24 +2986,14 @@ export interface FieldMatch {
  * via the `definition` "FillParams".
  */
 export interface FillParams {
-  locator: Locator1;
+  /**
+   * The locator.
+   */
+  locator: Locator;
   /**
    * The text the field holds afterwards; an empty text clears it.
    */
   value: string;
-}
-/**
- * The locator.
- */
-export interface Locator1 {
-  /**
-   * The page it looks on.
-   */
-  page_id: string;
-  /**
-   * A CSS selector, which also matches inside open shadow roots.
-   */
-  selector: string;
 }
 /**
  * What `page.formats` takes: the page, and the formats it asks for.
@@ -3122,14 +3002,22 @@ export interface Locator1 {
  * via the `definition` "FormatsParams".
  */
 export interface FormatsParams {
+  /**
+   * The formats.
+   */
   formats: FormatsRequest;
   /**
    * The page.
    */
-  page_id: string;
+  page_id: PageId;
 }
 /**
- * The formats.
+ * The formats a `page.formats` call asks for, each `true` or its options:
+ * one value, which a Record can carry and a Dataset's schema can be
+ * generated from (ADR 0103). A format left out is left out of the result.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FormatsRequest".
  */
 export interface FormatsRequest {
   /**
@@ -3173,71 +3061,28 @@ export interface FormatsRequest {
   text?: Asked | null;
 }
 /**
- * With these options.
+ * The options of the `html` format.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HtmlOptions".
  */
 export interface HtmlOptions {
   /**
    * Which of the page's HTML it holds.
    */
-  kind: "raw" | "cleaned" | "main";
+  kind: HtmlKind;
 }
 /**
- * With these options.
+ * The options of the `markdown` format.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MarkdownOptions".
  */
 export interface MarkdownOptions {
   /**
    * How much of the page it holds.
    */
-  content: "main" | "full" | "fit";
-}
-/**
- * The formats a `page.formats` call asks for, each `true` or its options:
- * one value, which a Record can carry and a Dataset's schema can be
- * generated from (ADR 0103). A format left out is left out of the result.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "FormatsRequest".
- */
-export interface FormatsRequest1 {
-  /**
-   * The e-mail addresses, telephone numbers and social profiles the
-   * page shows.
-   */
-  contacts?: Asked | null;
-  /**
-   * The page's HTML: its main content by default.
-   */
-  html?: HtmlFormat | null;
-  /**
-   * The page's images, each with its URL resolved and its `alt`.
-   */
-  images?: Asked | null;
-  /**
-   * The page's links, each with its URL resolved.
-   */
-  links?: Asked | null;
-  /**
-   * The page's content as Markdown, with GFM's tables.
-   */
-  markdown?: MarkdownFormat | null;
-  /**
-   * The page's video and audio sources, each with its URL resolved.
-   */
-  media?: Asked | null;
-  /**
-   * The page's metadata: its title, description, canonical URL,
-   * language, Open Graph and Twitter tags, JSON-LD blocks and microdata
-   * items.
-   */
-  metadata?: Asked | null;
-  /**
-   * The page's tables, as rows of cells.
-   */
-  tables?: Asked | null;
-  /**
-   * The text of the page's main content, a paragraph per block.
-   */
-  text?: Asked | null;
+  content: MarkdownContent;
 }
 /**
  * What `page.goto` takes: the page, the URL it goes to, and when it
@@ -3250,7 +3095,7 @@ export interface GotoParams {
   /**
    * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * How long the navigation may take, in milliseconds, at least 1:
    * absent for `timeout.navigation`, `null` for none, though an
@@ -3310,15 +3155,15 @@ export interface HelloParams {
   /**
    * The sender's own Product version.
    */
-  product_version: string;
+  product_version: ProductVersion;
   /**
    * The protocol version the sender speaks.
    */
-  protocol_version: string;
+  protocol_version: ProtocolVersion;
   /**
-   * The surface a `hello` comes from (ADR 0024).
+   * The surface it comes from.
    */
-  surface: "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "kennel" | "cloud" | "browser_host" | "worker";
+  surface: Surface;
   /**
    * The Daemon's token; an Attached engine needs none.
    */
@@ -3336,7 +3181,7 @@ export interface HelloResult {
    * of its events count within it, so a Client that meets a new one
    * resyncs (ADR 0031).
    */
-  engine_instance: string;
+  engine_instance: EngineInstance;
   /**
    * An Attached engine's private endpoint, reported to the Client of its
    * stdio alone: where that Client's `workers=N` handler processes, and a
@@ -3344,18 +3189,17 @@ export interface HelloResult {
    */
   private_endpoint?: PrivateEndpoint | null;
   /**
-   * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
-   * writes it.
+   * The engine's Product.
    */
-  product: "collie" | "foxhound";
+  product: Product;
   /**
    * The engine's Product version.
    */
-  product_version: string;
+  product_version: ProductVersion;
   /**
    * The protocol version the engine speaks.
    */
-  protocol_version: string;
+  protocol_version: ProtocolVersion;
 }
 /**
  * An Attached engine's private endpoint (ADRs 0024 and 0031): where it
@@ -3370,29 +3214,11 @@ export interface PrivateEndpoint {
   /**
    * Where it listens.
    */
-  address:
-    | {
-        unix: string;
-      }
-    | {
-        tcp: string;
-      };
+  address: DaemonEndpoint;
   /**
    * The path of the file holding its token.
    */
   token_file: string;
-}
-/**
- * The options of the `html` format.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "HtmlOptions".
- */
-export interface HtmlOptions1 {
-  /**
-   * Which of the page's HTML it holds.
-   */
-  kind: "raw" | "cleaned" | "main";
 }
 /**
  * A Human pause waiting for a person (ADR 0092).
@@ -3414,17 +3240,7 @@ export interface HumanPause {
   /**
    * Whether the program or the engine raised it.
    */
-  raised_by:
-    | {
-        by: "program";
-      }
-    | {
-        by: "engine";
-        /**
-         * The step.
-         */
-        step: "login_recovery" | "challenge_ladder";
-      };
+  raised_by: PauseOrigin;
   /**
    * Why, as the program or the engine said it.
    */
@@ -3434,9 +3250,9 @@ export interface HumanPause {
    */
   session: string;
   /**
-   * A point in time in UTC, as RFC 3339.
+   * Since when it waits.
    */
-  since: string;
+  since: PointInTime;
   /**
    * The condition that ends it by itself, as text.
    */
@@ -3499,7 +3315,7 @@ export interface KeyValueStoreBytes {
   /**
    * The bytes, in Base64.
    */
-  content: string;
+  content: KeyValueStoreContent;
   /**
    * Their content type, as `set_bytes` gave it.
    */
@@ -3540,7 +3356,7 @@ export interface KeyValueStoreKey {
   /**
    * The id of the `key_value_store.keys` call.
    */
-  id: number | string;
+  id: RequestId;
   /**
    * The key.
    */
@@ -3566,9 +3382,9 @@ export interface KeyValueStoreKeyParams {
    */
   key: string;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run whose store it is.
    */
-  run_id: string;
+  run_id: RunId;
 }
 /**
  * What `key_value_store.keys` answers once it sent its last key.
@@ -3595,9 +3411,9 @@ export interface KeyValueStoreKeysParams {
    */
   prefix?: string | null;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run whose store it is.
    */
-  run_id: string;
+  run_id: RunId;
 }
 /**
  * What `key_value_store.set` answers once the value is committed.
@@ -3624,7 +3440,7 @@ export interface KeyValueStoreSetBytesParams {
   /**
    * The bytes, in Base64.
    */
-  content: string;
+  content: KeyValueStoreContent;
   /**
    * Their content type, such as `image/png`.
    */
@@ -3634,9 +3450,9 @@ export interface KeyValueStoreSetBytesParams {
    */
   key: string;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run whose store it is.
    */
-  run_id: string;
+  run_id: RunId;
 }
 /**
  * What `key_value_store.set` takes: the Run, the key and its value.
@@ -3656,9 +3472,9 @@ export interface KeyValueStoreSetParams {
    */
   key: string;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run whose store it is.
    */
-  run_id: string;
+  run_id: RunId;
   /**
    * The value: any JSON but a top-level null, which `value_invalid`
    * refuses; a nested null is kept.
@@ -3681,30 +3497,6 @@ export interface KeyValueStoreValue {
   value: {
     [k: string]: unknown;
   };
-}
-/**
- * One kind's concurrency.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "KindConcurrency".
- */
-export interface KindConcurrency3 {
-  /**
-   * Its ceiling.
-   */
-  ceiling: number;
-  /**
-   * Its floor.
-   */
-  floor: number;
-  /**
-   * How many are admitted now.
-   */
-  in_use: number;
-  /**
-   * How many the governor admits at once now.
-   */
-  target: number;
 }
 /**
  * What a Run used of one Usage kind.
@@ -3755,51 +3547,18 @@ export interface Limit {
    * such as a Client connection's.
    */
   period?: Period | null;
-  scope: LimitScope1;
+  /**
+   * What it is on.
+   */
+  scope: LimitScope;
   /**
    * Who set it.
    */
-  set_by: "person" | "managed_policy" | "client";
+  set_by: LimitSetter;
   /**
    * The Usage kind it caps, a value of a type both Products share.
    */
   usage_kind: string;
-}
-/**
- * What it is on.
- */
-export interface LimitScope1 {
-  /**
-   * Which one of its kind: the major's name for a Daemon, the person's
-   * name, the token's name or the Client connection's ID; empty for the
-   * install.
-   */
-  id: string;
-  /**
-   * The scope's kind.
-   */
-  kind: string;
-}
-/**
- * What a Limit is on: a scope kind, a value of a type both Products share
- * (`install`, `daemon`, `person`, `token`, `connection`, and Foxhound's
- * `partitioned_crawl`), and which one of its kind (ADR 0041). A kind this
- * reader does not know is kept as it is.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "LimitScope".
- */
-export interface LimitScope2 {
-  /**
-   * Which one of its kind: the major's name for a Daemon, the person's
-   * name, the token's name or the Client connection's ID; empty for the
-   * install.
-   */
-  id: string;
-  /**
-   * The scope's kind.
-   */
-  kind: string;
 }
 /**
  * One Limit with the Usage counted against it in its current period.
@@ -3821,7 +3580,10 @@ export interface LimitUsage {
    * What is left of the amount in the current period.
    */
   left: number;
-  limit: Limit1;
+  /**
+   * The Limit.
+   */
+  limit: Limit;
   /**
    * The major of the managed Operator policy whose row it is; none for
    * a row no managed policy wrote.
@@ -3838,41 +3600,7 @@ export interface LimitUsage {
   /**
    * What the engine that read it makes of it.
    */
-  standing: "held" | "foxhound" | "not_understood";
-}
-/**
- * The Limit.
- */
-export interface Limit1 {
-  /**
-   * How much it allows per period: a count of the Usage kind, or
-   * millionths of the currency.
-   */
-  amount: number;
-  /**
-   * The currency it caps the Usage kind's price in, an ISO 4217 code;
-   * none for a Limit on the Usage itself.
-   */
-  currency?: string | null;
-  /**
-   * Whether an engine that cannot evaluate it must refuse the runs it
-   * cannot place outside it, with `limit_not_understood`.
-   */
-  must_understand: boolean;
-  /**
-   * The period it counts over; none for a Limit that never starts again,
-   * such as a Client connection's.
-   */
-  period?: Period | null;
-  scope: LimitScope1;
-  /**
-   * Who set it.
-   */
-  set_by: "person" | "managed_policy" | "client";
-  /**
-   * The Usage kind it caps, a value of a type both Products share.
-   */
-  usage_kind: string;
+  standing: LimitStanding;
 }
 /**
  * A link of the page: an `<a href>` or `<area href>`, in document order.
@@ -3908,10 +3636,22 @@ export interface Link {
  * via the `definition` "ListField".
  */
 export interface ListField {
+  /**
+   * The field read from each element.
+   */
   list: ValueField;
 }
 /**
- * The field read from each element.
+ * A value field (ADRs 0123 and 0147): the first element its locator
+ * ladder finds in the page, its locator tried first, then each of its
+ * `fallbacks` in turn until one finds an element; its text, its runs of
+ * white space read as one space and trimmed, or one of its attributes, an
+ * `href` or `src` resolved against the document's base URL; optionally a
+ * capture group of a regular expression over that text; then its Value
+ * transform. A field the page does not give is null, with why.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ValueField".
  */
 export interface ValueField {
   /**
@@ -3927,25 +3667,9 @@ export interface ValueField {
    */
   fallbacks?: FieldLocator[];
   /**
-   * What finds a field's element, named by `kind`: a CSS selector or an
-   * `XPath` expression, each read alike on every tier, a page a fetch tier
-   * serves from its document reading it as a browser reads it.
+   * What finds its element.
    */
-  locator:
-    | {
-        kind: "css";
-        /**
-         * The selector.
-         */
-        selector: string;
-      }
-    | {
-        kind: "xpath";
-        /**
-         * The expression.
-         */
-        selector: string;
-      };
+  locator: FieldLocator;
   /**
    * The `match` that picks the text its transform reads.
    */
@@ -3953,53 +3677,7 @@ export interface ValueField {
   /**
    * Its Value transform: `text` by default.
    */
-  transform?:
-    | {
-        kind: "text";
-      }
-    | {
-        kind: "number";
-        /**
-         * Its locale.
-         */
-        locale: string;
-      }
-    | {
-        kind: "date";
-        /**
-         * Its locale.
-         */
-        locale: string;
-      }
-    | {
-        kind: "date_time";
-        /**
-         * Its locale.
-         */
-        locale: string;
-        /**
-         * The time zone, an IANA name, of a text that states none.
-         */
-        time_zone?: string | null;
-      };
-}
-/**
- * A locator (ADR 0085): what an action looks for on a page, resolved
- * again at each use, never a handle on an element. This tracer's locators
- * are CSS selectors.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "Locator".
- */
-export interface Locator2 {
-  /**
-   * The page it looks on.
-   */
-  page_id: string;
-  /**
-   * A CSS selector, which also matches inside open shadow roots.
-   */
-  selector: string;
+  transform?: FieldTransform;
 }
 /**
  * What `locator.evaluate_all` takes: the locator, the function's source,
@@ -4020,24 +3698,14 @@ export interface LocatorEvaluateAllParams {
    * array of matches and `arg`, or an expression, which takes neither.
    */
   function: string;
-  locator: Locator3;
+  /**
+   * The locator, whose every match the function takes first.
+   */
+  locator: Locator;
   /**
    * Where it runs; the main world when absent.
    */
   world?: World | null;
-}
-/**
- * The locator, whose every match the function takes first.
- */
-export interface Locator3 {
-  /**
-   * The page it looks on.
-   */
-  page_id: string;
-  /**
-   * A CSS selector, which also matches inside open shadow roots.
-   */
-  selector: string;
 }
 /**
  * What `locator.wait_for_function` takes: the locator, the function's
@@ -4058,7 +3726,11 @@ export interface LocatorWaitForFunctionParams {
    * element and `arg`, or an expression, which takes neither.
    */
   function: string;
-  locator: Locator4;
+  /**
+   * The locator, whose one match the function takes first, resolved
+   * again at each check.
+   */
+  locator: Locator;
   /**
    * The milliseconds between two checks, at least 1; absent, about one
    * frame's, 16.
@@ -4076,27 +3748,16 @@ export interface LocatorWaitForFunctionParams {
   world?: World | null;
 }
 /**
- * The locator, whose one match the function takes first, resolved
- * again at each check.
- */
-export interface Locator4 {
-  /**
-   * The page it looks on.
-   */
-  page_id: string;
-  /**
-   * A CSS selector, which also matches inside open shadow roots.
-   */
-  selector: string;
-}
-/**
  * What `locator.wait_for` takes: the locator and the state of its element.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "LocatorWaitForParams".
  */
 export interface LocatorWaitForParams {
-  locator: Locator5;
+  /**
+   * The locator.
+   */
+  locator: Locator;
   /**
    * The state; `visible` when absent.
    */
@@ -4107,19 +3768,6 @@ export interface LocatorWaitForParams {
    * applies (ADR 0080).
    */
   timeout?: number | null;
-}
-/**
- * The locator.
- */
-export interface Locator5 {
-  /**
-   * The page it looks on.
-   */
-  page_id: string;
-  /**
-   * A CSS selector, which also matches inside open shadow roots.
-   */
-  selector: string;
 }
 /**
  * What `$/log` carries: one log event of the engine.
@@ -4140,10 +3788,9 @@ export interface LogEvent {
     [k: string]: unknown;
   };
   /**
-   * The level of the engine's log events a Connection receives: those at
-   * it and above; `off`, the default, receives none.
+   * Its level, never `off`.
    */
-  level: "off" | "error" | "warn" | "info" | "debug" | "trace";
+  level: LogLevel;
   /**
    * Its message.
    */
@@ -4162,18 +3809,6 @@ export interface LogEvent {
  */
 export interface LogLevelSet {}
 /**
- * The options of the `markdown` format.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "MarkdownOptions".
- */
-export interface MarkdownOptions1 {
-  /**
-   * How much of the page it holds.
-   */
-  content: "main" | "full" | "fit";
-}
-/**
  * A media source of the page: a `<video src>`, an `<audio src>` or a
  * `<source src>` of either, in document order.
  *
@@ -4184,7 +3819,7 @@ export interface Media {
   /**
    * Whether it plays video or audio.
    */
-  kind: "video" | "audio";
+  kind: MediaKind;
   /**
    * Its `src` as the document writes it.
    */
@@ -4214,7 +3849,7 @@ export interface MemoryReading {
   /**
    * What set it.
    */
-  allowance_source: "cgroup" | "job_object" | "setting" | "physical";
+  allowance_source: AllowanceSource;
   /**
    * What the browsers it counts use, in bytes, each process with its
    * descendants (PSS on Linux), summed; part of `used`, 0 with none.
@@ -4225,7 +3860,7 @@ export interface MemoryReading {
    * the memory-pressure level on macOS, the low-memory notification on
    * Windows.
    */
-  host: "normal" | "pressure" | "critical";
+  host: GovernorLevel;
   /**
    * What the engine and its children use, in bytes: PSS on Linux, so
    * pages its browsers share count once.
@@ -4326,26 +3961,6 @@ export interface MicrodataItem {
   type: string[];
 }
 /**
- * An item, the element having `itemscope`.
- */
-export interface MicrodataItem1 {
-  /**
-   * Its `itemid`, resolved against the document's base URL; `null` when
-   * it has none or it does not parse.
-   */
-  id?: string | null;
-  /**
-   * Its properties, by name, each name's values in tree order.
-   */
-  properties: {
-    [k: string]: MicrodataValue[];
-  };
-  /**
-   * Its `itemtype` tokens; empty when it has none.
-   */
-  type: string[];
-}
-/**
  * One kind of a Run's Model allowance (ADR 0107): the most model Usage
  * of that kind the Run may spend, past which its model calls are refused
  * while it goes on.
@@ -4371,38 +3986,14 @@ export interface ModelAllowance {
    * What remains of it, spent and reserved taken off.
    */
   remains: number;
-  source: SettingLimit1;
+  /**
+   * The setting that set it, its value and its layer.
+   */
+  source: SettingLimit;
   /**
    * What it allows: a count, or millionths of the currency.
    */
   value: number;
-}
-/**
- * A setting that decided an outcome: its key, its value, the layer that
- * set it and, for the run layer, where the value came from (ADRs 0028,
- * 0079 and 0083).
- */
-export interface SettingLimit1 {
-  /**
-   * The setting's key.
-   */
-  key: string;
-  /**
-   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
-   */
-  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
-  /**
-   * For the run layer, where the value came from, such as `argument`
-   * for a call's own `timeout` (ADR 0083); absent when unknown or for
-   * another layer.
-   */
-  origin?: RunOrigin | null;
-  /**
-   * Its value.
-   */
-  value: {
-    [k: string]: unknown;
-  };
 }
 /**
  * What model calls used, and its price (ADR 0101).
@@ -4592,7 +4183,10 @@ export interface NeedsYouAllowConsentDomainParams {
   domain: string;
 }
 /**
- * The item.
+ * One thing waiting for a person.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NeedsYouItem".
  */
 export interface NeedsYouItem {
   /**
@@ -4634,9 +4228,9 @@ export interface NeedsYouItem {
    */
   schedule?: string | null;
   /**
-   * A point in time in UTC, as RFC 3339.
+   * Since when it waits.
    */
-  since: string;
+  since: PointInTime;
   /**
    * What waits, in the engine's English, which a Client shows for a kind
    * it has no words of its own for.
@@ -4685,61 +4279,6 @@ export interface NeedsYouDismissed {
   dismissed: boolean;
 }
 /**
- * One thing waiting for a person.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "NeedsYouItem".
- */
-export interface NeedsYouItem1 {
-  /**
-   * The catalog operations a person may answer it with, such as
-   * `needs_you.dismiss`; empty when only something outside the engine,
-   * such as freeing space, resolves it.
-   */
-  actions: string[];
-  /**
-   * Its kind's own fields, which the kind's value in the catalog names:
-   * for `storage_level`, `level` and `folder`; for
-   * `run_stopped_by_storage`, `folder`; for `run_stopped_by_limit`,
-   * `limit`, `amount`, `needs` and, for a Recipe's Run, `recipe`; for
-   * `consent_wall`, `domain`; for `wall_refetch_stopped`, `domain`,
-   * `cause`, the `layer` and `file` that list it and `only_star`; for
-   * `certificate_changed`, `host`, `person`, `pinned_spki_sha256` and
-   * `presented_spki_sha256`.
-   */
-  details?: {
-    [k: string]: unknown;
-  };
-  /**
-   * Its ID, which names this one occurrence for good: a Run stopped
-   * again by storage after a resume is another item.
-   */
-  id: string;
-  /**
-   * What it is, a value of a type both Products share, such as
-   * `storage_level`; a Client shows a kind it does not know by its
-   * summary.
-   */
-  kind: string;
-  /**
-   * The Run it is about, if any.
-   */
-  run?: RunId | null;
-  /**
-   * The Schedule it is about, if any.
-   */
-  schedule?: string | null;
-  /**
-   * A point in time in UTC, as RFC 3339.
-   */
-  since: string;
-  /**
-   * What waits, in the engine's English, which a Client shows for a kind
-   * it has no words of its own for.
-   */
-  summary: string;
-}
-/**
  * What `needs_you.list` answers: one page of the items, the longest
  * waiting first.
  *
@@ -4750,7 +4289,7 @@ export interface NeedsYouList {
   /**
    * The items, by `since`, then by ID.
    */
-  items: NeedsYouItem1[];
+  items: NeedsYouItem[];
   /**
    * Where the next page starts, as the next call's `after`; absent on
    * the last page.
@@ -4799,9 +4338,9 @@ export interface NeedsYouRemoveRefetchDomainParams {
  */
 export interface NewPageParams {
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run.
    */
-  run_id: string;
+  run_id: RunId;
   /**
    * The page's own settings, nested by key (ADR 0083), which it takes
    * over its Session's and its Run's: `content.extractor`, the
@@ -4824,7 +4363,7 @@ export interface NewSessionPageParams {
   /**
    * The Session.
    */
-  session_id: string;
+  session_id: SessionId;
   /**
    * The page's own settings, nested by key (ADR 0083), which it takes
    * over its Session's and its Run's: `content.extractor`, the
@@ -4846,9 +4385,9 @@ export interface NewSessionPageParams {
  */
 export interface NewSessionParams {
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run.
    */
-  run_id: string;
+  run_id: RunId;
   /**
    * The Session's own settings, nested by key: `filter_lists.ads`,
    * `.trackers`, `.annoyances`, `.first_party_scripts`,
@@ -4890,26 +4429,14 @@ export interface NotUnderstoodLimit {
    * Its period; none for a Limit that never starts again.
    */
   period?: Period | null;
-  scope: LimitScope3;
+  /**
+   * The Limit's scope.
+   */
+  scope: LimitScope;
   /**
    * The Usage kind it caps.
    */
   usage_kind: string;
-}
-/**
- * The Limit's scope.
- */
-export interface LimitScope3 {
-  /**
-   * Which one of its kind: the major's name for a Daemon, the person's
-   * name, the token's name or the Client connection's ID; empty for the
-   * install.
-   */
-  id: string;
-  /**
-   * The scope's kind.
-   */
-  kind: string;
 }
 /**
  * How many seeds one reason kept from a handler.
@@ -4970,7 +4497,7 @@ export interface PolicyEntry {
   /**
    * Its table.
    */
-  table: "settings" | "lock" | "cap";
+  table: PolicyTable;
   /**
    * Its value.
    */
@@ -4990,9 +4517,9 @@ export interface PageBodyParams {
    */
   body: string;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run whose folder holds it.
    */
-  run_id: string;
+  run_id: RunId;
 }
 /**
  * What `page.body` answers once it sent the last chunk.
@@ -5017,7 +4544,7 @@ export interface PageCloseParams {
   /**
    * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * Runs the page's `beforeunload` handlers first, whose dialog goes to
    * the page's dialog handlers; false when absent.
@@ -5042,7 +4569,7 @@ export interface PageDownload {
   /**
    * The page whose navigation it was.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * The file name the browser suggests for it.
    */
@@ -5060,11 +4587,22 @@ export interface PageDownload {
  * via the `definition` "PageExchange".
  */
 export interface PageExchange {
+  /**
+   * The request.
+   */
   request: PageRequest;
-  response: PageResponse1;
+  /**
+   * Its response, whose body `response.body` reads.
+   */
+  response: PageResponse;
 }
 /**
- * The request.
+ * A request of a page, ADR 0085's `Request`: one per hop of a redirect
+ * chain, each hop under its own `request_id`, as Playwright's
+ * `redirectedFrom()` and `redirectedTo()` tell them apart.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PageRequest".
  */
 export interface PageRequest {
   /**
@@ -5090,7 +4628,7 @@ export interface PageRequest {
   /**
    * The page that sent it.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * Its body, in Base64 (RFC 4648, with padding), when it has one.
    */
@@ -5141,236 +4679,24 @@ export interface RequestFailure {
   error_text: string;
 }
 /**
- * The response to a request of a page, such as a navigation's document.
- */
-export interface PageResponse1 {
-  /**
-   * For a navigation's document, the encoding the browser decoded it
-   * with, as `document.characterSet` names it, such as `Shift_JIS` (ADR
-   * 0119); none for another response, and for a navigation that answered
-   * at `commit`, before its document was decoded.
-   */
-  encoding?: string | null;
-  /**
-   * Whether a site's service worker supplied it, from its own cache or
-   * through its own fetch (ADR 0121).
-   */
-  from_service_worker: boolean;
-  /**
-   * Its headers, their names lower-cased, as the browser received them.
-   */
-  headers: {
-    [k: string]: string;
-  };
-  /**
-   * The engine's ID for its request's hop, which `response.body` takes:
-   * its request's `request_id`.
-   */
-  request_id: string;
-  /**
-   * Its HTTP status.
-   */
-  status: number;
-  /**
-   * Its status text.
-   */
-  status_text: string;
-  /**
-   * Its final URL.
-   */
-  url: string;
-}
-/**
- * The first element its locator finds.
- */
-export interface ValueField1 {
-  /**
-   * The attribute read in place of the element's text.
-   */
-  attribute?: string | null;
-  /**
-   * Its locator ladder's further rungs: when `locator` finds no
-   * element, the first of these, in order, that finds one supplies it;
-   * in a list, the first that finds any; in rows, the first that finds
-   * one under the row's element. Each is checked as `locator` is when
-   * the call or crawl starts.
-   */
-  fallbacks?: FieldLocator[];
-  /**
-   * What finds a field's element, named by `kind`: a CSS selector or an
-   * `XPath` expression, each read alike on every tier, a page a fetch tier
-   * serves from its document reading it as a browser reads it.
-   */
-  locator:
-    | {
-        kind: "css";
-        /**
-         * The selector.
-         */
-        selector: string;
-      }
-    | {
-        kind: "xpath";
-        /**
-         * The expression.
-         */
-        selector: string;
-      };
-  /**
-   * The `match` that picks the text its transform reads.
-   */
-  match?: FieldMatch | null;
-  /**
-   * Its Value transform: `text` by default.
-   */
-  transform?:
-    | {
-        kind: "text";
-      }
-    | {
-        kind: "number";
-        /**
-         * Its locale.
-         */
-        locale: string;
-      }
-    | {
-        kind: "date";
-        /**
-         * Its locale.
-         */
-        locale: string;
-      }
-    | {
-        kind: "date_time";
-        /**
-         * Its locale.
-         */
-        locale: string;
-        /**
-         * The time zone, an IANA name, of a text that states none.
-         */
-        time_zone?: string | null;
-      };
-}
-/**
- * Every element its locator finds.
- */
-export interface ListField1 {
-  list: ValueField;
-}
-/**
- * Fields read under each element a base locator finds.
+ * Rows: for each element the base locator finds, in document order, one
+ * object of the named value fields, each read from the first element its
+ * locator finds under that element.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RowsField".
  */
 export interface RowsField {
   /**
    * Each row's fields, by name.
    */
   fields: {
-    [k: string]: ValueField2;
+    [k: string]: ValueField;
   };
   /**
-   * What finds a field's element, named by `kind`: a CSS selector or an
-   * `XPath` expression, each read alike on every tier, a page a fetch tier
-   * serves from its document reading it as a browser reads it.
+   * What finds each row's element.
    */
-  rows:
-    | {
-        kind: "css";
-        /**
-         * The selector.
-         */
-        selector: string;
-      }
-    | {
-        kind: "xpath";
-        /**
-         * The expression.
-         */
-        selector: string;
-      };
-}
-/**
- * A value field (ADRs 0123 and 0147): the first element its locator
- * ladder finds in the page, its locator tried first, then each of its
- * `fallbacks` in turn until one finds an element; its text, its runs of
- * white space read as one space and trimmed, or one of its attributes, an
- * `href` or `src` resolved against the document's base URL; optionally a
- * capture group of a regular expression over that text; then its Value
- * transform. A field the page does not give is null, with why.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "ValueField".
- */
-export interface ValueField2 {
-  /**
-   * The attribute read in place of the element's text.
-   */
-  attribute?: string | null;
-  /**
-   * Its locator ladder's further rungs: when `locator` finds no
-   * element, the first of these, in order, that finds one supplies it;
-   * in a list, the first that finds any; in rows, the first that finds
-   * one under the row's element. Each is checked as `locator` is when
-   * the call or crawl starts.
-   */
-  fallbacks?: FieldLocator[];
-  /**
-   * What finds a field's element, named by `kind`: a CSS selector or an
-   * `XPath` expression, each read alike on every tier, a page a fetch tier
-   * serves from its document reading it as a browser reads it.
-   */
-  locator:
-    | {
-        kind: "css";
-        /**
-         * The selector.
-         */
-        selector: string;
-      }
-    | {
-        kind: "xpath";
-        /**
-         * The expression.
-         */
-        selector: string;
-      };
-  /**
-   * The `match` that picks the text its transform reads.
-   */
-  match?: FieldMatch | null;
-  /**
-   * Its Value transform: `text` by default.
-   */
-  transform?:
-    | {
-        kind: "text";
-      }
-    | {
-        kind: "number";
-        /**
-         * Its locale.
-         */
-        locale: string;
-      }
-    | {
-        kind: "date";
-        /**
-         * Its locale.
-         */
-        locale: string;
-      }
-    | {
-        kind: "date_time";
-        /**
-         * Its locale.
-         */
-        locale: string;
-        /**
-         * The time zone, an IANA name, of a text that states none.
-         */
-        time_zone?: string | null;
-      };
+  rows: FieldLocator;
 }
 /**
  * What `page.load`, `page.dom_content_loaded`, `page.crash` and
@@ -5384,7 +4710,7 @@ export interface PageFired {
   /**
    * The page.
    */
-  page_id: string;
+  page_id: PageId;
 }
 /**
  * What `page.formats` answers: the formats the request asked for, and
@@ -5401,7 +4727,10 @@ export interface PageFormats {
    * else its URL.
    */
   base_url: string;
-  contacts?: Contacts1;
+  /**
+   * Its contacts, when the request asked for them.
+   */
+  contacts?: Contacts;
   /**
    * Its HTML of the kind the request named, when it asked for it.
    */
@@ -5418,7 +4747,7 @@ export interface PageFormats {
    * Whether it has main content, when the request asked for a format
    * read from it ([`FormatsRequest::reads_main_content`]).
    */
-  main_content?: "found" | "none";
+  main_content?: MainContent;
   /**
    * Its content as Markdown, when the request asked for it.
    */
@@ -5427,7 +4756,10 @@ export interface PageFormats {
    * Its media sources, when the request asked for them.
    */
   media?: Media[];
-  metadata?: Metadata1;
+  /**
+   * Its metadata, when the request asked for it.
+   */
+  metadata?: Metadata;
   /**
    * Its tables, when the request asked for them.
    */
@@ -5440,72 +4772,6 @@ export interface PageFormats {
    * The document's URL, after redirects.
    */
   url: string;
-}
-/**
- * Its contacts, when the request asked for them.
- */
-export interface Contacts1 {
-  /**
-   * Its e-mail addresses, from `mailto:` links and from text matching
-   * the HTML Standard's valid e-mail address syntax.
-   */
-  emails: Email[];
-  /**
-   * Its telephone numbers, from `tel:` links and from text.
-   */
-  phones: Phone[];
-  /**
-   * Its social profiles, from links to the extractor's list of networks.
-   */
-  social: SocialProfile[];
-}
-/**
- * Its metadata, when the request asked for it.
- */
-export interface Metadata1 {
-  /**
-   * Its `<link rel="canonical">`'s `href` resolved against the base URL;
-   * `null` when it has none or it does not parse.
-   */
-  canonical?: string | null;
-  /**
-   * Its `<meta name="description">`'s content; `null` when it has none.
-   */
-  description?: string | null;
-  /**
-   * Each `<script type="application/ld+json">` block that parses, as
-   * JSON, in document order.
-   */
-  json_ld: unknown[];
-  /**
-   * Its root element's `lang`; `null` when it has none.
-   */
-  lang?: string | null;
-  /**
-   * Its `<meta name>` tags other than Open Graph's and Twitter's, by name
-   * in lower case, the first of a name kept.
-   */
-  meta: {
-    [k: string]: string;
-  };
-  /**
-   * Its top-level microdata items, in tree order.
-   */
-  microdata: MicrodataItem[];
-  /**
-   * Its Open Graph tags: every `<meta property>` not named `twitter:`,
-   * and every `<meta name>` named `og:`.
-   */
-  open_graph: MetaTag[];
-  /**
-   * Its first `<title>`'s text, white space collapsed; `null` when it
-   * has none.
-   */
-  title?: string | null;
-  /**
-   * Its Twitter tags, those named `twitter:`.
-   */
-  twitter: MetaTag[];
 }
 /**
  * A table of the page, in document order, a table inside another listed
@@ -5541,7 +4807,7 @@ export interface PageOnDialogParams {
   /**
    * The page.
    */
-  page_id: string;
+  page_id: PageId;
 }
 /**
  * What `page.on` answers when its page goes, closed or with its Run.
@@ -5560,23 +4826,11 @@ export interface PageOnParams {
   /**
    * The event.
    */
-  event:
-    | "console"
-    | "page_error"
-    | "request"
-    | "request_finished"
-    | "request_failed"
-    | "response"
-    | "web_socket"
-    | "load"
-    | "dom_content_loaded"
-    | "crash"
-    | "close"
-    | "popup";
+  event: PageEventName;
   /**
    * The page.
    */
-  page_id: string;
+  page_id: PageId;
 }
 /**
  * What `run.new_page` and `session.new_page` answer: the page, and the
@@ -5589,11 +4843,11 @@ export interface PageOpened {
   /**
    * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * Its Session: the Run's default Session for `run.new_page`.
    */
-  session_id: string;
+  session_id: SessionId;
 }
 /**
  * What `page.reload`, `page.go_back` and `page.go_forward` take: the page.
@@ -5605,7 +4859,7 @@ export interface PageParams {
   /**
    * The page.
    */
-  page_id: string;
+  page_id: PageId;
 }
 /**
  * What `page.popup` reports: the page that opened a popup, and the
@@ -5618,21 +4872,11 @@ export interface PagePopup {
   /**
    * The opener.
    */
-  page_id: string;
-  popup: PageOpened1;
-}
-/**
- * The popup.
- */
-export interface PageOpened1 {
+  page_id: PageId;
   /**
-   * The page.
+   * The popup.
    */
-  page_id: string;
-  /**
-   * Its Session: the Run's default Session for `run.new_page`.
-   */
-  session_id: string;
+  popup: PageOpened;
 }
 /**
  * What `page.read` answers: each field's value by its name, and each
@@ -5674,70 +4918,7 @@ export interface PageReadParams {
   /**
    * The page.
    */
-  page_id: string;
-}
-/**
- * A request of a page, ADR 0085's `Request`: one per hop of a redirect
- * chain, each hop under its own `request_id`, as Playwright's
- * `redirectedFrom()` and `redirectedTo()` tell them apart.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "PageRequest".
- */
-export interface PageRequest1 {
-  /**
-   * Why it failed, for `page.request_failed`; none otherwise.
-   */
-  failure?: RequestFailure | null;
-  /**
-   * Its headers as the browser sent them, their names in lowercase, as
-   * Playwright gives them.
-   */
-  headers: {
-    [k: string]: string;
-  };
-  /**
-   * Whether it loads the document of one of the page's frames, its main
-   * frame's or an iframe's, as Playwright's `isNavigationRequest()`.
-   */
-  is_navigation_request: boolean;
-  /**
-   * Its method, such as `GET`.
-   */
-  method: string;
-  /**
-   * The page that sent it.
-   */
-  page_id: string;
-  /**
-   * Its body, in Base64 (RFC 4648, with padding), when it has one.
-   */
-  post_data?: string | null;
-  /**
-   * The URLs of the hops a redirect led from before it, the first first;
-   * empty when no redirect led to it.
-   */
-  redirect_chain: string[];
-  /**
-   * The `request_id` of the hop whose redirect led to it, Playwright's
-   * `redirectedFrom()`; none at a request's first hop.
-   */
-  redirected_from?: string | null;
-  /**
-   * The engine's ID for this hop, which `response.body` takes: the
-   * browser's ID for the request at its first hop, and that ID with
-   * `#` and the hop's number after each redirect.
-   */
-  request_id: string;
-  /**
-   * What it loads, as Playwright's `resourceType()` names it: the
-   * browser's name in lowercase, such as `document`, `fetch` or `xhr`.
-   */
-  resource_type: string;
-  /**
-   * Its URL.
-   */
-  url: string;
+  page_id: PageId;
 }
 /**
  * What `page.request` takes: the page whose Session sends the request, and
@@ -5767,7 +4948,7 @@ export interface PageRequestParams {
   /**
    * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * Its body, in Base64.
    */
@@ -5788,25 +4969,11 @@ export interface PageRouteParams {
   /**
    * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * The URLs it answers.
    */
-  url:
-    | {
-        kind: "glob";
-        /**
-         * The glob.
-         */
-        pattern: string;
-      }
-    | {
-        kind: "regex";
-        /**
-         * The expression's source.
-         */
-        pattern: string;
-      };
+  url: UrlMatcher;
 }
 /**
  * What `page.web_socket` reports: a WebSocket the page opened, whose
@@ -5819,7 +4986,7 @@ export interface PageWebSocket {
   /**
    * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * Its URL.
    */
@@ -5843,7 +5010,7 @@ export interface PlanReport {
   /**
    * What became of its new versions.
    */
-  status: "unchanged" | "promoted" | "pending_review" | "frozen";
+  status: PlanStatus;
   /**
    * The steps that changed, each Agent task one entry (ADR 0100).
    */
@@ -5888,7 +5055,7 @@ export interface PolicyChange {
   /**
    * The table it changes.
    */
-  table: "settings" | "lock" | "cap";
+  table: PolicyTable;
   /**
    * The key's new value; `null` removes it from the table.
    */
@@ -5979,20 +5146,10 @@ export interface PressParams {
    * Playwright's key names.
    */
   key: string;
-  locator: Locator6;
-}
-/**
- * The locator.
- */
-export interface Locator6 {
   /**
-   * The page it looks on.
+   * The locator.
    */
-  page_id: string;
-  /**
-   * A CSS selector, which also matches inside open shadow roots.
-   */
-  selector: string;
+  locator: Locator;
 }
 /**
  * The bytes a Run sent and received through proxies of one proxy kind.
@@ -6063,90 +5220,14 @@ export interface ReachedLimit {
    * When its period starts again; none for a Limit without one.
    */
   resets_at?: PointInTime | null;
-  scope: LimitScope4;
+  /**
+   * The Limit's scope.
+   */
+  scope: LimitScope;
   /**
    * The Usage kind it caps.
    */
   usage_kind: string;
-}
-/**
- * The Limit's scope.
- */
-export interface LimitScope4 {
-  /**
-   * Which one of its kind: the major's name for a Daemon, the person's
-   * name, the token's name or the Client connection's ID; empty for the
-   * install.
-   */
-  id: string;
-  /**
-   * The scope's kind.
-   */
-  kind: string;
-}
-/**
- * How one committed Record was obtained.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "RecordProvenance".
- */
-export interface RecordProvenance1 {
-  /**
-   * The exception of `tls.accept_invalid_certs` its document's host was
-   * reached through; none where its certificate verified.
-   */
-  certificate_exception?: CertificateExceptionMark | null;
-  /**
-   * The digest, `sha256:<hex>`, of the Clean-up rules the Run holds to,
-   * whose Run trace names their date and the release that applied them.
-   */
-  clean_up_rules?: string | null;
-  /**
-   * The encoding the document was read in, and where it came from;
-   * none for a request with no document.
-   */
-  encoding?: EncodingProvenance | null;
-  /**
-   * The Response cache or Response recording that answered in place of
-   * the network; none when the network did.
-   */
-  origin?: ResponseOrigin | null;
-  /**
-   * The payment of a Paid fetch of its page; none where nothing was
-   * paid.
-   */
-  payment?: PaymentMark | null;
-  /**
-   * The ID of the crawl request whose attempt produced it.
-   */
-  request_id: string;
-  /**
-   * `ignored` when its page was fetched while
-   * `site_preferences.respect_robots_txt` was off and
-   * `site_preferences.mark_robots_txt_ignored` on, from a URL its
-   * origin's robots.txt disallows, so a result taken against a site's
-   * stated preferences can be found and removed; none otherwise.
-   */
-  robots_txt?: RobotsTxtMark | null;
-  /**
-   * The tier that fetched that request's document, and how it was
-   * chosen; none where no document was fetched.
-   */
-  tier?: TierProvenance | null;
-  /**
-   * Each field of a code-free crawl the page did not give, null in the
-   * Record, with why; absent where every field was read.
-   */
-  unread_fields?: UnreadField[];
-  /**
-   * Each field whose value an engine Value transform gave, in the
-   * order read; empty where the program parsed its own values.
-   */
-  value_transforms?: TransformProvenance[];
-  /**
-   * The Wall its page was read past; none where no Wall was met.
-   */
-  wall?: WallMarker | null;
 }
 /**
  * What `$/record` carries: the next Record a `run.records` call reads.
@@ -6158,36 +5239,11 @@ export interface RecordRead {
   /**
    * The id of the `run.records` call.
    */
-  id: number | string;
-  record: DatasetRecord1;
-}
-/**
- * The Record.
- */
-export interface DatasetRecord1 {
+  id: RequestId;
   /**
-   * A point in time in UTC, as RFC 3339.
+   * The Record.
    */
-  committed_at: string;
-  /**
-   * Its number in its Dataset, from 1, in commit order, with no gaps.
-   */
-  number: number;
-  provenance: RecordProvenance;
-  /**
-   * The ID of the crawl request whose attempt committed it.
-   */
-  request_id: string;
-  /**
-   * That crawl request's URL.
-   */
-  url: string;
-  /**
-   * The Record, as JSON; the program's schema parses it.
-   */
-  value: {
-    [k: string]: unknown;
-  };
+  record: DatasetRecord;
 }
 /**
  * What a Run did with the Response recording its start named (ADR 0105).
@@ -6283,7 +5339,7 @@ export interface RequestSeed {
   /**
    * The method it is sent with: `GET` by default.
    */
-  method?: string;
+  method?: HttpMethod;
   /**
    * The data the program attaches for its handler.
    */
@@ -6312,7 +5368,7 @@ export interface ResponseBodyParams {
   /**
    * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * The request's hop, by the engine's ID for it.
    */
@@ -6336,7 +5392,7 @@ export interface Resync {
   /**
    * Every item of "Needs you", by `since`, then by ID.
    */
-  needs_you: NeedsYouItem1[];
+  needs_you: NeedsYouItem[];
   /**
    * The axes of each live Run the engine knows. A Run it leaves out
    * ended, and `run.list` gives its axes.
@@ -6358,11 +5414,11 @@ export interface RunAxes {
   /**
    * Where it is.
    */
-  lifecycle: "running" | "stopped" | "finished" | "failed";
+  lifecycle: Lifecycle;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
   /**
    * Whether its own checks prove what it committed, once it ended.
    */
@@ -6382,7 +5438,7 @@ export interface RouteAbortParams {
   /**
    * The request.
    */
-  route_id: string;
+  route_id: RouteId;
 }
 /**
  * What an answer to a route answers once the engine acted on it.
@@ -6450,7 +5506,7 @@ export interface RouteFulfillParams {
   /**
    * The request.
    */
-  route_id: string;
+  route_id: RouteId;
   /**
    * Its status; 200 when absent.
    */
@@ -6468,21 +5524,29 @@ export interface RouteHandleParams {
    * The id of the `page.route` or `session.route` call whose handler is
    * asked.
    */
-  id: number | string;
+  id: RequestId;
   /**
    * The page that sent the request; none for a request a site's service
    * worker sent itself, which belongs to no page and reaches only
    * Session routes (ADR 0121).
    */
   page_id?: PageId | null;
+  /**
+   * The request.
+   */
   request: RouteRequest;
   /**
    * The intercepted request, which an answer names.
    */
-  route_id: string;
+  route_id: RouteId;
 }
 /**
- * The request.
+ * A request as a route sees it: as the page sent it, with the overrides of
+ * the routes that fell back before. The engine's own additions, such as
+ * the Session's cookies, come after every route, so none is here.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RouteRequest".
  */
 export interface RouteRequest {
   /**
@@ -6552,88 +5616,11 @@ export interface RouteOverridesParams {
   /**
    * The request.
    */
-  route_id: string;
+  route_id: RouteId;
   /**
    * Another URL, judged again by the domain policy.
    */
   url?: string | null;
-}
-/**
- * A request as a route sees it: as the page sent it, with the overrides of
- * the routes that fell back before. The engine's own additions, such as
- * the Session's cookies, come after every route, so none is here.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "RouteRequest".
- */
-export interface RouteRequest1 {
-  /**
-   * Its headers, as the page sent them, their names in lowercase, as
-   * Playwright gives them; as a route before replaced them.
-   */
-  headers: {
-    [k: string]: string;
-  };
-  /**
-   * Whether it loads the document of one of the page's frames, its main
-   * frame's or an iframe's, as Playwright's `isNavigationRequest()`.
-   */
-  is_navigation_request: boolean;
-  /**
-   * Its method, such as `GET`.
-   */
-  method: string;
-  /**
-   * Its body, in Base64 (RFC 4648, with padding), when it has one: as
-   * the page sent it, or as a route before replaced it.
-   */
-  post_data?: string | null;
-  /**
-   * What the page loads with it, as Playwright's `resourceType()` names
-   * it: the browser's name in lowercase, such as `document`, `script`
-   * or `xhr`.
-   */
-  resource_type: string;
-  /**
-   * Its URL.
-   */
-  url: string;
-}
-/**
- * Rows: for each element the base locator finds, in document order, one
- * object of the named value fields, each read from the first element its
- * locator finds under that element.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "RowsField".
- */
-export interface RowsField1 {
-  /**
-   * Each row's fields, by name.
-   */
-  fields: {
-    [k: string]: ValueField2;
-  };
-  /**
-   * What finds a field's element, named by `kind`: a CSS selector or an
-   * `XPath` expression, each read alike on every tier, a page a fetch tier
-   * serves from its document reading it as a browser reads it.
-   */
-  rows:
-    | {
-        kind: "css";
-        /**
-         * The selector.
-         */
-        selector: string;
-      }
-    | {
-        kind: "xpath";
-        /**
-         * The expression.
-         */
-        selector: string;
-      };
 }
 /**
  * What `run.abort` takes: the Run, and whether the abort was forwarded.
@@ -6649,9 +5636,9 @@ export interface RunAbortParams {
    */
   forwarded?: boolean;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
 }
 /**
  * What `run.aborting` carries.
@@ -6663,11 +5650,11 @@ export interface RunAborting {
   /**
    * Who aborts it.
    */
-  by: "client" | "program" | "browser";
+  by: StoppedBy;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
 }
 /**
  * What `run.checkpoint` takes.
@@ -6682,9 +5669,9 @@ export interface RunCheckpointParams {
    */
   location?: string | null;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
 }
 /**
  * What `run.checkpointing` carries.
@@ -6698,9 +5685,9 @@ export interface RunCheckpointing {
    */
   run_epoch: number;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
 }
 /**
  * What `run.discard` answers: the Run it discarded (ADRs 0001 and 0036).
@@ -6710,9 +5697,9 @@ export interface RunCheckpointing {
  */
 export interface RunDiscarded {
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
 }
 /**
  * What `run.finish` takes: the Run, and how long the call waits for its
@@ -6723,9 +5710,9 @@ export interface RunDiscarded {
  */
 export interface RunFinishParams {
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
   /**
    * How long the call waits for the Run's end, in milliseconds, at least
    * 1, as `timeout.run` for this call alone: absent or `null` for none,
@@ -6753,21 +5740,20 @@ export interface RunIndexRow {
   /**
    * What kind of Run it is.
    */
-  kind: "collie" | "crawl";
+  kind: RunKind;
   /**
    * Where it is.
    */
-  lifecycle: "running" | "stopped" | "finished" | "failed";
+  lifecycle: Lifecycle;
   /**
    * Its folder: relative to the per-major data folder when it is inside,
    * absolute otherwise.
    */
   location: string;
   /**
-   * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
-   * writes it.
+   * The Product it needs (ADR 0098).
    */
-  needs: "collie" | "foxhound";
+  needs: Product;
   /**
    * While it is live, where the engine that owns it is reached: a
    * Daemon's endpoint, or an Attached engine's private endpoint. An
@@ -6778,7 +5764,7 @@ export interface RunIndexRow {
   /**
    * Whether its state is at its location.
    */
-  presence: "present" | "missing" | "erased";
+  presence: Presence;
   /**
    * The program's own status line, once it set one (RT-15).
    */
@@ -6789,40 +5775,26 @@ export interface RunIndexRow {
    */
   replayed: boolean;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
   /**
-   * A point in time in UTC, as RFC 3339.
+   * When it started.
    */
-  started_at: string;
+  started_at: PointInTime;
   /**
    * Why it stopped, once it stopped: "Needs you" lists a Run stopped by
    * storage from it (ADR 0122).
    */
   stop_reason?: StopReason | null;
+  /**
+   * Its tags (ADR 0036).
+   */
   tags: Tags;
   /**
    * Its Verdict, once it ended.
    */
   verdict?: Verdict | null;
-}
-/**
- * It could not take another Slice of a Limit, and stopped at its next
- * safe point, resumable once the period starts again or a person
- * raises the Limit (ADR 0041).
- */
-export interface ReachedLimit1 {
-  kind: "limit";
-}
-/**
- * A Limit flagged *must understand* that its engine cannot evaluate
- * came to cover it when it charged, and it stopped at its next safe
- * point, resumable by an engine that can (ADR 0041): the stop of the
- * Error code `limit_not_understood`.
- */
-export interface NotUnderstoodLimit1 {
-  kind: "limit_not_understood";
 }
 /**
  * A Limit a program gives a Run at its start (`run.start`'s `limits`):
@@ -6959,9 +5931,9 @@ export interface TimeRange {
  */
 export interface RunMigrating {
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
 }
 /**
  * What `run.usage`, `run.pause` and `run.migrate` take: the Run.
@@ -6971,9 +5943,9 @@ export interface RunMigrating {
  */
 export interface RunParams {
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
 }
 /**
  * A Run's progress as it is now (ADR 0102): what `run.progress` answers
@@ -6984,9 +5956,9 @@ export interface RunParams {
  */
 export interface RunProgress {
   /**
-   * A point in time in UTC, as RFC 3339.
+   * When the engine read it.
    */
-  at: string;
+  at: PointInTime;
   /**
    * When its last Checkpoint was written, once one was.
    */
@@ -7002,9 +5974,9 @@ export interface RunProgress {
    */
   last: boolean;
   /**
-   * Where a Run is (ADR 0029).
+   * Where the Run is.
    */
-  lifecycle: "running" | "stopped" | "finished" | "failed";
+  lifecycle: Lifecycle;
   /**
    * The program's own status line, once it set one.
    */
@@ -7019,9 +5991,9 @@ export interface RunProgress {
    */
   position: number;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
   /**
    * Why it stopped, once it did.
    */
@@ -7034,7 +6006,7 @@ export interface RunProgress {
   /**
    * Whether an engine works it.
    */
-  writer: "live" | "none";
+  writer: RunWriter;
   [k: string]: unknown;
 }
 /**
@@ -7056,7 +6028,7 @@ export interface RunStorage {
   /**
    * The level.
    */
-  level: "normal" | "low" | "critical";
+  level: StorageLevel;
 }
 /**
  * What `run.progress` takes.
@@ -7072,9 +6044,9 @@ export interface RunProgressParams {
    */
   after?: number | null;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
 }
 /**
  * What a Run states about itself when it ends (ADR 0102). A part no area
@@ -7089,18 +6061,17 @@ export interface RunReport {
    */
   checkpoint?: Checkpoint | null;
   /**
-   * Whether a Run's results cover everything in its scope (ADRs 0005 and
-   * 0029).
+   * Whether its results cover its scope.
    */
-  completeness: "complete" | "incomplete" | "unverified";
+  completeness: Completeness;
   /**
    * Why it is not `complete`, when it is not.
    */
   completeness_reasons?: AxisReason[];
   /**
-   * A point in time in UTC, as RFC 3339.
+   * When it ended.
    */
-  ended_at: string;
+  ended_at: PointInTime;
   /**
    * The error the call that ends it raises: the one that failed a
    * `failed` Run, or a write at its end that failed, such as its Plan
@@ -7108,9 +6079,9 @@ export interface RunReport {
    */
   error?: EndingError | null;
   /**
-   * Where a Run is (ADR 0029).
+   * Where it ended.
    */
-  lifecycle: "running" | "stopped" | "finished" | "failed";
+  lifecycle: Lifecycle;
   /**
    * Why the call that answered it did nothing, when it did nothing.
    */
@@ -7133,18 +6104,18 @@ export interface RunReport {
    */
   recording?: RecordingReport | null;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
   /**
    * Each effective value it ran with, the layer that set it and the one
    * that locked it, as `config.explain` gives them (ADR 0028).
    */
   settings?: ExplainedSetting[] | null;
   /**
-   * A point in time in UTC, as RFC 3339.
+   * When it started.
    */
-  started_at: string;
+  started_at: PointInTime;
   /**
    * Why it stopped, when it did.
    */
@@ -7153,12 +6124,16 @@ export interface RunReport {
    * Each Effect it left uncertain, until a person reconciles it (ADR
    * 0106).
    */
-  uncertain_effects?: UncertainEffect1[] | null;
+  uncertain_effects?: UncertainEffect[] | null;
+  /**
+   * What it used, as the Usage ledger charged it, with the Limits that
+   * apply to it (ADR 0101).
+   */
   usage: RunUsage;
   /**
-   * Whether a Run's own checks prove what it committed (ADR 0029).
+   * Whether its own checks prove what it committed.
    */
-  verdict: "verified" | "rejected" | "needs_review";
+  verdict: Verdict;
   /**
    * Why it is not `verified`, when it is not.
    */
@@ -7174,44 +6149,12 @@ export interface RunReport {
   [k: string]: unknown;
 }
 /**
- * An Effect a Run left uncertain (ADR 0106), until a person reconciles it.
+ * What a Run used, as the Usage ledger charged it, and the Limits that
+ * apply to it (ADRs 0041 and 0101): what `run.usage` answers and the
+ * report carries.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "UncertainEffect".
- */
-export interface UncertainEffect1 {
-  /**
-   * The crawl request it ran for, in a crawl.
-   */
-  crawl_request?: string | null;
-  /**
-   * Its Effect journal entry.
-   */
-  entry: string;
-  /**
-   * The first command sent for it.
-   */
-  first_command?: string | null;
-  /**
-   * Its instruction, for an AI action.
-   */
-  instruction?: string | null;
-  /**
-   * Its key, for a declared Effect.
-   */
-  key?: string | null;
-  /**
-   * Why it is uncertain.
-   */
-  reason: string;
-  /**
-   * A point in time in UTC, as RFC 3339.
-   */
-  since: string;
-}
-/**
- * What it used, as the Usage ledger charged it, with the Limits that
- * apply to it (ADR 0101).
+ * via the `definition` "RunUsage".
  */
 export interface RunUsage {
   /**
@@ -7222,7 +6165,10 @@ export interface RunUsage {
    * Each Limit that applies to it, with what is left of it.
    */
   limits?: AppliedLimit[];
-  model: ModelUsage1;
+  /**
+   * Its model calls.
+   */
+  model: ModelUsage;
   /**
    * Its Model allowance, one entry per kind set (ADR 0107): not a Limit,
    * so apart from `limits`; empty when none is set.
@@ -7264,55 +6210,6 @@ export interface RunUsage {
    * it caps (ADR 0041): *uncapped*.
    */
   uncapped?: boolean;
-}
-/**
- * Its model calls.
- */
-export interface ModelUsage1 {
-  /**
-   * The counts and price of each model called, by Model reference.
-   */
-  by_model?: {
-    [k: string]: ModelCounts;
-  };
-  /**
-   * The input tokens read from the provider's cache, part of
-   * `input_tokens`.
-   */
-  cache_read_tokens: number;
-  /**
-   * The input tokens written to the provider's cache, part of
-   * `input_tokens`.
-   */
-  cache_write_tokens: number;
-  /**
-   * The calls, retries and Repairs included.
-   */
-  calls: number;
-  /**
-   * The input tokens, the cached ones included.
-   */
-  input_tokens: number;
-  /**
-   * The output tokens, the reasoning ones included.
-   */
-  output_tokens: number;
-  /**
-   * Their price at the price table's list prices, in its currency: an
-   * estimate, never a bill (ADR 0012). `null` when it needs a price or
-   * a rate the table lacks, never a partial sum.
-   */
-  price?: UsageAmount | null;
-  /**
-   * The output tokens the model spent reasoning, part of
-   * `output_tokens`.
-   */
-  reasoning_tokens: number;
-  /**
-   * The tokens, input and output, what the `model_tokens` Usage kind
-   * counts.
-   */
-  tokens: number;
 }
 /**
  * What a Run warns of (ADR 0102): a code of the warning table, or of a
@@ -7353,9 +6250,9 @@ export interface WeakenedSetting {
    */
   key: string;
   /**
-   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+   * The layer that set it.
    */
-  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  layer: SettingsLayer;
   /**
    * For the run layer, where the value came from.
    */
@@ -7390,9 +6287,9 @@ export interface RunResumeParams {
    */
   project?: ProjectSettings | null;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
   /**
    * The Run's settings from the resume on, nested by key: the run layer
    * (ADRs 0083 and 0102).
@@ -7409,13 +6306,13 @@ export interface RunResumeParams {
  */
 export interface RunSetProgressMessageParams {
   /**
-   * A program's own status line about its Run (RT-15).
+   * The program's status line, which replaces the one before.
    */
-  message: string;
+  message: ProgressMessage;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
 }
 /**
  * What `run.start` takes.
@@ -7447,7 +6344,10 @@ export interface RunStartParams {
   settings?: {
     [k: string]: unknown;
   };
-  tags?: Tags1;
+  /**
+   * The Run's opaque tags.
+   */
+  tags?: Tags;
 }
 /**
  * What a start answers once its Run is started, never at its end.
@@ -7457,22 +6357,22 @@ export interface RunStartParams {
  */
 export interface RunStarted {
   /**
-   * Where a Run is (ADR 0029).
+   * Where it is now.
    */
-  lifecycle: "running" | "stopped" | "finished" | "failed";
+  lifecycle: Lifecycle;
   /**
-   * One of Goodfetch's two Products (ADR 0084), by its mark as the catalog
-   * writes it.
+   * The Product it needs (ADR 0098): Collie until it uses an entry the
+   * catalog marks Foxhound's, Foxhound from then on.
    */
-  needs: "collie" | "foxhound";
+  needs: Product;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
   /**
    * Whether the start began it.
    */
-  started_as: "new" | "resumed" | "ended";
+  started_as: StartedAs;
 }
 /**
  * What `run.stop` takes: the Run, and how long the call waits for its
@@ -7483,9 +6383,9 @@ export interface RunStarted {
  */
 export interface RunStopParams {
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
+  run_id: RunId;
   /**
    * How long the call waits for the Run's safe point, in milliseconds,
    * at least 1: absent for the Run's `timeout.close`, `null` for none
@@ -7502,111 +6402,13 @@ export interface RunStopParams {
  */
 export interface RunStopping {
   /**
-   * Why a Run stopped (ADRs 0029, 0080 and 0102).
+   * Why it stops.
    */
-  cause:
-    | {
-        /**
-         * Who stopped it.
-         */
-        by: "client" | "program" | "browser";
-        kind: "abort";
-      }
-    | {
-        kind: "pause";
-      }
-    | {
-        kind: "migrate";
-      }
-    | {
-        kind: "timeout";
-      }
-    | {
-        kind: "drain";
-      }
-    | ReachedLimit1
-    | NotUnderstoodLimit1
-    | {
-        kind: "engine_lost";
-      }
-    | {
-        kind: "engine_panicked";
-      }
-    | {
-        /**
-         * For storage, the folder whose filesystem filled.
-         */
-        folder?: string | null;
-        kind: "resources";
-        /**
-         * The resource that ran out.
-         */
-        resource: "memory" | "storage";
-      };
+  cause: StopReason;
   /**
-   * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
+   * The Run's ID.
    */
-  run_id: string;
-}
-/**
- * What a Run used, as the Usage ledger charged it, and the Limits that
- * apply to it (ADRs 0041 and 0101): what `run.usage` answers and the
- * report carries.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "RunUsage".
- */
-export interface RunUsage1 {
-  /**
-   * How long it held a browser, in milliseconds.
-   */
-  browser_time: number;
-  /**
-   * Each Limit that applies to it, with what is left of it.
-   */
-  limits?: AppliedLimit[];
-  model: ModelUsage1;
-  /**
-   * Its Model allowance, one entry per kind set (ADR 0107): not a Limit,
-   * so apart from `limits`; empty when none is set.
-   */
-  model_allowance?: ModelAllowance[];
-  /**
-   * What it used of a Usage kind this engine does not name, kept as the
-   * ledger holds it.
-   */
-  other?: KindUsage[];
-  /**
-   * Its Paid fetches, by currency (ADR 0045).
-   */
-  paid_fetches?: UsageAmount[];
-  /**
-   * Its paid solves, by currency (ADR 0035).
-   */
-  paid_solves?: UsageAmount[];
-  /**
-   * The bytes it sent and received through a proxy.
-   */
-  proxy_bytes: number;
-  /**
-   * The bytes it sent and received through a Proxy provider's proxies,
-   * by proxy kind (ADR 0021), cheapest kind first.
-   */
-  proxy_bytes_by_kind?: ProxyKindBytes[];
-  /**
-   * The price of those bytes, by currency, at each provider's configured
-   * price (ADR 0101).
-   */
-  proxy_price?: UsageAmount[];
-  /**
-   * The requests it sent.
-   */
-  requests: number;
-  /**
-   * Whether it spent, or reserved, money in a currency no Limit holding
-   * it caps (ADR 0041): *uncapped*.
-   */
-  uncapped?: boolean;
+  run_id: RunId;
 }
 /**
  * What `sample.echo` repeats.
@@ -7673,53 +6475,20 @@ export interface SampleStorePutResult {
   replaced: boolean;
 }
 /**
- * One request.
- */
-export interface RequestSeed1 {
-  /**
-   * The body it is sent with, if any.
-   */
-  body?: HttpBody | null;
-  /**
-   * Whether it goes ahead of every request its domain holds pending,
-   * whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
-   * such requests, the later goes first; `false` by default.
-   */
-  forefront?: boolean;
-  /**
-   * Its identity in the Frontier, declared by the program in place of
-   * its method, its URL's key and its body's hash: a canonicalization
-   * of the program's own, which always wins (ADR 0005).
-   */
-  key?: string | null;
-  /**
-   * Its Label.
-   */
-  label: string;
-  /**
-   * The method it is sent with: `GET` by default.
-   */
-  method?: string;
-  /**
-   * The data the program attaches for its handler.
-   */
-  payload?: {
-    [k: string]: unknown;
-  };
-  /**
-   * Its priority among the requests of its domain: higher goes first,
-   * and a priority never orders requests of different domains (ADR
-   * 0004); 0 by default.
-   */
-  priority?: number;
-  /**
-   * Its URL.
-   */
-  url: string;
-}
-/**
- * The entries of a sitemap, or of the sitemaps a site's robots.txt
- * names.
+ * A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,
+ * or a site's robots.txt (its path `/robots.txt`), whose `Sitemap:` lines
+ * are read. The engine reads it, and every sitemap index it nests, once
+ * the Run is running, through the domain policy, Politeness and robots.txt,
+ * running no handler; each entry is checked as an enqueue is, at depth 0,
+ * with the Label of the first rule whose pattern matches its URL and no
+ * Payload, and one no rule matches is not added, with `no_rule`. The seed
+ * widens the crawl's scope by the host of the URL it names, and an entry
+ * outside the scope is not added, with `out_of_scope`, so a robots.txt
+ * seed admits its own host's entries from a sitemap on another host it
+ * names, and no other host's.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SitemapSeed".
  */
 export interface SitemapSeed {
   /**
@@ -7766,7 +6535,7 @@ export interface SeedBatch {
   /**
    * The id of the `run.add_seeds` call.
    */
-  id: number | string;
+  id: RequestId;
   /**
    * The seeds, in order.
    */
@@ -7797,11 +6566,11 @@ export interface SessionOnParams {
   /**
    * The event.
    */
-  event: "page";
+  event: SessionEventName;
   /**
    * The Session.
    */
-  session_id: string;
+  session_id: SessionId;
 }
 /**
  * What `run.new_session` answers: the Session it opened.
@@ -7813,7 +6582,7 @@ export interface SessionOpened {
   /**
    * The Session.
    */
-  session_id: string;
+  session_id: SessionId;
 }
 /**
  * What `session.pages` answers: the Session's open pages, in the order
@@ -7838,7 +6607,7 @@ export interface SessionParams {
   /**
    * The Session.
    */
-  session_id: string;
+  session_id: SessionId;
 }
 /**
  * What `session.route` takes: the Session, and the URLs whose requests its
@@ -7851,25 +6620,11 @@ export interface SessionRouteParams {
   /**
    * The Session.
    */
-  session_id: string;
+  session_id: SessionId;
   /**
    * The URLs it answers.
    */
-  url:
-    | {
-        kind: "glob";
-        /**
-         * The glob.
-         */
-        pattern: string;
-      }
-    | {
-        kind: "regex";
-        /**
-         * The expression's source.
-         */
-        pattern: string;
-      };
+  url: UrlMatcher;
 }
 /**
  * What `connection.set_log_level` takes.
@@ -7879,10 +6634,9 @@ export interface SessionRouteParams {
  */
 export interface SetLogLevelParams {
   /**
-   * The level of the engine's log events a Connection receives: those at
-   * it and above; `off`, the default, receives none.
+   * The Connection's new level.
    */
-  log_level: "off" | "error" | "warn" | "info" | "debug" | "trace";
+  log_level: LogLevel;
 }
 /**
  * What `config.explain` answers and `config explain --json` prints:
@@ -7920,9 +6674,9 @@ export interface SettingsFile {
    */
   found: boolean;
   /**
-   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+   * Its layer.
    */
-  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  layer: SettingsLayer;
   /**
    * Its path.
    */
@@ -7959,32 +6713,14 @@ export interface SigningKeyCreated {
    * The key's ID, its RFC 7638 thumbprint.
    */
   key_id: string;
-  public_key: PublicSigningKey1;
+  /**
+   * The key's public JSON Web Key.
+   */
+  public_key: PublicSigningKey;
   /**
    * The Secret reference the key is kept at.
    */
   signing_key: string;
-}
-/**
- * The key's public JSON Web Key.
- */
-export interface PublicSigningKey1 {
-  /**
-   * The curve, `Ed25519`.
-   */
-  crv: string;
-  /**
-   * The key's ID, its RFC 7638 thumbprint, which each signature names.
-   */
-  kid: string;
-  /**
-   * The key type, `OKP`.
-   */
-  kty: string;
-  /**
-   * The public key, in unpadded Base64url.
-   */
-  x: string;
 }
 /**
  * What `signing_key.directory` answers: the directory's body and the
@@ -8003,9 +6739,9 @@ export interface SigningKeyDirectory {
    */
   content_type: string;
   /**
-   * A point in time in UTC, as RFC 3339.
+   * When its signatures expire, by which it is exported again.
    */
-  expires: string;
+  expires: PointInTime;
   /**
    * The IDs of the keys it publishes, in the order given.
    */
@@ -8053,33 +6789,6 @@ export interface SigningKeyDirectoryParams {
   valid_for?: number | null;
 }
 /**
- * A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,
- * or a site's robots.txt (its path `/robots.txt`), whose `Sitemap:` lines
- * are read. The engine reads it, and every sitemap index it nests, once
- * the Run is running, through the domain policy, Politeness and robots.txt,
- * running no handler; each entry is checked as an enqueue is, at depth 0,
- * with the Label of the first rule whose pattern matches its URL and no
- * Payload, and one no rule matches is not added, with `no_rule`. The seed
- * widens the crawl's scope by the host of the URL it names, and an entry
- * outside the scope is not added, with `out_of_scope`, so a robots.txt
- * seed admits its own host's entries from a sitemap on another host it
- * names, and no other host's.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "SitemapSeed".
- */
-export interface SitemapSeed1 {
-  /**
-   * The rules that give each entry its Label, in order: the first whose
-   * pattern matches the entry's URL wins.
-   */
-  rules: SitemapRule[];
-  /**
-   * The URL of the sitemap, or of the site's robots.txt.
-   */
-  sitemap: string;
-}
-/**
  * What `events.subscribe` answers when its subscription ends without the
  * Client cancelling it: the engine stopped.
  *
@@ -8095,8 +6804,14 @@ export interface SubscriptionEnded {}
  * via the `definition` "SystemInfo".
  */
 export interface SystemInfo {
-  concurrency: Concurrency1;
-  cpu: CpuReading1;
+  /**
+   * Each kind's concurrency.
+   */
+  concurrency: Concurrency;
+  /**
+   * Its CPU and Tokio workers.
+   */
+  cpu: CpuReading;
   /**
    * Whether memory stayed critical at the floor past
    * `governor.last_resort_after`.
@@ -8105,68 +6820,15 @@ export interface SystemInfo {
   /**
    * How loaded the engine is.
    */
-  level: "normal" | "pressure" | "critical";
-  memory: MemoryReading1;
+  level: GovernorLevel;
+  /**
+   * Its memory.
+   */
+  memory: MemoryReading;
   /**
    * The reading that holds it above `normal`; none at `normal`.
    */
   pressure_source?: PressureSource | null;
-}
-/**
- * Each kind's concurrency.
- */
-export interface Concurrency1 {
-  browser_page: KindConcurrency;
-  http: KindConcurrency1;
-  model_call: KindConcurrency2;
-}
-/**
- * Its CPU and Tokio workers.
- */
-export interface CpuReading1 {
-  /**
-   * The engine's CPU time since the last sample, in percent of its
-   * allowance.
-   */
-  busy: number;
-  /**
-   * How many threads the engine may run at once, its CPU allowance
-   * (`available_parallelism`, which honours a cgroup's quota).
-   */
-  parallelism: number;
-  /**
-   * The Tokio workers' busy time since the last sample, in percent.
-   */
-  tokio_busy: number;
-}
-/**
- * Its memory.
- */
-export interface MemoryReading1 {
-  /**
-   * The Memory allowance, in bytes.
-   */
-  allowance: number;
-  /**
-   * What set it.
-   */
-  allowance_source: "cgroup" | "job_object" | "setting" | "physical";
-  /**
-   * What the browsers it counts use, in bytes, each process with its
-   * descendants (PSS on Linux), summed; part of `used`, 0 with none.
-   */
-  browsers: number;
-  /**
-   * The host's own memory pressure: PSI and `MemAvailable` on Linux,
-   * the memory-pressure level on macOS, the low-memory notification on
-   * Windows.
-   */
-  host: "normal" | "pressure" | "critical";
-  /**
-   * What the engine and its children use, in bytes: PSS on Linux, so
-   * pages its browsers share count once.
-   */
-  used: number;
 }
 /**
  * A request's Trace context (ADR 0132): W3C Trace Context's `traceparent`
@@ -8329,40 +6991,20 @@ export interface UserWriteParams {
  * via the `definition` "WaitForCountParams".
  */
 export interface WaitForCountParams {
-  count: Count1;
-  locator: Locator7;
+  /**
+   * The count.
+   */
+  count: Count;
+  /**
+   * The locator.
+   */
+  locator: Locator;
   /**
    * How long the wait may take, in milliseconds, at least 1: absent for
    * `timeout.wait`, `null` for none, though an enclosing timeout still
    * applies (ADR 0080).
    */
   timeout?: number | null;
-}
-/**
- * The count.
- */
-export interface Count1 {
-  /**
-   * The most; no bound when absent.
-   */
-  max?: number | null;
-  /**
-   * The fewest; no bound when absent.
-   */
-  min?: number | null;
-}
-/**
- * The locator.
- */
-export interface Locator7 {
-  /**
-   * The page it looks on.
-   */
-  page_id: string;
-  /**
-   * A CSS selector, which also matches inside open shadow roots.
-   */
-  selector: string;
 }
 /**
  * What `page.wait_for_request` and `page.wait_for_response` take: the
@@ -8374,9 +7016,9 @@ export interface Locator7 {
  */
 export interface WaitForExchangeParams {
   /**
-   * A page of a Run, named by the engine when it opens it.
+   * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * How long the wait may take, in milliseconds, at least 1: absent for
    * `timeout.wait`, `null` for none, though an enclosing timeout still
@@ -8408,9 +7050,9 @@ export interface WaitForFunctionParams {
    */
   function: string;
   /**
-   * A page of a Run, named by the engine when it opens it.
+   * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * The milliseconds between two checks, at least 1; absent, about one
    * frame's, 16.
@@ -8435,9 +7077,9 @@ export interface WaitForFunctionParams {
  */
 export interface WaitForLoadStateParams {
   /**
-   * A page of a Run, named by the engine when it opens it.
+   * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * The state; `load` when absent.
    */
@@ -8458,9 +7100,9 @@ export interface WaitForLoadStateParams {
  */
 export interface WaitForRequestFinishedParams {
   /**
-   * A page of a Run, named by the engine when it opens it.
+   * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * How long the wait may take, in milliseconds, at least 1: absent for
    * `timeout.wait`, `null` for none, though an enclosing timeout still
@@ -8481,9 +7123,9 @@ export interface WaitForRequestFinishedParams {
  */
 export interface WaitForUrlParams {
   /**
-   * A page of a Run, named by the engine when it opens it.
+   * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * How long the wait may take, in milliseconds, at least 1: absent for
    * `timeout.wait`, `null` for none, though an enclosing timeout still
@@ -8491,26 +7133,9 @@ export interface WaitForUrlParams {
    */
   timeout?: number | null;
   /**
-   * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
-   * one, or a regular expression in the `regex` crate's syntax. A predicate
-   * runs in the program, which routes every URL and falls back for the
-   * requests it does not match.
+   * The URL it waits for.
    */
-  url:
-    | {
-        kind: "glob";
-        /**
-         * The glob.
-         */
-        pattern: string;
-      }
-    | {
-        kind: "regex";
-        /**
-         * The expression's source.
-         */
-        pattern: string;
-      };
+  url: UrlMatcher;
   /**
    * The state a new document at that URL must reach; `load` when
    * absent. A change within the document waits for none.
@@ -8556,9 +7181,9 @@ export interface WebError {
    */
   name: string;
   /**
-   * A page of a Run, named by the engine when it opens it.
+   * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * Its stack as the browser renders it, when it has one.
    */
@@ -8572,9 +7197,9 @@ export interface WebError {
  */
 export interface WebSocketClosed {
   /**
-   * A page of a Run, named by the engine when it opens it.
+   * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * The socket.
    */
@@ -8593,9 +7218,9 @@ export interface WebSocketFrame {
    */
   binary: boolean;
   /**
-   * A page of a Run, named by the engine when it opens it.
+   * The page.
    */
-  page_id: string;
+  page_id: PageId;
   /**
    * Its payload: its text, or for a binary frame its bytes in Base64.
    */

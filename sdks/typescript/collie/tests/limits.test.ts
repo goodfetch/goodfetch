@@ -8,9 +8,8 @@ import {
   LimitRaiseRefusedError,
   LimitReachedError,
   SettingInvalidError,
-  type Logger,
 } from "@goodfetch/collie";
-import { failure, scriptedEngineEnv, test } from "@goodfetch/test-support";
+import { failure, recordingLogger, scriptedEngineEnv, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 
 describe("Limits in code on the Scripted engine as the Attached engine", () => {
@@ -222,17 +221,3 @@ describe("Limits in code on an Attached engine", () => {
     },
   );
 });
-
-/** A host logger that keeps each warning, where the engine's stderr lines go. */
-function recordingLogger(): { readonly logger: Logger; readonly warned: string[] } {
-  const warned: string[] = [];
-  const logger: Logger = {
-    debug: () => {},
-    info: () => {},
-    warn: (message) => {
-      warned.push(message);
-    },
-    error: () => {},
-  };
-  return { logger, warned };
-}

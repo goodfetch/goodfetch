@@ -12,7 +12,13 @@
 
 import { ValueInvalidError } from "./generated/errors.ts";
 import { nonJSON, type JSONValue } from "./json.ts";
-import { parse, type Schema, type SchemaInput, type SchemaOutput } from "./schema.ts";
+import {
+  parse,
+  type Schema,
+  type SchemaInput,
+  type SchemaIssue,
+  type SchemaOutput,
+} from "./schema.ts";
 
 /** What the store keeps: any JSON value but a top-level null. A nested null is kept. */
 export type StoredValue = Exclude<JSONValue, null>;
@@ -145,7 +151,7 @@ export class KeyValueStore {
 function schemaRefusal(
   key: string,
   side: "given" | "stored",
-  issues: readonly { readonly path: string; readonly message: string }[],
+  issues: readonly SchemaIssue[],
 ): ValueInvalidError {
   const listed = issues.map((issue) => `${issue.path || "its root"}: ${issue.message}`).join("; ");
   return new ValueInvalidError(

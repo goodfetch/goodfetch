@@ -60,7 +60,7 @@ function objectNonJSON(value: object, path: string, open: Set<object>): NonJSON 
     return { path, found: "a cycle" };
   }
   if (!isPlain(value)) {
-    return { path, found: describe(value) };
+    return { path, found: kindOf(value) };
   }
   if (Object.getOwnPropertySymbols(value).length > 0) {
     return { path, found: "a symbol key" };
@@ -73,7 +73,7 @@ function objectNonJSON(value: object, path: string, open: Set<object>): NonJSON 
   open.add(value);
   try {
     for (const [key, member] of members) {
-      const found = firstNonJSON(member, `${path}/${escaped(key)}`, open);
+      const found = firstNonJSON(member, `${path}/${pointerToken(key)}`, open);
       if (found) {
         return found;
       }
@@ -94,7 +94,7 @@ function isPlain(value: object): boolean {
 }
 
 /** How a refusal names an object that is not JSON: `a Map`, `an instance of Book`. */
-function describe(value: object): string {
+function kindOf(value: object): string {
   const name = Object.prototype.toString.call(value).slice("[object ".length, -1);
   if (name !== "Object") {
     return `a ${name}`;
@@ -106,6 +106,6 @@ function describe(value: object): string {
 }
 
 /** `key` as a JSON Pointer's reference token (RFC 6901). */
-function escaped(key: string): string {
+export function pointerToken(key: string): string {
   return key.replaceAll("~", "~0").replaceAll("/", "~1");
 }

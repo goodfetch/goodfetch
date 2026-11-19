@@ -1,10 +1,13 @@
 // Only JSON values cross (ADR 0082, G3): a value a program sends is
 // checked before anything is sent, and the first value that is not JSON is
-// named by its JSON Pointer. User data keeps its keys, `__proto__` included
-// (TESTING.md, SDKs: mapping and decoding are property-tested).
+// named by its JSON Pointer. User data keeps its keys, `__proto__` included,
+// and comes back unchanged (TESTING.md, SDKs: mapping and decoding are
+// property-tested).
 import * as fc from "fast-check";
 import { describe, expect, test } from "vitest";
+import { encodeMessage, parseLine } from "./framing.ts";
 import { nonJSON, type JSONObject, type JSONValue } from "./json.ts";
+import { KeyValueStore, type KeyValueStoreHost, type StoredValue } from "./key-value-store.ts";
 
 /** Any JSON value, whose object keys include `__proto__` and pointer escapes. */
 const jsonValue: fc.Arbitrary<JSONValue> = fc.letrec<{ value: JSONValue }>((tie) => ({
@@ -61,6 +64,35 @@ function planted(root: JSONValue, leaf: unknown, steps: number[]): [unknown, str
   // `Object.fromEntries` defines each key as its own, `__proto__` included.
   const copy = Object.fromEntries([...Object.entries(root), [key, child]]);
   return [copy, `/${key.replaceAll("~", "~0").replaceAll("/", "~1")}${pointer}`];
+}
+
+/** A host method this file's tests never call. */
+function unused(): never {
+  throw new Error("not used by this test");
+}
+
+/**
+ * A store host that keeps each value as the line the SDK frames for the
+ * engine, and answers it as a line from the engine is read back: what a
+ * value crosses on the wire, both ways.
+ */
+function framingHost(): KeyValueStoreHost {
+  const lines = new Map<string, string>();
+  return {
+    get: async (_runId, key) => {
+      const line = lines.get(key);
+      const message = line === undefined ? undefined : parseLine(line);
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the line holds the JSON value this host framed.
+      return message?.kind === "result" ? (message.result as JSONValue) : null;
+    },
+    set: async (_runId, key, value) => {
+      const bytes = encodeMessage({ id: 1, result: value });
+      lines.set(key, new TextDecoder().decode(bytes).trimEnd());
+    },
+    getBytes: unused,
+    setBytes: unused,
+    delete: unused,
+  };
 }
 
 /** A book, whose instances JSON would write as plain objects, losing their class. */
@@ -146,6 +178,29 @@ describe("nonJSON", () => {
 
       expect(nonJSON(bare)).toBeUndefined();
       expect(nonJSON(JSON.parse('{"__proto__": {"polluted": true}}'))).toBeUndefined();
+    },
+  );
+});
+
+describe("a value through the Key-value store", () => {
+  test(
+    "comes back unchanged through `set` and `get` on the wire, `__proto__` keys included",
+    { tags: ["story:11-68"] },
+    async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          jsonValue.filter((value): value is StoredValue => value !== null),
+          async (value) => {
+            const store = new KeyValueStore(framingHost(), "run", () => {});
+
+            await store.set("value", value);
+            const back = await store.get("value");
+
+            expect(JSON.stringify(back)).toBe(JSON.stringify(value));
+            expect(back).toEqual(value);
+          },
+        ),
+      );
     },
   );
 });

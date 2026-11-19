@@ -13,10 +13,9 @@ import {
   ValueInvalidError,
   type JSONObject,
   type JSONSchema,
-  type Logger,
   type Schema,
 } from "@goodfetch/collie";
-import { failure, scriptedEngineEnv, test } from "@goodfetch/test-support";
+import { failure, recordingLogger, scriptedEngineEnv, test } from "@goodfetch/test-support";
 import { toStandardJsonSchema } from "@valibot/to-json-schema";
 import { type } from "arktype";
 import * as v from "valibot";
@@ -179,18 +178,4 @@ function valibotRejecting(): Schema {
   return toStandardJsonSchema(
     v.object({ title: v.string(), year: v.pipe(v.string(), v.digits(), v.transform(Number)) }),
   );
-}
-
-/** A host logger that keeps each warning, where the engine's stderr lines go. */
-function recordingLogger(): { readonly logger: Logger; readonly warned: string[] } {
-  const warned: string[] = [];
-  const logger: Logger = {
-    debug: () => {},
-    info: () => {},
-    warn: (message) => {
-      warned.push(message);
-    },
-    error: () => {},
-  };
-  return { logger, warned };
 }

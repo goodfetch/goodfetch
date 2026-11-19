@@ -8,7 +8,7 @@
 // what it receives the output type, built by the schema's own parse; a
 // hand-written JSON Schema types both as a JSON value.
 
-import type { JSONObject, JSONValue } from "./json.ts";
+import { pointerToken, type JSONObject, type JSONValue } from "./json.ts";
 
 /** Standard Typed's inferred types (`@standard-schema/spec` 1.1.0). */
 interface StandardTypes<Input, Output> {
@@ -103,10 +103,18 @@ export type SchemaOutput<S extends Schema> = S extends TypedSchema
   ? NonNullable<S["~standard"]["types"]>["output"]
   : JSONValue;
 
+/** One issue the schema's own parse found, at its JSON Pointer. */
+export interface SchemaIssue {
+  /** The JSON Pointer (RFC 6901) of the value it is about, empty at the root. */
+  readonly path: string;
+  /** The schema library's own message. */
+  readonly message: string;
+}
+
 /** What the schema's own parse of a value gave: the typed value, or its issues. */
 export type Parsed<Output> =
   | { readonly value: Output }
-  | { readonly issues: readonly { readonly path: string; readonly message: string }[] };
+  | { readonly issues: readonly SchemaIssue[] };
 
 /**
  * `value` parsed by `schema`'s own validation (ADR 0082): the output value,
@@ -144,7 +152,7 @@ function pointer(path: readonly (PropertyKey | StandardPathSegment)[]): string {
   return path
     .map((segment) => {
       const key = typeof segment === "object" ? segment.key : segment;
-      return `/${String(key).replaceAll("~", "~0").replaceAll("/", "~1")}`;
+      return `/${pointerToken(String(key))}`;
     })
     .join("");
 }

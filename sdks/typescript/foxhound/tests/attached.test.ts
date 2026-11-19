@@ -3,25 +3,11 @@
 // with `GOODFETCH_FOXHOUND_ENGINE_PATH` and which plays the script of the
 // test's own Goodfetch home. The tracer program is the one the unit tests
 // run over the in-memory transport.
-import { Foxhound, NotInProductError, type Logger } from "@goodfetch/foxhound";
-import { scriptedEngineEnv, test } from "@goodfetch/test-support";
+import { Foxhound, NotInProductError } from "@goodfetch/foxhound";
+import { recordingLogger, scriptedEngineEnv, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 import { processHandlers } from "./process-handlers.ts";
 import { startAndFinish } from "./programs/tracer.ts";
-
-/** A logger that keeps what the engine's stderr gave it at warning. */
-function recordingLogger(): { readonly logger: Logger; readonly warned: string[] } {
-  const warned: string[] = [];
-  const logger: Logger = {
-    debug: () => {},
-    info: () => {},
-    warn: (message) => {
-      warned.push(message);
-    },
-    error: () => {},
-  };
-  return { logger, warned };
-}
 
 describe("Foxhound.connect() on an Attached engine", () => {
   test(

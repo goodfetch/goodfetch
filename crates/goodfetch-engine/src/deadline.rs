@@ -229,20 +229,24 @@ impl Deadline {
 /// the call, its timeout and when that timeout passes, read again as it
 /// nears, since a hold of the call's clock, a Human pause (ADR 0092) or a
 /// handler's wait for a navigation-gate permit (ADR 0093), moves it later.
+/// Its clones share it, so it is built once per enclosing call.
 #[derive(Clone)]
-pub struct Enclosing {
+pub struct Enclosing(Arc<EnclosingEnd>);
+
+/// What an [`Enclosing`]'s clones share.
+struct EnclosingEnd {
     limit: SettingLimit,
     call: EnclosingCall,
-    ends_at: Arc<dyn Fn() -> Instant + Send + Sync>,
+    ends_at: Box<dyn Fn() -> Instant + Send + Sync>,
 }
 
 impl fmt::Debug for Enclosing {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Enclosing")
-            .field("limit", &self.limit)
-            .field("call", &self.call)
-            .field("ends_at", &(self.ends_at)())
+            .field("limit", &self.0.limit)
+            .field("call", &self.0.call)
+            .field("ends_at", &(self.0.ends_at)())
             .finish()
     }
 }
@@ -255,11 +259,11 @@ impl Enclosing {
         call: EnclosingCall,
         ends_at: impl Fn() -> Instant + Send + Sync + 'static,
     ) -> Self {
-        Self {
+        Self(Arc::new(EnclosingEnd {
             limit: deadline.limit.clone(),
             call,
-            ends_at: Arc::new(ends_at),
-        }
+            ends_at: Box::new(ends_at),
+        }))
     }
 
     /// Waits for `work`, a call made inside the enclosing one, on `clock`
@@ -294,7 +298,7 @@ impl Enclosing {
     /// a hold moved it later.
     async fn passed(&self, clock: &Clock) {
         loop {
-            let end = (self.ends_at)();
+            let end = (self.0.ends_at)();
             if clock.now() >= end {
                 return;
             }
@@ -309,13 +313,13 @@ impl Enclosing {
             &DEADLINE_EXCEEDED,
             format!(
                 "`{}` ({} ms) of the enclosing `{}` call passed before this call's answer came; raise it, or leave the call more of it.",
-                self.limit.key, self.limit.value, self.call.operation,
+                self.0.limit.key, self.0.limit.value, self.0.call.operation,
             ),
             &DeadlineExceededDetails {
-                limit: self.limit.clone(),
+                limit: self.0.limit.clone(),
                 elapsed: millis(elapsed),
                 waited_for: WaitedFor::ANSWER,
-                ended_by: Some(self.call.clone()),
+                ended_by: Some(self.0.call.clone()),
                 observed,
             },
         )

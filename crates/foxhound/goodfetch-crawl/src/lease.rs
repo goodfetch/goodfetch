@@ -30,7 +30,9 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::{RunState, RunStateError};
 use goodfetch_protocol::connection::EnclosingCall;
-use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, PushedRecord};
+use goodfetch_protocol::foxhound::crawl::{
+    ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, PushedRecord, TIMEOUT_HANDLER,
+};
 use goodfetch_protocol::foxhound::provenance::RobotsTxtMark;
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::run::PointInTime;
@@ -106,6 +108,9 @@ pub(crate) struct Leases {
     /// The Clean-up rules the Run holds to, which its first commit that
     /// keeps Records reads for every one after it.
     clean_up_rules: CleanUpRules,
+    /// The Run's `timeout.handler`, which each handler call sent under a
+    /// lease waits under.
+    handler_timeout: Arc<Deadline>,
 }
 
 impl Leases {
@@ -122,7 +127,17 @@ impl Leases {
             datasets: Datasets::default(),
             keys: None,
             clean_up_rules: CleanUpRules::default(),
+            handler_timeout: Arc::new(Deadline::declared(&TIMEOUT_HANDLER)),
         }
+    }
+
+    /// The same, each handler call sent under a lease waiting under
+    /// `timeout`, the Run's `timeout.handler` as its settings resolved it
+    /// once; the setting's declared default otherwise.
+    #[must_use]
+    pub(crate) fn handled_under(mut self, timeout: Deadline) -> Self {
+        self.handler_timeout = Arc::new(timeout);
+        self
     }
 
     /// The same, each commit keying the work items it adds under `keys`,
@@ -177,7 +192,7 @@ impl Leases {
             work_item: Arc::from(work_item),
             length,
             state,
-            handler_call: watch::Sender::new(None),
+            handler: watch::Sender::new(None),
         }));
         granted.trace("grant", &lease, None);
         granted
@@ -196,9 +211,9 @@ struct Shared {
     /// How long it was granted for, which each renewal grants again.
     length: Duration,
     state: watch::Sender<Held>,
-    /// The id of the handler call last sent under it, which encloses the
-    /// calls its handler makes (ADR 0080).
-    handler_call: watch::Sender<Option<RequestId>>,
+    /// The end of the handler call last sent under it, which encloses the
+    /// calls its handler makes (ADR 0080), built once as it is sent.
+    handler: watch::Sender<Option<Enclosing>>,
 }
 
 impl Drop for Shared {
@@ -368,28 +383,34 @@ impl WorkItemLease {
         self.0.length
     }
 
-    /// Keeps `id` as the handler call sent under it, the call enclosing
-    /// the calls its handler makes from now on.
+    /// Keeps the handler call `id`, sent under it, as the call enclosing
+    /// the calls its handler makes from now on (ADR 0080). Its end is the
+    /// lease's end less the lease's margin over the Run's
+    /// `timeout.handler`, so a renewal moves it as it moves the lease: a
+    /// navigation-gate permit's wait (ADR 0093) renews the lease at its
+    /// end, and the handler's time runs again from there.
     pub(crate) fn handler_sent(&self, id: RequestId) {
-        self.0.handler_call.send_replace(Some(id));
-    }
-
-    /// The end of the handler call last sent under it, which waits under
-    /// `timeout` (ADR 0080): the lease's end less the margin by which it
-    /// outlasts that timeout, so a renewal, such as a navigation-gate
-    /// permit's wait's (ADR 0093), moves it later too. None until a handler
-    /// call is sent, and a code-free crawl sends none.
-    pub(crate) fn handler(&self, timeout: &Deadline) -> Option<Enclosing> {
+        let timeout = &self.0.leases.handler_timeout;
         let call = EnclosingCall {
             operation: CRAWL_REQUEST_HANDLE.name.to_owned(),
-            call_id: self.0.handler_call.borrow().clone()?,
+            call_id: id,
         };
         let margin = self.0.length.saturating_sub(timeout.duration());
-        let lease = self.clone();
-        Some(Enclosing::new(timeout, call, move || {
-            let expires_at = lease.0.state.borrow().lease.expires_at();
-            expires_at.checked_sub(margin).unwrap_or(expires_at)
-        }))
+        // The end reads the lease's state rather than the lease, which
+        // holds it: the lease would never drop.
+        let held = self.0.state.subscribe();
+        self.0
+            .handler
+            .send_replace(Some(Enclosing::new(timeout, call, move || {
+                let expires_at = held.borrow().lease.expires_at();
+                expires_at.checked_sub(margin).unwrap_or(expires_at)
+            })));
+    }
+
+    /// The end of the handler call last sent under it ([`Self::handler_sent`]);
+    /// none until one is sent, and a code-free crawl sends none.
+    pub(crate) fn enclosing(&self) -> Option<Enclosing> {
+        self.0.handler.borrow().clone()
     }
 
     /// Gives it back as its attempt ends; it then lets nothing more leave.

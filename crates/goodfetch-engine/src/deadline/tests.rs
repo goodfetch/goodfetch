@@ -16,7 +16,7 @@
 
 use std::time::{Duration, UNIX_EPOCH};
 
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::connection::{EnclosingCall, WaitedFor};
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::settings::{
@@ -174,13 +174,21 @@ fn a_calls_own_timeout_of_zero_is_setting_invalid_naming_the_null_form() {
     );
 }
 
-/// The enclosing call of the nesting tests: a call of `hook.handle` under a
-/// `timeout.hook` of 10 s, whose end `ends_at` holds.
+/// Foxhound's `timeout.handler`, which `goodfetch-engine` may not name
+/// (ADR 0099): the enclosing timeout of the nesting tests.
+const TIMEOUT_HANDLER: Setting = Setting {
+    name: "timeout.handler",
+    ..TIMEOUT_HOOK
+};
+
+/// The enclosing call of the nesting tests: a crawl handler's call,
+/// `crawl_request.handle`, under a `timeout.handler` of 10 s, whose end
+/// `ends_at` holds.
 fn enclosing(ends_at: watch::Receiver<Instant>) -> Enclosing {
     Enclosing::new(
-        &Deadline::given(&TIMEOUT_HOOK, 10_000, SettingsLayer::UserConfiguration),
+        &Deadline::given(&TIMEOUT_HANDLER, 10_000, SettingsLayer::UserConfiguration),
         EnclosingCall {
-            operation: "hook.handle".to_owned(),
+            operation: "crawl_request.handle".to_owned(),
             call_id: RequestId::Number(7),
         },
         move || *ends_at.borrow(),
@@ -219,10 +227,10 @@ fn an_inner_call_ends_at_its_enclosing_calls_end_which_it_names() {
         (
             "deadline_exceeded",
             json!({
-                "limit": { "key": "timeout.hook", "value": 10_000, "layer": "user_configuration" },
+                "limit": { "key": "timeout.handler", "value": 10_000, "layer": "user_configuration" },
                 "elapsed": 10_000,
                 "waited_for": "answer",
-                "ended_by": { "operation": "hook.handle", "call_id": 7 },
+                "ended_by": { "operation": "crawl_request.handle", "call_id": 7 },
                 "observed": "a navigation under way on page `p-1`",
             })
         )

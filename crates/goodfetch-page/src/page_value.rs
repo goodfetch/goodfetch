@@ -854,6 +854,14 @@ pub trait HandlerPages: Send + Sync {
         None
     }
 
+    /// Whether a call may enclose the calls on its pages, such as a crawl
+    /// handler's (ADR 0080): only then does a cancellable page call look
+    /// for an enclosing call's end, so a Product whose pages no call
+    /// encloses, as Collie's, pays nothing for it. False by default.
+    fn encloses_calls(&self) -> bool {
+        false
+    }
+
     /// The end of the call enclosing the calls on the page `page_id`, when
     /// a fetch tier serves that page from a document and a call encloses
     /// its handler, such as a crawl handler under `timeout.handler` (ADR

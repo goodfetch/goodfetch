@@ -8,6 +8,10 @@
 //!
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
+//!
+//! Size: one contract, what every Connection speaks whatever its Product:
+//! its opening, its cancel and the Error codes with their details, kept
+//! whole so the codes' details stand beside the calls that answer them.
 
 use std::borrow::Cow;
 use std::cmp::Ordering;

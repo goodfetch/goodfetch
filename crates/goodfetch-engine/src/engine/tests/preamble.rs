@@ -115,7 +115,7 @@ fn called(params: &str) -> (Value, Vec<&'static str>) {
 fn called_enclosed(operation: &'static Operation) -> (Value, Vec<&'static str>) {
     let ran = Ran::default();
     let bounded = Arc::clone(&ran);
-    let enclose: Enclose = Arc::new(move |_, _, context, answer| {
+    let enclose = Enclose::new(move |_, _, context, answer: GuardAnswer| {
         bounded.lock().unwrap().push("enclose");
         let context = context.clone();
         Box::pin(async move {

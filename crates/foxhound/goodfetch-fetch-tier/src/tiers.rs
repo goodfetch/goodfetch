@@ -2320,6 +2320,11 @@ impl HandlerPages for FetchTiers {
             .map(|page| Arc::clone(&page.document))
     }
 
+    /// A crawl handler's call encloses the calls on its pages (ADR 0080).
+    fn encloses_calls(&self) -> bool {
+        true
+    }
+
     /// The handler call enclosing the served page's attempt, through its
     /// lease (ADR 0080).
     fn enclosing(&self, page_id: &PageId) -> Option<Enclosing> {

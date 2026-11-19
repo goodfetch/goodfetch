@@ -15,7 +15,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::lease::{LeaseCheck as _, LeaseEnded};
 use goodfetch_protocol::connection::WaitedFor;
-use goodfetch_protocol::foxhound::crawl::{ATTEMPT_ENDED, TIMEOUT_HANDLER};
+use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::settings::TIMEOUT_ACTION;
 use proptest::prelude::*;
@@ -173,9 +173,7 @@ fn a_handler_page_call_ends_at_the_handlers_timeout_and_names_it() {
         let start = clock.now();
         let lease = leases.grant("1", 1, DEFAULT_LEASE);
         lease.handler_sent(RequestId::Number(4));
-        let handler = lease
-            .handler(&Deadline::declared(&TIMEOUT_HANDLER))
-            .expect("a handler call was sent");
+        let handler = lease.enclosing().expect("a handler call was sent");
         clock.sleep(Duration::from_secs(55)).await;
 
         let ended = handler
@@ -214,18 +212,12 @@ fn a_handler_page_call_ends_at_the_handlers_timeout_and_names_it() {
 
 /// Before the handler call is sent, and in a code-free crawl, which sends
 /// none, nothing encloses the attempt's page calls.
-///
-/// Covers: story:11-41
 #[test]
 fn no_handler_call_sent_encloses_nothing() {
     on_paused_clock(async |leases, _clock| {
         let lease = leases.grant("1", 1, DEFAULT_LEASE);
 
-        assert!(
-            lease
-                .handler(&Deadline::declared(&TIMEOUT_HANDLER))
-                .is_none()
-        );
+        assert!(lease.enclosing().is_none());
     });
 }
 
@@ -239,9 +231,7 @@ fn a_renewal_during_a_permit_wait_moves_the_handlers_end_later() {
     on_paused_clock(async |leases, clock| {
         let lease = leases.grant("1", 1, DEFAULT_LEASE);
         lease.handler_sent(RequestId::Number(4));
-        let handler = lease
-            .handler(&Deadline::declared(&TIMEOUT_HANDLER))
-            .expect("a handler call was sent");
+        let handler = lease.enclosing().expect("a handler call was sent");
         let waiting_for_a_permit = async {
             clock.sleep(Duration::from_secs(50)).await;
             lease.renew(DEFAULT_LEASE);

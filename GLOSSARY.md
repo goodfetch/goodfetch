@@ -443,8 +443,12 @@ What Foxhound sets on a crawl handler's page to admit, at the Interception's ste
 _Avoid_: politeness hook, admission hook, gatekeeper
 
 **Lease check**:
-What a crawl handler's page asks before each command it sends: whether its work item's Lease still holds, so a page past its Lease sends nothing more and raises the error Foxhound gives (ADRs 0003 and 0087).
+What a crawl handler's page asks before each command it sends: whether its work item's Lease still holds, so a page past its Lease sends nothing more and raises the error Foxhound gives, and which call encloses its calls (ADRs 0003 and 0087).
 _Avoid_: lease guard, lease hook
+
+**Enclosing call**:
+The call whose timeout bounds the calls made inside it, such as a crawl handler's call for its page's calls: a call inside ends at that call's end if its own comes later, and its `deadline_exceeded` then names that call as `ended_by` (ADR 0080).
+_Avoid_: parent call, outer deadline
 
 **Response observer**:
 What Foxhound registers on a crawl handler's Session to receive the responses its pages observe whose URLs its URL patterns match, each body up to a byte cap, those a service worker answered included (ADR 0110).

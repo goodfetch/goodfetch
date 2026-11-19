@@ -340,16 +340,30 @@ pub type Guard = Arc<
 /// `timeout.handler`, or as it was when no call encloses it. It runs when
 /// the request arrives, once the guards or the handler gave the answer,
 /// and only on a cancellable operation, whose answer may be dropped.
-pub type Enclose = Arc<
-    dyn for<'params> Fn(
+#[derive(Clone)]
+pub struct Enclose(Arc<EncloseFn>);
+
+/// The function an [`Enclose`] holds.
+type EncloseFn = dyn for<'params> Fn(&'static Operation, Params<'params>, &CallContext, GuardAnswer) -> GuardAnswer
+    + Send
+    + Sync;
+
+impl Enclose {
+    /// The one that ends each answer as `enclose` does.
+    pub fn new(
+        enclose: impl for<'params> Fn(
             &'static Operation,
             Params<'params>,
             &CallContext,
             GuardAnswer,
         ) -> GuardAnswer
         + Send
-        + Sync,
->;
+        + Sync
+        + 'static,
+    ) -> Self {
+        Self(Arc::new(enclose))
+    }
+}
 
 /// A call's params as its handler's type read them, when they read: what a
 /// [`Guard`] answers from in the handler's place, so that a call decodes
@@ -508,7 +522,7 @@ impl Handler {
         let enclosed = context.clone();
         let answer = (self.call)(params, context, &self.guards)?;
         Ok(self.encloses.iter().fold(answer, |answer, enclose| {
-            enclose(self.operation, params, &enclosed, answer)
+            (enclose.0)(self.operation, params, &enclosed, answer)
         }))
     }
 }
@@ -641,12 +655,7 @@ impl Contribution {
     #[must_use]
     pub fn enclosed(mut self, enclose: &Enclose) -> Self {
         for handler in &mut self.handlers {
-            handler.encloses = handler
-                .encloses
-                .iter()
-                .chain([enclose])
-                .map(Arc::clone)
-                .collect();
+            handler.encloses = handler.encloses.iter().chain([enclose]).cloned().collect();
         }
         self
     }

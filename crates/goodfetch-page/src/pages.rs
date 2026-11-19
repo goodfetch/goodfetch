@@ -202,26 +202,30 @@ pub fn contribution_with(
         let page_id = PageId(params.page()?.into_owned());
         product.call(&page_id, operation.name, read, context)
     });
-    contribution
-        .guarded(&guard)
-        .enclosed(&enclosing_handler(&pages))
+    let contribution = contribution.guarded(&guard);
+    if pages.product.encloses_calls() {
+        contribution.enclosed(&enclosing_handler(&pages))
+    } else {
+        contribution
+    }
 }
 
 /// What ends a call on a handler's page at its handler's end (ADR 0080):
 /// the enclosing call a served page's Product names, else the one a browser
 /// page's lease names; a call on a page no call encloses, as on every page
 /// a program opens, keeps its answer. `observed` says whether a navigation
-/// was under way on the page, or what document a served page held.
+/// was under way on the page, or what document a served page held. Only a
+/// Product whose pages a call may enclose is given it.
 fn enclosing_handler(pages: &Pages) -> Enclose {
-    let seams = Arc::new((pages.sessions.clone(), Arc::clone(&pages.product)));
-    Arc::new(move |_, params, context, answer| {
+    let found_in = Arc::new((pages.sessions.clone(), Arc::clone(&pages.product)));
+    Enclose::new(move |_, params, context, answer| {
         let Some(page_id) = params.page() else {
             return answer;
         };
         let page_id = PageId(page_id.into_owned());
-        let (seams, clock) = (Arc::clone(&seams), context.engine().clock());
+        let (found_in, clock) = (Arc::clone(&found_in), context.engine().clock());
         Box::pin(async move {
-            let (sessions, product) = &*seams;
+            let (sessions, product) = &*found_in;
             if let Some(enclosing) = product.enclosing(&page_id) {
                 let observe = || {
                     product.document(&page_id).map(|document| {

@@ -4,8 +4,15 @@
 // its call when called, with no queue in the SDK; a listener that throws is
 // removed, and `listener_failed` is raised once, by the next call on its page
 // or by the `close()` that closes the page or the Run above it.
-import type { ConsoleMessage, Logger } from "@goodfetch/collie-client";
-import { failure, playScript, protocolCounts, test } from "@goodfetch/test-support";
+import { ClosedError, type ConsoleMessage, type Logger } from "@goodfetch/collie-client";
+import { pageOf } from "@goodfetch/collie-client/runtime";
+import {
+  failure,
+  playScript,
+  protocolCounts,
+  recordingLogger,
+  test,
+} from "@goodfetch/test-support";
 import { describe, expect, vi } from "vitest";
 import type { Collie } from "./collie.ts";
 import { connectOver } from "./testing.ts";
@@ -158,6 +165,34 @@ describe("a page's listeners", () => {
 
       expect(closing).toMatchObject({ code: "listener_failed", cause: failing.bug });
       expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "end without a log once the attempt that lent their page ends, cancelling their calls",
+    { tags: ["story:11-61"] },
+    async () => {
+      const { logger, errored } = recordingLogger();
+      const { collie, played } = await collieOn("page/listened.json", logger);
+      const run = await collie.start();
+      await run.newPage();
+      const attempt = new AbortController();
+      const page = pageOf(run, "page-1", attempt.signal);
+      const texts: string[] = [];
+
+      page.on("console", (message) => {
+        texts.push(message.text);
+      });
+      page.on("pageerror", () => {});
+      await vi.waitFor(() => {
+        expect(texts).toEqual(["first", "second"]);
+      });
+      attempt.abort(new ClosedError("the attempt ended", {}));
+      await run.finish();
+      await collie.close();
+
+      expect(played.done()).toEqual({ kind: "finished" });
+      expect(errored).toEqual([]);
     },
   );
 });

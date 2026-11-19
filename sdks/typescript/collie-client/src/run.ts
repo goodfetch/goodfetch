@@ -290,11 +290,12 @@ function hostIn<Id>(
             run.failures.push({ value, error });
           }
         },
-        // A call its Connection's close cancelled ended with everything
+        // A call its Connection's close cancelled, or that stopped as its
+        // value closed (a handler's attempt ending), ended with everything
         // else; any other error, such as `page_events_lost`, ended this
         // listener alone, and nothing else would say so.
         ended: (error) => {
-          if (error instanceof CallCancelledError) {
+          if (error instanceof CallCancelledError || error instanceof ClosedError) {
             return;
           }
           logError(reach.logger, `${operation}: the listener of \`${event}\` stopped`, {

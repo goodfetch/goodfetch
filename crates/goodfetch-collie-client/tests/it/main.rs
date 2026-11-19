@@ -16,3 +16,4 @@ mod handler_requests;
 mod limits;
 mod navigations;
 mod scripted_daemon;
+mod start;

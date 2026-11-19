@@ -9713,7 +9713,7 @@
     },
     "ValueField": {
       "additionalProperties": false,
-      "description": "A value field (ADRs 0123 and 0147): the first element its locator finds\nin the page, its text, its runs of white space read as one space and\ntrimmed, or one of its attributes, an `href` or `src` resolved against\nthe document's base URL; optionally a capture group of a regular\nexpression over that text; then its Value transform. A field the page\ndoes not give is null, with why.",
+      "description": "A value field (ADRs 0123 and 0147): the first element its locator\nladder finds in the page, its locator tried first, then each of its\n`fallbacks` in turn until one finds an element; its text, its runs of\nwhite space read as one space and trimmed, or one of its attributes, an\n`href` or `src` resolved against the document's base URL; optionally a\ncapture group of a regular expression over that text; then its Value\ntransform. A field the page does not give is null, with why.",
       "properties": {
         "attribute": {
           "arrived_in": "0.1",
@@ -9722,6 +9722,14 @@
             "string",
             "null"
           ]
+        },
+        "fallbacks": {
+          "arrived_in": "0.1",
+          "description": "Its locator ladder's further rungs: when `locator` finds no\nelement, the first of these, in order, that finds one supplies it;\nin a list, the first that finds any; in rows, the first that finds\none under the row's element. Each is checked as `locator` is when\nthe call or crawl starts.",
+          "items": {
+            "$ref": "#/$defs/FieldLocator"
+          },
+          "type": "array"
         },
         "locator": {
           "$ref": "#/$defs/FieldLocator",
@@ -10593,6 +10601,16 @@
       "name": "header_value_invalid",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Hook raised, so its work failed: an attempt commits nothing, and one that failed at the Record stage commits none of what it staged. The message always names the exception. The details name the stage, the Hook, the request's Label (`null` at a lifecycle stage or outside a crawl), the exception's type, message and stack, and the Goodfetch code raised inside (`null` for the program's own exception). A wrapped code is retried when its own retryable flag says so; in a crawl, the program's own exception only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time, and either retry draws on `crawl.retry.max`.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "hook_failed",
+      "product": "collie",
+      "retryable": true
     },
     {
       "arrived_in": "0.1",

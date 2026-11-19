@@ -402,6 +402,15 @@ export class HeaderValueInvalidError extends ProgramError {
 }
 
 /**
+ * A Hook raised, so its work failed: an attempt commits nothing, and one that failed at the Record stage commits none of what it staged. The message always names the exception. The details name the stage, the Hook, the request's Label (`null` at a lifecycle stage or outside a crawl), the exception's type, message and stack, and the Goodfetch code raised inside (`null` for the program's own exception). A wrapped code is retried when its own retryable flag says so; in a crawl, the program's own exception only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time, and either retry draws on `crawl.retry.max`.
+ */
+export class HookFailedError extends ProgramError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "hook_failed", group: "program", retryable: true });
+  }
+}
+
+/**
  * A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine.
  */
 export class LimitNotUnderstoodError extends RefusedError {
@@ -968,6 +977,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   file_write_failed: FileWriteFailedError,
   format_version_unsupported: FormatVersionUnsupportedError,
   header_value_invalid: HeaderValueInvalidError,
+  hook_failed: HookFailedError,
   limit_not_understood: LimitNotUnderstoodError,
   limit_raise_refused: LimitRaiseRefusedError,
   limit_reached: LimitReachedError,

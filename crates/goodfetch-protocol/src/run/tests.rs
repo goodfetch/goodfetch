@@ -1,6 +1,6 @@
 use rstest::rstest;
 
-use super::{RunId, RunIdInvalid, Tags};
+use super::{RunId, RunIdInvalid, Tags, TagsInvalid};
 use crate::catalog::{Product, SharedType};
 
 #[rstest]
@@ -63,6 +63,19 @@ fn tags_hold_at_most_sixteen_of_sixty_four_characters(
     #[case] read: bool,
 ) {
     assert_eq!(serde_json::from_value::<Tags>(tags).is_ok(), read);
+}
+
+/// A program builds tags by the same bounds the wire reads them by.
+#[rstest]
+#[case::sixteen_tags_of_sixty_four_characters(vec!["é".repeat(64); 16], Ok(16))]
+#[case::none(Vec::new(), Ok(0))]
+#[case::seventeen_tags(vec!["t".to_owned(); 17], Err(TagsInvalid::TooMany))]
+#[case::a_tag_of_sixty_five_characters(vec!["t".repeat(65)], Err(TagsInvalid::TooLong))]
+fn tags_parse_by_the_bounds_the_wire_reads(
+    #[case] tags: Vec<String>,
+    #[case] expected: Result<usize, TagsInvalid>,
+) {
+    assert_eq!(Tags::parse(tags).map(|tags| tags.iter().count()), expected);
 }
 
 /// A warning of a crawl's is Foxhound's alone, so Collie's SDKs never type it;

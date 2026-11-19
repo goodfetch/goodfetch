@@ -132,8 +132,10 @@ impl Collie {
         closed.map(|()| value)
     }
 
-    /// The start of a Run the program drives (`run.start`), which awaiting
-    /// sends.
+    /// Leaving the scope or `close()` stops the Run with a Checkpoint;
+    /// `finish()` ends it. The start of a Run the program drives
+    /// (`run.start`), which awaiting sends: a resume is logged at info and
+    /// a start that found its Run ended at warning, through `tracing`.
     pub fn start(&self) -> Start {
         self.linked.connection().start()
     }

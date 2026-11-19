@@ -47,6 +47,12 @@ export interface ConnectOverOptions {
    * its error.
    */
   readonly limits?: Limits | undefined;
+  /**
+   * The host's logger, which gets a start that resumed a Run at info and
+   * one that found it ended at warning, and an Attached engine's stderr
+   * lines at warning. With none, the SDK is silent.
+   */
+  readonly logger?: Logger | undefined;
 }
 
 /** Options of `connect()`. */
@@ -59,8 +65,6 @@ export interface ConnectOptions extends ConnectOverOptions {
    * gets exactly this map as its environment.
    */
   readonly env?: Readonly<Record<string, string>> | undefined;
-  /** The host's logger, which gets the engine's stderr lines at warning. With none, the SDK is silent. */
-  readonly logger?: Logger | undefined;
 }
 
 /** What tells one Product's package from the other's when it connects. */
@@ -193,12 +197,14 @@ function opening(options: ConnectOverOptions): {
   readonly bounds: ChannelBounds;
   readonly signal: AbortSignal | undefined;
   readonly limits: readonly RunLimit[];
+  readonly logger: Logger | undefined;
 } {
-  const { signal, maxPendingCalls, maxQueuedWriteBytes } = options;
+  const { signal, maxPendingCalls, maxQueuedWriteBytes, logger } = options;
   return {
     bounds: boundsOf({ maxPendingCalls, maxQueuedWriteBytes }),
     signal,
     limits: limitList(options.limits),
+    logger,
   };
 }
 

@@ -5,13 +5,13 @@
 use crate::catalog::{Entries, ErrorCodeDefinition, Operation, Product, SharedType, Yielding};
 use crate::{
     audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect, egress,
-    engine, events, executables, foxhound, governor, hostile_input, key_value_store, log,
+    engine, events, executables, foxhound, governor, hook, hostile_input, key_value_store, log,
     needs_you, ops, page, politeness, response_limits, run, sample, secrets, security, settings,
     site_preferences, storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 52] = [
+pub const MODULES: [&Entries; 54] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -49,10 +49,12 @@ pub const MODULES: [&Entries; 52] = [
     &politeness::ENTRIES,
     &site_preferences::ENTRIES,
     &block::ENTRIES,
+    &hook::ENTRIES,
     &foxhound::ENTRIES,
     &foxhound::crawl::ENTRIES,
     &foxhound::fetch::ENTRIES,
     &foxhound::frontier::ENTRIES,
+    &foxhound::hook::ENTRIES,
     &foxhound::dataset::ENTRIES,
     &foxhound::dataset_view::ENTRIES,
     &foxhound::export::ENTRIES,

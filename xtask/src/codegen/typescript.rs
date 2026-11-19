@@ -728,6 +728,35 @@ fn signature(
     (declared.join(", "), object)
 }
 
+/// The type `member` answers: the operation's result type, or the type of
+/// its one property, which an optional one gives with `null` for absent.
+fn answered(member: &Member<'_>, result: &str) -> String {
+    match &member.unwrapped {
+        None => format!("types.{result}"),
+        Some(unwrapped) if unwrapped.required => {
+            format!("types.{result}[{:?}]", unwrapped.property)
+        }
+        Some(unwrapped) => {
+            format!(
+                "NonNullable<types.{result}[{:?}]> | null",
+                unwrapped.property
+            )
+        }
+    }
+}
+
+/// What `member` returns of `call`: its result, or its result's one
+/// property, `null` when an optional one is absent.
+fn answer(member: &Member<'_>, call: &str) -> String {
+    match &member.unwrapped {
+        None => call.to_owned(),
+        Some(unwrapped) if unwrapped.required => {
+            format!("(await {call}).{}", unwrapped.property)
+        }
+        Some(unwrapped) => format!("(await {call}).{} ?? null", unwrapped.property),
+    }
+}
+
 /// One member, a method of the class that holds `host`.
 fn member(member: &Member<'_>, id: &HandleId) -> String {
     let operation = member.operation;
@@ -762,7 +791,9 @@ fn member(member: &Member<'_>, id: &HandleId) -> String {
             None => {
                 let _ = write!(
                     text,
-                    "  async {name}({declared}): Promise<types.{result}> {{\n    return {call};\n  }}\n"
+                    "  async {name}({declared}): Promise<{}> {{\n    return {};\n  }}\n",
+                    answered(member, result),
+                    answer(member, &call)
                 );
             }
             // Its result is typed by the fields the caller passes, which

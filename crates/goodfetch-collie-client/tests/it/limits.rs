@@ -23,26 +23,29 @@ use crate::connection::hello;
 const SCRIPT: &str = "run/limit-reached-stops-the-run.json";
 
 /// This crate's `hello` to a Daemon, carrying the Scripted engine's token.
-fn daemon_hello() -> HelloParams {
+pub(crate) fn daemon_hello() -> HelloParams {
     HelloParams {
         token: Some(SCRIPTED_DAEMON_TOKEN.to_owned()),
         ..hello()
     }
 }
 
-/// Starts the Scripted engine as the Daemon of `env`'s home, playing the
-/// case's script with this crate's `hello` in place of the TypeScript
-/// SDK's, and returns it with where it listens.
+/// Starts the Scripted engine as the Daemon of `env`'s home, playing
+/// `script` of the corpus with this crate's `hello` in place of the
+/// TypeScript SDK's, and returns it with where it listens.
 #[expect(
     clippy::disallowed_methods,
     reason = "the test writes the Scripted engine's script and reads its runtime file before any async worker runs"
 )]
-fn daemon(env: &TestEnv) -> (goodfetch_test_support::Process, DaemonEndpoint) {
-    let mut script: Value =
-        serde_json::from_slice(&std::fs::read(engine_script(SCRIPT)).unwrap()).unwrap();
-    script["steps"][0]["expect"]["params"] = serde_json::to_value(daemon_hello()).unwrap();
-    let path = env.folder().join("limit-reached.json");
-    std::fs::write(&path, serde_json::to_vec(&script).unwrap()).unwrap();
+pub(crate) fn scripted_daemon(
+    env: &TestEnv,
+    script: &str,
+) -> (goodfetch_test_support::Process, DaemonEndpoint) {
+    let mut played: Value =
+        serde_json::from_slice(&std::fs::read(engine_script(script)).unwrap()).unwrap();
+    played["steps"][0]["expect"]["params"] = serde_json::to_value(daemon_hello()).unwrap();
+    let path = env.folder().join("script.json");
+    std::fs::write(&path, serde_json::to_vec(&played).unwrap()).unwrap();
     let scripted = tools()
         .unwrap()
         .path(Tool::ScriptedEngine)
@@ -65,7 +68,7 @@ fn daemon(env: &TestEnv) -> (goodfetch_test_support::Process, DaemonEndpoint) {
 #[test]
 fn a_call_that_finds_the_runs_limit_used_up_fails_and_the_run_ends_stopped_and_incomplete() {
     let env = TestEnv::new();
-    let (process, endpoint) = daemon(&env);
+    let (process, endpoint) = scripted_daemon(&env, SCRIPT);
     let capped = RunId::parse("capped").unwrap();
     let limits = Limits::new().price(UsageKind::PROXY_BYTES, Money::new("1", "USD").unwrap());
     let runtime = goodfetch_test_support::runtime();

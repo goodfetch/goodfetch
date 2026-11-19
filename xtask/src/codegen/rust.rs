@@ -17,6 +17,8 @@
 //!   without a call is a plain method, and so is a sub-object.
 //! - A result typed by the fields its call declares (ADR 0147) is the
 //!   result type: the crate's `Map` of values by field name.
+//! - A result of one property answers that property's value, its field's
+//!   type in the protocol crate, `Option` for an optional one (issue 2517).
 //!
 //! Each params type's fields are read from the protocol crate's source
 //! (`index`), so a member sets each by name; a type or field the handles
@@ -173,6 +175,9 @@ struct MemberModel {
     wire_timeout: bool,
     /// For an opener: the handle it opens and the result field of its ID.
     opens: Option<(String, String)>,
+    /// For a result of one property: that field's type and ident, which
+    /// the member answers in place of the result.
+    unwrapped: Option<(String, String)>,
 }
 
 impl MemberModel {
@@ -182,10 +187,11 @@ impl MemberModel {
 
     /// Its return type, as `twin` spells it.
     fn returns(&self, twin: Twin) -> String {
-        let answered = match (&self.form, &self.opens) {
-            (Form::Closes, _) => "()".to_owned(),
-            (_, Some((opened, _))) => opened.clone(),
-            _ => self.result.clone(),
+        let answered = match (&self.form, &self.opens, &self.unwrapped) {
+            (Form::Closes, _, _) => "()".to_owned(),
+            (_, Some((opened, _)), _) => opened.clone(),
+            (_, None, Some((ty, _))) => ty.clone(),
+            (_, None, None) => self.result.clone(),
         };
         format!(
             "{}::{}<{answered}, {}>",
@@ -476,6 +482,14 @@ fn member_model(
         }
         _ => None,
     };
+    let unwrapped = match &member.unwrapped {
+        Some(unwrapped) => {
+            let results = index.fields(&operation.result.0)?;
+            let answered = field(&results, &unwrapped.property, &owner)?;
+            Some((answered.ty.clone(), answered.ident.clone()))
+        }
+        None => None,
+    };
     Ok(MemberModel {
         ident: ident(member.name, &owner)?,
         doc: doc(
@@ -507,6 +521,7 @@ fn member_model(
         literal,
         wire_timeout,
         opens,
+        unwrapped,
     })
 }
 
@@ -691,14 +706,22 @@ impl Module {
                 } else {
                     ""
                 };
-                match (&member.form, &member.opens) {
-                    (Form::Closes, _) => format!("self.host.close({sent})"),
-                    (Form::Query, _) => format!("self.host.query({sent})"),
-                    (_, Some((opened, carried))) => format!(
+                match (&member.form, &member.opens, &member.unwrapped) {
+                    (Form::Closes, _, _) => format!("self.host.close({sent})"),
+                    (Form::Query, _, None) => format!("self.host.query({sent})"),
+                    (Form::Query, _, Some((_, answered))) => format!(
+                        "let query: crate::Query<{}, {}> = self.host.query({sent});\n        query.map(|result| result.{answered})",
+                        member.result, member.params
+                    ),
+                    (_, Some((opened, carried)), _) => format!(
                         "let host = self.host.clone();\n        let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}.map(move |opened| {opened} {{ host: host.child(opened.{carried}) }})",
                         member.result, member.params
                     ),
-                    _ => format!("self.host.call({sent}){wire}"),
+                    (_, None, Some((_, answered))) => format!(
+                        "let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}.map(|result| result.{answered})",
+                        member.result, member.params
+                    ),
+                    (_, None, None) => format!("self.host.call({sent}){wire}"),
                 }
             }
             Twin::Blocking => {

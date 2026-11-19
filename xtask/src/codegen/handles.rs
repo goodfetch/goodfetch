@@ -28,6 +28,11 @@
 //!   the fields that parameter declares (ADR 0147), so a member types it
 //!   from the fields its caller passes. The parameter is a required one of
 //!   the operation, and a result marks one property at most.
+//! - A round trip, a query or a waiter whose result has exactly one
+//!   property answers that property's value, so `page.goto` answers the
+//!   document's response rather than a wrapper of it (issue 2517); an
+//!   optional property answers the language's none when it is absent. The
+//!   operation's own function, the wire and the result type are unchanged.
 
 use anyhow::{Context as _, Result, bail};
 use serde_json::{Map, Value};
@@ -91,6 +96,16 @@ pub(super) struct TypedBy {
     pub(super) property: String,
 }
 
+/// The one property of a member's result, which the member answers in
+/// place of the result.
+pub(super) struct Unwrapped {
+    /// The property, as the wire names it, such as `response`.
+    pub(super) property: String,
+    /// Whether the result always carries it; an optional one answers the
+    /// language's none when it is absent.
+    pub(super) required: bool,
+}
+
 /// An operation as a member of a handle or of one of its sub-objects.
 pub(super) struct Member<'a> {
     pub(super) operation: &'a Operation,
@@ -103,6 +118,9 @@ pub(super) struct Member<'a> {
     /// The Duration setting its own `timeout` sets for the call alone, such
     /// as `timeout.wait`; none when it takes no `timeout`.
     pub(super) timeout_setting: Option<String>,
+    /// The one property of its result, which it answers in place of the
+    /// result; none when the result has no property or several.
+    pub(super) unwrapped: Option<Unwrapped>,
 }
 
 /// A value a handle builds without a call.
@@ -274,6 +292,42 @@ fn typed_by(
     }))
 }
 
+/// The one property of `operation`'s result, which its member in `form`
+/// answers in place of the result: a round trip's, a query's or a waiter's
+/// whose result has exactly one property. A property `typed_by` the call's
+/// fields is refused there, since its values' type is the member's own.
+fn unwrapped(
+    layer: &Layer,
+    operation: &Operation,
+    form: &Form,
+    typed_by: Option<&TypedBy>,
+) -> Result<Option<Unwrapped>> {
+    if !matches!(form, Form::RoundTrip | Form::Query | Form::Waiter) {
+        return Ok(None);
+    }
+    let Some(result) = layer.definitions.get(&operation.result.0) else {
+        return Ok(None);
+    };
+    let Some(properties) = result["properties"].as_object() else {
+        return Ok(None);
+    };
+    let mut only = properties.keys();
+    let (Some(property), None) = (only.next(), only.next()) else {
+        return Ok(None);
+    };
+    if let Some(typed) = typed_by {
+        bail!(
+            "operation `{}`: its result's one property `{}` is `{TYPED_BY}`, which a member answers in place of the result, so the fields' values need a result of two properties or more (ADR 0147)",
+            operation.name,
+            typed.property
+        );
+    }
+    Ok(Some(Unwrapped {
+        required: names(result, "required").contains(property),
+        property: property.clone(),
+    }))
+}
+
 /// The Duration setting `operation`'s own `timeout` sets, which its params
 /// type, `schema`, names with `setting`; none when it takes no `timeout`.
 fn timeout_setting(operation: &Operation, schema: &Value) -> Result<Option<String>> {
@@ -350,13 +404,16 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
                 && !operation.cancellable
                 && parameters.positional.is_empty()
                 && parameters.named.is_empty();
+            let form = if closes { Form::Closes } else { form };
+            let unwrapped = unwrapped(layer, operation, &form, typed_by.as_ref())?;
             let member = Member {
                 operation,
                 name,
-                form: if closes { Form::Closes } else { form },
+                form,
                 parameters,
                 typed_by,
                 timeout_setting,
+                unwrapped,
             };
             let handle = found.get_or_insert_with(|| Handle {
                 namespace,

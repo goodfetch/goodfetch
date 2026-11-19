@@ -498,6 +498,26 @@ pub(crate) fn crawl_on<T>(
     dependencies: impl FnOnce() -> Dependencies,
     talk: impl AsyncFnOnce(&mut Client) -> T,
 ) -> (T, Vec<Value>) {
+    connected_on(engine, &json!({}), dependencies, talk)
+}
+
+/// [`crawl`], on a Connection whose `hello` sets `settings`, its own, which
+/// each crawl it starts takes beneath its own (ADR 0083).
+pub(crate) fn crawl_connected<T>(
+    settings: &Value,
+    dependencies: impl FnOnce() -> Dependencies,
+    talk: impl AsyncFnOnce(&mut Client) -> T,
+) -> T {
+    connected_on(&engine(), settings, dependencies, talk).0
+}
+
+/// [`crawl_on`], on a Connection whose `hello` sets `settings`.
+pub(crate) fn connected_on<T>(
+    engine: &Engine,
+    settings: &Value,
+    dependencies: impl FnOnce() -> Dependencies,
+    talk: impl AsyncFnOnce(&mut Client) -> T,
+) -> (T, Vec<Value>) {
     let (layer, transitions) = Transitions::new();
     let answer = goodfetch_test_support::runtime().block_on(async {
         let dependencies = dependencies();
@@ -528,6 +548,7 @@ pub(crate) fn crawl_on<T>(
                         "surface": "rust",
                         "needs": "foxhound",
                         "product_version": "1.4.0",
+                        "settings": settings,
                     }),
                     &mut |_| Reply::Silent,
                 )
@@ -1425,8 +1446,9 @@ fn an_operator_policy_loosened_cap_applies_to_a_new_crawl_only() {
 /// A crawl whose `fetch.tier` forces a tier this engine does not build,
 /// for the Run or for one of its Labels, is refused before its Run begins,
 /// naming the setting and the tier (spec #579), and a Label setting a key
-/// a Label does not take is refused with `setting_not_applicable`; the
-/// conformance fetch suite starts one under `http`.
+/// a Label does not take is refused with `setting_not_applicable`, as is
+/// the Run's own `timeout.run`, which only the Connection sets (ADR 0083);
+/// the conformance fetch suite starts one under `http`.
 ///
 /// Covers: story:5-128, story:5-118, setting:fetch.tier
 #[rstest::rstest]
@@ -1456,6 +1478,12 @@ fn an_operator_policy_loosened_cap_applies_to_a_new_crawl_only() {
     json!({}),
     json!({ "list": { "settings": { "crawl": { "max_depth": 2 } } } }),
     json!(["setting_not_applicable", "crawl.max_depth", null])
+)]
+/// Covers: story:11-70, setting:timeout.run, error:setting_not_applicable
+#[case::a_run_timeout_of_the_runs_own(
+    json!({ "timeout": { "run": 60_000 } }),
+    json!({}),
+    json!(["setting_not_applicable", "timeout.run", null])
 )]
 fn a_crawl_forcing_a_fetch_tier_not_built_is_refused_with_capability_unavailable(
     #[case] settings: Value,

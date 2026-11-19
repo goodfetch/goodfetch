@@ -21,6 +21,7 @@ import {
   type CollieOperationTypes,
   type PageId,
   type RunStarted,
+  type SettingsExplanation,
   type StartedAs,
 } from "./generated/index.ts";
 import { Page } from "./generated/handles.ts";
@@ -482,6 +483,24 @@ export class Run extends RunMembers implements AsyncDisposable {
   startedAs(): StartedAs {
     warnEntry(collieOperations, "run.start");
     return this.#startedAs;
+  }
+
+  /**
+   * What the Run runs with (ADR 0083): each setting under `keys`, each a
+   * key or a prefix of keys such as `timeout`, every one when left out,
+   * with the effective value the Run opened with, the layer and origin
+   * that set it and the layer that locked it, as `goodfetch config
+   * explain` shows them: its own `settings` over its Connection's. A Run
+   * that is no longer live fails with `run_not_found`, and a closed Run's
+   * value with `closed`.
+   */
+  async explainSettings(keys?: readonly string[]): Promise<SettingsExplanation> {
+    ensureOpen(this.#scope, "config.explain");
+    return this.#host.calls.call(
+      "config.explain",
+      { runId: this.#scope.id, ...(keys === undefined ? {} : { keys: [...keys] }) },
+      {},
+    );
   }
 
   /**

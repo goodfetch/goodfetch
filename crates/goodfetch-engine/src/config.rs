@@ -31,8 +31,10 @@ use serde_json::{Value, json};
 use crate::audit::AuditError;
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
-use crate::run::settings_error;
-use crate::settings::{Opening, Policy, SettingsError, Values, operator_policy, policy_version};
+use crate::run::{run_error, run_id, settings_error};
+use crate::settings::{
+    Opening, Policy, SettingsError, Values, beneath_connection, operator_policy, policy_version,
+};
 use crate::settings_editor::{self, Change, SettingsEditor};
 
 /// The `config.*` handlers.
@@ -50,6 +52,27 @@ async fn explain(
     context: CallContext,
 ) -> Result<SettingsExplanation, CallError> {
     let settings = context.engine().settings();
+    // A live Run's settings are the ones it opened with: values to resolve
+    // beside it would be read by nothing (ADR 0083 ignores nothing given).
+    if params.run_id.is_some()
+        && (params.project.is_some()
+            || params.missing_project.is_some()
+            || !params.settings.is_empty()
+            || params.origin.is_some())
+    {
+        return Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            "`run_id` explains the settings that Run opened with: give it without \
+             `settings`, `origin`, `project` or `missing_project`",
+        ));
+    }
+    // The run values given, over the Connection's own (ADR 0083).
+    let given = beneath_connection(
+        context.connection_settings(),
+        &params.settings,
+        context.identity().product,
+    )
+    .map_err(|error| settings_error(&error, &context))?;
     // Under every default the host gives, `run_state.key_reference`'s
     // included, which asks the OS keychain (issue 2204).
     let (run, machine) = settings
@@ -57,12 +80,27 @@ async fn explain(
             run: None,
             project: params.project.clone(),
             recipe: None,
-            settings: params.settings,
+            settings: given,
             origin: Some(params.origin.unwrap_or(RunOrigin::Settings)),
             acting_for_model: context.surface().acts_for_model(),
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
+    let live = match run_id(params.run_id.as_deref())? {
+        Some(run_id) => Some(
+            context
+                .runs()
+                .live(run_id)
+                .await
+                .map_err(|error| run_error(error, &context))?,
+        ),
+        None => None,
+    };
+    let resolved = live
+        .as_ref()
+        .and_then(|live| live.settings())
+        .unwrap_or(&run)
+        .resolved();
     let mut files = machine.files;
     let project = params
         .project
@@ -75,7 +113,7 @@ async fn explain(
             found,
         });
     }
-    Ok(run.resolved().explain(&params.keys, files))
+    Ok(resolved.explain(&params.keys, files))
 }
 
 /// Why a person's entry failed: each but `Unrecorded` wrote nothing.

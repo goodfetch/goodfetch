@@ -205,6 +205,71 @@ fn the_variants_of_a_union_merge_their_fields() {
 }
 
 #[test]
+fn an_open_union_names_its_tag_known_members_and_shared_fields_and_is_listed_even_when_it_holds_nothing_else()
+ {
+    let defs = definitions(json!({
+        "PointInTime": point_in_time(),
+        "Ending": { "open": true, "properties": { "request_id": { "type": "string" } }, "oneOf": [
+            { "type": "object", "properties": {
+                "kind": { "const": "failed" }, "ended_at": reference("PointInTime"),
+            } },
+            { "type": "object", "properties": { "kind": { "const": "skipped" } } },
+        ] },
+        "Stop": { "open": true, "oneOf": [
+            { "type": "object", "properties": { "kind": { "const": "pause" } } },
+        ] },
+        "Report": { "type": "object", "properties": { "stop": reference("Stop") } },
+    }));
+
+    let table = table_of(&defs, &[("run.report", "Report")]).unwrap();
+
+    let union =
+        |known: &[&str], path: Option<WirePath>, common: Option<WirePath>| WirePath::Union {
+            tag: "kind".to_owned(),
+            known: known.iter().map(|name| (*name).to_owned()).collect(),
+            path: path.map(Box::new),
+            common: common.map(Box::new),
+        };
+    assert_eq!(
+        table.types.into_iter().collect::<Vec<_>>(),
+        [
+            (
+                "Ending".to_owned(),
+                union(
+                    &["failed", "skipped"],
+                    Some(fields(vec![
+                        field("ended_at", "endedAt", Some(WirePath::Time)),
+                        field("request_id", "requestId", None),
+                    ])),
+                    Some(fields(vec![field("request_id", "requestId", None)]))
+                )
+            ),
+            (
+                "Report".to_owned(),
+                fields(vec![field("stop", "stop", Some(named("Stop")))])
+            ),
+            ("Stop".to_owned(), union(&["pause"], None, None)),
+        ]
+    );
+    assert_eq!(table.results.get("run.report"), Some(&named("Report")));
+}
+
+#[test]
+fn an_open_union_is_written_as_the_runtimes_union_path() {
+    let path = WirePath::Union {
+        tag: "kind".to_owned(),
+        known: vec!["pause".to_owned()],
+        path: Some(Box::new(named("Pause"))),
+        common: Some(Box::new(named("Shared"))),
+    };
+
+    assert_eq!(
+        super::path_value(&path),
+        r#"{ union: { tag: "kind", known: ["pause"], path: { type: "Pause" }, common: { type: "Shared" } } }"#
+    );
+}
+
+#[test]
 fn a_field_that_is_a_time_in_one_variant_and_not_in_another_is_refused() {
     let defs = definitions(json!({
         "PointInTime": point_in_time(),

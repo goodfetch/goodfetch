@@ -38,6 +38,7 @@ from goodfetch_collie_client.generated.models import (
 )
 from goodfetch_collie_client.generated.open_values import Verdict
 from goodfetch_collie_client.point_in_time import PointInTime
+from goodfetch_collie_client.unknown_member import UnknownMember
 from goodfetch_foxhound.generated.open_values import (
     BlockCause,
     CrawlHookStage,
@@ -1872,6 +1873,31 @@ class CrawlRequestOutcome4(BaseModel):
     kind: Literal["blocked"]
 
 
+class CrawlRequestOutcome5(UnknownMember):
+    """A member this package does not know, which a newer engine may send: the tag it was sent in `tag`, the fields every member shares, and what else it carries as sent (ADR 0079)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    attempts: Annotated[int, Field(ge=0)]
+    """How many attempts it took: retries are a count, not an outcome."""
+    ended_at: PointInTime
+    """When it ended."""
+    errors: list[AttemptError]
+    """The error of each failed attempt, in order."""
+    position: Annotated[int, Field(ge=0)]
+    """
+    Its place in the Run's commit order, from 1, which `run.outcomes`'s
+    `after` takes.
+    """
+    request: OutcomeRequest
+    """The request it ends."""
+    kind: Literal["unknown"]
+    tag: str
+    """The tag the engine sent."""
+
+
 class DatasetList(BaseModel):
     """What `dataset.list` answers."""
 
@@ -2240,6 +2266,7 @@ class CrawlRequestOutcome(
         | CrawlRequestOutcome2
         | CrawlRequestOutcome3
         | CrawlRequestOutcome4
+        | CrawlRequestOutcome5
     ]
 ):
     root: (
@@ -2247,6 +2274,7 @@ class CrawlRequestOutcome(
         | CrawlRequestOutcome2
         | CrawlRequestOutcome3
         | CrawlRequestOutcome4
+        | CrawlRequestOutcome5
     )
     """
     How one crawl request ended (ADRs 0079 and 0102). A request that

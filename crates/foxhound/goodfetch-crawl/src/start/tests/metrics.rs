@@ -18,7 +18,9 @@ use opentelemetry_sdk::metrics::SdkMeterProvider;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{Reply, SITEMAP, crawl_on, dependencies, engine, page_of, records, run_file, seeds};
+use super::{
+    Reply, SITEMAP, connected_on, crawl_on, dependencies, engine, page_of, records, run_file, seeds,
+};
 use crate::work_items;
 
 /// The value of the series `name` of `registry`, if it has one.
@@ -306,8 +308,9 @@ fn a_work_item_left_with_no_domain_key_is_keyed_once_its_crawl_is_idle_and_its_k
     let (engine, registry, _provider) = metered();
     let mut pages = Vec::new();
 
-    crawl_on(
+    connected_on(
         &engine,
+        &json!({ "timeout": { "run": 600_000 } }),
         || dependencies(&env, RunStateOptions::default()),
         async |client| {
             client
@@ -317,7 +320,7 @@ fn a_work_item_left_with_no_domain_key_is_keyed_once_its_crawl_is_idle_and_its_k
                         "labels": { "page": {} },
                         "run_id": "left",
                         "seeds": seeds(1),
-                        "settings": { "crawl": { "keep_alive": true }, "timeout": { "run": 600_000 } },
+                        "settings": { "crawl": { "keep_alive": true } },
                     }),
                     &mut |_| Reply::Silent,
                 )

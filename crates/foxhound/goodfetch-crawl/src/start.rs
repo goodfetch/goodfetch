@@ -37,7 +37,7 @@ use goodfetch_dataset::{Began, Datasets};
 use goodfetch_engine::admission::Keys;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run::{
-    checkpoint_interval, resume_run, run_error, run_id, settings_error, start_error,
+    checkpoint_interval, resume_run, run_error, run_id, run_layer, settings_error, start_error,
 };
 use goodfetch_engine::runs::{Driving, EndedBy, Initialize, RunError, Start, Started};
 use goodfetch_engine::settings::Opening;
@@ -222,7 +222,7 @@ async fn start(
             run: Some(Product::Foxhound),
             project: params.project,
             recipe: None,
-            settings: params.settings,
+            settings: run_layer(&params.settings, &context)?,
             origin: Some(RunOrigin::Settings),
             acting_for_model: context.surface().acts_for_model(),
         })

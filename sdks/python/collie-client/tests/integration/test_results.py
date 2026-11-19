@@ -40,6 +40,7 @@ class NewerEngine:
         return {"text": "hi", "added_in_a_minor": 1}
 
 
+@pytest.mark.covers("story:11-68")
 def test_result_from_a_newer_engine_keeps_its_unknown_field() -> None:
     """A field a newer engine added neither raises nor is dropped (ADR 0077, G3)."""
     operations = CollieOperations(NewerEngine())
@@ -91,6 +92,7 @@ def test_a_list_of_nested_results_reads_by_attribute() -> None:
     assert formats.links[0].href == "/a"
 
 
+@pytest.mark.covers("story:11-68")
 def test_an_unknown_field_of_a_nested_result_is_kept() -> None:
     """A field a newer engine added at any depth is kept, never raised on (ADR 0082)."""
     operations = CollieOperations(
@@ -126,6 +128,7 @@ def test_a_union_variant_a_newer_engine_added_is_kept_as_sent() -> None:
     assert sent == {"kind": "added_in_a_minor"}
 
 
+@pytest.mark.covers("story:11-68")
 def test_params_refuse_an_unknown_field() -> None:
     """A misspelled input field is an error, never ignored (ADR 0077, G3)."""
     with pytest.raises(pydantic.ValidationError) as refused:

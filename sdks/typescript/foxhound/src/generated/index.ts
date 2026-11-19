@@ -12,4 +12,4 @@ export * from "./events.ts";
 export * from "./errors.ts";
 export * from "./plugins.ts";
 export type * from "./shared-types.ts";
-export type { CrawlSettings, LabelSettings } from "./settings.ts";
+export type { FoxhoundSettings, CrawlSettings, LabelSettings } from "./settings.ts";

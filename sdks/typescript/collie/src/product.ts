@@ -6,6 +6,7 @@ import { collieErrorClasses } from "@goodfetch/collie-client";
 import {
   COLLIE_ENGINE_PATH_VARIABLE,
   COLLIE_EXECUTABLE,
+  settingsOnWire,
   type ProductPackage,
 } from "@goodfetch/collie-client/runtime";
 
@@ -17,4 +18,5 @@ export const collie: ProductPackage = {
   enginePathVariable: COLLIE_ENGINE_PATH_VARIABLE,
   errorClasses: collieErrorClasses,
   moduleUrl: import.meta.url,
+  settingsOnWire,
 };

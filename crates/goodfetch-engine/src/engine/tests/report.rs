@@ -312,13 +312,20 @@ fn write(env: &TestEnv, file: &str, text: &str) {
 /// Runs a Collie engine with the test's operations in `env` while the
 /// Client makes `calls`, after its `hello`, and answers each reply.
 fn replies(env: &TestEnv, calls: &[(&str, Value)]) -> Vec<Value> {
+    replies_under(env, json!({}), calls)
+}
+
+/// [`replies`] on a Connection whose `hello` sets `settings`.
+fn replies_under(env: &TestEnv, settings: Value, calls: &[(&str, Value)]) -> Vec<Value> {
     let engine = engine_with(Product::Collie, Some(reporting()));
     let calls: Vec<(String, Value)> = calls
         .iter()
         .map(|(method, params)| ((*method).to_owned(), params.clone()))
         .collect();
+    let mut hello = hello("collie", "0.1");
+    hello["params"]["settings"] = settings;
     attached_on(&engine, env, |mut client: Client| async move {
-        client.send(&[hello("collie", "0.1")]).await;
+        client.send(&[hello]).await;
         client.next().await;
         let mut replies = Vec::new();
         for (id, (method, params)) in (1..).zip(calls) {
@@ -597,6 +604,7 @@ fn a_write_that_failed_at_the_runs_end_raises_its_code_once_the_run_ended() {
 /// Covers: story:3-154
 #[rstest]
 #[case::a_limit(
+    json!({}),
     vec![
         ("usage.set", json!({ "scope": "install", "usage_kind": "requests", "period": { "every": "month", "time_zone": "UTC" }, "amount": 1 })),
         ("run.start", json!({ "run_id": "stops" })),
@@ -605,13 +613,15 @@ fn a_write_that_failed_at_the_runs_end_raises_its_code_once_the_run_ended() {
     json!({ "kind": "limit", "scope": { "kind": "install", "id": "" }, "usage_kind": "requests", "period": { "every": "month", "time_zone": "UTC" }, "resets_at": "2026-02-01T00:00:00Z" }),
 )]
 #[case::its_timeout(
+    json!({ "timeout": { "run": 1_000 } }),
     vec![
-        ("run.start", json!({ "run_id": "stops", "settings": { "timeout": { "run": 1_000 } } })),
+        ("run.start", json!({ "run_id": "stops" })),
         ("test.sleep", json!({})),
     ],
     json!({ "kind": "timeout" }),
 )]
 #[case::an_abort(
+    json!({}),
     vec![
         ("run.start", json!({ "run_id": "stops" })),
         ("run.abort", json!({ "run_id": "stops" })),
@@ -619,6 +629,7 @@ fn a_write_that_failed_at_the_runs_end_raises_its_code_once_the_run_ended() {
     json!({ "kind": "abort", "by": "client" }),
 )]
 #[case::the_engines_loss(
+    json!({}),
     vec![
         ("run.start", json!({ "run_id": "stops" })),
         ("test.hand_over", json!({ "run_id": "stops", "stop": { "kind": "engine_lost" } })),
@@ -626,6 +637,7 @@ fn a_write_that_failed_at_the_runs_end_raises_its_code_once_the_run_ended() {
     json!({ "kind": "engine_lost" }),
 )]
 #[case::storage(
+    json!({}),
     vec![
         ("run.start", json!({ "run_id": "stops" })),
         ("test.hand_over", json!({ "run_id": "stops", "stop": { "kind": "resources", "resource": "storage", "folder": "/data/runs" } })),
@@ -633,6 +645,7 @@ fn a_write_that_failed_at_the_runs_end_raises_its_code_once_the_run_ended() {
     json!({ "kind": "resources", "resource": "storage", "folder": "/data/runs" }),
 )]
 #[case::memory(
+    json!({}),
     vec![
         ("run.start", json!({ "run_id": "stops" })),
         ("test.hand_over", json!({ "run_id": "stops", "stop": { "kind": "resources", "resource": "memory" } })),
@@ -640,13 +653,14 @@ fn a_write_that_failed_at_the_runs_end_raises_its_code_once_the_run_ended() {
     json!({ "kind": "resources", "resource": "memory" }),
 )]
 fn each_stop_gives_its_stop_reason_with_its_details(
+    #[case] connection: Value,
     #[case] mut calls: Vec<(&str, Value)>,
     #[case] stop_reason: Value,
 ) {
     let env = TestEnv::new();
     calls.push(("run.finish", json!({ "run_id": "stops" })));
 
-    let replies = replies(&env, &calls);
+    let replies = replies_under(&env, connection, &calls);
 
     let report = &replies.last().unwrap()["result"];
     assert_eq!(

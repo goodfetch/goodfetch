@@ -6,8 +6,9 @@ holds `AsyncCollie` and the sync `Collie`; the Collie client package,
 errors, a listener's `Subscription`, a sequence's iterators (`AsyncSequence`
 and `Sequence`), a Run's Key-value store (`AsyncKeyValueStore` and
 `KeyValueStore`), each scope's settings types
-(`Settings`, `RunSettings`, `SessionSettings`, `PageSettings`), and
-`AsyncConnection` and
+(`Settings`, `RunSettings`, `SessionSettings`, `PageSettings`), the
+JSON values and the schema written by hand of ADR 0082 (`JSONValue`,
+`JSONObject`, `JSONSchema`), and `AsyncConnection` and
 `Connection`, which both Products' Connections extend, all of which this
 package re-exports;
 `goodfetch_foxhound` holds Foxhound's.
@@ -57,9 +58,11 @@ from goodfetch_collie_client.generated.settings import (
 )
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
 from goodfetch_collie_client.handle import Subscription
+from goodfetch_collie_client.json_values import JSONObject, JSONValue
 from goodfetch_collie_client.key_value_store import AsyncKeyValueStore, KeyValueStore
 from goodfetch_collie_client.limits import Limits, Money, Prices
 from goodfetch_collie_client.run import AsyncRun, Run
+from goodfetch_collie_client.schema import JSONSchema
 from goodfetch_collie_client.sequence import AsyncSequence, Sequence
 
 from goodfetch_collie.collie import AsyncCollie, Collie, Connecting
@@ -85,6 +88,9 @@ __all__ = [
     "EngineNotFoundError",
     "EngineOutputInvalidError",
     "GoodfetchError",
+    "JSONObject",
+    "JSONSchema",
+    "JSONValue",
     "KeyValueStore",
     "LimitRaiseRefusedError",
     "LimitReachedError",

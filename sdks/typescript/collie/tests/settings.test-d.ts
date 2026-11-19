@@ -1,6 +1,13 @@
 // What a program can and cannot write in a scope's `settings` (ADR 0083):
 // `tsc` fails on a wrong one, as the package's typecheck runs it.
-import type { PageSettings, Run, RunSettings, SessionSettings, Settings } from "@goodfetch/collie";
+import {
+  Collie,
+  type PageSettings,
+  type Run,
+  type RunSettings,
+  type SessionSettings,
+  type Settings,
+} from "@goodfetch/collie";
 
 declare const run: Run;
 
@@ -39,4 +46,16 @@ export async function opened(): Promise<void> {
   await session.newPage({ settings: { content: { extractor: "dom_smoothie" } } });
   // @ts-expect-error a Session's page takes no Access mode
   await session.newPage({ settings: { browser: { accessMode: "standard" } } });
+}
+
+// `connect()` takes the connection's settings, and refuses a key no
+// program's code sets.
+export async function connected(): Promise<void> {
+  // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+  await Collie.connect({ settings: { timeout: { run: 60_000 } } });
+  // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+  await Collie.connect({
+    // @ts-expect-error configuration alone sets the proxy providers
+    settings: { proxy: { providers: {} } },
+  });
 }

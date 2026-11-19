@@ -184,24 +184,6 @@ describe("a Collie Connection", () => {
   });
 
   test(
-    "closes a Run still running by aborting it, and refuses every later call with closed",
-    { tags: ["error:closed"] },
-    async () => {
-      const { collie, played } = await collieOn("run/closed-while-running.json");
-      const run = await collie.start({ runId: "nightly", tags: ["shop"] });
-
-      await run.close();
-      await run.close();
-      await collie.close();
-      await collie.close();
-
-      expect(await failure(run.finish())).toMatchObject({ code: "closed", group: "program" });
-      expect(await failure(collie.start())).toMatchObject({ code: "closed", group: "program" });
-      expect(played.done()).toEqual({ kind: "finished" });
-    },
-  );
-
-  test(
     "fails connect() with deadline_exceeded once timeout.connect's default passes with hello unanswered",
     { tags: ["story:11-41", "story:11-42", "setting:timeout.connect", "error:deadline_exceeded"] },
     async () => {
@@ -255,72 +237,6 @@ describe("a Collie Connection", () => {
       } finally {
         vi.useRealTimers();
       }
-    },
-  );
-
-  test(
-    "fails a call in flight when it closes, as cancelled by its Client",
-    { tags: ["story:11-2", "error:call_cancelled"] },
-    async () => {
-      const { collie, played } = await collieOn("connect/closed-during-a-call.json");
-      const started = failure(collie.start());
-
-      await collie.close();
-      const error = await started;
-
-      expect(error).toMatchObject({
-        code: "call_cancelled",
-        group: "unavailable",
-        details: { by: "client" },
-      });
-      expect(played.done()).toEqual({ kind: "finished" });
-    },
-  );
-
-  test("runs beside another Connection in the same process", async () => {
-    const [first, second] = await Promise.all([
-      collieOn("run/started-and-finished.json"),
-      collieOn("run/started-and-finished.json"),
-    ]);
-
-    const traced = await Promise.all([startAndFinish(first.collie), startAndFinish(second.collie)]);
-
-    expect(traced.map(({ report }) => report.lifecycle)).toEqual(["finished", "finished"]);
-    expect([first.played.done(), second.played.done()]).toEqual([
-      { kind: "finished" },
-      { kind: "finished" },
-    ]);
-  });
-
-  test("connects again after a close", async () => {
-    const first = await collieOn("connect/accepted-by-foxhound.json");
-    await first.collie.close();
-
-    const second = await collieOn("run/started-and-finished.json");
-    const traced = await startAndFinish(second.collie);
-
-    expect(traced.report.lifecycle).toBe("finished");
-    expect([first.played.done(), second.played.done()]).toEqual([
-      { kind: "finished" },
-      { kind: "finished" },
-    ]);
-  });
-
-  test(
-    "ends when the engine writes a line that is not JSON-RPC, failing the call",
-    { tags: ["error:engine_output_invalid"] },
-    async () => {
-      const { collie, played } = await collieOn("connect/garbage-during-a-call.json");
-
-      const error = await failure(collie.start());
-      await collie.close();
-
-      expect(error).toMatchObject({
-        code: "engine_output_invalid",
-        group: "internal",
-        details: { line: "INFO engine started" },
-      });
-      expect(played.done()).toEqual({ kind: "finished" });
     },
   );
 

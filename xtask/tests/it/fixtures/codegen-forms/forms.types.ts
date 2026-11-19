@@ -54,18 +54,16 @@ expectTypeOf(page.read({ field })).resolves.toHaveProperty("values").toEqualType
 void page.read({ title: { selector: 1 } });
 
 // A waiter keeps its timeout.
-// oxlint reads a method with a deprecated overload, named without a call,
-// as deprecated.
-// oxlint-disable-next-line typescript/no-deprecated
+// oxlint-disable-next-line typescript/no-deprecated -- oxlint reads a method with a deprecated overload, named without a call, as deprecated
 expectTypeOf(page.waitForReady).toBeCallableWith({ timeout: 1 });
 
 // A deprecated option and a deprecated value each have an overload of their
 // own, which TSDoc marks: oxlint's `no-deprecated` reports a call that passes
 // them, and no other (ADR 0099), since `tsc` reports no deprecation.
 void page.waitForReady({ state: "complete", timeout: 1 });
-// oxlint-disable-next-line typescript/no-deprecated
+// oxlint-disable-next-line typescript/no-deprecated -- the deprecated option the fixture proves reported
 void page.waitForReady({ poll: 100, state: null });
-// oxlint-disable-next-line typescript/no-deprecated
+// oxlint-disable-next-line typescript/no-deprecated -- the deprecated value the fixture proves reported
 void page.waitForReady({ state: "loaded" });
 // @ts-expect-error a deprecated option keeps its type
 void page.waitForReady({ poll: "often" });
@@ -90,7 +88,7 @@ expectTypeOf(page.locator("button").click).returns.toEqualTypeOf<Promise<Acted>>
 expectTypeOf(page.keyboard).toEqualTypeOf<PageKeyboard>();
 // @ts-expect-error a sub-object is read-only
 page.keyboard = otherKeyboard;
-// oxlint-disable-next-line typescript/no-deprecated
+// oxlint-disable-next-line typescript/no-deprecated -- the deprecated member the fixture proves reported
 expectTypeOf(page.keyboard.press).parameters.toEqualTypeOf<
   [key: string, options?: { readonly signal?: AbortSignal | undefined } | undefined]
 >();

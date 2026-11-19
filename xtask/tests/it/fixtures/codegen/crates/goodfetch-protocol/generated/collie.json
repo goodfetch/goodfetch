@@ -205,6 +205,7 @@
       "stability": "experimental"
     }
   ],
+  "protocol_failures": [],
   "protocol_version": "0.1",
   "settings": [],
   "shared_type_values": []

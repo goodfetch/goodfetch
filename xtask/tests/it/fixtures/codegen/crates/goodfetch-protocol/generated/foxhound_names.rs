@@ -31,6 +31,9 @@ pub const OPERATIONS: &[&str] = &["sample.crawl"];
 /// The plugin kinds only Foxhound carries.
 pub const PLUGIN_KINDS: &[&str] = &[];
 
+/// The protocol failures only Foxhound carries.
+pub const PROTOCOL_FAILURES: &[&str] = &[];
+
 /// The settings only Foxhound carries.
 pub const SETTINGS: &[&str] = &[];
 

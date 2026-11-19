@@ -145,6 +145,10 @@ export const errorGroupOfWireClass: Readonly<Record<number, ErrorGroup>> = {
   [-32007]: "internal",
 };
 
+/** The group of each JSON-RPC code a failure of the protocol itself takes, which JSON-RPC 2.0 predefines (ADRs 0038 and 0079). */
+export const errorGroupOfProtocolFailure: Readonly<Record<number, ErrorGroup>> = {
+};
+
 /** The class of each group, which raises a code the SDK does not know, keeping the code (ADR 0079). */
 export const errorGroupClasses: Readonly<Record<ErrorGroup, typeof GoodfetchError>> = {
   program: ProgramError,

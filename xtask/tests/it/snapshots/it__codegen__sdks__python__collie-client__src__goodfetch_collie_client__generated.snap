@@ -177,6 +177,10 @@ ERROR_GROUP_OF_WIRE_CLASS: Final[Mapping[int, ErrorGroup]] = {
 }
 """The group of each JSON-RPC error code the engine answers with, its wire class (ADR 0038)."""
 
+ERROR_GROUP_OF_PROTOCOL_FAILURE: Final[Mapping[int, ErrorGroup]] = {
+}
+"""The group of each JSON-RPC code a failure of the protocol itself takes, which JSON-RPC 2.0 predefines (ADRs 0038 and 0079)."""
+
 ERROR_GROUP_CLASSES: Final[Mapping[ErrorGroup, type[GoodfetchError]]] = {
     "program": ProgramError,
     "refused": RefusedError,

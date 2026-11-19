@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "17"
+version = "18"
 
 [[capability]]
 name = "lifecycle"
@@ -270,4 +270,29 @@ modes = ["attached", "linked"]
 id = "limit-reached-stops-the-run"
 covers = ["story:11-52"]
 surfaces = ["sdk-typescript", "sdk-python"]
+modes = ["attached"]
+
+# Typed data (ADR 0082): a value typed by a schema in the language's own
+# types, or a hand-written JSON Schema, round-trips through the Key-value
+# store; results keep unknown fields; a value that is not JSON is refused
+# before sending. #2908 adds the Python and Rust surfaces.
+[[capability]]
+name = "typed-data"
+
+[[capability.case]]
+id = "typed-value-round-trip"
+covers = ["story:11-66", "story:11-69"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "result-keeps-unknown-fields"
+covers = ["story:11-68"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "non-json-value-refused"
+covers = ["story:11-68"]
+surfaces = ["sdk-typescript"]
 modes = ["attached"]

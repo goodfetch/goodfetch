@@ -1,0 +1,246 @@
+{
+  "description": "A Collie Client stores a book under a schema of each kind, Zod, ArkType, Valibot and a hand-written JSON Schema (ADR 0082): each `key_value_store.set` carries the schema's input form, the year as a string, and each `key_value_store.get` answers it, which the SDK parses into the output form. A stored value of an older shape, the year as a number, fails the typed read in the SDK; a value the schema rejects is never sent. The Run then finishes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {
+          "run_id": "typed"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "typed",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "key_value_store.set",
+        "params": {
+          "run_id": "typed",
+          "key": "book-zod",
+          "value": {
+            "title": "Dune",
+            "year": "1965"
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "key_value_store.get",
+        "params": {
+          "run_id": "typed",
+          "key": "book-zod"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "value": {
+            "title": "Dune",
+            "year": "1965"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "key_value_store.set",
+        "params": {
+          "run_id": "typed",
+          "key": "book-arktype",
+          "value": {
+            "title": "Dune",
+            "year": "1965"
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "key_value_store.get",
+        "params": {
+          "run_id": "typed",
+          "key": "book-arktype"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "value": {
+            "title": "Dune",
+            "year": "1965"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "key_value_store.set",
+        "params": {
+          "run_id": "typed",
+          "key": "book-valibot",
+          "value": {
+            "title": "Dune",
+            "year": "1965"
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "key_value_store.get",
+        "params": {
+          "run_id": "typed",
+          "key": "book-valibot"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "value": {
+            "title": "Dune",
+            "year": "1965"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "key_value_store.set",
+        "params": {
+          "run_id": "typed",
+          "key": "book-hand-written",
+          "value": {
+            "title": "Dune",
+            "year": "1965"
+          }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "key_value_store.get",
+        "params": {
+          "run_id": "typed",
+          "key": "book-hand-written"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "value": {
+            "title": "Dune",
+            "year": "1965"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "key_value_store.get",
+        "params": {
+          "run_id": "typed",
+          "key": "book-legacy"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "value": {
+            "title": "Dune",
+            "year": 1965
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
+        "params": {
+          "run_id": "typed"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "typed",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    }
+  ]
+}

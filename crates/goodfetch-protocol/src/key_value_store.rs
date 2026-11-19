@@ -290,6 +290,12 @@ pub enum ValueInvalidReason {
     ValueBytes,
     /// The key holds JSON, which `get` reads, not `get_bytes`.
     ValueJson,
+    /// The value given holds something that is not JSON, at `path`: the
+    /// SDK refuses it before sending (ADR 0082).
+    ValueNotJson,
+    /// The value given, or the one stored, is rejected by the schema the
+    /// call named, first at `path`: the SDK's own check (ADR 0082).
+    ValueSchema,
 }
 
 /// What `value_invalid` details.
@@ -304,6 +310,11 @@ pub struct ValueInvalidDetails {
     /// Why.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub reason: ValueInvalidReason,
+    /// Where in the value the refusal is, a JSON Pointer (RFC 6901), for
+    /// `value_not_json` and `value_schema`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub path: Option<String>,
     /// What to do instead.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub fix: String,
@@ -312,7 +323,7 @@ pub struct ValueInvalidDetails {
 /// A key or a value the Key-value store refuses (ADR 0103).
 pub const VALUE_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "value_invalid",
-    description: "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The details name the key and say which was refused.",
+    description: "The Key-value store refused the key or its value: a key must be 1 to 512 Unicode scalar values with no control character, and a value any JSON but null, which `get` answers for an absent key; remove a key with `delete`. Bytes are read with `getBytes` and JSON with `get`, never the other way. The SDK refuses a value that is not JSON before sending it, and a value the call's schema rejects, sent or read. The details name the key, say which was refused and, for a value's content, its path as a JSON Pointer.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,

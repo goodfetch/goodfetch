@@ -45,7 +45,11 @@ fn each_tool_runs_as_its_executable_or_its_sides_interpreter() {
             Path::new("/s/spider"),
             Some("node"),
             vec!["/c/crawl.mjs".into()],
-            Path::new("/p/.venv/bin/python"),
+            Path::new(if cfg!(windows) {
+                "/p/.venv/Scripts/python.exe"
+            } else {
+                "/p/.venv/bin/python"
+            }),
             vec!["/p/crawl.py".into()],
             [(); 4].map(|()| (Path::new("/r/side").to_owned(), Vec::new())),
         )
@@ -74,12 +78,16 @@ fn foxhounds_program_runs_on_node() {
 #[test]
 fn fastcrw_runs_as_its_executable_with_the_server_beside_it() {
     let fastcrw = invocation(Config::FastCrw, Path::new("/r/release/fastcrw"));
+    let server = format!("/r/release/bin/crw-server{}", std::env::consts::EXE_SUFFIX);
 
     assert_eq!(
-        (fastcrw.program.as_path(), fastcrw.arguments),
+        (
+            fastcrw.program.as_path(),
+            fastcrw.arguments.iter().map(Path::new).collect::<Vec<_>>()
+        ),
         (
             Path::new("/r/release/fastcrw"),
-            vec!["--server".into(), "/r/release/bin/crw-server".into()]
+            vec![Path::new("--server"), Path::new(&server)]
         )
     );
 }

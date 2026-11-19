@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{
     Executables, Options, counted_output, order, profile_folder, run, set_aside, side_executable,
@@ -8,6 +8,12 @@ use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
 use crate::compare::trials::{
     CollieScenario, Comparison, CountedCell, CountedRun, GrowthCell, SizesCell, Tool, Work,
 };
+
+/// The executable Cargo builds at `path`, with the OS's suffix (`.exe` on
+/// Windows).
+fn built(path: &str) -> PathBuf {
+    PathBuf::from(format!("{path}{}", std::env::consts::EXE_SUFFIX))
+}
 
 /// Each of Spider's side's builds runs the executable Cargo left in the
 /// build's own target folder, under the profile's: the main row's from
@@ -23,11 +29,9 @@ fn each_spider_build_runs_the_executable_built_in_its_own_folder() {
             executable(SpiderBuild::Jemalloc),
         ),
         (
-            Path::new("/t/compare-spider/spider/release/goodfetch-compare-spider").to_owned(),
-            Path::new("/t/compare-spider/spider-chrome/release/goodfetch-compare-spider")
-                .to_owned(),
-            Path::new("/t/compare-spider/spider-jemalloc/release/goodfetch-compare-spider")
-                .to_owned(),
+            built("/t/compare-spider/spider/release/goodfetch-compare-spider"),
+            built("/t/compare-spider/spider-chrome/release/goodfetch-compare-spider"),
+            built("/t/compare-spider/spider-jemalloc/release/goodfetch-compare-spider"),
         )
     );
 }
@@ -82,7 +86,7 @@ fn each_other_rust_side_runs_the_executable_built_in_its_folder() {
             "/t/compare-spider/crawlberg/release/goodfetch-compare-crawlberg",
             "/t/compare-spider/chromiumoxide/release/goodfetch-compare-chromiumoxide",
         ]
-        .map(|path| Path::new(path).to_owned())
+        .map(built)
     );
 }
 

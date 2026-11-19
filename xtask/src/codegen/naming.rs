@@ -45,12 +45,12 @@ fn capitalized(word: &str) -> String {
 }
 
 /// A class or type name: `page_check_failed` gives `PageCheckFailed`.
-pub(super) fn pascal(name: &str) -> String {
+pub(crate) fn pascal(name: &str) -> String {
     words(name).map(capitalized).collect()
 }
 
 /// A TypeScript member name: `page.wait_for_url` gives `pageWaitForURL`.
-pub(super) fn camel(name: &str) -> String {
+pub(crate) fn camel(name: &str) -> String {
     let mut words = words(name);
     let first = words.next().unwrap_or_default().to_owned();
     words.fold(first, |mut text, word| {
@@ -73,7 +73,7 @@ pub(super) fn snake(name: &str) -> String {
 /// A Rust member name: `page.wait_for_url` gives `page_wait_for_url`, and a
 /// keyword is a raw identifier, `r#continue`. `None` when Rust cannot make
 /// the name raw (`self`, `super`, `crate`).
-pub(super) fn rust_snake(name: &str) -> Option<String> {
+pub(crate) fn rust_snake(name: &str) -> Option<String> {
     let text = words(name).collect::<Vec<_>>().join("_");
     if RUST_UNRAW.contains(&text.as_str()) {
         None
@@ -86,7 +86,7 @@ pub(super) fn rust_snake(name: &str) -> Option<String> {
 
 /// A Rust type name, an initialism being one word: `cdp_session` gives
 /// `CdpSession`. `None` when the name is `Self`, which Rust cannot make raw.
-pub(super) fn rust_type(name: &str) -> Option<String> {
+pub(crate) fn rust_type(name: &str) -> Option<String> {
     let text: String = words(name)
         .map(|word| {
             let mut characters = word.chars();

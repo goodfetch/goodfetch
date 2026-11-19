@@ -15594,6 +15594,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The response's body is not JSON, or not the JSON the program reads it as: `json()` reads the body as UTF-8 whatever its charset, a leading BOM ignored. The SDK raises it itself, naming the response's URL; the body is the same on every read, so read it with `text()` or `body()` instead.",
+      "exit_code": null,
+      "group": "page",
+      "json_rpc_class": -32003,
+      "name": "response_not_json",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The response is not one a handler is handed: a 3xx that is not one of Fetch's redirect statuses (301, 302, 303, 307, 308), or a redirect whose `Location` is missing, does not parse or names no HTTP(S) URL. The details name the response's `url` and `status`, and a `fix` naming `crawl.handle_statuses`, which hands a status to the handler. A sitemap seed's sitemap (ADR 0093) fails with it on any status but a 2xx, 408, 429 or 5xx, and on a file that is no sitemap the crawl reads: XML that breaks off, another root, a gzip stream that does not decode, or more than sitemaps.org's 50,000 URLs or 50 MB uncompressed; its `details` name the `url`, and the `status` when one answered. Not retried: the site answers the same again.",
       "exit_code": null,
       "group": "page",

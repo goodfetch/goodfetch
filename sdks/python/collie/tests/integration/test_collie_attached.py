@@ -5,10 +5,16 @@ with `GOODFETCH_COLLIE_ENGINE_PATH` and the test's own Goodfetch home, or
 the Scripted engine started as that executable. The tracer program is the
 one the unit tests run on the Scripted engine over the in-memory transport,
 three ways: async on asyncio, async on Trio and through the sync `Collie`.
-TypeScript's `attached.test.ts` is its twin.
+The host's logging (ADR 0078) is played here too: the level of the engine's
+logs follows the effective level of `goodfetch.engine`, sent in `hello` and
+again when a Run starts and it changed, each `$/log` event reaches the
+`goodfetch.engine` logger its target names, and a program that configures
+no logging sees nothing on stdout or stderr. TypeScript's `attached.test.ts`
+and `logging.test.ts` are its twins.
 """
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -57,8 +63,8 @@ PROGRAM_DEADLINE_SECONDS = 60.0
 BUILD_DEADLINE_SECONDS = 120.0
 """How long one wheel's build may take."""
 
-ENGINE_LOGGER = "goodfetch.client"
-"""The logger the engine's stderr lines go to."""
+CLIENT_LOGGER = "goodfetch.client"
+"""The logger the engine's stderr lines and a refused log level go to."""
 
 
 async def open_collie(way: Way, env: Mapping[str, str]) -> AsyncCollie:
@@ -71,8 +77,27 @@ async def open_collie(way: Way, env: Mapping[str, str]) -> AsyncCollie:
 def engine_warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
     """Each line the engines wrote on stderr, which a failed play writes."""
     return [
-        record.getMessage() for record in caplog.records if record.name == ENGINE_LOGGER
+        record.getMessage() for record in caplog.records if record.name == CLIENT_LOGGER
     ]
+
+
+ENGINE_EVENTS_LOGGER = "goodfetch.engine"
+"""The logger whose effective level the engine's logs follow."""
+
+
+def engine_events(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    """The records the engine's `$/log` events made."""
+    return [
+        record
+        for record in caplog.records
+        if getattr(record, "source", None) == "engine"
+    ]
+
+
+async def start_and_finish_run(collie: AsyncCollie, run_id: str) -> None:
+    """Starts the Run `run_id` on `collie` and finishes it, leaving it open."""
+    run = await collie.start(run_id=run_id)
+    await run.finish()
 
 
 async def failure(call: Awaitable[object]) -> GoodfetchError:
@@ -542,3 +567,157 @@ async def test_stops_the_engine_once_it_writes_a_line_that_is_not_json_rpc(
     )
     # An engine left running would fail its play on stderr once its input ends.
     assert engine_warnings(caplog) == []
+
+
+@pytest.mark.covers("story:11-26")
+@pytest.mark.client_case(id="log-level-follows-the-logger", mode="attached")
+@three_ways
+async def test_sends_the_level_in_hello_and_again_before_a_start_once_it_changed(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`DEBUG` on `goodfetch.engine`, then `WARNING` inherited from `goodfetch`."""
+    env = scripted_engine_env(
+        test_env, product, "sdk-python/run/log-level-follows-the-logger.json"
+    )
+    caplog.set_level(logging.DEBUG, logger=ENGINE_EVENTS_LOGGER)
+    collie = await open_collie(way, env)
+
+    await start_and_finish_run(collie, "first")
+    await start_and_finish_run(collie, "second")
+    # The effective level: `goodfetch.engine` sets none, so `goodfetch`'s holds.
+    logging.getLogger(ENGINE_EVENTS_LOGGER).setLevel(logging.NOTSET)
+    caplog.set_level(logging.WARNING, logger="goodfetch")
+    await start_and_finish_run(collie, "third")
+    await collie.close()
+
+    with client_case.check(
+        "the engine read hello at debug, no change for the second start and one "
+        "change to warn before the third, so it wrote no failure"
+    ):
+        assert engine_warnings(caplog) == []
+
+
+@pytest.mark.covers("story:11-26")
+@three_ways
+async def test_goes_on_after_a_refused_level_and_tells_the_engine_again(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The refusal warns on `goodfetch.client`; the next start tells it again."""
+    env = scripted_engine_env(
+        test_env, product, "sdk-python/run/log-level-refused.json"
+    )
+    caplog.set_level(logging.DEBUG, logger=ENGINE_EVENTS_LOGGER)
+    collie = await open_collie(way, env)
+
+    caplog.set_level(logging.WARNING, logger=ENGINE_EVENTS_LOGGER)
+    await start_and_finish_run(collie, "first")
+    await start_and_finish_run(collie, "second")
+    await collie.close()
+
+    # The refusal alone: the engine wrote no failure on stderr.
+    assert [
+        (record.levelno, getattr(record, "log_level", None))
+        for record in caplog.records
+        if record.name == CLIENT_LOGGER
+    ] == [(logging.WARNING, "warn")]
+
+
+@pytest.mark.covers("story:11-25")
+@pytest.mark.client_case(id="engine-logs-reach-the-logger", mode="attached")
+@three_ways
+async def test_hands_each_of_the_engines_log_events_to_its_area_logger_at_its_level(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Error, warning, info, debug and trace, each with its target, fields and drops."""
+    env = scripted_engine_env(
+        test_env, product, "sdk-python/connect/engine-logs-reach-the-logger.json"
+    )
+    caplog.set_level(1, logger=ENGINE_EVENTS_LOGGER)
+    collie = await open_collie(way, env)
+    await collie.close()
+
+    events = [
+        {
+            "logger": record.name,
+            "level": record.levelno,
+            "target": getattr(record, "target", None),
+            "fields": getattr(record, "fields", None),
+            "dropped": getattr(record, "dropped", None),
+        }
+        for record in engine_events(caplog)
+    ]
+    client_case.message(events)
+    with client_case.check(
+        "each event reached its target's logger at its level, trace below DEBUG"
+    ):
+        assert [(event["logger"], event["level"]) for event in events] == [
+            ("goodfetch.engine.rpc.dispatch", logging.ERROR),
+            ("goodfetch.engine.page", logging.WARNING),
+            ("goodfetch.engine.run", logging.INFO),
+            ("goodfetch.engine.rpc.dispatch", logging.DEBUG),
+            ("goodfetch.engine.page.cdp", 5),
+        ]
+    with client_case.check(
+        "each event kept its target, its fields and its dropped count"
+    ):
+        assert [
+            (event["target"], event["fields"], event["dropped"]) for event in events
+        ] == [
+            ("goodfetch::rpc::dispatch", {"operation": "run.start"}, 0),
+            ("goodfetch::page", {}, 3),
+            ("goodfetch::run", {}, 0),
+            ("goodfetch::rpc::dispatch", {"method": "run.start", "id": 7}, 0),
+            ("goodfetch::page::cdp", {}, 0),
+        ]
+    with client_case.check("the engine read hello at trace, so it wrote no failure"):
+        assert engine_warnings(caplog) == []
+
+
+@pytest.mark.covers("story:11-25")
+@pytest.mark.parametrize("way", ["asyncio", "trio", "sync"])
+def test_writes_nothing_to_stdout_or_stderr_in_a_program_that_configures_no_logging(
+    way: str, test_env: TestEnv, product: ToolProduct
+) -> None:
+    """The engine's error and warning reach `goodfetch`'s `NullHandler` alone."""
+    env = scripted_engine_env(
+        test_env, product, "sdk-python/connect/engine-logs-without-logging.json"
+    )
+    out = test_env.folder / "loggers.json"
+
+    program = subprocess.run(
+        [sys.executable, str(PROGRAMS / "collie_unlogged.py"), str(out), way],
+        capture_output=True,
+        cwd=test_env.folder,
+        env=dict(env),
+        timeout=PROGRAM_DEADLINE_SECONDS,
+        check=False,
+    )
+
+    record = test_env.home / "scripted-engine" / "record.jsonl"
+    sent = [
+        line["message"]["params"]["level"]
+        for line in map(json.loads, record.read_text("utf-8").splitlines())
+        if line.get("from") == "engine"
+        and line.get("message", {}).get("method") == "$/log"
+    ]
+    assert {
+        "exit": program.returncode,
+        "stdout": program.stdout.decode(errors="replace"),
+        "stderr": program.stderr.decode(errors="replace"),
+        "sent": sent,
+    } == {"exit": 0, "stdout": "", "stderr": "", "sent": ["error", "warn"]}
+    loggers = json.loads(out.read_text("utf-8"))
+    assert loggers.pop("goodfetch") == [logging.NOTSET, ["NullHandler"], True]
+    assert "goodfetch.engine.rpc.dispatch" in loggers
+    assert loggers == {name: [logging.NOTSET, [], True] for name in loggers}

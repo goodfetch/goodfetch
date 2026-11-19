@@ -53,11 +53,12 @@ pub(super) struct InputRecord {
     inputs: Vec<Input>,
 }
 
-/// One source: its path from the workspace's folder, its size in bytes and
-/// its modification time in nanoseconds since the Unix epoch. A list, not a
-/// map, since every test process that uses a tool parses each one.
+/// One source: its path from the workspace's folder, its parts joined
+/// with `/` on every OS, its size in bytes and its modification time in
+/// nanoseconds since the Unix epoch. A list, not a map, since every test
+/// process that uses a tool parses each one.
 #[derive(Serialize)]
-struct Input(PathBuf, u64, u64);
+struct Input(String, u64, u64);
 
 impl InputRecord {
     /// The record of `executables`, which a Cargo build that began at
@@ -125,7 +126,7 @@ impl InputRecord {
         }
         let inputs = sources
             .into_iter()
-            .map(|source| stamp(folder, source, started))
+            .map(|source| stamp(folder, &source, started))
             .collect::<Result<_>>()?;
         Ok(Self {
             root: folder.to_owned(),
@@ -164,8 +165,8 @@ fn under(folder: &Path, source: &Path, sources: &mut BTreeSet<PathBuf>) -> Resul
 /// folder with no size, since Linux and Windows count a folder's size each
 /// their own way, and Windows' reading of a record made on Linux would find
 /// every watched folder changed (issue 2767).
-fn stamp(folder: &Path, source: PathBuf, started: SystemTime) -> Result<Input> {
-    let path = folder.join(&source);
+fn stamp(folder: &Path, source: &Path, started: SystemTime) -> Result<Input> {
+    let path = folder.join(source);
     let metadata =
         std::fs::metadata(&path).with_context(|| format!("reading {}", path.display()))?;
     let modified = metadata
@@ -183,7 +184,18 @@ fn stamp(folder: &Path, source: PathBuf, started: SystemTime) -> Result<Input> {
         .and_then(|since| u64::try_from(since.as_nanos()).ok())
         .with_context(|| format!("{}'s modification time is out of range", path.display()))?;
     let size = if metadata.is_dir() { 0 } else { metadata.len() };
-    Ok(Input(source, size, nanoseconds))
+    Ok(Input(slashed(source), size, nanoseconds))
+}
+
+/// `source`'s parts joined with `/`, which Windows reads as a separator
+/// too: a record names each source one way on every OS, where Windows
+/// joins a path's parts with `\`.
+fn slashed(source: &Path) -> String {
+    source
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 #[cfg(test)]

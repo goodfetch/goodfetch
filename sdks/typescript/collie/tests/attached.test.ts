@@ -206,6 +206,81 @@ describe("a Collie Connection on the Scripted engine as its Attached engine", ()
   );
 
   test(
+    "sends a call's timeout in its three states",
+    {
+      tags: ["client_case/call-timeout-three-states", "attached", "story:11-40", "story:11-42"],
+    },
+    async ({ testEnv, clientCase }) => {
+      // The script expects each Run's `run.finish` with no `timeout`, with
+      // null and with 2 ms (ADR 0080).
+      const env = scriptedEngineEnv(testEnv, "collie", "run/call-timeout-three-states.json");
+      const { logger, warned } = recordingLogger();
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env, logger });
+
+      const omitted = await (await collie.start()).finish();
+      const none = await (await collie.start()).finish({ timeout: null });
+      const given = await (await collie.start()).finish({ timeout: 2 });
+      await collie.close();
+
+      await clientCase.check("each state of the timeout reached the engine as sent", () =>
+        expect([omitted, none, given].map(({ lifecycle }) => lifecycle)).toEqual([
+          "finished",
+          "finished",
+          "finished",
+        ]),
+      );
+      await clientCase.check("the script played to its end, so its engine wrote no failure", () =>
+        expect(warned).toEqual([]),
+      );
+    },
+  );
+
+  test.for([
+    { name: "0", timeout: 0 },
+    { name: "a negative", timeout: -1 },
+    { name: "an infinite", timeout: Number.POSITIVE_INFINITY },
+  ])(
+    "refuses a call's timeout of $name before sending it",
+    {
+      tags: [
+        "client_case/call-timeout-three-states",
+        "attached",
+        "story:11-40",
+        "story:11-42",
+        "error:setting_invalid",
+      ],
+    },
+    async ({ timeout }, { testEnv, clientCase }) => {
+      // The script's one `run.finish` has no `timeout`: the refused one sends nothing.
+      const env = scriptedEngineEnv(testEnv, "collie", "run/started-and-finished.json");
+      const { logger, warned } = recordingLogger();
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env, logger });
+
+      const run = await collie.start();
+      const refused = await failure(run.finish({ timeout }));
+      await run.finish();
+      await collie.close();
+
+      await clientCase.check(
+        "a timeout of 0 or less, or not finite, is refused before it is sent, naming its setting and the null form",
+        () =>
+          expect(refused).toMatchObject({
+            code: "setting_invalid",
+            fix: expect.stringContaining("`timeout: null`"),
+            details: {
+              limit: { key: "timeout.run", value: timeout, layer: "run", origin: "argument" },
+            },
+          }),
+      );
+      await clientCase.check("the script played to its end, so its engine wrote no failure", () =>
+        expect(warned).toEqual([]),
+      );
+    },
+  );
+
+  test(
     "runs beside another Connection in the same process",
     { tags: ["client_case/two-connections-at-once", "attached"] },
     async ({ testEnv, clientCase }) => {

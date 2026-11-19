@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Awaitable, Mapping
+from datetime import timedelta
 from pathlib import Path
 
 import anyio
@@ -29,6 +30,7 @@ from goodfetch_collie import (
     EngineOutputInvalidError,
     GoodfetchError,
     Product,
+    SettingInvalidError,
     StartedAs,
 )
 from goodfetch_test_support import (
@@ -335,6 +337,95 @@ async def test_closes_a_running_run_by_aborting_it_and_refuses_every_later_call(
         assert (started.code, started.group) == ("closed", "program")
     with client_case.check(
         "the close aborted the Run once, so its engine wrote no failure"
+    ):
+        assert engine_warnings(caplog) == []
+
+
+@pytest.mark.covers("story:11-40", "story:11-42")
+@pytest.mark.client_case(id="call-timeout-three-states", mode="attached")
+@three_ways
+async def test_sends_a_timeout_in_its_three_states(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Left out it is not sent, `None` sends null, a `timedelta` its milliseconds.
+
+    The script expects each Run's `run.finish` with no `timeout`, with null
+    and with 2 ms, 1.5 ms rounded up (ADR 0080).
+    """
+    env = scripted_engine_env(
+        test_env, product, "sdk-python/run/call-timeout-three-states.json"
+    )
+    collie = await open_collie(way, env)
+
+    default = await (await collie.start()).finish()
+    none = await (await collie.start()).finish(timeout=None)
+    given = await (await collie.start()).finish(timeout=timedelta(microseconds=1500))
+    await collie.close()
+
+    with client_case.check("each state of the timeout reached the engine as sent"):
+        assert [report.lifecycle for report in (default, none, given)] == [
+            "finished",
+            "finished",
+            "finished",
+        ]
+    with client_case.check(
+        "the script played to its end, so its engine wrote no failure"
+    ):
+        assert engine_warnings(caplog) == []
+
+
+@pytest.mark.covers("story:11-40", "story:11-42")
+@pytest.mark.client_case(id="call-timeout-three-states", mode="attached")
+@pytest.mark.parametrize(
+    ("given", "value"),
+    [
+        pytest.param(timedelta(0), 0, id="zero"),
+        pytest.param(timedelta(seconds=-1), -1000, id="negative"),
+        pytest.param(timedelta(microseconds=-1), -0.001, id="negative-below-a-ms"),
+    ],
+)
+@three_ways
+async def test_refuses_a_timeout_of_zero_or_less_before_sending_it(
+    way: Way,
+    test_env: TestEnv,
+    product: ToolProduct,
+    client_case: ClientCaseRecord,
+    caplog: pytest.LogCaptureFixture,
+    given: timedelta,
+    value: float,
+) -> None:
+    """The refused `finish` sends nothing.
+
+    The script's one `run.finish` has no `timeout`.
+    """
+    env = scripted_engine_env(
+        test_env, product, "sdk-python/run/started-and-finished.json"
+    )
+    collie = await open_collie(way, env)
+
+    run = await collie.start()
+    refused = await failure(run.finish(timeout=given))
+    await run.finish()
+    await collie.close()
+
+    with client_case.check(
+        "a timeout of zero or less is refused before it is sent, naming its setting"
+        " and the null form"
+    ):
+        assert isinstance(refused, SettingInvalidError)
+        assert refused.details.get("limit") == {
+            "key": "timeout.run",
+            "value": value,
+            "layer": "run",
+            "origin": "argument",
+        }
+        assert "`timeout=None`" in (refused.fix or "")
+    with client_case.check(
+        "the script played to its end, so its engine wrote no failure"
     ):
         assert engine_warnings(caplog) == []
 

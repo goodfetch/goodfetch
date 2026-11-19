@@ -8,6 +8,7 @@ and each `# type: ignore[...]` that no longer catches an error fails too.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 from typing import assert_type
 
 from goodfetch_collie_client.generated.handles import (
@@ -43,13 +44,18 @@ async def async_forms(
     # order, which is not the alphabet's; its required boolean and its
     # optional parameter are keyword-only.
     assert_type(await page.goto(URL, REFERRER, fresh=True), Navigated)
-    assert_type(await page.goto(URL, REFERRER, fresh=False, timeout=1), Navigated)
+    assert_type(
+        await page.goto(URL, REFERRER, fresh=False, timeout=timedelta(seconds=1)),
+        Navigated,
+    )
     assert_type(await page.goto(url=URL, referrer=REFERRER, fresh=True), Navigated)
     # `None` is a value, no timeout; leaving it out takes the setting's
     # default (ADR 0080).
     assert_type(
         await page.goto(URL, REFERRER, fresh=True, timeout=None), Navigated
     )
+    # A timeout is a `timedelta`, never a number of milliseconds (ADR 0080).
+    await page.goto(URL, REFERRER, fresh=False, timeout=1)  # type: ignore[arg-type]
     # A boolean is never positional.
     await page.goto(URL, REFERRER, True)  # type: ignore[call-arg]
     # A required boolean has no default.
@@ -64,7 +70,7 @@ async def async_forms(
     assert_type(await page.read(fields), Read)
 
     # A waiter keeps its timeout.
-    assert_type(await page.wait_for_ready(timeout=1), Acted)
+    assert_type(await page.wait_for_ready(timeout=timedelta(seconds=1)), Acted)
     assert_type(await page.wait_for_ready(expected={"ready": [1, "a"]}), Acted)
     assert_type(await page.wait_for_ready(state="complete"), Acted)
     await page.wait_for_ready(state="loaded")  # type: ignore[arg-type]
@@ -100,14 +106,17 @@ def sync_forms(
 ) -> None:
     """The sync twins: the same members under the same names, each plain."""
     assert_type(page.goto(URL, REFERRER, fresh=True), Navigated)
-    assert_type(page.goto(URL, REFERRER, fresh=False, timeout=1), Navigated)
+    assert_type(
+        page.goto(URL, REFERRER, fresh=False, timeout=timedelta(seconds=1)), Navigated
+    )
+    page.goto(URL, REFERRER, fresh=False, timeout=1)  # type: ignore[arg-type]
     page.goto(URL, REFERRER, True)  # type: ignore[call-arg]
 
     assert_type(page.is_ready(), Readiness)
     page.is_ready(timeout=1)  # type: ignore[call-arg]
 
     assert_type(page.read(fields), Read)
-    assert_type(page.wait_for_ready(timeout=1), Acted)
+    assert_type(page.wait_for_ready(timeout=timedelta(seconds=1)), Acted)
     assert_type(page.wait_for_ready(expected=None), Acted)
     assert_type(page.wait_for_ready(state="interactive"), Acted)
     page.keyboard.press(1)  # type: ignore[arg-type]

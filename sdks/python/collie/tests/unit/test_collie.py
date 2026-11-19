@@ -30,6 +30,7 @@ from goodfetch_collie import (
     NotInProductError,
     Product,
     ProtocolVersionUnsupportedError,
+    SettingInvalidError,
     StartedAs,
 )
 from goodfetch_collie.testing import async_connect_over, connect_over
@@ -108,6 +109,33 @@ async def test_sends_none_as_null_and_leaves_out_a_parameter_not_given(
     await run.finish(timeout=None)
     await collie.close()
 
+    assert played.done() == Finished()
+
+
+@pytest.mark.covers("story:11-40", "story:11-42")
+@three_ways
+async def test_takes_a_timeout_as_a_timedelta_only(way: Way) -> None:
+    """`timeout=30_000` is a type error, and refused before it is sent (ADR 0080).
+
+    mypy's `warn_unused_ignores` fails the check once the ignore below
+    silences nothing, so the line is the type test.
+    """
+    collie, played = await collie_on(way, "run/started-and-finished.json")
+    run = await collie.start()
+
+    refused = await failure(run.finish(timeout=30_000))  # type: ignore[arg-type]
+    await run.finish()
+    await collie.close()
+
+    assert (
+        type(refused),
+        refused.details.get("limit"),
+        "`timeout=None`" in (refused.fix or ""),
+    ) == (
+        SettingInvalidError,
+        {"key": "timeout.run", "value": 30_000, "layer": "run", "origin": "argument"},
+        True,
+    )
     assert played.done() == Finished()
 
 

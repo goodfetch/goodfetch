@@ -79,7 +79,8 @@ class AsyncCollie:
         (`setting_invalid`), a missing executable (`engine_not_found`), a
         refused Product (`not_in_product`) or version, or a refused Limit
         raises here, with a `fix`, leaving no engine behind; so does a
-        cancelled opening.
+        cancelled opening. The engine sends its logs from the effective
+        level of `goodfetch.engine`, read here (ADR 0078).
         """
         return Connecting(
             functools.partial(open_attached, COLLIE, env=env, limits=limits)
@@ -105,6 +106,8 @@ class AsyncCollie:
         `finish()` ends it. Starts a Run and returns once it is started
         (ADR 0102). A start that resumed its Run is logged at info, and one
         that found it ended at warning, on the `goodfetch.client.run` logger.
+        It tells the engine the effective level of `goodfetch.engine` first
+        when that changed since the engine was last told.
 
         Args:
             run_id: Names the Run for good: a start with an existing Run ID
@@ -196,7 +199,9 @@ class Collie:
         its work. An amount the SDK cannot turn exactly (`setting_invalid`),
         a missing executable (`engine_not_found`), a refused Product
         (`not_in_product`) or version, or a refused Limit raises here, with a
-        `fix`, leaving neither engine nor thread behind.
+        `fix`, leaving neither engine nor thread behind. The engine sends its
+        logs from the effective level of `goodfetch.engine`, read here
+        (ADR 0078).
         """
         return _open_sync(
             functools.partial(open_attached, COLLIE, env=env, limits=limits)
@@ -222,6 +227,8 @@ class Collie:
         `finish()` ends it. Starts a Run and returns once it is started
         (ADR 0102). A start that resumed its Run is logged at info, and one
         that found it ended at warning, on the `goodfetch.client.run` logger.
+        It tells the engine the effective level of `goodfetch.engine` first
+        when that changed since the engine was last told.
 
         Args:
             run_id: Names the Run for good: a start with an existing Run ID

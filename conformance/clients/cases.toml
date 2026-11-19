@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "18"
+version = "19"
 
 [[capability]]
 name = "lifecycle"
@@ -284,11 +284,11 @@ name = "logging"
 [[capability.case]]
 id = "log-level-follows-the-logger"
 covers = ["story:11-26"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]
 
 [[capability.case]]
 id = "engine-logs-reach-the-logger"
 covers = ["story:11-25"]
-surfaces = ["sdk-typescript"]
+surfaces = ["sdk-typescript", "sdk-python"]
 modes = ["attached"]

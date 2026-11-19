@@ -13,7 +13,7 @@ readme = "README.md"
 # The executable's own dependencies (ADR 0094): `cargo install
 # goodfetch-collie --locked --features executable` builds Collie's
 # executable; a program embedding the crate never compiles them.
-executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:libc", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
+executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:schemars", "dep:secrecy", "dep:serde", "dep:tempfile", "dep:thiserror", "dep:libc", "dep:windows-sys", "dep:tracing-subscriber", "dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:opentelemetry-http", "dep:opentelemetry-prometheus", "dep:prometheus", "dep:tracing-opentelemetry", "dep:async-trait", "dep:bytes", "dep:http", "tokio/io-util", "tokio/macros", "tokio/rt-multi-thread", "tokio/signal"]
 
 [dependencies]
 # The command line both executables carry (ADR 0090): owned names and help,
@@ -71,6 +71,11 @@ goodfetch-workspace-hack.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 # The foreground Daemon's reaper: the subreaper, `waitpid` and `kill` (ADR 0049).
 libc = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+# `daemon start` keeps its own standard handles from the Daemon it starts,
+# which would otherwise inherit them and hold its caller's pipes open.
+windows-sys = { workspace = true, optional = true, features = ["Win32_Foundation"] }
 
 [target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
 # The static musl executables have one allocator (#2208): Collie's, and

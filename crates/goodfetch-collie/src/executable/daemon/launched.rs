@@ -64,6 +64,7 @@ pub(super) fn launch(
         .stderr(Stdio::null());
     detach(&mut command);
     give_huge_pages_as_started(&mut command);
+    keep_own_standard_handles();
     let mut child = command
         .spawn()
         .map_err(unavailable("the Daemon's process cannot start"))?;
@@ -107,6 +108,44 @@ fn detach(command: &mut std::process::Command) {
 
 #[cfg(not(any(unix, windows)))]
 fn detach(_command: &mut std::process::Command) {}
+
+/// Keeps this process's own standard handles from the Daemon. Windows
+/// gives a started process every inheritable handle of its starter, not
+/// only the standard handles it is given, and this process's own were
+/// inheritable from its start; a Daemon holding them kept its caller's
+/// pipes open, so a caller reading `daemon start`'s output to its end
+/// waited until the Daemon ended. A child this process starts later with
+/// an inherited standard handle still gets it: the standard library hands
+/// it an inheritable copy. A handle this process has not, or that the call
+/// refuses, is left as it is.
+#[cfg(windows)]
+fn keep_own_standard_handles() {
+    use std::os::windows::io::AsRawHandle as _;
+    use windows_sys::Win32::Foundation::{HANDLE_FLAG_INHERIT, SetHandleInformation};
+    for handle in [
+        std::io::stdin().as_raw_handle(),
+        std::io::stdout().as_raw_handle(),
+        std::io::stderr().as_raw_handle(),
+    ] {
+        if handle.is_null() {
+            continue;
+        }
+        // SAFETY: the standard handles live as long as the process, and the
+        // call only clears a handle's inheritance flag.
+        #[expect(
+            unsafe_code,
+            reason = "SetHandleInformation is a Windows C call (STYLE.md, `unsafe`)"
+        )]
+        unsafe {
+            SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0);
+        }
+    }
+}
+
+/// On Unix, a started process's standard descriptors are those it is given,
+/// and the standard library opens every other descriptor close-on-exec.
+#[cfg(not(windows))]
+fn keep_own_standard_handles() {}
 
 /// The Daemon's process, started by [`launch`] from the copy of build
 /// `copy`, or by the major's service under `service`: waits for the serving

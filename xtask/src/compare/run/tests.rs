@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{
     Executables, Options, chromiumoxide_executable, counted_output, crawlberg_executable,
@@ -9,6 +9,12 @@ use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
 use crate::compare::trials::{
     CollieScenario, Comparison, CountedCell, CountedRun, GrowthCell, SizesCell, Tool, Work,
 };
+
+/// The executable Cargo builds at `path`, with the OS's suffix (`.exe` on
+/// Windows).
+fn built(path: &str) -> PathBuf {
+    PathBuf::from(format!("{path}{}", std::env::consts::EXE_SUFFIX))
+}
 
 /// Each of Spider's side's builds runs the executable Cargo left in the
 /// build's own target folder, under the profile's: the main row's from
@@ -24,11 +30,9 @@ fn each_spider_build_runs_the_executable_built_in_its_own_folder() {
             executable(SpiderBuild::Jemalloc),
         ),
         (
-            Path::new("/t/compare-spider/spider/release/goodfetch-compare-spider").to_owned(),
-            Path::new("/t/compare-spider/spider-chrome/release/goodfetch-compare-spider")
-                .to_owned(),
-            Path::new("/t/compare-spider/spider-jemalloc/release/goodfetch-compare-spider")
-                .to_owned(),
+            built("/t/compare-spider/spider/release/goodfetch-compare-spider"),
+            built("/t/compare-spider/spider-chrome/release/goodfetch-compare-spider"),
+            built("/t/compare-spider/spider-jemalloc/release/goodfetch-compare-spider"),
         )
     );
 }
@@ -64,7 +68,7 @@ fn each_callgrind_run_keeps_its_output_under_its_scenario_cell_and_number() {
 fn crawlee_rs_runs_the_executable_built_in_its_folder() {
     assert_eq!(
         crawlee_rs_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/crawlee-rs/release/goodfetch-compare-crawlee-rs")
+        built("/t/compare-spider/crawlee-rs/release/goodfetch-compare-crawlee-rs")
     );
 }
 
@@ -74,7 +78,7 @@ fn crawlee_rs_runs_the_executable_built_in_its_folder() {
 fn pagesift_runs_the_executable_built_in_its_folder() {
     assert_eq!(
         pagesift_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/pagesift/release/goodfetch-compare-pagesift")
+        built("/t/compare-spider/pagesift/release/goodfetch-compare-pagesift")
     );
 }
 
@@ -84,7 +88,7 @@ fn pagesift_runs_the_executable_built_in_its_folder() {
 fn openspider_runs_the_executable_built_in_its_folder() {
     assert_eq!(
         openspider_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/openspider/release/goodfetch-compare-openspider")
+        built("/t/compare-spider/openspider/release/goodfetch-compare-openspider")
     );
 }
 
@@ -94,7 +98,7 @@ fn openspider_runs_the_executable_built_in_its_folder() {
 fn fastcrw_runs_the_executable_built_in_its_folder() {
     assert_eq!(
         fastcrw_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/fastcrw/release/goodfetch-compare-fastcrw")
+        built("/t/compare-spider/fastcrw/release/goodfetch-compare-fastcrw")
     );
 }
 
@@ -104,7 +108,7 @@ fn fastcrw_runs_the_executable_built_in_its_folder() {
 fn crawlberg_runs_the_executable_built_in_its_folder() {
     assert_eq!(
         crawlberg_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/crawlberg/release/goodfetch-compare-crawlberg")
+        built("/t/compare-spider/crawlberg/release/goodfetch-compare-crawlberg")
     );
 }
 
@@ -114,7 +118,7 @@ fn crawlberg_runs_the_executable_built_in_its_folder() {
 fn chromiumoxide_runs_the_executable_built_in_its_folder() {
     assert_eq!(
         chromiumoxide_executable(Path::new("/t/compare-spider"), "release"),
-        Path::new("/t/compare-spider/chromiumoxide/release/goodfetch-compare-chromiumoxide")
+        built("/t/compare-spider/chromiumoxide/release/goodfetch-compare-chromiumoxide")
     );
 }
 

@@ -270,6 +270,9 @@ fn a_dead_pid_in_the_runtime_file_is_replaced_by_the_daemon_a_command_starts() {
 fn a_connection_dropped_mid_command_is_reported_and_exits_8() {
     let env = TestEnv::new();
     let scripted = scripted_daemon(&env, "daemon/cli-run-start-dropped.json");
+    // A Unix socket in the test's folder on Unix, loopback TCP on Windows
+    // (ADR 0024): one snapshot names either as `[DAEMON]`.
+    let endpoint = RuntimeFile::read(&runtime_file(&env)).unwrap().endpoint;
 
     let output = cli(&env, COLLIE)
         .args(["run", "start", "--run-id", "first", "--daemon"])
@@ -282,7 +285,12 @@ fn a_connection_dropped_mid_command_is_reported_and_exits_8() {
         (Some(8), ""),
         "{output}"
     );
-    stderr_snapshot(&env, "run_start_connection_dropped", &output.stderr);
+    let values = SnapshotValues::of(&env)
+        .with_path(COLLIE, "[COLLIE]")
+        .with_path(&endpoint.to_string(), "[DAEMON]");
+    snapshot_settings(&values).bind(|| {
+        insta::assert_snapshot!("run_start_connection_dropped", output.stderr.trim());
+    });
 }
 
 /// No command takes the Daemon's token as a flag, so a token never sits in

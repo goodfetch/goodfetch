@@ -16,7 +16,10 @@
 //! executable's, which are matched in the same forms before every other
 //! rule: an executable names itself by the path the OS gives it, which is
 //! canonical on Linux, so a build folder reached through a link prints in
-//! another form than the path the test started it by.
+//! another form than the path the test started it by. On Windows, which
+//! joins a path with `\`, the separators of a path under the test's folder
+//! or a named path are then written as `/`, as every other host joins them,
+//! so one snapshot serves every host; insta's rules alone hold this one.
 
 use insta::Settings;
 use schemars::JsonSchema;
@@ -123,12 +126,18 @@ impl SnapshotValues {
 /// `text` under the rules [`snapshot_settings`] gives insta for `values`,
 /// applied as insta applies them: for a value a test compares without a
 /// snapshot.
+pub fn redact(text: &str, values: &SnapshotValues) -> String {
+    apply(text, rules(values))
+}
+
+/// `text` with each of `rules` applied in turn, as insta applies its
+/// filters.
 #[expect(
     clippy::disallowed_methods,
     reason = "ADR 0140: a selector or pattern compiled on no counted row yet; the Shared paths audit moves it onto its counted function"
 )]
-pub fn redact(text: &str, values: &SnapshotValues) -> String {
-    rules(values)
+fn apply(text: &str, rules: Vec<(String, String)>) -> String {
+    rules
         .into_iter()
         .fold(text.to_owned(), |text, (pattern, replacement)| {
             regex::Regex::new(&pattern)
@@ -150,27 +159,43 @@ pub fn snapshot_settings(values: &SnapshotValues) -> Settings {
 }
 
 /// The shared rules for `values` as insta's filters take them, a pattern
-/// and its literal replacement each, in the order they apply: each path
-/// the test names, then each value, matched literally, then the committed
-/// patterns.
+/// and its replacement each, in the order they apply, on this host.
 fn rules(values: &SnapshotValues) -> Vec<(String, String)> {
+    rules_joined_with(values, std::path::MAIN_SEPARATOR)
+}
+
+/// The shared rules for `values` on a host that joins paths with
+/// `separator`: each path the test names, then each value, matched
+/// literally, then, where the separator is `\`, the separators of the
+/// paths under them written as `/`, then the committed patterns.
+fn rules_joined_with(values: &SnapshotValues, separator: char) -> Vec<(String, String)> {
     let filters: SnapshotFilters = serde_json::from_str(COMMITTED)
         .expect("invariant: the committed snapshot filters parse, which the Quick suite checks");
     let mut rules = Vec::new();
+    let mut path_replacements = Vec::new();
     for (path, replacement) in &values.paths {
         for form in path_forms(path) {
             rules.push((regex::escape(&form), replacement.clone()));
         }
+        path_replacements.push(replacement.clone());
     }
     for filter in &filters.values {
         if let Some(value) = values.get(filter.value) {
             let forms = match filter.value {
-                RunValue::Folder => path_forms(value),
+                RunValue::Folder => {
+                    path_replacements.push(filter.replacement.clone());
+                    path_forms(value)
+                }
                 RunValue::ProductVersion | RunValue::Commit => vec![value.to_owned()],
             };
             for form in forms {
                 rules.push((regex::escape(&form), filter.replacement.clone()));
             }
+        }
+    }
+    if separator == '\\' {
+        for replacement in &path_replacements {
+            rules.extend(slash_separators(replacement));
         }
     }
     // `(?-u)`: a word boundary is ASCII's, as JavaScript's and Python's
@@ -179,6 +204,24 @@ fn rules(values: &SnapshotValues) -> Vec<(String, String)> {
         rules.push((format!("(?-u){}", filter.pattern), filter.replacement));
     }
     rules
+}
+
+/// The most separators a path under a replaced one holds that its rules
+/// write as `/`; a deeper path keeps its last `\`, which fails its
+/// snapshot rather than passing it.
+const DEEPEST_PATH: usize = 16;
+
+/// The rules that write each separator of a path under `replacement` (the
+/// test's folder's, say) as `/`, one separator a rule: Windows joins it with
+/// `\`, written `\\` inside a JSON string, and every other host with `/`.
+/// A path ends at a space, a quote or a backtick, and a backslash that no
+/// path character follows, such as JSON's escaped quote, is no separator.
+fn slash_separators(replacement: &str) -> Vec<(String, String)> {
+    let pattern = format!(
+        r#"({}[^\s"'`\\]*)\\{{1,2}}([^\s"'`\\])"#,
+        regex::escape(replacement)
+    );
+    vec![(pattern, "${1}/${2}".to_owned()); DEEPEST_PATH]
 }
 
 /// The forms an output prints a path in, longest first so a longer form

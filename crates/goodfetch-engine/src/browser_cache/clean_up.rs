@@ -144,9 +144,8 @@ pub(super) fn run(root: &Path, request: &CleanUp) -> io::Result<CleanUpReport> {
         };
         let size = store::bytes(&folder)?;
         if !request.dry_run {
-            store::delete(root, &folder)?;
+            store::delete(root, &folder, Some(lock))?;
         }
-        drop(lock);
         bytes.insert(id.clone(), size);
         deleted.push(id);
     }

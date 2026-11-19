@@ -14,6 +14,7 @@ use std::marker::PhantomData;
 use std::panic;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError, Weak};
 use std::time::Duration;
 
@@ -36,7 +37,7 @@ use crate::error::Error;
 use crate::file_saving::{self, FileSaving};
 use crate::handler::{HandlerRequests, Streams};
 use crate::rpc::{self, Heard, Outgoing, Sender};
-use crate::sync::{Mutex, MutexGuard};
+use crate::sync::{AtomicBool, Mutex, MutexGuard};
 use crate::transport::{self, Endpoint, Network};
 
 /// How many `$/chunk` notifications a save takes ahead of those it has
@@ -115,6 +116,9 @@ struct Inner {
     /// The Runs it started, which `close()` closes first. A Run holds its
     /// Connection, so the Connection only refers to it.
     runs: Mutex<Vec<Weak<dyn Closes>>>,
+    /// Whether a close has returned, after which closing again does
+    /// nothing, even when that close timed out with a task still running.
+    closed: AtomicBool,
     /// Held only to be dropped with the Connection's last handle.
     _runtime: Owned,
 }
@@ -153,6 +157,7 @@ impl ClientConnection {
             tasks,
             handed: TaskTracker::new(),
             runs: Mutex::new(Vec::new()),
+            closed: AtomicBool::new(false),
             _runtime: owned,
         }));
         match connection.call::<HelloResult>(HELLO, &hello).await {
@@ -388,20 +393,25 @@ impl ClientConnection {
     /// Dropping the future before it completes leaves the Runs it had not
     /// closed yet open and the Connection open.
     pub async fn close(&self) -> Result<(), Error> {
+        if self.0.closed.load(Ordering::Acquire) {
+            return Ok(());
+        }
         // The timer is the Connection's runtime's, so the close runs on
         // any executor (ADR 0081).
         let bounded = {
             let _entered = self.0.handle.enter();
             tokio::time::timeout(close_timeout(), self.close_unbounded())
         };
-        match bounded.await {
+        let closed = match bounded.await {
             Ok(closed) => closed,
             Err(_elapsed) => {
                 self.0.sender.close();
                 self.0.tasks.close();
                 Err(Error::TimedOut)
             }
-        }
+        };
+        self.0.closed.store(true, Ordering::Release);
+        closed
     }
 
     /// Closes the Connection as [`ClientConnection::close`] says, however

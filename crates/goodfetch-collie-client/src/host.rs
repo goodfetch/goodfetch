@@ -204,19 +204,15 @@ pub(crate) struct Dropped {
 }
 
 impl Dropped {
-    fn new(
-        value: &'static str,
-        id: String,
-        method: &'static str,
-        params: &impl Serialize,
-    ) -> Option<Self> {
-        let params = serde_json::to_value(params).ok()?;
-        Some(Self {
+    fn new(value: &'static str, id: String, method: &'static str, params: &impl Serialize) -> Self {
+        let params = serde_json::to_value(params)
+            .expect("invariant: a close's params are IDs, which serialize");
+        Self {
             value,
             id,
             method,
             params,
-        })
+        }
     }
 }
 
@@ -225,7 +221,12 @@ impl Held for SessionId {
         let params = SessionParams {
             session_id: self.clone(),
         };
-        Dropped::new("Session", self.0.clone(), SESSION_CLOSE.name, &params)
+        Some(Dropped::new(
+            "Session",
+            self.0.clone(),
+            SESSION_CLOSE.name,
+            &params,
+        ))
     }
 }
 
@@ -235,7 +236,12 @@ impl Held for PageId {
             page_id: self.clone(),
             run_before_unload: None,
         };
-        Dropped::new("page", self.0.clone(), PAGE_CLOSE.name, &params)
+        Some(Dropped::new(
+            "page",
+            self.0.clone(),
+            PAGE_CLOSE.name,
+            &params,
+        ))
     }
 }
 

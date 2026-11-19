@@ -8,8 +8,8 @@
 //! disconnected from the Daemon. The others hand-play the engine over the
 //! in-memory network on the paused runtime: a close waits no longer than
 //! `timeout.close`, and dropping an unclosed value fires its close without
-//! waiting and warns.
-//! Covers: story:11-16, story:11-17, story:11-18, story:11-19, story:11-20, story:11-21
+//! waiting and warns. The scripted cases are Rust's `daemon` mode plays;
+//! `goodfetch-collie`'s `sdk::closing` tests play them `linked`.
 
 use std::time::Duration;
 
@@ -51,12 +51,13 @@ fn assert_played_whole(process: &goodfetch_test_support::Process) {
     );
 }
 
-/// The `children-close-with-their-parent` client conformance case, linked
-/// to the Scripted engine's Daemon: a Session's close closes its page,
+/// The `children-close-with-their-parent` client conformance case, played
+/// by the Scripted engine's Daemon: a Session's close closes its page,
 /// whose own close then sends nothing and whose calls fail with
 /// [`Error::Closed`]; the Connection's close aborts the Run once, and
 /// every handle of it then refuses its calls with [`Error::Closed`];
 /// closing the Connection again does nothing.
+/// Covers: story:11-16, story:11-17
 #[test]
 fn children_close_with_their_parent_and_refuse_every_later_call_with_closed() {
     let env = TestEnv::new();
@@ -96,10 +97,11 @@ fn children_close_with_their_parent_and_refuse_every_later_call_with_closed() {
     assert_played_whole(&process);
 }
 
-/// The `closed-after-close` client conformance case, linked to the
+/// The `closed-after-close` client conformance case, played by the
 /// Scripted engine's Daemon: closing a running Run aborts it once, and
 /// closing it or the Connection again does nothing; the Run's finish and
 /// a start then fail with [`Error::Closed`].
+/// Covers: story:11-17
 #[test]
 fn a_closed_run_and_connection_refuse_every_later_call_with_closed() {
     let env = TestEnv::new();
@@ -127,11 +129,12 @@ fn a_closed_run_and_connection_refuse_every_later_call_with_closed() {
     assert_played_whole(&process);
 }
 
-/// The `close-stops-a-running-run` client conformance case, linked to the
+/// The `close-stops-a-running-run` client conformance case, played by the
 /// Scripted engine's Daemon: closing a running Run aborts it once, a
 /// second close and a later call send nothing, a start of its Run ID
 /// resumes it, and closing the finished Run sends nothing; the
 /// Connection's close then only disconnects from the Daemon.
+/// Covers: story:11-18, story:11-19
 #[test]
 fn a_close_stops_a_running_run_once_and_frees_an_ended_runs_value_without_a_call() {
     let env = TestEnv::new();
@@ -157,9 +160,10 @@ fn a_close_stops_a_running_run_once_and_frees_an_ended_runs_value_without_a_call
 }
 
 /// The `failed-close-raises-a-typed-error` client conformance case,
-/// linked to the Scripted engine's Daemon: the engine refuses the Run's
+/// played by the Scripted engine's Daemon: the engine refuses the Run's
 /// abort, and the Connection's close fails with that error, closing all
 /// the same.
+/// Covers: story:11-20
 #[test]
 fn a_failed_close_fails_with_the_engines_error() {
     let env = TestEnv::new();
@@ -224,10 +228,11 @@ fn stopped() -> Value {
     })
 }
 
-/// The `connection-close-stops-its-engine` client conformance case,
-/// linked over the in-memory network: the Connection's close aborts its
-/// running Run, then fails the call in flight with [`Error::Closed`] and
-/// ends the engine's input.
+/// The call in flight of the `connection-close-stops-its-engine` client
+/// conformance case, hand-played over the in-memory network: the
+/// Connection's close aborts its running Run, then fails the call in
+/// flight with [`Error::Closed`] and ends the engine's input.
+/// Covers: story:11-19
 #[test]
 fn a_connection_close_aborts_its_run_fails_a_call_in_flight_and_ends_the_engines_input() {
     let (network, mut lines, mut writer) = scripted();
@@ -273,11 +278,14 @@ fn a_connection_close_aborts_its_run_fails_a_call_in_flight_and_ends_the_engines
 
 /// A page's close and a Connection's close the engine never answers each
 /// fail with [`Error::TimedOut`] once `timeout.close` has run out, and no
-/// later; the Connection is closed all the same.
+/// later; the Connection is closed all the same, and closing it again
+/// does nothing.
+/// Covers: story:11-20
 #[test]
 fn a_close_the_engine_never_answers_fails_once_timeout_close_runs_out() {
     let (network, mut lines, mut writer) = scripted();
     let runtime = goodfetch_test_support::runtime();
+    let (release, released) = tokio::sync::oneshot::channel::<()>();
     let (page_closed, connection_closed, unanswered) = runtime.block_on(async {
         let peer = async {
             let hello = lines.next_line().await.unwrap().unwrap();
@@ -297,6 +305,8 @@ fn a_close_the_engine_never_answers_fails_once_timeout_close_runs_out() {
                 let request: Value = serde_json::from_str(&line).unwrap();
                 unanswered.push(request["method"].as_str().unwrap().to_owned());
             }
+            // The engine keeps its output open past the client's close.
+            released.await.unwrap();
             writer.shutdown().await.unwrap();
             unanswered
         };
@@ -315,11 +325,15 @@ fn a_close_the_engine_never_answers_fails_once_timeout_close_runs_out() {
             let page_closed = (page.close().await, began.elapsed());
             let began = paused_now();
             let connection_closed = (connection.close().await, began.elapsed());
-            (page_closed, connection_closed)
+            let began = paused_now();
+            let again = (connection.close().await, began.elapsed());
+            release.send(()).unwrap();
+            (page_closed, (connection_closed, again))
         };
         let ((page_closed, connection_closed), unanswered) = tokio::join!(client, peer);
         (page_closed, connection_closed, unanswered)
     });
+    let (connection_closed, again) = connection_closed;
 
     for (closed, took) in [&page_closed, &connection_closed] {
         assert!(matches!(closed, Err(Error::TimedOut)), "{closed:?}");
@@ -328,6 +342,8 @@ fn a_close_the_engine_never_answers_fails_once_timeout_close_runs_out() {
             "{took:?}"
         );
     }
+    assert!(again.0.is_ok(), "{again:?}");
+    assert_eq!(again.1, Duration::ZERO);
     assert_eq!(unanswered, ["page.close", "run.abort"]);
 }
 
@@ -335,6 +351,7 @@ fn a_close_the_engine_never_answers_fails_once_timeout_close_runs_out() {
 /// while its Run runs, sends its close without waiting for the reply and
 /// warns; dropping one already closed sends nothing, and closing it twice
 /// sends its close once.
+/// Covers: story:11-21
 #[test]
 fn dropping_an_unclosed_value_sends_its_close_without_waiting_and_warns() {
     let (network, mut lines, mut writer) = scripted();

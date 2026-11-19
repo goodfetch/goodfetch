@@ -994,10 +994,16 @@ export type Resource = "memory" | "storage";
 /**
  * Whether a Run's own checks prove what it committed (ADR 0029).
  *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `verified`: Every check the Run relies on passed, none was switched off, and no Effect is left uncertain.
+ * - `rejected`: A declared Success check failed.
+ * - `needs_review`: Everything else: a person reviews it.
+ *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "Verdict".
  */
-export type Verdict = "verified" | "rejected" | "needs_review";
+export type Verdict = "verified" | "rejected" | "needs_review" | (string & {});
 /**
  * One intercepted request a route's handler answers, which `route.*`
  * names.

@@ -25,6 +25,7 @@ const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true))]
 pub enum CrawlHookStage {
     /// Before each fetch of a request, its retries included.
     BeforeRequest,

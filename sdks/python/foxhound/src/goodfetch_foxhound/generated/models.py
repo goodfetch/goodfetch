@@ -34,10 +34,16 @@ from goodfetch_collie_client.generated.models import (
     Tags,
     UncertainEffect,
     UnreadField,
-    Verdict,
     WeakenedSetting,
 )
+from goodfetch_collie_client.generated.open_values import Verdict
 from goodfetch_collie_client.point_in_time import PointInTime
+from goodfetch_foxhound.generated.open_values import (
+    BlockCause,
+    CrawlHookStage,
+    OutcomeKind,
+    SkipReason,
+)
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
@@ -67,28 +73,6 @@ class AttemptError(BaseModel):
     """
     message: str
     """What it said."""
-
-
-class BlockCause(StrEnum):
-    """Why a site refused a page (ADR 0035), on the wire as written."""
-
-    challenge = "challenge"
-    """A page that checks the browser before it lets it through."""
-    captcha = "captcha"
-    """A page that asks a person to prove they are human."""
-    rate_limit = "rate_limit"
-    """The site refused because too many requests came too fast."""
-    ip_block = "ip_block"
-    """The site refused the address the request came from."""
-    decoy = "decoy"
-    """
-    A trap page a person would never reach, such as a labyrinth of
-    hidden links; only Foxhound's Frontier produces it (ADR 0095).
-    """
-    payment_required = "payment_required"
-    """The site asked to be paid for the page (ADR 0045)."""
-    consent_required = "consent_required"
-    """A wall that asks for consent before it shows the page (ADR 0048)."""
 
 
 class CertificateExceptionKind(StrEnum):
@@ -130,6 +114,30 @@ class CountOf(BaseModel):
     """The reason, code or cause."""
 
 
+class CrawlHookDeclaration(BaseModel):
+    """
+    One Hook in code a crawl declares, in `crawl.start`'s `hooks`, which
+    list them in the order declared: per stage, they run in that order,
+    after the Hooks named in settings (ADR 0104).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    datasets: list[str] | None = None
+    """
+    At `before_record_commit`, the Datasets whose Records it runs for;
+    absent for every Dataset.
+    """
+    labels: list[str] | None = None
+    """The Labels whose requests it runs for; absent for every Label."""
+    name: str
+    """Its name, which `crawl_hook.handle` and `hook_failed` carry."""
+    stage: CrawlHookStage
+    """The stage it runs at."""
+
+
 class CrawlHookHandled(BaseModel):
     """
     What a Hook answers once it returned: nothing yet, the work going on
@@ -139,30 +147,6 @@ class CrawlHookHandled(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-
-
-class CrawlHookStage(StrEnum):
-    """
-    A stage whose answer changes the work, where a crawl's Hooks in code
-    run (ADR 0104), by the catalog's name. The observe-only stages reach
-    Plugins and Script Hooks only.
-    """
-
-    before_request = "before_request"
-    """Before each fetch of a request, its retries included."""
-    after_response = "after_response"
-    """After the request's final response, redirects followed."""
-    before_navigation = "before_navigation"
-    """
-    Before a navigation to the request's URL, on the tiers that
-    navigate.
-    """
-    after_navigation = "after_navigation"
-    """After that navigation."""
-    page_ready = "page_ready"
-    """Just before the handler, with its page, on every tier."""
-    before_record_commit = "before_record_commit"
-    """Before each Record the attempt staged commits."""
 
 
 class CrawlRequestEnqueueLinksParams(BaseModel):
@@ -857,19 +841,6 @@ class Now(StrEnum):
     """From the next commit on."""
 
 
-class OutcomeKind(StrEnum):
-    """How a crawl request ended (ADR 0079)."""
-
-    succeeded = "succeeded"
-    """Its handler returned, and what it staged was committed."""
-    failed = "failed"
-    """Its last attempt failed, and no retry is left."""
-    skipped = "skipped"
-    """A decision ended it: a skip is never retried."""
-    blocked = "blocked"
-    """The site refused it, with a Block cause."""
-
-
 class OutcomeRequest(BaseModel):
     """The crawl request an outcome ends."""
 
@@ -1537,34 +1508,6 @@ class SitemapSeed(BaseModel):
     """The URL of the sitemap, or of the site's robots.txt."""
 
 
-class SkipReason(StrEnum):
-    """Why a crawl request was skipped (ADRs 0079, 0093, 0107 and 0119)."""
-
-    out_of_scope = "out_of_scope"
-    """A redirect left the crawl's scope."""
-    domain_policy = "domain_policy"
-    """
-    A redirect or a Hook's rewrite reached a host the domain policy
-    refuses.
-    """
-    duplicate = "duplicate"
-    """A URL rule merged it with a request already admitted."""
-    robots_txt = "robots_txt"
-    """The site's robots.txt refuses it."""
-    crawl_delay = "crawl_delay"
-    """The site's Crawl-delay could not be kept."""
-    use_signals = "use_signals"
-    """An AI-use signal refuses the Run's Purpose."""
-    hook = "hook"
-    """A before-request Hook skipped it."""
-    handler = "handler"
-    """Its handler skipped it."""
-    model_allowance = "model_allowance"
-    """The Run's Model allowance was reached."""
-    content_type = "content_type"
-    """Its response's content type is not one its Label takes."""
-
-
 class SortDirection(StrEnum):
     """A sort's direction."""
 
@@ -1708,29 +1651,6 @@ class CrawlExtraction(BaseModel):
     """Which pages the crawl fetches beyond its seeds: `scope` by default."""
     formats: FormatsRequest
     """The formats each page's Record holds, as `page.formats` takes them."""
-
-
-class CrawlHookDeclaration(BaseModel):
-    """
-    One Hook in code a crawl declares, in `crawl.start`'s `hooks`, which
-    list them in the order declared: per stage, they run in that order,
-    after the Hooks named in settings (ADR 0104).
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    datasets: list[str] | None = None
-    """
-    At `before_record_commit`, the Datasets whose Records it runs for;
-    absent for every Dataset.
-    """
-    labels: list[str] | None = None
-    """The Labels whose requests it runs for; absent for every Label."""
-    name: str
-    """Its name, which `crawl_hook.handle` and `hook_failed` carry."""
-    stage: CrawlHookStage
-    """The stage it runs at."""
 
 
 class CrawlRequest(BaseModel):

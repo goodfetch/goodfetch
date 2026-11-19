@@ -5,11 +5,28 @@ import type { AxisReason, Checkpoint, Completeness, EndingError, ExplainedSettin
 /**
  * Why a site refused a page (ADR 0035), on the wire as written.
  *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `challenge`: A page that checks the browser before it lets it through.
+ * - `captcha`: A page that asks a person to prove they are human.
+ * - `rate_limit`: The site refused because too many requests came too fast.
+ * - `ip_block`: The site refused the address the request came from.
+ * - `decoy`: A trap page a person would never reach, such as a labyrinth of hidden links; only Foxhound's Frontier produces it (ADR 0095).
+ * - `payment_required`: The site asked to be paid for the page (ADR 0045).
+ * - `consent_required`: A wall that asks for consent before it shows the page (ADR 0048).
+ *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "BlockCause".
  */
 export type BlockCause =
-  "challenge" | "captcha" | "rate_limit" | "ip_block" | "decoy" | "payment_required" | "consent_required";
+  | "challenge"
+  | "captcha"
+  | "rate_limit"
+  | "ip_block"
+  | "decoy"
+  | "payment_required"
+  | "consent_required"
+  | (string & {});
 /**
  * The kind of an invalid-certificate exception (ADR 0042).
  *
@@ -29,6 +46,15 @@ export type ExtractionFollow = "scope" | "sitemap" | "none";
  * run (ADR 0104), by the catalog's name. The observe-only stages reach
  * Plugins and Script Hooks only.
  *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `before_request`: Before each fetch of a request, its retries included.
+ * - `after_response`: After the request's final response, redirects followed.
+ * - `before_navigation`: Before a navigation to the request's URL, on the tiers that navigate.
+ * - `after_navigation`: After that navigation.
+ * - `page_ready`: Just before the handler, with its page, on every tier.
+ * - `before_record_commit`: Before each Record the attempt staged commits.
+ *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "CrawlHookStage".
  */
@@ -38,7 +64,8 @@ export type CrawlHookStage =
   | "before_navigation"
   | "after_navigation"
   | "page_ready"
-  | "before_record_commit";
+  | "before_record_commit"
+  | (string & {});
 /**
  * The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).
  *
@@ -177,6 +204,19 @@ export type NothingCommitted = "none_pushed" | "none_kept" | "records_off";
 /**
  * Why a crawl request was skipped (ADRs 0079, 0093, 0107 and 0119).
  *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `out_of_scope`: A redirect left the crawl's scope.
+ * - `domain_policy`: A redirect or a Hook's rewrite reached a host the domain policy refuses.
+ * - `duplicate`: A URL rule merged it with a request already admitted.
+ * - `robots_txt`: The site's robots.txt refuses it.
+ * - `crawl_delay`: The site's Crawl-delay could not be kept.
+ * - `use_signals`: An AI-use signal refuses the Run's Purpose.
+ * - `hook`: A before-request Hook skipped it.
+ * - `handler`: Its handler skipped it.
+ * - `model_allowance`: The Run's Model allowance was reached.
+ * - `content_type`: Its response's content type is not one its Label takes.
+ *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "SkipReason".
  */
@@ -190,7 +230,8 @@ export type SkipReason =
   | "hook"
   | "handler"
   | "model_allowance"
-  | "content_type";
+  | "content_type"
+  | (string & {});
 /**
  * Two spellings of one host's URLs a learned `equivalent_form` merges
  * (ADR 0120), each learned on evidence: a redirect from one to the
@@ -456,10 +497,17 @@ export type Now = "now";
 /**
  * How a crawl request ended (ADR 0079).
  *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `succeeded`: Its handler returned, and what it staged was committed.
+ * - `failed`: Its last attempt failed, and no retry is left.
+ * - `skipped`: A decision ended it: a skip is never retried.
+ * - `blocked`: The site refused it, with a Block cause.
+ *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "OutcomeKind".
  */
-export type OutcomeKind = "succeeded" | "failed" | "skipped" | "blocked";
+export type OutcomeKind = "succeeded" | "failed" | "skipped" | "blocked" | (string & {});
 /**
  * Where `run.outcomes` starts: after a position, or from the next commit.
  *

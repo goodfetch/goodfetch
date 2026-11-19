@@ -1735,6 +1735,15 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "RunHost"
+member = "published"
+entry = "none"
+reason = "What a Run reaches through its Connection: the Connection's own Subscription, which its listeners of published events share."
+words = ["published"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "RunHost"
 member = "forget"
 entry = "none"
 reason = "What a Run reaches through its Connection: forgets a closed Run."

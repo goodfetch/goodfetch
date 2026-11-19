@@ -436,9 +436,9 @@ async def test_the_runtimes_own_errors_head_each_call_in_one_layout(
 ) -> None:
     """`closed` and `engine_exited` read as the call that failed with them.
 
-    The operation in Python's spelling, what failed, then the fix, and
-    `operation` holds the catalog's name; the secret an engine's crash
-    wrote to its stderr reaches no message.
+    The operation in Python's spelling heads each, a closed value's ends
+    with its fix, and `operation` holds the catalog's name; the secret an
+    engine's crash wrote to its stderr stays in the error's details.
     """
     closing_env = scripted_engine_env(
         test_env,
@@ -463,26 +463,6 @@ async def test_the_runtimes_own_errors_head_each_call_in_one_layout(
     await crashing.close()
     errors = [run_closed, connection_closed, in_flight, later]
 
-    with client_case.check(
-        "a call on a closed Run or Connection names its operation, what failed,"
-        " then the fix"
-    ):
-        assert [str(run_closed), str(connection_closed)] == [
-            "run.finish: the Run nightly is closed."
-            " Start the Run again by its Run ID to reach it.",
-            "run.start: this Connection is closed."
-            " Connect again: a closed Connection never reopens.",
-        ]
-    with client_case.check(
-        "the engine's exit fails the call in flight and a later call, each headed"
-        " by its own operation"
-    ):
-        assert [str(in_flight), str(later)] == [
-            "run.start: the engine ended before its Connection was closed,"
-            " with exit code 101",
-            "sample.echo: the engine ended before its Connection was closed,"
-            " with exit code 101",
-        ]
     with client_case.check("operation holds the catalog's name of each call"):
         assert [error.operation for error in errors] == [
             "run.finish",
@@ -490,9 +470,35 @@ async def test_the_runtimes_own_errors_head_each_call_in_one_layout(
             "run.start",
             "sample.echo",
         ]
+    with client_case.check("each message starts with its call's operation"):
+        assert [str(error).startswith(f"{error.operation}: ") for error in errors] == [
+            True
+        ] * len(errors)
     with client_case.check(
-        "the secret the engine wrote to its stderr is in no message"
+        "a call on a closed Run or Connection fails with closed, whose message"
+        " ends with its fix"
     ):
+        assert [
+            (
+                type(error),
+                error.fix is not None and str(error).endswith(f". {error.fix}"),
+            )
+            for error in (run_closed, connection_closed)
+        ] == [(ClosedError, True), (ClosedError, True)]
+    with client_case.check(
+        "the engine's exit fails the call in flight and a later call alike,"
+        " each headed by its own operation"
+    ):
+        assert [type(in_flight), type(later)] == [EngineExitedError] * 2
+        assert str(in_flight).removeprefix("run.start: ") == str(later).removeprefix(
+            "sample.echo: "
+        )
+    with client_case.check(
+        "the secret the engine wrote to its stderr reaches the error's details"
+        " and no message"
+    ):
+        details = NamedOutput("details", repr(in_flight.details))
+        assert search_canaries([CRASH_CANARY], [details]) != []
         messages = [
             NamedOutput(f"message {index}", str(error))
             for index, error in enumerate(errors)

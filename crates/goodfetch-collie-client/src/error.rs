@@ -207,7 +207,11 @@ impl Error {
     #[must_use]
     pub fn engine_failed(source: impl Into<BoxError>) -> Self {
         let source = source.into();
-        Self::of(&ENGINE_EXITED, "the linked engine failed".to_owned()).caused_by(source)
+        Self::of(
+            &ENGINE_EXITED,
+            format!("the linked engine failed: {source}"),
+        )
+        .caused_by(source)
     }
 
     /// No Daemon could be reached where a Product crate's connection looked
@@ -357,7 +361,11 @@ impl Error {
     /// The transport could not reach the engine: `connection_lost`, with
     /// the OS's error as its cause.
     pub(crate) fn unreachable(source: io::Error) -> Self {
-        Self::of(&CONNECTION_LOST, "could not reach the engine".to_owned()).caused_by(source)
+        Self::of(
+            &CONNECTION_LOST,
+            format!("could not reach the engine: {source}"),
+        )
+        .caused_by(source)
     }
 
     /// Another stream already serves the engine's requests of `method`, a
@@ -373,7 +381,11 @@ impl Error {
     /// A call's params or result did not fit its type: `internal`, with
     /// serde's error as its cause.
     pub(crate) fn shape(source: serde_json::Error) -> Self {
-        Self::of(&INTERNAL, "a message did not fit its type".to_owned()).caused_by(source)
+        Self::of(
+            &INTERNAL,
+            format!("a message did not fit its type: {source}"),
+        )
+        .caused_by(source)
     }
 
     /// The file the engine keeps a response's body in could not be read

@@ -43,9 +43,11 @@ expression: changes(&workspace)
 +dependencies = ["goodfetch-collie-client==1.4.0"]
 --- a/sdks/python/foxhound/pyproject.toml
 +++ b/sdks/python/foxhound/pyproject.toml
-@@ -3 +3 @@ name = "goodfetch-foxhound"
+@@ -3,2 +3,2 @@ name = "goodfetch-foxhound"
 -version = "0.0.0"
+-dependencies = ["goodfetch-collie-client==0.0.0"]
 +version = "1.4.0"
++dependencies = ["goodfetch-collie-client==1.4.0"]
 --- a/sdks/typescript/collie-client/package.json
 +++ b/sdks/typescript/collie-client/package.json
 @@ -3 +3 @@

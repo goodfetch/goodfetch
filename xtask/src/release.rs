@@ -314,50 +314,9 @@ fn package_json(text: &str, version: &str, path: &str) -> Result<String> {
     Ok(text.replacen(&written, &member(version), 1))
 }
 
-/// A requirement that pins one of the workspace's own Python packages,
-/// `name==version` with an optional `; marker`, pinned to `version` instead.
+/// A requirement `name==…` that pins one of the workspace's own Python
+/// packages exactly (ADR 0095), pinned to `version` instead.
 fn repin(requirement: &str, names: &BTreeSet<String>, version: &str) -> Option<String> {
-    let (name, pinned) = requirement.split_once("==")?;
-    if !names.contains(name.trim()) {
-        return None;
-    }
-    let end = pinned.find([';', ' ']).unwrap_or(pinned.len());
-    Some(format!("{name}=={version}{}", &pinned[end..]))
-}
-
-#[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-
-    use super::*;
-
-    fn workspace() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .expect("invariant: xtask lies in the workspace's folder")
-            .to_path_buf()
-    }
-
-    #[test]
-    fn every_released_manifest_is_in_the_workspace() {
-        let prepared = prepare(&workspace(), &"1.0.0".parse().expect("a stable version"))
-            .expect("every released manifest takes a version");
-
-        assert_eq!(prepared.len(), CRATES.len() + 2 * PACKAGES.len() + 2);
-    }
-
-    #[test]
-    fn a_requirement_on_another_package_keeps_its_pin() {
-        let names = BTreeSet::from(["goodfetch-collie-client".to_owned()]);
-
-        assert_eq!(repin("anyio==4.15.1", &names, "1.4.0"), None);
-        assert_eq!(
-            repin(
-                "goodfetch-collie-client==0.0.0; python_version >= '3.11'",
-                &names,
-                "1.4.0rc2"
-            ),
-            Some("goodfetch-collie-client==1.4.0rc2; python_version >= '3.11'".to_owned())
-        );
-    }
+    let (name, _) = requirement.split_once("==")?;
+    names.contains(name).then(|| format!("{name}=={version}"))
 }

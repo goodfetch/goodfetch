@@ -103,26 +103,26 @@ async def test_reaches_the_run_its_run_id_names_and_raises_each_refusals_class(
         "a call that would give the ended Run work raises run_ended"
     ):
         assert isinstance(no_work, RunEndedError)
-        assert (no_work.code, no_work.group, no_work.details) == (
+        assert (no_work.code, no_work.group, no_work.run_id, no_work.details) == (
             "run_ended",
             "program",
-            {"run_id": "nightly"},
+            "nightly",
+            {},
         )
     with client_case.check("a Run another engine writes raises run_in_use"):
         assert isinstance(in_use, RunInUseError)
-        assert (in_use.code, in_use.retryable, in_use.details) == (
+        assert (in_use.code, in_use.retryable, in_use.run_id, in_use.details) == (
             "run_in_use",
             True,
-            {"run_id": "busy"},
+            "busy",
+            {},
         )
     with client_case.check("a Run of other inputs raises run_conflict listing each"):
         assert isinstance(conflict, RunConflictError)
-        assert (conflict.code, conflict.details) == (
+        assert (conflict.code, conflict.run_id, conflict.details) == (
             "run_conflict",
-            {
-                "run_id": "crawled",
-                "differences": ["product", "kind", "caller", "seeds"],
-            },
+            "crawled",
+            {"differences": ["product", "kind", "caller", "seeds"]},
         )
     with client_case.check("a Run whose Limit is used up raises limit_reached"):
         assert isinstance(reached, LimitReachedError)
@@ -171,7 +171,7 @@ async def test_begins_resumes_and_returns_a_finished_run_ended_on_the_executable
         StartedAs.resumed,
         StartedAs.ended,
     ]
-    assert (in_use.code, in_use.details["run_id"]) == ("run_in_use", "held")
+    assert (in_use.code, in_use.run_id) == ("run_in_use", "held")
     assert isinstance(invalid, RunIdInvalidError)
     assert isinstance(invalid.details["pattern"], str)
     assert [error.code for error in (invalid, too_many, too_long)] == [

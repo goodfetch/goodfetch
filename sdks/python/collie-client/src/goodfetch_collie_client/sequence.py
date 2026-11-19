@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Generic, TypeVar
 
 import anyio
 
-from goodfetch_collie_client.goodfetch_error import GoodfetchError
+from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
 from goodfetch_collie_client.listeners import CREDITS, REGRANT, wait_for
 from goodfetch_collie_client.portal import LoopStopped
@@ -65,8 +65,12 @@ class Reading(Generic[_Item]):
         """Whether its call ended: nothing more is received."""
         self.closed = False
         """Whether the program stopped reading, or read it to its end."""
-        self.failure: GoodfetchError | None = None
-        """What ended its call, unless the program stopped reading first."""
+        self.failure: BaseGoodfetchError | None = None
+        """What ended its call, unless the program stopped reading first.
+
+        `attempt_ended`'s class included, which is outside `Exception` and
+        reaches the reader as any failure does (ADR 0093).
+        """
         self._changed = anyio.Event()
 
     async def changed(self) -> None:
@@ -126,7 +130,7 @@ class Reading(Generic[_Item]):
                     await self._connection.stream(
                         self._method, self._params, self._notified, sent=sent
                     )
-                except GoodfetchError as error:
+                except BaseGoodfetchError as error:
                     if not self.closed:
                         self.failure = error
             group.cancel_scope.cancel()
@@ -194,6 +198,8 @@ class AsyncSequence(Generic[_Item]):
                 reading.
             GoodfetchError: The call failed, raised once every item it
                 carried is read.
+            BaseGoodfetchError: Foxhound's `AttemptEndedError`: the call's
+                attempt ended (ADR 0093), raised in the same way.
         """
         reading = self._reading
         if self._handed_out:
@@ -264,6 +270,8 @@ class Sequence(Generic[_Item]):
             StopIteration: Every item is read, or the program stopped reading.
             GoodfetchError: The call failed, raised once every item it
                 carried is read.
+            BaseGoodfetchError: Foxhound's `AttemptEndedError`: the call's
+                attempt ended (ADR 0093), raised in the same way.
         """
         try:
             return self._loop.call(self._sequence.__anext__)

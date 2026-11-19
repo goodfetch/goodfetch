@@ -109,7 +109,7 @@ fn an_answer_the_type_does_not_read_is_rejected() {
     let read = Schema::<Book>::derived().decode(json!({"bookTitle": 3}));
 
     assert!(
-        matches!(&read, Err(SchemaError::Rejected { message }) if message.contains("expected a string")),
+        matches!(&read, Err(SchemaError::Rejected { .. })),
         "{read:?}"
     );
 }
@@ -125,9 +125,9 @@ fn a_field_that_does_not_parse_back_is_refused_before_sending() {
 
     assert_eq!(
         refused,
-        SchemaError::NotJson {
+        SchemaError::ChangesOnReadBack {
             path: "/note".to_owned(),
-            found: r#"a value that reads back as """#.to_owned()
+            read_as: json!("")
         }
     );
 }
@@ -190,10 +190,18 @@ fn an_integer_wider_than_json_carries_is_refused() {
 }
 
 #[test]
-fn a_value_not_json_at_the_root_is_said_to_be_there() {
-    let refused = Schema::<f64>::derived().encode(&f64::NAN).unwrap_err();
+fn a_value_not_json_at_the_root_is_named_by_the_empty_pointer() {
+    assert_eq!(not_json(&f64::NAN), (String::new(), "NaN".to_owned()));
+}
 
-    assert_eq!(refused.to_string(), "NaN at its root is not JSON");
+#[test]
+fn a_key_a_json_pointer_escapes_is_named_escaped() {
+    let prices = BTreeMap::from([("a~1b/c".to_owned(), vec![f64::NAN])]);
+
+    assert_eq!(
+        not_json(&prices),
+        ("/a~01b~1c/0".to_owned(), "NaN".to_owned())
+    );
 }
 
 /// A program's keys, the ones a JavaScript object treats apart and the

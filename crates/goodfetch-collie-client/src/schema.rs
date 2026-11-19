@@ -84,11 +84,12 @@ impl Schema<Value> {
     /// # Examples
     ///
     /// ```
-    /// use goodfetch_collie_client::Schema;
+    /// use goodfetch_collie_client::{Schema, SchemaError};
     /// use serde_json::json;
     ///
-    /// let books = Schema::json(json!({"type": "object"})).unwrap();
-    /// assert_eq!(books.encode(&json!({"title": "Dune"})).unwrap(), json!({"title": "Dune"}));
+    /// let books = Schema::json(json!({"type": "object"}))?;
+    /// assert_eq!(books.encode(&json!({"title": "Dune"}))?, json!({"title": "Dune"}));
+    /// # Ok::<(), SchemaError>(())
     /// ```
     pub fn json(document: Value) -> Result<Self, SchemaError> {
         match document {
@@ -117,7 +118,8 @@ impl<T: Serialize + DeserializeOwned> Schema<T> {
     ///
     /// [`SchemaError::NotJson`], naming its JSON Pointer, when something
     /// in `value` is not JSON (NaN, an infinity, a map key that is not a
-    /// string, an integer past 64 bits, a `Serialize` that fails) or
+    /// string, an integer past 64 bits, a `Serialize` that fails);
+    /// [`SchemaError::ChangesOnReadBack`], naming its JSON Pointer, when it
     /// reads back as another value; [`SchemaError::Rejected`] when `T`'s
     /// own `Deserialize` does not read its JSON back.
     ///
@@ -140,10 +142,7 @@ impl<T: Serialize + DeserializeOwned> Schema<T> {
         let read_back = encode::to_json(&parsed)?;
         match encode::first_change(&encoded, &read_back) {
             None => Ok(encoded),
-            Some((path, read)) => Err(SchemaError::NotJson {
-                path,
-                found: format!("a value that reads back as {read}"),
-            }),
+            Some((path, read_as)) => Err(SchemaError::ChangesOnReadBack { path, read_as }),
         }
     }
 
@@ -156,12 +155,13 @@ impl<T: Serialize + DeserializeOwned> Schema<T> {
     /// # Examples
     ///
     /// ```
-    /// use goodfetch_collie_client::Schema;
+    /// use goodfetch_collie_client::{Schema, SchemaError};
     /// use std::collections::BTreeMap;
     ///
     /// let counts = Schema::<BTreeMap<String, u32>>::derived();
-    /// let read = counts.decode(serde_json::json!({"pages": 3})).unwrap();
+    /// let read = counts.decode(serde_json::json!({"pages": 3}))?;
     /// assert_eq!(read["pages"], 3);
+    /// # Ok::<(), SchemaError>(())
     /// ```
     pub fn decode(&self, answer: Value) -> Result<T, SchemaError> {
         serde_json::from_value(answer).map_err(|rejected| SchemaError::Rejected {
@@ -200,6 +200,17 @@ pub enum SchemaError {
         path: String,
         /// What it is: `NaN`, `the key 1, not a string`.
         found: String,
+    },
+    /// A value to send is JSON but parses back as another value: `T`'s
+    /// `Deserialize` skips a field its `Serialize` writes, or reads it
+    /// otherwise, so the engine would read what the program did not send.
+    #[error("the value at {} reads back as {read_as}, not as sent", at(path))]
+    ChangesOnReadBack {
+        /// The JSON Pointer (RFC 6901) of the first value that changes,
+        /// empty at the root.
+        path: String,
+        /// The JSON it reads back as.
+        read_as: Value,
     },
     /// The type's own `Deserialize` rejected a value: one sent, as it
     /// parses back, or one received.

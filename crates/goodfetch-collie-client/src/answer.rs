@@ -25,9 +25,10 @@ use serde_json::Value;
 ///     pages: u64,
 /// }
 ///
-/// let usage: Answer<Usage> = serde_json::from_str(r#"{"pages": 3, "grams": 1.5}"#).unwrap();
+/// let usage: Answer<Usage> = serde_json::from_str(r#"{"pages": 3, "grams": 1.5}"#)?;
 /// assert_eq!(usage.pages, 3);
 /// assert_eq!(usage.raw()["grams"], 1.5);
+/// # Ok::<(), serde_json::Error>(())
 /// ```
 #[derive(Clone, Debug, PartialEq)]
 pub struct Answer<T> {

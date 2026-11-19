@@ -644,6 +644,10 @@ _Avoid_: action log, history
 The single list of engine operations, each classed read, idempotent write or Effect and marked with the smallest Product that carries it; every surface of a Product exposes that Product's operations to people and agents.
 _Avoid_: tool list, API surface
 
+**Answer**:
+An operation's whole result as an SDK hands it to a program: its typed view, which reads only the fields that SDK knows, and the JSON it came from, which keeps the others (ADR 0082). A member that answers one field of its result or opens a Handle on what it started answers that value alone.
+_Avoid_: response (an HTTP Response), reply (the JSON-RPC message), envelope
+
 **Code mode**:
 Driving the engine through a short program written by a model that calls only the Operation catalog.
 _Avoid_: scripting, eval

@@ -34,9 +34,11 @@ the schema's deserialize side; a sent value must parse back as itself, and
 an answer is decoded by the type's own `Deserialize`. Only JSON crosses: a
 value that is not JSON (NaN, an infinity, a map key that is not a string)
 fails with `SchemaError::NotJson`, naming its path as a JSON Pointer.
-Results keep the fields this SDK does not know, readable through
-`Answer::raw`, and an input's builder has no setter for a field its
-operation does not take.
+A member that answers its operation's whole result answers an `Answer`,
+which keeps the fields this SDK does not know, readable through
+`Answer::raw`; one that answers a single field of its result, such as
+`page.goto`'s `Response`, answers that field alone. An input's builder has
+no setter for a field its operation does not take.
 
 Supported range, tested at its floor, which `Cargo.lock` pins. Each names
 one major in the SDK's types, so a new major of one is a new Goodfetch

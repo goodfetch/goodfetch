@@ -1,0 +1,408 @@
+// Which engine `Collie.connect()` reaches (ADRs 0024, 0078 and 0083): with
+// `engine` left at `auto`, the remote Daemon `GOODFETCH_URL` names, else
+// the Daemon whose runtime file is in the Goodfetch home, else an Attached
+// engine; `attached`, `daemon` and `{ url, token }` choose one, beating
+// `GOODFETCH_URL`. Each plays a Scripted engine's script (ADR 0069), as an
+// Attached engine, as a Daemon on a Unix socket, or on loopback TCP, and
+// the Daemons of the same commit's executable. A Scripted Daemon exits 0
+// only once every step played, so its exit says the Client sent exactly
+// what the script holds, the Daemon's token in `hello` included.
+import { Collie, type Logger } from "@goodfetch/collie";
+import {
+  failure,
+  scriptedEngineEnv,
+  searchCanaries,
+  startScriptedDaemon,
+  test,
+  toolPath,
+  type Canary,
+} from "@goodfetch/test-support";
+import { describe, expect } from "vitest";
+
+/** The token `connect/reached-remote-with-a-canary-token.json` takes: a planted canary (ADR 0067). */
+const CANARY: Canary = {
+  id: "remote-daemon-token",
+  kind: "endpoint_token",
+  value: "endpoint-token-canary-5f0e9b27c4d1",
+};
+
+/** One line the logger got. */
+interface Logged {
+  readonly level: "debug" | "info" | "warn" | "error";
+  readonly message: string;
+  readonly fields: Readonly<Record<string, unknown>> | undefined;
+}
+
+/** A host logger that keeps every line, asking for none of the engine's log events. */
+function keepingLogger(): { readonly logger: Logger; readonly logged: Logged[] } {
+  const logged: Logged[] = [];
+  const keep =
+    (level: Logged["level"]) =>
+    (message: string, fields?: Readonly<Record<string, unknown>>): void => {
+      logged.push({ level, message, fields });
+    };
+  return {
+    logger: {
+      level: "off",
+      debug: keep("debug"),
+      info: keep("info"),
+      warn: keep("warn"),
+      error: keep("error"),
+    },
+    logged,
+  };
+}
+
+describe("Collie.connect() finds the engine", () => {
+  test(
+    "reaches an Attached engine when no Daemon runs, and says so",
+    {
+      tags: [
+        "client_case/connect-finds-the-engine",
+        "attached",
+        "story:11-2",
+        "story:11-4",
+        "story:11-5",
+        "story:11-8",
+      ],
+    },
+    async ({ testEnv, clientCase }) => {
+      const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
+      const { logger, logged } = keepingLogger();
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env, logger });
+      const engine = collie.engine();
+      await collie.close();
+
+      await clientCase.check(
+        "engine() reports an Attached engine, its executable and the home it runs in",
+        () =>
+          expect(engine).toEqual({
+            kind: "attached",
+            product: "collie",
+            version: "0.0.0",
+            protocolVersion: "0.1",
+            projectFile: null,
+            home: testEnv.home,
+            enginePath: env["GOODFETCH_COLLIE_ENGINE_PATH"],
+            url: null,
+            fallback: null,
+          }),
+      );
+      await clientCase.check("the choice is logged once at info, and nothing else", () =>
+        expect(logged).toEqual([
+          {
+            level: "info",
+            message: expect.stringContaining("Attached engine"),
+            fields: { engine },
+          },
+        ]),
+      );
+    },
+  );
+
+  test(
+    "reaches the Daemon whose runtime file is in the home, its token in hello, and says so",
+    {
+      tags: [
+        "client_case/connect-finds-the-engine",
+        "daemon",
+        "story:11-2",
+        "story:11-4",
+        "story:11-5",
+        "story:11-8",
+      ],
+    },
+    async ({ testEnv, processes, clientCase }) => {
+      const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
+      const daemon = await startScriptedDaemon(
+        testEnv,
+        processes,
+        "connect/reached-daemon.json",
+        "socket",
+      );
+      const { logger, logged } = keepingLogger();
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env, logger });
+      const engine = collie.engine();
+      await collie.close();
+      const exit = await daemon.exit;
+
+      await clientCase.check(
+        "the Daemon played its script through: hello carried its token, and the close ended the Connection",
+        () => expect(exit).toMatchObject({ code: 0 }),
+      );
+      await clientCase.check("engine() reports the Daemon, where it listens and its home", () =>
+        expect(engine).toEqual({
+          kind: "daemon",
+          product: "collie",
+          version: "0.0.0",
+          protocolVersion: "0.1",
+          projectFile: null,
+          home: testEnv.home,
+          enginePath: null,
+          url: daemon.address,
+          fallback: null,
+        }),
+      );
+      await clientCase.check("the choice is logged once at info", () =>
+        expect(logged).toEqual([
+          { level: "info", message: expect.stringContaining("Daemon"), fields: { engine } },
+        ]),
+      );
+    },
+  );
+
+  test(
+    "reaches the remote Daemon GOODFETCH_URL names on loopback TCP, and its token shows nowhere",
+    { tags: ["story:11-4", "story:11-5"] },
+    async ({ testEnv, processes }) => {
+      const daemon = await startScriptedDaemon(
+        testEnv,
+        processes,
+        "connect/reached-remote-with-a-canary-token.json",
+        "tcp",
+      );
+      const url = `ws://${daemon.address}`;
+      const env = {
+        ...scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json"),
+        GOODFETCH_URL: url,
+        GOODFETCH_TOKEN: CANARY.value,
+      };
+      const { logger, logged } = keepingLogger();
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env, logger });
+      const engine = collie.engine();
+      await collie.close();
+
+      expect(await daemon.exit).toMatchObject({ code: 0 });
+      expect(engine).toEqual({
+        kind: "remote",
+        product: "collie",
+        version: "0.0.0",
+        protocolVersion: "0.1",
+        projectFile: null,
+        home: null,
+        enginePath: null,
+        url,
+        fallback: null,
+      });
+      expect(
+        searchCanaries(
+          [CANARY],
+          [
+            { name: "engine()", text: JSON.stringify(engine) },
+            { name: "logs", text: JSON.stringify(logged) },
+          ],
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  test(
+    "takes { url, token } written in code over GOODFETCH_URL",
+    { tags: ["story:11-5"] },
+    async ({ testEnv, processes }) => {
+      const daemon = await startScriptedDaemon(
+        testEnv,
+        processes,
+        "connect/reached-remote-with-a-canary-token.json",
+        "tcp",
+      );
+      const env = {
+        ...scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json"),
+        // Nothing listens here: reading it would fail the connect.
+        GOODFETCH_URL: "ws://127.0.0.1:1",
+        GOODFETCH_TOKEN: "not-the-token",
+      };
+      const url = `ws://localhost:${daemon.address.slice(daemon.address.lastIndexOf(":") + 1)}`;
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env, engine: { url, token: CANARY.value } });
+      const engine = collie.engine();
+      await collie.close();
+
+      expect(await daemon.exit).toMatchObject({ code: 0 });
+      expect(engine).toMatchObject({ kind: "remote", url });
+    },
+  );
+
+  test(
+    "takes engine attached written in code over GOODFETCH_URL and a running Daemon",
+    { tags: ["story:11-5"] },
+    async ({ testEnv, processes }) => {
+      const env = {
+        ...scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json"),
+        GOODFETCH_URL: "ws://127.0.0.1:1",
+        GOODFETCH_TOKEN: CANARY.value,
+      };
+      // A running Daemon, which the Client must pass over.
+      const daemon = await startScriptedDaemon(
+        testEnv,
+        processes,
+        "connect/reached-daemon.json",
+        "socket",
+      );
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const collie = await Collie.connect({ env, engine: "attached" });
+      const engine = collie.engine();
+      await collie.close();
+      const exit = await daemon.kill();
+
+      expect(engine).toMatchObject({ kind: "attached", url: null });
+      expect(exit).toMatchObject({ signal: "SIGKILL" });
+    },
+  );
+
+  test(
+    "fails with daemon_unreachable naming the fix when nothing answers at the url, the token in no message",
+    { tags: ["story:11-5", "error:daemon_unreachable"] },
+    async ({ testEnv }) => {
+      const env = scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json");
+      const { logger, logged } = keepingLogger();
+
+      const error = await failure(
+        // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+        Collie.connect({ env, logger, engine: { url: "ws://127.0.0.1:1", token: CANARY.value } }),
+      );
+
+      expect(error).toMatchObject({
+        code: "daemon_unreachable",
+        group: "unavailable",
+        fix: expect.stringContaining("ws://127.0.0.1:1"),
+      });
+      expect(
+        searchCanaries(
+          [CANARY],
+          [
+            { name: "error", text: JSON.stringify(error, Object.getOwnPropertyNames(error)) },
+            { name: "logs", text: JSON.stringify(logged) },
+          ],
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  test(
+    "fails with daemon_unreachable naming GOODFETCH_TOKEN when the Daemon closes the Connection at hello",
+    { tags: ["story:11-5", "error:daemon_unreachable"] },
+    async ({ testEnv, processes }) => {
+      const daemon = await startScriptedDaemon(
+        testEnv,
+        processes,
+        "connect/reached-remote-with-a-canary-token.json",
+        "tcp",
+      );
+      const env = {
+        ...scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json"),
+        GOODFETCH_URL: `ws://${daemon.address}`,
+        GOODFETCH_TOKEN: "a-token-it-does-not-take",
+      };
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env }));
+      // The script expected another token: the Scripted engine fails its play.
+      const exit = await daemon.exit;
+
+      expect(exit.code).not.toBe(0);
+      expect(error).toMatchObject({
+        code: "daemon_unreachable",
+        fix: expect.stringContaining("GOODFETCH_TOKEN"),
+      });
+      expect(JSON.stringify(error, Object.getOwnPropertyNames(error))).not.toContain(
+        "a-token-it-does-not-take",
+      );
+    },
+  );
+
+  test.for([
+    {
+      case: "names no loopback address",
+      variables: { GOODFETCH_URL: "ws://192.0.2.1:7878", GOODFETCH_TOKEN: "t" },
+      key: "GOODFETCH_URL",
+    },
+    {
+      case: "is no ws:// address",
+      variables: { GOODFETCH_URL: "https://127.0.0.1:7878", GOODFETCH_TOKEN: "t" },
+      key: "GOODFETCH_URL",
+    },
+    {
+      case: "comes without GOODFETCH_TOKEN",
+      variables: { GOODFETCH_URL: "ws://127.0.0.1:7878" },
+      key: "GOODFETCH_TOKEN",
+    },
+  ])(
+    "fails with setting_invalid before any engine starts when GOODFETCH_URL $case",
+    { tags: ["story:11-5", "error:setting_invalid"] },
+    async ({ variables, key }, { testEnv }) => {
+      const env = {
+        ...scriptedEngineEnv(testEnv, "collie", "connect/reached-attached.json"),
+        ...variables,
+      };
+
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const error = await failure(Collie.connect({ env }));
+
+      expect(error).toMatchObject({ code: "setting_invalid", details: { key } });
+    },
+  );
+});
+
+describe("Collie.connect() and the Daemon of the same commit", () => {
+  test.override("withDaemon", true);
+
+  test(
+    "reaches the running Daemon with engine left at auto, and an Attached engine when asked",
+    { tags: ["story:11-2", "story:11-4"] },
+    async ({ env, daemon, testEnv }) => {
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const onDaemon = await Collie.connect({ env });
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const attached = await Collie.connect({ env, engine: "attached" });
+      const engines = [onDaemon.engine(), attached.engine()];
+      await Promise.all([onDaemon.close(), attached.close()]);
+
+      expect(engines).toEqual([
+        expect.objectContaining({
+          kind: "daemon",
+          product: "collie",
+          home: testEnv.home,
+          enginePath: null,
+          url: daemon.socket,
+        }),
+        expect.objectContaining({
+          kind: "attached",
+          enginePath: env["GOODFETCH_COLLIE_ENGINE_PATH"],
+          url: null,
+        }),
+      ]);
+    },
+  );
+});
+
+describe("Collie.connect() with engine daemon", () => {
+  test(
+    "starts the Daemon when none runs, and reaches it",
+    { tags: ["story:11-4"] },
+    async ({ env, testEnv, processes }) => {
+      const executable = toolPath(testEnv.tools, "collie");
+      try {
+        // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+        const collie = await Collie.connect({ env, engine: "daemon" });
+        const engine = collie.engine();
+        await collie.close();
+
+        expect(engine).toMatchObject({ kind: "daemon", product: "collie", home: testEnv.home });
+      } finally {
+        const stop = processes.spawn(executable, ["daemon", "stop"], { env });
+        stop.child.stdout.resume();
+        stop.child.stderr.resume();
+        expect(await stop.exit).toMatchObject({ code: 0 });
+      }
+    },
+  );
+});

@@ -53,6 +53,11 @@ export {
 export { protocolCounts, type ProtocolCounts } from "./protocol-counts.ts";
 export { daemonOf, type DaemonDescription } from "./daemon.ts";
 export { productEnv, scriptedEngineEnv, type Product } from "./product-env.ts";
+export {
+  startScriptedDaemon,
+  type ScriptedDaemon,
+  type ScriptedDaemonMode,
+} from "./scripted-daemon.ts";
 export { redact, type SnapshotValues } from "./snapshot.ts";
 export {
   judgeTask,

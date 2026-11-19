@@ -1197,7 +1197,7 @@ export interface CrawlSettings {
 }
 
 /**
- * The settings a crawl's Label takes, over its Run's, which its requests inherit (ADR 0093); every other key is the Run's alone.
+ * The settings a crawl's Label takes, over its Run's, which its requests inherit (ADR 0093); a Label is refused every other key.
  *
  * A key left out inherits, `null` clears a setting that can be cleared,
  * and a value sets it; the program needs `exactOptionalPropertyTypes`, so

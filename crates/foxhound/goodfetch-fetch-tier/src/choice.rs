@@ -6,9 +6,8 @@
 //! Run or left at the built-in default, the engine chooses: the crawl
 //! learns the tier per Label on a domain (`goodfetch-crawl`'s
 //! `tier_choice`), its HTTP leaving from where `fetch.http_from` says. A
-//! Label also takes `fetch.http_from`, `fetch.encoding`,
-//! `crawl.content_types`, `session.page_check`, `timeout.hook` and
-//! `crawl.retry.handler_failed`. A call the request's tier cannot serve exactly
+//! Label also takes the other settings `setting_scopes::LABEL_SETTINGS`
+//! lists, and is refused any other. A call the request's tier cannot serve exactly
 //! escalates the request to the browser under `auto`, and fails with
 //! `browser_required` under a forced tier, which nothing escalates.
 
@@ -376,7 +375,7 @@ impl LabelSettings {
 /// does not take: a `proxy.*` key never, since a Run's proxy settings apply
 /// to every Session of its pools, so one crawl presents one identity policy
 /// (ADRs 0093 and 0117); `fetch.tier_race` is the Run's only; the others
-/// not in this engine.
+/// ADR 0093 gives a Label, not yet in this engine (issue 1472).
 fn not_taken(name: &str, key: String) -> CallError {
     let why = if key.starts_with(PROXY_KEYS) {
         "which a Label never takes: a Run's proxy settings apply to every Session of its Session pools, so one crawl presents one identity policy".to_owned()
@@ -391,7 +390,7 @@ fn not_taken(name: &str, key: String) -> CallError {
             .map(|setting| format!("`{}`", setting.name))
             .collect();
         format!(
-            "which a Label does not take{only}: only {} are set per Label",
+            "which a Label does not take in this engine{only}: only {} are set per Label",
             taken.join(", ")
         )
     };

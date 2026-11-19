@@ -46,9 +46,10 @@ const SESSION_SETTINGS: [&Setting; 8] = [
 /// responses it keeps for its handler, the content types it takes, whether
 /// it keeps its URLs' fragments (ADR 0120), whether a failed handler is
 /// tried again, its main-content step, its Hooks' time, its page check and
-/// its Session source, which gives it a Session pool of its own. Every
-/// other key, the Run's Politeness, proxy and bounds among them, is the
-/// Run's alone.
+/// its Session source, which gives it a Session pool of its own. A Label
+/// is refused every other key: the Run's proxy, Politeness and bounds
+/// always, and the rest of ADR 0093's Label settings until this engine
+/// applies them (issue 1472).
 pub const LABEL_SETTINGS: [&Setting; 11] = [
     &FETCH_TIER,
     &FETCH_HTTP_FROM,

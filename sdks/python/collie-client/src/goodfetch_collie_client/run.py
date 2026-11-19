@@ -20,7 +20,7 @@ from goodfetch_collie_client.framing import object_members
 from goodfetch_collie_client.generated.errors import ClosedError
 from goodfetch_collie_client.generated.handles import AsyncRun as AsyncRunMembers
 from goodfetch_collie_client.generated.handles import Run as RunMembers
-from goodfetch_collie_client.generated.models import RunAbortParams, RunId
+from goodfetch_collie_client.generated.models import Lifecycle, RunAbortParams, RunId
 from goodfetch_collie_client.once import Once
 from goodfetch_collie_client.portal import LoopStopped
 
@@ -231,6 +231,9 @@ class AsyncRun(AsyncRunMembers):
     def __init__(self, connection: RunHost, started: RunStarted) -> None:
         """Takes its Connection and the engine's answer to its start."""
         scope = _RunScope(started.run_id.root)
+        if started.lifecycle != Lifecycle.running:
+            # A start that found its Run ended: closing it stops nothing.
+            scope.state = "ended"
         host = _AsyncHost(connection, scope, None, started.run_id)
         super().__init__(host)
         _hosts[self] = host

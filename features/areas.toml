@@ -205,6 +205,13 @@ number = 3
 kind = "error"
 prefix = "label_"
 
+# The Error codes of Hooks: a crawl's Hooks in code and a Collie Run's
+# Script Hooks (ADRs 0051, 0104 and 0105, issue 2339).
+[[area]]
+number = 7
+kind = "error"
+prefix = "hook_"
+
 [[area]]
 number = 3
 kind = "operation"

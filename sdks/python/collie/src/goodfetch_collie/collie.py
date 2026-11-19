@@ -100,13 +100,24 @@ class AsyncCollie:
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
     ) -> AsyncRun:
-        """Starts a Run and returns once it is started (ADR 0102).
+        """Leaving the scope or `close()` stops the Run with a Checkpoint.
 
-        A `run_id` naming an interrupted Run resumes it, and one naming a
-        finished Run returns it as it ended. `finish()` ends it; closing it
-        unfinished stops it, resumable by its Run ID. `limits` caps the Run:
-        a start that names it again lowers its Limits, never raises them
-        (`limit_raise_refused`).
+        `finish()` ends it. Starts a Run and returns once it is started
+        (ADR 0102). A start that resumed its Run is logged at info, and one
+        that found it ended at warning, on the `goodfetch.client.run` logger.
+
+        Args:
+            run_id: Names the Run for good: a start with an existing Run ID
+                resumes the Run if it was interrupted, or returns it as it
+                ended (`started_as` says which); the engine generates one
+                when it is left out. A Run another engine writes fails with
+                `run_in_use`, one begun with other inputs with
+                `run_conflict`, and an ID off its pattern with
+                `run_id_invalid`.
+            tags: Its tags: at most 16, each at most 64 characters
+                (ADR 0036).
+            limits: Caps the Run: a start that names it again lowers its
+                Limits, never raises them (`limit_raise_refused`).
         """
         return await self._connection.start(run_id=run_id, tags=tags, limits=limits)
 
@@ -206,13 +217,24 @@ class Collie:
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
     ) -> Run:
-        """Starts a Run and returns once it is started (ADR 0102).
+        """Leaving the scope or `close()` stops the Run with a Checkpoint.
 
-        A `run_id` naming an interrupted Run resumes it, and one naming a
-        finished Run returns it as it ended. `finish()` ends it; closing it
-        unfinished stops it, resumable by its Run ID. `limits` caps the Run:
-        a start that names it again lowers its Limits, never raises them
-        (`limit_raise_refused`).
+        `finish()` ends it. Starts a Run and returns once it is started
+        (ADR 0102). A start that resumed its Run is logged at info, and one
+        that found it ended at warning, on the `goodfetch.client.run` logger.
+
+        Args:
+            run_id: Names the Run for good: a start with an existing Run ID
+                resumes the Run if it was interrupted, or returns it as it
+                ended (`started_as` says which); the engine generates one
+                when it is left out. A Run another engine writes fails with
+                `run_in_use`, one begun with other inputs with
+                `run_conflict`, and an ID off its pattern with
+                `run_id_invalid`.
+            tags: Its tags: at most 16, each at most 64 characters
+                (ADR 0036).
+            limits: Caps the Run: a start that names it again lowers its
+                Limits, never raises them (`limit_raise_refused`).
         """
         starting = functools.partial(
             self._connection.start,

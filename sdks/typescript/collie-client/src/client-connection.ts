@@ -32,6 +32,7 @@ import {
 } from "./generated/index.ts";
 import type { JsonValue } from "./key-value-store.ts";
 import { limitList, type Limits } from "./limits.ts";
+import type { Logger } from "./logger.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
 import {
@@ -63,7 +64,13 @@ export interface EngineInfo {
 
 /** What starting a Run takes (ADR 0102). */
 export interface StartOptions {
-  /** The Run's ID; the engine generates one when it is left out. An interrupted Run's ID resumes it; a finished one's returns it as it ended. */
+  /**
+   * Names the Run for good: a start with an existing Run ID resumes the Run
+   * if it was interrupted, or returns it as it ended (`startedAs()` says
+   * which), and the engine generates one when it is left out. A Run another
+   * engine writes fails with `run_in_use`, one begun with other inputs with
+   * `run_conflict`, and an ID off its pattern with `run_id_invalid`.
+   */
   readonly runId?: string | undefined;
   /** Its tags: at most 16, each at most 64 characters (ADR 0036). */
   readonly tags?: readonly string[] | undefined;
@@ -93,6 +100,8 @@ export interface ClientConnectionOptions {
   readonly signal?: AbortSignal | undefined;
   /** The Client connection's Limits, in the wire's form, set once `hello` is answered. */
   readonly limits?: readonly RunLimit[] | undefined;
+  /** The host's logger, which gets a start that resumed a Run at info and one that found it ended at warning. */
+  readonly logger?: Logger | undefined;
 }
 
 /** What serves one kind of the engine's requests: it answers the result, or throws the error to answer. */
@@ -110,6 +119,7 @@ export interface Stream {
 export class ClientConnection implements AsyncDisposable {
   readonly #channel: Channel;
   readonly #engine: AttachedEngine | undefined;
+  readonly #logger: Logger | undefined;
   readonly #operations: CollieOperations;
   readonly #runs = new Set<Run>();
   readonly #runHost: RunHost;
@@ -120,6 +130,7 @@ export class ClientConnection implements AsyncDisposable {
 
   private constructor(options: ClientConnectionOptions) {
     this.#engine = options.engine;
+    this.#logger = options.logger;
     const { errorClasses } = options;
     this.#channel = new Channel(
       options.transport,
@@ -198,7 +209,11 @@ export class ClientConnection implements AsyncDisposable {
     return this.#info;
   }
 
-  /** Starts a Run and returns once it is started (ADR 0102). */
+  /**
+   * Leaving the scope or `close()` stops the Run with a Checkpoint;
+   * `finish()` ends it. Starts a Run and returns once it is started
+   * (ADR 0102).
+   */
   async start(options: StartOptions = {}): Promise<Run> {
     const limits = limitList(options.limits);
     const params: RunStartParams = {
@@ -224,9 +239,36 @@ export class ClientConnection implements AsyncDisposable {
     make: (host: RunHost, started: RunStarted) => Started,
   ): Promise<Started> {
     this.#openOrThrow(operation);
-    const run = make(this.#runHost, await start());
+    const started = await start();
+    this.#logStart(started);
+    const run = make(this.#runHost, started);
     this.#runs.add(run);
     return run;
+  }
+
+  /**
+   * Tells the host's logger how a start with an existing Run ID reached its
+   * Run: resumed at info, ended at warning, since the Run then takes no new
+   * work (ADR 0102). A new Run is not logged.
+   */
+  #logStart({ run_id: runId, started_as: startedAs }: RunStarted): void {
+    const fields = { runId, startedAs };
+    switch (startedAs) {
+      case "new":
+        return;
+      case "resumed":
+        this.#logger?.info(
+          `The start resumed the Run \`${runId}\` from its committed state.`,
+          fields,
+        );
+        return;
+      case "ended":
+        this.#logger?.warn(
+          `The start found the Run \`${runId}\` ended: it is returned as it ended and takes no new work.`,
+          fields,
+        );
+        return;
+    }
   }
 
   /** The Connection's calls, typed by a Product's operation table. */

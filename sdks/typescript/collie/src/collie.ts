@@ -12,7 +12,7 @@ import type {
 } from "@goodfetch/collie-client";
 import {
   holdInRealm,
-  openAttached,
+  openEngine,
   openOver,
   type ClientConnection,
   type Transport,
@@ -46,7 +46,7 @@ export class Collie implements Connection {
    * `signal` fails it with the signal's reason, leaving no engine behind.
    */
   static async connect(options: ConnectOptions = {}): Promise<Collie> {
-    return open(await openAttached(collie, options));
+    return open(await openEngine(collie, options));
   }
 
   /** The engine reached: its kind, Product, Product version and protocol version. Read without a round trip. */

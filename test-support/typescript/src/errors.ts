@@ -25,6 +25,8 @@ export type TestSupportErrorCode =
   | "oracle_refused"
   /** A test took `daemon` without setting `withDaemon`. */
   | "daemon_not_requested"
+  /** The Scripted engine played as a Daemon ended without saying where it listens. */
+  | "scripted_daemon_failed"
   /** A Playwright test gave its context a `storageState`, which no test may set (ADR 0068). */
   | "storage_state_refused"
   /** `goodfetch-test-env` exited with a failure when its stdin closed. */

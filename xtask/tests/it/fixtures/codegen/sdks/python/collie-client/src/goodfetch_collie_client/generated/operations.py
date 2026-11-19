@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing_extensions import deprecated
 
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
+from goodfetch_collie_client.markers import warn_deprecated, warn_experimental
 
 from .models import SampleEchoParams, SampleEchoResult
 
@@ -19,7 +20,7 @@ class AsyncCollieOperations:
         """Takes the runtime that sends each call."""
         self._caller = caller
 
-    @deprecated("Since 0.1: A sample entry, which the real catalog replaces.")
+    @deprecated("Since 0.1: A sample entry, which the real catalog replaces.", category=None)
     async def sample_echo(self, params: SampleEchoParams) -> SampleEchoResult:
         """Repeats a text back to the caller.
 
@@ -27,6 +28,8 @@ class AsyncCollieOperations:
 
         Deprecated since 0.1: A sample entry, which the real catalog replaces.
         """
+        warn_experimental("sample.echo")
+        warn_deprecated("sample.echo", "Since 0.1: A sample entry, which the real catalog replaces.")
         return result_of(SampleEchoResult, await self._caller.call("sample.echo", params))
 
 
@@ -37,7 +40,7 @@ class CollieOperations:
         """Takes the runtime that sends each call."""
         self._caller = caller
 
-    @deprecated("Since 0.1: A sample entry, which the real catalog replaces.")
+    @deprecated("Since 0.1: A sample entry, which the real catalog replaces.", category=None)
     def sample_echo(self, params: SampleEchoParams) -> SampleEchoResult:
         """Repeats a text back to the caller.
 
@@ -45,4 +48,6 @@ class CollieOperations:
 
         Deprecated since 0.1: A sample entry, which the real catalog replaces.
         """
+        warn_experimental("sample.echo")
+        warn_deprecated("sample.echo", "Since 0.1: A sample entry, which the real catalog replaces.")
         return result_of(SampleEchoResult, self._caller.call("sample.echo", params))

@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 pub mod sections;
 mod setting;
 
-pub use setting::{Authority, HostList, PriceValue, ValueKind, ValueShape};
+pub use setting::{Authority, HostList, PriceValue, SettingScope, ValueKind, ValueShape};
 
 /// The protocol's version, `major.minor` (ADR 0030), written on the wire as
 /// that text.

@@ -37,6 +37,7 @@ import { logEngineEvent, logLevelOf, type Logger } from "./logger.ts";
 import { collieTimes } from "./generated/times.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
+import { settingsOnWire, type RunSettings } from "./generated/settings.ts";
 import {
   Channel,
   type ChannelBounds,
@@ -87,6 +88,12 @@ export interface StartOptions {
    * before anything is sent.
    */
   readonly limits?: Limits | undefined;
+  /**
+   * The Run's own settings (ADR 0083), which its Sessions and pages
+   * inherit, nested by camelCase segment, such as
+   * `{ timeout: { navigation: 30_000 } }`.
+   */
+  readonly settings?: RunSettings | undefined;
 }
 
 /** What opening a Connection takes. */
@@ -164,7 +171,9 @@ export class ClientConnection implements AsyncDisposable {
     this.#runHost = {
       calls,
       reachable: () => !this.#ended,
+      stream: (method, params, opened) => this.stream(method, params, opened),
       forget: (run) => this.#runs.delete(run),
+      logger: this.#logger,
       keyValueStore: {
         get: async (runId, key) => {
           const { value } = await this.#operations.keyValueStoreGet({ run_id: runId, key });
@@ -235,10 +244,12 @@ export class ClientConnection implements AsyncDisposable {
    */
   async start(options: StartOptions = {}): Promise<Run> {
     const limits = limitList(options.limits);
+    const settings = settingsOnWire(options.settings);
     const params: RunStartParams = {
       ...(options.runId === undefined ? {} : { run_id: options.runId }),
       ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
       ...(limits.length === 0 ? {} : { limits }),
+      ...(settings === undefined ? {} : { settings }),
     };
     return this.startRun(
       "run.start",
@@ -467,8 +478,8 @@ export class ClientConnection implements AsyncDisposable {
           group: "deadline_exceeded",
           retryable: true,
           fix: "Raise timeout.close, or find why the engine stopped answering in the engine's stderr, which the logger got.",
+          limit: { key: "timeout.close", value: CLOSE_TIMEOUT, layer: "default" },
           details: {
-            limit: { key: "timeout.close", value: CLOSE_TIMEOUT, layer: "default" },
             elapsed: Date.now() - startedAt,
             waited_for: "close",
           },

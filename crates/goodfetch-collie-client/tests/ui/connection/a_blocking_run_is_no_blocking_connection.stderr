@@ -1,0 +1,13 @@
+error[E0277]: the trait bound `goodfetch_collie_client::blocking::Run: goodfetch_collie_client::blocking::Connection` is not satisfied
+ --> tests/ui/connection/a_blocking_run_is_no_blocking_connection.rs:8:14
+  |
+8 |     start_on(run);
+  |     -------- ^^^ the trait `goodfetch_collie_client::blocking::Connection` is not implemented for `goodfetch_collie_client::blocking::Run`
+  |     |
+  |     required by a bound introduced by this call
+  |
+note: required by a bound in `start_on`
+ --> tests/ui/connection/a_blocking_run_is_no_blocking_connection.rs:5:32
+  |
+5 | fn start_on(_connection: &impl Connection) {}
+  |                                ^^^^^^^^^^ required by this bound in `start_on`

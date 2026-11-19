@@ -220,7 +220,7 @@ receiver = "CrawlRun"
 member = "records"
 entry = "run.records"
 words = ["records"]
-form = "round_trip"
+form = "opener"
 
 [[member]]
 package = "@goodfetch/foxhound"
@@ -520,7 +520,7 @@ package = "@goodfetch/collie-client/generated"
 receiver = "(module)"
 member = "GoodfetchError"
 entry = "none"
-reason = "The base of every error a Goodfetch SDK raises (ADR 0079), which each Error code's generated class extends through its group's: only the seven groups come from the catalog."
+reason = "The base of every error a Goodfetch SDK raises (ADR 0079), with the fields every error carries, which each Error code's generated class extends through its group's: only the seven groups and the codes' classes come from the catalog."
 words = ["goodfetch", "error"]
 form = "type"
 
@@ -532,3 +532,93 @@ entry = "none"
 reason = "The class of one Error code: its message, then what it carries (ADR 0079)."
 words = ["error", "class"]
 form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "(module)"
+member = "ErrorIdentity"
+entry = "none"
+reason = "What a generated class gives the base: the code, its group and retryable flag, and the class's name, which a minifier would otherwise rename (ADR 0079)."
+words = ["error", "identity"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "(module)"
+member = "ErrorLimit"
+entry = "none"
+reason = "The setting that decided an error's outcome, the generated `SettingLimit` with its value as any JSON (ADRs 0079 and 0083)."
+words = ["error", "limit"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/generated"
+receiver = "(module)"
+member = "isGoodfetchError"
+entry = "none"
+reason = "Whether a value is an error a Goodfetch SDK raised, from any copy of the package in one bundle, where `instanceof` fails (ADR 0079); each Product's own guard is generated."
+words = ["is", "goodfetch", "error"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Listener"
+entry = "none"
+reason = "What a value's generated `on` takes (ADR 0081): it gets each event's payload and the count of telemetry events dropped before it."
+words = ["listener"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Subscription"
+entry = "none"
+reason = "What a value's generated `on` returns (ADR 0081), which removes its listener."
+words = ["subscription"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Subscription"
+member = "close"
+entry = "none"
+reason = "Removes the listener at once by cancelling its `on` call with `$/cancel` (ADR 0081), whose line serves the `on` the generator writes."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Subscription"
+member = "[Symbol.dispose]"
+entry = "none"
+reason = "The scoped form of `close()`, synchronous since nothing waits (ADR 0081)."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "Sequence"
+entry = "none"
+reason = "What a method reading a sequence to its end returns, such as Foxhound's `CrawlRun.records` (ADR 0081): an iterator that subscribes when made and closes at once."
+words = ["sequence"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Sequence"
+member = "close"
+entry = "none"
+reason = "Stops reading at once (ADR 0081): the sequence's call is cancelled with `$/cancel`, and a read still waiting ends; `break` and `return()` do the same."
+words = ["close"]
+form = "closer"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "Sequence"
+member = "[Symbol.dispose]"
+entry = "none"
+reason = "The scoped form of `close()`, synchronous since nothing waits (ADR 0081)."
+words = ["close"]
+form = "closer"

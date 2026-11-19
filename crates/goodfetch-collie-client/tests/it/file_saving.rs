@@ -284,7 +284,7 @@ mod saver {
     use std::time::Duration;
 
     use goodfetch_collie_client::transport::{Endpoint, Network};
-    use goodfetch_collie_client::{Connection, ConnectionRuntime, Error};
+    use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error};
     use goodfetch_protocol::catalog::Product;
     use goodfetch_protocol::connection::{DaemonEndpoint, HelloParams, ProductVersion, Surface};
     use serde_json::{Value, json};
@@ -343,7 +343,7 @@ mod saver {
     /// `program` with a Connection to it, on the test helper's runtime.
     pub(super) fn with_daemon<D, P, S, T>(
         script: impl FnOnce(Daemon) -> D,
-        program: impl FnOnce(Connection) -> P,
+        program: impl FnOnce(ClientConnection) -> P,
     ) -> (S, T)
     where
         D: Future<Output = S>,
@@ -385,7 +385,7 @@ mod saver {
                     token: Some("token".to_owned()),
                     ..HelloParams::new(Surface::Rust, ProductVersion::parse("0.0.0").unwrap())
                 };
-                let (connection, _) = Connection::open(
+                let (connection, _) = ClientConnection::open(
                     ConnectionRuntime::driven(tokio::runtime::Handle::current()),
                     &Network::Os,
                     &Endpoint::Daemon(DaemonEndpoint::Unix(socket.clone())),

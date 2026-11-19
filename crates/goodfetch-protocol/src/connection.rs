@@ -8,6 +8,10 @@
 //!
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
+//!
+//! Size: one contract, what every Connection speaks whatever its Product:
+//! its opening, its cancel and the Error codes with their details, kept
+//! whole so the codes' details stand beside the calls that answer them.
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -715,6 +719,30 @@ pub struct DeadlineExceededDetails {
     /// What it waited for, such as `first_byte` or `navigation`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub waited_for: WaitedFor,
+    /// The enclosing call whose timeout ended it, when that call's end came
+    /// before its own (ADR 0080): `limit` is then that call's timeout.
+    /// Absent when its own timeout ended it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub ended_by: Option<EnclosingCall>,
+    /// The last state seen before it ended, such as a navigation under way
+    /// on its page, when the engine saw one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub observed: Option<String>,
+}
+
+/// The enclosing call a timeout belongs to, as `deadline_exceeded`'s
+/// `ended_by` names it (ADR 0080): the calls made inside a call inherit its
+/// end, so none outlasts it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct EnclosingCall {
+    /// Its operation, such as `crawl_request.handle`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub operation: String,
+    /// Its request's id on its Connection.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub call_id: RequestId,
 }
 
 /// What a call past its deadline waited for, as `deadline_exceeded` names
@@ -758,6 +786,8 @@ impl WaitedFor {
     pub const RUN_END: Self = Self::named("Run's end");
     /// A Run's next safe point.
     pub const RUN_SAFE_POINT: Self = Self::named("Run's next safe point");
+    /// A call's answer, which an enclosing call's end came before.
+    pub const ANSWER: Self = Self::named("answer");
     /// A locator's matches to number what its count allows.
     pub const TARGET_COUNT: Self = Self::named("target_count");
     /// A locator's target to be detached.

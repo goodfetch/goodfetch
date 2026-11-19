@@ -102,7 +102,7 @@ impl Streams {
 }
 
 /// The engine's requests of one method, in the order it sent them, from
-/// [`crate::Connection::handler_requests`]. Dropping it stops serving the
+/// [`crate::ClientConnection::handler_requests`]. Dropping it stops serving the
 /// method: the requests it still held go back to the engine as dropped,
 /// and later ones are answered with the method error.
 #[derive(Debug)]

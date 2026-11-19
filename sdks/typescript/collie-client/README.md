@@ -8,6 +8,10 @@ The TypeScript Collie client package, which both Products' SDKs share (ADR 0095)
 
 Engine answers are not validated beyond `hello`'s protocol version (STYLE.md). Each module imports its siblings with `.ts`, so Node runs the source as it is.
 
+## Settings
+
+Each value that opens a scope takes one `settings` option (ADR 0083): starting a Run takes `RunSettings`, opening a Session `SessionSettings` and opening a page `PageSettings`; `Settings`, the connection's, is generated for `connect()`, which does not take it yet. `generated/settings.ts` writes them from the catalog's settings and the scopes each is set at, nesting each dotted key by its camelCase segments, as `{ filterLists: { firstPartyScripts: true } }`, so a misspelled key, one outside its scope or a wrong value fails to compile. A key left out inherits, `null` clears a setting that can be cleared, and a value sets it. The types need `exactOptionalPropertyTypes`, which the workspace's `tsconfig.base.json` sets: without it, `undefined` would pass as a value. The hand-written `settings.ts` sends them by the wire's `snake_case` segments and checks no value the engine owns; the Collie package's `tests/settings.test-d.ts` holds what `tsc` must refuse.
+
 ## Schemas
 
 A program types data with a schema in its own types (ADR 0082): any schema that implements both Standard Schema and Standard JSON Schema, or a JSON Schema written by hand (`JSONSchema`), whose values are `JSONValue` and `JSONObject`. `SchemaInput<S>` is what a program sends under `S` and `SchemaOutput<S>` what it receives, built by the schema's own parse. The interfaces' types are copied from `@standard-schema/spec` 1.1.0, so the package depends on no schema library. Only JSON crosses: a value that is not JSON fails from the call that sent it with `value_invalid`, naming its path as a JSON Pointer.

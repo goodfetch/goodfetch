@@ -17,7 +17,7 @@ use std::pin::Pin;
 use std::sync::{Arc, OnceLock, mpsc};
 
 use goodfetch_collie_client::transport::{Dial, Endpoint, Link, Network};
-use goodfetch_collie_client::{Connection, ConnectionRuntime, Error, Limits};
+use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, Error, Limits};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -119,7 +119,7 @@ impl Composed {
 /// ```
 #[derive(Clone, Debug)]
 pub struct LinkedConnection {
-    connection: Connection,
+    connection: ClientConnection,
     engine: Arc<LinkedEngine>,
     handle: Handle,
 }
@@ -195,8 +195,9 @@ impl LinkedConnection {
         })
     }
 
-    /// The Connection, the type a helper written for either Product takes.
-    pub fn connection(&self) -> &Connection {
+    /// The client crate's connection, which each Product's connection
+    /// drives.
+    pub fn connection(&self) -> &ClientConnection {
         &self.connection
     }
 
@@ -250,7 +251,7 @@ impl LinkedConnection {
             ..HelloParams::new(Surface::Rust, version())
         };
         let (connection, _said) =
-            Connection::open(runtime, &network, &Endpoint::InMemory, hello).await?;
+            ClientConnection::open(runtime, &network, &Endpoint::InMemory, hello).await?;
         let opened = Self {
             connection,
             engine: Arc::new(linked),

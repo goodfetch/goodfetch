@@ -25,6 +25,7 @@ export type { Transport } from "./rpc.ts";
 export { holdInRealm } from "./realm.ts";
 export { warnDeprecated, warnExperimental } from "./markers.ts";
 export { ensureRunOpen, pageOf, type RunHost } from "./run.ts";
+export { Sequence, type SequenceOptions } from "./sequence.ts";
 export { idOfLocator } from "./generated/handles.ts";
 export { collieTimes, type CollieTimeType } from "./generated/times.ts";
 export { withTimes, type TimePath, type Times } from "./times.ts";

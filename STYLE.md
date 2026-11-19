@@ -189,8 +189,8 @@ The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they ar
 Applies to `sdks/typescript`, `adapters/`, `integrations/`, `bench/` and the docs site's `website/` in the pnpm workspace.
 
 - **TypeScript 7 with `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`, `isolatedDeclarations` and `erasableSyntaxOnly`.** A TypeScript 6 alias is kept only for tools that need the compiler API (API Extractor, TypeDoc, Twoslash) until TypeScript 7 provides one.
-- **Optional fields are written `?: T | undefined`.**
-  _Why:_ the published types then work whether or not the consumer enables `exactOptionalPropertyTypes`.
+- **Optional fields are written `?: T | undefined`,** except in a scope's `settings` types, whose keys are `?: T` since `undefined` is never a setting's value (ADR 0083).
+  _Why:_ the published types then work whether or not the consumer enables `exactOptionalPropertyTypes`; a `settings` type has three states, left out, `null` and a value, which only that flag keeps apart.
 - **oxlint with type-aware rules, and oxfmt for formatting.** `no-floating-promises` and `typescript/no-deprecated` are errors.
   _Why:_ an unawaited promise loses its error silently; oxlint's type-aware rules run on the real TypeScript 7 checker.
 - **Libraries build with tsdown. Outside `website/`, tests run with Vitest on every supported Node line (ADR 0024), plus smoke scripts of the installed package on Bun, Deno 2 and the edge runtimes (ADR 0069).**

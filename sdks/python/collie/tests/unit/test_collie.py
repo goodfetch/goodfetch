@@ -19,9 +19,11 @@ import trio.testing
 from collie_tracer import start_and_finish
 from goodfetch_collie import (
     AsyncCollie,
+    AsyncConnection,
     CallCancelledError,
     ClosedError,
     Collie,
+    Connection,
     DeadlineExceededError,
     EngineExitedError,
     EngineInfo,
@@ -56,7 +58,43 @@ async def collie_on(way: Way, script: str) -> tuple[AsyncCollie, PlayedScript]:
     return collie, played
 
 
-@pytest.mark.covers("story:11-54")
+@pytest.mark.covers("story:11-179")
+@pytest.mark.parametrize(
+    ("base", "product", "listed"),
+    [
+        pytest.param(
+            AsyncConnection,
+            AsyncCollie,
+            {"close", "engine", "start", "__aenter__", "__aexit__"},
+            id="async",
+        ),
+        pytest.param(
+            Connection,
+            Collie,
+            {"close", "engine", "start", "__enter__", "__exit__"},
+            id="sync",
+        ),
+    ],
+)
+def test_extends_the_connection_both_products_share_with_each_of_its_members(
+    base: type[object], product: type[object], listed: set[str]
+) -> None:
+    """Collie's Connection extends the client package's, carrying each member.
+
+    `listed` is what both Products' Connections share, the scoped form's two
+    members included, as TypeScript's `Symbol.asyncDispose` is.
+    """
+    declared = {
+        name
+        for name, member in vars(base).items()
+        if callable(member) or isinstance(member, property)
+    }
+    carried = {name for name in listed if hasattr(product, name)}
+
+    assert (issubclass(product, base), declared, carried) == (True, listed, listed)
+
+
+@pytest.mark.covers("story:11-54", "story:11-179")
 @three_ways
 async def test_starts_a_run_finishes_it_and_answers_its_run_report(way: Way) -> None:
     """The tracer program runs the same on asyncio, on Trio and through the sync API."""
@@ -112,7 +150,7 @@ async def test_sends_none_as_null_and_leaves_out_a_parameter_not_given(
     assert played.done() == Finished()
 
 
-@pytest.mark.covers("story:11-40", "story:11-42")
+@pytest.mark.covers("story:11-28", "story:11-40", "story:11-42")
 @three_ways
 async def test_takes_a_timeout_as_a_timedelta_only(way: Way) -> None:
     """`timeout=30_000` is a type error, and refused before it is sent (ADR 0080).
@@ -129,7 +167,7 @@ async def test_takes_a_timeout_as_a_timedelta_only(way: Way) -> None:
 
     assert (
         type(refused),
-        refused.details.get("limit"),
+        refused.limit and refused.limit.model_dump(mode="json", exclude_none=True),
         "`timeout=None`" in (refused.fix or ""),
     ) == (
         SettingInvalidError,
@@ -334,8 +372,13 @@ async def test_gives_up_on_a_runs_abort_once_timeout_close_passes() -> None:
 
     assert isinstance(error, DeadlineExceededError)
     assert (error.code, error.group) == ("deadline_exceeded", "deadline_exceeded")
+    assert error.limit is not None
+    assert error.limit.model_dump(mode="json", exclude_none=True) == {
+        "key": "timeout.close",
+        "value": 30_000,
+        "layer": "default",
+    }
     assert error.details == {
-        "limit": {"key": "timeout.close", "value": 30_000, "layer": "default"},
         "elapsed": 30_000,
         "waited_for": "close",
     }

@@ -144,8 +144,30 @@ impl Client {
         request: &'static HandlerRequest,
         params: &impl Serialize,
     ) -> Result<Sent<R>, ClientRequestError> {
+        self.send_noted(request, params, |_| ()).await
+    }
+
+    /// [`Self::send`], first giving `noted` the request's id, before the
+    /// request can reach the handler: what keeps the id as the call
+    /// enclosing the calls its handler makes (ADR 0080) knows it before the
+    /// first of them can arrive.
+    ///
+    /// # Errors
+    ///
+    /// `Gone` when the Connection ends first.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Self::send`]'s.
+    pub async fn send_noted<R: DeserializeOwned>(
+        &self,
+        request: &'static HandlerRequest,
+        params: &impl Serialize,
+        noted: impl FnOnce(&RequestId),
+    ) -> Result<Sent<R>, ClientRequestError> {
         let span = trace::client_span(request.name);
         let id = RequestId::Number(self.next_id.fetch_add(1, Ordering::Relaxed));
+        noted(&id);
         trace::record_id(&span, &id);
         // Params that are no object carry no Trace context, as `_meta` is
         // one of an object's members.

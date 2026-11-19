@@ -28,6 +28,7 @@ from goodfetch_test_support.environment import (
     TestEnv,
     TestEnvError,
     scripted_engine_env,
+    scripted_engine_record,
 )
 from goodfetch_test_support.journey import (
     EngineVersionUnreported,
@@ -136,6 +137,7 @@ __all__ = [
     "proving_ground_routes",
     "redact",
     "scripted_engine_env",
+    "scripted_engine_record",
     "search_canaries",
     "start_journey_run",
     "three_ways",

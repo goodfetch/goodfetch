@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from goodfetch_collie import AsyncCollie, RunReport, StartedAs
+    from goodfetch_collie import AsyncConnection, RunReport, StartedAs
 
 
 @dataclass(frozen=True)
@@ -24,9 +24,12 @@ class Traced:
     report: RunReport
 
 
-async def start_and_finish(collie: AsyncCollie) -> Traced:
-    """Starts a Run on `collie`, finishes it, then closes the Connection."""
-    run = await collie.start()
+async def start_and_finish(connection: AsyncConnection) -> Traced:
+    """Starts a Run on `connection`, finishes it, then closes the Connection.
+
+    Typed for either Product's Connection, as a library's helper is.
+    """
+    run = await connection.start()
     report = await run.finish()
-    await collie.close()
+    await connection.close()
     return Traced(started_as=run.started_as, run_id=run.id, report=report)

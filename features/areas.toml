@@ -1234,6 +1234,13 @@ number = 11
 kind = "error"
 prefix = "engine_output_invalid"
 
+# The Error code an SDK raises for a listener that threw (ADR 0081; issue
+# 1277).
+[[area]]
+number = 11
+kind = "error"
+prefix = "listener_failed"
+
 # The Error code a Connection's own bounds refuse a call with (issue 2332).
 [[area]]
 number = 11

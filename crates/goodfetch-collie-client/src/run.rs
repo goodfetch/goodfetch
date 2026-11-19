@@ -10,7 +10,7 @@ use std::pin::Pin;
 
 use goodfetch_protocol::run::{RUN_START, RunId, RunStartParams, RunStarted, StartedAs, Tags};
 
-use crate::connection::Connection;
+use crate::connection::ClientConnection;
 use crate::error::Error;
 use crate::generated::handles::Run;
 use crate::host::{HeldRun, Host};
@@ -21,14 +21,14 @@ use crate::limits::Limits;
 #[must_use = "a start is sent only when it is awaited"]
 #[derive(Debug)]
 pub struct Start {
-    connection: Connection,
+    connection: ClientConnection,
     params: RunStartParams,
 }
 
 impl Start {
     /// The start of a Run on `connection`, with no Run ID: the engine
     /// names it.
-    pub(crate) fn new(connection: Connection) -> Self {
+    pub(crate) fn new(connection: ClientConnection) -> Self {
         Self {
             connection,
             params: RunStartParams::default(),
@@ -133,7 +133,7 @@ impl Run {
     }
 }
 
-impl Connection {
+impl ClientConnection {
     /// Leaving the scope or `close()` stops the Run with a Checkpoint;
     /// `finish()` ends it. The start of a Run this Connection drives
     /// (`run.start`), which awaiting sends.

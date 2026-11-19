@@ -8,7 +8,7 @@
 //! told from one of the storage ([`Error::FileWriteFailed`]) by its
 //! `io::ErrorKind`, and the OS's error is kept as the source. The engine
 //! writes a kept file under the same rule; this one writes the bytes a
-//! Daemon streams. Its calls block: [`crate::Connection::save_file`] runs
+//! Daemon streams. Its calls block: [`crate::ClientConnection::save_file`] runs
 //! them on the Connection's tracker.
 #![expect(
     clippy::disallowed_methods,

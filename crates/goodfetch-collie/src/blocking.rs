@@ -36,7 +36,7 @@ use crate::linked::{Composed, ConnectOptions, LinkedConnection};
 #[derive(Clone, Debug)]
 pub struct Collie {
     linked: LinkedConnection,
-    connection: blocking::Connection,
+    connection: blocking::ClientConnection,
 }
 
 impl Collie {
@@ -50,7 +50,7 @@ impl Collie {
     pub fn connect(options: ConnectOptions) -> Result<Self, Error> {
         let linked = LinkedConnection::connect_blocking(Composed::COLLIE, options)?;
         Ok(Self {
-            connection: blocking::Connection::from(linked.connection().clone()),
+            connection: blocking::ClientConnection::from(linked.connection().clone()),
             linked,
         })
     }
@@ -73,11 +73,23 @@ impl Collie {
     }
 }
 
-/// The blocking Connection, the type a helper written for either Product
-/// takes (ADR 0095): `helper(collie.as_ref())`, until
-/// ADR 0099's `Connection` trait lands (#1257).
-impl AsRef<blocking::Connection> for Collie {
-    fn as_ref(&self) -> &blocking::Connection {
+/// The blocking Connection both Products' blocking connections implement
+/// (ADRs 0095 and 0099), so a helper taking `&impl blocking::Connection`
+/// takes a `Collie`; its members are the inherent ones above.
+impl blocking::Connection for Collie {
+    fn start(&self) -> Start {
+        Collie::start(self)
+    }
+
+    fn close(&self) -> Result<(), Error> {
+        Collie::close(self)
+    }
+}
+
+/// The client crate's connection, the way down to its `call` (ADR 0099)
+/// until the public `call` joins the Connection with its own ticket.
+impl AsRef<blocking::ClientConnection> for Collie {
+    fn as_ref(&self) -> &blocking::ClientConnection {
         &self.connection
     }
 }

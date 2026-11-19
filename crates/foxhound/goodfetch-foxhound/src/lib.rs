@@ -13,8 +13,9 @@
 //! Which crate holds which type (ADR 0117): this crate holds [`Foxhound`]
 //! and its composition; `goodfetch-collie-client` holds every value a
 //! connection hands out, [`Run`], [`Session`], [`Page`], [`Locator`],
-//! [`Error`] and [`Connection`], the type a helper written for either
-//! Product takes (ADR 0095), which this crate re-exports.
+//! [`Error`] and [`Connection`], the trait both Products' connections
+//! implement, which a helper written for either Product takes (ADRs 0095
+//! and 0099), which this crate re-exports.
 //!
 //! ```
 //! use goodfetch_foxhound::{ConnectOptions, Foxhound};

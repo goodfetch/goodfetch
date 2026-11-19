@@ -16,14 +16,18 @@
 
 use std::time::{Duration, UNIX_EPOCH};
 
-use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::WaitedFor;
+use goodfetch_protocol::catalog::{Product, Setting};
+use goodfetch_protocol::connection::{EnclosingCall, WaitedFor};
+use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::settings::{
-    RunOrigin, SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION,
+    RunOrigin, SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_FIRST_BYTE, TIMEOUT_HOOK,
+    TIMEOUT_NAVIGATION,
 };
 use serde_json::{Value, json};
+use tokio::sync::watch;
+use tokio::time::Instant;
 
-use super::Deadline;
+use super::{Deadline, Enclosing};
 use crate::clock::Clock;
 use crate::settings::{Layers, Values, resolve};
 
@@ -168,4 +172,133 @@ fn a_calls_own_timeout_of_zero_is_setting_invalid_naming_the_null_form() {
             })
         )
     );
+}
+
+/// Foxhound's `timeout.handler`, which `goodfetch-engine` may not name
+/// (ADR 0099): the enclosing timeout of the nesting tests.
+const TIMEOUT_HANDLER: Setting = Setting {
+    name: "timeout.handler",
+    ..TIMEOUT_HOOK
+};
+
+/// The enclosing call of the nesting tests: a crawl handler's call,
+/// `crawl_request.handle`, under a `timeout.handler` of 10 s, whose end
+/// `ends_at` holds.
+fn enclosing(ends_at: watch::Receiver<Instant>) -> Enclosing {
+    Enclosing::new(
+        &Deadline::given(&TIMEOUT_HANDLER, 10_000, SettingsLayer::UserConfiguration),
+        EnclosingCall {
+            operation: "crawl_request.handle".to_owned(),
+            call_id: RequestId::Number(7),
+        },
+        move || *ends_at.borrow(),
+    )
+}
+
+/// An action started with 10 s left in its enclosing call gets 10 s, not
+/// its own 30 s (ADR 0080): it ends at the enclosing call's end with
+/// `deadline_exceeded`, whose `limit` is the enclosing timeout, `ended_by`
+/// names that call and `observed` the last state seen.
+/// Covers: story:11-41, story:11-43, error:deadline_exceeded
+#[test]
+fn an_inner_call_ends_at_its_enclosing_calls_end_which_it_names() {
+    let ended = goodfetch_test_support::runtime().block_on(async {
+        let clock = Clock::paused(UNIX_EPOCH);
+        let (_ends_at, ending) = watch::channel(clock.now() + Duration::from_secs(10));
+        let enclosing = enclosing(ending);
+        let action = Deadline::declared(&TIMEOUT_ACTION);
+        enclosing
+            .bound(
+                &clock,
+                action.within(
+                    &clock,
+                    WaitedFor::BROWSER_ANSWER,
+                    std::future::pending::<()>(),
+                ),
+                || Some("a navigation under way on page `p-1`".to_owned()),
+            )
+            .await
+    });
+
+    let error = ended.unwrap_err();
+    let (_, _, details) = error.wire_parts();
+    assert_eq!(
+        (error.code(), Value::Object(details)),
+        (
+            "deadline_exceeded",
+            json!({
+                "limit": { "key": "timeout.handler", "value": 10_000, "layer": "user_configuration" },
+                "elapsed": 10_000,
+                "waited_for": "answer",
+                "ended_by": { "operation": "crawl_request.handle", "call_id": 7 },
+                "observed": "a navigation under way on page `p-1`",
+            })
+        )
+    );
+}
+
+/// A child may end sooner than its parent (ADR 0080): an inner timeout
+/// shorter than what is left of the enclosing one ends the call with its
+/// own `deadline_exceeded`, which names no enclosing call.
+/// Covers: story:11-41
+#[test]
+fn an_inner_call_whose_own_timeout_comes_first_ends_with_its_own() {
+    let ended = goodfetch_test_support::runtime().block_on(async {
+        let clock = Clock::paused(UNIX_EPOCH);
+        let (_ends_at, ending) = watch::channel(clock.now() + Duration::from_secs(10));
+        let enclosing = enclosing(ending);
+        let action = Deadline::given(&TIMEOUT_ACTION, 5_000, SettingsLayer::UserConfiguration);
+        enclosing
+            .bound(
+                &clock,
+                action.within(
+                    &clock,
+                    WaitedFor::BROWSER_ANSWER,
+                    std::future::pending::<()>(),
+                ),
+                || None,
+            )
+            .await
+    });
+
+    let error = ended.unwrap_err();
+    let (_, _, details) = error.wire_parts();
+    assert_eq!(
+        Value::Object(details),
+        json!({
+            "limit": { "key": "timeout.action", "value": 5_000, "layer": "user_configuration" },
+            "elapsed": 5_000,
+            "waited_for": "browser_answer",
+        })
+    );
+}
+
+/// A hold of the enclosing call's clock, such as a Human pause or a
+/// handler's wait for a navigation-gate permit, moves its end later while
+/// it lasts (ADRs 0080, 0092 and 0093): an inner call answered past the
+/// end first read is not ended.
+/// Covers: story:11-41
+#[test]
+fn an_inner_call_outlives_an_enclosing_end_a_hold_moved_later() {
+    let answered = goodfetch_test_support::runtime().block_on(async {
+        let clock = Clock::paused(UNIX_EPOCH);
+        let started = clock.now();
+        let (ends_at, ending) = watch::channel(started + Duration::from_secs(10));
+        let enclosing = enclosing(ending);
+        let hold = async {
+            clock.sleep_until(started + Duration::from_secs(8)).await;
+            ends_at.send_replace(started + Duration::from_secs(20));
+            std::future::pending::<()>().await;
+        };
+        let work = async {
+            clock.sleep_until(started + Duration::from_secs(15)).await;
+            Ok("clicked")
+        };
+        tokio::select! {
+            answered = enclosing.bound(&clock, work, || None) => answered,
+            () = hold => unreachable!("the hold never ends"),
+        }
+    });
+
+    assert_eq!(answered.ok(), Some("clicked"));
 }

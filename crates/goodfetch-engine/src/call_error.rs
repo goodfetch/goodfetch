@@ -236,3 +236,6 @@ impl fmt::Display for CallError {
 }
 
 impl std::error::Error for CallError {}
+
+#[cfg(test)]
+mod tests;

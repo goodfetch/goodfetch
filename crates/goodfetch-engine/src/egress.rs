@@ -46,7 +46,7 @@ use goodfetch_protocol::security::SECURITY_RESOLVED_IP_CHECK;
 use serde_json::{Map, Value};
 use url::{Host, Url};
 
-use crate::call_error::CallError;
+use crate::call_error::{CallError, named};
 use crate::host_name::{self, without_root};
 use crate::settings::{HostEntry, Resolved};
 
@@ -362,9 +362,20 @@ impl Refused {
         }
     }
 
-    /// The failure the call that waited for the request answers with.
+    /// The failure the call that waited for the request answers with, the
+    /// setting that would allow it in its Client's form (ADR 0099).
     pub fn error(&self) -> CallError {
-        CallError::new(&EGRESS_REFUSED, self.to_string(), &self.details())
+        let message = self.setting.map_or_else(
+            || self.to_string(),
+            |setting| {
+                format!(
+                    "{}; `{}` would allow it",
+                    self.refused(),
+                    named::setting(setting)
+                )
+            },
+        );
+        CallError::new(&EGRESS_REFUSED, message, &self.details())
     }
 
     /// The failure as an event carries it, for a request no call waited
@@ -382,14 +393,20 @@ impl Refused {
     }
 }
 
-impl std::fmt::Display for Refused {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
+impl Refused {
+    /// What it refused and by which rule, the head of its message.
+    fn refused(&self) -> String {
+        format!(
             "the egress policy refused a request to {} ({})",
             self.url,
             self.rule.as_str()
-        )?;
+        )
+    }
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.refused())?;
         if let Some(setting) = self.setting {
             write!(formatter, "; `{setting}` would allow it")?;
         }

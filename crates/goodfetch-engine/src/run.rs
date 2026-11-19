@@ -65,7 +65,7 @@ use goodfetch_protocol::settings::{
     TIMEOUT_CLOSE, TIMEOUT_RUN,
 };
 
-use crate::call_error::CallError;
+use crate::call_error::{CallError, named};
 use crate::composition::{CallContext, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
@@ -75,7 +75,7 @@ use crate::runs::{
 };
 use crate::secrets::SecretError;
 use crate::settings::{
-    Opening, Resolved, RunSettings, SettingsError, beneath_connection, check_scope,
+    self, Opening, Resolved, RunSettings, SettingsError, beneath_connection, check_scope,
 };
 
 /// The `run.*` handlers.
@@ -401,14 +401,42 @@ fn unbuilt(
     )
 }
 
+/// `error`'s message with the setting it names, and the closest one an
+/// unknown key gets, marked, which its Client reads in its own form; a key
+/// the catalog lacks, as a Client may write one, stays as written.
+fn keys_marked(error: &SettingsError) -> String {
+    let message = error.to_string();
+    let keys = match error {
+        SettingsError::Unknown { key, closest, .. } => [Some(key.as_str()), closest.as_deref()],
+        SettingsError::Invalid { key, .. }
+        | SettingsError::NotApplicable { key, .. }
+        | SettingsError::Locked { key, .. }
+        | SettingsError::Unavailable { key, .. } => [Some(key.as_str()), None],
+        SettingsError::NotInProduct { .. }
+        | SettingsError::Format { .. }
+        | SettingsError::OlderMajorPolicy { .. } => [None, None],
+    };
+    keys.into_iter()
+        .flatten()
+        .filter(|key| settings::setting(key).is_some())
+        .fold(message, |message, key| {
+            message.replacen(
+                &format!("`{key}`"),
+                &format!("`{}`", named::setting(key)),
+                1,
+            )
+        })
+}
+
 /// [`settings_error`]'s translation, for the engine `identity` names,
-/// behind Goodfetch Cloud's gateway or not.
+/// behind Goodfetch Cloud's gateway or not: the setting its message names,
+/// and the closest one an unknown key gets, in its Client's form (ADR 0099).
 pub(crate) fn translated(
     error: &SettingsError,
     identity: &Identity,
     behind_gateway: bool,
 ) -> CallError {
-    let message = error.to_string();
+    let message = keys_marked(error);
     match error {
         SettingsError::Unknown {
             key,

@@ -472,8 +472,8 @@ mod tests {
     }
 
     /// A setting key reads as its caller sets it (ADR 0099's casing table):
-    /// nested camelCase segments, nested snake_case segments, or Rust's
-    /// modules and an UPPER_SNAKE constant; a form with no language of its
+    /// nested camelCase segments, nested `snake_case` segments, or Rust's
+    /// modules and an `UPPER_SNAKE` constant; a form with no language of its
     /// own keeps ADR 0083's key.
     #[rstest]
     #[case::typescript(Form::Typescript, "crawl.payload.max_size", "crawl.payload.maxSize")]

@@ -65,6 +65,9 @@ pub struct Named<'a> {
 
 impl fmt::Display for Named<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if !is_name(self.name) || !is_payload(&self.payload) {
+            return formatter.write_str(self.name);
+        }
         write!(formatter, "{OPEN}{}{}", self.kind.letter(), self.name)?;
         if !self.payload.is_empty() {
             write!(formatter, "{PAYLOAD}{}", self.payload)?;
@@ -133,15 +136,12 @@ pub(crate) fn render(text: &str, form: Form) -> Cow<'_, str> {
     while let Some(start) = rest.find(OPEN) {
         rendered.push_str(&rest[..start]);
         let after = &rest[start + OPEN.len_utf8()..];
-        match spelled(after, form) {
-            Some((name, length)) => {
-                rendered.push_str(&name);
-                rest = &after[length..];
-            }
-            None => {
-                rendered.push(OPEN);
-                rest = after;
-            }
+        if let Some((name, length)) = spelled(after, form) {
+            rendered.push_str(&name);
+            rest = &after[length..];
+        } else {
+            rendered.push(OPEN);
+            rest = after;
         }
     }
     rendered.push_str(rest);
@@ -168,6 +168,22 @@ pub(crate) fn render_value(value: &Value, form: Form) -> Value {
     }
 }
 
+/// Whether `name` is a catalog name a mark can carry: `snake_case` words,
+/// dotted for a setting's key.
+fn is_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|character| matches!(character, 'a'..='z' | '0'..='9' | '_' | '.'))
+}
+
+/// Whether `payload` is a type's name a mark can carry, or none.
+fn is_payload(payload: &str) -> bool {
+    payload
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric())
+}
+
 /// The mark `after` opens with, past its opening character, spelled in
 /// `form`, with the length it takes in `after`; `None` when it is no mark.
 fn spelled(after: &str, form: Form) -> Option<(String, usize)> {
@@ -178,15 +194,7 @@ fn spelled(after: &str, form: Form) -> Option<(String, usize)> {
     let (name, payload) = body[..end]
         .split_once(PAYLOAD)
         .unwrap_or((&body[..end], ""));
-    let is_name = !name.is_empty()
-        && name
-            .chars()
-            .all(|character| matches!(character, 'a'..='z' | '0'..='9' | '_' | '.'));
-    if !is_name
-        || !payload
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric())
-    {
+    if !is_name(name) || !is_payload(payload) {
         return None;
     }
     let spelled = match kind {
@@ -242,6 +250,15 @@ mod tests {
         );
 
         assert_eq!(render(&text, form), expected);
+    }
+
+    /// A name no catalog writes, as a Client may send one, shows as it
+    /// is written, unmarked.
+    #[test]
+    fn a_name_no_catalog_writes_shows_as_written() {
+        let text = format!("`{}` passed", setting("Timeout.First-Byte"));
+
+        assert_eq!(text, "`Timeout.First-Byte` passed");
     }
 
     /// Text that only looks like a mark, as a page's own text may, keeps

@@ -35,7 +35,7 @@ use goodfetch_protocol::connection::{EnclosingCall, ProductVersion};
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::RunId;
-use goodfetch_protocol::settings::TIMEOUT_HOOK;
+use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_HOOK};
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -77,9 +77,9 @@ impl HandlerPages for Served {
 }
 
 /// A Product whose call on [`SERVED`] never answers, and whose pages a
-/// crawl handler's call encloses, its `timeout.handler` ending 10 s after
-/// the page's call arrives.
-struct Enclosed;
+/// crawl handler's call encloses, its timeout, such as `timeout.handler`,
+/// ending 10 s after the page's call arrives.
+struct Enclosed(&'static Setting);
 
 impl HandlerPages for Enclosed {
     fn value(&self, _run: &RunId, _session: &SessionId) -> PageValue {
@@ -98,7 +98,7 @@ impl HandlerPages for Enclosed {
         let ends_at = tokio::time::Instant::now() + Duration::from_secs(10);
         (page_id.0 == SERVED).then(|| {
             Enclosing::new(
-                &Deadline::declared(&TIMEOUT_HANDLER),
+                &Deadline::declared(self.0),
                 EnclosingCall {
                     operation: "crawl_request.handle".to_owned(),
                     call_id: RequestId::Number(3),
@@ -263,7 +263,7 @@ fn a_call_on_an_enclosed_page_ends_at_the_enclosing_calls_end(
     #[case] method: &str,
     #[case] params: Value,
 ) {
-    let (reply, _) = called_on(Enclosed, method, &params);
+    let (reply, _) = called_on(Enclosed(&TIMEOUT_HANDLER), method, &params);
 
     assert_eq!(
         &reply["error"]["data"],
@@ -322,4 +322,53 @@ fn a_failed_call_names_its_operation_in_the_declared_form(
         ),
         "{reply}"
     );
+}
+
+/// A failure names a setting's key and a call's parameter as the Client's
+/// `hello` declares its form spells them, and its details keep them
+/// canonical (ADR 0099): the enclosing call's timeout that ended a page's
+/// call, and `page.request`'s `max_redirects` past its count.
+#[rstest]
+#[case::setting_typescript("typescript", Name::Setting, "`timeout.firstByte` (")]
+#[case::setting_python("python", Name::Setting, "`timeout.first_byte` (")]
+#[case::setting_rust("rust", Name::Setting, "`timeout::FIRST_BYTE` (")]
+#[case::parameter_typescript("typescript", Name::Parameter, "`maxRedirects` is 1000")]
+#[case::parameter_python("python", Name::Parameter, "`max_redirects` is 1000")]
+#[case::parameter_rust("rust", Name::Parameter, "`max_redirects` is 1000")]
+fn a_failure_names_its_setting_or_parameter_in_the_declared_form(
+    #[case] form: &str,
+    #[case] name: Name,
+    #[case] spelled: &str,
+) {
+    let (reply, data, canonical) = match name {
+        Name::Setting => {
+            let params = json!({ "page_id": SERVED, "url": "https://a.test/" });
+            let (reply, _) = called_in(
+                Some(form),
+                Enclosed(&TIMEOUT_FIRST_BYTE),
+                "page.goto",
+                &params,
+            );
+            let data = reply["error"]["data"]["limit"]["key"].clone();
+            (reply, data, "timeout.first_byte")
+        }
+        Name::Parameter => {
+            let params =
+                json!({ "page_id": "gone", "url": "https://a.test/", "max_redirects": 1000 });
+            let (reply, _) = called_in(Some(form), Served, "page.request", &params);
+            let data = reply["error"]["data"]["key"].clone();
+            (reply, data, "max_redirects")
+        }
+    };
+
+    let message = reply["error"]["message"].as_str().unwrap_or_default();
+    assert!(message.contains(spelled), "{reply}");
+    assert_eq!(data, json!(canonical), "{reply}");
+}
+
+/// The kind of name a failure's message shows.
+#[derive(Debug)]
+enum Name {
+    Setting,
+    Parameter,
 }

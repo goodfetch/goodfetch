@@ -15,6 +15,7 @@ requires-python = ">=3.11"
 # exactly: `xtask codegen`'s committed output depends on its version.
 dev = [
   "anyio>=4.15.1",
+  "connection-library",
   "datamodel-code-generator==0.86.0",
   "goodfetch-collie",
   "goodfetch-collie-client",
@@ -43,11 +44,15 @@ required-version = ">=0.9.28"
 members = [
   "sdks/python/collie",
   "sdks/python/collie-client",
+  # The library Collie's tests use (story 11-180), a member so that uv
+  # resolves its range on the Collie client package.
+  "sdks/python/collie/tests/libraries/connection-library",
   "sdks/python/foxhound",
   "test-support/python",
 ]
 
 [tool.uv.sources]
+connection-library = { workspace = true }
 goodfetch-collie = { workspace = true }
 goodfetch-collie-client = { workspace = true }
 goodfetch-foxhound = { workspace = true }

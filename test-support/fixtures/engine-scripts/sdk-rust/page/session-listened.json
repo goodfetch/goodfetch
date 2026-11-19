@@ -6,7 +6,7 @@
         "method": "hello",
         "params": {
           "protocol_version": "0.1",
-          "surface": "sdk_rust",
+          "surface": "sdk_typescript",
           "needs": "collie",
           "product_version": "0.0.0"
         }

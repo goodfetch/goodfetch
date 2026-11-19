@@ -82,6 +82,14 @@ export interface Reached {
   readonly url: string | null;
 }
 
+/** What a Daemon's `hello` takes beyond an Attached engine's. */
+export interface DaemonHello {
+  /** The Daemon's token, which `hello` carries and nothing else holds. */
+  readonly token: string;
+  /** What fails the opening when the Daemon closes the Connection before it answers `hello`. */
+  readonly closedAtHello: () => Error;
+}
+
 /** What starting a Run takes (ADR 0102). */
 export interface StartOptions {
   /**
@@ -112,8 +120,8 @@ export interface ClientConnectionOptions {
   readonly engine?: AttachedEngine | undefined;
   /** How the engine was reached; an Attached engine with no home known when left out. */
   readonly reached?: Reached | undefined;
-  /** The Daemon's token `hello` carries, which nothing else holds. */
-  readonly token?: string | undefined;
+  /** The Daemon's token and what its closing at `hello` fails with, when the engine is a Daemon. */
+  readonly daemon?: DaemonHello | undefined;
   /** The Product the Client needs, which `hello` names. */
   readonly needs: Product;
   /** The error class of each code the Client's Product knows. */
@@ -234,7 +242,7 @@ export class ClientConnection implements AsyncDisposable {
   static async open(options: ClientConnectionOptions): Promise<ClientConnection> {
     const connection = new ClientConnection(options);
     try {
-      await connection.#hello(options.needs, options.token, options.signal);
+      await connection.#hello(options.needs, options.daemon, options.signal);
       await connection.#setLimits(options.limits ?? [], options.signal);
     } catch (error) {
       await connection.#end();
@@ -433,7 +441,7 @@ export class ClientConnection implements AsyncDisposable {
 
   async #hello(
     needs: Product,
-    token: string | undefined,
+    daemon: DaemonHello | undefined,
     signal: AbortSignal | undefined,
   ): Promise<void> {
     const params: HelloParams = {
@@ -442,9 +450,16 @@ export class ClientConnection implements AsyncDisposable {
       needs,
       product_version: PRODUCT_VERSION,
       log_level: this.#logLevel,
-      ...(token === undefined ? {} : { token }),
+      ...(daemon === undefined ? {} : { token: daemon.token }),
     };
-    const answer = await this.#channel.call("hello", params, { signal });
+    let answer: unknown;
+    try {
+      answer = await this.#channel.call("hello", params, { signal });
+    } catch (error) {
+      throw daemon !== undefined && error instanceof EngineExitedError
+        ? daemon.closedAtHello()
+        : error;
+    }
     const spoken = protocolVersionOf(answer);
     if (spoken === undefined || !speaks(spoken)) {
       throw new ProtocolVersionUnsupportedError(

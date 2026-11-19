@@ -29,7 +29,8 @@ export interface ScriptedDaemon {
  * `mode`, recorded in `processes`, and resolves once a Client can reach it:
  * in `socket` mode its runtime file is in `home`'s per-major folder.
  * `tool_missing` when the manifest lists no Scripted engine, and
- * `scripted_daemon_failed` when it exits before saying where it listens.
+ * `scripted_daemon_failed`, once it is killed, when it exits or prints
+ * anything else before saying where it listens.
  */
 export async function startScriptedDaemon(
   description: TestEnvDescription,
@@ -66,10 +67,13 @@ export async function startScriptedDaemon(
     void started.exit.then(() => resolve(undefined));
   });
   if (address === undefined) {
+    // It exited, or said something else than where it listens: either way
+    // no Client reaches it.
+    started.child.kill("SIGKILL");
     const exit = await started.exit;
     throw new TestSupportError(
       "scripted_daemon_failed",
-      `the Scripted engine playing ${script} in ${mode} mode exited (${exit.signal ?? `code ${exit.code}`}) before it listened: ${failure.trim()}`,
+      `the Scripted engine playing ${script} in ${mode} mode ended (${exit.signal ?? `code ${exit.code}`}) without saying where it listens: ${failure.trim()}`,
     );
   }
   return {
@@ -82,9 +86,14 @@ export async function startScriptedDaemon(
   };
 }
 
-/** The `address` of the line the Scripted engine prints once it listens. */
+/** The `address` of the line the Scripted engine prints once it listens; `undefined` for any other line. */
 function addressOf(line: string): string | undefined {
-  const announced: unknown = JSON.parse(line);
+  let announced: unknown;
+  try {
+    announced = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
   return typeof announced === "object" &&
     announced !== null &&
     "address" in announced &&

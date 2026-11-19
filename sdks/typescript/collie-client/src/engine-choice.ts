@@ -15,11 +15,12 @@
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { connect, type Socket } from "node:net";
-import { homedir } from "node:os";
+import { userInfo } from "node:os";
 import { join } from "node:path";
 import { Duplex } from "node:stream";
 import {
   DaemonUnreachableError,
+  EngineNotFoundError,
   PRODUCT_VERSION,
   SettingInvalidError,
   type DaemonEndpoint,
@@ -34,7 +35,7 @@ const TOKEN_VARIABLE = "GOODFETCH_TOKEN";
 const HOME_VARIABLE = "GOODFETCH_HOME";
 
 /** A remote Daemon: an Exposed Daemon or Goodfetch Cloud, and the token its `hello` takes. */
-export interface RemoteEngine {
+export interface RemoteDaemon {
   /** Its address, `ws://` with a loopback IP address or `localhost` and a port, such as `ws://127.0.0.1:7878`. */
   readonly url: string;
   /** The token its `hello` takes, which nothing the SDK shows holds. */
@@ -48,7 +49,7 @@ export interface RemoteEngine {
  * Daemon of the SDK's line, starting it when none runs; `{ url, token }`
  * reaches that remote Daemon.
  */
-export type EngineChoice = "auto" | "attached" | "daemon" | RemoteEngine;
+export type EngineChoice = "auto" | "attached" | "daemon" | RemoteDaemon;
 
 /** How the chosen engine is reached, before `hello`. */
 export type Reach =
@@ -75,8 +76,13 @@ export type Reach =
 export interface EngineChoiceContext {
   /** The environment map, read here once. */
   readonly env: Readonly<Record<string, string>>;
-  /** The executable a Daemon is started with, when `engine` is `daemon` and none runs. */
-  readonly executable: () => string;
+  /**
+   * The executable a Daemon is started with, when `engine` is `daemon` and
+   * none runs, and the fix `engine_not_found` gives when it is missing.
+   */
+  readonly executable: () => { readonly path: string; readonly notFoundFix: string };
+  /** Cancels the choice: it rejects with the signal's reason. */
+  readonly signal?: AbortSignal | undefined;
 }
 
 /**
@@ -84,28 +90,29 @@ export interface EngineChoiceContext {
  * `GOODFETCH_TOKEN` at `auto` alone, and opens the bytes to a Daemon.
  *
  * @throws {SettingInvalidError} when a remote Daemon's URL names no loopback `ws://` address, or `GOODFETCH_URL` comes without `GOODFETCH_TOKEN`.
- * @throws {DaemonUnreachableError} when nothing answers where a remote Daemon's URL or a runtime file says, or the runtime file cannot be read.
+ * @throws {EngineNotFoundError} when `engine` is `daemon`, none runs, and its executable is missing.
+ * @throws {DaemonUnreachableError} when nothing answers where a remote Daemon's URL says, or a Daemon cannot be started or its runtime file read.
  */
 export async function reachEngine(
   choice: EngineChoice,
   context: EngineChoiceContext,
 ): Promise<Reach> {
-  const { env } = context;
+  const { env, signal } = context;
   if (typeof choice === "object") {
-    return reachRemote(choice, "engine");
+    return reachRemote(choice, "engine", signal);
   }
   switch (choice) {
     case "attached":
       return { kind: "attached", home: homeOf(env) };
     case "daemon":
-      return reachDaemon(env, context.executable);
+      return reachDaemon(context);
     case "auto": {
       const remote = remoteOfEnvironment(env);
       if (remote !== undefined) {
-        return reachRemote(remote, URL_VARIABLE);
+        return reachRemote(remote, URL_VARIABLE, signal);
       }
       const home = homeOf(env);
-      const daemon = home === null ? undefined : await runningDaemon(home);
+      const daemon = home === null ? undefined : await runningDaemon(home, signal);
       return daemon ?? { kind: "attached", home };
     }
     default: {
@@ -115,12 +122,16 @@ export async function reachEngine(
   }
 }
 
-/** The remote Daemon `GOODFETCH_URL` names with `GOODFETCH_TOKEN`'s token; `undefined` when it is unset. */
-function remoteOfEnvironment(env: Readonly<Record<string, string>>): RemoteEngine | undefined {
+/**
+ * The remote Daemon `GOODFETCH_URL` names with `GOODFETCH_TOKEN`'s token;
+ * `undefined` when it is unset. Its URL is judged first, as the CLI judges it.
+ */
+function remoteOfEnvironment(env: Readonly<Record<string, string>>): RemoteDaemon | undefined {
   const url = variable(env, URL_VARIABLE);
   if (url === undefined) {
     return undefined;
   }
+  remoteAddress(url, URL_VARIABLE);
   const token = variable(env, TOKEN_VARIABLE);
   if (token === undefined) {
     throw new SettingInvalidError(
@@ -141,11 +152,15 @@ function remoteOfEnvironment(env: Readonly<Record<string, string>>): RemoteEngin
  * Opens the bytes to the remote Daemon `remote` names, which `source`
  * (`engine` or `GOODFETCH_URL`) gave.
  */
-async function reachRemote(remote: RemoteEngine, source: string): Promise<Reach> {
+async function reachRemote(
+  remote: RemoteDaemon,
+  source: string,
+  signal: AbortSignal | undefined,
+): Promise<Reach> {
   const { url } = remote;
   const address = remoteAddress(url, source);
   const nothingAnswers = `Start the Daemon ${url} names, reach it through a forwarder that listens on loopback, such as an SSH tunnel, or leave engine at auto with ${URL_VARIABLE} unset to use this machine's engine.`;
-  const socket = await open({ host: address.host, port: address.port });
+  const socket = await open({ host: address.host, port: address.port }, signal);
   if (socket === undefined) {
     throw unreachable(`Nothing answers at ${url}, the Daemon ${source} names`, nothingAnswers);
   }
@@ -167,21 +182,36 @@ async function reachRemote(remote: RemoteEngine, source: string): Promise<Reach>
 
 /**
  * The address a remote Daemon's URL names: `ws://` with a loopback IP
- * address or `localhost` and a port.
+ * address or `localhost` and a port, and nothing else, so no credential in
+ * it reaches a log, an error or `EngineInfo`.
  *
- * @throws {SettingInvalidError} naming `source` otherwise.
+ * @throws {SettingInvalidError} naming `source` otherwise, without the URL
+ * when it is no URL or holds more than an address, which may be a secret.
  */
 function remoteAddress(url: string, source: string): { host: string; port: number } {
-  const refused = (why: string): SettingInvalidError =>
-    new SettingInvalidError(`${source} ${url} ${why}`, {
+  const refused = (why: string, shown: string | null = url): SettingInvalidError => {
+    const what = shown === null ? why : `${shown} ${why}`;
+    return new SettingInvalidError(`${source} ${what}`, {
       fix: `Give ${source} a Daemon's address on loopback, ws://<address>:<port>, such as ws://127.0.0.1:7878: a Daemon beyond loopback is reached through a forwarder that listens on it, such as an SSH tunnel, until the Daemon terminates TLS.`,
-      details: { key: source, reason: `${url} ${why}` },
+      details: { key: source, reason: what },
     });
+  };
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    throw refused("is no URL");
+    throw refused("is no URL", null);
+  }
+  if (
+    parsed.username !== "" ||
+    parsed.password !== "" ||
+    parsed.search !== "" ||
+    parsed.hash !== ""
+  ) {
+    throw refused(
+      "holds more than an address: a Daemon's address has no user, password, query or fragment, and its token goes in its own setting",
+      null,
+    );
   }
   if (parsed.protocol !== "ws:") {
     throw refused("names no Daemon: give ws://<address>:<port>; wss:// waits for the Daemon's TLS");
@@ -210,64 +240,129 @@ function isLoopback(host: string): boolean {
  *
  * @throws {DaemonUnreachableError} when it cannot be started or reached.
  */
-async function reachDaemon(
-  env: Readonly<Record<string, string>>,
-  executable: () => string,
-): Promise<Reach> {
+async function reachDaemon(context: EngineChoiceContext): Promise<Reach> {
+  const { env, signal } = context;
   const home = homeOf(env);
   if (home === null) {
-    const fix = `Set ${HOME_VARIABLE} to the Goodfetch home, or a home folder the OS knows.`;
-    throw new DaemonUnreachableError("No Goodfetch home names where the Daemon is found", {
-      fix,
-      details: { fix },
-    });
+    throw unreachable(
+      "No Goodfetch home names where the Daemon is found",
+      `Set ${HOME_VARIABLE} to the Goodfetch home, or a home folder the OS knows.`,
+    );
   }
-  const running = await runningDaemon(home);
+  const running = await runningDaemon(home, signal);
   if (running !== undefined) {
     return running;
   }
-  const path = executable();
-  await startDaemon(path, env);
-  const started = await runningDaemon(home);
+  const executable = context.executable();
+  await startDaemon(executable, env, signal);
+  const started = await runningDaemon(home, signal);
   if (started === undefined) {
-    const fix = `Start it with \`${path} daemon start\`, and find why it stopped in its log.`;
-    throw new DaemonUnreachableError(`The Daemon ${path} started is not answering`, {
-      fix,
-      details: { fix },
-    });
+    throw unreachable(
+      `The Daemon ${executable.path} started is not answering`,
+      `Start it with \`${executable.path} daemon start\`, and find why it stopped in its log.`,
+    );
   }
   return started;
 }
 
-/** Runs `daemon start` of the executable at `path` with `env`, which returns once the Daemon serves. */
-async function startDaemon(path: string, env: Readonly<Record<string, string>>): Promise<void> {
-  const fix = `Start it with \`${path} daemon start\`, whose error says why it cannot, or leave engine at auto to use an Attached engine.`;
-  const failed = (message: string, cause?: unknown): DaemonUnreachableError =>
-    new DaemonUnreachableError(message, { fix, details: { fix }, cause });
+/**
+ * Runs `daemon start --json` of `executable` with `env`, which returns once
+ * the Daemon serves; a refused start fails with the message and fix it
+ * printed.
+ */
+async function startDaemon(
+  executable: { readonly path: string; readonly notFoundFix: string },
+  env: Readonly<Record<string, string>>,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const { path } = executable;
   const child = spawn(path, ["daemon", "start", "--json"], {
     env: { ...env },
-    stdio: ["ignore", "ignore", "ignore"],
+    stdio: ["ignore", "pipe", "ignore"],
     windowsHide: true,
+    signal,
+  });
+  child.stdout.setEncoding("utf8");
+  let printed = "";
+  child.stdout.on("data", (text: string) => {
+    printed += text;
   });
   const exit = await new Promise<number | null>((resolve, reject) => {
-    child.once("error", (cause) =>
-      reject(failed(`The Daemon could not be started with ${path}`, cause)),
-    );
+    child.once("error", (cause) => {
+      if (signal?.aborted === true) {
+        reject(signal.reason);
+      } else if (isCode(cause, "ENOENT") || isCode(cause, "EACCES")) {
+        reject(
+          new EngineNotFoundError(`no engine executable at ${path}`, {
+            fix: executable.notFoundFix,
+            details: { path },
+            cause,
+          }),
+        );
+      } else {
+        reject(
+          unreachable(
+            `The Daemon could not be started with ${path}`,
+            `Start it with \`${path} daemon start\`, or leave engine at auto to use an Attached engine.`,
+            cause,
+          ),
+        );
+      }
+    });
     child.once("close", (code) => resolve(code));
   });
   if (exit !== 0) {
-    throw failed(`The Daemon could not be started: \`${path} daemon start\` exited with ${exit}`);
+    const refusal = refusalOf(printed);
+    throw unreachable(
+      `The Daemon could not be started: \`${path} daemon start\` exited with ${exit}${refusal === undefined ? "" : `: ${refusal.message}`}`,
+      refusal?.fix ??
+        `Start it with \`${path} daemon start\`, whose error says why it cannot, or leave engine at auto to use an Attached engine.`,
+    );
   }
+}
+
+/** The message and fix of the `CommandFailed` a command printed under `--json`; `undefined` when it printed none. */
+function refusalOf(
+  printed: string,
+): { readonly message: string; readonly fix: string | undefined } | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(printed);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null || !("error" in parsed)) {
+    return undefined;
+  }
+  const { error } = parsed;
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    !("message" in error) ||
+    typeof error.message !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    message: error.message,
+    fix: "fix" in error && typeof error.fix === "string" ? error.fix : undefined,
+  };
 }
 
 /**
  * The Daemon whose runtime file is in `home`'s folder of the SDK's line,
- * when its endpoint answers; `undefined` when there is no runtime file, or
- * nothing listens where it says, as for a Daemon that died.
+ * when its endpoint answers; `undefined` when there is no runtime file, it
+ * holds no endpoint and token, as a dead Daemon's half-written or older
+ * one, or nothing listens where it says, as for a Daemon that died. A Node
+ * program cannot ask the Daemon's lock, so whether the endpoint answers
+ * says whether it runs.
  *
  * @throws {DaemonUnreachableError} when the runtime file cannot be read.
  */
-async function runningDaemon(home: string): Promise<Reach | undefined> {
+async function runningDaemon(
+  home: string,
+  signal: AbortSignal | undefined,
+): Promise<Reach | undefined> {
   const file = join(home, lineOf(PRODUCT_VERSION), "daemon.json");
   let text: string;
   try {
@@ -280,11 +375,14 @@ async function runningDaemon(home: string): Promise<Reach | undefined> {
   }
   const runtime = runtimeFileOf(text);
   if (runtime === undefined) {
-    throw unreadable(file);
+    return undefined;
   }
   const { endpoint, token } = runtime;
   const url = "unix" in endpoint ? endpoint.unix : endpoint.tcp;
-  const socket = await open("unix" in endpoint ? { path: endpoint.unix } : addressOf(endpoint.tcp));
+  const socket = await open(
+    "unix" in endpoint ? { path: endpoint.unix } : addressOf(endpoint.tcp),
+    signal,
+  );
   if (socket === undefined) {
     return undefined;
   }
@@ -294,29 +392,26 @@ async function runningDaemon(home: string): Promise<Reach | undefined> {
     url,
     transport: transportOf(socket),
     token,
-    closedAtHello: () => {
-      const fix = `Restart it with \`daemon restart\`, which writes a new runtime file in ${home}.`;
-      return new DaemonUnreachableError(
+    closedAtHello: () =>
+      unreachable(
         `The Daemon at ${url} closed the Connection before it answered hello, as one does for a token it does not take`,
-        { fix, details: { fix } },
-      );
-    },
+        `Restart it with \`daemon restart\`, which writes a new runtime file in ${home}.`,
+      ),
   };
 }
 
 /** A Daemon nothing reaches: `daemon_unreachable`, its fix in its details too. */
-function unreachable(message: string, fix: string): DaemonUnreachableError {
-  return new DaemonUnreachableError(message, { fix, details: { fix } });
+function unreachable(message: string, fix: string, cause?: unknown): DaemonUnreachableError {
+  return new DaemonUnreachableError(message, { fix, details: { fix }, cause });
 }
 
 /** A runtime file that cannot be read fails `connect()`, as the CLI's commands do. */
-function unreadable(file: string, cause?: unknown): DaemonUnreachableError {
-  const fix = `Stop the Daemon with \`daemon stop\`, or remove ${file} when none runs, then connect again.`;
-  return new DaemonUnreachableError(`The Daemon's runtime file ${file} cannot be read`, {
-    fix,
-    details: { fix },
+function unreadable(file: string, cause: unknown): DaemonUnreachableError {
+  return unreachable(
+    `The Daemon's runtime file ${file} cannot be read`,
+    `Stop the Daemon with \`daemon stop\`, or remove ${file} when none runs, then connect again.`,
     cause,
-  });
+  );
 }
 
 /** The endpoint and token of a runtime file's text; `undefined` when it holds none. */
@@ -363,28 +458,39 @@ function addressOf(address: string): { host: string; port: number } {
  * A connected socket to `where`; `undefined` when nothing listens there.
  *
  * @throws {DaemonUnreachableError} for any other error than nothing listening.
+ * @throws the signal's reason once `signal` aborts.
  */
 async function open(
   where: { readonly path: string } | { readonly host: string; readonly port: number },
+  signal: AbortSignal | undefined,
 ): Promise<Socket | undefined> {
+  signal?.throwIfAborted();
   const socket = connect(where);
+  let aborted: (() => void) | undefined;
   try {
     await new Promise<void>((resolve, reject) => {
       socket.once("connect", resolve);
       socket.once("error", reject);
+      aborted = () => reject(signal?.reason);
+      signal?.addEventListener("abort", aborted, { once: true });
     });
   } catch (cause) {
     socket.destroy();
+    if (signal?.aborted === true) {
+      throw signal.reason;
+    }
     if (isCode(cause, "ECONNREFUSED") || isCode(cause, "ENOENT")) {
       return undefined;
     }
-    const fix =
-      "Check that the Daemon's socket is yours and reachable, or connect with engine attached.";
-    throw new DaemonUnreachableError("The Daemon's endpoint could not be opened", {
-      fix,
-      details: { fix },
+    throw unreachable(
+      "The Daemon's endpoint could not be opened",
+      "Check that the Daemon's socket is yours and reachable, or connect with engine attached.",
       cause,
-    });
+    );
+  } finally {
+    if (aborted !== undefined) {
+      signal?.removeEventListener("abort", aborted);
+    }
   }
   return socket;
 }
@@ -402,7 +508,7 @@ function transportOf(socket: Socket): Transport {
  * folder of the OS's usual data folder, as the engine finds it (`dirs`'s
  * `data_dir`); `null` when the environment names no home folder.
  */
-export function homeOf(env: Readonly<Record<string, string>>): string | null {
+function homeOf(env: Readonly<Record<string, string>>): string | null {
   const named = variable(env, HOME_VARIABLE);
   if (named !== undefined) {
     return named;
@@ -411,13 +517,17 @@ export function homeOf(env: Readonly<Record<string, string>>): string | null {
   return data === null ? null : join(data, "goodfetch");
 }
 
-/** The OS's usual data folder for the user `env` is for. */
+/**
+ * The OS's usual data folder for the user `env` is for: its `HOME`, else
+ * the user's home in the OS's user database, as `dirs` finds it, never the
+ * process's own environment.
+ */
 function dataFolder(env: Readonly<Record<string, string>>): string | null {
   if (process.platform === "win32") {
     return variable(env, "APPDATA") ?? null;
   }
-  const home = variable(env, "HOME") ?? homedir();
-  if (home === "") {
+  const home = variable(env, "HOME") ?? userHome();
+  if (home === undefined) {
     return null;
   }
   if (process.platform === "darwin") {
@@ -431,9 +541,19 @@ function dataFolder(env: Readonly<Record<string, string>>): string | null {
  * The per-major folder's name of `version` (ADR 0030): its major, or
  * `0.y` during previews.
  */
-export function lineOf(version: string): string {
+function lineOf(version: string): string {
   const [major = "0", minor = "0"] = version.split(/[.+-]/);
   return major === "0" ? `0.${minor}` : major;
+}
+
+/** The user's home in the OS's user database; `undefined` when it has none. */
+function userHome(): string | undefined {
+  try {
+    const { homedir } = userInfo();
+    return homedir === "" ? undefined : homedir;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The value of `name` in `env`; `undefined` when it is unset or empty, as the engine reads a deployment variable. */

@@ -12,7 +12,6 @@ import { ClientConnection, type EngineInfo } from "./client-connection.ts";
 import { reachEngine, type EngineChoice, type Reach } from "./engine-choice.ts";
 import type { ErrorClasses } from "./errors.ts";
 import {
-  EngineExitedError,
   EngineNotFoundError,
   SettingInvalidError,
   type Product,
@@ -174,7 +173,8 @@ export async function openEngine(
   const env = options.env ?? processEnvironment();
   const reach = await reachEngine(options.engine ?? "auto", {
     env,
-    executable: () => locateEngine(env, product).path,
+    executable: () => locateEngine(env, product),
+    signal: options.signal,
   });
   const connection =
     reach.kind === "attached"
@@ -213,23 +213,19 @@ async function openAttached(
  * Finishes `hello` with a Daemon, its token in it: one that closes the
  * Connection before it answers fails with `daemon_unreachable`.
  */
-async function openDaemon(
+function openDaemon(
   product: ProductPackage,
   reach: Exclude<Reach, { kind: "attached" }>,
   common: Opening,
 ): Promise<ClientConnection> {
-  try {
-    return await ClientConnection.open({
-      transport: reach.transport,
-      reached: { kind: reach.kind, home: reach.home, url: reach.url },
-      token: reach.token,
-      needs: product.needs,
-      errorClasses: product.errorClasses,
-      ...common,
-    });
-  } catch (error) {
-    throw error instanceof EngineExitedError ? reach.closedAtHello() : error;
-  }
+  return ClientConnection.open({
+    transport: reach.transport,
+    reached: { kind: reach.kind, home: reach.home, url: reach.url },
+    daemon: { token: reach.token, closedAtHello: reach.closedAtHello },
+    needs: product.needs,
+    errorClasses: product.errorClasses,
+    ...common,
+  });
 }
 
 /** The line logged once `connect()` reached `engine`. */

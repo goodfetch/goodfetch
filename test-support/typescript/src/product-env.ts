@@ -29,7 +29,7 @@ export function productEnv(
 /** The shared corpus of engine scripts (ADR 0069). */
 const corpus = new URL("../../fixtures/engine-scripts/", import.meta.url);
 
-/** The file of the corpus's script `script`, such as `connect/daemon-reached.json`. */
+/** The file of the corpus's script `script`, such as `connect/reached-daemon.json`. */
 export function corpusScript(script: string): URL {
   return new URL(script, corpus);
 }

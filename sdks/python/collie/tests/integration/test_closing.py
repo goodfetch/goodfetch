@@ -152,6 +152,7 @@ async def test_aborts_its_run_cancels_a_call_in_flight_and_waits_for_its_engine(
     collie = await open_collie(way, env)
     run = await collie.start(run_id="nightly")
     finished: list[GoodfetchError] = []
+    warned_at_close: list[str] = []
 
     async def finish() -> None:
         finished.append(await failure(run.finish()))

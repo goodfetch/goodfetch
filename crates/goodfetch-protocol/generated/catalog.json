@@ -442,6 +442,46 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The crawl declares a second Hook of a name one of its Hooks already carries, so the declaration failed at once, with no I/O: a name identifies one Hook, in `hook_failed`, in the Run trace and for a test's `runHook`. The details name the Hook and its stage. Give each Hook its own `name`.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "hook_duplicate",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Hook raised, so its work failed: an attempt commits nothing, and one that failed at the Record stage commits none of what it staged. The message always names the exception. The details name the stage, the Hook, the request's Label (`null` at a lifecycle stage), the exception's type, message and stack, and the Goodfetch code raised inside (`null` for the program's own exception). A wrapped code is retried when its own retryable flag says so; the program's own exception only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time. Either retry draws on `crawl.retry.max`.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "hook_failed",
+      "product": "foxhound",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Hook can never run, so nothing was done: its `labels` or `datasets` list is empty, which fails at once with no I/O, or, when the Run starts, it is a navigation Hook all of whose Labels force a tier that does not navigate (`http`, `discovered_api` or `browser_fetch`) through `fetch.tier`, so the Run was not started. The details name the Hook and its stage. Scope it to a Label or Dataset it can see, or let one of its Labels navigate.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "hook_ineffective",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A test's `runHook` names a Hook the crawl does not hold, so no Hook ran. The details name the Hook asked for and the closest name the crawl holds, if it holds any. Use a name the crawl's Hooks carry, which `name` sets.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "hook_unknown",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A bug in Goodfetch: an object such as a Session or a page received an event its state cannot receive. Report it with the object, the state and the event its details carry.",
       "exit_code": null,
       "group": "internal",

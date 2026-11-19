@@ -6,7 +6,7 @@
 //! Covers: story:11-84
 
 use goodfetch_collie_client::transport::{Endpoint, Network};
-use goodfetch_collie_client::{Connection, ConnectionRuntime};
+use goodfetch_collie_client::{ClientConnection, ConnectionRuntime};
 use goodfetch_test_support::TestEnv;
 use serde_json::json;
 
@@ -18,7 +18,7 @@ fn a_navigation_answers_its_response_or_none_and_an_evaluation_its_value() {
     let (process, endpoint) = scripted_daemon(&env, "page/navigations.json");
     let runtime = goodfetch_test_support::runtime();
     runtime.block_on(async {
-        let (connection, _said) = Connection::open(
+        let (connection, _said) = ClientConnection::open(
             ConnectionRuntime::driven(tokio::runtime::Handle::current()),
             &Network::Os,
             &Endpoint::Daemon(endpoint),

@@ -87,6 +87,7 @@ use tokio::time::Instant;
 use bytes::Bytes;
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Room, SecondCopies, SecondCopy};
+use goodfetch_engine::deadline::Enclosing;
 use goodfetch_engine::egress::{Policy, Refused};
 use goodfetch_engine::governor::Permit as HttpAdmission;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
@@ -555,6 +556,10 @@ impl LeaseCheck for Lease {
 
     fn permit_wait(&self, url: &str) -> PermitWait {
         self.0.lease.permit_wait(url)
+    }
+
+    fn enclosing(&self) -> Option<Enclosing> {
+        self.0.lease.enclosing()
     }
 }
 

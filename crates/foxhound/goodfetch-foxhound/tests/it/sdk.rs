@@ -21,16 +21,15 @@ fn options(env: &TestEnv) -> ConnectOptions {
 }
 
 /// A helper written for Collie: it takes the client crate's Connection,
-/// starts a Run on it and finishes it.
-async fn start_and_finish(connection: &Connection) -> Result<RunReport, Error> {
+/// which both Products' connections implement, starts a Run on it and
+/// finishes it.
+async fn start_and_finish(connection: &impl Connection) -> Result<RunReport, Error> {
     connection.start().await?.finish().await
 }
 
 /// The same helper written for Collie without async: it takes the client
 /// crate's blocking Connection.
-fn start_and_finish_blocking(
-    connection: &goodfetch_collie_client::blocking::Connection,
-) -> Result<RunReport, Error> {
+fn start_and_finish_blocking(connection: &impl blocking::Connection) -> Result<RunReport, Error> {
     connection.start().send()?.finish().send()
 }
 
@@ -83,13 +82,13 @@ fn a_process_holds_many_connections_and_connects_again_after_a_close() {
         let second = Foxhound::connect(options(&right)).await.unwrap();
 
         let reports = (
-            start_and_finish(first.as_ref()).await.unwrap(),
-            start_and_finish(second.as_ref()).await.unwrap(),
+            start_and_finish(&first).await.unwrap(),
+            start_and_finish(&second).await.unwrap(),
         );
         first.close().await.unwrap();
         second.close().await.unwrap();
         let again = Foxhound::connect(options(&left)).await.unwrap();
-        let third = start_and_finish(again.as_ref()).await.unwrap();
+        let third = start_and_finish(&again).await.unwrap();
         again.close().await.unwrap();
 
         assert_eq!(
@@ -130,9 +129,9 @@ fn blocking_inside_an_async_runtime_never_nests_a_runtime() {
 }
 
 /// One helper typed for the client crate's Connection takes both
-/// Products' connections, and a `match` on the client crate's `Error`
-/// catches what either fails with.
-/// Covers: story:11-1003, story:11-1004
+/// Products' connections and closes them, and a `match` on the client
+/// crate's `Error` catches what either fails with.
+/// Covers: story:11-1003, story:11-1004, story:11-179
 #[test]
 fn a_helper_typed_for_connection_takes_collies_and_foxhounds() {
     let env = TestEnv::new();
@@ -143,14 +142,14 @@ fn a_helper_typed_for_connection_takes_collies_and_foxhounds() {
             .unwrap();
 
         let reports = [
-            start_and_finish(foxhound.as_ref()).await.unwrap(),
-            start_and_finish(collie.as_ref()).await.unwrap(),
+            start_and_finish(&foxhound).await.unwrap(),
+            start_and_finish(&collie).await.unwrap(),
         ];
-        foxhound.close().await.unwrap();
-        collie.close().await.unwrap();
+        Connection::close(&foxhound).await.unwrap();
+        Connection::close(&collie).await.unwrap();
         let closed = [
-            start_and_finish(foxhound.as_ref()).await,
-            start_and_finish(collie.as_ref()).await,
+            start_and_finish(&foxhound).await,
+            start_and_finish(&collie).await,
         ];
 
         assert_eq!(
@@ -168,9 +167,9 @@ fn a_helper_typed_for_connection_takes_collies_and_foxhounds() {
 
 /// One helper typed for the client crate's blocking Connection takes both
 /// Products' blocking connections, which carry Collie's members under the
-/// same names: a call through the client crate's own `call` reads the
-/// Run's report.
-/// Covers: story:11-1003, story:11-1004
+/// same names, and closes them; a call through the client crate's own
+/// `call` reads the Run's report.
+/// Covers: story:11-1003, story:11-1004, story:11-179
 #[test]
 fn a_helper_typed_for_the_blocking_connection_takes_collies_and_foxhounds() {
     let env = TestEnv::new();
@@ -178,10 +177,10 @@ fn a_helper_typed_for_the_blocking_connection_takes_collies_and_foxhounds() {
     let collie = goodfetch_collie::blocking::Collie::connect(options(&env)).unwrap();
 
     let reports = [
-        start_and_finish_blocking(foxhound.as_ref()).unwrap(),
-        start_and_finish_blocking(collie.as_ref()).unwrap(),
+        start_and_finish_blocking(&foxhound).unwrap(),
+        start_and_finish_blocking(&collie).unwrap(),
     ];
-    let connection: &goodfetch_collie_client::blocking::Connection = foxhound.as_ref();
+    let connection: &goodfetch_collie_client::blocking::ClientConnection = foxhound.as_ref();
     let read: RunReport = connection
         .call(
             RUN_REPORT.name,
@@ -191,8 +190,8 @@ fn a_helper_typed_for_the_blocking_connection_takes_collies_and_foxhounds() {
         )
         .send()
         .unwrap();
-    foxhound.close().unwrap();
-    collie.close().unwrap();
+    blocking::Connection::close(&foxhound).unwrap();
+    blocking::Connection::close(&collie).unwrap();
 
     assert_eq!(
         (&read.run_id, read.lifecycle),
@@ -220,7 +219,7 @@ fn neither_engine_path_variable_moves_the_linked_engine() {
 
     real_time_runtime().block_on(async {
         let foxhound = Foxhound::connect(options).await.unwrap();
-        let report = start_and_finish(foxhound.as_ref()).await.unwrap();
+        let report = start_and_finish(&foxhound).await.unwrap();
         foxhound.close().await.unwrap();
 
         assert_eq!(report.lifecycle, Lifecycle::Finished);

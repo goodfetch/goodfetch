@@ -6,9 +6,8 @@
 //! that names a Run again lowers its Limits and never raises them.
 
 use goodfetch_collie::linked::{Composed, LinkedConnection};
-use goodfetch_collie::{
-    Collie, Connection, Error, Limits, Money, RunId, StartedAs, UsageKind, blocking,
-};
+use goodfetch_collie::{Collie, Error, Limits, Money, RunId, StartedAs, UsageKind, blocking};
+use goodfetch_collie_client::ClientConnection;
 use goodfetch_protocol::usage::{
     LimitRaiseRefusedDetails, USAGE_LIST, UsageListParams, UsageListResult,
 };
@@ -19,7 +18,7 @@ use super::options;
 
 /// Each Limit of the ledger on a scope of `kind`, as its Usage kind,
 /// currency and amount, in the order `usage.list` gives them.
-async fn listed(connection: &Connection, kind: &str) -> Vec<(String, Option<String>, u64)> {
+async fn listed(connection: &ClientConnection, kind: &str) -> Vec<(String, Option<String>, u64)> {
     let listed: UsageListResult = connection
         .call(USAGE_LIST.name, &UsageListParams {})
         .await

@@ -29,17 +29,17 @@ mod twins;
 /// A Connection to one engine, whose calls block. Cloning it is cheap and
 /// every clone is the same Connection.
 #[derive(Clone, Debug)]
-pub struct Connection(crate::Connection);
+pub struct ClientConnection(crate::ClientConnection);
 
-impl From<crate::Connection> for Connection {
+impl From<crate::ClientConnection> for ClientConnection {
     /// The blocking face of `connection`, whose runtime it owns or some
     /// other thread drives.
-    fn from(connection: crate::Connection) -> Self {
+    fn from(connection: crate::ClientConnection) -> Self {
         Self(connection)
     }
 }
 
-impl Connection {
+impl ClientConnection {
     /// The call of `method` with `params`, whose reply reads as `T`.
     pub fn call<T: DeserializeOwned>(&self, method: &str, params: &impl Serialize) -> Call<T> {
         Call {
@@ -56,7 +56,7 @@ impl Connection {
     }
 
     /// The save of a file to the program's `path`, as
-    /// [`crate::Connection::save_file`]'s, which `send()` sends.
+    /// [`crate::ClientConnection::save_file`]'s, which `send()` sends.
     pub fn save_file<T>(
         &self,
         method: &str,
@@ -70,16 +70,43 @@ impl Connection {
         }
     }
 
-    /// Closes the Connection as [`crate::Connection::close`] does, and
+    /// Closes the Connection as [`crate::ClientConnection::close`] does, and
+    /// returns once it is closed.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::ClientConnection::close`].
+    pub fn close(&self) -> Result<(), Error> {
+        let connection = self.0.clone();
+        self.0.wait(async move { connection.close().await })
+    }
+}
+
+/// The blocking twin of [`crate::Connection`]: a helper a library serving
+/// both Products writes takes `&impl blocking::Connection`, so it accepts
+/// either Product's blocking connection.
+///
+/// ```
+/// use goodfetch_collie_client::{Error, blocking};
+/// use goodfetch_protocol::run::RunReport;
+///
+/// /// A library's helper, written once for either Product.
+/// fn start_and_finish(connection: &impl blocking::Connection) -> Result<RunReport, Error> {
+///     connection.start().send()?.finish().send()
+/// }
+/// ```
+pub trait Connection {
+    /// The start of a Run, as [`crate::Connection::start`]'s, which
+    /// `send()` sends.
+    fn start(&self) -> Start;
+
+    /// Closes the connection as [`crate::Connection::close`] does, and
     /// returns once it is closed.
     ///
     /// # Errors
     ///
     /// As [`crate::Connection::close`].
-    pub fn close(&self) -> Result<(), Error> {
-        let connection = self.0.clone();
-        self.0.wait(async move { connection.close().await })
-    }
+    fn close(&self) -> Result<(), Error>;
 }
 
 /// A call that waits for its reply, `T`, with its params, `P`. Nothing is
@@ -87,12 +114,12 @@ impl Connection {
 #[must_use = "a call is sent only by send()"]
 pub struct Call<T, P = Value> {
     call: crate::Call<T, P>,
-    connection: crate::Connection,
+    connection: crate::ClientConnection,
 }
 
 impl<T, P> Call<T, P> {
     /// The blocking face of `call`, sent on `connection`'s runtime.
-    pub(crate) fn new(call: crate::Call<T, P>, connection: &crate::Connection) -> Self {
+    pub(crate) fn new(call: crate::Call<T, P>, connection: &crate::ClientConnection) -> Self {
         Self {
             call,
             connection: connection.clone(),
@@ -145,12 +172,12 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> Call<T, P> {
 #[must_use = "a query is sent only by send()"]
 pub struct Query<T, P = Value> {
     query: crate::Query<T, P>,
-    connection: crate::Connection,
+    connection: crate::ClientConnection,
 }
 
 impl<T, P> Query<T, P> {
     /// The blocking face of `query`, sent on `connection`'s runtime.
-    pub(crate) fn new(query: crate::Query<T, P>, connection: &crate::Connection) -> Self {
+    pub(crate) fn new(query: crate::Query<T, P>, connection: &crate::ClientConnection) -> Self {
         Self {
             query,
             connection: connection.clone(),
@@ -189,7 +216,7 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> Query<T, P> {
 #[must_use = "a save is sent only by send()"]
 pub struct SaveFile<T> {
     save: crate::SaveFile<T>,
-    connection: crate::Connection,
+    connection: crate::ClientConnection,
 }
 
 impl<T: DeserializeOwned + Send + 'static> SaveFile<T> {
@@ -225,7 +252,7 @@ impl<T: DeserializeOwned + Send + 'static> SaveFile<T> {
 /// [`Start::send`].
 #[must_use = "a start is sent only by send()"]
 #[derive(Debug)]
-pub struct Start(crate::Start, crate::Connection);
+pub struct Start(crate::Start, crate::ClientConnection);
 
 impl Start {
     /// Names the Run for good: a start with an existing Run ID resumes the
@@ -432,7 +459,7 @@ impl Run {
 const _: () = {
     const fn send_sync_static<T: Send + Sync + 'static>() {}
     const fn send_static<T: Send + 'static>() {}
-    send_sync_static::<Connection>();
+    send_sync_static::<ClientConnection>();
     send_sync_static::<Run>();
     send_sync_static::<Page>();
     send_sync_static::<Response>();

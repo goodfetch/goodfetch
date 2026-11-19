@@ -48,8 +48,8 @@ export class Run {
    *
    * @experimental
    */
-  async discard(): Promise<types.RunDiscarded> {
-    return this.#host.call("run.discard", { run_id: this.#host.id }, {});
+  async discard(): Promise<types.RunDiscarded["run_id"]> {
+    return (await this.#host.call("run.discard", { run_id: this.#host.id }, {})).run_id;
   }
 
   /**
@@ -189,8 +189,8 @@ export class Session implements AsyncDisposable {
    *
    * @experimental
    */
-  async pages(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.SessionPages> {
-    return this.#host.call("session.pages", { session_id: this.#host.id }, { signal: options.signal });
+  async pages(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.SessionPages["pages"]> {
+    return (await this.#host.call("session.pages", { session_id: this.#host.id }, { signal: options.signal })).pages;
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
@@ -232,8 +232,8 @@ export class Page implements AsyncDisposable {
    *
    * @experimental
    */
-  async evaluate(function_: types.EvaluateParams["function"], options: { readonly arg?: types.EvaluateParams["arg"] | undefined; readonly world?: types.EvaluateParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Evaluated> {
-    return this.#host.call("page.evaluate", defined({ page_id: this.#host.id, function: function_, arg: options.arg, world: options.world }), { signal: options.signal });
+  async evaluate(function_: types.EvaluateParams["function"], options: { readonly arg?: types.EvaluateParams["arg"] | undefined; readonly world?: types.EvaluateParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Evaluated["value"]> | null> {
+    return (await this.#host.call("page.evaluate", defined({ page_id: this.#host.id, function: function_, arg: options.arg, world: options.world }), { signal: options.signal })).value ?? null;
   }
 
   /**
@@ -250,8 +250,8 @@ export class Page implements AsyncDisposable {
    *
    * @experimental
    */
-  async goBack(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.Navigated> {
-    return this.#host.call("page.go_back", { page_id: this.#host.id }, { signal: options.signal });
+  async goBack(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Navigated["response"]> | null> {
+    return (await this.#host.call("page.go_back", { page_id: this.#host.id }, { signal: options.signal })).response ?? null;
   }
 
   /**
@@ -259,8 +259,8 @@ export class Page implements AsyncDisposable {
    *
    * @experimental
    */
-  async goForward(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.Navigated> {
-    return this.#host.call("page.go_forward", { page_id: this.#host.id }, { signal: options.signal });
+  async goForward(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Navigated["response"]> | null> {
+    return (await this.#host.call("page.go_forward", { page_id: this.#host.id }, { signal: options.signal })).response ?? null;
   }
 
   /**
@@ -268,8 +268,8 @@ export class Page implements AsyncDisposable {
    *
    * @experimental
    */
-  async goto(url: types.GotoParams["url"], options: { readonly timeout?: types.GotoParams["timeout"] | undefined; readonly waitUntil?: types.GotoParams["wait_until"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Navigated> {
-    return this.#host.call("page.goto", defined({ page_id: this.#host.id, url, timeout: timeoutOf(options.timeout, "timeout.navigation"), wait_until: options.waitUntil }), { signal: options.signal });
+  async goto(url: types.GotoParams["url"], options: { readonly timeout?: types.GotoParams["timeout"] | undefined; readonly waitUntil?: types.GotoParams["wait_until"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Navigated["response"]> | null> {
+    return (await this.#host.call("page.goto", defined({ page_id: this.#host.id, url, timeout: timeoutOf(options.timeout, "timeout.navigation"), wait_until: options.waitUntil }), { signal: options.signal })).response ?? null;
   }
 
   /**
@@ -286,8 +286,8 @@ export class Page implements AsyncDisposable {
    *
    * @experimental
    */
-  async reload(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.Navigated> {
-    return this.#host.call("page.reload", { page_id: this.#host.id }, { signal: options.signal });
+  async reload(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Navigated["response"]> | null> {
+    return (await this.#host.call("page.reload", { page_id: this.#host.id }, { signal: options.signal })).response ?? null;
   }
 
   /**
@@ -304,8 +304,8 @@ export class Page implements AsyncDisposable {
    *
    * @experimental
    */
-  async waitForFunction(function_: types.WaitForFunctionParams["function"], options: { readonly arg?: types.WaitForFunctionParams["arg"] | undefined; readonly pollingInterval?: types.WaitForFunctionParams["polling_interval"] | undefined; readonly timeout?: types.WaitForFunctionParams["timeout"] | undefined; readonly world?: types.WaitForFunctionParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Evaluated> {
-    return this.#host.call("page.wait_for_function", defined({ page_id: this.#host.id, function: function_, arg: options.arg, polling_interval: options.pollingInterval, timeout: timeoutOf(options.timeout, "timeout.wait"), world: options.world }), { signal: options.signal });
+  async waitForFunction(function_: types.WaitForFunctionParams["function"], options: { readonly arg?: types.WaitForFunctionParams["arg"] | undefined; readonly pollingInterval?: types.WaitForFunctionParams["polling_interval"] | undefined; readonly timeout?: types.WaitForFunctionParams["timeout"] | undefined; readonly world?: types.WaitForFunctionParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Evaluated["value"]> | null> {
+    return (await this.#host.call("page.wait_for_function", defined({ page_id: this.#host.id, function: function_, arg: options.arg, polling_interval: options.pollingInterval, timeout: timeoutOf(options.timeout, "timeout.wait"), world: options.world }), { signal: options.signal })).value ?? null;
   }
 
   /**
@@ -403,8 +403,8 @@ export class Locator {
    *
    * @experimental
    */
-  async evaluateAll(function_: types.LocatorEvaluateAllParams["function"], options: { readonly arg?: types.LocatorEvaluateAllParams["arg"] | undefined; readonly world?: types.LocatorEvaluateAllParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Evaluated> {
-    return this.#host.call("locator.evaluate_all", defined({ locator: this.#host.id, function: function_, arg: options.arg, world: options.world }), { signal: options.signal });
+  async evaluateAll(function_: types.LocatorEvaluateAllParams["function"], options: { readonly arg?: types.LocatorEvaluateAllParams["arg"] | undefined; readonly world?: types.LocatorEvaluateAllParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Evaluated["value"]> | null> {
+    return (await this.#host.call("locator.evaluate_all", defined({ locator: this.#host.id, function: function_, arg: options.arg, world: options.world }), { signal: options.signal })).value ?? null;
   }
 
   /**
@@ -439,8 +439,8 @@ export class Locator {
    *
    * @experimental
    */
-  async waitForCount(count: types.WaitForCountParams["count"], options: { readonly timeout?: types.WaitForCountParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Counted> {
-    return this.#host.call("locator.wait_for_count", defined({ locator: this.#host.id, count, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal });
+  async waitForCount(count: types.WaitForCountParams["count"], options: { readonly timeout?: types.WaitForCountParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Counted["count"]> {
+    return (await this.#host.call("locator.wait_for_count", defined({ locator: this.#host.id, count, timeout: timeoutOf(options.timeout, "timeout.wait") }), { signal: options.signal })).count;
   }
 
   /**
@@ -448,7 +448,7 @@ export class Locator {
    *
    * @experimental
    */
-  async waitForFunction(function_: types.LocatorWaitForFunctionParams["function"], options: { readonly arg?: types.LocatorWaitForFunctionParams["arg"] | undefined; readonly pollingInterval?: types.LocatorWaitForFunctionParams["polling_interval"] | undefined; readonly timeout?: types.LocatorWaitForFunctionParams["timeout"] | undefined; readonly world?: types.LocatorWaitForFunctionParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Evaluated> {
-    return this.#host.call("locator.wait_for_function", defined({ locator: this.#host.id, function: function_, arg: options.arg, polling_interval: options.pollingInterval, timeout: timeoutOf(options.timeout, "timeout.wait"), world: options.world }), { signal: options.signal });
+  async waitForFunction(function_: types.LocatorWaitForFunctionParams["function"], options: { readonly arg?: types.LocatorWaitForFunctionParams["arg"] | undefined; readonly pollingInterval?: types.LocatorWaitForFunctionParams["polling_interval"] | undefined; readonly timeout?: types.LocatorWaitForFunctionParams["timeout"] | undefined; readonly world?: types.LocatorWaitForFunctionParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<NonNullable<types.Evaluated["value"]> | null> {
+    return (await this.#host.call("locator.wait_for_function", defined({ locator: this.#host.id, function: function_, arg: options.arg, polling_interval: options.pollingInterval, timeout: timeoutOf(options.timeout, "timeout.wait"), world: options.world }), { signal: options.signal })).value ?? null;
   }
 }

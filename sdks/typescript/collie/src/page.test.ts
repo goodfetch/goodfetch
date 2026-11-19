@@ -2,7 +2,7 @@
 // of the shared corpus over the in-memory transport. The script fails the
 // test on a message it does not expect and on a step left unused, so a
 // member that sent a second request, or none, fails here.
-import type { Page, PageField } from "@goodfetch/collie-client";
+import type { Page, PageField, PageResponse } from "@goodfetch/collie-client";
 import { failure, playScript, protocolCounts, test } from "@goodfetch/test-support";
 import { describe, expect, expectTypeOf } from "vitest";
 import { fillTheForm } from "../tests/programs/form.ts";
@@ -54,6 +54,31 @@ describe("a Run's page", () => {
           "served": [],
         }
       `);
+    },
+  );
+
+  test(
+    "answers a navigation's Response, or null when it has none, and an evaluation's value",
+    { tags: ["story:11-84"] },
+    async () => {
+      const { collie, played } = await collieOn("page/navigations.json");
+      const run = await collie.start();
+      const page = await run.newPage();
+
+      const missing = await page.goto("https://shop.test/missing");
+      const reloaded = await page.reload();
+      const answered = await page.evaluate("6 * 7");
+      const undefinedAnswer = await page.evaluate("undefined");
+
+      expect(missing).toMatchObject({ status: 404, url: "https://shop.test/missing" });
+      expect(reloaded).toBeNull();
+      expect(answered).toBe(42);
+      expect(undefinedAnswer).toBeNull();
+      expectTypeOf<Awaited<ReturnType<Page["goto"]>>>().toEqualTypeOf<PageResponse | null>();
+      await page.close();
+      await run.finish();
+      await collie.close();
+      expect(played.done()).toEqual({ kind: "finished" });
     },
   );
 

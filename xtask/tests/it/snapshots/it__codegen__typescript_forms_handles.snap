@@ -88,15 +88,15 @@ export class Page implements AsyncDisposable {
   /**
    * Navigates the page to a URL.
    */
-  async goto(url: types.GotoParams["url"], referrer: types.GotoParams["referrer"], options: { readonly fresh: types.GotoParams["fresh"]; readonly timeout?: types.GotoParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined }): Promise<types.Navigated> {
-    return this.#host.call("page.goto", defined({ page_id: this.#host.id, url, referrer, fresh: options.fresh, timeout: timeoutOf(options.timeout, "timeout.navigation") }), { signal: options.signal });
+  async goto(url: types.GotoParams["url"], referrer: types.GotoParams["referrer"], options: { readonly fresh: types.GotoParams["fresh"]; readonly timeout?: types.GotoParams["timeout"] | undefined; readonly signal?: AbortSignal | undefined }): Promise<types.Navigated["status"]> {
+    return (await this.#host.call("page.goto", defined({ page_id: this.#host.id, url, referrer, fresh: options.fresh, timeout: timeoutOf(options.timeout, "timeout.navigation") }), { signal: options.signal })).status;
   }
 
   /**
    * Whether the page's document has loaded.
    */
-  async isReady(): Promise<types.Readiness> {
-    return this.#host.call("page.is_ready", { page_id: this.#host.id }, {});
+  async isReady(): Promise<types.Readiness["ready"]> {
+    return (await this.#host.call("page.is_ready", { page_id: this.#host.id }, {})).ready;
   }
 
   /**

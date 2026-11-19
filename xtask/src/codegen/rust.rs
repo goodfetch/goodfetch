@@ -17,6 +17,8 @@
 //!   without a call is a plain method, and so is a sub-object.
 //! - A result typed by the fields its call declares (ADR 0147) is the
 //!   result type: the crate's `Map` of values by field name.
+//! - A result of one property answers that property's value, its field's
+//!   type in the protocol crate, `Option` for an optional one (issue 2517).
 //!
 //! Each params type's fields are read from the protocol crate's source
 //! (`index`), so a member sets each by name; a type or field the handles
@@ -171,8 +173,20 @@ struct MemberModel {
     literal: String,
     /// Whether the builder sends its timeout in the params (ADR 0080).
     wire_timeout: bool,
-    /// For an opener: the handle it opens and the result field of its ID.
-    opens: Option<(String, String)>,
+    /// What it answers of its result.
+    answers: Answers,
+}
+
+/// What a member answers of its operation's result.
+enum Answers {
+    /// The result itself.
+    Result,
+    /// For an opener: the handle it opens, and the result field of its ID
+    /// that the handle carries.
+    Opened { handle: String, carried: String },
+    /// For a result of one property (issue 2517): that field's type and
+    /// ident, its value answered in place of the result.
+    Field { ty: String, ident: String },
 }
 
 impl MemberModel {
@@ -182,10 +196,11 @@ impl MemberModel {
 
     /// Its return type, as `twin` spells it.
     fn returns(&self, twin: Twin) -> String {
-        let answered = match (&self.form, &self.opens) {
+        let answered = match (&self.form, &self.answers) {
             (Form::Closes, _) => "()".to_owned(),
-            (_, Some((opened, _))) => opened.clone(),
-            _ => self.result.clone(),
+            (_, Answers::Opened { handle, .. }) => handle.clone(),
+            (_, Answers::Field { ty, .. }) => ty.clone(),
+            (_, Answers::Result) => self.result.clone(),
         };
         format!(
             "{}::{}<{answered}, {}>",
@@ -468,13 +483,24 @@ fn member_model(
         own.entry(field.ident.clone())
             .or_insert_with(|| setter(field, comment(&description)));
     }
-    let opens = match &member.form {
-        Form::Opens(opened) => {
+    let answers = match (&member.form, &member.unwrapped) {
+        (Form::Opens(opened), _) => {
             let results = index.fields(&operation.result.0)?;
             let carried = field(&results, &format!("{opened}_id"), &owner)?;
-            Some((type_name(opened)?, carried.ident.clone()))
+            Answers::Opened {
+                handle: type_name(opened)?,
+                carried: carried.ident.clone(),
+            }
         }
-        _ => None,
+        (_, Some(unwrapped)) => {
+            let results = index.fields(&operation.result.0)?;
+            let answered = field(&results, &unwrapped.property, &owner)?;
+            Answers::Field {
+                ty: answered.ty.clone(),
+                ident: answered.ident.clone(),
+            }
+        }
+        (_, None) => Answers::Result,
     };
     Ok(MemberModel {
         ident: ident(member.name, &owner)?,
@@ -506,7 +532,7 @@ fn member_model(
         positional,
         literal,
         wire_timeout,
-        opens,
+        answers,
     })
 }
 
@@ -691,20 +717,28 @@ impl Module {
                 } else {
                     ""
                 };
-                match (&member.form, &member.opens) {
+                match (&member.form, &member.answers) {
                     (Form::Closes, _) => format!("self.host.close({sent})"),
-                    (Form::Query, _) => format!("self.host.query({sent})"),
-                    (_, Some((opened, carried))) => format!(
-                        "let host = self.host.clone();\n        let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}.map(move |opened| {opened} {{ host: host.child(opened.{carried}) }})",
+                    (Form::Query, Answers::Field { ident, .. }) => format!(
+                        "let query: crate::Query<{}, {}> = self.host.query({sent});\n        query.map(|result| result.{ident})",
                         member.result, member.params
                     ),
-                    _ => format!("self.host.call({sent}){wire}"),
+                    (Form::Query, _) => format!("self.host.query({sent})"),
+                    (_, Answers::Opened { handle, carried }) => format!(
+                        "let host = self.host.clone();\n        let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}.map(move |opened| {handle} {{ host: host.child(opened.{carried}) }})",
+                        member.result, member.params
+                    ),
+                    (_, Answers::Field { ident, .. }) => format!(
+                        "let call: crate::Call<{}, {}> = self.host.call({sent});\n        call{wire}.map(|result| result.{ident})",
+                        member.result, member.params
+                    ),
+                    (_, Answers::Result) => format!("self.host.call({sent}){wire}"),
                 }
             }
             Twin::Blocking => {
                 let mut built = format!("self.inner.{}({})", member.ident, member.forwarded());
-                if let Some((opened, _)) = &member.opens {
-                    let _ = write!(built, ".map(|inner| {opened} {{ inner }})");
+                if let Answers::Opened { handle, .. } = &member.answers {
+                    let _ = write!(built, ".map(|inner| {handle} {{ inner }})");
                 }
                 format!(
                     "crate::blocking::{}::new({built}, self.inner.host.connection())",

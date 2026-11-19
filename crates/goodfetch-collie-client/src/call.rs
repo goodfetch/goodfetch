@@ -109,7 +109,8 @@ impl<T, P> Call<T, P> {
         self
     }
 
-    /// The call whose reply is `map` of this one's: an opener's handle.
+    /// The call whose reply is `map` of this one's: an opener's handle, or
+    /// the one property of a result (issue 2517).
     pub(crate) fn map<U>(self, map: impl FnOnce(T) -> U + Send + 'static) -> Call<U, P>
     where
         T: 'static,
@@ -184,6 +185,23 @@ impl<T, P> Query<T, P> {
             edit(params);
         }
         self
+    }
+
+    /// The query whose answer is `map` of this one's: the one property of
+    /// a result (issue 2517).
+    #[expect(
+        dead_code,
+        reason = "no query of the catalog answers a result of one property yet; `xtask codegen` writes its member through this one"
+    )]
+    pub(crate) fn map<U>(self, map: impl FnOnce(T) -> U + Send + 'static) -> Query<U, P>
+    where
+        T: 'static,
+    {
+        let read = self.read;
+        Query {
+            request: self.request,
+            read: Box::new(move |value| read(value).map(map)),
+        }
     }
 }
 

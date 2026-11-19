@@ -45,7 +45,7 @@ describe("a program's pages on an Attached engine", () => {
       const navigated = await page.goto(missing);
 
       await clientCase.check("a 404 is a value: the document's Response", () =>
-        expect(navigated.response).toMatchObject({ status: 404, url: missing }),
+        expect(navigated).toMatchObject({ status: 404, url: missing }),
       );
     },
   );
@@ -69,10 +69,10 @@ describe("a program's pages on an Attached engine", () => {
       const apart = await other.evaluate("localStorage.getItem('kept')");
 
       await clientCase.check("the second page reads what the first stored: one Session", () =>
-        expect(shared.value).toBe("by the first page"),
+        expect(shared).toBe("by the first page"),
       );
       await clientCase.check("a page of another Session reads nothing of it", () =>
-        expect(apart.value).toBeNull(),
+        expect(apart).toBeNull(),
       );
     },
   );

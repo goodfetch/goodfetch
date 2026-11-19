@@ -8,7 +8,7 @@ only the seven groups and the codes' classes come from the catalog.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, TypedDict
+from typing import TYPE_CHECKING, Protocol, TypedDict, TypeVar
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -132,6 +132,39 @@ class GoodfetchError(BaseGoodfetchError, Exception):
     ADRs 0079 and 0093. The sync and the async clients raise the same
     classes.
     """
+
+
+_Error = TypeVar("_Error", bound=BaseGoodfetchError)
+
+
+def runtime_message(
+    what_failed: str, *, operation: str | None = None, fix: str | None = None
+) -> str:
+    """The message of an error the runtime raises itself, in ADR 0079's layout.
+
+    The operation in the caller's form, what failed, then the fix: Python's
+    form of a catalog name is the catalog's own (ADR 0099). It never holds
+    a chained cause's text, which Python's own reporting prints.
+    """
+    head = what_failed if operation is None else f"{operation}: {what_failed}"
+    return head if fix is None else f"{head}. {fix}"
+
+
+def in_call(error: _Error, operation: str) -> _Error:
+    """`error`, raised by the runtime, as the call `operation` fails with it.
+
+    Its message is headed by the operation and its `operation` field set,
+    unless it already names one; its cause is kept. Each call gets its own
+    copy, so one failure of the Connection reads as each call it failed.
+    """
+    if error.operation is not None:
+        return error
+    copied = type(error).__new__(type(error))
+    copied.__dict__.update(error.__dict__)
+    copied.args = (f"{operation}: {error}",)
+    copied.operation = operation
+    copied.__cause__ = error.__cause__
+    return copied
 
 
 class ErrorClass(Protocol):

@@ -1,4 +1,7 @@
 use goodfetch_protocol::catalog::ValueKind;
+use goodfetch_protocol::run::durability::BATCH_THRESHOLD_SHAPE;
+use goodfetch_protocol::settings::page_check::PAGE_CHECK_SHAPE;
+use goodfetch_protocol::tls::CLIENT_CERTIFICATE_SHAPE;
 use serde_json::{Value, json};
 
 use super::module;
@@ -82,15 +85,20 @@ fn each_setting_is_a_constant_in_modules_mirroring_its_key_with_its_scopes() {
     false,
     "::std::collections::BTreeMap<String, bool>"
 )]
-#[case::named_properties(
-    json!({ "type": "object", "properties": { "a": { "type": "string" } } }),
-    false,
-    "::serde_json::Value"
+#[case::a_shape_of_the_protocol(
+    ValueKind::Shape(&PAGE_CHECK_SHAPE).schema(),
+    true,
+    "Option<::goodfetch_protocol::settings::page_check::PageCheck>"
 )]
-#[case::other_union(
-    json!({ "anyOf": [{ "type": "string" }, { "type": "integer" }] }),
+#[case::a_union_shape_of_the_protocol(
+    ValueKind::Shape(&BATCH_THRESHOLD_SHAPE).schema(),
     false,
-    "::serde_json::Value"
+    "::goodfetch_protocol::run::durability::BatchThreshold"
+)]
+#[case::a_map_of_a_shape(
+    ValueKind::Map(&ValueKind::Shape(&CLIENT_CERTIFICATE_SHAPE)).schema(),
+    false,
+    "::std::collections::BTreeMap<String, ::goodfetch_protocol::tls::ClientCertificateConfiguration>"
 )]
 fn a_value_schema_gives_the_constants_type(
     #[case] value: Value,
@@ -173,5 +181,45 @@ fn a_choice_named_like_a_type_of_rusts_prelude_takes_choice_after_its_name() {
             text.contains("pub enum SyncChoice {"),
         ),
         (true, true)
+    );
+}
+
+#[rstest::rstest]
+#[case::named_properties(json!({ "type": "object", "properties": { "a": { "type": "string" } } }))]
+#[case::other_union(json!({ "anyOf": [{ "type": "string" }, { "type": "integer" }] }))]
+#[case::a_list_of_anything(json!({ "type": "array" }))]
+fn a_shape_with_no_rust_type_fails_naming_its_setting(#[case] value: Value) {
+    let refused = module("", &[setting("area.key", value, false, &["run"])]).unwrap_err();
+
+    assert!(
+        format!("{refused:#}").contains("the setting `area.key`: its values have no Rust type"),
+        "{refused:#}"
+    );
+}
+
+#[test]
+fn each_protocol_type_a_setting_takes_is_sent_as_its_json_once() {
+    let threshold = ValueKind::Shape(&BATCH_THRESHOLD_SHAPE).schema();
+    let settings = [
+        setting("run_state.batch.bytes", threshold.clone(), false, &["run"]),
+        setting("run_state.batch.pages", threshold, false, &["run"]),
+        setting(
+            "session.page_check",
+            ValueKind::Shape(&PAGE_CHECK_SHAPE).schema(),
+            true,
+            &["run"],
+        ),
+    ];
+
+    let text = module("", &settings).unwrap();
+
+    assert_eq!(
+        (
+            text.matches("impl crate::settings::sealed::Wire for ::goodfetch_protocol::run::durability::BatchThreshold {").count(),
+            text.matches("impl crate::settings::SettingValue for ::goodfetch_protocol::run::durability::BatchThreshold {}").count(),
+            text.matches("impl crate::settings::sealed::Wire for ::goodfetch_protocol::settings::page_check::PageCheck {").count(),
+            text.contains("::serde_json::to_value(self)"),
+        ),
+        (1, 1, 1, true)
     );
 }

@@ -15,8 +15,10 @@
 //! ```
 //!
 //! A key left out inherits, `None` clears a setting that can be cleared,
-//! and a value sets it. A value of the wrong type for its key does not
-//! compile; a key the scope does not set fails the call that takes it with
+//! and a value sets it: a whole number as a bare literal, `"text"` for
+//! text, and the protocol's own type for a shape it defines once, as
+//! `session::PAGE_CHECK`'s `PageCheck`. A value of the wrong type for its
+//! key does not compile; a key the scope does not set fails the call that takes it with
 //! `setting_not_applicable`, before anything is sent, its `fix` naming the
 //! scopes that set it. Durations travel in whole milliseconds, rounded up;
 //! every other value goes as given, and the engine checks it.
@@ -104,12 +106,16 @@ impl Settings {
     /// Sets `setting` to `value`, in place of any value given it before;
     /// `None` clears a setting that can be cleared.
     #[must_use]
-    pub fn set<T: SettingValue>(mut self, setting: Setting<T>, value: impl Into<T>) -> Self {
+    pub fn set<T: SettingValue>(
+        mut self,
+        setting: Setting<T>,
+        value: impl IntoSettingValue<T>,
+    ) -> Self {
         self.values.insert(
             setting.name,
             Given {
                 scopes: setting.scopes,
-                value: value.into().into_wire(),
+                value: value.into_value().into_wire(),
             },
         );
         self
@@ -192,13 +198,23 @@ fn not_applicable(key: &str, scope: SettingScope, scopes: &[SettingScope]) -> Er
 }
 
 /// A type a [`Setting`]'s values take: `bool`, `u64`, `String`, a
-/// [`Duration`], a choice's own enum, a `Vec` or a `BTreeMap` of them, a
-/// JSON value for a shape the module does not type, and an `Option` of
-/// any for a setting that can be cleared.
+/// [`Duration`], a choice's own enum, the protocol's type of a shape it
+/// defines once, a `Vec` or a `BTreeMap` of them, and an `Option` of any
+/// for a setting that can be cleared.
 pub trait SettingValue: sealed::Wire {}
 
-/// What turns a value into the JSON the wire carries, which only this
-/// crate implements.
+/// What [`Settings::set`] takes for a key whose values are `T`: a `T`, a
+/// `T` for a key that can be cleared, whose values are `Option<T>`, and a
+/// `&str` for text. Unlike `Into<T>`, it lets a bare integer literal be a
+/// `u64`, since only `u64` itself gives a whole number's key its value.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is no value of a setting whose values are `{T}`",
+    label = "the key's values are `{T}`"
+)]
+pub trait IntoSettingValue<T>: sealed::IntoValue<T> {}
+
+/// What turns a value into the JSON the wire carries, and what `set`
+/// takes into a key's value, which only this crate implements.
 mod sealed {
     use serde_json::Value;
 
@@ -207,7 +223,48 @@ mod sealed {
         /// The value's JSON.
         fn into_wire(self) -> Value;
     }
+
+    /// A value `set` takes for a key whose values are `T`.
+    pub trait IntoValue<T> {
+        /// The key's value.
+        fn into_value(self) -> T;
+    }
 }
+
+impl<T: SettingValue> sealed::IntoValue<T> for T {
+    fn into_value(self) -> T {
+        self
+    }
+}
+
+impl<T: SettingValue> IntoSettingValue<T> for T {}
+
+/// A value of a key that can be cleared.
+impl<T: SettingValue> sealed::IntoValue<Option<T>> for T {
+    fn into_value(self) -> Option<T> {
+        Some(self)
+    }
+}
+
+impl<T: SettingValue> IntoSettingValue<Option<T>> for T {}
+
+impl sealed::IntoValue<String> for &str {
+    fn into_value(self) -> String {
+        self.to_owned()
+    }
+}
+
+#[diagnostic::do_not_recommend]
+impl IntoSettingValue<String> for &str {}
+
+impl sealed::IntoValue<Option<String>> for &str {
+    fn into_value(self) -> Option<String> {
+        Some(self.to_owned())
+    }
+}
+
+#[diagnostic::do_not_recommend]
+impl IntoSettingValue<Option<String>> for &str {}
 
 impl sealed::Wire for bool {
     fn into_wire(self) -> Value {
@@ -241,15 +298,6 @@ impl sealed::Wire for Duration {
 }
 
 impl SettingValue for Duration {}
-
-/// As given, for a shape the module does not type.
-impl sealed::Wire for Value {
-    fn into_wire(self) -> Value {
-        self
-    }
-}
-
-impl SettingValue for Value {}
 
 /// Null for `None`.
 impl<T: SettingValue> sealed::Wire for Option<T> {

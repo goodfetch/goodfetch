@@ -971,6 +971,57 @@ fn stealth_allowed_builds_is_set_only_in_an_operator_policy(
     assert_eq!(outcome.err().map(|error| error.code()), refused);
 }
 
+/// `timeout.connect`, which `connect()` and the CLI read from the project
+/// file before they connect, is taken from the project file alone: the
+/// machine's own layers, which only the engine reads once reached, a
+/// Recipe and a `settings` option are refused naming the project file
+/// (ADR 0083).
+///
+/// Covers: setting:timeout.connect
+#[rstest]
+#[case::the_operator_policy(SettingsLayer::OperatorPolicy, Some("setting_not_applicable"))]
+#[case::user_configuration(SettingsLayer::UserConfiguration, Some("setting_not_applicable"))]
+#[case::project_configuration(SettingsLayer::ProjectConfiguration, None)]
+#[case::the_recipe(SettingsLayer::Recipe, Some("setting_not_applicable"))]
+#[case::the_run(SettingsLayer::Run, Some("setting_not_applicable"))]
+fn timeout_connect_is_set_only_in_the_project_file(
+    #[case] layer: SettingsLayer,
+    #[case] refused: Option<&str>,
+) {
+    let layers = only(layer, "timeout.connect", &json!(5_000));
+
+    let outcome = resolve(&layers, Product::Collie, Product::Collie);
+
+    let (code, fix) = match &outcome {
+        Ok(_) => (None, None),
+        Err(error @ SettingsError::NotApplicable { fix, .. }) => {
+            (Some(error.code()), Some(fix.as_str()))
+        }
+        Err(error) => panic!("{error:?}"),
+    };
+    assert_eq!(code, refused);
+    assert!(
+        fix.is_none_or(|fix| fix.contains("the project file")),
+        "{fix:?}"
+    );
+}
+
+/// `timeout.connect` is 30 s by default, which `config explain` shows set
+/// by the default layer (ADR 0083).
+///
+/// Covers: setting:timeout.connect
+#[test]
+fn timeout_connect_is_thirty_seconds_by_default() {
+    let effective = resolved(&Layers::default());
+
+    let connect = effective.effective(catalog_key("timeout.connect")).unwrap();
+
+    assert_eq!(
+        (&connect.value, connect.layer),
+        (&json!(30_000), SettingsLayer::Default)
+    );
+}
+
 /// The layers with `set` for the user configuration and `run` for the Run.
 fn user_and_run(set: Value, run: Value) -> Layers {
     Layers {

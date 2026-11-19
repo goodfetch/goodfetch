@@ -82,6 +82,7 @@ fn set_by_code(authority: Authority) -> bool {
         | Authority::OperatorPolicy
         | Authority::OperatorPolicyAlone
         | Authority::Machine
+        | Authority::ProjectFileAlone
         | Authority::Fixed => false,
         Authority::Every
         | Authority::Narrowed

@@ -21,7 +21,7 @@
 
 [suite]
 name = "clients"
-version = "23"
+version = "24"
 
 [[capability]]
 name = "lifecycle"
@@ -244,6 +244,20 @@ platforms = ["unix"]
 [[capability.case]]
 id = "call-timeout-three-states"
 covers = ["story:11-40", "story:11-42"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = ["attached", "linked"]
+
+# `connect()`'s own `timeout` in its three states (ADR 0083; issue 2931):
+# left out, `timeout.connect`'s 30 s bounds the wait for `hello`'s answer,
+# no timeout waits as long as it takes, and a duration past which `hello`
+# is unanswered fails the connect with `deadline_exceeded`, its `limit`
+# naming `timeout.connect` at the run layer, given as an argument; one of
+# zero or less is refused with `setting_invalid`. The engine of the case
+# never answers `hello`: the Scripted engine in TypeScript and Python, a
+# scripted peer at the Rust client, whose linked engine always answers.
+[[capability.case]]
+id = "connect-timeout-three-states"
+covers = ["story:11-41", "story:11-42"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
 

@@ -1,0 +1,31 @@
+{
+  "description": "A handler's enqueue sent after its attempt ended, which a Foxhound engine refuses with `attempt_ended`: nothing was enqueued.",
+  "steps": [
+    {
+      "expect": {
+        "method": "crawl_request.enqueue",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "crawl_request_id": "7",
+          "lease_epoch": 1,
+          "url": "https://shop.example/products/2",
+          "label": "product"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32001,
+          "message": "Attempt 1 of crawl request `7` of the crawl `01ke6p4ym0j8x3v5wq2rtbn7hc` already ended, so nothing was enqueued.",
+          "data": {
+            "code": "attempt_ended",
+            "retryable": false,
+            "operation": "crawl_request.enqueue",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+          }
+        }
+      }
+    }
+  ]
+}

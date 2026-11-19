@@ -121,17 +121,19 @@ fn detach(_command: &mut std::process::Command) {}
 #[cfg(windows)]
 #[expect(
     unsafe_code,
-    reason = "SetHandleInformation is a Windows C call (STYLE.md, `unsafe`)"
+    reason = "GetStdHandle and SetHandleInformation are Windows C calls (STYLE.md, `unsafe`)"
 )]
 fn keep_own_standard_handles() {
-    use std::os::windows::io::AsRawHandle as _;
-    use windows_sys::Win32::Foundation::{HANDLE_FLAG_INHERIT, SetHandleInformation};
-    for handle in [
-        std::io::stdin().as_raw_handle(),
-        std::io::stdout().as_raw_handle(),
-        std::io::stderr().as_raw_handle(),
-    ] {
-        if handle.is_null() {
+    use windows_sys::Win32::Foundation::{
+        HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, SetHandleInformation,
+    };
+    use windows_sys::Win32::System::Console::{
+        GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
+    for which in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        // SAFETY: GetStdHandle only reads the process's standard handle.
+        let handle = unsafe { GetStdHandle(which) };
+        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
             continue;
         }
         // SAFETY: the standard handles live as long as the process, and the

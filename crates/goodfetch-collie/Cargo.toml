@@ -75,7 +75,7 @@ libc = { workspace = true, optional = true }
 [target.'cfg(windows)'.dependencies]
 # `daemon start` keeps its own standard handles from the Daemon it starts,
 # which would otherwise inherit them and hold its caller's pipes open.
-windows-sys = { workspace = true, optional = true, features = ["Win32_Foundation"] }
+windows-sys = { workspace = true, optional = true, features = ["Win32_Foundation", "Win32_System_Console"] }
 
 [target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
 # The static musl executables have one allocator (#2208): Collie's, and
